@@ -1,9 +1,18 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../lib/fixtures";
-import { startCpuProfile, stopCpuProfile } from "./cpuProfile";
+import { requireScenarioSeed } from "../lib/scenarioSeeds";
+import {
+	cleanupCpuProfiles,
+	startCpuProfile,
+	stopCpuProfile,
+} from "./cpuProfile";
+import {
+	cleanupReactProfile,
+	exportReactProfile,
+	profilerCommand,
+} from "./profiler";
 
 interface ReactProfileSeed {
 	appId: string;
@@ -16,33 +25,14 @@ interface ReactProfileSeed {
 }
 
 interface SeedManifest {
-	reactProfile?: ReactProfileSeed;
+	reactProfileScenarios?: Record<string, ReactProfileSeed>;
 }
 
 function fixture(): ReactProfileSeed {
 	const seed = JSON.parse(
 		readFileSync(path.join(process.cwd(), "e2e", ".auth", "seed.json"), "utf8"),
 	) as SeedManifest;
-	if (!seed.reactProfile) {
-		throw new Error("The React profile seed is missing from the manifest.");
-	}
-	return seed.reactProfile;
-}
-
-function profilerCommand(args: string[]): string {
-	const stateDir = process.env.NOVA_REACT_PROFILE_STATE_DIR;
-	if (!stateDir) throw new Error("NOVA_REACT_PROFILE_STATE_DIR is missing.");
-	return execFileSync(
-		path.join(process.cwd(), "node_modules", ".bin", "agent-react-devtools"),
-		[...args, `--state-dir=${stateDir}`],
-		{ cwd: process.cwd(), encoding: "utf8", timeout: 30_000 },
-	);
-}
-
-function outputPath(): string {
-	const output = process.env.NOVA_REACT_PROFILE_OUTPUT;
-	if (!output) throw new Error("NOVA_REACT_PROFILE_OUTPUT is missing.");
-	return output;
+	return requireScenarioSeed(seed.reactProfileScenarios, test.info());
 }
 
 async function expectAnimationsSettled(page: Page) {
@@ -116,7 +106,7 @@ test("profiles a cross-form hidden-field selection in a large Builder", async ({
 	).toBeVisible();
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles expanding a summarized large form", async ({ page }) => {
@@ -142,7 +132,7 @@ test("profiles expanding a summarized large form", async ({ page }) => {
 	).toBeVisible();
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles a same-form hidden-field selection in a large Builder", async ({
@@ -167,7 +157,7 @@ test("profiles a same-form hidden-field selection in a large Builder", async ({
 	await expect(page.locator("[data-field-inspector]")).toBeVisible();
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles editing a field ID in a large Builder", async ({ page }) => {
@@ -200,7 +190,8 @@ test("profiles editing a field ID in a large Builder", async ({ page }) => {
 	console.log(JSON.stringify({ metric: "field-id-edit-wall-ms", wallMs }));
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
+	await expect(page.getByText(/^Saved /)).toBeVisible();
 });
 
 test("profiles Preview activation for a large logic-dense form", async ({
@@ -231,7 +222,7 @@ test("profiles Preview activation for a large logic-dense form", async ({
 	console.log(JSON.stringify({ metric: "preview-activation-wall-ms", wallMs }));
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles answering a question in a large Preview form", async ({
@@ -263,7 +254,7 @@ test("profiles answering a question in a large Preview form", async ({
 	console.log(JSON.stringify({ metric: "preview-answer-wall-ms", wallMs }));
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles returning from a large Preview form to edit", async ({
@@ -295,7 +286,7 @@ test("profiles returning from a large Preview form to edit", async ({
 	console.log(JSON.stringify({ metric: "preview-return-wall-ms", wallMs }));
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles opening and searching the large Saves to catalog", async ({
@@ -344,7 +335,7 @@ test("profiles opening and searching the large Saves to catalog", async ({
 	);
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
 });
 
 test("profiles committing a large Saves to selection", async ({ page }) => {
@@ -396,5 +387,14 @@ test("profiles committing a large Saves to selection", async ({ page }) => {
 	);
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", outputPath()]);
+	exportReactProfile();
+	await expect(page.getByText(/^Saved /)).toBeVisible();
+});
+
+test.afterEach(() => {
+	cleanupReactProfile();
+});
+
+test.afterEach(async () => {
+	await cleanupCpuProfiles();
 });

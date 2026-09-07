@@ -39,13 +39,17 @@
 
 import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { Kysely, Transaction } from "kysely";
 import { z } from "zod";
+import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import {
 	findReadyAssetByProjectAndHash,
 	hasAssetForGcsObjectKey,
-	insertReadyAsset,
+	insertReadyAssetInTransaction,
 } from "@/lib/db/mediaAssets";
+import type { AppDatabase } from "@/lib/db/pg";
+import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import {
 	ASSET_SIZE_CAPS_BYTES,
 	asMediaAssetId,
@@ -53,6 +57,7 @@ import {
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { validateMediaBytes } from "@/lib/media/validate";
+import { ProjectPermissionError } from "@/lib/projects/manage";
 import {
 	deleteAsset as deleteStoredAsset,
 	uploadAssetBytes,
@@ -64,14 +69,32 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { requireProjectAccess } from "../ownership";
+import { McpAccessError, requireProjectAccess } from "../ownership";
 import type { ToolContext } from "../types";
 
 const MAX_INLINE_UPLOAD_BYTES = Math.max(
 	...Object.values(ASSET_SIZE_CAPS_BYTES),
 );
-const MAX_INLINE_UPLOAD_MB = Math.floor(MAX_INLINE_UPLOAD_BYTES / 1024 / 1024);
 const MAX_INLINE_BASE64_CHARS = Math.ceil(MAX_INLINE_UPLOAD_BYTES / 3) * 4;
+const UPLOAD_PERMISSION_MESSAGE =
+	"Your role in this Project can't upload media. Ask a Project admin to make you an editor.";
+
+/** GCS work holds only the content lock. Each metadata decision then proves
+ * current edit authority under the same transaction as its read or publication. */
+function withUploadPermission<T>(
+	db: Kysely<AppDatabase>,
+	actorUserId: string,
+	projectId: string,
+	body: (tx: Transaction<AppDatabase>) => Promise<T>,
+): Promise<T> {
+	return db.transaction().execute(async (tx) => {
+		const role = await projectRoleForInTransaction(tx, actorUserId, projectId);
+		if (role === null) throw new McpAccessError("not_owner", "project");
+		if (!roleAllowsApp(role, "edit"))
+			throw new ProjectPermissionError(UPLOAD_PERMISSION_MESSAGE);
+		return body(tx);
+	});
+}
 
 /**
  * Input schema for `upload_media_asset`, exported so the schema-compiler
@@ -145,11 +168,6 @@ export function registerUploadMediaAsset(
 				 * non-empty input is the signal that the payload wasn't
 				 * valid base64. */
 				const base64 = args.data_base64.replace(/\s+/g, "");
-				if (base64.length > MAX_INLINE_BASE64_CHARS) {
-					throw new McpInvalidInputError(
-						`The inline media payload is too large. Uploads are capped at ${MAX_INLINE_UPLOAD_MB} MB before base64 encoding; send a smaller file.`,
-					);
-				}
 				const bytes = Buffer.from(base64, "base64");
 				if (bytes.length === 0) {
 					throw new McpInvalidInputError(
@@ -186,7 +204,7 @@ export function registerUploadMediaAsset(
 								ctx.userId,
 								args.project_id,
 								"edit",
-								"Your role in this Project can't upload media. Ask a Project admin to make you an editor.",
+								UPLOAD_PERMISSION_MESSAGE,
 							)
 						).projectId
 					: await ensurePersonalProject(ctx.userId);
@@ -210,10 +228,16 @@ export function registerUploadMediaAsset(
 							 * last-reference cleanup. Exactly one same-content publisher
 							 * stores bytes and commits ready metadata; every waiter
 							 * observes that winner. */
-							const existing = await findReadyAssetByProjectAndHash(
-								project,
-								validated.contentHash,
+							const existing = await withUploadPermission(
 								lockedDb,
+								ctx.userId,
+								project,
+								(tx) =>
+									findReadyAssetByProjectAndHash(
+										project,
+										validated.contentHash,
+										tx,
+									),
 							);
 							if (existing) {
 								return {
@@ -231,26 +255,29 @@ export function registerUploadMediaAsset(
 								bytes,
 								contentType: validated.mimeType,
 							});
-							const published = await insertReadyAsset(
-								{
-									assetId: attemptAssetId,
-									owner: ctx.userId,
-									project_id: project,
-									contentHash: validated.contentHash,
-									mimeType: validated.mimeType,
-									kind: validated.kind,
-									extension: validated.extension,
-									sizeBytes: validated.sizeBytes,
-									gcsObjectKey,
-									originalFilename: args.filename,
-									...(validated.dimensions !== undefined && {
-										dimensions: validated.dimensions,
-									}),
-									...(validated.durationMs !== undefined && {
-										durationMs: validated.durationMs,
-									}),
-								},
+							const published = await withUploadPermission(
 								lockedDb,
+								ctx.userId,
+								project,
+								(tx) =>
+									insertReadyAssetInTransaction(tx, {
+										assetId: attemptAssetId,
+										owner: ctx.userId,
+										project_id: project,
+										contentHash: validated.contentHash,
+										mimeType: validated.mimeType,
+										kind: validated.kind,
+										extension: validated.extension,
+										sizeBytes: validated.sizeBytes,
+										gcsObjectKey,
+										originalFilename: args.filename,
+										...(validated.dimensions !== undefined && {
+											dimensions: validated.dimensions,
+										}),
+										...(validated.durationMs !== undefined && {
+											durationMs: validated.durationMs,
+										}),
+									}),
 							);
 							return {
 								kind: "published" as const,
@@ -265,7 +292,13 @@ export function registerUploadMediaAsset(
 							gcsObjectKey,
 							projectId: project,
 							contentHash: validated.contentHash,
+							actorUserId: ctx.userId,
 						}).catch((cleanupError: unknown) => {
+							if (
+								cleanupError instanceof McpAccessError ||
+								cleanupError instanceof ProjectPermissionError
+							)
+								throw cleanupError;
 							log.error(
 								"[mcp:upload-media] lost-publication recovery failed",
 								cleanupError,
@@ -307,6 +340,7 @@ async function recoverFailedMcpPublication(args: {
 	gcsObjectKey: string;
 	projectId: string;
 	contentHash: string;
+	actorUserId: string;
 }): Promise<{ assetId: string } | null> {
 	return withMediaObjectKeyLock(args.gcsObjectKey, async (lockedDb) => {
 		/* A transaction commit can succeed even when its acknowledgement is lost.
@@ -330,7 +364,19 @@ async function recoverFailedMcpPublication(args: {
 					await deleteStoredAsset(args.gcsObjectKey);
 				}
 			}
-			return { assetId: ready.id };
+			return withUploadPermission(
+				lockedDb,
+				args.actorUserId,
+				args.projectId,
+				async (tx) => {
+					const current = await findReadyAssetByProjectAndHash(
+						args.projectId,
+						args.contentHash,
+						tx,
+					);
+					return current === null ? null : { assetId: current.id };
+				},
+			);
 		}
 		const published = await hasAssetForGcsObjectKey(
 			args.gcsObjectKey,

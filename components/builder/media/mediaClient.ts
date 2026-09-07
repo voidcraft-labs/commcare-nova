@@ -85,28 +85,15 @@ export function mediaSrc(assetId: IconRef): string {
 	return `/api/media/${assetId}`;
 }
 
-/**
- * SHA-256 (lowercase hex) of a byte buffer, via SubtleCrypto. The pure
- * hashing core: separated from `sha256Hex` so the byte→hex transform
- * can be unit-tested without reading a `Blob` (whose `arrayBuffer()`
- * leaves a BLOBREADER async resource the leak detector flags).
- */
-export async function sha256HexOfBytes(bytes: BufferSource): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", bytes);
+/** Hash the actual file bytes for Project deduplication and server confirmation. */
+export async function sha256Hex(file: Blob): Promise<string> {
+	const digest = await crypto.subtle.digest(
+		"SHA-256",
+		await file.arrayBuffer(),
+	);
 	return Array.from(new Uint8Array(digest))
 		.map((b) => b.toString(16).padStart(2, "0"))
 		.join("");
-}
-
-/**
- * SHA-256 (lowercase hex) of a file's bytes, computed in the browser
- * via SubtleCrypto. Sent at upload-initiate so the server can
- * dedup-skip the bytes push when the Project already holds this exact
- * content, and matched against the server's own hash at confirm.
- * A thin `Blob` adapter over `sha256HexOfBytes`.
- */
-export async function sha256Hex(file: Blob): Promise<string> {
-	return sha256HexOfBytes(await file.arrayBuffer());
 }
 
 /** Initiate response shape: discriminated by `deduplicated`. */
@@ -252,41 +239,46 @@ function putBytesWithProgress(
 		const cleanup = () => opts.signal?.removeEventListener("abort", onAbort);
 		opts.signal?.addEventListener("abort", onAbort, { once: true });
 
-		xhr.open("PUT", url);
-		xhr.setRequestHeader("Content-Type", contentType);
-		for (const [name, value] of Object.entries(opts.extraHeaders ?? {})) {
-			xhr.setRequestHeader(name, value);
-		}
-		xhr.upload.onprogress = (e) => {
-			if (e.lengthComputable && e.total > 0) {
-				opts.onProgress(e.loaded / e.total);
+		try {
+			xhr.open("PUT", url);
+			xhr.setRequestHeader("Content-Type", contentType);
+			for (const [name, value] of Object.entries(opts.extraHeaders ?? {})) {
+				xhr.setRequestHeader(name, value);
 			}
-		};
-		xhr.onload = () => {
-			cleanup();
-			if (xhr.status >= 200 && xhr.status < 300) {
-				resolve();
-			} else {
+			xhr.upload.onprogress = (e) => {
+				if (e.lengthComputable && e.total > 0) {
+					opts.onProgress(e.loaded / e.total);
+				}
+			};
+			xhr.onload = () => {
+				cleanup();
+				if (xhr.status >= 200 && xhr.status < 300) {
+					resolve();
+				} else {
+					reject(
+						new Error(
+							"The upload didn't finish. Check your connection, then try again.",
+						),
+					);
+				}
+			};
+			xhr.onerror = () => {
+				cleanup();
 				reject(
 					new Error(
 						"The upload didn't finish. Check your connection, then try again.",
 					),
 				);
-			}
-		};
-		xhr.onerror = () => {
+			};
+			xhr.onabort = () => {
+				cleanup();
+				reject(new DOMException("The upload was canceled.", "AbortError"));
+			};
+			xhr.send(opts.body);
+		} catch (error) {
 			cleanup();
-			reject(
-				new Error(
-					"The upload didn't finish. Check your connection, then try again.",
-				),
-			);
-		};
-		xhr.onabort = () => {
-			cleanup();
-			reject(new DOMException("The upload was canceled.", "AbortError"));
-		};
-		xhr.send(opts.body);
+			reject(error);
+		}
 	});
 }
 
@@ -372,11 +364,14 @@ export async function triggerAssetExtraction(
 			method: "POST",
 			signal: opts.signal,
 		});
-		if (!res.ok || !res.body) return failed;
+		if (!res.ok || !res.body) {
+			await res.body?.cancel().catch(() => undefined);
+			return failed;
+		}
 
 		// Parse the NDJSON line stream. `progress` → pulse; `done` → the final
-		// ExtractMeta. The reader is released in `finally` so an abort mid-read
-		// leaves no live stream handle (the async-leak gate).
+		// ExtractMeta. Cancel before releasing the reader: a terminal frame or
+		// malformed response may arrive while the server still holds its body open.
 		const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
 		let buffer = "";
 		try {
@@ -405,6 +400,7 @@ export async function triggerAssetExtraction(
 			}
 			return failed; // stream ended without a `done` line
 		} finally {
+			await reader.cancel().catch(() => undefined);
 			reader.releaseLock();
 		}
 	} catch {

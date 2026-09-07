@@ -275,13 +275,14 @@ export function mintSelectOptionPlaceholder(
 /**
  * Whether an option still reads exactly as `mintSelectOptionPlaceholder`
  * left it, at ANY position: value `option_N` under the label "Option N"
- * for one and the same N. Nobody chose either side of such a row, so the
+ * for one and the same N, with no structural references. Nobody chose either side of such a row, so the
  * first real label it is given may also name the value; once either side
  * has been edited the two are independent.
  */
 export function isMintedSelectOptionPlaceholder(
 	option: Pick<SelectOption, "value" | "label">,
 ): boolean {
+	if (option.label.parts.some((part) => part.kind !== "text")) return false;
 	const match = /^option_([1-9]\d*)$/.exec(option.value);
 	if (match === null) return false;
 	const minted = mintSelectOptionPlaceholder(Number(match[1]));

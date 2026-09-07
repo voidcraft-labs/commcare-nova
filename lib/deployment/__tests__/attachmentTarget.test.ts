@@ -29,12 +29,12 @@ type TargetRecord = Pick<
 >;
 
 function deployment(
-	state: string,
+	state: TargetRecord["state"],
 	domain: string,
 	server: DeploymentRecord["server"] = "production",
-	resumePhase: string | null = null,
+	resumePhase: TargetRecord["resumePhase"] = null,
 ): TargetRecord {
-	return { state, domain, server, resumePhase } as unknown as TargetRecord;
+	return { state, domain, server, resumePhase };
 }
 
 describe("resolveAttachmentDeploymentTarget", () => {
@@ -92,12 +92,13 @@ describe("resolveAttachmentDeploymentTarget", () => {
 			deployment("runnable", "acme"),
 			deployment("uploaded", "beta"),
 		]);
-		expect(resolved.kind).toBe("ambiguous");
-		if (resolved.kind !== "ambiguous") return;
-		expect(resolved.targets).toEqual([
-			{ server: "production", domain: "acme" },
-			{ server: "production", domain: "beta" },
-		]);
+		expect(resolved).toEqual({
+			kind: "ambiguous",
+			targets: [
+				{ server: "production", domain: "acme" },
+				{ server: "production", domain: "beta" },
+			],
+		});
 	});
 
 	it("treats the same project-space name on two servers as two answers", () => {
@@ -108,12 +109,13 @@ describe("resolveAttachmentDeploymentTarget", () => {
 			deployment("uploaded", "acme", "production"),
 			deployment("uploaded", "acme", "india"),
 		]);
-		expect(resolved.kind).toBe("ambiguous");
-		if (resolved.kind !== "ambiguous") return;
-		expect(resolved.targets).toEqual([
-			{ server: "production", domain: "acme" },
-			{ server: "india", domain: "acme" },
-		]);
+		expect(resolved).toEqual({
+			kind: "ambiguous",
+			targets: [
+				{ server: "production", domain: "acme" },
+				{ server: "india", domain: "acme" },
+			],
+		});
 	});
 });
 

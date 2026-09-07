@@ -13,15 +13,13 @@ import "server-only";
 import type { HqApplicationProfile } from "@/lib/commcare";
 import { log } from "@/lib/logger";
 import {
-	authHeader,
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
-	logAndReturnError,
-	warnAndReturnError,
 } from "./http";
+import { readHqJson } from "./readJson";
 
 export interface HqAppSourceProfile {
 	readonly profile: HqApplicationProfile;
@@ -43,39 +41,12 @@ export async function readHqAppSourceProfile(
 	domain: string,
 	appId: string,
 ): Promise<HqAppSourceProfile | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId))
+		return INVALID_DOMAIN_SLUG;
 	const url = `${baseUrl(creds)}/a/${domain}/apps/source/${encodeURIComponent(appId)}/`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds) },
-		});
-	} catch (error) {
-		log.warn("[commcare] app source unreachable", {
-			domain,
-			appId,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return { success: false, status: 503 };
-	}
-
-	if (!res.ok) {
-		return res.status === 401 || res.status === 403 || res.status === 404
-			? warnAndReturnError("app source read refused", res)
-			: logAndReturnError("app source read failed", res);
-	}
-
-	let source: unknown;
-	try {
-		source = await res.json();
-	} catch {
-		log.error("[commcare] app source returned non-JSON", undefined, {
-			domain,
-			appId,
-		});
-		return { success: false, status: 502 };
-	}
+	const result = await readHqJson(creds, url, "app source");
+	if ("success" in result) return result;
+	const source = result.data;
 
 	if (!isRecord(source) || !isRecord(source.profile)) {
 		log.error("[commcare] app source profile is malformed", undefined, {

@@ -22,11 +22,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { CasePropertyRenameStorageConflictError } from "@/lib/case-store";
+import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
+import { type BlueprintDoc, fieldCaseWrite, type Persona } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { log } from "@/lib/logger";
 import { applyBlueprintChange as applyBlueprintChangeOpaque } from "../applyBlueprintChange";
 import {
 	BlueprintCommitRejectedError,
@@ -183,7 +186,7 @@ const usercaseStoreMock = {
 };
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	vi.resetAllMocks();
 	// Every sync returns the empty report by default — the boundary aggregates
 	// `parkedIds` etc. off every return, so the mock must honor the
 	// `MigrationReport` contract; per-test overrides replace this.
@@ -581,15 +584,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			},
 			prior,
 		);
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
-		});
 
 		await applyBlueprintChange({
 			appId: "app-1",
@@ -658,10 +652,26 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 
 			expect(result.seq).toBe(3);
 			expect(result.committedDoc).toBe(committed);
+			expect(applySchemaChangeMock).toHaveBeenCalledTimes(1);
+			const logged = "code" in sweepError ? log.warn : log.error;
+			const other = "code" in sweepError ? log.error : log.warn;
+			expect(logged).toHaveBeenCalledWith(
+				expect.stringContaining("post-commit schema sweep failed"),
+				...("code" in sweepError
+					? [
+							expect.objectContaining({
+								appId: "app-1",
+								seq: 3,
+								error: sweepError,
+							}),
+						]
+					: [sweepError, { appId: "app-1", seq: 3 }]),
+			);
+			expect(other).not.toHaveBeenCalled();
 		},
 	);
 
-	it("skips Postgres entirely for a non-case-type batch", async () => {
+	it("skips derived case-schema work for a non-case-type batch", async () => {
 		const fresh = minDoc();
 		mockGuardedCommit({
 			seq: 2,
@@ -682,50 +692,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(withSchemaContextMock).not.toHaveBeenCalled();
-		// No Phase-1 admission on the fast path; the guarded commit is the gate.
-		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("uses the guarded writer as the sole authorization owner on the additive path", async () => {
-		// An additive case-type addition touches Postgres only AFTER the commit
-		// (the sweep), so the guarded commit is the one authorization owner.
-		const prior = minDoc();
-		const prospective = structuredClone(toPersistableDoc(prior));
-		prospective.caseTypes = [
-			...(prospective.caseTypes ?? []),
-			{
-				name: "household",
-				properties: [{ name: "case_name", label: proseText("N") }],
-			},
-		];
-		mockGuardedCommit(
-			{
-				seq: 9,
-				committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
-				deduped: false,
-			},
-			prior,
-		);
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
-		});
-
-		await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			expectedProjectId: PROJECT_ID,
-			batchId: "batch-additive-noreauth",
-			kind: "autosave",
-			guard: { mutations: addHouseholdBatch() },
-		});
-
-		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("skips the sweep on an IN-transaction dedup (deduped: true) — no clobbering with the stale seq/doc pair", async () => {
@@ -748,15 +714,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
 			deduped: true, // in-txn dedup hit
 		});
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
-		});
 
 		const result = await applyBlueprintChange({
 			appId: "app-1",
@@ -774,134 +731,75 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 	});
 });
 
-describe("applyBlueprintChange — the worker's own case follows the commit", () => {
-	const WORKER_A = "1a2b3c4d-0000-4000-8000-00000000000a";
-	const WORKER_B = "1a2b3c4d-0000-4000-8000-00000000000b";
-
-	/** A document carrying nothing but personas — the sweep reads no more. */
-	function withPersonas(
-		personas: ReadonlyArray<{ uuid: string; name: string }>,
-	): BlueprintDoc {
-		return {
-			...toPersistableDoc(minDoc()),
+// Actual row identity, rename, closure and cross-app isolation are owned by
+// syncUsercaseRow.postgres.test.ts and usercaseIdentity.postgres.test.ts.
+// This boundary retains only the pre-I/O fast path and failure containment.
+describe("applyBlueprintChange — worker sync orchestration", () => {
+	const WORKER_A = testUuid("1a2b3c4d-0000-4000-8000-00000000000a");
+	const WORKER_B = testUuid("1a2b3c4d-0000-4000-8000-00000000000b");
+	function withPersonas(personas: readonly Persona[]): BlueprintDoc {
+		const doc: BlueprintDoc = {
+			...minDoc(),
 			personas: Object.fromEntries(
 				personas.map((persona) => [persona.uuid, persona]),
 			),
 			personaOrder: personas.map((persona) => persona.uuid),
 			userProperties: {},
 			userTypes: {},
-		} as unknown as BlueprintDoc;
-	}
-
-	/** Drive one commit whose fresh doc is `prior` and result is `next`. */
-	async function commit(prior: BlueprintDoc, next: BlueprintDoc) {
-		commitGuardedBatchMock.mockImplementationOnce(async (_args, hooks) => {
-			await hooks?.beforeWrite?.({
-				tx: {},
-				freshDoc: prior,
-				nextDoc: next,
-				seq: 7,
-			});
-			return { seq: 7, committedDoc: next, deduped: false };
+		};
+		const admission = evaluateCommit({
+			nextDoc: doc,
+			lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 		});
+		if (!admission.ok) throw new Error(JSON.stringify(admission));
+		return doc;
+	}
+	async function commit(
+		prior: BlueprintDoc,
+		next: BlueprintDoc,
+		mutations: Mutation[],
+	) {
+		mockGuardedCommit({ seq: 7, committedDoc: next, deduped: false }, prior);
 		return applyBlueprintChange({
 			appId: "app-1",
 			userId: "user-1",
 			expectedProjectId: PROJECT_ID,
 			batchId: "batch-usercase",
 			kind: "autosave",
-			guard: { mutations: addHouseholdBatch() },
+			guard: { mutations },
 		});
 	}
-
-	it("closes a removed worker's case and leaves every other worker alone", async () => {
-		// Closed, never deleted: HQ's own deactivation path closes the usercase
-		// and leaves the cases that worker owned open
-		// (`sync_usercase.py::_get_sync_usercase_helper`), and it is the same
-		// preserve-the-rows policy every other Nova removal follows. The only
-		// row named here is the departing worker's own.
-		await commit(
-			withPersonas([
-				{ uuid: WORKER_A, name: "Amara" },
-				{ uuid: WORKER_B, name: "Bilal" },
-			]),
-			withPersonas([{ uuid: WORKER_B, name: "Bilal" }]),
-		);
-
-		expect(usercaseStoreMock.close).toHaveBeenCalledTimes(1);
-		expect(usercaseStoreMock.close).toHaveBeenCalledWith({
-			appId: "app-1",
-			caseId: WORKER_A,
-		});
-		// Bilal is unchanged, so nothing about him is read or written either.
-		expect(usercaseStoreMock.query).not.toHaveBeenCalled();
-	});
-
-	it("binds the close to the departing worker's own identity", async () => {
-		// `CaseInsert` carries no `owner_id` — the store stamps it from the
-		// identity it is bound to — so the sweep takes one store per worker. A
-		// shared store would stamp every worker's case with whoever happened to
-		// come first, putting it outside its own worker's restore.
-		await commit(
-			withPersonas([{ uuid: WORKER_A, name: "Amara" }]),
-			withPersonas([]),
-		);
-
-		expect(withProjectContextMock).toHaveBeenCalledWith(
-			PROJECT_ID,
-			"user-1",
-			WORKER_A,
-		);
-	});
-
-	it("costs no database work at all when a commit touches no worker", async () => {
-		// THE point of `workersNeedingUsercaseSync` being pure. A field edit is
-		// the overwhelmingly common commit and fires on every autosave; one read
-		// per persona there would be a real cost for nothing.
-		const unchanged = withPersonas([
+	it("opens no worker store when a committed app edit changes no worker projection", async () => {
+		const prior = withPersonas([
 			{ uuid: WORKER_A, name: "Amara" },
 			{ uuid: WORKER_B, name: "Bilal" },
 		]);
-		await commit(unchanged, structuredClone(unchanged));
-
+		const next = { ...prior, appName: "Renamed app" };
+		await commit(prior, next, [{ kind: "setAppName", name: next.appName }]);
+		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(withProjectContextMock).not.toHaveBeenCalled();
 		expect(usercaseStoreMock.query).not.toHaveBeenCalled();
 		expect(usercaseStoreMock.close).not.toHaveBeenCalled();
 	});
-
-	it("re-syncs only the worker a rename actually changed", async () => {
-		await commit(
-			withPersonas([
-				{ uuid: WORKER_A, name: "Amara" },
-				{ uuid: WORKER_B, name: "Bilal" },
-			]),
-			withPersonas([
-				{ uuid: WORKER_A, name: "Amara Sow" },
-				{ uuid: WORKER_B, name: "Bilal" },
-			]),
+	it("returns the committed result and reports a worker-store failure without retrying the write", async () => {
+		usercaseStoreMock.query.mockRejectedValueOnce(
+			new Error("connection reset"),
 		);
-
-		expect(withProjectContextMock).toHaveBeenCalledTimes(1);
-		expect(withProjectContextMock).toHaveBeenCalledWith(
-			PROJECT_ID,
-			"user-1",
-			WORKER_A,
-		);
-		expect(usercaseStoreMock.close).not.toHaveBeenCalled();
-	});
-
-	it("lets a commit stand when the worker's case cannot be written", async () => {
-		// Best-effort, and swallowed exactly like the schema sweep: this runs on
-		// the already-committed autosave thread, so a blip must not fail a
-		// commit that has landed. A missed row self-heals — the preview creates
-		// one when it resolves a persona without it.
-		usercaseStoreMock.query.mockRejectedValue(new Error("connection reset"));
-
-		const result = await commit(
-			withPersonas([]),
-			withPersonas([{ uuid: WORKER_A, name: "Amara" }]),
-		);
-
+		const persona = { uuid: WORKER_A, name: "Amara" };
+		const next = withPersonas([persona]);
+		const result = await commit(withPersonas([]), next, [
+			{ kind: "addPersona", persona },
+		]);
 		expect(result.seq).toBe(7);
+		expect(result.committedDoc).toBe(next);
+		expect(usercaseStoreMock.query).toHaveBeenCalledTimes(1);
+		expect(usercaseStoreMock.insert).not.toHaveBeenCalled();
+		expect(usercaseStoreMock.update).not.toHaveBeenCalled();
+		expect(usercaseStoreMock.close).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledExactlyOnceWith(
+			"[applyBlueprintChange] usercase row sync failed",
+			{ appId: "app-1", workerId: WORKER_A, error: "connection reset" },
+		);
+		expect(log.error).not.toHaveBeenCalled();
 	});
 });

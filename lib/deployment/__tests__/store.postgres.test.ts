@@ -7,14 +7,15 @@
  * for one Nova resource" unrepresentable, the CHECK pairs `incomplete`
  * with a resume phase, and a stale observation is discarded once a publish
  * has replaced what it asked about — whether that publish recreated the
- * app under a new remote id or updated it in place, where the `pushed_at`
- * token is the only thing that tells the publishes apart. Deployments
+ * app under a new remote id or updated it in place, where the `push_token`
+ * identity is the only thing that tells the publishes apart. Deployments
  * moving with their app is proved next door, in
  * `lib/db/__tests__/projectMove.postgres.test.ts`.
  */
 
 import { sql } from "kysely";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { activeRemoteApp } from "../resources";
 import {
@@ -32,7 +33,11 @@ import {
 	recordRemoteResource,
 } from "../store";
 
-const h = setupAppStateTestDb("deployments_");
+const h = setupAppStateTestDb("deployments_", {
+	authSchema: "migrated",
+	poolMax: 4,
+});
+afterEach(() => vi.useRealTimers());
 
 const AT = "2026-08-06T00:00:00.000Z";
 const TARGET: { server: "production" | "india"; domain: string } = {
@@ -82,9 +87,11 @@ async function publish(
 	});
 }
 
-/** The staleness token an observer carries: the active mapping's pushedAt. */
-function pushedAtToken(view: Parameters<typeof activeRemoteApp>[0]) {
-	return activeRemoteApp(view)?.pushedAt ?? null;
+/** Capture the actual accepted push, as the observer does before network I/O. */
+function pushToken(view: Parameters<typeof activeRemoteApp>[0]) {
+	const active = activeRemoteApp(view);
+	if (!active) throw new Error("Expected a published app mapping");
+	return active.pushToken;
 }
 
 describe("creating a deployment", () => {
@@ -174,7 +181,10 @@ describe("attempt folds", () => {
 				.set({ state: "incomplete", resume_phase: null })
 				.where("id", "=", created.deployment.id)
 				.execute(),
-		).rejects.toThrow();
+		).rejects.toMatchObject({
+			code: "23514",
+			constraint: "app_deployments_resume_phase_pairs_with_incomplete",
+		});
 	});
 });
 
@@ -204,19 +214,69 @@ describe("ownership mappings", () => {
 		expect(second.superseded.map((r) => r.remoteId)).toEqual(["hq-1"]);
 	});
 
-	it("keeps exactly one live mapping per Nova resource", async () => {
+	it("serializes concurrent recreates into one active mapping and retains every superseded resource", async () => {
 		const scope = await seed();
-		const view = await publish(scope, "hq-1", 7);
-		await publish(scope, "hq-2", 9);
+		await create(scope);
+		const remotes = ["hq-1", "hq-2", "hq-3", "hq-4"];
+		const writes = await whileBlocked(
+			h,
+			(pg) =>
+				pg.query(
+					"SELECT id FROM app_deployments WHERE app_id = $1 FOR UPDATE",
+					[scope.appId],
+				),
+			() =>
+				Promise.allSettled(
+					remotes.map((remoteId, index) =>
+						recordRemoteResource(scope, TARGET, {
+							kind: "app",
+							novaResourceId: scope.appId,
+							remoteId,
+							ownership: "nova-created",
+							pushedRevision: index + 1,
+							uploadedAt: AT,
+							remoteRevision: null,
+						}),
+					),
+				),
+			async (settled) => {
+				expect(settled).toBe(false);
+			},
+		);
 
-		const live = await h
-			.db()
-			.selectFrom("app_deployment_resources")
-			.selectAll()
-			.where("deployment_id", "=", view.deployment.id)
-			.where("superseded_at", "is", null)
-			.execute();
-		expect(live).toHaveLength(1);
+		expect(writes.map((write) => write.status)).toEqual(
+			remotes.map(() => "fulfilled"),
+		);
+		const final = await readDeployment(scope, TARGET);
+		if (!final) throw new Error("Expected the deployment");
+		expect(final.active).toHaveLength(1);
+		expect(final.superseded).toHaveLength(3);
+		const all = [...final.active, ...final.superseded];
+		expect(all.map((resource) => resource.remoteId).sort()).toEqual(remotes);
+		expect(new Set(all.map((resource) => resource.pushToken)).size).toBe(4);
+		expect(final.deployment.state).toBe("uploaded");
+	});
+
+	it("the database refuses a second active mapping independently of the store", async () => {
+		const scope = await seed();
+		const before = await publish(scope, "hq-1", 7);
+		await expect(
+			h
+				.db()
+				.insertInto("app_deployment_resources")
+				.values({
+					deployment_id: before.deployment.id,
+					kind: "app",
+					nova_resource_id: scope.appId,
+					remote_id: "hq-2",
+					ownership: "nova-created",
+				})
+				.execute(),
+		).rejects.toMatchObject({
+			code: "23505",
+			constraint: "app_deployment_resources_active",
+		});
+		expect(await readDeployment(scope, TARGET)).toEqual(before);
 	});
 
 	it("the mainline republish updates the live mapping in place — same remote app, no supersession", async () => {
@@ -255,7 +315,7 @@ describe("ownership mappings", () => {
 		const first = await publish(scope, "hq-1", 7);
 		await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
-			observedPushedAt: pushedAtToken(first),
+			observedPushToken: pushToken(first),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -269,7 +329,7 @@ describe("ownership mappings", () => {
 
 		await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
-			observedPushedAt: pushedAtToken(republished),
+			observedPushToken: pushToken(republished),
 			outcomes: [["build", { status: "succeeded", at: AT }]],
 			remoteRevision: 4,
 		});
@@ -592,7 +652,7 @@ describe("pushed Project data", () => {
 		);
 	});
 
-	it("writes every table of one push together", async () => {
+	it("records both tables and the completed resources phase", async () => {
 		const scope = await seed();
 		await create(scope);
 		const second = "018f0000-0000-7000-8000-000000000002";
@@ -625,12 +685,53 @@ describe("pushed Project data", () => {
 			{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
 		);
 
+		expect(view.deployment.phases.resources).toEqual({
+			status: "succeeded",
+			at: AT,
+		});
 		expect(
 			view.active
 				.filter((resource) => resource.kind === "lookup-table")
 				.map((resource) => resource.pushedIdentity)
 				.sort(),
 		).toEqual(["districts", "statuses"]);
+	});
+
+	it("rolls back a supersession and the entire batch when its second resource fails a database constraint", async () => {
+		const scope = await seed();
+		await create(scope);
+		const before = await pushTable(scope);
+		await expect(
+			recordPushedResources(
+				scope,
+				TARGET,
+				[
+					{
+						kind: "lookup-table",
+						novaResourceId: TABLE,
+						remoteId: "hq-new-table",
+						ownership: "nova-created",
+						pushedIdentity: "renamed",
+						pushedRevision: null,
+						remoteRevision: null,
+					},
+					{
+						kind: "lookup-table",
+						novaResourceId: OTHER_TABLE,
+						remoteId: "hq-second-table",
+						ownership: "nova-created",
+						pushedIdentity: "other",
+						pushedRevision: null,
+						remoteRevision: -1,
+					},
+				],
+				{ status: "complete", kinds: ["lookup-table"], pushedAt: AT },
+			),
+		).rejects.toMatchObject({
+			code: "23514",
+			constraint: "app_deployment_resources_remote_revision_check",
+		});
+		expect(await readDeployment(scope, TARGET)).toEqual(before);
 	});
 
 	it("files a place under its own kind, keyed by its site code", async () => {
@@ -757,7 +858,7 @@ describe("pushed Project data", () => {
 				.insertInto("app_deployment_resources")
 				.values({
 					deployment_id: view.deployment.id,
-					kind: "user-role" as never,
+					kind: "user-role",
 					nova_resource_id: "role-1",
 					remote_id: "hq-role",
 					ownership: "nova-created",
@@ -767,7 +868,10 @@ describe("pushed Project data", () => {
 					remote_observed_at: null,
 				})
 				.execute(),
-		).rejects.toThrow();
+		).rejects.toMatchObject({
+			code: "23514",
+			constraint: "app_deployment_resources_kind_check",
+		});
 	});
 });
 
@@ -913,13 +1017,72 @@ describe("provisioned workers", () => {
 });
 
 describe("observation writes", () => {
+	it("rejects a stale observation when two accepted publishes have the same timestamp", async () => {
+		const scope = await seed();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date(AT));
+		const first = await publish(scope, "hq-1", 7, 4);
+		const second = await publish(scope, "hq-1", 7, 5);
+		expect(pushToken(second)).not.toBe(pushToken(first));
+		expect(activeRemoteApp(first)?.pushedAt).toBe(AT);
+		expect(activeRemoteApp(second)?.pushedAt).toBe(AT);
+		const result = await applyDeploymentObservation(scope, TARGET, {
+			observedRemoteId: "hq-1",
+			observedPushToken: pushToken(first),
+			outcomes: [["build", { status: "succeeded", at: AT }]],
+			remoteRevision: 4,
+		});
+		expect(result.applied).toBe(false);
+		expect(result.view).toEqual(second);
+		expect(await readDeployment(scope, TARGET)).toEqual(second);
+	});
+
+	it("rechecks the committed push identity after waiting behind a competing writer", async () => {
+		const scope = await seed();
+		const before = await publish(scope, "hq-1", 7);
+		const result = await whileBlocked(
+			h,
+			async (pg) => {
+				await pg.query(
+					"SELECT id FROM app_deployments WHERE id = $1 FOR UPDATE",
+					[before.deployment.id],
+				);
+			},
+			() =>
+				applyDeploymentObservation(scope, TARGET, {
+					observedRemoteId: "hq-1",
+					observedPushToken: pushToken(before),
+					outcomes: [["build", { status: "succeeded", at: AT }]],
+					remoteRevision: 12,
+				}),
+			async (settled, pg) => {
+				expect(settled).toBe(false);
+				// An accepted same-value push rotates its identity inside the held transaction.
+				await pg.query(
+					"UPDATE app_deployment_resources SET pushed_at = pushed_at WHERE deployment_id = $1",
+					[before.deployment.id],
+				);
+			},
+			undefined,
+			"COMMIT",
+		);
+		expect(result.applied).toBe(false);
+		expect(result.view.deployment).toEqual(before.deployment);
+		expect(activeRemoteApp(result.view)).toEqual({
+			...activeRemoteApp(before),
+			pushToken: pushToken(result.view),
+		});
+		expect(pushToken(result.view)).not.toBe(pushToken(before));
+		expect(await readDeployment(scope, TARGET)).toEqual(result.view);
+	});
+
 	it("folds outcomes, stamps last_observed_at, and records the remote revision", async () => {
 		const scope = await seed();
 		const live = await publish(scope, "hq-1", 7);
 
 		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
-			observedPushedAt: pushedAtToken(live),
+			observedPushToken: pushToken(live),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -929,6 +1092,7 @@ describe("observation writes", () => {
 		});
 
 		expect(applied).toBe(true);
+		expect(pushToken(view)).toBe(pushToken(live));
 		expect(view.deployment.state).toBe("built");
 		expect(view.deployment.lastObservedAt).not.toBeNull();
 		expect(activeRemoteApp(view)).toMatchObject({
@@ -949,7 +1113,7 @@ describe("observation writes", () => {
 
 		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
 			observedRemoteId: "hq-1",
-			observedPushedAt: pushedAtToken(first),
+			observedPushToken: pushToken(first),
 			outcomes: [
 				["upload", { status: "succeeded", at: AT }],
 				["build", { status: "succeeded", at: AT }],
@@ -963,42 +1127,6 @@ describe("observation writes", () => {
 		expect(view.deployment.state).toBe("uploaded");
 		expect(view.deployment.lastObservedAt).toBeNull();
 		expect(activeRemoteApp(view)?.remoteRevision).toBeNull();
-	});
-
-	it("discards an observation begun before a republish updated the same remote app", async () => {
-		/* An in-place update keeps the remote id across a republish, so the id
-		 * alone can no longer catch this interleaving: Check status reads the
-		 * record, spends seconds asking CommCare HQ about hq-1, and a republish
-		 * lands hq-1 AGAIN in between. The per-publish `pushed_at` token is
-		 * what tells the two publishes apart. The first publish's token is
-		 * rewound by SQL so the two cannot collide within one millisecond. */
-		const scope = await seed();
-		const firstView = await publish(scope, "hq-1", 7);
-		await h
-			.db()
-			.updateTable("app_deployment_resources")
-			.set({ pushed_at: AT })
-			.where("deployment_id", "=", firstView.deployment.id)
-			.execute();
-		const before = await readDeployment(scope, TARGET);
-		const staleToken = before === null ? null : pushedAtToken(before);
-		expect(staleToken).toBe(AT);
-
-		await publish(scope, "hq-1", 8, 5);
-
-		const { view, applied } = await applyDeploymentObservation(scope, TARGET, {
-			observedRemoteId: "hq-1",
-			observedPushedAt: staleToken,
-			outcomes: [
-				["upload", { status: "succeeded", at: AT }],
-				["build", { status: "succeeded", at: AT }],
-			],
-			remoteRevision: 12,
-		});
-
-		expect(applied).toBe(false);
-		expect(view.deployment.state).toBe("uploaded");
-		expect(view.deployment.lastObservedAt).toBeNull();
 	});
 });
 
@@ -1036,6 +1164,36 @@ describe("tenancy", () => {
 		).resolves.toHaveLength(0);
 	});
 
+	it("rechecks membership after acquiring an app lock held by another transaction", async () => {
+		const scope = await seed();
+		const before = await create(scope);
+		await expect(
+			whileBlocked(
+				h,
+				async (pg) => {
+					await pg.query("SELECT id FROM apps WHERE id = $1 FOR UPDATE", [
+						scope.appId,
+					]);
+				},
+				() =>
+					foldDeploymentAttempt(scope, TARGET, "upload", {
+						status: "succeeded",
+						at: AT,
+					}),
+				async (settled, pg) => {
+					expect(settled).toBe(false);
+					await pg.query(
+						'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+						[scope.actorUserId, scope.projectId],
+					);
+				},
+				undefined,
+				"COMMIT",
+			),
+		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
+		expect(await readDeployment(scope, TARGET)).toEqual(before);
+	});
+
 	it("refuses a write once the caller loses membership", async () => {
 		const scope = await seed();
 		await create(scope);
@@ -1051,7 +1209,7 @@ describe("tenancy", () => {
 					details: [],
 				},
 			}),
-		).rejects.toThrow();
+		).rejects.toMatchObject({ name: "DeploymentError", code: "not_found" });
 	});
 });
 
@@ -1116,7 +1274,7 @@ describe("entry point release evidence", () => {
 		).toBe(false);
 		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
 	});
-	it("refuses an observation if the entry point was edited or removed during the remote check", async () => {
+	it("refuses entry point evidence when the persisted source sequence has advanced", async () => {
 		const scope = await seed();
 		await publish(scope, "hq-1", 1);
 		const generation = await beginDeploymentContentWrite(scope, TARGET);

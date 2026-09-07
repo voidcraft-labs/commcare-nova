@@ -14,6 +14,53 @@ import { classifyError } from "../errorClassifier";
 // future branch reorder can't silently drop a transient upstream failure back
 // into the scary `internal` bucket.
 describe("classifyError", () => {
+	it.each([
+		[401, "api_auth"],
+		[403, "api_auth"],
+		[408, "api_timeout"],
+		[429, "api_rate_limit"],
+		[502, "api_server"],
+	] as const)(
+		"classifies HTTP %s without exposing the raw provider message",
+		(statusCode, type) => {
+			const result = classifyError(
+				new APICallError({
+					message: "secret request detail",
+					url: "https://api.openai.com/v1/responses",
+					requestBodyValues: {},
+					statusCode,
+				}),
+			);
+			expect(result).toMatchObject({
+				type,
+				recoverable: false,
+				raw: "secret request detail",
+			});
+			expect(result.message).not.toContain("secret request detail");
+		},
+	);
+
+	it("distinguishes native aborts and fetch failures from application exceptions", () => {
+		expect(classifyError(new DOMException("stopped", "AbortError")).type).toBe(
+			"api_timeout",
+		);
+		expect(classifyError(new TypeError("fetch failed")).type).toBe(
+			"stream_broken",
+		);
+		expect(classifyError(new TypeError("bad field access")).type).toBe(
+			"internal",
+		);
+	});
+
+	it("handles cyclic thrown objects without failing the error path", () => {
+		const error: { cause?: unknown } = {};
+		error.cause = error;
+		expect(classifyError(error)).toMatchObject({
+			type: "internal",
+			recoverable: false,
+		});
+	});
+
 	it("classifies authoritative access loss as a terminal revocation", () => {
 		const result = classifyError(
 			new CommitReauthError("You no longer have edit access."),

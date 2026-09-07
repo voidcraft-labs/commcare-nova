@@ -89,6 +89,9 @@ export interface DesignAgentArgs {
 	 * provider compaction item. Durable workspace state, not the summarized
 	 * model history, remains authoritative across the boundary. */
 	readonly freshStateMessage: () => Promise<ModelMessage>;
+	/** Runner-owned durable origin proof for a packet retained after compaction.
+	 * A user-visible heading or copied old packet never establishes authority. */
+	readonly isAuthoritativeStateMessage?: (message: ModelMessage) => boolean;
 	/** Persist a server state packet before the provider can observe a step that
 	 * follows a new compaction boundary. The durable context stays append-only;
 	 * this callback records the packet that the SDK's projected view inserts. */
@@ -489,6 +492,40 @@ export function requiredDesignQuestionStep(questions: readonly OpenQuestion[]) {
 			};
 }
 
+/** Only a server-authored durable append after the newest provider checkpoint
+ * can stand in for freshly derived workspace state on recovery. */
+export function hasAuthoritativeDesignStateMessage(
+	items: readonly {
+		readonly appendKey: string;
+		readonly message: ModelMessage;
+	}[],
+	message: ModelMessage,
+): boolean {
+	if (!isDesignStateMessage(message)) return false;
+	let boundary = -1;
+	for (const [index, item] of items.entries()) {
+		if (
+			item.message.role === "assistant" &&
+			Array.isArray(item.message.content) &&
+			item.message.content.some(
+				(part) => part.type === "custom" && part.kind === "openai.compaction",
+			)
+		)
+			boundary = index;
+	}
+	if (boundary < 0) return false;
+	const digest = durableModelValueDigest(message);
+	return items
+		.slice(boundary + 1)
+		.some(
+			(item) =>
+				(item.appendKey.startsWith("state:") ||
+					item.appendKey.startsWith("compaction-state:")) &&
+				isDesignStateMessage(item.message) &&
+				durableModelValueDigest(item.message) === digest,
+		);
+}
+
 export async function projectDesignStepMessages(
 	messages: readonly ModelMessage[],
 	freshStateMessage: () => Promise<ModelMessage>,
@@ -496,6 +533,7 @@ export async function projectDesignStepMessages(
 		readonly boundaryDigest: string;
 		readonly message: ModelMessage;
 	}) => Promise<void>,
+	isAuthoritativeStateMessage: (message: ModelMessage) => boolean = () => false,
 ): Promise<ModelMessage[]> {
 	const containedCompaction = modelMessagesContainCompaction(messages);
 	const projected = projectModelHistoryFromNewestCompaction(messages);
@@ -503,7 +541,7 @@ export async function projectDesignStepMessages(
 	/* The provider checkpoint is the only legal prefix replacement. If this
 	 * compacted suffix has not yet received an authoritative state update,
 	 * append one without deleting or replacing any retained item. */
-	if (projected.some(isDesignStateMessage)) return projected;
+	if (projected.some(isAuthoritativeStateMessage)) return projected;
 	const message = await freshStateMessage();
 	await onCompactionState?.({
 		boundaryDigest: durableModelValueDigest(projected),
@@ -513,6 +551,7 @@ export async function projectDesignStepMessages(
 }
 
 export function createDesignAgent(args: DesignAgentArgs) {
+	const freshStateDigests = new Set<string>();
 	const stableTools = {
 		askQuestions: {
 			description: DESIGN_ASK_QUESTIONS_DESCRIPTION,
@@ -615,7 +654,13 @@ export function createDesignAgent(args: DesignAgentArgs) {
 			const withFreshState = await projectDesignStepMessages(
 				messages,
 				args.freshStateMessage,
-				args.onCompactionState,
+				async (state) => {
+					await args.onCompactionState?.(state);
+					freshStateDigests.add(durableModelValueDigest(state.message));
+				},
+				args.isAuthoritativeStateMessage ??
+					((message) =>
+						freshStateDigests.has(durableModelValueDigest(message))),
 			);
 			const requiredQuestions = await args.requiredUserQuestions();
 			const requiredQuestionStep =

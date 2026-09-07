@@ -1,3 +1,5 @@
+// Pure answer projection over schema-shaped fields and operations. This suite
+// does not execute or admit the synthetic session-target operation program.
 // The per-scope operation answer collector: complete-per-iteration
 // lists (root + enclosing concrete instances + own), parent-major
 // flattening, multi-select token arrays, and the operation-free
@@ -15,6 +17,7 @@ import type {
 	SelectOptionsSource,
 	Uuid,
 } from "@/lib/domain";
+import { fieldSchema, formSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 import { FormEngine, type FormEngineInput } from "../formEngine";
@@ -35,13 +38,13 @@ function dTree(
 	formType: FormType = "survey",
 ): FormEngineInput {
 	const formUuid = testUuid("test-form-uuid");
-	const form: Form = {
+	const form: Form = formSchema.parse({
 		uuid: formUuid,
 		id: "test-form",
 		name: "Test Form",
 		type: formType,
 		...(caseOperations !== undefined && { caseOperations }),
-	} as Form;
+	});
 	const fieldMap: Record<string, Field> = {};
 	const fieldOrder: Record<string, Uuid[]> = {};
 	const walk = (nodes: DField[], parentUuid: Uuid, prefix: string): void => {
@@ -50,7 +53,11 @@ function dTree(
 			const uuid = testUuid(`${prefix}.${n.id}`);
 			order.push(uuid);
 			const { children, ...rest } = n;
-			fieldMap[uuid as string] = { uuid, ...rest } as Field;
+			fieldMap[uuid as string] = fieldSchema.parse({
+				uuid,
+				...(n.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
+				...rest,
+			});
 			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
 				walk(children ?? [], uuid, `${prefix}.${n.id}`);
 			}
@@ -67,7 +74,7 @@ const OPERATION: CaseOperation = {
 	action: "update",
 	caseType: "patient",
 	target: { kind: "session" },
-} as CaseOperation;
+};
 
 function valuesOf(
 	entries: ReadonlyArray<{ fieldUuid: string; value: unknown }>,
@@ -195,7 +202,7 @@ describe("computeOperationAnswers", () => {
 		});
 	});
 
-	it("rides the submission mutation on every arm", () => {
+	it("rides the survey submission mutation", () => {
 		const engine = new FormEngine(
 			dTree(
 				[{ id: "name", kind: "text", label: proseText("Name") }],
@@ -208,7 +215,10 @@ describe("computeOperationAnswers", () => {
 		expect(mutation.kind).toBe("survey");
 		if (mutation.kind === "survey") {
 			expect(mutation.formUuid).toBe(testUuid("test-form-uuid"));
-			expect(mutation.operationAnswers?.root).toBeDefined();
+			expect(mutation.operationAnswers).toEqual({
+				root: [{ fieldUuid: testUuid("form.name"), value: "" }],
+				repeats: [],
+			});
 		}
 	});
 

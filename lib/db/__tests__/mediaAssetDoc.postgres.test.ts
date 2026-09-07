@@ -12,11 +12,7 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-	asMediaAssetId,
-	MEDIA_EXTRACT_STATUSES,
-	type MediaAssetId,
-} from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
 import type { MediaAssetExtract } from "../types";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -103,7 +99,6 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		});
 		// The `bigint` column comes back a number, not a string.
 		expect(record?.sizeBytes).toBe(1024);
-		expect(typeof record?.sizeBytes).toBe("number");
 		expect(record?.dimensions).toEqual({ width: 1920, height: 1080 });
 		expect(record?.durationMs).toBeUndefined();
 		expect(record?.created_at).toBeInstanceOf(Date);
@@ -119,13 +114,12 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		});
 		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record?.durationMs).toBe(30_000);
-		expect(typeof record?.durationMs).toBe("number");
 		expect(record?.dimensions).toBeUndefined();
 	});
 
 	it("parses the extract jsonb through mediaAssetExtractSchema", async () => {
 		const extract = {
-			status: MEDIA_EXTRACT_STATUSES[0],
+			status: "ready",
 			version: 1,
 			model: "claude-extract",
 			truncated: false,
@@ -134,7 +128,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 			title: "A document",
 			summary: "It says things.",
 		};
-		const id = await seedRow({ kind: "document", extract });
+		const id = await seedRow({ kind: "pdf", extract });
 		const record = await loadAssetById(asMediaAssetId(id));
 		expect(record?.extract).toEqual(extract);
 	});
@@ -160,7 +154,7 @@ describe("toRecord mapping (via loadAssetById)", () => {
 
 	it("does not let an older extractor claim over higher-version state", async () => {
 		const newer = extract("ready", 4);
-		const id = await seedRow({ kind: "document", extract: newer });
+		const id = await seedRow({ kind: "pdf", extract: newer });
 		const { claimExtractionIfIdle } = await import("../mediaAssets");
 
 		await expect(

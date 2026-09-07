@@ -259,10 +259,9 @@ drifts is the one nobody reads.
   places is `assignmentReceivesCasesFrom`, the same predicate the commit gate
   asks one target at a time.
 - `footprint.ts::personaFootprint` is the enumerating twin of
-  `assignmentFootprintIncludes`, pinned to it by a `fast-check` differential
-  over generated level forests and place trees. That property test is the
-  cheapest strong guard in this package: it fails the moment an arm is added
-  to one side and not the other.
+  `assignmentFootprintIncludes`, tested alongside it against exact expected destinations for every address-book
+  mode, including ancestor retention, sibling branches, depth limits and
+  multiple assignments. The expected sets are independent of either helper.
 
 `memberOwnerIds` is the honest answer for previewing as the signed-in member:
 a worker assigned nowhere has no case-sharing group, so the set is exactly
@@ -278,6 +277,22 @@ because the organization slice is all they read. The preview resolves a
 worker's owner set from an authorized `PersistableDoc` snapshot, which carries
 no `fieldParent` index and has no reason to build one to answer a question
 about places.
+
+## Browser read and write lifecycle
+
+`organizationClient.ts` owns the complete read snapshot, subscribed view state,
+optimistic revision, and serialized write queue. `useOrganization` only binds
+that client to React and the payload-free organization subscription. Each
+requested write captures its app's reconciler, waits for the Blueprint barrier,
+and retries once only for `not-committed`. A successful receipt advances the
+queue token synchronously and invalidates older reads before starting its
+refresh. A conflict holds the queue until one refresh settles.
+
+Closing the view invalidates pending view reads and stops notifications; it
+does not cancel saves the author already requested. Those writes retain their
+original app and save barrier, chain returned revisions, and perform a conflict
+read if the next queued request needs its token. A reactivated view reads again.
+Rows still come only from complete server reads, never an optimistic reducer.
 
 ## Boundaries
 
@@ -321,9 +336,10 @@ about places.
   describe a fixed-place owner as deployable until a compile path reads those
   mappings, do not re-add the fixture or the identity map to the refusal's
   reasons, and do not widen the refusal back over the reverse hop.
-  `lib/commcare/locations/__tests__/flatLocationsFixture.ts` emits Nova's own
-  copy of that fixture purely so the lowering can be proved against the real
-  bytes; it is a test asset on no delivery path.
+  The native location proof executes HQ's actual flat serializer and Core's
+  indexed restore/form consumers. Its supplied ORM rows do not prove HQ's
+  footprint SQL; the Postgres companion independently checks service-admitted
+  branches, exact SQL owner destinations and ambiguous-write rollback.
 
 Keep pure schema/derivation/plan tests separate from Postgres integration
 tests, and bundle the Postgres-focused ones into one invocation so local and

@@ -2,6 +2,12 @@
 
 The trust layer between a user-uploaded asset and the wire. This package owns format validation, the attach- and export-time verdicts, the export budget, the wire manifest, and the deletion guard. It does NOT own the bytes (GCS, `lib/storage/media.ts`), the asset row (Postgres `media_assets`, `lib/db/mediaAssets.ts` + `MediaAssetDoc` in `lib/db/types.ts`), the domain primitives (`lib/domain/multimedia.ts` — `AssetKind` / `Media` / the MIME partitions / size caps / the export-ceiling constants / the GCS key derivations), or the wire emitters (`lib/commcare/multimedia/*`).
 
+Tests should use real bytes for format gates, and prove a malformed fixture
+passes earlier gates before claiming to exercise a later parser. Reuse small
+immutable byte fixtures, compare computed metadata with those bytes, and check
+every shipped built-in icon against its catalog hash and size. Keep Project
+filtering and shared-logo behavior explicit in attach and upload outcome tests.
+
 ## Boundary
 
 `manifest.ts` and `builtinIconAssets.ts` are two of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths. The complete export composer, including media-row loading and the aggregate budget verdict, lives at `lib/export/boundaryValidation.ts`. Everything else here is boundary-free.
@@ -50,6 +56,16 @@ commits and the writer wakes to a missing row and rejects.
 ## Upload: pending key, confirm re-validates from the bytes
 
 Browser uploads can't be trusted to PUT what they claimed, so the signed-PUT URL lands at a per-attempt `pending/<project_id>/<assetId>` key (never the final content-hash key) and `confirm` re-derives everything from the stored bytes: it size-gates from GCS metadata BEFORE pulling bytes into memory (the signed URL stays valid, so a client could PUT an oversized object after the claim), runs the full validation pipeline, then writes that exact validated buffer to `gcsObjectKeyFor(projectId, hash, ext)` (`projects/<project_id>/<hash><ext>`). It never copies the still-mutable pending key after validation. The web upload + library routes resolve that Project from an optional `appId` (the app's Project) or the caller's active Project; `confirm` authorizes against the pending row's `project_id`, then freshly re-proves edit membership and locks the row for the terminal transition. A stale validation rejection deletes only a still-`pending` row; if publication or same-hash dedup won, it returns the authoritative `ready` row idempotently. When dedup replaces the attempt row with another canonical ready row, the same transaction writes a 24-hour attempt-id alias before deleting the pending row; a retry after response loss therefore resolves only that exact canonical result under fresh Project edit authority, never a coincidental later hash sibling. An initiate-time `(project, hash)` dedup probe short-circuits a re-upload of identical bytes; confirm rechecks under the canonical extension-independent Project/hash session advisory lock and holds it across byte publication plus committed `ready` metadata. MCP upload and Project-copy publication use the same lock. Each lock body runs metadata SQL on that same checked-out Postgres session, and the process admits at most two concurrent key-lock bodies against the current three-slot pool so unrelated request work keeps one connection. MCP has no untrusted PUT round trip, so after validating in memory it writes the final content key and publishes a caller-preallocated id as a complete `ready` row in ONE metadata transaction — never a separately committed pending row. An ambiguous insert result is reconciled after reacquiring the content lock: the Project/hash ready row is returned (distinguishing the exact attempt id from a later dedup winner), or the unclaimed object is removed after proving no row names its key. A hard process crash before metadata can leave only the deterministic content key; the next identical request safely overwrites that same key and publishes/adopts it, while a crash after commit dedups to the terminal row. Browser-confirm and extract publication failures similarly delete only after proving no authoritative row names the exact base key (or no ready row names the extract version). Post-commit cleanup rechecks sibling metadata, so a new ready row can never point at bytes a concurrent last-reference cleanup removed. The `pending/` prefix is top-level so ONE exact bucket policy reaps abandoned browser uploads while disabling soft delete, object versioning, and default event holds; a pre-existing retention policy fails the deploy instead of being removed. Apply the whole metageneration-fenced policy (idempotently) with `scripts/infra/apply-media-bucket-storage-policy.ts`.
+
+MCP upload proves current Project edit authority inside each metadata
+transaction: deduplication after obtaining the content lock, ready publication
+after storage, and successful-result reconciliation after response loss.
+Permission loss before publication prevents the ready insert. Cleanup still
+checks object ownership and removes only unclaimed bytes; permission loss
+after a successful commit never deletes those committed bytes or returns the
+asset to a now-unauthorized caller. Session-lock owners handle the checked-out
+Postgres client's separate error event, fail the operation, and discard that
+connection. An active query's rejected promise alone does not own that event.
 
 ## The export ceiling has one source; the client checks for UX, the boundary enforces
 

@@ -51,6 +51,12 @@ import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { ChatScrollController } from "@/lib/ui/chatScroll";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { INSPECTOR_RAIL_WIDTH } from "@/lib/ui/inspector";
+import {
+	chatComposerIsDisabled,
+	PersistentChatComposer,
+	ShortChatFallback,
+	shouldShowShortChatFallback,
+} from "./chatComposer";
 
 /** Sidebar panel width in pixels. Exported so siblings (e.g. cursor mode bar
  *  positioning in BuilderLayout) can derive offsets without magic numbers. */
@@ -127,73 +133,6 @@ interface ChatSidebarProps {
 	/** Temporary root-model work that supersedes, then yields back to, the
 	 * ordinary activity or design stage without changing either owner. */
 	activityOverride?: ChatActivity | null;
-}
-
-interface ShortChatFallbackOptions {
-	readonly centered: boolean;
-	readonly docked: boolean;
-	readonly veryShortViewport: boolean;
-}
-
-/** Keep the composer subtree alive while another short-height surface needs its
- * room. ChatInput and PromptInput own unsent text and staged attachments; hiding
- * this region must never reset either one. */
-export function PersistentChatComposer({
-	hidden,
-	children,
-}: {
-	readonly hidden: boolean;
-	readonly children: ReactNode;
-}) {
-	return (
-		<div
-			className={hidden ? "hidden" : "shrink-0"}
-			aria-hidden={hidden || undefined}
-			inert={hidden}
-		>
-			{children}
-		</div>
-	);
-}
-
-/** The centered welcome and inspector dock already have their own short-height
- * contracts. Only an expanded, standalone chat needs the deliberate fallback. */
-export function shouldShowShortChatFallback({
-	centered,
-	docked,
-	veryShortViewport,
-}: ShortChatFallbackOptions): boolean {
-	return !centered && !docked && veryShortViewport;
-}
-
-export function chatComposerIsDisabled({
-	isLoading,
-	isGenerating,
-	initialBuildLocked,
-	awaitingTypedInput,
-	activeQuestionCount,
-	composerBusy,
-	readOnly,
-	authorized,
-}: {
-	readonly isLoading: boolean;
-	readonly isGenerating: boolean;
-	readonly initialBuildLocked: boolean;
-	readonly awaitingTypedInput: boolean;
-	readonly activeQuestionCount: number;
-	readonly composerBusy: boolean;
-	readonly readOnly: boolean;
-	readonly authorized: boolean;
-}): boolean {
-	return (
-		isLoading ||
-		((isGenerating || initialBuildLocked) &&
-			activeQuestionCount === 0 &&
-			!awaitingTypedInput) ||
-		composerBusy ||
-		readOnly ||
-		!authorized
-	);
 }
 
 export function ChatSidebar({
@@ -805,43 +744,6 @@ export function ChatSidebar({
 			 *  back to center as this collapses away. */}
 			{centered && startFromScratch}
 		</motion.div>
-	);
-}
-
-/** A complete replacement for an unusable composer fragment. ChatContainer
- * stays mounted behind it, so an active stream continues uninterrupted. */
-export function ShortChatFallback({
-	onCollapse,
-}: {
-	readonly onCollapse: () => void;
-}) {
-	return (
-		<section
-			aria-labelledby="short-chat-fallback-title"
-			data-short-chat-fallback
-			className="flex min-h-0 flex-1 flex-col justify-center gap-2 p-2"
-		>
-			<div className="px-1">
-				<h2
-					id="short-chat-fallback-title"
-					className="text-sm font-semibold text-nova-text"
-				>
-					Chat needs more room
-				</h2>
-				<p className="text-xs leading-5 text-nova-text-muted">
-					Make the window taller to continue
-				</p>
-			</div>
-			<Button
-				type="button"
-				variant="outline"
-				onClick={onCollapse}
-				className="w-full"
-			>
-				<Icon icon={tablerLayoutSidebarRightCollapse} />
-				Collapse chat
-			</Button>
-		</section>
 	);
 }
 

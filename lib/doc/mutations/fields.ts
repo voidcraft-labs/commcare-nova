@@ -48,14 +48,15 @@ export function applyFieldMutation(
 ): void {
 	switch (mut.kind) {
 		case "addField": {
-			// Parent must be a form or a group/repeat that already has an
-			// order entry (groups/repeats are added via addField + an
-			// empty order slot, so we also allow parents that are registered
-			// fields).
-			const parentExists =
-				draft.forms[mut.parentUuid] !== undefined ||
-				draft.fields[mut.parentUuid] !== undefined;
-			if (!parentExists) return;
+			const parentField = draft.fields[mut.parentUuid];
+			if (
+				draft.forms[mut.parentUuid] === undefined &&
+				(parentField === undefined || !isContainer(parentField))
+			)
+				return;
+			const order = draft.fieldOrder[mut.parentUuid] ?? [];
+			// Refuse stale placement before materializing an entity or catalog writer.
+			if (mut.after != null && !order.includes(mut.after)) return;
 			// Cloned: `updateField` edits the stored field in place, and the payload
 			// must not be the object it edits — a second apply of the same batch
 			// would be assigning to a frozen produced state.
@@ -182,6 +183,12 @@ export function applyFieldMutation(
 		case "moveField": {
 			const field = draft.fields[mut.uuid];
 			if (!field) return;
+			if (mut.after === mut.uuid) return;
+			if (
+				mut.after != null &&
+				!(draft.fieldOrder[mut.toParentUuid] ?? []).includes(mut.after)
+			)
+				return;
 			// A same-parent move is a pure reorder. A cross-parent move needs
 			// the complete destination, subtree, and same-form checks below.
 			const currentParent = findFieldParent(

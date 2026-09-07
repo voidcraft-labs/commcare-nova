@@ -88,7 +88,8 @@ interface AppLanguageIdentity {
 `scripts/generate-language-registry.ts` from the SIL ISO 639-3 tables and CLDR
 supplemental data (customary scripts, official-status territories, RTL
 scripts, endonyms, and labels). The generator reruns per ISO/CLDR release,
-asserts structural pins (62 macrolanguages, the living-individual count band,
+rejects changed ISO table column layouts before deriving catalogs,
+asserts structural pins (63 macrolanguages, the living-individual count band,
 the Hans/Hant region sets), and proves every emitted name round-trips the
 CommCare locale-file grammar, so a bad label is a generator failure rather
 than a runtime one.
@@ -387,6 +388,11 @@ removed locally or by a peer, the same store notification falls back to that
 snapshot's default language; no descendant can project or write through a
 stale locale between the store update and the provider re-render.
 
+Within one Builder batch, translation projection follows the preceding edits
+and clears in that batch. A later edit that restores the original value still
+wins over an earlier change; a later clear also removes a target created in the
+same batch. These ordering rules are exercised through the production projector.
+
 A language renders only through the derivation helpers: the switcher and the
 per-language cards show the endonym, the English qualified name where it
 differs, and the direction word. No ISO code appears in any Builder surface;
@@ -511,8 +517,9 @@ Translation is a named model role using GPT-5.6 Sol through Nova's installed AI
 SDK structured-output path. The SDK API called “translation” is speech/audio
 translation and is not used for text localization.
 
-The translator receives batches grouped by owning screen/form and bounded by
-estimated tokens rather than item count alone. Each batch includes:
+The translator receives batches grouped by owning screen/form and split at a
+12,000 estimated-token target. A single translation unit is indivisible: an
+oversized unit stays alone without truncating its source. Each batch includes:
 
 - source and target languages, each as `{identity, descriptor}` where the
   descriptor is the registry-derived prose ("Mandarin Chinese (Simplified
@@ -526,6 +533,10 @@ estimated tokens rather than item count alone. Each batch includes:
 
 The system prompt names the three standards and instructs the model to follow
 the target's script and regional conventions.
+
+An explicitly incomplete provider response is refused even when the SDK parsed
+a complete-looking object. Its usage and failure remain durable; it cannot
+advance the document or become a successful replay.
 
 Output is structured and must cover the exact requested unit IDs. The server
 rejects missing, extra, duplicate, wrong-kind, blank-illegal, or
@@ -747,13 +758,15 @@ never commit.
 
 The stored shape is canonical-only. The one-off language-identity migration
 (`scripts/migrate-language-identity.ts` over
-`scripts/lib/languageIdentityRepair.ts`, invoked by `scripts/migrate.ts` so it
-rides the production migrate Job) rewrites every store that can hold the old
+`scripts/lib/languageIdentityRepair.ts`, run only through its explicit
+historical-repair CLI) rewrites every store that can hold the old
 code-keyed shape: `apps.localization` roots, `app_changes.mutations` payloads
 (including removal of `updateLanguage` rows), `app_change_fold_baselines`
 snapshots, and stored translation-batch state. The migration script's private
 reader is the only place in the codebase that can parse the old shape. Each
-app's rewrite applies in one transaction and is proven by re-folding the app
+app's rewrite applies in one transaction. An English-only root becomes SQL
+NULL, and the equivalent baseline property is removed, using the same rule as
+ordinary mutation replay. The result is proven by re-folding the app
 from its baseline over the rewritten rows with the canonical-only schemas; a
 fleet postcondition scan asserts zero old-shape occurrences remain. A tag the
 mechanical rules cannot decide lands in a reviewed explicit-mapping table, and
@@ -797,6 +810,10 @@ The capability holds only while all of the following remain true:
   collision suffixing, and the `eng`-only byte pin;
 - Builder and Preview tests cover URL-owned language selection, responsive
   layouts, keyboard/touch interaction, focus, and target-language editing;
+- production state tests exercise protected prose, translation inventories,
+  label derivation and mutation projection without a simulated DOM. The
+  language browser journey uses the real registry, persisted target writes,
+  reload and Preview, plus another tab's draft edit and language removal;
 - `nova-plugin` source tests and contract checks pass against the final MCP
   names and behavior;
 - provider schema validation and live translation-quality evaluation run only

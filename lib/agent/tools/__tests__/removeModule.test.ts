@@ -1,5 +1,7 @@
 /**
- * `removeModule` — the tool-level contract around module deletion:
+ * Actual admitted workspace module deletion with a controlled host receipt.
+ * The batch and resulting document are exercised; native SQL tests own durable
+ * transaction atomicity.
  *
  *   - removing the ONLY module of a named app rejects at the gate
  *     (re-introducing `NO_MODULES`) with nothing persisted — the
@@ -16,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { removeModuleTool } from "../removeModule";
 
@@ -66,26 +69,42 @@ describe("removeModule", () => {
 			modules: [
 				{
 					name: "Care",
-					forms: [{ name: "Care home", type: "survey" }],
+					forms: [
+						{
+							name: "Care home",
+							type: "survey",
+							fields: [f({ id: "home", kind: "text" })],
+						},
+					],
 				},
 				{
 					name: "Visits",
-					forms: [{ name: "Visit", type: "survey" }],
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [f({ id: "visit", kind: "text" })],
+						},
+					],
 				},
 			],
 		});
 		const [parentUuid, childUuid] = doc.moduleOrder;
 		doc.modules[childUuid].parentModuleUuid = parentUuid;
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 
 		const out = await h.runTool(removeModuleTool, { moduleUuid: parentUuid });
 
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
 		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(out.result).toMatchObject({
 			error: expect.stringContaining('"Visits"'),
 		});
-		expect((out.result as { error: string }).error).toContain("Move or remove");
+		expect(
+			typeof out.result === "object" &&
+				"error" in out.result &&
+				out.result.error,
+		).toContain("Move or remove");
 	});
 
 	it("rejects removing the ONLY module — the batch would re-introduce NO_MODULES", async () => {
@@ -94,13 +113,13 @@ describe("removeModule", () => {
 			caseTypes: [record("patient")],
 			modules: [moduleSpec("Patients", "patient")],
 		});
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 
 		const out = await h.runTool(removeModuleTool, {
 			moduleUuid: doc.moduleOrder[0],
 		});
 
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
 		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(out.result).toMatchObject({
 			error: expect.stringContaining("at least one module"),
@@ -120,7 +139,7 @@ describe("removeModule", () => {
 				moduleSpec("Visits", "visit"),
 			],
 		});
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 
 		const out = await h.runTool(removeModuleTool, {
 			moduleUuid: doc.moduleOrder[1],
@@ -134,6 +153,7 @@ describe("removeModule", () => {
 			{ kind: "removeModule", uuid: expect.any(String) },
 			{ kind: "retireCaseType", caseType: "visit" },
 		]);
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().moduleOrder).toHaveLength(1);
 		expect(h.currentDoc().caseTypes).toEqual([record("patient")]);
 	});
@@ -156,6 +176,12 @@ describe("removeModule", () => {
 								...registrationFields("patient"),
 								f({
 									kind: "text",
+									id: "visit_name",
+									label: proseText("Visit name"),
+									caseWrite: { caseType: "visit", property: "case_name" },
+								}),
+								f({
+									kind: "text",
 									id: "visit_note",
 									label: proseText("Visit note"),
 									caseWrite: { caseType: "visit", property: "visit_note" },
@@ -167,15 +193,17 @@ describe("removeModule", () => {
 				moduleSpec("Visits", "visit"),
 			],
 		});
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 
 		const out = await h.runTool(removeModuleTool, {
 			moduleUuid: doc.moduleOrder[1],
 		});
 
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
 		expect(h.recordMutations).not.toHaveBeenCalled();
-		const result = out.result as { error: string };
+		const result = out.result;
+		if (typeof result !== "object" || !("error" in result))
+			throw new Error("expected retirement refusal");
 		expect(result.error).toContain('"visit_note"');
 		expect(result.error).toContain("Remove or retarget");
 	});

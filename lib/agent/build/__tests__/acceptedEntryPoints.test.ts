@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	cloneContract,
 	fixtureValue,
@@ -11,7 +12,8 @@ import {
 	formCompositionSchema,
 	moduleCompositionSchema,
 } from "@/lib/agent/design/contract";
-import { asUuid, type BlueprintDoc } from "@/lib/domain";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { asUuid } from "@/lib/domain";
 import {
 	acceptedEntryPointIssues,
 	realizedEntryPointTarget,
@@ -25,6 +27,8 @@ import {
 function contractWithEntryPoints() {
 	const contract = cloneContract(makeContract());
 	fixtureValue(contract.moduleCompositions[0], "module").entryPoint = {};
+	fixtureValue(contract.moduleCompositions[0], "module").caseListEntryPoint =
+		{};
 	fixtureValue(contract.formCompositions[0], "form").entryPoint = {
 		id: "register_patient",
 		ignoreDisplayConditions: true,
@@ -60,10 +64,12 @@ describe("accepted entry-point construction", () => {
 		module.name = "Register patient";
 		expect(
 			acceptedEntryPointRealizations(contract).map((entry) => entry.id),
-		).toEqual(["register_patient_2", "register_patient"]);
-		expect(acceptedEntryPointRealizations(contract)).toEqual(
-			acceptedEntryPointRealizations(contract),
-		);
+		).toEqual([
+			"register_patient_2",
+			"register_patient_list",
+			"register_patient",
+		]);
+		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 	});
 	it("rejects duplicate external IDs and module visibility bypass", () => {
 		const contract = contractWithEntryPoints();
@@ -86,7 +92,7 @@ describe("accepted entry-point construction", () => {
 	});
 	it("defers endpoint realization until all slices and retains exact form creation identity", () => {
 		const { contract, plan, brief } = finalBrief();
-		expect(brief.entryPointRealizations).toHaveLength(2);
+		expect(brief.entryPointRealizations).toHaveLength(3);
 		expect(brief.slice.prerequisiteSliceIds).toEqual(
 			expect.arrayContaining(plan.slices.slice(0, -1).map((slice) => slice.id)),
 		);
@@ -105,56 +111,138 @@ describe("accepted entry-point construction", () => {
 			),
 		);
 	});
-	it("proves the exact form binding, missing coverage, and bypass instead of matching display names", () => {
-		const { brief } = finalBrief();
-		const expected = fixtureValue(
-			brief.entryPointRealizations?.find((entry) => entry.kind === "form"),
-			"form endpoint",
-		);
-		const moduleUuid = asUuid("00000000-0000-4000-8000-000000008001");
-		const formUuid = asUuid("00000000-0000-4000-8000-000000008002");
-		const endpointUuid = asUuid("00000000-0000-4000-8000-000000008003");
-		const doc = {
-			modules: { [moduleUuid]: { uuid: moduleUuid } },
-			forms: {
-				[formUuid]: {
-					uuid: formUuid,
-					entryPoint: {
-						uuid: endpointUuid,
-						id: expected.id,
-						ignoreDisplayConditions: true,
-					},
+	it.each(["module", "case-list", "form"] as const)(
+		"matches exact %s identity and refuses missing, extra and wrong behavior",
+		(kind) => {
+			const { brief } = finalBrief();
+			const expected = fixtureValue(
+				brief.entryPointRealizations?.find((entry) => entry.kind === kind),
+				"endpoint",
+			);
+			const doc = buildDoc({
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: ["Patients", "Patients"].map((name) => ({
+					name,
+
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Survey",
+							type:
+								kind === "case-list"
+									? ("followup" as const)
+									: ("survey" as const),
+							fields: [{ id: "note", kind: "text" as const, label: "Note" }],
+						},
+					],
+				})),
+			});
+			const moduleUuid = fixtureValue(doc.moduleOrder[0], "module");
+			const otherModule = fixtureValue(doc.moduleOrder[1], "other module");
+			const formUuid = fixtureValue(
+				doc.formOrder[moduleUuid]?.[0] ?? doc.formOrder[otherModule]?.[0],
+				"form",
+			);
+			const otherForm = fixtureValue(
+				doc.formOrder[otherModule]?.[0],
+				"other form",
+			);
+			const endpointUuid = asUuid("00000000-0000-4000-8000-000000008003");
+			const entry = { uuid: endpointUuid, id: expected.id };
+			const module = fixtureValue(doc.modules[moduleUuid], "module body");
+			const form = fixtureValue(doc.forms[formUuid], "form body");
+			if (kind === "module") module.entryPoint = entry;
+			else if (kind === "case-list") {
+				module.caseListEntryPoint = entry;
+			} else form.entryPoint = { ...entry, ignoreDisplayConditions: true };
+			assertAdmittedDoc(doc);
+			const handles = [
+				{
+					handle: expected.blueprintModuleHandle,
+					uuid: moduleUuid,
+					entityKind: "module",
 				},
-			},
-			moduleOrder: [moduleUuid],
-			formOrder: { [moduleUuid]: [formUuid] },
-		} as unknown as BlueprintDoc;
-		const handles = [
-			{
-				handle: expected.blueprintModuleHandle,
-				uuid: moduleUuid,
-				entityKind: "module",
-			},
-			{
-				handle: expected.blueprintFormHandle ?? "",
-				uuid: formUuid,
-				entityKind: "form",
-			},
-		];
-		const one = { ...brief, entryPointRealizations: [expected] };
-		expect(realizedEntryPointTarget(doc, expected, handles)).toEqual({
-			kind: "form",
-			moduleUuid,
-			formUuid,
-		});
-		expect(acceptedEntryPointIssues(doc, one, handles)).toEqual([]);
-		expect(acceptedEntryPointIssues(doc, one, handles.slice(0, 1))).not.toEqual(
-			[],
-		);
-		const form = fixtureValue(doc.forms[formUuid], "realized form");
-		form.entryPoint = { uuid: endpointUuid, id: expected.id };
-		expect(acceptedEntryPointIssues(doc, one, handles)[0]?.code).toBe(
-			"ACCEPTED_ENTRY_POINT_MISMATCH",
-		);
-	});
+				...(expected.blueprintFormHandle
+					? [
+							{
+								handle: expected.blueprintFormHandle,
+								uuid: formUuid,
+								entityKind: "form",
+							},
+						]
+					: []),
+			];
+			const one = { ...brief, entryPointRealizations: [expected] };
+			expect(realizedEntryPointTarget(doc, expected, handles)).toEqual({
+				kind,
+				moduleUuid,
+				...(kind === "form" ? { formUuid } : {}),
+			});
+			expect(acceptedEntryPointIssues(doc, one, handles)).toEqual([]);
+			const before = structuredClone(doc);
+			for (const wrong of [
+				[],
+				handles.map((h) => ({ ...h, entityKind: "field" })),
+				handles.map((h) => ({
+					...h,
+					uuid: h.entityKind === "module" ? otherModule : otherForm,
+				})),
+			]) {
+				expect(
+					acceptedEntryPointIssues(doc, one, wrong).map(
+						(issue) => issue.details.entryPointId,
+					),
+				).toEqual([expected.id, expected.id]);
+			}
+			expect(doc).toEqual(before);
+			expect(
+				acceptedEntryPointIssues(
+					doc,
+					{ ...brief, entryPointRealizations: undefined },
+					[],
+				),
+			).toEqual([]);
+			expect(
+				acceptedEntryPointIssues(
+					doc,
+					{ ...brief, entryPointRealizations: [] },
+					handles,
+				).map((issue) => issue.details.entryPointId),
+			).toEqual([expected.id]);
+			if (kind === "form") {
+				expect(
+					realizedEntryPointTarget(
+						doc,
+						expected,
+						handles.map((h) =>
+							h.entityKind === "form" ? { ...h, uuid: otherForm } : h,
+						),
+					),
+				).toBeNull();
+				form.entryPoint = entry;
+				assertAdmittedDoc(doc);
+				expect(
+					acceptedEntryPointIssues(doc, one, handles).map(
+						(issue) => issue.details.entryPointId,
+					),
+				).toEqual([expected.id]);
+			}
+			const current =
+				kind === "module"
+					? module.entryPoint
+					: kind === "case-list"
+						? module.caseListEntryPoint
+						: form.entryPoint;
+			fixtureValue(current, "current endpoint").id = "different_destination";
+			assertAdmittedDoc(doc);
+			expect(
+				acceptedEntryPointIssues(doc, one, handles).map(
+					(issue) => issue.details.entryPointId,
+				),
+			).toEqual([expected.id]);
+		},
+	);
 });

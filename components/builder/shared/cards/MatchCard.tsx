@@ -11,7 +11,6 @@ import { type CaseProperty, isDateTyped, isTextShaped } from "@/lib/domain";
 import {
 	formField,
 	input,
-	type MatchMode,
 	match,
 	matchValueConstraint,
 	type Predicate,
@@ -46,13 +45,6 @@ const MATCH_TEXT_SHAPED_FILTER = (p: CaseProperty): boolean => isTextShaped(p);
 
 const MATCH_FUZZY_DATE_FILTER = (p: CaseProperty): boolean =>
 	isTextShaped(p) || isDateTyped(p);
-
-const _ALL_MODES: readonly MatchMode[] = [
-	"fuzzy",
-	"phonetic",
-	"starts-with",
-	"fuzzy-date",
-];
 
 export function matchDefault(
 	ctx: PredicateEditContext,
@@ -106,10 +98,6 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 		onChange(match(next, value.value, value.mode));
 	};
 
-	const _setMode = (mode: MatchMode) => {
-		onChange(match(value.property, value.value, mode));
-	};
-
 	const setValue = (next: Parameters<typeof match>[1]) => {
 		onChange(match(value.property, next, value.mode));
 	};
@@ -125,12 +113,9 @@ export function MatchCard({ value, onChange, path }: MatchCardProps) {
 			? MATCH_FUZZY_DATE_FILTER
 			: MATCH_TEXT_SHAPED_FILTER;
 
-	// The value slot takes a non-empty term whose type the mode admits:
-	// `matchValueConstraint` carries the mode's allow-list, the
-	// term-only flag (the wire match emitter consumes terms), and the
-	// non-empty flag (every mode collapses an empty value to a
-	// non-match). Memoized on the mode so the term editor's source
-	// admission doesn't recompute on every render.
+	// The value slot takes a non-empty expression whose result type the mode
+	// admits. Composed expressions use the same shared type and carrier
+	// admission as terms. Keep the constraint stable across unrelated renders.
 	const valueConstraint = useMemo(
 		() => matchValueConstraint(value.mode),
 		[value.mode],

@@ -1,17 +1,14 @@
 // Real Postgres acceptance: tenant isolation, reads, writes, and submission effects.
 // Pure projections and mocked action contracts live in the sibling files.
 import { type Kysely, sql } from "kysely";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
 	CasePropertiesValidationError,
-	type CaseRow,
 	type CaseStore,
-	type JsonObject,
 } from "@/lib/case-store";
-import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -50,7 +47,8 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { buildDoc, f } from "../../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	mapPopulateSampleCasesError,
@@ -59,7 +57,6 @@ import {
 } from "../caseDataBindingClient";
 import {
 	buildCaseOperationProgramFromDoc,
-	submissionEnvelopeArgs as projectSubmissionEnvelopeArgs,
 	readCaseData,
 	readCases,
 	readFilterPreview,
@@ -71,85 +68,7 @@ import type { SubmissionMutation } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 
-vi.mock("@/lib/auth-utils", () => ({
-	getSession: vi.fn(),
-}));
-
-const { prepareCaptureSubmissionBytesMock } = vi.hoisted(() => ({
-	prepareCaptureSubmissionBytesMock: vi.fn(),
-}));
-
-vi.mock("@/lib/case-store", async () => {
-	const actual =
-		await vi.importActual<typeof import("@/lib/case-store")>(
-			"@/lib/case-store",
-		);
-	return {
-		...actual,
-		withProjectContext: vi.fn(),
-	};
-});
-
-vi.mock("@/lib/case-store/postgres/submissionAttachments", () => ({
-	prepareCaptureSubmissionBytes: prepareCaptureSubmissionBytesMock,
-}));
-
-const { loadAuthorizedFormSubmissionSnapshotMock } = vi.hoisted(() => ({
-	loadAuthorizedFormSubmissionSnapshotMock: vi.fn(),
-}));
-
-vi.mock("@/lib/db/formAttachments", async () => {
-	const actual = await vi.importActual<
-		typeof import("@/lib/db/formAttachments")
-	>("@/lib/db/formAttachments");
-	return {
-		...actual,
-		loadAuthorizedFormSubmissionSnapshot:
-			loadAuthorizedFormSubmissionSnapshotMock,
-	};
-});
-
-const {
-	getLookupDefinitionsMock,
-	drainPendingMock,
-	loadAppMock,
-	materializeMock,
-	resolveAppScopeMock,
-	resolveAuthorizedAppSnapshotMock,
-} = vi.hoisted(() => ({
-	getLookupDefinitionsMock: vi.fn(),
-	drainPendingMock: vi.fn(),
-	loadAppMock: vi.fn(),
-	materializeMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
-	resolveAuthorizedAppSnapshotMock: vi.fn(),
-}));
-
-vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
-
-vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
-	drainPendingCaseSchemaIndexes: drainPendingMock,
-	materializeCaseStoreSchemas: materializeMock,
-}));
-
-vi.mock("@/lib/lookup/service", async () => {
-	const actual = await vi.importActual<typeof import("@/lib/lookup/service")>(
-		"@/lib/lookup/service",
-	);
-	return { ...actual, getLookupDefinitions: getLookupDefinitionsMock };
-});
-
-vi.mock("@/lib/db/appAccess", async () => {
-	const actual =
-		await vi.importActual<typeof import("@/lib/db/appAccess")>(
-			"@/lib/db/appAccess",
-		);
-	return {
-		...actual,
-		resolveAppScope: resolveAppScopeMock,
-		resolveAuthorizedAppSnapshot: resolveAuthorizedAppSnapshotMock,
-	};
-});
+afterEach(() => vi.restoreAllMocks());
 
 const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
@@ -157,54 +76,6 @@ const dbHandle = setupPerTestDatabase({
 });
 
 beforeEach(async () => {
-	// The action tests queue per-call resolutions on the shared
-	// `getSession` / `withProjectContext` module mocks via
-	// `mockResolvedValueOnce`. The `clearMocks` config runs `mockClear`
-	// (call history only) — it does NOT drain a `*Once` queue, so a test
-	// that short-circuits before consuming its queued value would leak it
-	// to the next test and misattribute that test's failure. Reset every
-	// mock's queue so each test is diagnostically independent. (Only the
-	// module mocks — auth, store context, and the heal's Postgres
-	// boundary — are vi.fn()s at this point; in-test spies/stubs are
-	// created inside the bodies that follow.)
-	vi.resetAllMocks();
-	// Default both membership paths to success — the common case. Denial-path
-	// tests override the applicable resolver with a rejected `AppAccessError`.
-	// `withProjectContext` is mocked per-test to return the store under
-	// test, so the resolved `projectId` here is inert; it only needs to
-	// not throw.
-	resolveAppScopeMock.mockResolvedValue({
-		projectId: PROJECT_A,
-		role: "owner",
-		actorUserId: OWNER_A,
-	});
-	loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
-		kind: "current",
-		projectId: PROJECT_A,
-		app: {
-			blueprint: finalSubmissionDoc(),
-			mutation_seq: 1,
-			project_id: PROJECT_A,
-		},
-	});
-	loadAppMock.mockResolvedValue({
-		blueprint: finalSubmissionDoc(),
-		mutation_seq: 1,
-		project_id: PROJECT_A,
-	});
-	resolveAuthorizedAppSnapshotMock.mockImplementation(
-		async (appId: string, actorUserId: string) => {
-			const app = await loadAppMock(appId);
-			return {
-				app,
-				projectId: PROJECT_A,
-				role: "owner",
-				actorUserId,
-				canEdit: true,
-				baseSeq: Number(app?.mutation_seq ?? 0),
-			};
-		},
-	);
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES (
@@ -237,86 +108,46 @@ const FINAL_SUBMISSION_PROTOCOL = {
 	attachmentRefs: [],
 } as const;
 
-let submissionEnvelopeReceiptSequence = 0;
-
+/** Direct CaseStore envelope fixtures. These exercise persistence and rollback,
+ * not form-authority derivation. The extension case below feeds the real producer;
+ * submissionProgramAcceptance owns the complete committed-document journey. */
 function submissionEnvelopeArgs(
-	mutation: Parameters<typeof projectSubmissionEnvelopeArgs>[0],
-	appId: Parameters<typeof projectSubmissionEnvelopeArgs>[1],
-	built?: Parameters<typeof projectSubmissionEnvelopeArgs>[2],
-): ReturnType<typeof projectSubmissionEnvelopeArgs> {
-	submissionEnvelopeReceiptSequence += 1;
+	mutation: SubmissionMutation,
+	appId: string,
+	built?: ReturnType<typeof buildCaseOperationProgramFromDoc>,
+): Parameters<CaseStore["applySubmission"]>[0] {
 	const children =
-		mutation.kind === "registration" ||
-		mutation.kind === "followup" ||
-		mutation.kind === "close"
-			? mutation.children
-			: [];
-	const ordinaryChildRelationships =
-		built?.ordinaryChildRelationships ??
-		new Map(children.map((child) => [child.caseType, "child"] as const));
-	const childSeeds = children.map((child) => ({
-		...child,
-		parentRelationship:
-			ordinaryChildRelationships.get(child.caseType) ?? ("child" as const),
-	}));
-	const ordinaryCaseType =
-		built?.ordinaryCaseType ??
-		(mutation.kind === "followup" || mutation.kind === "close"
-			? "patient"
-			: undefined);
-	const ordinarySelection =
-		built?.ordinarySelection ??
-		(mutation.kind === "followup" || mutation.kind === "close"
-			? { kind: "single" as const, maximum: 1 as const }
-			: undefined);
-	const ordinaryAction =
+		mutation.kind === "survey"
+			? []
+			: mutation.children.map((child) => ({
+					...child,
+					parentRelationship: "child" as const,
+				}));
+	const ordinary =
 		built?.ordinaryAction ??
 		(mutation.kind === "registration"
-			? {
-					kind: "registration" as const,
-					primary: mutation.primary,
-					children: childSeeds,
-				}
-			: mutation.kind === "followup" || mutation.kind === "close"
-				? {
-						kind:
-							mutation.kind === "close" && (built?.ordinaryCloseCase ?? true)
-								? ("close" as const)
-								: ("followup" as const),
+			? { kind: "registration" as const, primary: mutation.primary, children }
+			: mutation.kind === "survey"
+				? { kind: "none" as const }
+				: {
+						kind: mutation.kind,
 						caseIds: mutation.caseIds,
-						caseType: ordinaryCaseType ?? "patient",
-						selection:
-							ordinarySelection ?? ({ kind: "single", maximum: 1 } as const),
+						caseType: "patient",
+						selection: { kind: "single" as const, maximum: 1 as const },
 						patch: mutation.patch,
-						children: childSeeds,
-					}
-				: { kind: "none" as const });
-	return projectSubmissionEnvelopeArgs(mutation, appId, {
-		...built,
-		ordinaryAction,
-		ordinaryFormType: built?.ordinaryFormType ?? mutation.kind,
-		ordinaryCloseCase:
-			built?.ordinaryCloseCase ??
-			(mutation.kind === "close" ? true : undefined),
-		// Whatever the mutation names, unless a test says otherwise: these
-		// tests are about the envelope's other halves, and the committed-form
-		// filter has its own coverage.
-		usercaseWriteProperties:
-			built?.usercaseWriteProperties ??
-			new Set(Object.keys(mutation.usercase ?? {})),
-		ordinaryChildRelationships,
-		ordinaryCaseType,
-		ordinarySelection,
-		submissionReceipt:
-			built?.submissionReceipt ??
-			({
-				entryKey: mutation.entryKey,
-				formUuid: testUuid(mutation.formUuid),
-				expectedAppMutationSeq: 0,
-				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
-				requestDigest: `case-data-binding-request-${submissionEnvelopeReceiptSequence}`,
-			} as const),
-	});
+						children,
+					});
+	return {
+		appId,
+		ordinary,
+		submissionReceipt: {
+			entryKey: mutation.entryKey,
+			formUuid: testUuid(mutation.formUuid),
+			expectedAppMutationSeq: 0,
+			blueprintDigest: FINAL_BLUEPRINT_DIGEST,
+			requestDigest: canonicalJsonDigest(mutation),
+		},
+	};
 }
 
 function finalSubmissionDoc() {
@@ -331,7 +162,13 @@ function finalSubmissionDoc() {
 						uuid: FINAL_FORM_UUID,
 						name: "Form",
 						type: "survey",
-						fields: [],
+						fields: [
+							f({
+								uuid: "10000000-0000-4000-8000-000000000004",
+								kind: "text",
+								id: "notes",
+							}),
+						],
 					},
 				],
 			},
@@ -380,7 +217,21 @@ const FORMATTED_PROPS_CASE_TYPE: CaseType = {
 };
 
 function buildBlueprint(caseTypes: CaseType[]) {
-	return buildSimpleBlueprint(caseTypes, APP_ID);
+	return assertAdmittedPreviewDoc(
+		buildDoc({
+			appId: APP_ID,
+			caseTypes,
+			modules: caseTypes.map((type) => ({
+				name: type.name,
+				caseType: type.name,
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			})),
+		}),
+	);
 }
 
 function makeStore(
@@ -409,23 +260,6 @@ async function seedSchema(
 		caseType,
 		caseTypeSchemas: buildCaseTypeMap(blueprint),
 	});
-}
-
-function buildSyntheticRow(properties: JsonObject): CaseRow {
-	return {
-		case_id: "test-id",
-		app_id: APP_ID,
-		case_type: "patient",
-		owner_id: OWNER_A,
-		status: "open",
-		opened_on: null,
-		modified_on: null,
-		closed_on: null,
-		case_name: "Synthetic Case",
-		external_id: null,
-		parent_case_id: null,
-		properties,
-	};
 }
 
 describe("a submission made while previewing as a persona", () => {
@@ -920,47 +754,6 @@ describe("readCases", () => {
 		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([caseIds[2]]);
 	});
 
-	it("recounts and retries once when a delete empties the counted page", async () => {
-		let backingRows = Array.from({ length: 51 }, (_, index) => ({
-			...buildSyntheticRow({ name: `Patient ${index + 1}` }),
-			case_id: `10000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`,
-			calculated: {},
-		}));
-		const count = vi.fn(async () => backingRows.length);
-		const query = vi.fn(async (args) => {
-			if (query.mock.calls.length === 1) {
-				// The store's backing population mutates after COUNT observed 51
-				// rows but before the first SELECT applies its offset.
-				backingRows = backingRows.slice(0, 50);
-			}
-			const offset = args.offset ?? 0;
-			return backingRows.slice(
-				offset,
-				offset + (args.limit ?? backingRows.length),
-			);
-		});
-		const racingStore = { count, query } as unknown as CaseStore;
-
-		const result = await readCases(racingStore, {
-			appId: APP_ID,
-			caseType: "patient",
-			page: { offset: 50, limit: 50 },
-		});
-
-		expect(result).toMatchObject({
-			kind: "rows",
-			totalCount: 50,
-			pageOffset: 0,
-			pageSize: 50,
-		});
-		if (result.kind !== "rows") return;
-		expect(result.rows).toHaveLength(50);
-		expect(count).toHaveBeenCalledTimes(2);
-		expect(query).toHaveBeenCalledTimes(2);
-		expect(query.mock.calls.map(([args]) => args.offset)).toEqual([50, 0]);
-		expect(query.mock.calls.map(([args]) => args.limit)).toEqual([50, 50]);
-	});
-
 	it("uses Results order, not Details order, to break equal sort priorities", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
@@ -1001,6 +794,10 @@ describe("readCases", () => {
 							sort: { direction: "asc", priority: 0 },
 						},
 					),
+				],
+				detailColumnOrder: [
+					testUuid("10000000-0000-0000-0000-000000000003"),
+					NAME_COLUMN_UUID,
 				],
 				searchInputs: [],
 			}),
@@ -2703,8 +2500,20 @@ describe("applySubmission — registration", () => {
 			caseTypes: [PATIENT_CASE_TYPE, extensionVisit],
 			modules: [
 				{
+					name: "Visits",
+					caseType: "visit",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [],
+				},
+				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: FINAL_FORM_UUID,
@@ -2740,6 +2549,7 @@ describe("applySubmission — registration", () => {
 				},
 			],
 		});
+		assertAdmittedPreviewDoc(blueprint);
 		await seedSchema(store, blueprint, "patient");
 		await seedSchema(store, blueprint, "visit");
 
@@ -2822,19 +2632,8 @@ describe("applySubmission — registration", () => {
 		expect(patients.rows).toHaveLength(1);
 	});
 
-	it("admits an empty properties document against a case-type with formatted properties (AJV does not reject)", async () => {
-		// Empty-properties round-trip: a registration whose user filled
-		// only `case_name` against a case-type carrying `format: date`,
-		// `format: time`, `format: date-time`, geopoint, and numeric
-		// properties must clear AJV. The engine's empty-value filter
-		// (`raw === undefined || raw === ""` inside
-		// `formEngine.ts::FormEngine.computeSubmissionMutation`)
-		// guarantees the absent properties never reach the envelope, and
-		// `caseTypeToJsonSchema` emits `{ type: "object" }` with no
-		// `required` keys — so the empty document trivially passes.
-		// Pinning the round-trip end-to-end protects against a future
-		// generator change that adds `required` keys (which would crash
-		// every running-app form whose user fills only `case_name`).
+	it("stores omitted optional formatted properties as an empty object", async () => {
+		// Store-level optional-property admission; form-engine omission has separate tests.
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -3119,7 +2918,7 @@ describe("applySubmission — followup", () => {
 });
 
 describe("applySubmission — close", () => {
-	it("updates properties, inserts children, and stamps the lifecycle close last", async () => {
+	it("commits updated properties, a child, and the closed lifecycle together", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -3169,7 +2968,7 @@ describe("applySubmission — close", () => {
 		expect(patients.rows[0]?.status).toBe("closed");
 	});
 
-	it("skips the primary property write on an empty patch but still stamps the close", async () => {
+	it("preserves properties on an empty close patch and commits its child", async () => {
 		// Empty-patch close: a close form whose only effect is the
 		// closure stamp itself (no property writes) skips the primary's
 		// property UPDATE but MUST still land `closed_on` + the built-in

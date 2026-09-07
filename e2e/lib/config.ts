@@ -31,3 +31,6 @@ export const SEARCH_FIRST_FIXTURE_COUNT = SMOKE_RETRIES + 1;
 
 /** Entry-point authoring mutates the doc, so retries own separate apps. */
 export const DEEP_LINKS_FIXTURE_COUNT = SMOKE_RETRIES + 1;
+
+/** Each language-editing attempt authors and removes its own overlay. */
+export const LOCALIZATION_FIXTURE_COUNT = SMOKE_RETRIES + 1;

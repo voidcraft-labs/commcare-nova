@@ -6,41 +6,53 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
+import { expectAdmittedDoc } from "./admittedFixture";
 
-function readingDoc() {
-	return buildDoc({
-		appName: "Med Tracker",
-		caseTypes: [
-			{
-				name: "medication_order",
-				properties: [
-					{ name: "order_status", label: proseText("Order status") },
-				],
-			},
-		],
-		modules: [
-			{
-				name: "Orders",
-				caseType: "medication_order",
-				forms: [
-					{
-						name: "Administer Medication",
-						type: "followup",
-						fields: [
-							f({
-								id: "med_given",
-								kind: "text",
-								relevant: "#medication_order/order_status = 'delivered'",
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
+function readingDoc(write = false) {
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Med Tracker",
+			caseTypes: [
+				{
+					name: "medication_order",
+					properties: [
+						{ name: "order_status", label: proseText("Order status") },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					caseListConfig: caseListConfig([
+						{ field: "order_status", header: "Order status" },
+					]),
+					forms: [
+						{
+							name: "Administer Medication",
+							type: "followup",
+							fields: [
+								f({
+									id: "med_given",
+									kind: "text",
+									relevant: "#medication_order/order_status = 'delivered'",
+									...(write && {
+										caseWrite: {
+											caseType: "medication_order",
+											property: "order_status",
+										},
+									}),
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 describe("summarizeBlueprint — unwritten-property reminder", () => {
@@ -60,24 +72,8 @@ describe("summarizeBlueprint — unwritten-property reminder", () => {
 		);
 	});
 
-	it("emits no reminder when every read property has a writer", () => {
-		const summary = summarizeBlueprint(
-			buildDoc({
-				appName: "Clean",
-				modules: [
-					{
-						name: "Survey",
-						forms: [
-							{
-								name: "Feedback",
-								type: "survey",
-								fields: [f({ id: "comment", kind: "text" })],
-							},
-						],
-					},
-				],
-			}),
-		);
+	it("emits no reminder when the previously unwritten property has an actual form-field writer", () => {
+		const summary = summarizeBlueprint(readingDoc(true));
 		expect(summary).not.toContain("<system_reminder>");
 	});
 });

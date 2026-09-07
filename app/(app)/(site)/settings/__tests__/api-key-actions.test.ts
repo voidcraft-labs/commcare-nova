@@ -1,3 +1,4 @@
+import { editApiKeyScopes, mintApiKey, revokeApiKey } from "../api-key-actions";
 /**
  * Unit tests for `app/(app)/settings/api-key-actions.ts`.
  *
@@ -25,46 +26,6 @@ const mocks = vi.hoisted(() => {
 	const revalidatePath = vi.fn();
 	const headers = vi.fn(async () => new Headers());
 
-	/** Stand-in for the `auth_apikey` rows `getAuthDb()` reads during race
-	 *  compensation. The default is "no rows for this user":
-	 *  race-compensation tests set `apikeySnapshot.rows` to surface specific
-	 *  position orderings. The delete branch records every targeted id (the
-	 *  `where("id", "=", …)` value) so a test can assert which row was pruned. */
-	const apikeySnapshot = {
-		rows: [] as Array<{ id: string; createdAt: Date }>,
-	};
-	const apikeyDeletes = vi.fn(async (_id: unknown) => {});
-
-	function fakeAuthDb() {
-		const onlyApikey = (table: string) => {
-			if (table !== "auth_apikey") {
-				throw new Error(`unexpected table: ${table}`);
-			}
-		};
-		return {
-			selectFrom: (table: string) => {
-				onlyApikey(table);
-				return {
-					select: (_columns: readonly string[]) => ({
-						where: (_col: string, _op: string, _value: unknown) => ({
-							execute: async () => apikeySnapshot.rows,
-						}),
-					}),
-				};
-			},
-			deleteFrom: (table: string) => {
-				onlyApikey(table);
-				return {
-					where: (_col: string, _op: string, id: unknown) => ({
-						execute: async () => {
-							await apikeyDeletes(id);
-						},
-					}),
-				};
-			},
-		};
-	}
-
 	function reset() {
 		getSession.mockReset();
 		countUserApiKeys.mockReset();
@@ -77,9 +38,6 @@ const mocks = vi.hoisted(() => {
 		revalidatePath.mockReset();
 		headers.mockReset();
 		headers.mockImplementation(async () => new Headers());
-		apikeySnapshot.rows = [];
-		apikeyDeletes.mockReset();
-		apikeyDeletes.mockImplementation(async () => {});
 	}
 
 	return {
@@ -91,9 +49,6 @@ const mocks = vi.hoisted(() => {
 		updateApiKey,
 		revalidatePath,
 		headers,
-		fakeAuthDb,
-		apikeySnapshot,
-		apikeyDeletes,
 		reset,
 	};
 });
@@ -127,7 +82,7 @@ vi.mock("@/lib/db/api-keys", async () => {
 	return {
 		countUserApiKeys: mocks.countUserApiKeys,
 		isUserActive: mocks.isUserActive,
-		PER_USER_KEY_LIMIT: 10,
+		PER_USER_KEY_LIMIT: actual.PER_USER_KEY_LIMIT,
 		toISOString: actual.toISOString,
 		toISOStringOrNull: actual.toISOStringOrNull,
 	};
@@ -143,34 +98,12 @@ vi.mock("@/lib/auth", () => ({
 	}),
 }));
 
-/* `lib/auth-public` is the client-safe seam: must be mocked
- * separately from `@/lib/auth` since they're different modules from
- * vitest's POV. */
-vi.mock("@/lib/auth-public", () => ({
-	NOVA_API_KEY_PREFIX: "sk-nova-v1-",
-	NOVA_API_KEY_SCOPES: [
-		"nova.read",
-		"nova.write",
-		"nova.hq.read",
-		"nova.hq.write",
-	],
-	NOVA_MCP_FLOOR_SCOPES: ["nova.read", "nova.write"],
-}));
-
 vi.mock("next/cache", () => ({
 	revalidatePath: mocks.revalidatePath,
 }));
 
 vi.mock("next/headers", () => ({
 	headers: mocks.headers,
-}));
-
-/* `getAuthDb` is the auth-table surface the action's race-compensation path
- * reaches: it reads sibling `auth_apikey` rows for position resolution and may
- * delete the just-minted row. The fake row set is configured per-test via
- * `mocks.apikeySnapshot`. */
-vi.mock("@/lib/auth/db", () => ({
-	getAuthDb: async () => mocks.fakeAuthDb(),
 }));
 
 /**
@@ -196,8 +129,6 @@ const sessionUser = { id: "user-1", email: "user@example.com" };
 describe("mintApiKey", () => {
 	it("refuses without a session", async () => {
 		mocks.getSession.mockResolvedValue(null);
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "test",
 			scopes: ["nova.read", "nova.write"],
@@ -221,8 +152,6 @@ describe("mintApiKey", () => {
 		 * lookup so the two surfaces agree on "user can act." */
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.isUserActive.mockResolvedValue(false);
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "test",
 			scopes: ["nova.read", "nova.write"],
@@ -235,8 +164,6 @@ describe("mintApiKey", () => {
 
 	it("rejects an empty name", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "  ",
 			scopes: ["nova.read", "nova.write"],
@@ -249,8 +176,6 @@ describe("mintApiKey", () => {
 
 	it("rejects unknown scope strings", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "test",
 			scopes: ["nova.read", "nova.write", "nova.admin"],
@@ -266,8 +191,6 @@ describe("mintApiKey", () => {
 
 	it("requires both floor scopes (nova.read + nova.write)", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "test",
 			scopes: ["nova.read"], // missing write
@@ -284,8 +207,6 @@ describe("mintApiKey", () => {
 	it("enforces the per-user 10-key limit", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.countUserApiKeys.mockResolvedValue(10);
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "test",
 			scopes: ["nova.read", "nova.write"],
@@ -297,115 +218,6 @@ describe("mintApiKey", () => {
 			error: expect.stringContaining("10 keys"),
 		});
 		expect(mocks.createApiKey).not.toHaveBeenCalled();
-	});
-
-	it("compensating delete: when count→create races push the user over the limit, the loser row is deleted and the loser caller errors", async () => {
-		/* Race scenario: the user has 9 rows. Two parallel mints
-		 * both pass the pre-flight (count=9), both create, ending
-		 * count=11. Each caller's compensating action reads the row
-		 * set, sorts deterministically, and deletes only its own
-		 * row when its position falls beyond the limit. This test
-		 * stages the post-create state for the LOSER caller: the
-		 * just-created row sits at position 10 (the 11th-newest),
-		 * so the action must delete it and surface the limit error. */
-		mocks.getSession.mockResolvedValue({ user: sessionUser });
-		/* Pre-flight returns 9 (under limit), post-create returns
-		 * 11 (over limit by one). */
-		mocks.countUserApiKeys.mockResolvedValueOnce(9).mockResolvedValueOnce(11);
-		mocks.createApiKey.mockResolvedValue({
-			id: KEY_ID_MINE,
-			key: "sk-nova-v1-LOSER",
-			start: "sk-nova-v1-LSE",
-			createdAt: new Date("2026-04-22T12:00:00.500Z"),
-			expiresAt: new Date("2027-04-22T12:00:00.000Z"),
-		});
-		/* Snapshot the user's apikey rows in the order Postgres
-		 * would surface them. Newer rows have later `createdAt`;
-		 * the just-minted (`KEY_ID_MINE`) is the LATER of the two
-		 * race winners, putting it at position 10: the loser slot. */
-		const baseTime = new Date("2026-04-22T11:00:00.000Z").getTime();
-		mocks.apikeySnapshot.rows = [
-			...Array.from({ length: 9 }, (_, i) => ({
-				id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
-					-32,
-				),
-				createdAt: new Date(baseTime + i * 1000),
-			})),
-			{
-				id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
-				createdAt: new Date("2026-04-22T12:00:00.499Z"),
-			},
-			{ id: KEY_ID_MINE, createdAt: new Date("2026-04-22T12:00:00.500Z") },
-		];
-
-		const { mintApiKey } = await import("../api-key-actions");
-		const result = await mintApiKey({
-			name: "race-loser",
-			scopes: ["nova.read", "nova.write"],
-			expiry: "1y",
-		});
-
-		expect(result).toMatchObject({
-			success: false,
-			error: expect.stringContaining("10 keys"),
-		});
-		// The loser deletes its OWN row (KEY_ID_MINE), keyed by id in the DELETE.
-		expect(mocks.apikeyDeletes).toHaveBeenCalledTimes(1);
-		expect(mocks.apikeyDeletes).toHaveBeenCalledWith(KEY_ID_MINE);
-		expect(mocks.revalidatePath).not.toHaveBeenCalled();
-	});
-
-	it("compensating delete: when count→create races push the user over the limit, a winner row is kept and success returns", async () => {
-		/* Symmetric scenario to the loser test. Same race shape:
-		 * pre-flight 9, post-create 11, but the just-minted row
-		 * sits at position 9 (the 10th-newest, last allowed slot).
-		 * The action must NOT delete it; the success result returns
-		 * with the plaintext key. The OTHER racing caller (not
-		 * exercised here) sees its own row at position 10 and
-		 * handles its own delete in its own invocation. */
-		mocks.getSession.mockResolvedValue({ user: sessionUser });
-		mocks.countUserApiKeys.mockResolvedValueOnce(9).mockResolvedValueOnce(11);
-		const winnerCreatedAt = new Date("2026-04-22T12:00:00.499Z");
-		const winnerExpiresAt = new Date("2027-04-22T12:00:00.000Z");
-		mocks.createApiKey.mockResolvedValue({
-			id: KEY_ID_MINE,
-			key: "sk-nova-v1-WINNER",
-			start: "sk-nova-v1-WIN",
-			createdAt: winnerCreatedAt,
-			expiresAt: winnerExpiresAt,
-		});
-		const baseTime = new Date("2026-04-22T11:00:00.000Z").getTime();
-		mocks.apikeySnapshot.rows = [
-			...Array.from({ length: 9 }, (_, i) => ({
-				id: `0000000000000000000000000000000${i.toString().padStart(2, "0")}`.slice(
-					-32,
-				),
-				createdAt: new Date(baseTime + i * 1000),
-			})),
-			{ id: KEY_ID_MINE, createdAt: winnerCreatedAt },
-			{
-				id: "ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ",
-				createdAt: new Date("2026-04-22T12:00:00.500Z"),
-			},
-		];
-
-		const { mintApiKey } = await import("../api-key-actions");
-		const result = await mintApiKey({
-			name: "race-winner",
-			scopes: ["nova.read", "nova.write"],
-			expiry: "1y",
-		});
-
-		expect(result).toEqual({
-			success: true,
-			key: "sk-nova-v1-WINNER",
-			keyId: KEY_ID_MINE,
-			displayPrefix: "sk-nova-v1-WIN",
-			createdAt: winnerCreatedAt.toISOString(),
-			expiresAt: winnerExpiresAt.toISOString(),
-		});
-		expect(mocks.apikeyDeletes).not.toHaveBeenCalled();
-		expect(mocks.revalidatePath).toHaveBeenCalledWith("/settings");
 	});
 
 	it("happy path: returns the plaintext key once and revalidates", async () => {
@@ -420,8 +232,6 @@ describe("mintApiKey", () => {
 			createdAt: createdAtDate,
 			expiresAt: expiresAtDate,
 		});
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "ace-service",
 			scopes: ["nova.read", "nova.write", "nova.hq.write"],
@@ -465,7 +275,6 @@ describe("mintApiKey", () => {
 			createdAt: new Date("2026-04-22T12:00:00Z"),
 			expiresAt: null,
 		});
-		const { mintApiKey } = await import("../api-key-actions");
 
 		await mintApiKey({
 			name: "k",
@@ -509,8 +318,6 @@ describe("mintApiKey", () => {
 		mocks.countUserApiKeys.mockResolvedValue(0);
 		const err = new APIError("BAD_REQUEST", { code: "KEY_NOT_FOUND" });
 		mocks.createApiKey.mockRejectedValue(err);
-
-		const { mintApiKey } = await import("../api-key-actions");
 		const result = await mintApiKey({
 			name: "k",
 			scopes: ["nova.read", "nova.write"],
@@ -529,8 +336,6 @@ describe("mintApiKey", () => {
 describe("revokeApiKey", () => {
 	it("refuses without a session", async () => {
 		mocks.getSession.mockResolvedValue(null);
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey(KEY_ID_GENERIC);
 
 		expect(result).toMatchObject({ success: false });
@@ -539,8 +344,6 @@ describe("revokeApiKey", () => {
 
 	it("rejects empty / non-string keyId", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey("   ");
 
 		expect(result).toMatchObject({ success: false });
@@ -550,8 +353,6 @@ describe("revokeApiKey", () => {
 	it("refuses when the session user is banned (cookie-cache TOCTOU)", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.isUserActive.mockResolvedValue(false);
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey(KEY_ID_MINE);
 
 		expect(result).toMatchObject({ success: false });
@@ -565,7 +366,6 @@ describe("revokeApiKey", () => {
 		 * chars, slashes, off-length, non-alphanumeric chars) is
 		 * rejected before reaching the plugin or audit logs. */
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-		const { revokeApiKey } = await import("../api-key-actions");
 
 		const badInputs = [
 			"short",
@@ -587,8 +387,6 @@ describe("revokeApiKey", () => {
 	it("happy path deletes via the plugin and revalidates", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.deleteApiKey.mockResolvedValue({ success: true });
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey(KEY_ID_MINE);
 
 		expect(result).toEqual({ success: true });
@@ -617,8 +415,6 @@ describe("revokeApiKey", () => {
 		mocks.deleteApiKey.mockRejectedValue(
 			new APIError("NOT_FOUND", { code: "KEY_NOT_FOUND" }),
 		);
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey(KEY_ID_GONE);
 
 		expect(result).toEqual({ success: true });
@@ -639,8 +435,6 @@ describe("revokeApiKey", () => {
 				code: "FAILED_TO_UPDATE_API_KEY",
 			}),
 		);
-
-		const { revokeApiKey } = await import("../api-key-actions");
 		const result = await revokeApiKey(KEY_ID_MINE);
 
 		expect(result).toMatchObject({ success: false });
@@ -652,8 +446,6 @@ describe("revokeApiKey", () => {
 describe("editApiKeyScopes", () => {
 	it("refuses without a session", async () => {
 		mocks.getSession.mockResolvedValue(null);
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_GENERIC, [
 			"nova.read",
 			"nova.write",
@@ -666,8 +458,6 @@ describe("editApiKeyScopes", () => {
 	it("refuses when the session user is banned (cookie-cache TOCTOU)", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.isUserActive.mockResolvedValue(false);
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_MINE, [
 			"nova.read",
 			"nova.write",
@@ -679,8 +469,6 @@ describe("editApiKeyScopes", () => {
 
 	it("rejects unknown scope strings", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_GENERIC, [
 			"nova.read",
 			"nova.write",
@@ -693,8 +481,6 @@ describe("editApiKeyScopes", () => {
 
 	it("requires both floor scopes (nova.read + nova.write)", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_GENERIC, ["nova.read"]);
 
 		expect(result).toMatchObject({ success: false });
@@ -704,8 +490,6 @@ describe("editApiKeyScopes", () => {
 	it("happy path updates via the plugin and revalidates", async () => {
 		mocks.getSession.mockResolvedValue({ user: sessionUser });
 		mocks.updateApiKey.mockResolvedValue({ success: true });
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_MINE, [
 			"nova.read",
 			"nova.write",
@@ -740,8 +524,6 @@ describe("editApiKeyScopes", () => {
 		mocks.updateApiKey.mockRejectedValue(
 			new APIError("NOT_FOUND", { code: "KEY_NOT_FOUND" }),
 		);
-
-		const { editApiKeyScopes } = await import("../api-key-actions");
 		const result = await editApiKeyScopes(KEY_ID_GONE, [
 			"nova.read",
 			"nova.write",
@@ -759,4 +541,14 @@ describe("editApiKeyScopes", () => {
 			}),
 		);
 	});
+});
+
+it("malformed Server Action scopes resolve a refusal without throwing", async () => {
+	mocks.getSession.mockResolvedValue({ user: sessionUser });
+	const result = await editApiKeyScopes(
+		KEY_ID_MINE,
+		{} as unknown as readonly string[],
+	);
+	expect(result).toMatchObject({ success: false });
+	expect(mocks.updateApiKey).not.toHaveBeenCalled();
 });

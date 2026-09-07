@@ -12,6 +12,7 @@ import {
 	messageRef,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import type { LookupScope } from "@/lib/lookup/types";
 
@@ -160,11 +161,25 @@ describe("reviewed-design Project-data inspection", () => {
 				},
 			},
 		});
+		const filtered = await inspectAuthorizedProjectData(args, {
+			tableId,
+			query: "Clinic",
+			choiceProjection: { valueColumnId: columnId, labelColumnId: columnId },
+		});
+		expect(filtered).toMatchObject({
+			kind: "rows",
+			rows: [{ cells: [{ value: "Clinic" }] }],
+			complete: true,
+		});
+		if (filtered.kind !== "rows" || rows.kind !== "rows")
+			throw new Error("Expected row inspections");
+		// A filtered page does not turn its subset into the complete choice evidence.
+		expect(filtered.choiceProjection).toEqual(rows.choiceProjection);
 	});
 
 	it("budgets the complete row result including its choice attestation and cursor", async () => {
 		const { args, scope } = await setup();
-		const large = "x".repeat(60_000);
+		const large = "界".repeat(20_000);
 		const created = await h
 			.db()
 			.transaction()
@@ -220,9 +235,127 @@ describe("reviewed-design Project-data inspection", () => {
 		if (second.kind !== "rows") throw new Error("Expected a row page.");
 		expect(second.rows).toHaveLength(1);
 		expect(second.complete).toBe(true);
+		expect(second.rows[0]?.id).not.toBe(first.rows[0]?.id);
+		expect(second.choiceProjection).toEqual(first.choiceProjection);
+		expect(first.choiceProjection?.inspection.rowCount).toBe(2);
 		expect(
 			Buffer.byteLength(JSON.stringify(second), "utf8"),
 		).toBeLessThanOrEqual(DESIGN_PROJECT_DATA_CATALOG_PAGE_MAX_BYTES);
+	});
+
+	it("does not reveal foreign Project rows or accept a foreign catalog cursor", async () => {
+		const { args, scope } = await setup();
+		await addWideCatalogTable(scope);
+		const cursorPage = await inspectAuthorizedProjectData(args, {});
+		if (cursorPage.kind !== "catalog" || cursorPage.nextCursor === undefined)
+			throw new Error("Expected a paged catalog");
+		const otherProject = "separate-inspection-project";
+		const otherSession = await h.seedDesignSession({
+			owner_user_id: ACTOR,
+			project_id: otherProject,
+			run_id: RUN_ID,
+			run_holder_nonce: NONCE,
+			run_actor_user_id: ACTOR,
+			run_lease_expires_at: new Date(Date.now() + 60_000),
+		});
+		const receipt = await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				applyLookupAuthoringBatchInTransaction(
+					tx,
+					{ projectId: otherProject, actorId: ACTOR, role: "owner" },
+					{
+						createTables: [
+							{
+								key: "secret",
+								name: "Other Project table",
+								tag: "other_project",
+								columns: [
+									{
+										key: "value",
+										wireName: "value",
+										label: "Value",
+										dataType: "text",
+									},
+								],
+								rows: [
+									{
+										key: "secret",
+										cells: [{ columnKey: "value", value: "PRIVATE ROW" }],
+									},
+								],
+							},
+						],
+					},
+				),
+			);
+		const foreign = await inspectAuthorizedProjectData(args, {
+			tableId: receipt.tables[0].tableId,
+		});
+		const missing = await inspectAuthorizedProjectData(args, {
+			tableId: lookupTableIdSchema.parse(
+				"00000000-0000-7000-8000-000000009999",
+			),
+		});
+		expect(foreign).toEqual(missing);
+		expect(foreign).toMatchObject({ kind: "error", code: "not_found" });
+		expect(
+			await inspectAuthorizedProjectData(
+				{ ...args, designSessionId: otherSession, projectId: otherProject },
+				{ cursor: cursorPage.nextCursor },
+			),
+		).toMatchObject({
+			kind: "error",
+			code: "invalid_input",
+			error: expect.stringContaining("different Project"),
+		});
+		expect(
+			JSON.stringify(await inspectAuthorizedProjectData(args, {})),
+		).not.toContain("Other Project table");
+	});
+
+	it("refuses an existing-table modification after its inspected revision changes", async () => {
+		const { args, scope, tableId } = await setup();
+		const contract = makeContract();
+		contract.lookupTables.push({
+			kind: "modify-existing",
+			id: ids.lookupRisk,
+			tableId,
+			expectedTableRevision: "1" as never,
+			purpose: "Apply the requested table label",
+			authorization: {
+				kind: "direct-user-request",
+				sourceRefs: [messageRef()],
+				impactSummary: "Changes the shared table name.",
+			},
+			operations: [{ kind: "update-table", name: "Reviewed label" }],
+		});
+		expect(
+			await validateAuthorizedProjectLookupEvidence(args, contract),
+		).toEqual([]);
+		await h
+			.db()
+			.transaction()
+			.execute((tx) =>
+				applyLookupAuthoringBatchInTransaction(tx, scope, {
+					updateTables: [
+						{
+							tableId,
+							expectedTableRevision: "1" as never,
+							name: "A newer label",
+						},
+					],
+				}),
+			);
+		expect(
+			await validateAuthorizedProjectLookupEvidence(args, contract),
+		).toEqual([
+			expect.objectContaining({
+				path: ["lookupTables", 0, "expectedTableRevision"],
+				message: expect.stringContaining("changed"),
+			}),
+		]);
 	});
 
 	it("pages a large catalog within a fixed byte budget", async () => {

@@ -1,54 +1,19 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
-/**
- * Construction fuzz — the standing proof of the always-valid invariant:
- * a doc grown purely through ACCEPTED tool calls — from the shared canonical
- * survey starter every persisted app is born with, through the real SA/MCP
- * tools with their real assembly defaults and the real commit gate — carries
- * ZERO validation findings at all times.
- *
- * That single property subsumes the retired fix registry's per-code
- * pins: no registry code (nor any other finding) can exist on a doc the
- * construction surface grew, so there is nothing for a fix loop to fix
- * and nothing for a finishing step to catch.
- *
- * Every generated input goes through the tool's OWN Zod input schema
- * before execute — a refusal there (an image field carrying
- * `caseWrite`, a label on a `hidden` arm) is itself a valid
- * construction outcome, so the schemas' structural exclusions are part
- * of what the proof exercises. Inputs deliberately mix valid and
- * invalid raw values (bare-word XPath, reserved ids, XML-illegal ids,
- * wrong-cased functions, broken close conditions, media kinds, unknown
- * case properties) — the surface is supposed to REFUSE the bad ones;
- * the invariant is about the doc state after whatever was accepted. A
- * second run grows a Connect learn app from birth, with creations
- * optionally carrying their per-form `connect` blocks.
- *
- * The op pool spans the structural tools (create/remove module + form,
- * field mutations — `removeModule` included) and the whole
- * case-list-config family (column add/update/remove/reorder, the
- * filter, search-input add/update/remove/reorder). The case-type
- * retirement machinery is exercised BY ASSERTION, not by sampling
- * luck: the standard run tallies its arms per op and requires, under
- * the pinned seed, ≥1 retire-cascade commit (a commit that shrank the
- * case-type catalog), ≥1 blocked-verdict bounce (a displacement the
- * planner refused over live references), and ≥1 NO_MODULES bounce (an
- * only-module removal the gate rejected). The media tools stay out:
- * their inputs are opaque asset ids with no gate interplay
- * (attach-time existence is deliberately unchecked — the export
- * boundary adjudicates against the resolved manifest), so a media op
- * would only ever write an arbitrary id the invariant can't judge.
- */
+/** Finite, seeded construction sequences through the actual shared commands,
+ * input schemas, candidate gate and canonical workspace. The controlled writer
+ * echoes admitted candidates; this is not SQL atomicity, MCP transport, native
+ * wire compatibility or an exhaustive proof of valid construction.
+ * Each named operation must produce an observed host write. Per-step checks
+ * cover persisted schema, validation, reference-index parity and unchanged
+ * input snapshots; schema/body refusals must never reach the writer.
+ * Asset attachment belongs to the media suites with controlled Project rows. */
 
 import * as fc from "fast-check";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import {
-	planCaseTypeRetirementOnRemove,
-	planCaseTypeRetirementOnRetype,
-} from "@/lib/doc/caseTypeRetirement";
 import {
 	mutationCommitVerdict,
 	type PreparedMutationCandidate,
@@ -89,38 +54,44 @@ import { removeModuleTool } from "../removeModule";
 import { updateFormTool } from "../updateForm";
 import { updateModuleTool } from "../updateModule";
 
-function makeCtx(): CanonicalMutationHost {
-	// The host echoes each prepared candidate's doc as the committed doc, so
-	// the fuzz driver's per-op workspace hands back exactly the post-mutation
-	// state and the driver threads it into the next op.
+interface Invocation {
+	readonly tool: object;
+	readonly mutations: readonly Mutation[];
+	readonly result: unknown;
+	readonly wrote: boolean;
+}
+interface FuzzHost extends CanonicalMutationHost {
+	readonly receipts: PreparedMutationCandidate[];
+	readonly invocations: Invocation[];
+}
+function makeCtx(): FuzzHost {
+	const receipts: PreparedMutationCandidate[] = [];
+	const commit = async (prepared: PreparedMutationCandidate) => {
+		receipts.push(prepared);
+		return { events: [], committedDoc: prepared.nextDoc };
+	};
 	return {
 		appId: "app-fuzz",
 		projectId: "project-fuzz",
 		userId: "user-fuzz",
 		runId: "run-fuzz",
-		recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
-			events: [],
-			committedDoc: prepared.nextDoc,
-		})),
-		recordMutationStages: vi.fn(
-			async (
-				prepared: PreparedMutationCandidate,
-				_stages: AdmittedMutationStages,
-			) => ({
-				events: [],
-				committedDoc: prepared.nextDoc,
-			}),
-		),
-		conversionImpact: vi.fn(async () => ({
+		receipts,
+		invocations: [],
+		recordMutations: commit,
+		recordMutationStages: async (
+			prepared: PreparedMutationCandidate,
+			_stages: AdmittedMutationStages,
+		) => commit(prepared),
+		conversionImpact: async () => ({
 			totalWithValue: 0,
 			uncastable: 0,
 			alreadyHeld: 0,
 			samples: [],
-		})),
+		}),
 	};
 }
 
-/** The exact shared canonical starter every persisted app is born with. */
+/** The exact shared canonical starter the explicit blank-app path uses. */
 function birthDoc(name = "Fuzz Clinic"): BlueprintDoc {
 	const empty: BlueprintDoc = {
 		appId: "app-fuzz",
@@ -232,7 +203,7 @@ const KIND_POOL = [
 	"hidden",
 	// Attachment kind — its case destination needs a `mode` the generated
 	// `caseWrite` never supplies, so every combination of the two is a
-	// schema refusal the proof exercises.
+	// schema refusal the sampled regression exercises.
 	"image",
 ];
 
@@ -258,7 +229,7 @@ const SEARCH_INPUT_NAME_POOL = ["by_name", "by_village", "find_case"];
 
 // ── Arbitraries ─────────────────────────────────────────────────────────
 
-const fieldItemArb = fc
+const malformedMixFieldArb = fc
 	.record({
 		kind: fc.constantFrom(...KIND_POOL),
 		id: idArb,
@@ -324,6 +295,44 @@ const fieldItemArb = fc
 		}),
 	);
 
+// Generate coherent fields as complete objects instead of independently
+// combining booleans that accidentally make almost every field unusable.
+const cleanFieldArb = fc
+	.record({
+		kind: fc.constantFrom(
+			"text",
+			"date",
+			"decimal",
+			"hidden",
+			"single_select",
+			"image",
+		),
+		suffix: fc.nat({ max: 10000 }),
+		label: fc.constantFrom(...LABEL_POOL),
+	})
+	.map(({ kind, suffix, label }) => ({
+		kind,
+		id: `question_${suffix}`,
+		...(kind === "hidden"
+			? { calculate: { parts: [{ kind: "text", text: "1 + 1" }] } }
+			: { label: proseText(label) }),
+		...(kind === "single_select"
+			? {
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{ value: "yes", label: proseText("Yes") },
+							{ value: "no", label: proseText("No") },
+						],
+					},
+				}
+			: {}),
+	}));
+const fieldItemArb = fc.oneof(
+	{ weight: 3, arbitrary: cleanFieldArb },
+	{ weight: 1, arbitrary: malformedMixFieldArb },
+);
+
 const opArb = fc.oneof(
 	fc
 		.record({
@@ -331,9 +340,9 @@ const opArb = fc.oneof(
 			caseType: fc.option(fc.constantFrom(...CASE_TYPE_POOL), {
 				nil: undefined,
 			}),
-			withForms: fc.boolean(),
+			withForms: fc.constantFrom(true, true, true, false),
 			fields: fc.array(fieldItemArb, { minLength: 1, maxLength: 2 }),
-			withColumns: fc.boolean(),
+			withColumns: fc.constantFrom(true, true, true, false),
 			formType: fc.constantFrom(...FORM_TYPE_POOL),
 		})
 		.map((r) => ({ type: "createModule" as const, ...r })),
@@ -610,7 +619,7 @@ function findCloseForm(
  * Run one tool over a RAW generated input, through the tool's own Zod
  * input schema first. A schema refusal is itself a construction outcome
  * — the structural exclusions (media kinds without `caseWrite`,
- * label-less `hidden` arms, …) are part of what the proof exercises —
+ * label-less `hidden` arms, …) are part of what the sampled regression exercises —
  * and nothing runs, so the doc is returned unchanged for the invariant
  * to judge. A parsed input executes with its exact inferred type: no
  * cast anywhere between generator and tool.
@@ -621,14 +630,24 @@ async function runParsed<I>(
 		execute(
 			input: I,
 			ctx: ToolInvocationContext,
-		): Promise<{ mutations: readonly Mutation[] }>;
+		): Promise<{ mutations: readonly Mutation[]; result: unknown }>;
 	},
 	rawInput: unknown,
-	host: CanonicalMutationHost,
+	host: FuzzHost,
 	doc: BlueprintDoc,
 ): Promise<BlueprintDoc> {
 	const parsed = tool.inputSchema.safeParse(rawInput);
-	if (!parsed.success) return doc;
+	if (!parsed.success) {
+		host.invocations.push({
+			tool,
+			mutations: [],
+			result: parsed.error.issues,
+			wrote: false,
+		});
+		return doc;
+	}
+	const before = structuredClone(toPersistableDoc(doc));
+	const writesBefore = host.receipts.length;
 	/* One single-shot canonical workspace per op over the threaded doc — the
 	 * tool commits (the workspace adopts the committed doc) or refuses (the
 	 * workspace stays on the input doc); either way the workspace's current
@@ -638,10 +657,35 @@ async function runParsed<I>(
 		toolName: "fuzz-op",
 		execute: (ctx) => tool.execute(parsed.data, ctx),
 	});
+	const writes = host.receipts.length - writesBefore;
+	expect(toPersistableDoc(doc)).toEqual(before);
 	if (out.mutations.length > 0) {
 		expect(isAdmittedMutationBatch(out.mutations)).toBe(true);
+		expect(writes).toBe(1);
+		expect(workspace.currentSnapshot().doc).toBe(host.receipts.at(-1)?.nextDoc);
+	} else {
+		expect(writes).toBe(0);
+		expect(workspace.currentSnapshot().doc).toBe(doc);
 	}
+	host.invocations.push({
+		tool,
+		mutations: out.mutations,
+		result: out.result,
+		wrote: writes === 1,
+	});
 	return workspace.currentSnapshot().doc;
+}
+
+async function runRequired<I>(
+	...args: Parameters<typeof runParsed<I>>
+): Promise<BlueprintDoc> {
+	const next = await runParsed(...args);
+	const invocation = args[2].invocations.at(-1);
+	if (invocation?.wrote !== true)
+		throw new Error(
+			`Required prelude call refused: ${JSON.stringify(invocation?.result)}`,
+		);
+	return next;
 }
 
 /** The standard registration-unit field pair: the case_name writer plus a
@@ -670,7 +714,7 @@ function registrationUnitFields(caseType: string): FieldItem[] {
  *  legitimate outcomes; the invariant below judges the doc, not the op. */
 async function applyOp(
 	doc: BlueprintDoc,
-	ctx: CanonicalMutationHost,
+	ctx: FuzzHost,
 	op: FuzzOp,
 ): Promise<BlueprintDoc> {
 	switch (op.type) {
@@ -708,10 +752,7 @@ async function applyOp(
 						caseTypes: [
 							{
 								name: coherentType,
-								properties: [
-									{ name: "case_name", label: proseText("Name") },
-									{ name: "village", label: proseText("Village") },
-								],
+								properties: [{ name: "village", label: proseText("Village") }],
 							},
 						],
 					},
@@ -1125,7 +1166,7 @@ function assertZeroFindings(doc: BlueprintDoc, context: string): void {
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
 		(e) => `${e.code}: ${e.message}`,
 	);
-	expect.soft(findings, context).toEqual([]);
+	expect(findings, context).toEqual([]);
 	if (findings.length > 0) {
 		throw new Error(
 			`a finding reached a construction-grown doc (${context}): ${findings.join(
@@ -1179,34 +1220,6 @@ function assertIndexParity(doc: BlueprintDoc, context: string): void {
 	).toEqual(buildReferenceIndex(doc));
 }
 
-/**
- * The option-identity invariant. A doc grown from birth purely through the
- * tools has every select option UUID required by the final domain schema. This
- * extra assertion fails LOUDLY at the construction site if a tool ever tries
- * to bypass that schema.
- *
- * Sequence needs no equivalent check: it is the array the member sits in, so
- * a member that exists is a member that is placed.
- */
-function assertEveryOptionIdentified(doc: BlueprintDoc, context: string): void {
-	const missing: string[] = [];
-	for (const field of Object.values(doc.fields)) {
-		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {
-			continue;
-		}
-		field.optionsSource.options.forEach((option, index) => {
-			if (typeof option.uuid !== "string") {
-				missing.push(`option #${index} on field "${field.id}"`);
-			}
-		});
-	}
-	if (missing.length > 0) {
-		throw new Error(
-			`a tool-grown doc has an option with no uuid (${context}): ${missing.join("; ")}`,
-		);
-	}
-}
-
 // ── Preludes — the fixture state, GROWN through the real tools ──────────
 //
 // Each property starts from canonical genesis and builds its baseline with
@@ -1221,32 +1234,27 @@ function assertEveryOptionIdentified(doc: BlueprintDoc, context: string): void {
 // always have an addressable entry from op #0, instead of depending on
 // the sequence first landing an add.
 
-async function growStandardPrelude(
-	ctx: CanonicalMutationHost,
-): Promise<BlueprintDoc> {
+async function growStandardPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 	let doc = birthDoc();
 	const starterModuleUuid = doc.moduleOrder[0];
 	/* Canonical genesis already authored the real app name and starter. The
 	 * data-model tool writes the case-type record, then a module references it
 	 * by name. Once that replacement exists, removing the starter is itself an
 	 * ordinary gated refinement — no empty intermediate state is possible. */
-	doc = await runParsed(
+	doc = await runRequired(
 		generateSchemaTool,
 		{
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "village", label: proseText("Village") },
-					],
+					properties: [{ name: "village", label: proseText("Village") }],
 				},
 			],
 		},
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		createModuleTool,
 		{
 			name: "Patients",
@@ -1291,7 +1299,7 @@ async function growStandardPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		removeModuleTool,
 		{ moduleUuid: starterModuleUuid },
 		ctx,
@@ -1300,7 +1308,7 @@ async function growStandardPrelude(
 	/* A second, caseless module is the standing removeModule target:
 	 * removing the ONLY module bounces on NO_MODULES, so without one the
 	 * op's commits would depend on a sequence creating a module first. */
-	doc = await runParsed(
+	doc = await runRequired(
 		createModuleTool,
 		{
 			name: "Feedback",
@@ -1317,7 +1325,7 @@ async function growStandardPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		addCaseListColumnsTool,
 		{
 			moduleUuid: doc.moduleOrder[0],
@@ -1326,7 +1334,7 @@ async function growStandardPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		addSearchInputsTool,
 		{
 			moduleUuid: doc.moduleOrder[0],
@@ -1357,32 +1365,27 @@ async function growStandardPrelude(
 	return doc;
 }
 
-async function growConnectPrelude(
-	ctx: CanonicalMutationHost,
-): Promise<BlueprintDoc> {
+async function growConnectPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 	let doc = birthDoc("Fuzz Training");
 	const starterModuleUuid = doc.moduleOrder[0];
 	/* Connect is not a mode flag with independently authored form blocks.
 	 * Grow the ordinary target topology first; once every participating form
 	 * has a stable UUID, configureConnect installs the complete app-wide
 	 * target in one gated batch and clears anything unlisted. */
-	doc = await runParsed(
+	doc = await runRequired(
 		generateSchemaTool,
 		{
 			caseTypes: [
 				{
 					name: "trainee",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "village", label: proseText("Village") },
-					],
+					properties: [{ name: "village", label: proseText("Village") }],
 				},
 			],
 		},
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		createModuleTool,
 		{
 			name: "Lessons",
@@ -1430,7 +1433,7 @@ async function growConnectPrelude(
 		(uuid) => doc.modules[uuid]?.name === "Lessons",
 	);
 	if (!lessonsModuleUuid) throw new Error("Connect prelude lost Lessons");
-	doc = await runParsed(
+	doc = await runRequired(
 		removeModuleTool,
 		{ moduleUuid: starterModuleUuid },
 		ctx,
@@ -1439,7 +1442,7 @@ async function growConnectPrelude(
 	/* This form is deliberately absent from configureConnect's target and is
 	 * therefore auxiliary. The exact-target call below proves that a mixed
 	 * participating + auxiliary app is a legal committed state. */
-	doc = await runParsed(
+	doc = await runRequired(
 		createFormTool,
 		{
 			moduleUuid: lessonsModuleUuid,
@@ -1457,7 +1460,7 @@ async function growConnectPrelude(
 	/* Standing removeModule target — see the standard prelude. Its form
 	 * participates after the exact-target call, so removing the module is a
 	 * legal commit whenever the Lessons module still participates. */
-	doc = await runParsed(
+	doc = await runRequired(
 		createModuleTool,
 		{
 			name: "Feedback",
@@ -1490,7 +1493,7 @@ async function growConnectPrelude(
 	if (!enrollFormUuid || !closeFormUuid || !feedbackFormUuid) {
 		throw new Error("Connect prelude lost a participating form");
 	}
-	doc = await runParsed(
+	doc = await runRequired(
 		configureConnectTool,
 		{
 			mode: "learn",
@@ -1533,7 +1536,7 @@ async function growConnectPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		addCaseListColumnsTool,
 		{
 			moduleUuid: doc.moduleOrder[0],
@@ -1542,7 +1545,7 @@ async function growConnectPrelude(
 		ctx,
 		doc,
 	);
-	doc = await runParsed(
+	doc = await runRequired(
 		addSearchInputsTool,
 		{
 			moduleUuid: doc.moduleOrder[0],
@@ -1618,95 +1621,78 @@ function newCommitTally(): Map<FuzzOp["type"], number> {
 function assertCommitFloor(
 	tally: ReadonlyMap<FuzzOp["type"], number>,
 	label: string,
+	refusals: ReadonlyMap<FuzzOp["type"], Set<string>>,
 ): void {
 	for (const t of OP_TYPES) {
 		expect(
 			tally.get(t) ?? 0,
-			`${label}: op type "${t}" never landed a committed batch — the property no longer exercises it, so its invariant coverage is vacuous`,
+			`${label}: op type "${t}" never landed a committed batch — the property no longer exercises it, so its invariant coverage is vacuous; tally ${JSON.stringify(Object.fromEntries(tally))}; refusals ${JSON.stringify([...(refusals.get(t) ?? [])])}`,
 		).toBeGreaterThan(0);
 	}
 }
 
-// ── Retirement-arm occurrence tallies ───────────────────────────────────
-//
-// The acceptance floor above proves each op TYPE commits, but a
-// `removeModule` commit can be the caseless prelude module — never
-// touching the retirement machinery. These tallies classify each
-// module-displacing op's outcome so the run can assert the three
-// retirement arms each actually OCCURRED (≥1 each, occurrence assertions
-// under the pinned seed — not per-run floors): the cascade committed (the
-// catalog shrank through the cascade on this op pool), the planner blocked a
-// displacement over live
-// references, and the gate bounced an only-module removal (NO_MODULES).
+const toolForOp = {
+	createModule: createModuleTool,
+	createForm: createFormTool,
+	addFields: addFieldsTool,
+	editField: editFieldTool,
+	moveField: moveFieldTool,
+	updateFormClose: updateFormTool,
+	updateModule: updateModuleTool,
+	removeField: removeFieldTool,
+	removeForm: removeFormTool,
+	removeModule: removeModuleTool,
+	addCaseListColumns: addCaseListColumnsTool,
+	updateCaseListColumn: updateCaseListColumnTool,
+	removeCaseListColumn: removeCaseListColumnTool,
+	reorderCaseListColumns: reorderCaseListColumnsTool,
+	setCaseListFilter: setCaseListFilterTool,
+	addSearchInputs: addSearchInputsTool,
+	updateSearchInput: updateSearchInputTool,
+	removeSearchInput: removeSearchInputTool,
+	reorderSearchInputs: reorderSearchInputsTool,
+} satisfies Record<FuzzOp["type"], object>;
 
 interface RetirementArmTally {
 	retireCascadeCommits: number;
 	blockedBounces: number;
 	noModulesBounces: number;
 }
-
-/** Mirrors `applyOp`'s createModule steering — only a coherent type
- *  reaches the planner through the real tools, so only those classify. */
-const COHERENT_TYPE = /^[a-z][a-z0-9_-]*$/;
-
-/** Classify one op's retirement-arm outcome into `tally`. `committed`
- *  is the `next !== doc` signal the acceptance floor already uses. */
 function tallyRetirementArms(
 	tally: RetirementArmTally,
-	doc: BlueprintDoc,
-	next: BlueprintDoc,
-	op: FuzzOp,
-	committed: boolean,
+	invocations: readonly Invocation[],
 ): void {
-	if (committed) {
-		if ((doc.caseTypes?.length ?? 0) > (next.caseTypes?.length ?? 0)) {
-			tally.retireCascadeCommits++;
-		}
-		return;
-	}
-	if (op.type === "removeModule") {
-		const moduleUuid = doc.moduleOrder[op.moduleIndex];
-		if (moduleUuid === undefined) return;
-		if (doc.moduleOrder.length === 1) {
-			// Removing the only module re-introduces NO_MODULES whatever the
-			// retirement plan says — the gate's bounce, not the planner's.
-			tally.noModulesBounces++;
-		} else if (
-			planCaseTypeRetirementOnRemove(doc, moduleUuid).kind === "blocked"
-		) {
-			tally.blockedBounces++;
-		}
-		return;
-	}
-	if (op.type === "updateModule") {
-		const moduleUuid = doc.moduleOrder[op.moduleIndex];
-		const caseType =
-			op.caseType === "__own__"
-				? doc.modules[moduleUuid]?.caseType
-				: op.caseType;
-		// Only a schema-clean type reaches the gate (a malformed one is a
-		// Zod refusal before any planner runs) — classify only those.
+	for (const invocation of invocations) {
 		if (
-			moduleUuid !== undefined &&
-			caseType !== undefined &&
-			COHERENT_TYPE.test(caseType) &&
-			planCaseTypeRetirementOnRetype(doc, moduleUuid, caseType).kind ===
-				"blocked"
-		) {
-			tally.blockedBounces++;
-		}
+			invocation.wrote &&
+			invocation.mutations.some(
+				(mutation) => mutation.kind === "retireCaseType",
+			)
+		)
+			tally.retireCascadeCommits += 1;
+		if (
+			invocation.wrote ||
+			typeof invocation.result !== "object" ||
+			invocation.result === null ||
+			!("error" in invocation.result) ||
+			typeof invocation.result.error !== "string"
+		)
+			continue;
+		const error = invocation.result.error;
+		if (
+			error.includes("would retire its case type") &&
+			error.includes("still reference")
+		)
+			tally.blockedBounces += 1;
+		if (error.includes("needs at least one module"))
+			tally.noModulesBounces += 1;
 	}
 }
 
-/* NOT `describe.concurrent`. The two properties share module-level state —
- * run concurrently, the standard-app property fails at run 53 on a
- * `removeCaseListColumn` counterexample that passes sequentially. Splitting
- * them into separate files would isolate that, but both would then import this
- * file's ~1,690 lines of scaffolding, and import already dominates this
- * suite's wall clock. Sequential with a real timeout is the cheaper answer. */
-describe("construction fuzz — a tool-grown doc carries zero findings", () => {
-	it("standard app: every accepted sequence from birth keeps the doc finding-free", async () => {
+describe("seeded construction sequences preserve admitted state", () => {
+	it("standard app: sampled sequences preserve validation and real writer boundaries", async () => {
 		const tally = newCommitTally();
+		const refusals = new Map<FuzzOp["type"], Set<string>>();
 		const retirementArms: RetirementArmTally = {
 			retireCascadeCommits: 0,
 			blockedBounces: 0,
@@ -1718,8 +1704,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 				async (ops) => {
 					const ctx = makeCtx();
 					let doc = await growStandardPrelude(ctx);
-					const beforeStandingAdd = doc;
-					doc = await runParsed(
+					doc = await runRequired(
 						addFieldsTool,
 						{
 							...formAddressAt(doc, 0, 0),
@@ -1737,29 +1722,38 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						ctx,
 						doc,
 					);
-					if (doc !== beforeStandingAdd) {
-						tally.set("addFields", (tally.get("addFields") ?? 0) + 1);
-					}
+
 					assertZeroFindings(doc, "standard prelude");
 					assertIndexParity(doc, "standard prelude");
 					assertPersistedShapeParses(doc, "standard prelude");
-					assertEveryOptionIdentified(doc, "standard prelude");
 					for (const [i, op] of ops.entries()) {
+						const invocationStart = ctx.invocations.length;
 						const next = await applyOp(doc, ctx, op);
-						const committed = next !== doc;
+						const invocations = ctx.invocations.slice(invocationStart);
+						for (const invocation of invocations) {
+							if (invocation.tool !== toolForOp[op.type] || invocation.wrote)
+								continue;
+							const samples = refusals.get(op.type) ?? new Set<string>();
+							if (samples.size < 3)
+								samples.add(JSON.stringify(invocation.result).slice(0, 1600));
+							refusals.set(op.type, samples);
+						}
+						const committed = invocations.some(
+							(invocation) =>
+								invocation.tool === toolForOp[op.type] && invocation.wrote,
+						);
 						if (committed) tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
-						tallyRetirementArms(retirementArms, doc, next, op, committed);
+						tallyRetirementArms(retirementArms, invocations);
 						doc = next;
 						assertZeroFindings(doc, `standard op#${i} ${op.type}`);
 						assertIndexParity(doc, `standard op#${i} ${op.type}`);
 						assertPersistedShapeParses(doc, `standard op#${i} ${op.type}`);
-						assertEveryOptionIdentified(doc, `standard op#${i} ${op.type}`);
 					}
 				},
 			),
 			{ numRuns: 60, seed: 20260610 },
 		);
-		assertCommitFloor(tally, "standard app");
+		assertCommitFloor(tally, "standard app", refusals);
 		// The retirement arms each occurred — see the tally section above
 		// for why the per-op-type floor alone can't claim this.
 		expect(
@@ -1778,6 +1772,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 
 	it("Connect learn app: auxiliary structural creations hold the same invariant", async () => {
 		const tally = newCommitTally();
+		const refusals = new Map<FuzzOp["type"], Set<string>>();
 		/* `growConnectPrelude` proves the exact participant-set tool can enable
 		 * a mixed participating + auxiliary app. Every generated structural
 		 * creation after that is necessarily auxiliary; the commit floor proves
@@ -1788,8 +1783,7 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 				async (ops) => {
 					const ctx = makeCtx();
 					let doc = await growConnectPrelude(ctx);
-					const beforeStandingAdd = doc;
-					doc = await runParsed(
+					doc = await runRequired(
 						addFieldsTool,
 						{
 							...formAddressAt(doc, 0, 0),
@@ -1805,28 +1799,39 @@ describe("construction fuzz — a tool-grown doc carries zero findings", () => {
 						ctx,
 						doc,
 					);
-					if (doc !== beforeStandingAdd) {
-						tally.set("addFields", (tally.get("addFields") ?? 0) + 1);
-					}
+
 					assertZeroFindings(doc, "connect prelude");
 					assertIndexParity(doc, "connect prelude");
 					assertPersistedShapeParses(doc, "connect prelude");
-					assertEveryOptionIdentified(doc, "connect prelude");
 					for (const [i, op] of ops.entries()) {
+						const invocationStart = ctx.invocations.length;
 						const next = await applyOp(doc, ctx, op);
-						if (next !== doc) {
+						const invocations = ctx.invocations.slice(invocationStart);
+						for (const invocation of invocations) {
+							if (invocation.tool !== toolForOp[op.type] || invocation.wrote)
+								continue;
+							const samples = refusals.get(op.type) ?? new Set<string>();
+							if (samples.size < 3)
+								samples.add(JSON.stringify(invocation.result).slice(0, 1600));
+							refusals.set(op.type, samples);
+						}
+						if (
+							invocations.some(
+								(invocation) =>
+									invocation.tool === toolForOp[op.type] && invocation.wrote,
+							)
+						) {
 							tally.set(op.type, (tally.get(op.type) ?? 0) + 1);
 						}
 						doc = next;
 						assertZeroFindings(doc, `connect op#${i} ${op.type}`);
 						assertIndexParity(doc, `connect op#${i} ${op.type}`);
 						assertPersistedShapeParses(doc, `connect op#${i} ${op.type}`);
-						assertEveryOptionIdentified(doc, `connect op#${i} ${op.type}`);
 					}
 				},
 			),
 			{ numRuns: 45, seed: 20260610 },
 		);
-		assertCommitFloor(tally, "connect run");
+		assertCommitFloor(tally, "connect run", refusals);
 	}, 30_000);
 });

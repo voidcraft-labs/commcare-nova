@@ -18,7 +18,11 @@ import type { CaseType } from "../blueprint";
 import type { OrganizationLevel } from "../organization";
 import type { Uuid } from "../uuid";
 import { relationPropertyDestinationCaseType } from "./normalizeRelationReads";
-import type { SearchInputDecl, SearchInputInstanceId } from "./typeChecker";
+import type {
+	SearchInputDecl,
+	SearchInputInstanceId,
+	TypeContext,
+} from "./typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -43,6 +47,9 @@ export class RelationEvaluationScopeError extends Error {
 }
 
 export interface RelationEvaluationScopeContext {
+	readonly formFields?: TypeContext["formFields"];
+	readonly lookupTables?: TypeContext["lookupTables"];
+	readonly tableScope?: TypeContext["tableScope"];
 	readonly caseTypes?: ReadonlyArray<CaseType>;
 	/** Case type of the row against which this predicate/expression runs. */
 	readonly currentCaseType?: string;

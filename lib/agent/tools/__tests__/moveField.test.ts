@@ -1,5 +1,6 @@
 /**
- * Behavioral tests for the `moveField` SA tool.
+ * Actual tool and workspace placement with controlled host receipts.
+ * No native persistence or competing-session claim.
  *
  * The tool exists so the SA repositions an existing field instead of
  * remove-and-re-adding it (which would mint a new identity and strand
@@ -9,35 +10,22 @@
  *     beside it, inside the ANCHOR's own parent, wherever that is;
  *   - `parentUuid` appends into a container, `parentUuid: null` appends at
  *     the form's top level;
- *   - every reducer warn-and-skip condition (own-subtree destination)
+ *   - an own-subtree destination
  *     comes back as a real `{ error }`, never a false success;
  *   - a cross-parent move that collides with a sibling id is refused before
  *     dispatch; moving never performs a hidden semantic rename.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
-import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
-import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
 import { applyToDoc } from "../common";
 import { moveFieldTool } from "../moveField";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
 
 /**
  * One survey form: three top-level text fields around a group with two
@@ -74,7 +62,7 @@ function makeDoc(): BlueprintDoc {
 			},
 		],
 	});
-	return doc;
+	return expectAdmittedDoc(doc);
 }
 
 function uuidOf(doc: BlueprintDoc, id: string): Uuid {
@@ -105,10 +93,6 @@ function fieldAddress(
 	};
 }
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("moveField — anchored placement", () => {
 	it("reorders within the same parent (afterFieldUuid)", async () => {
 		const doc = makeDoc();
@@ -118,7 +102,8 @@ describe("moveField — anchored placement", () => {
 			afterFieldUuid: uuidOf(doc, "bravo"),
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const newDoc = h.currentDoc();
+		expectAdmittedDoc(h.currentDoc());
+		const newDoc = expectAdmittedDoc(h.currentDoc());
 		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"bravo",
 			"alpha",
@@ -137,7 +122,8 @@ describe("moveField — anchored placement", () => {
 			afterFieldUuid: uuidOf(doc, "bravo"),
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const newDoc = h.currentDoc();
+		expectAdmittedDoc(h.currentDoc());
+		const newDoc = expectAdmittedDoc(h.currentDoc());
 		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"charlie",
 			"alpha",
@@ -154,28 +140,12 @@ describe("moveField — anchored placement", () => {
 			afterFieldUuid: uuidOf(doc, "golf_one"),
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const newDoc = h.currentDoc();
+		expectAdmittedDoc(h.currentDoc());
+		const newDoc = expectAdmittedDoc(h.currentDoc());
 		const grp = uuidOf(doc, "grp");
 		expect(idsUnder(newDoc, grp)).toEqual(["golf_one", "alpha", "golf_two"]);
 		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"bravo",
-			"charlie",
-			"grp",
-		]);
-	});
-
-	it("accepts UUIDs for the moved field and the anchor", async () => {
-		const doc = makeDoc();
-		const h = makeToolWorkspaceHarness(doc);
-		const result = await h.runTool(moveFieldTool, {
-			...fieldAddress(doc, "alpha"),
-			beforeFieldUuid: uuidOf(doc, "charlie"),
-		});
-		if ("error" in result.result) throw new Error(result.result.error);
-		const newDoc = h.currentDoc();
-		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
-			"bravo",
-			"alpha",
 			"charlie",
 			"grp",
 		]);
@@ -191,6 +161,7 @@ describe("moveField — parentUuid placement", () => {
 			parentUuid: uuidOf(doc, "grp"),
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(idsUnder(h.currentDoc(), uuidOf(doc, "grp"))).toEqual([
 			"golf_one",
 			"golf_two",
@@ -207,7 +178,8 @@ describe("moveField — parentUuid placement", () => {
 			parentUuid: null,
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
-		const newDoc = h.currentDoc();
+		expectAdmittedDoc(h.currentDoc());
+		const newDoc = expectAdmittedDoc(h.currentDoc());
 		expect(idsUnder(newDoc, formUuidOf(newDoc))).toEqual([
 			"alpha",
 			"bravo",
@@ -220,7 +192,7 @@ describe("moveField — parentUuid placement", () => {
 
 	it("refuses a cross-parent collision instead of silently renaming identity text", async () => {
 		// A top-level twin of a group child — legal (per-level uniqueness),
-		// and the exact collision a cross-parent move must dedup.
+		// and the exact collision a cross-parent move must refuse.
 		const twinDoc = buildDoc({
 			modules: [
 				{
@@ -253,7 +225,7 @@ describe("moveField — parentUuid placement", () => {
 				},
 			],
 		});
-		const h = makeToolWorkspaceHarness(twinDoc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(twinDoc));
 		const nested = Object.values(twinDoc.fields).find(
 			(fld) =>
 				fld.id === "dup" &&
@@ -270,9 +242,10 @@ describe("moveField — parentUuid placement", () => {
 		});
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain("same ID");
 		expect(result.result.error).toContain("Rename this field explicitly");
-		expect(h.currentDoc()).toBe(twinDoc);
+		expect(h.currentDoc()).toEqual(twinDoc);
 	});
 });
 
@@ -283,6 +256,7 @@ describe("moveField — refusals", () => {
 		const result = await h.runTool(moveFieldTool, fieldAddress(doc, "alpha"));
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain("Nothing says where");
 	});
 
@@ -294,45 +268,30 @@ describe("moveField — refusals", () => {
 			afterFieldUuid: uuidOf(doc, "alpha"),
 		});
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain("can't anchor to itself");
 	});
 
-	it("reports an error when the commit re-applies onto a peer-changed doc and the reducer skips", async () => {
-		// The guarded writer re-applies the mutation onto the FRESH stored
-		// doc — here one where a peer deleted the moved field first, so the
-		// reducer warn-and-skips while the commit itself succeeds. The tool
-		// must verify the landing on the committed doc and refuse to report
-		// a move over an unchanged form.
+	it("refuses to report a move when the controlled host receipt omits the field", async () => {
 		const doc = makeDoc();
-		const peerDoc = applyToDoc(doc, [
-			{ kind: "removeField", uuid: uuidOf(doc, "alpha") },
-		]);
-		const host = {
-			appId: "test-app",
-			projectId: "project-test",
-			userId: "user-1",
-			runId: "run-1",
-			conversionImpact: vi.fn(),
-			recordMutations: vi.fn(async (prepared: PreparedMutationCandidate) => ({
+		const absentDoc = expectAdmittedDoc(
+			applyToDoc(doc, [{ kind: "removeField", uuid: uuidOf(doc, "alpha") }]),
+		);
+		const h = makeToolWorkspaceHarness(doc);
+		h.recordMutations.mockImplementation(
+			async (_prepared: PreparedMutationCandidate) => ({
 				events: [],
-				committedDoc: applyToDoc(peerDoc, prepared.mutations),
-			})),
-			recordMutationStages: vi.fn(),
-		} as unknown as CanonicalMutationHost;
-		const workspace = new CanonicalMutationWorkspace({ host, initialDoc: doc });
-		const result = await workspace.invoke({
-			toolName: "move_field",
-			execute: (ctx) =>
-				moveFieldTool.execute(
-					{
-						...fieldAddress(doc, "alpha"),
-						afterFieldUuid: uuidOf(doc, "bravo"),
-					},
-					ctx,
-				),
+				committedDoc: absentDoc,
+			}),
+		);
+		const result = await h.runTool(moveFieldTool, {
+			...fieldAddress(doc, "alpha"),
+			afterFieldUuid: uuidOf(doc, "bravo"),
 		});
-		if (!("error" in result.result)) throw new Error("expected error");
+		if (!("error" in result.result))
+			throw new Error("expected receipt refusal");
 		expect(result.result.error).toContain("didn't land");
+		expect(h.currentDoc()).toEqual(absentDoc);
 	});
 
 	it("refuses moving a container into its own subtree", async () => {
@@ -344,9 +303,10 @@ describe("moveField — refusals", () => {
 		});
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain("own subtree");
 		// Nothing changed — no false success over a reducer skip.
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
 	});
 
 	it("refuses a parentUuid naming a non-container, pointing at the anchor style", async () => {
@@ -357,6 +317,7 @@ describe("moveField — refusals", () => {
 			parentUuid: uuidOf(doc, "bravo"),
 		});
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain("not a group, repeat, or section");
 	});
 
@@ -369,6 +330,7 @@ describe("moveField — refusals", () => {
 			parentUuid: uuidOf(doc, "grp"),
 		});
 		if (!("error" in result.result)) throw new Error("expected error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(result.result.error).toContain(
 			'Anchor "bravo" sits at the form\'s top level',
 		);
@@ -383,6 +345,7 @@ describe("moveField — refusals", () => {
 			parentUuid: uuidOf(doc, "grp"),
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(idsUnder(h.currentDoc(), uuidOf(doc, "grp"))).toEqual([
 			"golf_one",
 			"alpha",

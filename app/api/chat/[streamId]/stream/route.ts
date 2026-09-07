@@ -62,6 +62,7 @@ import { getSessionSafe, requireSession } from "@/lib/auth-utils";
 import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError } from "@/lib/db/appAccess";
+import { createCoalescedStreamPump } from "@/lib/db/coalescedStreamPump";
 import {
 	generationTargetHeldLive,
 	resolveGenerationTargetScope,
@@ -229,7 +230,7 @@ function openStream(args: {
 	const { req, streamId, target, userId, tailHeader } = args;
 
 	const encoder = new TextEncoder();
-	let teardownRef: (() => void) | null = null;
+	let teardownRef: (() => Promise<void>) | null = null;
 
 	const stream = new ReadableStream<Uint8Array>({
 		start(controller) {
@@ -238,8 +239,10 @@ function openStream(args: {
 			let cursor = args.cursor;
 			/* Overlapping-pump coalescing: a poke mid-pump re-queries once more
 			 * at the end rather than racing a second SELECT. */
-			let pumpInFlight = false;
-			let pumpPending = false;
+			let pump: ReturnType<typeof createCoalescedStreamPump> | null = null;
+			let cadencePump: ReturnType<typeof createCoalescedStreamPump> | null =
+				null;
+			let teardownDone: Promise<void> | null = null;
 			/** Consecutive cadence ticks with no live hold on the app. */
 			let deadTicks = 0;
 			/** A real `finish` chunk was delivered: the dead-run fallback must
@@ -261,17 +264,22 @@ function openStream(args: {
 				}
 			}
 
-			function teardown(): void {
-				if (closed) return;
+			function teardown(): Promise<void> {
+				if (closed) return teardownDone ?? Promise.resolve();
 				closed = true;
+				const reads = [pump?.close(), cadencePump?.close()];
+				req.signal.removeEventListener("abort", teardown);
 				unsubscribe?.();
 				if (pollTimer) clearInterval(pollTimer);
 				if (cadence) clearInterval(cadence);
-				try {
-					controller.close();
-				} catch {
-					/* Already closed by the platform (client gone). */
-				}
+				teardownDone = Promise.all(reads).then(() => {
+					try {
+						controller.close();
+					} catch {
+						/* Already cancelled by the consumer. */
+					}
+				});
+				return teardownDone;
 			}
 			teardownRef = teardown;
 
@@ -348,38 +356,25 @@ function openStream(args: {
 				if (read.terminal) finishAndClose();
 			}
 
-			async function pump(): Promise<void> {
-				if (closed) return;
-				if (pumpInFlight) {
-					pumpPending = true;
-					return;
-				}
-				pumpInFlight = true;
-				try {
-					do {
-						pumpPending = false;
-						await deliverSince();
-					} while (pumpPending && !closed);
-				} catch (err) {
-					/* Transient read fault: the next poke / poll tick re-queries. */
+			pump = createCoalescedStreamPump({
+				run: deliverSince,
+				onError(err) {
 					log.warn("[chat-stream] pump error", {
 						streamId,
 						err: err instanceof Error ? err.message : String(err),
 					});
-				} finally {
-					pumpInFlight = false;
-				}
-			}
+				},
+			});
 
 			/* Subscribe FIRST, then the initial read: a flush landing between
 			 * them is covered by the subscription's poke. */
 			unsubscribe = subscribeChatStream(streamId, () => {
-				void pump();
+				pump?.poke();
 			});
-			void pump();
+			pump?.poke();
 
 			pollTimer = setInterval(() => {
-				void pump();
+				pump?.poke();
 			}, POLL_FALLBACK_MS);
 			pollTimer.unref?.();
 
@@ -390,8 +385,8 @@ function openStream(args: {
 			 * the app has been held by NO live run for consecutive ticks, the
 			 * producing process died without sealing the log; the synthetic
 			 * `finish` chunk tells the client the turn is over. */
-			cadence = setInterval(() => {
-				void (async () => {
+			cadencePump = createCoalescedStreamPump({
+				async run() {
 					if (closed) return;
 
 					const live = await getSessionSafe(req);
@@ -431,7 +426,7 @@ function openStream(args: {
 					if (deadTicks < DEAD_TICKS_TO_CLOSE) {
 						/* Give the just-released clean run one more pump to land its
 						 * terminal row before concluding it died. */
-						void pump();
+						pump?.poke();
 						return;
 					}
 					if (closed) return;
@@ -439,18 +434,26 @@ function openStream(args: {
 					 * poll (the released run's closing flush) must reach the client
 					 * rather than be cut off by the synthetic close. The pump itself
 					 * closes the stream if it consumes the terminal row. */
-					await pump();
+					pump?.poke();
+					await pump?.drain();
 					if (closed) return;
 					finishAndClose();
-				})();
-			}, CADENCE_MS);
+				},
+				onError(err) {
+					log.warn("[chat-stream] reauthorization error", {
+						streamId,
+						err: err instanceof Error ? err.message : String(err),
+					});
+				},
+			});
+			cadence = setInterval(() => cadencePump?.poke(), CADENCE_MS);
 			cadence.unref?.();
 
 			if (req.signal.aborted) teardown();
 			else req.signal.addEventListener("abort", teardown);
 		},
 		cancel() {
-			teardownRef?.();
+			return teardownRef?.();
 		},
 	});
 

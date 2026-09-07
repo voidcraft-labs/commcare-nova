@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
 	collectRunIds,
-	designSessionSnapshotFingerprint,
 	selectDesignSessionResolution,
+	summarizeDesignEvent,
 	summarizeModelMessage,
 } from "../designSessionInspection";
 
 describe("selectDesignSessionResolution", () => {
+	it("reports no match instead of inventing a selection", () => {
+		expect(selectDesignSessionResolution([])).toBeNull();
+	});
+
 	it("deduplicates lookup paths and selects the newest session", () => {
 		const result = selectDesignSessionResolution([
 			{
@@ -30,38 +34,116 @@ describe("selectDesignSessionResolution", () => {
 			"older",
 		]);
 	});
+	it("keeps database Date milliseconds when choosing among sessions and repeated evidence", () => {
+		const older = {
+			sessionId: "older",
+			reason: "app id",
+			updatedAt: new Date("2026-08-14T02:00:00.100Z"),
+		};
+		const newer = {
+			sessionId: "newer",
+			reason: "thread id",
+			updatedAt: new Date("2026-08-14T02:00:00.900Z"),
+		};
+		const latest = {
+			...newer,
+			reason: "run id",
+			updatedAt: "2026-08-14T02:00:00.950Z",
+		};
+		expect(selectDesignSessionResolution([older, newer])).toEqual({
+			selected: newer,
+			alternatives: [older],
+		});
+		expect(selectDesignSessionResolution([older, newer, latest])).toEqual({
+			selected: latest,
+			alternatives: [older],
+		});
+	});
 });
 
 describe("collectRunIds", () => {
 	it("preserves evidence order while removing nulls and duplicates", () => {
 		expect(
-			collectRunIds([null, "session"], ["thread", "session"], [undefined]),
+			collectRunIds([null, "", "session"], ["thread", "session"], [undefined]),
 		).toEqual(["session", "thread"]);
 	});
 });
 
-describe("summarizeModelMessage", () => {
-	it("reports shape and bytes without including persisted content", () => {
-		const summary = summarizeModelMessage({
-			role: "user",
-			content: [{ type: "text", text: "private design prose" }],
-		});
-		expect(summary).toMatch(/^user · 1 part · \d+ B$/);
-		expect(summary).not.toContain("private design prose");
-	});
-});
+describe("compact inspection output", () => {
+	it.each([
+		[{ role: "user", content: "é🙂" }, "user · 1 part · 34 B"],
+		[
+			{
+				role: "assistant",
+				content: [
+					{ type: "text", text: "é🙂" },
+					{ type: "text", text: "private" },
+				],
+			},
+			"assistant · 2 parts · 97 B",
+		],
+		[
+			{ type: "checkpoint", kind: "summary" },
+			"checkpoint/summary · 0 parts · 38 B",
+		],
+	])(
+		"reports UTF-8 byte pressure without exposing the message content",
+		(message, expected) => {
+			expect(summarizeModelMessage(message)).toBe(expected);
+		},
+	);
 
-describe("designSessionSnapshotFingerprint", () => {
-	it("changes only when durable snapshot content changes", () => {
-		const left = designSessionSnapshotFingerprint({
-			state: "active",
-			steps: 2,
-		});
+	it("keeps tool payloads out of event summaries while reporting their byte sizes", () => {
+		const envelope = {
+			kind: "conversation" as const,
+			runId: "run",
+			source: "chat" as const,
+			ts: 1,
+			seq: 1,
+		};
 		expect(
-			designSessionSnapshotFingerprint({ state: "active", steps: 2 }),
-		).toBe(left);
+			summarizeDesignEvent({
+				...envelope,
+				payload: {
+					type: "tool-call",
+					toolName: "inspectApp",
+					toolCallId: "call",
+					input: { private: "é🙂" },
+				},
+			}),
+		).toBe("tool call inspectApp (20 B input)");
 		expect(
-			designSessionSnapshotFingerprint({ state: "active", steps: 3 }),
-		).not.toBe(left);
+			summarizeDesignEvent({
+				...envelope,
+				payload: {
+					type: "tool-result",
+					toolName: "inspectApp",
+					toolCallId: "call",
+					output: { private: "é🙂" },
+				},
+			}),
+		).toBe("tool result inspectApp (20 B output)");
+	});
+
+	it("distinguishes a terminal error from a nonfatal error", () => {
+		const envelope = {
+			kind: "conversation" as const,
+			runId: "run",
+			source: "chat" as const,
+			ts: 1,
+			seq: 1,
+		};
+		for (const fatal of [false, true]) {
+			const output = summarizeDesignEvent({
+				...envelope,
+				payload: {
+					type: "error",
+					error: { type: "rate_limit", fatal, message: "Try again" },
+				},
+			});
+			expect(output.includes(" fatal:")).toBe(fatal);
+			expect(output).toContain("rate_limit");
+			expect(output).toContain("Try again");
+		}
 	});
 });

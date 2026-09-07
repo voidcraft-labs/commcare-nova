@@ -220,6 +220,12 @@ describe("upsertThreadTurn on a design-session target", () => {
 			messages: [userMsg("m1", "mine")],
 			expectedProjectId: PROJECT,
 		});
+		const before = await h
+			.db()
+			.selectFrom("threads")
+			.selectAll()
+			.where("thread_id", "=", "ds-thread-g")
+			.executeTakeFirstOrThrow();
 		expect(
 			await upsertThreadTurn({
 				target: other.target,
@@ -235,10 +241,10 @@ describe("upsertThreadTurn on a design-session target", () => {
 		const row = await h
 			.db()
 			.selectFrom("threads")
-			.select(["active_stream_id", "design_session_id"])
+			.selectAll()
 			.where("thread_id", "=", "ds-thread-g")
 			.executeTakeFirstOrThrow();
-		expect(row.active_stream_id).toBe("stream-g");
+		expect(row).toEqual(before);
 	});
 
 	it("a FRESH session thread admits no assistant history; a stale client's copy merges without erasing (stale-client merge)", async () => {
@@ -349,6 +355,10 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			.executeTakeFirstOrThrow();
 		expect(terminal.active_stream_id).toBeNull();
 		expect(terminal.active_holder_nonce).toBeNull();
+		expect(terminal.messages).toEqual([
+			userMsg("m1", "question"),
+			assistantMsg("a1", "step one and two"),
+		]);
 	});
 
 	it("terminal pause retains the continuation nonce (§20.11 terminal pause)", async () => {
@@ -432,7 +442,7 @@ describe("persistResponseSnapshot / clawBackThreadResponse on a design-session t
 			.executeTakeFirstOrThrow();
 		const messages = afterRetry.messages as UIMessage[];
 		expect(messages.map((m) => m.id)).toEqual(["m1", "a-dead", "m2"]);
-		expect(messages[1]?.parts).toHaveLength(1);
+		expect(messages[1]).toEqual(assistantMsg("a-dead", "partial ans"));
 	});
 
 	it("a re-drive claim removes the dead run's trailing partial (re-drive marker replacement)", async () => {
@@ -538,11 +548,6 @@ describe("loaders on a design-session target", () => {
 	it("stamps resume_interrupted only for a dead unsealed stream; a sealed finished stream projects retired (§20.11 recovery)", async () => {
 		/* An at-rest session (no holder) with a marked thread is the
 		 * instance-death signature. */
-		const sessionId = await h.seedDesignSession({ owner_user_id: ACTOR });
-		const target: GenerationTarget = {
-			kind: "design-session",
-			designSessionId: sessionId,
-		};
 		const held = await seedHeldSession("dead");
 		await upsertThreadTurn({
 			target: held.target,
@@ -572,7 +577,6 @@ describe("loaders on a design-session target", () => {
 			})
 			.where("id", "=", held.sessionId)
 			.execute();
-		void target;
 		const interrupted = await loadThread(held.target, "ds-thread-dead", ACTOR);
 		expect(interrupted?.resume_interrupted).toBe(true);
 		expect(interrupted?.active_stream_id).toBeNull();
@@ -826,5 +830,16 @@ describe("pre-app thread media references (§20.12)", () => {
 			}),
 		).rejects.toBeInstanceOf(ThreadAttachmentUnavailableError);
 		expect(await loadThread(c.target, "ds-thread-ec")).toBeNull();
+		expect(
+			await h
+				.db()
+				.selectFrom("thread_media_refs")
+				.select(["thread_id", "asset_id", "project_id"])
+				.orderBy("thread_id")
+				.execute(),
+		).toEqual([
+			{ thread_id: "ds-thread-ea", asset_id: shared, project_id: PROJECT },
+			{ thread_id: "ds-thread-eb", asset_id: shared, project_id: PROJECT },
+		]);
 	});
 });

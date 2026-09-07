@@ -196,3 +196,19 @@ export function mergeAdjacentConstants(
 	}
 	return merged;
 }
+
+/**
+ * HQ's eulxml lexer omits COMMA from OPERATOR_FORCERS, so a function
+ * immediately after a comma is tokenized as a path name. Group an argument
+ * that can contain functions; OPEN_PAREN restores function recognition.
+ * This operates on emission segments, never reparses XPath or CSQL strings.
+ */
+export function groupCsqlArgument(
+	segments: readonly CsqlSegment[],
+): CsqlSegment[] {
+	return [
+		{ kind: "constant", text: "(" },
+		...segments,
+		{ kind: "constant", text: ")" },
+	];
+}

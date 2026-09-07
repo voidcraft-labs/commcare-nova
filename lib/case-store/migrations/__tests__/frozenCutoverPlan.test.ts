@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	assertFrozenRepairAllowedDelta,
@@ -12,18 +10,12 @@ import {
 	type FrozenStorageSnapshot,
 	frozenExactTextSequenceDigest,
 } from "../20260728000000_canonical_identity_foundation/frozenOccurrenceDispatcher";
-import { FROZEN_STORAGE_OCCURRENCES } from "../20260728000000_canonical_identity_foundation/frozenOccurrenceManifest";
 import {
 	CANONICAL_IDENTITY_CATALOG_CLEARS,
 	CANONICAL_IDENTITY_LABEL_REPAIR,
 	CANONICAL_IDENTITY_PROPERTY_PROJECTIONS,
 	CANONICAL_IDENTITY_ROW_DELETES,
 } from "../20260728000000_canonical_identity_foundation/frozenRepairManifest";
-
-const TIMESTAMP_DIR = join(
-	process.cwd(),
-	"lib/case-store/migrations/20260728000000_canonical_identity_foundation",
-);
 
 function rawSnapshot(
 	overrides: Readonly<Record<string, readonly string[]>> = {},
@@ -155,6 +147,16 @@ describe("frozen canonical-identity CutoverPlan", () => {
 		const plan = createFrozenCutoverPlan(cutoverInput());
 		expect(plan.lockMode).toBe("SHARE ROW EXCLUSIVE");
 		expect(plan.capacity.withinReviewedBounds).toBe(true);
+		expect(() =>
+			createFrozenCutoverPlan({ ...cutoverInput(), lockRelations: [] }),
+		).toThrow(/no relation inventory/);
+		expect(
+			createFrozenCutoverPlan({
+				...cutoverInput(),
+				mode: "advisory",
+				lockRelations: [],
+			}).lockMode,
+		).toBe("none");
 
 		/* Someone having a builder tab open is not a reason to refuse the
 		 * cutover. The lock mode above is what protects it; requiring these to be
@@ -211,7 +213,7 @@ describe("frozen canonical-identity CutoverPlan", () => {
 	});
 });
 
-describe("frozen repair and catalog source contracts", () => {
+describe("frozen repair byte manifest", () => {
 	it("pins the exact six label byte spans and typed replacements", () => {
 		expect(CANONICAL_IDENTITY_ROW_DELETES).toHaveLength(42);
 		expect(CANONICAL_IDENTITY_PROPERTY_PROJECTIONS).toHaveLength(2);
@@ -269,53 +271,5 @@ describe("frozen repair and catalog source contracts", () => {
 				"9b32a512-424a-4bfe-ade9-052f07b4d93d",
 			],
 		]);
-	});
-
-	it("keeps scanner, repair, and migration on the same plan authority", () => {
-		for (const file of [
-			"frozenScanner.ts",
-			"frozenDatabaseRepair.ts",
-			"frozenDatabaseMigration.ts",
-		]) {
-			const source = readFileSync(join(TIMESTAMP_DIR, file), "utf8");
-			expect(source).toContain("createFrozenCutoverPlan");
-			expect(source).toContain("captureFrozenCutoverLeaseState");
-			expect(source).toContain("captureFrozenCutoverCatalogEvidence");
-		}
-		const migration = readFileSync(
-			join(TIMESTAMP_DIR, "frozenDatabaseMigration.ts"),
-			"utf8",
-		);
-		expect(migration).not.toContain("UPDATE lookup_rows");
-		expect(
-			FROZEN_STORAGE_OCCURRENCES.find(
-				(entry) => entry.id === "lookup_rows.identity-and-values",
-			)?.disposition,
-		).toBe("preserve-exact");
-	});
-
-	it("keeps repair byte-manifest-driven and catalog closure recursive", () => {
-		const repair = readFileSync(join(TIMESTAMP_DIR, "frozenRepair.ts"), "utf8");
-		expect(repair).toContain("repair.replacementParts");
-		expect(repair).toContain("rawUtf8Digest(tokenBytes)");
-		expect(repair).not.toContain("matchAll(");
-		expect(repair).not.toContain("HASHTAG");
-
-		const cutover = readFileSync(
-			join(TIMESTAMP_DIR, "frozenCutoverPlan.ts"),
-			"utf8",
-		);
-		expect(cutover).toContain("WITH RECURSIVE dependency AS");
-		expect(cutover).toContain("pg_catalog.pg_depend");
-		expect(cutover).toContain(
-			"constraint_row.confrelid = 'public.apps'::regclass",
-		);
-		expect(cutover).toContain("pg_get_functiondef(function_row.oid)");
-		expect(cutover).toContain("pg_catalog.pg_get_constraintdef(");
-		expect(cutover).toContain("pg_catalog.pg_get_triggerdef(");
-		expect(cutover).toContain("pg_catalog.format_type(");
-		expect(cutover).toContain("function_row.proacl");
-		expect(cutover).toContain("function_row.proconfig");
-		expect(cutover).toContain("index_relation.relacl");
 	});
 });

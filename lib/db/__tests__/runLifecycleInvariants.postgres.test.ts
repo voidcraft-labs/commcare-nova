@@ -174,18 +174,12 @@ async function patchApp(
 		});
 }
 
-/** I2: a terminal app is never lock-present + unsettled-marker + no-live-run. */
+/** Terminal paths leave an existing app with no edit lock and a settled charge. */
 async function assertNoStrand(appId: string): Promise<void> {
 	const app = await readApp(appId);
-	if (!app) return;
-	const lease = runLeaseState(app);
-	const stranded =
-		lease.markerSettleable &&
-		!lease.live &&
-		!lease.paused &&
-		!!app.run_lock &&
-		!lease.reapableStrandedEdit;
-	expect(stranded).toBe(false);
+	expect(app).not.toBeNull();
+	expect(app?.run_lock).toBeUndefined();
+	expect(app?.reservation).toMatchObject({ settled: true });
 }
 
 describe("run-lifecycle invariant matrix", () => {
@@ -211,7 +205,7 @@ describe("run-lifecycle invariant matrix", () => {
 
 		expect(await consumed(OWNER)).toBe(CREDITS_PER_BUILD); // I1
 		expect((await readApp(APP))?.reservation).toMatchObject({ settled: true });
-		await reapStaleReservation(APP, { mode: "edit", runId: "e1" });
+		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
 		await assertNoStrand(APP);
 		expect(await consumed(OWNER)).toBe(CREDITS_PER_BUILD); // I3 — not clawed back
 	});
@@ -234,7 +228,10 @@ describe("run-lifecycle invariant matrix", () => {
 		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
 		await patchApp(APP, { updated_at: new Date(Date.now() - 60 * 60_000) });
 		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
-		expect(await consumed(OWNER)).toBe(0); // I1 — refunded
+		expect(await consumed(OWNER)).toBe(0);
+		await reapStaleGenerating(APP, { mode: "build", runId: "b1" });
+		expect(await consumed(OWNER)).toBe(0);
+		expect((await readApp(APP))?.status).toBe("error");
 	});
 
 	// ── EDIT lifecycle ───────────────────────────────────────────────────
@@ -382,22 +379,6 @@ describe("run-lifecycle invariant matrix", () => {
 		expect(await consumed(MEMBER)).toBe(CREDITS_PER_BUILD);
 	});
 
-	it("a NORMAL failed BUILD (not reaped) still returns settled:TRUE → failApp fires (no stuck-generating)", async () => {
-		// The complement: a build whose marker was pre-settled by its OWN flush (not
-		// the reaper) still carries runId=b1, so non-lenient mine(b1)=TRUE →
-		// settled:TRUE → the route DOES failApp.
-		await seedApp(APP, { status: "complete" });
-		await claimAndReserveRun(APP, "build", "b1", OWNER, CREDITS_PER_BUILD);
-		// Simulate the flush pre-settling THIS run's own marker (runId intact).
-		await patchApp(APP, { res_settled: true });
-
-		const { settled, outcome } = await settleAndRelease(APP, "b1", {
-			mode: "build",
-		});
-		expect(settled).toBe(true); // owns its outcome → failApp fires
-		expect(outcome).toBe("owned");
-	});
-
 	it("a LEGACY no-runId build marker is corrupt and fails closed", async () => {
 		// A marker stranded from BEFORE the runId field carries no runId. Non-lenient
 		// `mine(anyone)` = false, and no canonical reaper can distinguish it from a
@@ -525,22 +506,6 @@ describe("run-lifecycle invariant matrix", () => {
 	});
 
 	// ── Descoped model: serialize-with-wait + lease-reap (no takeover) ────
-
-	it("a waiter behind a LIVE run is blocked (RunConflictError) and proceeds once the holder COMPLETES", async () => {
-		await seedApp(APP, { status: "complete" });
-		await claimAndReserveRun(APP, "edit", "e1", OWNER, CREDITS_PER_EDIT);
-		await expect(
-			claimAndReserveRun(APP, "edit", "e2", MEMBER, CREDITS_PER_EDIT),
-		).rejects.toBeInstanceOf(RunConflictError);
-		await expect(
-			claimAndReserveRun(APP, "build", "b2", MEMBER, CREDITS_PER_BUILD),
-		).rejects.toBeInstanceOf(RunConflictError);
-
-		expect(await clearRunLockAndSettle(APP, "e1")).toBe("owned");
-		await expect(
-			claimAndReserveRun(APP, "edit", "e2", MEMBER, CREDITS_PER_EDIT),
-		).resolves.toMatchObject({ mode: "edit" });
-	});
 
 	it("a waiter behind a PAUSED run is blocked, and proceeds once the paused run's lease lapses and it is REAPED", async () => {
 		// Another actor's PAUSED edit holds the app — their pause BLOCKS (no

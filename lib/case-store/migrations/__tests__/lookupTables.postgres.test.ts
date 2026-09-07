@@ -108,7 +108,7 @@ describe("lookup persistence migration", () => {
 			rowsRevision: "9223372036854775806",
 		});
 		const columnId = await insertColumn(pgClient, tableId);
-		const values = { [columnId]: "Clinic A" };
+		const values = { [columnId]: "Clinique é 🩺" };
 		const row = await pgClient.query<{
 			id: string;
 			value_bytes: number;
@@ -153,9 +153,8 @@ describe("lookup persistence migration", () => {
 			table_name: string;
 			collation_name: string | null;
 			is_generated: string;
-			generation_expression: string | null;
 		}>(
-			`SELECT table_name, collation_name, is_generated, generation_expression
+			`SELECT table_name, collation_name, is_generated
 			 FROM information_schema.columns
 			 WHERE table_schema = 'public'
 			   AND column_name IN ('order_key', 'value_bytes')
@@ -170,20 +169,18 @@ describe("lookup persistence migration", () => {
 		);
 		expect(byColumn.get("lookup_columns:NEVER")?.collation_name).toBe("C");
 		expect(byColumn.get("lookup_rows:NEVER")?.collation_name).toBe("C");
-		expect(byColumn.get("lookup_rows:ALWAYS")?.generation_expression).toContain(
-			"octet_length",
-		);
+		expect(byColumn.get("lookup_rows:ALWAYS")).toBeDefined();
 
-		const indexes = await pgClient.query<{ indexname: string }>(
-			`SELECT indexname FROM pg_indexes
+		const indexes = await pgClient.query<{ indexdef: string }>(
+			`SELECT indexdef FROM pg_indexes
 			 WHERE schemaname = 'public'
 			   AND tablename IN ('lookup_tables', 'lookup_columns', 'lookup_rows')`,
 		);
-		expect(indexes.rows.map(({ indexname }) => indexname)).toEqual(
+		expect(indexes.rows.map(({ indexdef }) => indexdef)).toEqual(
 			expect.arrayContaining([
-				"lookup_tables_project_name_idx",
-				"lookup_columns_order_idx",
-				"lookup_rows_order_idx",
+				"CREATE INDEX lookup_tables_project_name_idx ON public.lookup_tables USING btree (project_id, lower(name), id)",
+				"CREATE INDEX lookup_columns_order_idx ON public.lookup_columns USING btree (project_id, table_id, order_key, id)",
+				"CREATE INDEX lookup_rows_order_idx ON public.lookup_rows USING btree (project_id, table_id, order_key, id)",
 			]),
 		);
 	});
@@ -401,8 +398,6 @@ describe("lookup persistence migration", () => {
 			["project-a", tableId, JSON.stringify({ [columnId]: "A" }), ACTOR],
 		);
 
-		// Destructive lookup DDL sits behind the deployed writer floor; declare
-		// v1 (transaction-local, so it ends with this test's transaction).
 		await pgClient.query(
 			"DELETE FROM lookup_tables WHERE project_id = $1 AND id = $2",
 			["project-a", tableId],

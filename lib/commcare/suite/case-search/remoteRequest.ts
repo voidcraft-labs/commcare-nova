@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+
 // lib/commcare/suite/case-search/remoteRequest.ts
 //
 // Top-level orchestrator for `<remote-request>`. Walks one module
@@ -9,9 +10,8 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // `WireShape` flag set comes from `compileForPlatform.ts` and
 // drives the downstream sub-emitters' attribute choices.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type CaseListConfig,
@@ -40,26 +40,6 @@ import type { PlatformContext, WireShape } from "./types";
  * variant pass an override.
  */
 export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
-
-/**
- * The string-returning shape `emitRemoteRequest` produces for callers
- * that assert against the rendered XML (the test surface). The
- * compiler (`compileCcz`) consumes `RemoteRequestBuild` instead.
- *
- *   - `xml` — the serialized `<remote-request>` element.
- *   - `strings` — locale entries (`case_search.{m}` command label,
- *     `case_search.{m}.inputs` title, per-prompt entries) the
- *     compiler threads into per-language string tables.
- *   - `wire` — the computed `WireShape`. The case-list short-detail
- *     emitter consumes `wire.autoLaunch` for the `<action
- *     auto_launch>` element on `m{N}_case_short` without recomputing.
- */
-export interface RemoteRequestEmission {
-	readonly xml: string;
-	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, WireStringSource>;
-	readonly wire: WireShape;
-}
 
 /**
  * The Element-returning shape `buildRemoteRequest` produces for the
@@ -202,25 +182,4 @@ export function buildRemoteRequest(args: {
 	};
 
 	return { element: remoteRequestEl, strings, translationUnits, wire };
-}
-
-/**
- * String adapter — serializes `buildRemoteRequest`'s Element for
- * callers that assert against the rendered XML string (the test
- * surface). `compileCcz` itself calls `buildRemoteRequest` directly.
- */
-export function emitRemoteRequest(args: {
-	readonly module: Module;
-	readonly runtimeTarget?: RuntimeTarget;
-	readonly moduleIndex: number;
-	readonly platformContext?: PlatformContext;
-	readonly typeContext?: TypeContext;
-}): RemoteRequestEmission {
-	const { element, strings, translationUnits, wire } = buildRemoteRequest(args);
-	return {
-		xml: render(element, RENDER_OPTS),
-		strings,
-		translationUnits,
-		wire,
-	};
 }

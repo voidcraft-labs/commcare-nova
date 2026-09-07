@@ -26,7 +26,7 @@
  *     `ValidationLocation` shape can't carry. For image-map mapping
  *     refs, surfaces `columnUuid` + `rowIndex` so the UI can deep-link
  *     to the exact row; matches the precedent at
- *     `idMappingValueRequired`. Returns an empty object for locations
+ *     `columnReferences`. Returns an empty object for locations
  *     that have nothing extra to surface.
  */
 
@@ -192,7 +192,7 @@ export function validationLocationFor(
 			};
 		case "image_map_mapping":
 			// `field` is intentionally absent — mirrors
-			// `idMappingValueRequired`, which carries `{ moduleUuid,
+			// `columnReferences`, which carries `{ moduleUuid,
 			// moduleName }` only. The row coordinates the asset-context
 			// rules need (column uuid, row index) flow through `details`
 			// via `navigabilityDetailsFor`, not through `field`.
@@ -210,7 +210,7 @@ export function validationLocationFor(
  * `image_map_mapping` refs, surface the column uuid and the 0-based
  * row index so the UI / SA can deep-link to the exact row — mirrors
  * the precedent at
- * `lib/commcare/validator/rules/case-list/idMappingValueRequired.ts`'s
+ * `lib/commcare/validator/rules/case-list/columnReferences.ts`'s
  * `details` payload. Other location kinds carry no extra coordinates,
  * so they return an empty object the spread operator drops cleanly.
  *

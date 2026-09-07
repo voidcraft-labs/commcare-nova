@@ -136,8 +136,8 @@ tool is not available to you in this mode.`,
  * prompt fetched once has no such constraint.)
  *
  * Build callers pass `undefined` (or omit `editDoc`); edit callers pass the
- * loaded blueprint when the app is COMPLETE (the status-keyed fork lives in
- * `get_agent_prompt`). The renderer still fails safe to build framing for a
+ * loaded blueprint after Project authorization in `get_agent_prompt`.
+ * The renderer still fails safe to build framing for a
  * missing/in-memory empty doc, but persisted creation always returns the
  * canonical survey starter.
  */

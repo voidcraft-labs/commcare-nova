@@ -195,11 +195,13 @@ export function replacementDraftToValue(
 	switch (dataType) {
 		case "int": {
 			if (!/^-?\d+$/.test(text)) return { ok: false };
-			return { ok: true, value: Number(text) };
+			const value = Number(text);
+			return Number.isFinite(value) ? { ok: true, value } : { ok: false };
 		}
 		case "decimal": {
 			if (!/^-?\d+(\.\d+)?$/.test(text)) return { ok: false };
-			return { ok: true, value: Number(text) };
+			const value = Number(text);
+			return Number.isFinite(value) ? { ok: true, value } : { ok: false };
 		}
 		case "time": {
 			const clock = parseClockTime(text);

@@ -1,10 +1,7 @@
 /**
- * Strict structured output — the wire projection that makes every
- * `runStructured` schema acceptable to OpenAI's strict `json_schema` mode,
- * so the provider GRAMMAR-ENFORCES the structure during generation instead
- * of trusting a model to freehand tens of thousands of JSON characters
- * (observed live: a complete 57k-char author response that failed the Zod
- * parse — a failure class strict decoding makes structurally impossible).
+ * Strict structured output projects Nova's Zod schemas for the provider's
+ * structured-output request. Offline checks cover the projection and local
+ * validation; provider acceptance and generation remain external behavior.
  *
  * Same idiom as the SA tool surface's `wireSchemas.ts`: the WIRE shape is a
  * projection; the Zod schema stays untouched as the real gate (including
@@ -24,8 +21,8 @@
  * `null` property values are deleted so the Zod schema sees the absence it
  * was written around. That is sound because no model-facing schema in this
  * seam uses `.nullable()` — `null` can only mean "the wire made me say
- * something" — and `assertNoNullableSlots` (called by the projection's
- * tests) keeps that assumption from rotting silently.
+ * something". Projection checks actual schema positions before adding its
+ * own null arms, so aliases, unions and imported schemas cannot bypass it.
  */
 
 import { jsonSchema, type Schema, zodSchema } from "ai";
@@ -41,8 +38,14 @@ function isObjectNode(value: unknown): value is JsonNode {
  *  spelling of "optional". */
 function nullUnion(node: unknown): unknown {
 	if (isObjectNode(node)) {
-		// A bare type keyword takes the type-array spelling.
-		if (typeof node.type === "string" && node.anyOf === undefined) {
+		// Enum and const restrict null independently of type, so retain those
+		// schemas as a separate anyOf arm. A plain type can use the compact array.
+		if (
+			typeof node.type === "string" &&
+			node.anyOf === undefined &&
+			node.enum === undefined &&
+			node.const === undefined
+		) {
 			return { ...node, type: [node.type, "null"] };
 		}
 		// A union (incl. one this transform just rewrote) gains a null arm.
@@ -62,7 +65,8 @@ function nullUnion(node: unknown): unknown {
  * Recursively project one JSON-schema node into OpenAI's strict subset.
  * Throws on a construct with no strict spelling (a `z.record`-style typed
  * `additionalProperties`), so an incompatible schema fails at call
- * construction — loudly, offline-testable — never as a provider 400.
+ * construction with an offline-testable diagnostic. This is not a complete
+ * model-specific provider acceptance check.
  */
 function projectNode(node: unknown): unknown {
 	if (Array.isArray(node)) return node.map(projectNode);
@@ -162,14 +166,40 @@ export function stripNullProperties(value: unknown): unknown {
  * schema positions here turns that live 400 into an offline throw naming
  * the untyped slot.
  */
-function assertSchemaPositionsTyped(node: unknown, path: string): void {
+function assertSchemaPositionsTyped(
+	node: unknown,
+	path: string,
+	rejectAuthoredNull = false,
+): void {
+	if (Array.isArray(node)) {
+		for (const [index, member] of node.entries()) {
+			assertSchemaPositionsTyped(
+				member,
+				`${path}[${index}]`,
+				rejectAuthoredNull,
+			);
+		}
+		return;
+	}
 	if (!isObjectNode(node)) return;
+	if (
+		rejectAuthoredNull &&
+		(node.type === "null" ||
+			(Array.isArray(node.type) && node.type.includes("null")) ||
+			(Array.isArray(node.enum) && node.enum.includes(null)) ||
+			node.const === null)
+	) {
+		throw new Error(
+			`The schema slot at ${path} admits authored null, which the strict output bridge would erase. Use an optional property instead.`,
+		);
+	}
 	const carriesShape =
 		"type" in node ||
 		"enum" in node ||
 		"const" in node ||
 		"$ref" in node ||
 		"anyOf" in node ||
+		"oneOf" in node ||
 		"allOf" in node;
 	if (!carriesShape) {
 		throw new Error(
@@ -178,17 +208,21 @@ function assertSchemaPositionsTyped(node: unknown, path: string): void {
 	}
 	if (isObjectNode(node.properties)) {
 		for (const [key, value] of Object.entries(node.properties)) {
-			assertSchemaPositionsTyped(value, `${path}.${key}`);
+			assertSchemaPositionsTyped(value, `${path}.${key}`, rejectAuthoredNull);
 		}
 	}
 	if (node.items !== undefined) {
-		assertSchemaPositionsTyped(node.items, `${path}.items`);
+		assertSchemaPositionsTyped(node.items, `${path}.items`, rejectAuthoredNull);
 	}
-	for (const carrier of ["anyOf", "allOf"] as const) {
+	for (const carrier of ["anyOf", "oneOf", "allOf"] as const) {
 		const arms = node[carrier];
 		if (Array.isArray(arms)) {
 			arms.forEach((arm, index) => {
-				assertSchemaPositionsTyped(arm, `${path}.${carrier}[${index}]`);
+				assertSchemaPositionsTyped(
+					arm,
+					`${path}.${carrier}[${index}]`,
+					rejectAuthoredNull,
+				);
 			});
 		}
 	}
@@ -196,7 +230,11 @@ function assertSchemaPositionsTyped(node: unknown, path: string): void {
 		const entries = node[defs];
 		if (isObjectNode(entries)) {
 			for (const [name, def] of Object.entries(entries)) {
-				assertSchemaPositionsTyped(def, `${path}.${defs}.${name}`);
+				assertSchemaPositionsTyped(
+					def,
+					`${path}.${defs}.${name}`,
+					rejectAuthoredNull,
+				);
 			}
 		}
 	}
@@ -206,6 +244,7 @@ function assertSchemaPositionsTyped(node: unknown, path: string): void {
  *  for the tests that prove each production schema projects cleanly. */
 export function strictWireJsonSchema(schema: z.ZodType): JsonNode {
 	const emitted = zodSchema(schema).jsonSchema as JsonNode;
+	assertSchemaPositionsTyped(emitted, "$", true);
 	const projected = projectNode(emitted) as JsonNode;
 	if (projected.type !== "object") {
 		throw new Error(

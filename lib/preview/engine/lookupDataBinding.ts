@@ -107,8 +107,7 @@ export async function loadLookupFixtureDataAction(
 		reportUnexpectedActionError("loadLookupFixtureData", err, { appId });
 		return {
 			kind: "error",
-			message:
-				err instanceof Error ? err.message : "Failed to load lookup data.",
+			message: "We couldn't load the lookup data. Try again.",
 		};
 	}
 }

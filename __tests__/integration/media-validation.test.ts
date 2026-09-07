@@ -21,7 +21,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { imageMapEntry } from "@/lib/domain";
 
-const OWNER = "owner-integration-fixture";
+const PROJECT = "project-integration-fixture";
 
 /**
  * Build a `MediaAssetRecord` fixture. Hand-built so the manifest can
@@ -34,14 +34,14 @@ function record(
 	overrides: Partial<MediaAssetRecord> = {},
 ): MediaAssetRecord {
 	return {
-		owner: OWNER,
-		project_id: OWNER,
+		owner: "uploading-user",
+		project_id: PROJECT,
 		contentHash: "a".repeat(64),
 		mimeType: "image/png",
 		kind: "image",
 		extension: ".png",
 		sizeBytes: 100,
-		gcsObjectKey: `projects/${OWNER}/${"a".repeat(64)}.png`,
+		gcsObjectKey: `projects/${PROJECT}/${"a".repeat(64)}.png`,
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status: "ready",
@@ -86,11 +86,11 @@ describe("media validation integration", () => {
 								field: "region",
 								header: "Region",
 								mapping: [
-									// Good row — owned, ready, image.
+									// Good row: same Project, ready, image.
 									imageMapEntry("N", testMediaAssetId("good-image")),
 									// Row whose asset is missing from the manifest
 									// (production: the loader filtered it because the
-									// row was deleted or belongs to a foreign owner).
+									// row was deleted or belongs to a foreign Project).
 									imageMapEntry("S", testMediaAssetId("missing-asset")),
 								],
 							},
@@ -165,10 +165,25 @@ describe("media validation integration", () => {
 		// concern is "does each rule fire from the runner under one
 		// invocation"; the per-rule unit tests own message phrasing
 		// and edge cases.
-		const codes = errors.map((e) => e.code);
-		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
-		expect(codes).toContain("MEDIA_ASSET_NOT_READY");
-		expect(codes).toContain("MEDIA_KIND_MISMATCH");
+		expect(errors.map((error) => [error.code, error.details?.assetId])).toEqual(
+			[
+				["MEDIA_ASSET_NOT_FOUND", testMediaAssetId("missing-asset")],
+				["MEDIA_ASSET_NOT_READY", pendingAudio.id],
+				["MEDIA_KIND_MISMATCH", audioAsset.id],
+			],
+		);
+		const repairedManifest = new Map(manifest);
+		repairedManifest.set(
+			testMediaAssetId("missing-asset"),
+			record("missing-asset"),
+		);
+		repairedManifest.set(pendingAudio.id, { ...pendingAudio, status: "ready" });
+		repairedManifest.set(audioAsset.id, record("audio-asset"));
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+				mediaAssets: repairedManifest,
+			}),
+		).toEqual([]);
 	});
 
 	it("skips the asset-context group when the manifest is omitted", () => {

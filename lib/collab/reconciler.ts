@@ -276,7 +276,9 @@ export type ReloadOutcome =
 			readonly blueprint: PersistableDoc;
 			readonly seq: number;
 	  } & AuthorizedAccessSnapshot)
-	| { readonly kind: "revoked" };
+	| { readonly kind: "revoked" }
+	/** The owner suspended and cancelled this read; preserve the reload barrier. */
+	| { readonly kind: "interrupted" };
 
 /** Injectable side effects — a real provider wires the network/timers; tests
  *  supply synchronous fakes so the state machine runs headless. */
@@ -661,7 +663,7 @@ export function createReconciler(
 
 	// ── Dispatch (human edit → PUT) ──────────────────────────────────────
 	function canPut(): boolean {
-		return !dormant && !revoked && appId !== undefined && deps.canEdit();
+		return !dormant && !inert() && appId !== undefined && deps.canEdit();
 	}
 
 	function isDormant(): boolean {
@@ -747,6 +749,9 @@ export function createReconciler(
 	}
 
 	function watchNextHumanBatch(expected: unknown): HumanBatchWatch {
+		if (disposed) {
+			return { promise: Promise.resolve({ kind: "cancelled" }), cancel() {} };
+		}
 		let resolveWatch: ((outcome: HumanBatchWatchOutcome) => void) | undefined;
 		const promise = new Promise<HumanBatchWatchOutcome>((resolve) => {
 			resolveWatch = resolve;
@@ -1321,6 +1326,14 @@ export function createReconciler(
 		// leaked EventSource), no write into a torn-down store.
 		if (inert()) {
 			reloadInFlight = false;
+			return;
+		}
+		if (reloaded.kind === "interrupted") {
+			reloadInFlight = false;
+			reloadPending = true;
+			// Suspension owns cancellation, not a network outage. The provider
+			// gates scheduling while inactive; a replay/restore re-arms recovery.
+			scheduleRetryLoop();
 			return;
 		}
 		if (reloaded.kind === "revoked") {

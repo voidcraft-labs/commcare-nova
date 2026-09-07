@@ -1,23 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	flattenFieldRefs,
 	getCrossLevelFieldMoveTargets,
 	getFieldMoveTargets,
 } from "@/lib/doc/navigation";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	fieldSchema,
+	proseText,
+	type Uuid,
+} from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-/**
- * Build a minimal `BlueprintDoc` from a flat list of field descriptors.
- *
- * The primitives under test read `fields`, `fieldOrder`, `fieldParent`,
- * and `forms` only. Everything else is supplied as placeholder so the
- * tests stay focused on the navigation logic rather than entity shape.
- *
- * Each descriptor is `{ uuid, id, kind, parentUuid, childrenOrder? }`.
- * `childrenOrder` present → the field is a container and gets a
- * `fieldOrder` entry (even when empty, matching the real invariant).
- */
+/** Descriptor notation authors the topology; every fixture is schema and full-gate admitted. */
 interface FieldDesc {
 	uuid: Uuid;
 	id: string;
@@ -35,13 +33,15 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 	const rootOrder: Uuid[] = [];
 
 	for (const d of descs) {
-		// Cast to Field via the shared `unknown` bridge — the nav code
-		// only reads `uuid`, `id`, and `kind`.
-		fields[d.uuid] = {
+		fields[d.uuid] = fieldSchema.parse({
 			uuid: d.uuid,
 			id: d.id,
 			kind: d.kind,
-		} as unknown as Field;
+			...(d.kind === "hidden"
+				? { calculate: xp("1") }
+				: { label: proseText(d.id) }),
+			...(d.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
+		});
 		fieldParent[d.uuid] = d.parentUuid;
 
 		if (d.parentUuid === formUuid) {
@@ -61,12 +61,15 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 	}
 	fieldOrder[formUuid] = rootOrder;
 
-	return {
+	const moduleUuid = testUuid("navigation-module");
+	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Nav Test",
 		connectType: null,
 		caseTypes: null,
-		modules: {},
+		modules: {
+			[moduleUuid]: { uuid: moduleUuid, id: "survey", name: "Survey" },
+		},
 		forms: {
 			[formUuid]: {
 				uuid: formUuid,
@@ -76,11 +79,13 @@ function buildDoc(formUuid: Uuid, descs: FieldDesc[]): BlueprintDoc {
 			},
 		},
 		fields,
-		moduleOrder: [],
-		formOrder: {},
+		moduleOrder: [moduleUuid],
+		formOrder: { [moduleUuid]: [formUuid] },
 		fieldOrder,
 		fieldParent,
 	};
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 // ── Fixed UUIDs so test assertions are easy to read ───────────────────

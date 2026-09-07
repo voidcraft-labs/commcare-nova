@@ -155,6 +155,8 @@ interface GenerationContextOptions {
 	/** Server-shared OpenAI API key (resolved by `resolveOpenAIKey`) —
 	 * the one credential behind every model this context resolves. */
 	apiKey: string;
+	/** Optional HTTP transport for scoped callers; provider/schema adapters stay unchanged. */
+	transport?: typeof globalThis.fetch;
 	/** SSE writer for the live builder. Unchanged wire format. */
 	writer: UIMessageStreamWriter;
 	/** Event log sink — batched Postgres writer, one row per event. */
@@ -313,9 +315,11 @@ export class GenerationContext
 	 * Started by `startRunLeaseHeartbeat`, cleared by `stopRunLeaseHeartbeat` in
 	 * the route's finalize — an uncleared interval is an async leak. */
 	private leaseHeartbeatTimer: ReturnType<typeof setInterval> | undefined;
+	private leaseHeartbeatWork: Promise<void> | undefined;
+	private leaseHeartbeatStopped = false;
 
 	constructor(opts: GenerationContextOptions) {
-		this.openai = createNovaOpenAI(opts.apiKey);
+		this.openai = createNovaOpenAI(opts.apiKey, opts.transport);
 		this.writer = opts.writer;
 		this.logWriter = opts.logWriter;
 		this.usage = opts.usage;
@@ -972,19 +976,26 @@ export class GenerationContext
 	 * a build that then finishes and celebrates over an `error` row. Debounced
 	 * to at most once per `LEASE_HEARTBEAT_INTERVAL_MS` across BOTH signals.
 	 * Both refreshers are ownership-gated through the one liveness reader, so a
-	 * run superseded mid-way never re-arms the taker's horizon. Fire-and-forget
-	 * — a miss just risks an earlier lapse and the next beat retries.
+	 * run superseded mid-way never re-arms the taker's horizon. A refresh is
+	 * owned until it settles; finalization joins it before closing the run.
 	 */
 	private beatRunLease(): void {
+		if (this.leaseHeartbeatStopped || this.leaseHeartbeatWork) return;
 		const nowMs = Date.now();
 		if (nowMs - this.lastLeaseRefreshMs < LEASE_HEARTBEAT_INTERVAL_MS) return;
 		this.lastLeaseRefreshMs = nowMs;
 		const refresh = this.editLease ? refreshEditLease : refreshBuildLiveness;
-		refresh(this.appId, this.runId, this.holderNonce).catch((err) =>
-			log.error("[generation] run-lease heartbeat failed", err, {
-				appId: this.appId,
-			}),
-		);
+		const work = refresh(this.appId, this.runId, this.holderNonce)
+			.catch((err) =>
+				log.error("[generation] run-lease heartbeat failed", err, {
+					appId: this.appId,
+				}),
+			)
+			.finally(() => {
+				if (this.leaseHeartbeatWork === work)
+					this.leaseHeartbeatWork = undefined;
+			});
+		this.leaseHeartbeatWork = work;
 	}
 
 	/**
@@ -998,6 +1009,7 @@ export class GenerationContext
 	 * process alive.
 	 */
 	startRunLeaseHeartbeat(): void {
+		this.leaseHeartbeatStopped = false;
 		if (this.leaseHeartbeatTimer) return;
 		this.leaseHeartbeatTimer = setInterval(
 			() => this.beatRunLease(),
@@ -1008,12 +1020,15 @@ export class GenerationContext
 
 	/** Stop the wall-clock lease heartbeat. Idempotent; MUST run in the route's
 	 * finalize so the interval is cleared (an uncleared timer is an async leak,
-	 * and a paused/finalized run must stop re-arming its liveness horizon). */
-	stopRunLeaseHeartbeat(): void {
+	 * and a paused/finalized run must stop re-arming its liveness horizon).
+	 * Join the in-flight database refresh before finalization can return. */
+	async stopRunLeaseHeartbeat(): Promise<void> {
+		this.leaseHeartbeatStopped = true;
 		if (this.leaseHeartbeatTimer) {
 			clearInterval(this.leaseHeartbeatTimer);
 			this.leaseHeartbeatTimer = undefined;
 		}
+		await this.leaseHeartbeatWork;
 	}
 
 	handleAgentStep(

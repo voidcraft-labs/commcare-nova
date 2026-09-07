@@ -4,8 +4,6 @@ import {
 	authoredCaseIdNamespaceName,
 	authoredCaseIdPrefix,
 	deriveAuthoredCaseId,
-	MAX_AUTHORED_CASE_ID_LENGTH,
-	MAX_AUTHORED_CASE_KEY_LENGTH,
 } from "../caseOperationIdentity";
 
 const FORM = testUuid("66666666-6666-4666-8666-666666666666");
@@ -27,28 +25,35 @@ describe("authored case-operation identity", () => {
 		);
 	});
 
-	it("keeps the raw key exact and bounds the final HQ case id", () => {
-		const composed = deriveAuthoredCaseId(SCOPE, " é ");
-		const decomposed = deriveAuthoredCaseId(SCOPE, " e\u0301 ");
-		expect(composed).toMatchObject({ ok: true });
-		expect(decomposed).toMatchObject({ ok: true });
-		expect(composed).not.toEqual(decomposed);
-
-		const maximum = deriveAuthoredCaseId(
-			SCOPE,
-			"x".repeat(MAX_AUTHORED_CASE_KEY_LENGTH),
-		);
-		expect(maximum.ok).toBe(true);
-		if (maximum.ok) {
-			expect(maximum.caseId.length).toBe(MAX_AUTHORED_CASE_ID_LENGTH);
+	it("keeps raw whitespace and Unicode normalization forms exact", () => {
+		for (const key of [" é ", " e\u0301 ", " "]) {
+			expect(deriveAuthoredCaseId(SCOPE, key)).toEqual({
+				ok: true,
+				caseId: `nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:${key}`,
+			});
 		}
-		expect(deriveAuthoredCaseId(SCOPE, "")).toMatchObject({
+	});
+
+	it("bounds the complete ID in UTF-16 units, including astral keys", () => {
+		const key = `${"😀".repeat(102)}x`;
+		const expectedId = `nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:${key}`;
+		expect(expectedId).toHaveLength(255);
+		expect(deriveAuthoredCaseId(SCOPE, key)).toEqual({
+			ok: true,
+			caseId: expectedId,
+		});
+		expect(deriveAuthoredCaseId(SCOPE, "")).toEqual({
 			ok: false,
 			reason: "blank",
+			maxKeyLength: 205,
 		});
-		expect(
-			deriveAuthoredCaseId(SCOPE, "x".repeat(MAX_AUTHORED_CASE_KEY_LENGTH + 1)),
-		).toMatchObject({ ok: false, reason: "too-long" });
+		for (const oversized of ["x".repeat(206), "😀".repeat(103)]) {
+			expect(deriveAuthoredCaseId(SCOPE, oversized)).toEqual({
+				ok: false,
+				reason: "too-long",
+				maxKeyLength: 205,
+			});
+		}
 	});
 
 	it("separates apps, forms, operations, and declared case types", () => {

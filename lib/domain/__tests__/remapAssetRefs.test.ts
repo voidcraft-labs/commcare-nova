@@ -1,23 +1,25 @@
-/**
- * `remapAssetRefs` is the write counterpart of `walkAssetRefs` — it must touch
- * every media slot the walk reads, or a moved app would keep a stale ref the
- * walk still surfaces. The headline test is COVERAGE PARITY: remap every id
- * through a full map, then assert `collectAssetRefs` of the result is exactly the
- * mapped set. A slot added to the walk but not to the remap fails it.
- */
+/** Structural media identity projection and remapping over admitted documents.
+ * Explicit expected identities and whole-document substitution are independent
+ * of the production walker; these examples do not prove every future carrier
+ * or a real cross-Project storage copy. */
 
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
 import { blueprintDocSchema } from "../blueprint";
-import { builtinIconRef, isBuiltinIconRef } from "../builtinIcons";
+import { builtinIconRef } from "../builtinIcons";
 import {
 	asWalkableDoc,
 	collectAssetRefs,
 	collectAuthoredAssetRefs,
-	collectRealAssetRefs,
 	remapAssetRefs,
 } from "../mediaRefs";
+import { plainColumn } from "../modules";
 
 const BUILTIN_REF = builtinIconRef("household");
 const MOD_A = testUuid("mod-a");
@@ -28,18 +30,25 @@ const SELECT_FIELD = testUuid("field-select");
 const COLUMN = testUuid("col-1");
 const media = testMediaAssetId;
 
+function admittedPersisted(input: unknown) {
+	return toPersistableDoc(
+		expectAdmittedDoc(
+			hydratePersistedBlueprint(blueprintDocSchema.parse(input)),
+		),
+	);
+}
+
 /** A blueprint with a distinct asset id in EVERY slot `walkAssetRefs` covers:
  *  app logo; a caseListOnly module's icon/audioLabel + caseListConfig
  *  icon/audioLabel + an image-map column's mapping; a regular module's
- *  icon/audioLabel; a form's icon/audioLabel; all four field media bundles ×
- *  image/audio/video; and select-option media. Plus a built-in icon ref to
+ *  icon/audioLabel; a form's icon/audioLabel; all four field media bundles (label has image/audio/video); and select-option media. Plus a built-in icon ref to
  *  prove pass-through. */
 function fixtureDoc() {
-	return blueprintDocSchema.parse({
+	return admittedPersisted({
 		appId: "app-1",
 		appName: "Fixture",
 		connectType: null,
-		caseTypes: null,
+		caseTypes: [{ name: "patient", properties: [] }],
 		logo: media("logo"),
 		moduleOrder: [MOD_A, MOD_B],
 		formOrder: { [MOD_A]: [], [MOD_B]: [FORM] },
@@ -50,6 +59,7 @@ function fixtureDoc() {
 				id: "case_list",
 				name: "Case list",
 				caseListOnly: true,
+				caseType: "patient",
 				icon: media("mod-a-icon"),
 				audioLabel: media("mod-a-audio"),
 				caseListConfig: {
@@ -60,8 +70,8 @@ function fixtureDoc() {
 							field: "status",
 							header: "Status",
 							mapping: [
-								{ value: "v1", assetId: media("imgmap-1") },
-								{ value: "v2", assetId: media("imgmap-2") },
+								{ value: "open", assetId: media("imgmap-1") },
+								{ value: "closed", assetId: media("imgmap-2") },
 							],
 						},
 					],
@@ -85,7 +95,7 @@ function fixtureDoc() {
 				uuid: FORM,
 				id: "intake",
 				name: "Intake",
-				type: "registration",
+				type: "survey",
 				icon: media("form-icon"),
 				audioLabel: media("form-audio"),
 			},
@@ -135,31 +145,51 @@ function fixtureDoc() {
 }
 
 describe("remapAssetRefs", () => {
-	it("covers every slot walkAssetRefs reads (coverage parity)", () => {
+	it("remaps the fixture's independently named media identities and preserves every other value", () => {
 		const doc = fixtureDoc();
-		const ids = collectAssetRefs(asWalkableDoc(doc));
-		// Sanity: the fixture really does exercise a broad slot set.
-		expect(ids.size).toBeGreaterThanOrEqual(17);
-
-		const realIds = collectRealAssetRefs(asWalkableDoc(doc));
-		const fullMap = new Map(realIds.map((id) => [id, media(`${id}__M`)]));
-		const remapped = remapAssetRefs(doc, fullMap);
-
-		const remappedIds = collectAssetRefs(asWalkableDoc(remapped));
-		expect(remappedIds).toEqual(
-			new Set(
-				[...ids].map((id) =>
-					isBuiltinIconRef(id) ? id : (fullMap.get(id) ?? id),
-				),
-			),
+		const names = [
+			"logo",
+			"mod-a-icon",
+			"mod-a-audio",
+			"cl-icon",
+			"cl-audio",
+			"imgmap-1",
+			"imgmap-2",
+			"mod-b-audio",
+			"form-icon",
+			"form-audio",
+			"lbl-img",
+			"lbl-aud",
+			"lbl-vid",
+			"hint-img",
+			"help-aud",
+			"val-vid",
+			"opt-img",
+			"opt-aud",
+		];
+		const fullMap = new Map(
+			names.map((name) => [media(name), media(`${name}-moved`)]),
 		);
+		expect(collectAssetRefs(asWalkableDoc(doc))).toEqual(
+			new Set([BUILTIN_REF, ...fullMap.keys()]),
+		);
+		const directExpected: unknown = JSON.parse(
+			JSON.stringify(doc),
+			(_key, value: unknown) => {
+				for (const [from, to] of fullMap) if (value === from) return to;
+				return value;
+			},
+		);
+		const remapped = remapAssetRefs(doc, fullMap);
+		expect(remapped).toEqual(directExpected);
+		admittedPersisted(remapped);
 	});
 
 	it("leaves the input doc untouched", () => {
 		const doc = fixtureDoc();
-		const before = collectAssetRefs(asWalkableDoc(doc));
+		const before = structuredClone(doc);
 		remapAssetRefs(doc, new Map([[media("logo"), media("logo__M")]]));
-		expect(collectAssetRefs(asWalkableDoc(doc))).toEqual(before);
+		expect(doc).toEqual(before);
 	});
 
 	it("passes through ids absent from the map (built-in refs, partial maps)", () => {
@@ -189,24 +219,25 @@ describe("remapAssetRefs", () => {
 function docWithDormantCaseListIcon() {
 	const moduleUuid = testUuid("mod-x");
 	const formUuid = testUuid("form-x");
-	return blueprintDocSchema.parse({
+	return admittedPersisted({
 		appId: "app-2",
 		appName: "Dormant",
 		connectType: null,
-		caseTypes: null,
+		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],
 		formOrder: { [moduleUuid]: [formUuid] },
-		fieldOrder: { [formUuid]: [] },
+		fieldOrder: { [formUuid]: [TEXT_FIELD] },
 		modules: {
 			[moduleUuid]: {
 				uuid: moduleUuid,
 				id: "m",
 				name: "M",
 				caseListOnly: false,
+				caseType: "patient",
 				caseListConfig: {
-					columns: [],
-					listColumnOrder: [],
-					detailColumnOrder: [],
+					columns: [plainColumn(COLUMN, "case_name", "Name")],
+					listColumnOrder: [COLUMN],
+					detailColumnOrder: [COLUMN],
 					searchInputs: [],
 					icon: media("dormant-cl-icon"),
 					audioLabel: media("dormant-cl-audio"),
@@ -218,21 +249,28 @@ function docWithDormantCaseListIcon() {
 				uuid: formUuid,
 				id: "f",
 				name: "F",
-				type: "survey",
+				type: "followup",
 			},
 		},
-		fields: {},
+		fields: {
+			[TEXT_FIELD]: {
+				uuid: TEXT_FIELD,
+				id: "note",
+				kind: "text",
+				label: proseText("Note"),
+			},
+		},
 	});
 }
 
 function docWithDormantImageMap() {
 	const moduleUuid = testUuid("mod-x");
 	const columnUuid = testUuid("col-dormant");
-	return blueprintDocSchema.parse({
+	return admittedPersisted({
 		appId: "app-3",
 		appName: "Dormant image",
 		connectType: null,
-		caseTypes: null,
+		caseTypes: [{ name: "patient", properties: [] }],
 		moduleOrder: [moduleUuid],
 		formOrder: { [moduleUuid]: [] },
 		fieldOrder: {},
@@ -242,8 +280,10 @@ function docWithDormantImageMap() {
 				id: "m",
 				name: "M",
 				caseListOnly: true,
+				caseType: "patient",
 				caseListConfig: {
 					columns: [
+						plainColumn(COLUMN, "case_name", "Name"),
 						{
 							uuid: columnUuid,
 							kind: "image-map",
@@ -254,8 +294,8 @@ function docWithDormantImageMap() {
 							mapping: [{ value: "open", assetId: media("dormant-image") }],
 						},
 					],
-					listColumnOrder: [columnUuid],
-					detailColumnOrder: [columnUuid],
+					listColumnOrder: [COLUMN, columnUuid],
+					detailColumnOrder: [COLUMN, columnUuid],
 					searchInputs: [],
 				},
 			},

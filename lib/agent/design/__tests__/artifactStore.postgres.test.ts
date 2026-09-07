@@ -6,10 +6,18 @@
 
 import { sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
+	briefDigest,
+	deriveSliceExecutionBrief,
+} from "@/lib/agent/build/executionBrief";
+import { beginOrRecoverSliceAttempt } from "@/lib/agent/build/sliceAttempts";
+import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
+import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
+import {
+	countDesignRevisions,
 	DesignArtifactStoreError,
 	type DesignArtifactWriteAuthority,
-	type DesignBuildPlanRecord,
 	type DesignRevisionRecord,
 	insertDesignBuildPlan as insertDesignBuildPlanAuthorized,
 	insertDesignReview as insertDesignReviewAuthorized,
@@ -17,10 +25,13 @@ import {
 	insertDesignSourcePackage as insertDesignSourcePackageAuthorized,
 	readDesignBuildPlan,
 	readDesignReviews,
+	readDesignReviewsForRevisions,
 	readDesignRevision,
+	readDesignRevisionsForSession,
 	readDesignSourcePackage,
 	readDispositions,
 	readLatestAcceptedDesignRevision,
+	readLatestDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import { type BuildPlan, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
@@ -33,29 +44,39 @@ import { ensureAcceptedLookupMaterialization } from "@/lib/agent/design/lookupMa
 import { projectBuildPlanLookupBindings } from "@/lib/agent/design/lookupMaterializationTypes";
 import type { DesignReview } from "@/lib/agent/design/review";
 import {
+	buildDesignSourcePackage,
 	computeSourcePackageDigest,
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { openDesignArtifactWorkspace } from "../artifactWorkspaceStore";
+import {
+	planEnvelope as producedPlanEnvelope,
+	reviewEnvelope as producedReviewEnvelope,
+} from "../loop/artifacts";
 import {
 	addPatientReviewWorkflow,
 	did,
+	FIXTURE_THREAD_ID,
 	fixtureValue,
 	ids,
-	makeBuildPlan,
 	makeContract,
 	makeLookupContract,
 	messageRef,
 } from "./fixtures";
 
-const h = setupAppStateTestDb("design_artifacts_");
+const h = setupAppStateTestDb("design_artifacts_", {
+	poolMax: 3,
+	authSchema: "migrated",
+});
 
 const RUN_ID = "run-unit-c-test";
 const ACTOR = "owner-test";
 const PROJECT = "proj-1";
 const NONCE = "6a0a35a4-1111-4222-8333-944445555667";
 let sessionId: string;
+let packageFixture: DesignSourcePackage;
 
 function authority(runId: string): DesignArtifactWriteAuthority {
 	return {
@@ -124,25 +145,7 @@ async function insertDesignBuildPlan(
 }
 
 function makePackage(): DesignSourcePackage {
-	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
-		schemaVersion: 1,
-		designSessionId: sessionId,
-		projectId: "proj-1",
-		request: {
-			blocks: [
-				{ ref: messageRef(), text: "Track CHW visits.", truncated: false },
-			],
-		},
-		claims: [],
-		attachments: [],
-		images: [],
-		platformConstraints: [],
-		sources: [{ ref: messageRef() }],
-	};
-	return {
-		...unsealed,
-		packageDigest: computeSourcePackageDigest(unsealed),
-	};
+	return structuredClone(packageFixture);
 }
 
 function draftEnvelope(
@@ -169,20 +172,7 @@ function reviewEnvelope(
 	draft: DesignRevisionRecord,
 	review: DesignReview,
 ): DesignArtifactEnvelope<DesignReview> {
-	return sealArtifactEnvelope({
-		artifactType: "design-review",
-		artifactSchemaVersion: 1,
-		artifactId: crypto.randomUUID(),
-		designSessionId: sessionId,
-		revision: draft.revision,
-		parentArtifactId: draft.id,
-		sourcePackageDigest: draft.sourcePackageDigest,
-		inputArtifactDigests: [draft.artifactDigest],
-		promptVersion: "design-reviewer-v1",
-		producer: { provider: "openai", modelId: "gpt-test", finishReason: "stop" },
-		createdAt: new Date().toISOString(),
-		payload: review,
-	});
+	return producedReviewEnvelope({ draft, review, finishReason: "stop" });
 }
 
 function acceptedEnvelope(
@@ -229,29 +219,17 @@ function planEnvelope(
 	accepted: DesignRevisionRecord,
 	plan?: BuildPlan,
 ): DesignArtifactEnvelope<BuildPlan> {
-	const payload: BuildPlan = {
-		...(plan ?? makeBuildPlan()),
-		designRevisionId: accepted.id,
-		designRevisionDigest: accepted.artifactDigest,
-	};
-	return sealArtifactEnvelope({
-		artifactType: "design-build-plan",
-		artifactSchemaVersion: payload.schemaVersion,
-		artifactId: crypto.randomUUID(),
-		designSessionId: sessionId,
-		revision: accepted.revision,
-		parentArtifactId: accepted.id,
-		sourcePackageDigest: accepted.sourcePackageDigest,
-		inputArtifactDigests: [
-			accepted.artifactDigest,
-			...(payload.lookupMaterialization !== null
-				? [payload.lookupMaterialization.resultDigest]
-				: []),
-		],
-		promptVersion: "design-planner-v1",
-		producer: { provider: "openai", modelId: "gpt-test", finishReason: "stop" },
-		createdAt: new Date().toISOString(),
-		payload,
+	const payload =
+		plan ??
+		deriveBuildPlan({
+			contract: accepted.envelope.payload,
+			revision: { id: accepted.id, digest: accepted.artifactDigest },
+		});
+	return producedPlanEnvelope({
+		accepted,
+		packageDigest: accepted.sourcePackageDigest,
+		plan: payload,
+		finishReason: "stop",
 	});
 }
 
@@ -298,6 +276,30 @@ beforeEach(async () => {
 			settled: false,
 			userId: ACTOR,
 			runId: RUN_ID,
+		},
+	});
+	packageFixture = await buildDesignSourcePackage({
+		designSessionId: sessionId,
+		projectId: PROJECT,
+		threadId: FIXTURE_THREAD_ID,
+		messages: [
+			{
+				id: "m1",
+				role: "user",
+				parts: [{ type: "text", text: "Track CHW visits." }],
+			},
+		],
+		deps: {
+			async loadAssets(ids) {
+				if (ids.length) throw new Error("Text-only fixture requested assets");
+				return [];
+			},
+			async readExtract() {
+				throw new Error("Text-only fixture requested extracts");
+			},
+			async loadImage() {
+				throw new Error("Text-only fixture requested images");
+			},
 		},
 	});
 });
@@ -726,75 +728,60 @@ describe("build plans", () => {
 		});
 		const slice = storedPlan.envelope.payload.slices[0];
 		if (slice === undefined) throw new Error("fixture plan has no root slice");
-		const attemptId = crypto.randomUUID();
-		const changeSetId = crypto.randomUUID();
-		const proposedAppId = crypto.randomUUID();
-		const digest = "a".repeat(64);
-		await h
+		const session = await h
 			.db()
-			.transaction()
-			.execute(async (tx) => {
-				await tx
-					.updateTable("design_sessions")
-					.set({ proposed_app_id: proposedAppId })
-					.where("id", "=", sessionId)
-					.execute();
-				await tx
-					.insertInto("design_slice_attempts")
-					.values({
-						id: attemptId,
-						design_session_id: sessionId,
-						design_revision_id: accepted.id,
-						design_revision_digest: accepted.artifactDigest,
-						build_plan_id: storedPlan.id,
-						build_plan_digest: storedPlan.artifactDigest,
-						slice_id: slice.id,
-						attempt: 1,
-						base_kind: "empty-genesis",
-						base_app_id: null,
-						base_proposed_app_id: proposedAppId,
-						base_seq: null,
-						base_snapshot_digest: digest,
-						change_set_id: null,
-						executor_model: "gpt-test",
-						prompt_version: "build-executor-v1",
-						brief_digest: digest,
-						status: "running",
-						failure_code: null,
-					})
-					.execute();
-				await tx
-					.insertInto("design_change_sets")
-					.values({
-						id: changeSetId,
-						design_session_id: sessionId,
-						design_revision_id: accepted.id,
-						design_revision_digest: accepted.artifactDigest,
-						build_plan_id: storedPlan.id,
-						build_plan_digest: storedPlan.artifactDigest,
-						slice_id: slice.id,
-						attempt_id: attemptId,
-						kind: "genesis",
-						app_id: null,
-						proposed_app_id: proposedAppId,
-						base_seq: null,
-						base_project_id: PROJECT,
-						base_snapshot_digest: digest,
-						exclusive_kind: null,
-						owner_user_id: ACTOR,
-						owner_run_id: RUN_ID,
-						status: "open",
-						committed_seq: null,
-						committed_batch_id: null,
-						committed_snapshot_digest: null,
-					})
-					.execute();
-				await tx
-					.updateTable("design_slice_attempts")
-					.set({ change_set_id: changeSetId })
-					.where("id", "=", attemptId)
-					.execute();
-			});
+			.selectFrom("design_sessions")
+			.select("proposed_app_id")
+			.where("id", "=", sessionId)
+			.executeTakeFirstOrThrow();
+		if (!session.proposed_app_id)
+			throw new Error("Fixture session has no proposed app");
+		const base = emptyGenesisBase(session.proposed_app_id);
+		const brief = deriveSliceExecutionBrief({
+			contract: accepted.envelope.payload,
+			revision: { id: accepted.id, digest: accepted.artifactDigest },
+			plan: storedPlan.envelope.payload,
+			sliceId: slice.id,
+		});
+		const { attempt: runningAttempt } = await beginOrRecoverSliceAttempt({
+			designSessionId: sessionId,
+			actorUserId: ACTOR,
+			runId: RUN_ID,
+			holderNonce: NONCE,
+			expectedProjectId: PROJECT,
+			designRevisionId: accepted.id,
+			designRevisionDigest: accepted.artifactDigest,
+			buildPlanId: storedPlan.id,
+			buildPlanDigest: storedPlan.planDigest,
+			sliceId: slice.id,
+			baseTarget: {
+				kind: "empty-genesis",
+				proposedAppId: session.proposed_app_id,
+				digest: base.digest,
+			},
+			executorModel: "offline-fixture",
+			promptVersion: "fixture-v1",
+			briefDigest: briefDigest(brief),
+		});
+		const openChangeSet = await beginGenesisChangeSet({
+			proposedAppId: session.proposed_app_id,
+			projectId: PROJECT,
+			baseSnapshotDigest: base.digest,
+			lineage: {
+				designSessionId: sessionId,
+				designRevisionId: accepted.id,
+				designRevisionDigest: accepted.artifactDigest,
+				buildPlanId: storedPlan.id,
+				buildPlanDigest: storedPlan.planDigest,
+				sliceId: slice.id,
+				attemptId: runningAttempt.id,
+			},
+			ownerUserId: ACTOR,
+			ownerRunId: RUN_ID,
+			attemptAuthority: { holderNonce: NONCE, expectedProjectId: PROJECT },
+		});
+		const attemptId = runningAttempt.id;
+		const changeSetId = openChangeSet.id;
 
 		const { packageDigest: _currentDigest, ...current } = makePackage();
 		const replacementUnsealed: Omit<DesignSourcePackage, "packageDigest"> = {
@@ -865,9 +852,8 @@ describe("build plans", () => {
 			envelope: planEnvelope(accepted),
 			runId: RUN_ID,
 		});
-		const read = (await readDesignBuildPlan(
-			stored.id,
-		)) as DesignBuildPlanRecord;
+		const read = await readDesignBuildPlan(stored.id);
+		if (read === null) throw new Error("Missing stored plan");
 		expect(read.designRevisionDigest).toBe(accepted.artifactDigest);
 		expect(read.envelope.payload.slices).toHaveLength(2);
 	});
@@ -875,7 +861,10 @@ describe("build plans", () => {
 	it("normalizes an omitted additive plan member only after verifying its sealed body", async () => {
 		const { accepted } = await persistAcceptedRevision();
 		const currentPlan: BuildPlan = {
-			...makeBuildPlan(),
+			...deriveBuildPlan({
+				contract: accepted.envelope.payload,
+				revision: { id: accepted.id, digest: accepted.artifactDigest },
+			}),
 			designRevisionId: accepted.id,
 			designRevisionDigest: accepted.artifactDigest,
 		};
@@ -918,9 +907,8 @@ describe("build plans", () => {
 			})
 			.execute();
 
-		const read = (await readDesignBuildPlan(
-			storedPayload.id,
-		)) as DesignBuildPlanRecord;
+		const read = await readDesignBuildPlan(storedPayload.id);
+		if (read === null) throw new Error("Missing legacy plan");
 		expect(read.envelope.payload.lookupMaterialization).toBeNull();
 		expect(read.artifactDigest).toBe(storedEnvelope.artifactDigest);
 		expect(read.planDigest).toBe(canonicalJsonDigest(storedPayload));
@@ -946,7 +934,10 @@ describe("build plans", () => {
 		const { accepted } = await persistAcceptedRevision();
 		const envelope = reseal(planEnvelope(accepted), {
 			payload: {
-				...makeBuildPlan(),
+				...deriveBuildPlan({
+					contract: accepted.envelope.payload,
+					revision: { id: accepted.id, digest: accepted.artifactDigest },
+				}),
 				designRevisionId: accepted.id,
 				designRevisionDigest: "e".repeat(64),
 			},
@@ -1022,4 +1013,494 @@ describe("build plans", () => {
 			}),
 		).rejects.toThrow(/exact digest-bound lookup identity mapping/);
 	});
+});
+
+describe("artifact predecessor and relational integrity", () => {
+	it.each(["parent", "revision"] as const)(
+		"refuses a review with a false sealed %s",
+		async (field) => {
+			const { draft } = await persistAcceptedRevision();
+			const envelope = reseal(
+				reviewEnvelope(draft, emptyReview()),
+				field === "parent"
+					? { parentArtifactId: crypto.randomUUID() }
+					: { revision: draft.revision + 4 },
+			);
+			await expect(
+				insertDesignReview({
+					envelope,
+					designRevisionId: draft.id,
+					runId: RUN_ID,
+				}),
+			).rejects.toThrow(DesignArtifactStoreError);
+			expect(await readDesignReviews(draft.id)).toHaveLength(1);
+		},
+	);
+	it.each(["parent", "revision", "source"] as const)(
+		"refuses a plan with a false sealed %s",
+		async (field) => {
+			const { accepted } = await persistAcceptedRevision();
+			const overrides =
+				field === "parent"
+					? { parentArtifactId: crypto.randomUUID() }
+					: field === "revision"
+						? { revision: accepted.revision + 4 }
+						: { sourcePackageDigest: "e".repeat(64) };
+			const envelope = reseal(planEnvelope(accepted), overrides);
+			await expect(
+				insertDesignBuildPlan({ envelope, runId: RUN_ID }),
+			).rejects.toThrow(DesignArtifactStoreError);
+			expect(await readDesignBuildPlan(envelope.payload.id)).toBeNull();
+		},
+	);
+	it.each(["source", "revision", "parent"] as const)(
+		"refuses a revision whose relational %s changed beneath the envelope",
+		async (field) => {
+			const { accepted } = await persistAcceptedRevision();
+			if (field === "source")
+				await h
+					.db()
+					.updateTable("design_revisions")
+					.set({ source_package_digest: "e".repeat(64) })
+					.where("id", "=", accepted.id)
+					.execute();
+			if (field === "revision")
+				await h
+					.db()
+					.updateTable("design_revisions")
+					.set({ revision: 8 })
+					.where("id", "=", accepted.id)
+					.execute();
+			if (field === "parent")
+				await h
+					.db()
+					.updateTable("design_revisions")
+					.set({ parent_revision_id: accepted.id })
+					.where("id", "=", accepted.id)
+					.execute();
+			await expect(readDesignRevision(accepted.id)).rejects.toThrow(
+				DesignArtifactStoreError,
+			);
+		},
+	);
+	it.each(["session", "predecessor", "digest"] as const)(
+		"refuses a review whose relational %s changed beneath the envelope",
+		async (field) => {
+			const { accepted, draft } = await persistAcceptedRevision();
+			const [review] = await readDesignReviews(draft.id);
+			if (!review) throw new Error("Missing fixture review");
+			if (field === "session") {
+				const other = await h.seedDesignSession();
+				await h
+					.db()
+					.updateTable("design_reviews")
+					.set({ design_session_id: other })
+					.where("id", "=", review.id)
+					.execute();
+			}
+			if (field === "predecessor")
+				await h
+					.db()
+					.updateTable("design_reviews")
+					.set({ design_revision_id: accepted.id })
+					.where("id", "=", review.id)
+					.execute();
+			if (field === "digest")
+				await h
+					.db()
+					.updateTable("design_reviews")
+					.set({ reviewed_revision_digest: "e".repeat(64) })
+					.where("id", "=", review.id)
+					.execute();
+			await expect(
+				readDesignReviews(field === "predecessor" ? accepted.id : draft.id),
+			).rejects.toThrow(DesignArtifactStoreError);
+		},
+	);
+	it.each(["session", "predecessor", "revisionDigest", "planDigest"] as const)(
+		"refuses a plan whose relational %s changed beneath the envelope",
+		async (field) => {
+			const { accepted, draft } = await persistAcceptedRevision();
+			const plan = await insertDesignBuildPlan({
+				envelope: planEnvelope(accepted),
+				runId: RUN_ID,
+			});
+			if (field === "session") {
+				const other = await h.seedDesignSession();
+				await h
+					.db()
+					.updateTable("design_build_plans")
+					.set({ design_session_id: other })
+					.where("id", "=", plan.id)
+					.execute();
+			}
+			if (field === "predecessor")
+				await h
+					.db()
+					.updateTable("design_build_plans")
+					.set({ design_revision_id: draft.id })
+					.where("id", "=", plan.id)
+					.execute();
+			if (field === "revisionDigest")
+				await h
+					.db()
+					.updateTable("design_build_plans")
+					.set({ design_revision_digest: "e".repeat(64) })
+					.where("id", "=", plan.id)
+					.execute();
+			if (field === "planDigest")
+				await h
+					.db()
+					.updateTable("design_build_plans")
+					.set({ plan_digest: "e".repeat(64) })
+					.where("id", "=", plan.id)
+					.execute();
+			await expect(readDesignBuildPlan(plan.id)).rejects.toThrow(
+				DesignArtifactStoreError,
+			);
+		},
+	);
+	it.each(["projectId", "designSessionId"] as const)(
+		"refuses source-package %s disagreement",
+		async (field) => {
+			const pkg = makePackage();
+			await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+			const wrong =
+				field === "projectId" ? "another-project" : crypto.randomUUID();
+			await sql`UPDATE design_source_packages SET payload = jsonb_set(payload, ARRAY[${field}]::text[], to_jsonb(${wrong}::text)) WHERE design_session_id=${sessionId}`.execute(
+				h.db(),
+			);
+			await expect(
+				readDesignSourcePackage(sessionId, pkg.packageDigest),
+			).rejects.toThrow(DesignArtifactStoreError);
+		},
+	);
+});
+
+describe("artifact write authority and transaction ownership", () => {
+	it.each(["source", "revision", "review", "plan"] as const)(
+		"rechecks current Project permission before a %s write",
+		async (kind) => {
+			const { accepted, draft } = await persistAcceptedRevision();
+			const originalRevisions = await readDesignRevisionsForSession(sessionId);
+			const originalReviews = await readDesignReviews(draft.id);
+			await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+			const write =
+				kind === "source"
+					? () =>
+							insertDesignSourcePackage({ pkg: makePackage(), runId: RUN_ID })
+					: kind === "revision"
+						? () =>
+								insertDesignRevision({
+									envelope: reseal(draftEnvelope(makePackage()), {
+										revision: 3,
+										parentArtifactId: accepted.id,
+										inputArtifactDigests: [accepted.artifactDigest],
+									}),
+									lifecycle: "draft",
+									runId: RUN_ID,
+								})
+						: kind === "review"
+							? () =>
+									insertDesignReview({
+										envelope: reviewEnvelope(draft, emptyReview()),
+										designRevisionId: draft.id,
+										runId: RUN_ID,
+									})
+							: () =>
+									insertDesignBuildPlan({
+										envelope: planEnvelope(accepted),
+										runId: RUN_ID,
+									});
+			await expect(write()).rejects.toThrow();
+			expect(await readDesignRevisionsForSession(sessionId)).toEqual(
+				originalRevisions,
+			);
+			expect(await readDesignReviews(draft.id)).toEqual(originalReviews);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_build_plans")
+					.selectAll()
+					.where("design_session_id", "=", sessionId)
+					.execute(),
+			).toEqual([]);
+		},
+	);
+	it.each(["contract", "revision"] as const)(
+		"atomically finalizes its exact %s workspace and rolls back a stale revision",
+		async (kind) => {
+			const pkg = makePackage();
+			await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+			const draft =
+				kind === "revision"
+					? await insertDesignRevision({
+							envelope: draftEnvelope(pkg),
+							lifecycle: "draft",
+							runId: RUN_ID,
+						})
+					: null;
+			const review = draft
+				? await insertDesignReview({
+						envelope: reviewEnvelope(draft, emptyReview()),
+						designRevisionId: draft.id,
+						runId: RUN_ID,
+					})
+				: null;
+			const state = await openDesignArtifactWorkspace({
+				designSessionId: sessionId,
+				lineage: {
+					schemaVersion: 1,
+					artifactKind: kind,
+					sourcePackageDigest: pkg.packageDigest,
+					reviewArtifacts: review
+						? [{ id: review.id, digest: review.artifactDigest }]
+						: [],
+					...(draft
+						? { baseRevision: { id: draft.id, digest: draft.artifactDigest } }
+						: {}),
+				},
+				authority: authority(RUN_ID),
+			});
+			const write = (expectedRevision: number) =>
+				insertDesignRevision({
+					envelope:
+						draft && review
+							? acceptedEnvelope(
+									draft,
+									review.artifactDigest,
+									draft.envelope.payload,
+								)
+							: draftEnvelope(pkg),
+					lifecycle: "draft",
+					runId: RUN_ID,
+					workspaceFinalization: {
+						workspaceId: state.workspace.id,
+						expectedRevision,
+						artifactKind: kind,
+					},
+				});
+			const readRow = () =>
+				h
+					.db()
+					.selectFrom("design_artifact_workspaces")
+					.selectAll()
+					.where("id", "=", state.workspace.id)
+					.executeTakeFirstOrThrow();
+			const before = await readRow();
+			const beforeRevisions = await readDesignRevisionsForSession(sessionId);
+			await expect(write(state.workspace.revision + 1)).rejects.toThrow(
+				/changed or closed/,
+			);
+			expect(await readRow()).toEqual(before);
+			expect(await readDesignRevisionsForSession(sessionId)).toEqual(
+				beforeRevisions,
+			);
+			const stored = await write(state.workspace.revision);
+			expect(await readRow()).toMatchObject({
+				status: "finalized",
+				finalized_artifact_id: stored.id,
+			});
+		},
+	);
+	it.each(["source", "review", "revision"] as const)(
+		"observes competing %s writes at the authority lock",
+		async (kind) => {
+			const pkg = makePackage();
+			let draft: DesignRevisionRecord | undefined;
+			if (kind === "review") {
+				await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+				draft = await insertDesignRevision({
+					envelope: draftEnvelope(pkg),
+					lifecycle: "draft",
+					runId: RUN_ID,
+				});
+			} else if (kind === "revision")
+				await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+			const run = () =>
+				kind === "source"
+					? insertDesignSourcePackage({ pkg, runId: RUN_ID })
+					: kind === "review" && draft
+						? insertDesignReview({
+								envelope: reviewEnvelope(draft, emptyReview()),
+								designRevisionId: draft.id,
+								runId: RUN_ID,
+							})
+						: insertDesignRevision({
+								envelope: draftEnvelope(pkg),
+								lifecycle: "draft",
+								runId: RUN_ID,
+							});
+			const results = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+						sessionId,
+					]),
+				() => Promise.allSettled([run(), run()]),
+				async (settled, pg) => {
+					expect(settled).toBe(false);
+					const deadline = Date.now() + 2000;
+					for (;;) {
+						await pg.query("SELECT pg_stat_clear_snapshot()");
+						const waits = await pg.query<{ n: number }>(
+							"SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'",
+						);
+						if (waits.rows[0].n >= 2) break;
+						if (Date.now() > deadline)
+							throw new Error(
+								"Both writers did not reach PostgreSQL lock waits",
+							);
+						await new Promise<void>((resolve) => setImmediate(resolve));
+					}
+				},
+			);
+			expect(
+				results.filter((result) => result.status === "fulfilled"),
+			).toHaveLength(kind === "revision" ? 1 : 2);
+			if (kind === "source") {
+				const first = results[0],
+					second = results[1];
+				if (first.status !== "fulfilled" || second.status !== "fulfilled")
+					throw new Error("Source writers failed");
+				expect(first.value).toEqual(second.value);
+			}
+			if (kind === "review" && draft)
+				expect(
+					(await readDesignReviews(draft.id)).map(
+						(review) => review.reviewOrdinal,
+					),
+				).toEqual([1, 2]);
+			if (kind === "revision") {
+				expect(await countDesignRevisions(sessionId)).toBe(1);
+				const rejected = results.find((result) => result.status === "rejected");
+				expect(
+					rejected?.status === "rejected" ? rejected.reason : null,
+				).toMatchObject({ code: "23505" });
+			}
+		},
+	);
+	it("reads revision order and isolated batched review keys without using timestamps", async () => {
+		const { draft, accepted } = await persistAcceptedRevision();
+		await h
+			.db()
+			.updateTable("design_revisions")
+			.set({ created_at: new Date("2100-01-01T00:00:00Z") })
+			.where("id", "=", draft.id)
+			.execute();
+		expect(
+			(await readDesignRevisionsForSession(sessionId)).map((row) => row.id),
+		).toEqual([draft.id, accepted.id]);
+		expect((await readLatestDesignRevision(sessionId))?.id).toBe(accepted.id);
+		const missing = crypto.randomUUID();
+		const reviews = await readDesignReviewsForRevisions([
+			accepted.id,
+			draft.id,
+			missing,
+			draft.id,
+		]);
+		expect([...reviews.keys()]).toEqual([accepted.id, draft.id, missing]);
+		expect(reviews.get(accepted.id)).toEqual([]);
+		expect(reviews.get(missing)).toEqual([]);
+		expect(reviews.get(draft.id)?.map((row) => row.designRevisionId)).toEqual([
+			draft.id,
+		]);
+		expect(await readDesignReviewsForRevisions([])).toEqual(new Map());
+		expect(await readLatestDesignRevision(missing)).toBeNull();
+		expect(await readDesignBuildPlan(missing)).toBeNull();
+	});
+	it("refuses a disposition for an absent finding even when its review exists", async () => {
+		const { draft } = await persistAcceptedRevision();
+		const [review] = await readDesignReviews(draft.id);
+		if (!review) throw new Error("Missing fixture review");
+		const envelope = reseal(
+			acceptedEnvelope(draft, review.artifactDigest, draft.envelope.payload),
+			{ revision: 3 },
+		);
+		await expect(
+			insertDesignRevision({
+				envelope,
+				lifecycle: "draft",
+				runId: RUN_ID,
+				dispositions: [
+					{
+						reviewId: review.id,
+						disposition: {
+							findingId: did(799),
+							status: "rejected",
+							rationale: "Invented finding.",
+						},
+					},
+				],
+			}),
+		).rejects.toThrow(DesignArtifactStoreError);
+		expect(await readDesignRevision(envelope.artifactId)).toBeNull();
+		expect(await readDispositions(review.id)).toEqual([]);
+	});
+});
+
+describe("stored finding dispositions", () => {
+	it.each(["finding", "status"] as const)(
+		"refuses relational %s disagreement on read",
+		async (field) => {
+			const pkg = makePackage();
+			await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+			const draft = await insertDesignRevision({
+				envelope: draftEnvelope(pkg),
+				lifecycle: "draft",
+				runId: RUN_ID,
+			});
+			const finding = {
+				id: did(450),
+				severity: "important" as const,
+				dispositionClass: "design-correction" as const,
+				claim: "Use worker terminology.",
+				evidenceRefs: [messageRef()],
+				affectedElementIds: [ids.rmPatients],
+			};
+			const review = await insertDesignReview({
+				envelope: reviewEnvelope(draft, {
+					...emptyReview(),
+					findings: [finding],
+				}),
+				designRevisionId: draft.id,
+				runId: RUN_ID,
+			});
+			const disposition = {
+				findingId: finding.id,
+				status: "rejected" as const,
+				rationale: "The current terminology comes from the request.",
+			};
+			const revised = await insertDesignRevision({
+				envelope: acceptedEnvelope(
+					draft,
+					review.artifactDigest,
+					draft.envelope.payload,
+				),
+				lifecycle: "draft",
+				runId: RUN_ID,
+				dispositions: [{ reviewId: review.id, disposition }],
+			});
+			expect(await readDispositions(review.id)).toMatchObject([
+				{ findingId: finding.id, resultingRevisionId: revised.id, disposition },
+			]);
+			if (field === "finding")
+				await h
+					.db()
+					.updateTable("design_review_dispositions")
+					.set({ finding_id: did(451) })
+					.where("review_id", "=", review.id)
+					.execute();
+			else
+				await h
+					.db()
+					.updateTable("design_review_dispositions")
+					.set({ status: "accepted" })
+					.where("review_id", "=", review.id)
+					.execute();
+			await expect(readDispositions(review.id)).rejects.toThrow(
+				DesignArtifactStoreError,
+			);
+		},
+	);
 });

@@ -1,25 +1,14 @@
-/**
- * Local-suite ↔ HQ-JSON parity for after-submit links. One document,
- * both emitters: every `<create if>` on the local entry equals the
- * `form_links[i].xpath` HQ receives, and the fallback frame's `if` is the
- * join HQ's `_get_fallback_frame` derives from those xpaths — present
- * exactly when `post_form_workflow_fallback` names a frame-producing
- * workflow.
- */
+/** Structural regression checks on admitted documents; native links corpus owns HQ/Core acceptance. */
 
 import AdmZip from "adm-zip";
 import { isTag } from "domhandler";
 import { DomUtils, parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication } from "@/lib/commcare";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { runValidation } from "@/lib/commcare/validator/runner";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import type { BlueprintDoc } from "@/lib/domain";
+import { formLinkWireFixture } from "./formLinkWireFixture";
 
 interface StackCreate {
 	readonly ifClause: string | undefined;
@@ -63,105 +52,9 @@ function compile(doc: BlueprintDoc): { hq: HqApplication; suite: string } {
 	return { hq, suite: zip.readAsText("suite.xml") };
 }
 
-/** HQ's `_get_fallback_frame` literal over the sent xpaths. */
-function hqFallbackGuard(hq: HqApplication, m: number, fi: number): string {
-	return hq.modules[m].forms[fi].form_links
-		.map((link) => link.xpath)
-		.filter((xpath) => xpath.trim().length > 0)
-		.map((xpath) => `not(${xpath})`)
-		.join(" and ");
-}
-
-const CARE = testUuid("mod-care");
-const VISIT = testUuid("frm-visit");
-
-function parityDoc(
-	postSubmit: PostSubmitDestination | undefined,
-	links: "conditional-then-else" | "conditional-only" | "unconditional",
-): BlueprintDoc {
-	const nameWriter = () =>
-		f({
-			kind: "text",
-			id: "case_name",
-			label: proseText("Name"),
-			caseWrite: { caseType: "frog", property: "case_name" },
-		});
-	const conditional = {
-		uuid: "lnk-cond",
-		condition: "#user/username = 'alice'",
-		target: { type: "form" as const, moduleUuid: CARE, formUuid: VISIT },
-	};
-	const unconditional = {
-		uuid: "lnk-else",
-		target: { type: "module" as const, moduleUuid: CARE },
-	};
-	return buildDoc({
-		appName: "Parity",
-		caseTypes: [
-			{
-				name: "frog",
-				properties: [{ name: "mood", label: proseText("Mood") }],
-			},
-		],
-		modules: [
-			{
-				uuid: "mod-intake",
-				name: "Intake",
-				caseType: "frog",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						uuid: "frm-reg",
-						name: "Register frog",
-						type: "registration",
-						...(postSubmit !== undefined && { postSubmit }),
-						formLinks:
-							links === "conditional-then-else"
-								? [conditional, unconditional]
-								: links === "conditional-only"
-									? [conditional]
-									: [unconditional],
-						fields: [nameWriter()],
-					},
-				],
-			},
-			{
-				uuid: "mod-care",
-				name: "Frog care",
-				caseType: "frog",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						uuid: "frm-visit",
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({
-								kind: "text",
-								id: "mood",
-								label: proseText("Mood"),
-								caseWrite: { caseType: "frog", property: "mood" },
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-}
-
-describe("form-link parity: local suite ↔ HQ JSON", () => {
-	it("each local <create if> equals the xpath HQ receives, and the else link carries no if", () => {
-		const doc = parityDoc(undefined, "conditional-then-else");
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
-				e.code.startsWith("FORM_LINK"),
-			),
-		).toEqual([]);
+describe("form-link local wire structure (native HQ/Core proof owns compatibility)", () => {
+	it("emits exclusive conditions and carries the created case into the linked form", () => {
+		const doc = formLinkWireFixture("else");
 		const { hq, suite } = compile(doc);
 		const form = hq.modules[0].forms[0];
 		const creates = stackCreates(suite, "m0-f0");
@@ -187,7 +80,7 @@ describe("form-link parity: local suite ↔ HQ JSON", () => {
 	});
 
 	it("a conditional-only list with a module fallback adds HQ's fallback frame", () => {
-		const doc = parityDoc("module", "conditional-only");
+		const doc = formLinkWireFixture("module");
 		const { hq, suite } = compile(doc);
 		const form = hq.modules[0].forms[0];
 		const creates = stackCreates(suite, "m0-f0");
@@ -195,12 +88,14 @@ describe("form-link parity: local suite ↔ HQ JSON", () => {
 		expect(form.post_form_workflow_fallback).toBe("module");
 		expect(creates).toHaveLength(2);
 		expect(creates[0].ifClause).toBe(form.form_links[0].xpath);
-		expect(creates[1].ifClause).toBe(hqFallbackGuard(hq, 0, 0));
+		expect(creates[1].ifClause).toBe(
+			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		);
 		expect(creates[1].children).toEqual(["command:'m0'"]);
 	});
 
 	it("an app_home fallback is HQ's `default`: no frame on either path", () => {
-		const doc = parityDoc("app_home", "conditional-only");
+		const doc = formLinkWireFixture("home");
 		const { hq, suite } = compile(doc);
 		const form = hq.modules[0].forms[0];
 		expect(form.post_form_workflow_fallback).toBe("default");
@@ -208,13 +103,15 @@ describe("form-link parity: local suite ↔ HQ JSON", () => {
 	});
 
 	it("a previous fallback pushes the projected previous frame under HQ's guard", () => {
-		const doc = parityDoc("previous", "conditional-only");
+		const doc = formLinkWireFixture("previous");
 		const { hq, suite } = compile(doc);
 		const form = hq.modules[0].forms[0];
 		const creates = stackCreates(suite, "m0-f0");
 		expect(form.post_form_workflow_fallback).toBe("previous_screen");
 		expect(creates).toHaveLength(2);
-		expect(creates[1].ifClause).toBe(hqFallbackGuard(hq, 0, 0));
+		expect(creates[1].ifClause).toBe(
+			"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		);
 		// Intake holds one registration form, so its function datum is the
 		// module's common prefix: [m0, case_id_new_frog_0, m0-f0] → pop the
 		// command → stop. The frame keeps the function datum, exactly as HQ's
@@ -227,7 +124,7 @@ describe("form-link parity: local suite ↔ HQ JSON", () => {
 	});
 
 	it("a sole unconditional link emits one unguarded frame and no fallback", () => {
-		const doc = parityDoc(undefined, "unconditional");
+		const doc = formLinkWireFixture("unconditional");
 		const { hq, suite } = compile(doc);
 		const form = hq.modules[0].forms[0];
 		const creates = stackCreates(suite, "m0-f0");

@@ -1,168 +1,160 @@
-// Which workers a commit changed — the gate that keeps the usercase sweep off
-// the autosave path.
-//
-// This is pure on purpose. The overwhelmingly common commit edits a field and
-// touches no worker, and it must cost ZERO queries; syncing every persona on
-// every save would put one read per persona on a path that fires constantly.
-// So the interesting assertions here are the NEGATIVE ones.
+/** Eligibility and complete write inputs for the worker-row sweep. These are
+ * projection tests over UserCollections, not database/query-count evidence. */
+import { expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import type { UserCollections } from "@/lib/domain";
+import {
+	workersNeedingUsercaseSync,
+	workersWithRemovedUsercases,
+} from "../syncUsercaseRow";
 
-import { describe, expect, it } from "vitest";
-import type { BlueprintDoc } from "@/lib/domain";
-import { workersNeedingUsercaseSync } from "../syncUsercaseRow";
-
-const A = "1a2b3c4d-0000-4000-8000-000000000001";
-const B = "1a2b3c4d-0000-4000-8000-000000000002";
-
-function makeDoc(args: {
-	personas?: Record<
-		string,
-		{
-			uuid: string;
-			name: string;
-			values?: Record<string, string>;
-			userTypeUuid?: string;
-		}
-	>;
-	userProperties?: Record<
-		string,
-		{ uuid: string; slug: string; label: string }
-	>;
-	userTypes?: Record<
-		string,
-		{ uuid: string; name: string; values?: Record<string, string> }
-	>;
-}): BlueprintDoc {
+const A = testUuid("sync-amara");
+const B = testUuid("sync-bala");
+const C = testUuid("sync-chen");
+const ROLE = testUuid("sync-role");
+const CADRE = testUuid("sync-cadre");
+type CollectionsFixture = {
+	-readonly [Key in keyof Required<UserCollections>]: Required<UserCollections>[Key];
+};
+function fixture(): CollectionsFixture {
 	return {
-		appId: "app-1",
-		appName: "Test",
-		connectType: null,
-		caseTypes: [],
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		personas: args.personas ?? {},
-		userProperties: args.userProperties ?? {},
-		userTypes: args.userTypes ?? {},
-	} as unknown as BlueprintDoc;
+		userProperties: { [CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre" } },
+		userPropertyOrder: [CADRE],
+		userTypes: {
+			[ROLE]: { uuid: ROLE, name: "Nurse", values: { [CADRE]: "nurse" } },
+		},
+		userTypeOrder: [ROLE],
+		personas: {
+			[A]: { uuid: A, name: "Amara", userTypeUuid: ROLE },
+			[B]: {
+				uuid: B,
+				name: "Bala",
+				userTypeUuid: ROLE,
+				values: { [CADRE]: "" },
+			},
+			[C]: {
+				uuid: C,
+				name: "Chen",
+				userTypeUuid: ROLE,
+				values: { [CADRE]: "driver" },
+			},
+		},
+		personaOrder: [A, B, C],
+	};
+}
+function changes(prior: UserCollections, next: UserCollections) {
+	return workersNeedingUsercaseSync({ prior, next, projectSpace: null });
+}
+function worker(
+	id: string,
+	name: string,
+	authored: Record<string, string>,
+	locationIds: string[] = [],
+) {
+	return {
+		worker: { id, username: name, personName: name, email: "", locationIds },
+		authored,
+	};
+}
+function changedIds(prior: UserCollections, next: UserCollections) {
+	return changes(prior, next)
+		.map((entry) => entry.worker.id)
+		.sort();
 }
 
-const CADRE = { uuid: "u-1", slug: "cadre", label: "Cadre" };
-const AMARA = { uuid: A, name: "Amara" };
+it("ignores unchanged values, cloned collections, presentation metadata and authored ordering", () => {
+	const prior = fixture(),
+		next = structuredClone(prior);
+	expect(changes(prior, prior)).toEqual([]);
+	expect(changes(prior, next)).toEqual([]);
+	next.userProperties[CADRE].label = "Job";
+	next.userTypes[ROLE].name = "Community team";
+	next.personas[A].description = "A field worker";
+	next.personaOrder = [C, B, A];
+	expect(changes(prior, next)).toEqual([]);
+	expect(workersWithRemovedUsercases({ prior, next })).toEqual([]);
+});
 
-function changed(prior: BlueprintDoc, next: BlueprintDoc): string[] {
-	return workersNeedingUsercaseSync({
-		prior,
-		next,
-		projectSpace: null,
-	}).map((entry) => entry.worker.id);
-}
+it("supplies the exact renamed worker, ordered locations and inherited values without rewriting colleagues or input state", () => {
+	const prior = fixture(),
+		next = structuredClone(prior);
+	const main = testUuid("sync-main"),
+		additional = testUuid("sync-additional");
+	next.personas[A] = {
+		...next.personas[A],
+		name: "Amara Sow",
+		locations: { primaryUuid: main, additionalUuids: [additional] },
+	};
+	const before = structuredClone({ prior, next });
+	expect(changes(prior, next)).toEqual([
+		worker(A, "Amara Sow", { [CADRE]: "nurse" }, [main, additional]),
+	]);
+	expect({ prior, next }).toEqual(before);
+	const reversed = structuredClone(next);
+	reversed.personas[A].locations = {
+		primaryUuid: additional,
+		additionalUuids: [main],
+	};
+	expect(changes(next, reversed)).toEqual([
+		worker(A, "Amara Sow", { [CADRE]: "nurse" }, [additional, main]),
+	]);
+});
 
-describe("workersNeedingUsercaseSync", () => {
-	it("names nobody when nothing about any worker changed", () => {
-		// THE cost-control assertion. A field edit commits constantly; if this
-		// ever returns a worker, every save pays a database round-trip per
-		// persona.
-		const doc = makeDoc({
-			personas: { [A]: AMARA },
-			userProperties: { "u-1": CADRE },
-		});
-		expect(changed(doc, doc)).toEqual([]);
-	});
+it("recomputes role defaults only for inheriting personas, preserving blank and nonblank overrides", () => {
+	const prior = fixture(),
+		next = structuredClone(prior);
+	next.userTypes[ROLE].values = { [CADRE]: "supervisor" };
+	expect(changes(prior, next)).toEqual([
+		worker(A, "Amara", { [CADRE]: "supervisor" }),
+	]);
+	const overridden = structuredClone(prior);
+	overridden.personas[A].values = { [CADRE]: "nurse" };
+	expect(changes(prior, overridden)).toEqual([]);
+	const clearedOverride = structuredClone(prior);
+	delete clearedOverride.personas[B].values;
+	expect(changes(prior, clearedOverride)).toEqual([
+		worker(B, "Bala", { [CADRE]: "nurse" }),
+	]);
+});
 
-	it("names a newly added worker", () => {
-		expect(changed(makeDoc({}), makeDoc({ personas: { [A]: AMARA } }))).toEqual(
-			[A],
-		);
-	});
+it("resynchronizes every affected record when the stored property surface changes, even without an authored value change", () => {
+	const prior = fixture(),
+		added = structuredClone(prior);
+	const license = testUuid("sync-license");
+	added.userProperties[license] = {
+		uuid: license,
+		slug: "license",
+		label: "License",
+	};
+	added.userPropertyOrder = [CADRE, license];
+	expect(changedIds(prior, added)).toEqual([A, B, C].sort());
+	expect(changedIds(added, prior)).toEqual([A, B, C].sort());
+	const renamed = structuredClone(prior);
+	renamed.userProperties[CADRE].slug = "job";
+	expect(changedIds(prior, renamed)).toEqual([A, B, C].sort());
+	expect(
+		changes(prior, renamed).find((entry) => entry.worker.id === A),
+	).toEqual(worker(A, "Amara", { [CADRE]: "nurse" }));
+});
 
-	it("names a worker whose display name changed", () => {
-		// The case that would be missed by watching the case-type surface
-		// alone: a rename changes the case's NAME and no property at all.
-		expect(
-			changed(
-				makeDoc({ personas: { [A]: AMARA } }),
-				makeDoc({ personas: { [A]: { ...AMARA, name: "Amara Sow" } } }),
-			),
-		).toEqual([A]);
-	});
-
-	it("names a worker whose authored value changed", () => {
-		const base = { personas: { [A]: AMARA }, userProperties: { "u-1": CADRE } };
-		expect(
-			changed(
-				makeDoc(base),
-				makeDoc({
-					...base,
-					personas: { [A]: { ...AMARA, values: { "u-1": "nurse" } } },
-				}),
-			),
-		).toEqual([A]);
-	});
-
-	it("names every worker when the property catalog itself changed", () => {
-		// A new declared property seeds a blank slot on EVERY worker's case, so
-		// every worker's record differs and every row needs it.
-		const personas = { [A]: AMARA, [B]: { uuid: B, name: "Bala" } };
-		expect(
-			changed(
-				makeDoc({ personas }),
-				makeDoc({ personas, userProperties: { "u-1": CADRE } }),
-			).sort(),
-		).toEqual([A, B].sort());
-	});
-
-	it("names only the worker that changed, not their colleagues", () => {
-		const base = {
-			personas: { [A]: AMARA, [B]: { uuid: B, name: "Bala" } },
-			userProperties: { "u-1": CADRE },
-		};
-		expect(
-			changed(
-				makeDoc(base),
-				makeDoc({
-					...base,
-					personas: {
-						...base.personas,
-						[B]: { uuid: B, name: "Bala", values: { "u-1": "driver" } },
-					},
-				}),
-			),
-		).toEqual([B]);
-	});
-
-	it("names a worker whose user type's defaults changed", () => {
-		// The value can arrive from the persona OR from its user type, and the
-		// derived record is what this compares — so neither source needs to be
-		// enumerated here, which is why a new one cannot be forgotten.
-		const personas = { [A]: { ...AMARA, userTypeUuid: "t-1" } };
-		const userProperties = { "u-1": CADRE };
-		expect(
-			changed(
-				makeDoc({
-					personas,
-					userProperties,
-					userTypes: { "t-1": { uuid: "t-1", name: "Nurse" } },
-				}),
-				makeDoc({
-					personas,
-					userProperties,
-					userTypes: {
-						"t-1": { uuid: "t-1", name: "Nurse", values: { "u-1": "nurse" } },
-					},
-				}),
-			),
-		).toEqual([A]);
-	});
-
-	it("says nothing about a REMOVED worker", () => {
-		// Removal closes the row rather than rewriting it, so it is a different
-		// operation on a different trigger. Reporting it here would make the
-		// sweep create a case for a persona that no longer exists.
-		expect(changed(makeDoc({ personas: { [A]: AMARA } }), makeDoc({}))).toEqual(
-			[],
-		);
-	});
+it("separates added and removed identities from updates, including replacement under the same display name", () => {
+	const prior = fixture(),
+		next = structuredClone(prior);
+	const replacement = testUuid("sync-replacement");
+	delete next.personas[A];
+	next.personas[replacement] = {
+		uuid: replacement,
+		name: "Amara",
+		userTypeUuid: ROLE,
+	};
+	next.personaOrder = [replacement, B, C];
+	expect(changes(prior, next)).toEqual([
+		worker(replacement, "Amara", { [CADRE]: "nurse" }),
+	]);
+	expect(workersWithRemovedUsercases({ prior, next })).toEqual([A]);
+	expect(changes(next, {})).toEqual([]);
+	expect(
+		[...workersWithRemovedUsercases({ prior: next, next: {} })].sort(),
+	).toEqual([replacement, B, C].sort());
+	expect(workersWithRemovedUsercases({ prior: {}, next })).toEqual([]);
 });

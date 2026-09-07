@@ -1,6 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	actingUser,
+	fixedLocation,
+	literal,
+	ownerLocationAtLevel,
+	term,
+} from "@/lib/domain/predicate";
 import {
 	caseOwnerCopy,
+	caseOwnerMode,
+	caseOwnerModeChange,
 	fixedOwnerModeIssue,
 	organizationOwnerModeIssue,
 	pendingFixedOwnerLabel,
@@ -13,48 +23,98 @@ const ready = {
 	refreshing: false,
 };
 
-describe("case owner authoring copy", () => {
-	it("distinguishes a create default from an unchanged update owner", () => {
-		expect(caseOwnerCopy("create")).toMatchObject({
-			clearLabel: "Use the default owner",
-			clearConsequence: "The case will belong to whoever submits the form.",
-		});
-		expect(caseOwnerCopy("update")).toMatchObject({
-			clearLabel: "Leave the owner alone",
-			clearConsequence: "This change will stop changing the case's owner.",
-		});
+it("states the complete consequence of clearing each owner action", () => {
+	expect(caseOwnerCopy("create")).toEqual({
+		description:
+			"Ownership decides whose device the case reaches. Without this, a new case belongs to the person who submitted the form.",
+		clearLabel: "Use the default owner",
+		clearTitle: "Use the default owner?",
+		clearConsequence: "The case will belong to whoever submits the form.",
 	});
+	expect(caseOwnerCopy("update")).toEqual({
+		description:
+			"Ownership decides whose device the case reaches. Leave it unchanged to keep the case's current owner.",
+		clearLabel: "Leave the owner alone",
+		clearTitle: "Leave the owner alone?",
+		clearConsequence: "This change will stop changing the case's owner.",
+	});
+});
 
-	it("keeps fixed ownership discoverable with exact unavailability reasons", () => {
-		expect(fixedOwnerModeIssue({ ...ready, loading: true }, 1)).toBe(
-			"Places are still loading.",
+it.each([
+	[
+		{ ...ready, loading: true },
+		"Places are still loading.",
+		"Loading saved place",
+	],
+	[
+		{ ...ready, error: "Connection failed." },
+		"Places could not be loaded.",
+		"Saved place unavailable until places reload",
+	],
+	[
+		{ ...ready, warning: "Connection failed." },
+		"Saved places are unavailable until they reload.",
+		"Saved place unavailable until places reload",
+	],
+	[
+		{ ...ready, refreshing: true },
+		"Saved places are being refreshed.",
+		"Refreshing saved place",
+	],
+	[ready, undefined, undefined],
+] as const)(
+	"distinguishes read state from a missing saved place (%#)",
+	(state, issue, label) => {
+		expect(organizationOwnerModeIssue(state)).toBe(issue);
+		expect(fixedOwnerModeIssue(state, 1)).toBe(issue);
+		expect(fixedOwnerModeIssue(state, 0)).toBe(
+			issue ?? "Add a live place at a level that owns cases first.",
 		);
-		expect(
-			fixedOwnerModeIssue({ ...ready, error: "Connection failed." }, 1),
-		).toBe("Places could not be loaded.");
-		expect(
-			fixedOwnerModeIssue({ ...ready, warning: "Connection failed." }, 1),
-		).toBe("Saved places are unavailable until they reload.");
-		expect(fixedOwnerModeIssue({ ...ready, refreshing: true }, 1)).toBe(
-			"Saved places are being refreshed.",
+		expect(pendingFixedOwnerLabel(state)).toBe(label);
+	},
+);
+
+it("stages an available picker without changing the authored value, then yields to a replacement or clear", () => {
+	const original = actingUser();
+	const fixed = term(fixedLocation(testUuid("place")));
+	const reverse = term(ownerLocationAtLevel(testUuid("level"), "patient"));
+	expect(caseOwnerMode(undefined)).toBe("expression");
+	expect(caseOwnerMode(term(literal("owner-id")))).toBe("expression");
+	expect(caseOwnerMode(fixed)).toBe("fixed");
+	expect(caseOwnerMode(reverse)).toBe("reverse");
+	for (const mode of ["fixed", "reverse"] as const) {
+		const change = caseOwnerModeChange(mode, original, {});
+		expect(change).toEqual({
+			kind: "stage",
+			draft: { mode, baseValue: original },
+		});
+		if (change.kind !== "stage") throw new Error("Expected a staged picker");
+		expect(change.draft.baseValue).toBe(original);
+		expect(caseOwnerMode(original, change.draft)).toBe(mode);
+		expect(caseOwnerMode(fixed, change.draft)).toBe("fixed");
+		expect(caseOwnerMode(reverse, change.draft)).toBe("reverse");
+		expect(caseOwnerMode(undefined, change.draft)).toBe("expression");
+		expect(caseOwnerMode(structuredClone(original), change.draft)).toBe(
+			"expression",
 		);
-		expect(fixedOwnerModeIssue(ready, 0)).toBe(
-			"Add a live place at a level that owns cases first.",
+	}
+	expect(original).toEqual({ kind: "acting-user" });
+});
+
+it("refuses unavailable or unknown picker modes and explicitly replaces ownership when returning to an expression", () => {
+	const fixed = term(fixedLocation(testUuid("place")));
+	for (const mode of ["fixed", "reverse"] as const) {
+		expect(caseOwnerModeChange(mode, fixed, { [mode]: "Unavailable" })).toEqual(
+			{ kind: "ignore" },
 		);
-		expect(fixedOwnerModeIssue(ready, 1)).toBeUndefined();
-		expect(organizationOwnerModeIssue(ready)).toBeUndefined();
-		expect(pendingFixedOwnerLabel({ ...ready, loading: true })).toBe(
-			"Loading saved place",
-		);
-		expect(
-			pendingFixedOwnerLabel({ ...ready, error: "Connection failed." }),
-		).toBe("Saved place unavailable until places reload");
-		expect(
-			pendingFixedOwnerLabel({ ...ready, warning: "Connection failed." }),
-		).toBe("Saved place unavailable until places reload");
-		expect(pendingFixedOwnerLabel({ ...ready, refreshing: true })).toBe(
-			"Refreshing saved place",
-		);
-		expect(pendingFixedOwnerLabel(ready)).toBeUndefined();
-	});
+	}
+	for (const invalid of [undefined, null, "unknown", 0]) {
+		expect(caseOwnerModeChange(invalid, fixed, {})).toEqual({ kind: "ignore" });
+	}
+	expect(
+		caseOwnerModeChange("expression", fixed, {
+			fixed: "Loading",
+			reverse: "Loading",
+		}),
+	).toEqual({ kind: "change", value: { kind: "acting-user" } });
 });

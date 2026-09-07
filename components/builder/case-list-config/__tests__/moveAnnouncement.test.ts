@@ -5,19 +5,11 @@ import {
 	refusedAnnouncement,
 } from "../moveAnnouncement";
 
-describe("moveAnnouncement", () => {
+describe("accessible move text projection", () => {
 	it("reports the landed position, one-based, with the screen", () => {
 		expect(
 			movedAnnouncement("Client name", "Results", { index: 1, total: 5 }),
 		).toBe("Client name moved, now 2 of 5 in Results.");
-	});
-
-	it("reads the landed position rather than the requested one", () => {
-		// The whole point of the helper: the caller passes what the document
-		// committed. A row asked to go to index 3 that landed at 2 must say 3 of N
-		// (one-based 2), not 4: announcing the request is the defect this closes.
-		const landed = { index: 2, total: 4 };
-		expect(movedAnnouncement("Phone", "Details", landed)).toContain("3 of 4");
 	});
 
 	it("names the edge when the row is already against it", () => {

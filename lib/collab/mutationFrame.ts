@@ -147,10 +147,17 @@ export function diagnoseMutationFrameText(
 	let value: unknown;
 	try {
 		value = JSON.parse(data);
-	} catch (error) {
+	} catch {
+		// Native JSON errors can quote the frame body in their message and stack.
+		// The reporter receives this error directly, so serializing the enclosing
+		// result (which omits nonenumerable Error fields) is not a privacy guard.
 		return {
 			ok: false,
-			failure: { stage: "json", reason: "invalid-json", error },
+			failure: {
+				stage: "json",
+				reason: "invalid-json",
+				error: new SyntaxError("Mutation frame is not valid JSON"),
+			},
 		};
 	}
 	return diagnoseMutationFrame(value);

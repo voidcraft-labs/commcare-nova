@@ -600,9 +600,9 @@ export function* walkAuthoredAssetRefs(doc: BlueprintDoc): Generator<AssetRef> {
  *
  * The WRITE counterpart of {@link walkAssetRefs}: it must touch every slot the
  * walk reads, or a moved app would keep a stale ref the walk still surfaces.
- * The two are pinned together by a coverage-parity test
- * (`collectAssetRefs(remapAssetRefs(doc, fullMap))` equals the mapped set), so
- * a slot added to the walk but not here fails CI. The single consumer is the
+ * Tests compare an explicitly authored carrier fixture with an independent
+ * whole-document identity substitution; a newly introduced carrier needs its
+ * own fixture witness. The single consumer is the
  * cross-Project move (`lib/db/moveAppToProject.ts`), which copies an app's
  * referenced assets into the destination Project and repoints the blueprint at
  * the copies — built-ins (shared, Project-agnostic) are never copied, so they

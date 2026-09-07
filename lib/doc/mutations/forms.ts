@@ -8,8 +8,7 @@ import { cascadeDeleteForm } from "./helpers";
  * Form mutations — fine-grained only.
  *
  * `renameForm` maps to the form's `name` field (the only user-editable
- * free-form identifier on a form). The `id`-style slug doesn't exist on
- * forms; CommCare derives the form's XForm id from its position.
+ * free-form display label on a form). Its semantic `id` remains unchanged.
  *
  * Wholesale-swap semantics (e.g. replacing a form's entire field subtree)
  * are expressed by composing `updateForm + removeField × N + addField × M`
@@ -136,6 +135,13 @@ export function applyFormMutation(
 		}
 		case "addForm": {
 			if (draft.modules[mut.moduleUuid] === undefined) return;
+			const destination = draft.formOrder[mut.moduleUuid] ?? [];
+			if (
+				mut.after !== undefined &&
+				mut.after !== null &&
+				(mut.after === mut.form.uuid || !destination.includes(mut.after))
+			)
+				return;
 			const { uuid } = mut.form;
 			// Cloned: `updateForm` edits the stored form in place, so the payload
 			// must not be the object it edits — same reason `addModule` clones.
@@ -167,8 +173,14 @@ export function applyFormMutation(
 			const form = draft.forms[mut.uuid];
 			if (form === undefined) return;
 			if (draft.modules[mut.toModuleUuid] === undefined) return;
-			// A form a peer removed is not moved back into existence.
-			if (draft.forms[mut.uuid] === undefined) return;
+			const destination = draft.formOrder[mut.toModuleUuid] ?? [];
+			// Resolve placement before removing source membership. A stale anchor
+			// must leave the whole move unchanged instead of orphaning the form.
+			if (
+				mut.after !== null &&
+				(mut.after === mut.uuid || !destination.includes(mut.after))
+			)
+				return;
 			// Leave whatever module currently holds it, then land in the target's
 			// sequence at the named placement. Same-module and cross-module are one
 			// path: the source removal is a no-op when the source IS the target,
@@ -278,7 +290,12 @@ export function applyFormMutation(
 									: writes.findIndex(
 											(write) => write.property === semantic.after,
 										) + 1;
-						if (index === 0 && semantic.after !== null) return;
+						if (
+							index === 0 &&
+							semantic.after !== undefined &&
+							semantic.after !== null
+						)
+							return;
 						// CLONE, never alias. A mutation is a durable event that is
 						// applied more than once — the saga derives a prospective doc
 						// and the guarded commit re-applies the same batch onto the
@@ -347,7 +364,12 @@ export function applyFormMutation(
 									: links.findIndex(
 											(link) => link.identifier === semantic.after,
 										) + 1;
-						if (index === 0 && semantic.after !== null) return;
+						if (
+							index === 0 &&
+							semantic.after !== undefined &&
+							semantic.after !== null
+						)
+							return;
 						// Cloned for the same reason `add-write` clones: the payload
 						// must not become part of a frozen produced state that a later
 						// apply of this same batch then tries to edit in place.

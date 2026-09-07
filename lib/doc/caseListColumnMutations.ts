@@ -7,7 +7,7 @@
 
 import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation, Uuid } from "@/lib/doc/types";
-import type { Column } from "@/lib/domain";
+import type { CaseListConfig, Column } from "@/lib/domain";
 
 type ColumnContent = NonNullable<
 	Extract<Mutation, { kind: "updateColumn" }>["column"]
@@ -160,23 +160,35 @@ export function columnSnapshotMutations(
 
 /**
  * Diff an editor-produced column snapshot without treating absence as remove.
- * Workspace sort/visibility editors own only the rows they changed; peer-added
- * rows absent from a stale snapshot must survive replay.
+ * Existing rows retain independently mergeable edits. Newly authored rows are
+ * born at the end of each independent surface sequence, including the hidden
+ * information created when an author adds a default-order rule.
+ * Peer-added rows absent from a stale snapshot survive replay.
  */
 export function columnSnapshotBatchMutations(
 	moduleUuid: Uuid,
-	current: readonly Column[],
+	current: CaseListConfig,
 	next: readonly Column[],
 ): Mutation[] {
 	const currentByUuid = new Map(
-		current.map((column) => [column.uuid, column] as const),
+		current.columns.map((column) => [column.uuid, column] as const),
 	);
-	return next.flatMap((column) => {
+	const mutations: Mutation[] = [];
+	let afterInList = current.listColumnOrder.at(-1) ?? null;
+	let afterInDetail = current.detailColumnOrder.at(-1) ?? null;
+	for (const column of next) {
 		const existing = currentByUuid.get(column.uuid);
-		return existing === undefined
-			? []
-			: columnSnapshotMutations(moduleUuid, existing, column);
-	});
+		if (existing !== undefined) {
+			mutations.push(...columnSnapshotMutations(moduleUuid, existing, column));
+		} else {
+			mutations.push(
+				columnAddMutation(moduleUuid, column, { afterInList, afterInDetail }),
+			);
+			afterInList = column.uuid;
+			afterInDetail = column.uuid;
+		}
+	}
+	return mutations;
 }
 
 function stripGranularSlots(column: Column): unknown {

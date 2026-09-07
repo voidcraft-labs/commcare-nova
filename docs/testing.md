@@ -4,6 +4,29 @@ A test earns its cost by catching a plausible defect. Name the behavior and the
 failure it prevents before writing it. Existing tests are examples to evaluate,
 not templates to copy blindly.
 
+## Design the evidence before the test
+
+Start from the production contract and a plausible failure, not from an existing
+test file. Decide which observation would distinguish correct behavior from that
+failure, then choose the smallest boundary that can provide it. A passing mock,
+a title that matches its assertions, and a coverage percentage do not establish
+that the chosen boundary proves anything useful.
+
+Apply that reasoning to every testing method. Database isolation needs competing
+transactions and committed rows in Postgres; emitted wire needs independent
+consumers or format oracles; service integration needs the real adapter reading
+a controlled external response; state transitions need actual production state
+logic; browser interaction needs the application running in a browser. A test
+must not supply the implementation's answer through its own fixture or mock.
+
+Reconsider the surrounding test design as well: repeated scenarios, shared
+fixtures, setup cost, dependency substitution, missing failure paths, and cleanup.
+Remove an entire suite when it has no independent purpose. Replace a helper or
+library when it forces misleading tests. Extract production state logic when
+rendering a component is currently the only way to exercise a domain rule; do not
+build a separate test-only imitation of that logic. Retaining fewer, decisive
+tests is preferable to preserving the shape or count of the previous suite.
+
 ## Choose the boundary
 
 - Pure domain rules, reducers, parsers, and state transitions: call the real
@@ -11,15 +34,178 @@ not templates to copy blindly.
 - SQL semantics, tenancy, transactions, locks, constraints, migrations: use real
   Postgres. Mocking the query builder cannot prove these contracts.
 - User interactions, focus, layout, browser APIs, and hydration: use Playwright
-  against the production build. Prefer focused state tests for component logic.
+  against the production build. Test component logic through its production state model.
+- Build and deployment configuration: parse its format and inspect the execution
+  graph or artifact declarations. Execute authored scripts with controlled
+  external executables to prove arguments, failure stops, and cleanup; source
+  substring checks cannot establish those behaviors.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
+
+Keep a React test only when React owns the behavior under examination: effect
+cleanup, a context registration, a committed subscription or an error boundary.
+Mount the smallest real adapter and observe that lifetime directly. Clicking a
+fake button, inspecting text or asserting a callback does not prove browser
+behavior. Domain commands obtained from a hook belong in a production function
+that both the hook and its direct tests call. Native browser tests cover the
+remaining input, focus, layout and component wiring.
+
+Deployment store tests use real auth migrations and concurrent Postgres sessions.
+A database lock observer establishes that writes are waiting before releasing
+or committing the competing transaction. Concurrent-call tests using a
+single-connection pool only establish application queueing. Push identity tests
+freeze only `Date`, keeping I/O native, and publish twice with identical time,
+source revision, and remote id. Migration tests start from the actual previous
+migration prefix; runtime privilege tests execute the trigger after convergence.
+
+Browser error assertions include document teardown. `attachErrorGuard` is
+awaited before navigation, and its final assertion runs after page close but
+before context close. Chromium can deliver a teardown beacon without emitting
+Playwright page/context requests, console events, or CDP network events. A
+forwarding observer of the native beacon/fetch transports records report
+attempts synchronously under a private per-page localStorage key. It preserves
+native request delivery; the guard reads that evidence from the context after
+the document is gone. `error-guard.spec.ts` uses a real local HTTP receiver for
+both transports, reload and close, and proves same-origin scope and page
+isolation. An active-document routed beacon alone cannot prove this boundary.
+
+Reconciler protocol tests run in Node with schema-admitted inputs and explicit
+browser effects. Their controlled EventSource owns only protocol callbacks;
+it does not claim to exercise a browser connection. Cancellation tests keep
+native Node fetch and a real loopback HTTP peer, interrupt headers and partial
+bodies, preserve actual queued edits, restart before/after rejection, and verify
+fresh authorization precedes the replacement stream. Browser acceptance covers
+the React/document lifecycle binding.
+
+Place draft tests use `createPlaceDraft` with the real organization client
+queue. Deferred action receipts preserve feasible write order; they never make
+a second write finish before the first queued write. Browser acceptance holds
+an actual committed response and continues typing, then verifies the new draft
+survives. Next's Server Action queue also serializes organization reads behind
+a pending action, so an invented read-before-receipt sequence is not evidence
+for that browser flow. Page projection tests inspect the selected identities;
+they do not claim to mount React rows.
+
+The organization client tests call the production state owner directly and
+control only typed Server Action replies and the Blueprint save barrier. They
+prove its queue, revision handoff, stale-read handling, and view lifetime. They
+do not claim those replies would pass server validation. The production-build
+organization journey exercises the React/action/database wiring; transaction
+admission and races belong in the Postgres suites.
+
+For native Node `fetch`, the controlled peer must cover the dispatch path that
+Node actually uses. `__tests__/helpers/httpPeer.ts` supplies an Undici Agent factory
+that resolves every connection key to a mock transport. Its regression test
+proves both interception and refusal of unmatched destinations without DNS.
+Assert consumed replies and request history, since a production client may
+catch an unexpected request failure and turn it into a normal refusal result.
+
+For XML wire structure, validate syntax before reading a parsed tree, then
+assert the relationships the consumer follows: control to answer bind, label to
+translation, and archive entry to emitted form. Expected wire types come from
+upstream consumer contracts, not Nova's emitter tables. `questionWire.test.ts`
+checks HQ source and unpacked CCZ; `xformDefinitionScope.test.ts` distinguishes
+form markup from answer data and pairs each refusal with an accepted form.
+These structural checks do not claim to execute CommCare itself.
+
+For transformations performed by an external compiler, exercise that compiler
+against actual exported artifacts when its behavior matters. The read-only proof
+in `scripts/fixtures/hq/` caught HQ accepting an extension relationship and then
+silently compiling it as a child. It checks the corrected import/build and
+navigation paths using native HQ classes with all socket connections refused.
+The accompanying export tests run in ordinary CI; the native proof requires an
+installed HQ environment. It also reads
+accepted worker-write exports through native HQ case, datum and assertion
+builders. Fixture hashes and optional source searches in developer checkouts
+are not substitutes for running a consumer against Nova output.
+
+Runtime claims need runtime execution. The capture proof in
+`scripts/fixtures/javarosa/` opens actual CCZ and HQ-regenerated forms in the
+pinned CommCare Core checkout, traverses native form-entry events, enters
+answers, changes relevance and clears one repeat member. It inspects both XPath
+results and serialized submission XML. This exposed editor-shadow parsing,
+hidden URL overwrites, capture preloads and missing parent IDs that structural
+checks had accepted. No remote submission or attachment upload runs.
+
+The case-operation proof also reads native `CaseInstanceTreeElement` data and
+applies finalized submissions through Core's `CaseXmlParser` to indexed
+in-memory storage. It checks stored records, repeat correlation, snapshot reads,
+conditional dependencies, link rejection and scalar/identity bounds. A disabled
+link guard makes the negative control fail by accepting a missing target.
+Evaluating an emitted XPath with Nova's own evaluator does not establish device
+parity. Native in-memory application is also not a transaction rollback test;
+Postgres atomicity and HQ server processing require their own evidence.
+
+Case-write admission tests start with a fully accepted document and prove that
+a refusal reaches no persistence host. The shared tool body is tested once;
+invoking it twice behind different stubs does not establish SA/MCP transport
+parity. Accepted results feed the real preview engine and export paths, with
+query iterations, cousin repeats, scalar routing and actual gated identity
+edits. Persistence and transport contracts remain separate tests.
+
+Generated corpora must pass the actual strict schema as well as semantic
+validation; TypeScript casts and a domain-rule pass cannot establish schema
+validity. Construct admissible values at the generator, without filtering or
+parse-and-strip repairs. Share expensive compilation when multiple properties
+consume the same samples. Keep coverage thresholds in the test that gathers
+them and enable counterexample shrinking. The two compiler corpora share one
+expansion/archive per sample, then check all wire surfaces, form identity joins,
+and the complete bundled media bytes. Finite samples establish regressions,
+not exhaustive validity or native consumer acceptance.
+
+Source inspection is appropriate only when source structure is the rule being
+enforced, such as a forbidden dependency across an architectural boundary. It
+cannot establish runtime admission, persistence, rejection, or restoration. Use
+compiler checks for assignability contracts and execute the actual owner for
+behavior. A copied call-site inventory is review documentation, not a test.
+The frozen migration import policy parses static module specifiers, including
+relative imports; it does not claim to resolve computed runtime loaders. Its
+parser owns one isolated compiler session and does not load the application
+type graph. `.test-d.ts` contracts are checked by `npm run typecheck`, not counted
+as Vitest execution evidence.
 
 Do not pin incidental strings, source formatting, CSS class lists, or mock call
 sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior
 should be removed or rewritten. Do not duplicate a full workflow for each minor
 input variation when a focused test can prove the varying rule.
+
+A transport test must retain the real request and response adapter. Test
+disconnects and partial responses at a local HTTP server when exception classes
+or streaming behavior matter; replacing the entire request helper hides those
+failures. Native-language suites belong in that language's test runner, with
+positive discovery and a bounded process lifetime when invoked from Vitest.
+
+MCP handler tests use a real SDK client and server over the linked transport
+(`lib/mcp/__tests__/client.ts`). A captured registration callback bypasses input
+validation, request context, notifications, and response projection. Put stored
+app authorization and continuation reauthorization in Postgres tests. Keep
+pagination byte limits, Unicode boundaries, and malformed cursors in pure tests;
+compare complete reconstructed results through the same consumer checks.
+
+For emitted policy languages, evaluate the actual output with an independent
+language implementation. `captureCondition.test.ts` uses CEL and checks its
+Google IAM-specific `extract` extension against Google's published examples.
+A hand-written predicate beside an emitter does not prove the emitted policy.
+Role-admission tests must query real PostgreSQL catalogs: fabricated booleans
+can exercise a refusal rule while hiding a broken membership query.
+For asset placement and process supervision, use temporary files and actual
+children. Signal tests run in an isolated process group with bounded cleanup;
+they must join children and prove parent listeners are removed. For lazy
+dependencies, inspect a real bundler's static and dynamic output graph instead
+of searching import text.
+
+Organization editor state tests use the real ownership rules and complete
+assignment proposals. A fake verdict keyed to a fixture name only proves that
+the component displays its own mock. Test incomplete reads, peer replacements,
+permission changes and page selection in the production state model; use the
+actual browser workflow for focus, picker interaction and persisted reload.
+
+A rejection test must begin with an otherwise admissible input. Prove the valid
+case succeeds before introducing the fault, or pair it with an accepted case
+that uses the same fixture. Matching a generic error cannot establish why the
+operation was rejected. Seed nonempty data before testing deletion or clearing;
+asserting that an already empty table remains empty proves nothing.
 
 ## Local test projects
 
@@ -33,6 +219,21 @@ database. Both projects share the existing worker pool and file isolation.
 `npm test -- --project=unit` runs without Docker. `npm test -- --project=postgres`
 selects the database suite. CI runs both projects. A misplaced database fixture
 fails before connecting rather than falling back to local database credentials.
+
+Worker-record lifecycle tests begin with canonical app creation and real
+guarded persona/catalog edits. Installing the expected schema directly in a
+fixture hides omissions at genesis and writes that run before schema changes.
+Assert persisted rows, schema sequences and physical row versions; inject a
+Postgres failure at schema admission to verify app birth rolls back.
+
+Authorization tests that cross app and Project storage use
+`setupAppStateTestDb(prefix, { authSchema: "migrated" })`. It prepares the actual
+Better Auth and Nova auth-app migrations once, clones them per test, and seeds
+users, Projects and memberships that satisfy their constraints. App-state
+fixtures redirect the case-store connection to the same isolated database, so
+production store factories and their authorization callbacks remain active. Its auth
+migration imports are lazy, so suites using only app-state storage do not load
+the auth migration graph.
 
 Separate tests by their dependencies. A file-wide database hook makes even a
 pure formatting assertion pay for a database. Keep pure projections, mocked
@@ -72,6 +273,14 @@ in the ordinary checks. They are guardrails, not a proof that arbitrary async
 work cannot leak; resource-owning code needs explicit lifecycle assertions.
 There is no duplicate async-hooks test run.
 
+Native provider tests retain the real SDK and use an owned loopback HTTP peer.
+Some SDK stream implementations leave unreachable pending promise allocations
+after their sockets, readers and result work have settled. Record those
+async-hooks diagnostics honestly; an exit code of zero does not make the run
+leak-clean. Do not replace the SDK with a mock, exclude its dependencies, or
+isolate the test in a child merely to hide allocations. Verify completion,
+transport failure and cancellation through observable resource ownership.
+
 ## Database fixtures
 
 Use `sql/__tests__/setup.ts` for SQL that fits a rollback transaction. Code that
@@ -81,15 +290,22 @@ database cloned from a closed, immutable template built by the real migrations
 once per run. Do not replay the whole migration history in behavior-test hooks.
 
 Migration tests omit `schema` to clone an extensions-only database, then execute
-the migrations they are testing. Templates are never test targets. They contain
-no application fixture rows. This preserves real commits and test isolation
+the migrations they are testing. Templates are never test targets. The shared
+base templates contain no application fixture rows. This preserves real commits and test isolation
 without repeatedly installing PostGIS. Do not replace transaction tests with
 nested transactions or shared mutable tables to gain speed. Tests using the
 module-scoped database handle must stay sequential within their file.
 
-For an expensive historical migration precondition, `prepareTemplate(db, pool)`
-runs once per suite and closes that database to connections. Each test receives
-its own clone; the migration under test still executes in the test body. Do not
+The default fixture pool has one connection. A contention test must open a
+separate client for each competing transaction and an observer when needed.
+Prove blocking with `pg_blocking_pids` or an equivalent database signal; two
+operations queued for one pool connection do not exercise database concurrency.
+Close those clients in `finally` after releasing and joining the operations.
+
+For expensive shared preconditions, `prepareTemplate(db, pool)` runs once per
+suite and closes that database to connections. It can build a historical migration
+prefix or seed the apps and schemas needed by a submission suite. Each test
+receives its own clone; the behavior under test still executes in the test body. Do not
 move the behavior being asserted into template preparation or share a writable
 database across tests. `preparedTemplate.postgres.test.ts` verifies committed
 write isolation and cleanup, including the prepared template.
@@ -113,7 +329,377 @@ The CI wall-time target is five minutes from workflow start to completion,
 including setup and fan-in jobs. Compare actual hosted runs; local timings and
 runner CPU totals do not establish that target. Smoke shards use separate
 Postgres instances so destructive browser scenarios cannot race across shards.
+The smoke harness balances the complete native discovery list by measured cost,
+then asks Playwright to rediscover each selected list and checks exact identities
+before seeding. Long full-app journeys are spread across six jobs, each with
+one worker. Discovery remains authoritative for fixture repeats and retries.
+Flaky browser results fail CI even when a diagnostic retry passes.
+The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
+select tests. New or renamed tests get a five-second estimate. Refresh timings
+from passing first attempts in each uploaded browser report's `timings.json`,
+retaining earlier measurements for tests that did not pass on their first attempt.
+Never turn the timing file into a fixed discovery list.
+
+CodeQL is a separate workflow with its own timing. Its official action declines
+incremental analysis when GitHub's compare response reaches its 300-file cap.
+The broad test-audit PR therefore receives a full scan. Report that cost
+separately from the testing workflow; do not claim the five-minute target for
+all checks or reduce security coverage to make the timing look better.
 
 CI installs only the headless shell used by its smoke projects. Full Chromium
 is required for local headed/profiling workflows, but downloading it for a
 headless CI job adds setup time without exercising another browser.
+
+Media lifecycle tests drive production state models with native File, Response,
+and stream objects, replacing only fetch. Native upload progress and setup
+failure cleanup run in Chromium against a temporary HTTP server. The Files
+journeys use the actual production UI and controlled media endpoints; live role
+changes update the isolated smoke database and restore membership in `finally`.
+Retain actual media element handles across access changes to verify sources and
+playback were retired. A disappearing role locator alone cannot prove closure:
+a parent dialog becomes hidden to role queries while its child confirmation is
+open. Wait for the topmost dialog to be removed.
+
+The migrated app-state fixture can exercise the production schema-service
+factories through its isolated local database URL. That fixture owns both its
+explicit pool and any application singleton pool opened through the URL; it
+closes both before dropping the database. Database contention probes use a
+separate controller connection, observe `pg_blocking_pids`, and release the
+lock and drain the operation in `finally`. Observing through a blocked
+single-connection application pool would deadlock the test itself.
+
+Project management is tested through real MCP SDK requests and the migrated auth
+tables in `lib/mcp/__tests__/projects.postgres.test.ts`. Invitation acceptance
+uses Better Auth with Nova's actual organization configuration. Native database
+triggers prove creation rollback and write-free repeated role assignments;
+concurrent membership DML proves authorization is read after acquiring the gate.
+
+MCP export tests use the real SDK, persisted apps, Project data and deployment
+records, and the actual export boundary and compilers. They open the returned
+ZIPs, decode workbook cells, and inspect XML and media bytes. A mocked compiler
+returning an arbitrary buffer cannot prove a usable download. Replace only the
+external object store; keep metadata selection and Project authorization real.
+
+Commit-response loss uses a transparent local PostgreSQL protocol peer. It
+forwards real traffic and drops the server's COMMIT acknowledgement after an
+actual INSERT transaction commits. Recovery therefore encounters real durable
+rows and a real driver disconnection, without replacing SQL or transaction
+methods. The peer, connections, requests and optional post-commit action are
+owned and drained. A transaction-held contention observer calls
+`pg_stat_clear_snapshot()` before each `pg_stat_activity` read so it can see a
+newly connected waiter; it also fails immediately if the operation finishes
+without reaching the expected lock.
+
+## Publishing across boundaries
+
+MCP publishing uses the actual SDK, migrated Postgres, export validation and
+compilers, with only KMS/object storage and the remote HTTP peer controlled.
+Inspect the peer's actual multipart bytes with the platform parser, then read
+the workbook or ZIP using its consumer. Observe persisted ownership and phase
+records at the point the next remote write arrives. A called-spy assertion
+cannot establish those ordering or recovery properties.
+
+Malformed inventory and upload replies must exercise the real decoders. A
+malformed inventory cannot authorize replacement, and an unknown upload verdict
+cannot establish that nothing landed. Native table locks prove that upload
+responses wait for event persistence. Fake SDK handler capture is removed;
+registration, input validation, progress and results use linked SDK transports.
+
+Organization publishing follows the same actual-boundary method: create places
+through the production store, send their real JSON payloads to the controlled
+peer, and inspect ownership before app import. Cover a tree that crosses the
+100-place batch boundary, archived subtrees, exact adoption, preservation of
+foreign JSON, and refused versus unacknowledged writes. Test a shared inventory
+deadline by advancing a controlled clock between real HTTP pages; own and drain
+the peer's blocked response promises. Do not imitate the deployment ledger in
+an in-memory mock.
+
+HQ project-space discovery uses actual upstream-shaped JSON and native HTTP.
+Its concurrency test holds complete groups of eight responses on explicit owned
+promises, then releases each group; it proves a failed request drains its
+siblings and prevents a ninth request. Do not substitute zero-delay timers or
+Response-shaped objects. URL tests assert the request the peer actually saw,
+including legacy domain spellings, dot-segment refusal, pagination and redirects.
+A recorded runnable deployment supplies the before/after proof that malformed
+version JSON cannot become an authoritative release withdrawal.
+
+Media upload tests serialize a real deduplicated PNG ZIP through native multipart
+and decode HQ's acknowledgement and completion reports. Controlled timers prove
+the upload and whole-poll deadlines. For partial JSON, use an actual local HTTP
+socket and confirm abort closes it: an in-memory whole-body response cannot prove
+ownership after headers arrive. Persisted SDK publishing covers malformed media
+status alongside disconnections and verifies the app mapping survives.
+
+Worker provisioning runs through the actual SDK and browser action over persisted
+personas, actual guarded persona changes and the production ownership ledger.
+Native HTTP checks compare returned passwords with the bytes HQ received, cover
+partial/unconfirmed creates and separate place assignment, then retry by recorded
+identity without passwords. Use real PostgreSQL locks and trigger failures to prove
+answer ordering and credential survival. Reporting-read failures run against an
+actual failed database read rather than a mocked setup-artifact function. Password
+generation tests control only the entropy boundary to force missing character
+classes and biased-byte rejection; transport log checks belong at the native peer.
+
+Provisioning credential retention is tested through the real session store with
+no React renderer: repeated uncertain attempts, identical replies, same-named
+targets on different servers, exact confirmed creation, dismissal and reset.
+The production credential component also runs in Chromium with production CSS
+and the platform clipboard, proving copy labels, candidate accumulation, remount,
+single-row dismissal and the touch target. This component check is separate from
+the actual SDK/Postgres/HQ provisioning lifecycle.
+
+HQ transport cancellation uses actual loopback sockets with the selected HQ host
+mapped only inside the test dispatcher. Stalled headers and partial accepted or
+refused response bodies must settle at the owned deadline and close the socket.
+An in-memory response fixture cannot prove body cancellation; a global timer count
+can also include Undici's unrelated scheduler, so native checks assert request
+settlement and socket ownership directly.
+
+Database process failure tests run the actual runtime factory in separate Node
+processes. The parent terminates the exact idle, checked-out, or querying backend
+and verifies process survival, rejected work, one connection diagnostic, a healthy
+replacement and no remaining connections. This avoids Vitest's own error handlers
+accidentally supplying an owner absent in production. Pool shutdown tests also
+exercise direct auth use, initialization in flight and concurrent close/reopen.
+Per-test database pools retain connection failures and fail their owning teardown
+after closure; `DROP DATABASE ... FORCE` cannot excuse a blanket error listener.
+
+
+Admission and listing cleanup is part of its caller's lifetime. The native
+`scanCleanup.postgres.test.ts` holds the stale authority row, proves the caller
+has not returned and any new admission has already committed, then verifies the
+refund immediately after release. Do not add test-side polling after the API
+returns to compensate for a detached production reaper.
+
+
+`streamReadOwnership.postgres.test.ts` opens the actual app and chat relay routes
+with real membership, migrated Postgres and LISTEN/NOTIFY. It blocks each read
+lane or authorization cadence in SQL, then proves both consumer cancellation
+and abort-to-EOF wait for the read. The app-state contention helper uses the
+same owned pool teardown as the ordinary isolated database fixture; it has no
+pool-idle polling loop. Finish or cancel each response before closing its fixture.
+
+
+HQ transport tests share `withSocketHttpPeer` for actual request/body/socket
+lifetimes. The named HQ host alone maps to loopback; it exercises native HTTP,
+not TLS. Controlled peer tests cover exact acknowledgement and classification;
+streaming peers cover incomplete headers/bodies and prove cancellation. The
+compatibility success fixture never finishes its body, so an implementation
+that reads case data fails its available verdict at the owned virtual deadline.
+
+Build XML bounds use native HTTP peers as well: the exact byte limit preserves
+multibyte text, one extra byte refuses, and both plain and gzip bodies must be
+cancelled before the peer finishes its response. The limit applies after HTTP
+decompression. A separate partial-body case proves the deadline closes the
+socket; a complete in-memory response cannot establish that lifetime.
+
+Generated setup guidance runs against complete schema-admitted, fully validated
+documents. Its assertions cover exact manual controls, each independent
+case-flow and address-book projection, current ordered fields and automations,
+live/adopted/partly-pushed places, regeneration after edits, and stable step
+identities. HQ's current templates, views and location query establish the
+manual instructions; a passing projection test does not prove a person applied
+them or that HQ executed the result.
+
+XML checks must distinguish syntax from value preservation. `xmlBoundary.test.ts`
+shares a malformedness corpus with the native HQ/libxml proof, exercises the
+actual mutation gates, and checks exact decoded whitespace and Unicode. The
+native proof parses actual HQ source and local CCZ forms; Core separately
+initializes both forms and reads their answer and question text. A successful
+HTML-parser round trip or an emitter paired with its own oracle is insufficient.
+
+Case tiles use the same admitted document corpus in ordinary CI and the native
+proof: actual archive fields and session datums, HQ export, and programmatic
+preview projections. HQ's real detail contributor regenerates the export;
+Core's suite parser reads both paths and inspects native tile dimensions, style,
+hidden sorting and grouping. These are parser/model checks, not rendered UI
+acceptance. Reproduction commands and external-domain controls are documented
+in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+
+The compiler's navigation corpus has a second native chain: HQ regenerates the
+forms, Core checks ordinary case writes and navigation values, and Core's actual
+Search query strings pass through HQ's CSQL compiler. The record distinguishes
+native model/value execution from a full session or server query. Ordinary CI
+checks the admitted artifacts and their cross-export joins; native reproduction
+requires the documented external checkouts and does not silently skip tests.
+
+Search evidence likewise uses twelve admitted apps and native HQ suite
+contributors, followed by Core's actual query manager, selection nodesets,
+claim parameters/relevance and detail templates on both export paths. Retained
+pre-fix manual-link suites are native negative controls for source-context
+binding. These checks establish engine values and declared request behavior;
+they do not claim an HTTP request or Android screen. Reproduction commands live
+in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+
+Search prompt acceptance adds three fully admitted fixtures. The native query
+manager consumes both generated suites and the emitted lookup rows, then checks
+required and validation errors as answers change, filtered choices and removal
+of unavailable selections, numeric/location guards and shared computed values.
+Ordinary CI retains the small metadata/dependency contracts and complete export
+joins. See `native-{hq,core}-prompts.json` and the native fixture READMEs for the
+exact source hashes, artifacts, commands and limits.
+
+The CSQL function corpus closes the nested-emission boundary: two admitted apps,
+HQ-regenerated entry trees, Core's real query manager, and twenty resulting
+lookup queries compiled by native HQ into independently specified complete
+filters. Twelve further payloads assert native argument ASTs, including matcher
+functions and typed relation chains; they do not execute relation queries.
+The pre-grouping quantity is a negative parser control. Private emitter tests
+cover composition and admission without claiming that a string assertion or
+Nova's own XPath parser proves native CSQL acceptance.
+
+Validator message coverage is a TypeScript obligation: every classified
+user-reachable code needs a renderer. Copy tests cover missing and populated
+details, internal fallbacks, ordered collections, choice refusals and specific
+repair reasons. Boundary tests carry real findings through that renderer so
+missing location details cannot be hidden by a synthetic rich finding.
+
+Runtime quote safety uses a single admitted app with six complete query shapes.
+Core owns input presence, computed values and prompt-error transitions; native
+HQ consumes all 144 resulting query strings and compares full filters or exact
+refusals. The former tests that replaced XPath nodes with literal strings before
+calling Nova's evaluator are gone. Ordinary CI checks artifact assembly only.
+Lexical helper tests retain explicit per-dialect examples and a deterministic
+finite-double decimal round-trip property, without claiming native acceptance.
+
+Static quote reachability has a separate native counterexample. The retained
+pre-fix suite produces four refused queries under Core's real equality rules;
+the opposite branches in a currently admitted document produce four safe values
+on both export paths. The ordinary test checks the full admission findings and
+their authored paths. Private representability tests assert complete diagnostic
+sequences and recursive normalization, without presenting a context-free check
+as proof of document admission or native execution.
+
+Instance collection is checked against isolated consumers, not merely its own
+current set of leaves. Four admitted forms independently use a related count,
+a count condition, existence, or absence inside a value. Native Core opens and
+submits each local and HQ-regenerated form with zero or two matching children,
+plus unrelated rows and a wrong-type row. The retained pre-fix form raises the
+actual missing-instance exception during initialization. Ordinary CI checks the
+complete declared instance set; structural collector tests cover union across
+both AST families, scoped naming and source refusal without claiming execution.
+
+Durable build tests persist real source/review/accepted-plan envelopes through
+the artifact boundary. Concurrency checks use multiple pool connections and
+observe database lock waiters before releasing the controller; `Promise.all`
+on a one-connection pool proves only queued execution. Completion and attempt
+cleanup have native rollback controls, including a database-triggered late
+failure. Stored orchestration kinds reach the actual app-freeze SQL query;
+exact schema/classification equality belongs in the compiler test.
+
+Artifact integrity tests alter relational metadata independently of sealed
+envelopes and require refusal; re-hashing an unchanged payload cannot prove
+those joins. Legacy payload normalization must preserve verification against
+the original stored digest. Semantic workspace tests reconstruct a complete
+contract through persisted operations and separately exercise partial replay,
+identity ordering, disposition updates, combined operation counts and UTF-8
+byte limits. They do not claim model quality or database authority.
+
+Source-package projection tests use complete asset metadata and real image
+bytes. Native tests retain the actual Project-filtered media lookup, stored
+extract adapter, persisted source rows and reconstruction; only object-storage
+bytes are controlled. They prove rejection of pending or mismatched assets,
+first-occurrence attachment replay, and refusal after source changes. They do
+not prove GCS service behavior or live model interpretation. Importing the
+office extractor currently reports Bluebird's inert native-Promise probe under
+the async detector; record that diagnostic rather than calling the run clean.
+
+Document mutation tests start from admitted stored documents, serialize the
+commands, pass the real mutation and commit gates, and assert resulting state.
+Lower-level malformed inputs and stale replay cases are labeled separately.
+Independent endpoint generators own diff roundtrips; generating the desired
+state with the reducer under test is not an independent oracle. Sequence
+replay is ordered: moving distinct members around shared anchors can produce
+different valid results, so a blanket convergence assertion is incorrect.
+
+Collaboration diagnostics are checked through actual Error message, stack and
+cause properties. JSON.stringify omits nonenumerable Error fields and cannot
+prove sensitive text was removed. Disposed runtime tests own pending watches,
+queued edits, subscriptions and reader cancellation instead of relying on
+unmount alone to hide unfinished work.
+
+External-action receipts have no registered completion producer in this
+application. Tests prove new blocked plans are refused, then explicitly seed
+verified historical plan envelopes to exercise the retained receipt reader.
+Typed raw receipt fixtures prove scope and evidence matching, not an external
+operation or user-confirmation workflow that the product does not implement.
+
+Build-plan tests admit complete contract graphs before planning and compare
+independent construction ownership and area expectations. Native persistence
+tests use real source/review/accepted lineage and reseal altered plans before
+calling the writer; a correct digest alone cannot prove accepted semantics.
+Dependency tests include dense DAGs, disconnected cycles and nodes leading to
+cycles, with exact diagnostic coordinates. Historical plan reads remain a
+separate compatibility contract.
+
+Executor and design-tool grammar tests validate complete payloads with an
+independent JSON Schema validator, then exercise the actual canonical parse
+seam. Creation handles, nested options, existing references, external lookup
+identities, strict null spelling and semantic refinements have separate
+assertions. Counting widened schema nodes does not prove any complete call
+is expressible. These offline tests do not claim provider acceptance or
+persisted dispatch; native loop and artifact tests own those boundaries.
+
+Execution-brief tests admit full design contracts, then assert workflow-local
+records and properties, construction order, menu placement context, exact
+layout lowering, and lossless rendered JSON. Record-key cases include full
+UUID-suffix collisions, reserved names, truncation, and catalog-order changes.
+These are deterministic compiler-input proofs; serializing a mocked tool map
+or finding a phrase in a prompt does not prove executor behavior.
+
+Answered-question claim fixtures use the actual card's flat index-to-answer
+result. They compare full statements and transcript coordinates, independent
+UUIDv5 output, replay and cumulative extension; malformed completed cards pass
+through the real metadata gate before the defensive seeder is exercised.
+This is source projection, not proof that an authenticated POST or model
+correctly interprets the answer.
+
+Review vocabulary and strict review-result tests use the actual source-package
+producer, including request, document, image and answered-question evidence.
+An independent JSON Schema validator checks complete wire payloads before the
+actual canonical parser. Exact grounding, disposition, decision and correction
+coordinates have separate cases. These prove schema and projection behavior;
+native persisted review and model-loop tests own authority and execution.
+
+Design-gate transitions and ancestry caching use actual source, revision,
+review and plan writers against migrated PostgreSQL. Repeated review cycles,
+new input, historical plans and rejected-load recovery must observe the rows
+those owners produce. Pure repair-accounting tests separately cover exact
+diagnostic-set equality, independent budgets, reset boundaries and fatal-state
+retention.
+
+Durable model-context tests use migrated PostgreSQL and actual independent
+connections blocked at the session authority row. Test exact replay with later
+suffixes, changed append bytes, generation changes and revoked authority, and
+inject late SQL faults to prove that response items, completion and revision
+commit atomically. Corrupt the fields bound by existing event digests before
+recovery and verify refusal. A real SDK request to a local Responses server
+proves that recovered file URLs and decoded response messages can be sent
+again; an object-shape assertion alone does not prove provider serialization.
+
+
+The native design-runner suite mounts the real SDK agent, tool registry, source
+package, artifact store and durable model ledger against local Responses HTTP
+and migrated PostgreSQL. It proves paid wait replay without another call, new
+input, provider-ordered question/wait arbitration, one durable terminal correction,
+accepted-plan recovery, and cancellation before and during a partial HTTP response.
+A full runner continuation also rejects a user-authored state heading as authority
+after a real decoded compaction item. Provider output is scripted; model quality
+and live-provider acceptance are outside this proof.
+
+Native orchestrator checks retain the real event chain, accepted artifacts,
+attempts, change sets and executor loop. The model outcome boundary supplies a
+pause, failure or empty executor response; assertions inspect durable outcomes and
+actual emitted chunks. A held PostgreSQL authority row proves orchestration cannot
+return while its heartbeat still writes, even after the model throws. These checks
+retain the SDK's reported PROMISE diagnostics and Bluebird's inert import probe;
+HTTP sockets, streams, timers and database operations are explicitly drained.
+
+For the actual AI SDK, keep protocol conversion and streaming adapters real.
+A private Responses HTTP peer can emit ordered tools, valid structured output,
+partial bodies, compaction and cancellation without a paid request. Prove
+persisted ancestry and recovery with migrated PostgreSQL, and assert real stored
+response items and completion evidence. Avoid fabricated accepted plans or
+fixtures whose asserted properties do not exist on the stored record type.
+Question-card and transcript models own state; browser checks still own the
+actual focus and Motion binding.

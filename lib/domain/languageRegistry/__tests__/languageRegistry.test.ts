@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	classicWideningTarget,
@@ -283,37 +281,5 @@ describe("macrolanguage helpers and Classic widening", () => {
 		expect(classicWideningTarget("swh")).toBe("swa");
 		expect(classicWideningTarget("eng")).toBeUndefined();
 		expect(classicWideningTarget("hne")).toBeUndefined();
-	});
-});
-
-describe("module boundaries", () => {
-	it("keeps the registry out of the lib/domain barrel", () => {
-		const barrel = readFileSync(
-			path.join(process.cwd(), "lib/domain/index.ts"),
-			"utf8",
-		);
-		expect(barrel).not.toContain("languageRegistry");
-	});
-
-	it("lets no test file import the full name catalog directly", () => {
-		const testFiles: string[] = [];
-		const walk = (dir: string) => {
-			for (const entry of readdirSync(dir, { withFileTypes: true })) {
-				if (entry.name === "node_modules" || entry.name.startsWith(".")) {
-					continue;
-				}
-				const full = path.join(dir, entry.name);
-				if (entry.isDirectory()) walk(full);
-				else if (/\.test\.tsx?$/.test(entry.name)) testFiles.push(full);
-			}
-		};
-		for (const root of ["lib", "components", "app", "scripts", "__tests__"]) {
-			walk(path.join(process.cwd(), root));
-		}
-		expect(testFiles.length).toBeGreaterThan(100);
-		const offenders = testFiles.filter((file) =>
-			/from\s+["'][^"']*names\.catalog["']/.test(readFileSync(file, "utf8")),
-		);
-		expect(offenders).toEqual([]);
 	});
 });

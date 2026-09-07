@@ -24,6 +24,7 @@ import {
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
+import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -207,16 +208,20 @@ function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
 	const byId = new Map<string, BuildSlice>(
 		plan.slices.map((slice) => [slice.id, slice]),
 	);
+	const active = new Set<string>();
+	const reachesCycle = new Map<string, boolean>();
+	const cycle = (id: string): boolean => {
+		if (active.has(id)) return true;
+		const cached = reachesCycle.get(id);
+		if (cached !== undefined) return cached;
+		active.add(id);
+		const found = (byId.get(id)?.prerequisiteSliceIds ?? []).some(cycle);
+		active.delete(id);
+		reachesCycle.set(id, found);
+		return found;
+	};
 	for (const [sliceIndex, slice] of plan.slices.entries()) {
-		const visiting = new Set<string>([slice.id]);
-		const cycle = (id: string): boolean => {
-			if (visiting.has(id)) return true;
-			visiting.add(id);
-			const found = (byId.get(id)?.prerequisiteSliceIds ?? []).some(cycle);
-			visiting.delete(id);
-			return found;
-		};
-		if (slice.prerequisiteSliceIds.some(cycle))
+		if (cycle(slice.id))
 			ctx.addIssue({
 				code: "custom",
 				path: ["slices", sliceIndex, "prerequisiteSliceIds"],
@@ -547,40 +552,6 @@ function requiredPrerequisiteWorkflowIds(
 	);
 }
 
-function expectedElementKinds(
-	contract: AppDesignContract,
-): Map<string, DesignElementRef["kind"]> {
-	return new Map([
-		...contract.actors.map((value) => [value.id, "actor"] as const),
-		...contract.records.flatMap((record) => [
-			[record.id, "record"] as const,
-			...record.properties.map(
-				(property) => [property.id, "property"] as const,
-			),
-		]),
-		...contract.workflows.map((value) => [value.id, "workflow"] as const),
-		...contract.lists.map((value) => [value.id, "list"] as const),
-		...contract.access.map((value) => [value.id, "access"] as const),
-		...contract.navigation.map((value) => [value.id, "navigation"] as const),
-		...contract.moduleCompositions.map(
-			(value) => [value.id, "module-composition"] as const,
-		),
-		...contract.formCompositions.flatMap((composition) => [
-			[composition.id, "form-composition"] as const,
-			...(composition.layout.kind === "sectioned"
-				? composition.layout.sections.flatMap((section) => [
-						[section.id, "composition-section"] as const,
-						...section.items.map(
-							(item) => [item.id, "composition-item"] as const,
-						),
-					])
-				: composition.layout.items.map(
-						(item) => [item.id, "composition-item"] as const,
-					)),
-		]),
-	]);
-}
-
 function expectedLookupBindingKinds(
 	contract: AppDesignContract,
 ): ReadonlyMap<string, BuildPlanLookupBinding["kind"]> {
@@ -681,220 +652,27 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 				});
 			}
 		}
-		/* These are producer invariants for plans derived from an accepted
-		 * contract, not generic wire-format invariants. The generic persisted
-		 * reader remains permissive while derived plans stay exact. */
-		if (plan.slices[0]?.role !== "materialization-root") {
-			ctx.addIssue({
-				code: "custom",
-				path: ["slices", 0, "role"],
-				message: "The materialization root must be the first build slice.",
-			});
-		}
-		const appAreaOwners = plan.slices.flatMap((slice, sliceIndex) =>
-			slice.constructionGroups.flatMap((group, groupIndex) =>
-				group.blueprintAreas.includes("app")
-					? [{ sliceIndex, groupIndex }]
-					: [],
-			),
-		);
-		if (
-			appAreaOwners.length !== 1 ||
-			plan.slices[appAreaOwners[0]?.sliceIndex ?? -1]?.role !==
-				"materialization-root"
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["slices"],
-				message:
-					"Exactly one construction group must own the app area, and it must belong to the materialization root.",
-			});
-		}
-		const workflowIds = new Set(
-			contract.workflows.map((workflow) => workflow.id),
-		);
-		const constructibleElementIds = new Set<string>([
-			...contract.actors.map((value) => value.id),
-			...contract.records.flatMap((record) => [
-				record.id,
-				...record.properties.map((property) => property.id),
-			]),
-			...contract.workflows.map((value) => value.id),
-			...contract.lists.map((value) => value.id),
-			...contract.access.map((value) => value.id),
-			...contract.navigation.map((value) => value.id),
-			...contract.moduleCompositions.map((value) => value.id),
-			...contract.formCompositions.flatMap((composition) => [
-				composition.id,
-				...(composition.layout.kind === "sectioned"
-					? composition.layout.sections.flatMap((section) => [
-							section.id,
-							...section.items.map((item) => item.id),
-						])
-					: composition.layout.items.map((item) => item.id)),
-			]),
-		]);
-		const assigned = new Map<string, string>();
-		const orderedWorkflowIds = workflowOrder(contract);
-		const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
-		const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
+		// Every plan field is deterministic except its caller-chosen plan ID.
+		// Compare the complete accepted projection: checking only element sets
+		// misses scope, risk, external setup, duplicate members and stable IDs.
+		// Generic historical reads intentionally remain in buildPlanSchema.
+		const expected = deriveBuildPlanProjection({
 			contract,
-			orderedWorkflowIds,
-			ownerByElement,
-		);
-		const kindsByElement = expectedElementKinds(contract);
-		const planWorkflowIds = new Set<string>(
-			plan.slices.map((slice) => slice.workflowId),
-		);
-		for (const workflowId of orderedWorkflowIds) {
-			if (!planWorkflowIds.has(workflowId)) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["slices"],
-					message: `Included workflow ${workflowId} has no build slice.`,
-				});
-			}
-		}
-		if (plan.slices.length !== orderedWorkflowIds.length) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["slices"],
-				message:
-					"A BuildPlan must contain exactly one slice for every included workflow and no extra slices.",
-			});
-		}
-		const workflowBySliceId = new Map(
-			plan.slices.map((entry) => [
-				entry.id as string,
-				entry.workflowId as string,
-			]),
-		);
-		plan.slices.forEach((slice, sliceIndex) => {
-			const actualPrerequisites = slice.prerequisiteSliceIds
-				.map((id) => workflowBySliceId.get(id as string))
-				.filter((id): id is string => id !== undefined);
-			const expectedPrerequisites =
-				requiredPrerequisites.get(slice.workflowId) ?? [];
-			if (
-				actualPrerequisites.length !== expectedPrerequisites.length ||
-				actualPrerequisites.some(
-					(id, index) => id !== expectedPrerequisites[index],
-				)
-			) {
-				ctx.addIssue({
-					code: "custom",
-					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
-					message:
-						"Slice prerequisites must exactly include accepted workflow dependencies, module placement dependencies, child viewers required before their first writer, and every affected workflow that must exist before one module-wide selection realization.",
-				});
-			}
-			if (!workflowIds.has(slice.workflowId))
-				ctx.addIssue({
-					code: "custom",
-					path: ["slices", sliceIndex, "workflowId"],
-					message: "This slice workflow is absent from the accepted design.",
-				});
-			slice.constructionGroups.forEach((group, groupIndex) => {
-				group.elements.forEach((element, elementIndex) => {
-					if (!constructibleElementIds.has(element.id))
-						ctx.addIssue({
-							code: "custom",
-							path: [
-								"slices",
-								sliceIndex,
-								"constructionGroups",
-								groupIndex,
-								"elements",
-								elementIndex,
-								"id",
-							],
-							message:
-								"This construction element is absent from the accepted design.",
-						});
-					const expectedKind = kindsByElement.get(element.id);
-					if (expectedKind !== undefined && element.kind !== expectedKind) {
-						ctx.addIssue({
-							code: "custom",
-							path: [
-								"slices",
-								sliceIndex,
-								"constructionGroups",
-								groupIndex,
-								"elements",
-								elementIndex,
-								"kind",
-							],
-							message: `Design element ${element.id} must retain kind ${expectedKind}.`,
-						});
-					}
-					const ownerWorkflowId = ownerByElement.get(element.id);
-					const groupKey =
-						element.kind === "actor" ||
-						element.kind === "record" ||
-						element.kind === "property"
-							? "foundation"
-							: element.kind === "workflow" ||
-									element.kind === "form-composition" ||
-									element.kind === "composition-section" ||
-									element.kind === "composition-item"
-								? "workflow"
-								: element.kind === "list"
-									? "queues"
-									: "access";
-					const expectedGroupId =
-						ownerWorkflowId === undefined
-							? undefined
-							: stableId(
-									plan.designRevisionDigest,
-									`group:${groupKey}`,
-									ownerWorkflowId,
-								);
-					if (
-						ownerWorkflowId !== slice.workflowId ||
-						expectedGroupId !== group.id
-					) {
-						ctx.addIssue({
-							code: "custom",
-							path: [
-								"slices",
-								sliceIndex,
-								"constructionGroups",
-								groupIndex,
-								"elements",
-								elementIndex,
-								"id",
-							],
-							message:
-								"This design element is not owned by its deterministic workflow construction group.",
-						});
-					}
-					const owner = assigned.get(element.id);
-					if (owner !== undefined && owner !== group.id)
-						ctx.addIssue({
-							code: "custom",
-							path: [
-								"slices",
-								sliceIndex,
-								"constructionGroups",
-								groupIndex,
-								"elements",
-								elementIndex,
-								"id",
-							],
-							message:
-								"A semantic element may belong to only one construction group.",
-						});
-					assigned.set(element.id, group.id);
-				});
-			});
+			revision: {
+				id: plan.designRevisionId,
+				digest: plan.designRevisionDigest,
+			},
+			planId: plan.id,
+			lookupMaterialization: plan.lookupMaterialization,
 		});
-		for (const id of constructibleElementIds) {
-			if (!assigned.has(id))
+		for (const key of ["slices", "externalActions"] as const) {
+			if (canonicalJsonText(plan[key]) !== canonicalJsonText(expected[key])) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["slices"],
-					message: `Design element ${id} is not assigned to a construction group.`,
+					path: [key],
+					message: `Build plan ${key} must exactly preserve the deterministic accepted design projection.`,
 				});
+			}
 		}
 	});
 }
@@ -939,13 +717,30 @@ function workflowOrder(contract: AppDesignContract): string[] {
 	return emitted;
 }
 
-/** Derive the complete BuildPlan from one exact accepted revision. */
-export function deriveBuildPlan(args: {
+interface DeriveBuildPlanArgs {
 	readonly contract: AppDesignContract;
 	readonly revision: { readonly id: string; readonly digest: string };
 	readonly planId?: string;
 	readonly lookupMaterialization?: BuildPlanLookupMaterialization | null;
-}): BuildPlan {
+}
+
+/** Derive the complete BuildPlan from one exact accepted revision. */
+export function deriveBuildPlan(args: DeriveBuildPlanArgs): BuildPlan {
+	if (
+		contractRequiresLookupMaterialization(args.contract) &&
+		args.lookupMaterialization == null
+	) {
+		throw new Error(
+			"Accepted lookup intent requires its durable Project-data materialization receipt before planning.",
+		);
+	}
+	return buildPlanSchemaFor(args.contract).parse(
+		deriveBuildPlanProjection(args),
+	);
+}
+
+/** Pure deterministic projection shared by production and new-plan admission. */
+function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 	const { contract, revision } = args;
 	const constructionIssues = designConstructionIssues(contract);
 	if (constructionIssues.length > 0) {
@@ -1231,12 +1026,8 @@ export function deriveBuildPlan(args: {
 		};
 	});
 	const lookupRequired = contractRequiresLookupMaterialization(contract);
-	if (lookupRequired && args.lookupMaterialization == null) {
-		throw new Error(
-			"Accepted lookup intent requires its durable Project-data materialization receipt before planning.",
-		);
-	}
-	return buildPlanSchemaFor(contract).parse({
+
+	return {
 		schemaVersion: 1,
 		designRevisionId: revision.id,
 		designRevisionDigest: revision.digest,
@@ -1246,7 +1037,7 @@ export function deriveBuildPlan(args: {
 		lookupMaterialization: lookupRequired
 			? (args.lookupMaterialization ?? null)
 			: null,
-	});
+	};
 }
 
 /** Environment-dependent admission policy. The schema retains producer-bound

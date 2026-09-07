@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import Ajv from "ajv";
+import { beforeAll, describe, expect, it } from "vitest";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { renderSourceTagLegend } from "@/lib/agent/design/prompts";
 import type { DesignFinding, DesignReview } from "@/lib/agent/design/review";
 import {
 	designFindingSchema,
+	designReviewSchema,
 	designRevisionResultSchemaFor,
 	findingBlocksAcceptance,
 	validateSensitivityNotSilentlyLowered,
@@ -13,23 +16,35 @@ import {
 	taggedCitableSourceRefs,
 } from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	strictStructuredSchema,
+	strictWireJsonSchema,
+} from "@/lib/agent/strictStructuredOutput";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
-import { cloneContract, did, ids, makeContract, messageRef } from "./fixtures";
+import {
+	cloneContract,
+	did,
+	fixtureValue,
+	ids,
+	makeContract,
+} from "./fixtures";
+import { reviewSourceFixture } from "./reviewSourceFixture";
+import { SOURCE_DOCUMENT, SOURCE_THREAD } from "./sourcePackageFixtures";
 
+let producedPackage: DesignSourcePackage;
+beforeAll(async () => {
+	producedPackage = await reviewSourceFixture();
+});
 function pkg(): DesignSourcePackage {
+	return structuredClone(producedPackage);
+}
+function messageRef(partIndex = 0) {
 	return {
-		schemaVersion: 1,
-		designSessionId: "00000000-0000-4000-8000-000000000700",
-		projectId: "project-1",
-		packageDigest: "a".repeat(64),
-		request: {
-			blocks: [{ ref: messageRef(), text: "Track visits.", truncated: false }],
-		},
-		claims: [],
-		attachments: [],
-		images: [],
-		platformConstraints: [],
-		sources: [{ ref: messageRef() }],
+		kind: "message" as const,
+		threadId: SOURCE_THREAD,
+		messageId: "request",
+		partIndex,
 	};
 }
 
@@ -140,6 +155,150 @@ describe("review findings", () => {
 			),
 		).toBe(true);
 	});
+});
+
+describe("complete review protocol", () => {
+	it("admits the complete strict payload and resolves it through the real structured-output bridge", async () => {
+		const schema = reviewerSchema();
+		const payload = {
+			summary: "One correction and one optional note",
+			findings: [
+				{
+					severity: "important",
+					dispositionClass: "design-correction",
+					claim: "Confirm the saved visit.",
+					affectedElements: ["@task_visit"],
+					proposedResolution: "Show the saved summary.",
+					evidenceRefs: [
+						{ source: "S1", sectionPath: null, figureMarker: null },
+						{
+							source: "S2",
+							sectionPath: ["Requirements"],
+							figureMarker: '<nova:figure index="1"/>',
+						},
+						{ source: "S3", sectionPath: null, figureMarker: null },
+						{ source: "S4", sectionPath: null, figureMarker: null },
+						{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" },
+					],
+				},
+				{
+					severity: "advisory",
+					dispositionClass: "note",
+					claim: "An optional wording improvement.",
+					evidenceRefs: [],
+					affectedElements: [],
+					proposedResolution: null,
+				},
+			],
+		};
+		const check = new Ajv({ strict: false }).compile(
+			strictWireJsonSchema(schema),
+		);
+		expect(
+			check(JSON.parse(JSON.stringify(payload))),
+			JSON.stringify(check.errors),
+		).toBe(true);
+		const bridge = strictStructuredSchema(schema);
+		const parsed = await fixtureValue(
+			bridge.validate,
+			"strict validation",
+		)(JSON.parse(JSON.stringify(payload)));
+		if (!parsed.success) throw parsed.error;
+		const result = designReviewSchema.parse(
+			JSON.parse(JSON.stringify(parsed.value)),
+		);
+		expect(
+			new Set([result.id, ...result.findings.map((finding) => finding.id)])
+				.size,
+		).toBe(3);
+		expect(result.summary).toBe(payload.summary);
+		expect(result.findings.map(({ id: _id, ...body }) => body)).toEqual([
+			{
+				severity: "important",
+				dispositionClass: "design-correction",
+				claim: "Confirm the saved visit.",
+				affectedElementIds: [ids.taskVisit],
+				proposedResolution: "Show the saved summary.",
+				evidenceRefs: [
+					messageRef(),
+					{
+						kind: "attachment-extract",
+						assetId: SOURCE_DOCUMENT,
+						extractorVersion: EXTRACTOR_VERSION,
+						sectionPath: ["Requirements"],
+						figureMarker: '<nova:figure index="1"/>',
+					},
+					fixtureValue(producedPackage.sources[2], "image source").ref,
+					{
+						kind: "message",
+						threadId: SOURCE_THREAD,
+						messageId: "answers",
+						partIndex: 1,
+					},
+					{
+						kind: "platform-constraint",
+						code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+						sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+					},
+				],
+			},
+			{
+				severity: "advisory",
+				dispositionClass: "note",
+				claim: "An optional wording improvement.",
+				evidenceRefs: [],
+				affectedElementIds: [],
+			},
+		]);
+		const unlisted = structuredClone(payload);
+		fixtureValue(unlisted.findings[0], "first finding").affectedElements = [
+			"@not_declared",
+		];
+		expect(check(unlisted)).toBe(false);
+		const unknownSource = structuredClone(payload);
+		fixtureValue(unknownSource.findings[0], "first finding").evidenceRefs = [
+			{ source: "S99", sectionPath: null, figureMarker: null },
+		];
+		expect(check(unknownSource)).toBe(false);
+	});
+
+	it.each([
+		["critical", "design-correction", true],
+		["important", "design-correction", true],
+		["advisory", "design-correction", false],
+		["critical", "user-decision", true],
+		["important", "user-decision", true],
+		["advisory", "user-decision", true],
+		["critical", "note", false],
+		["important", "note", false],
+		["advisory", "note", false],
+	] as const)(
+		"keeps %s/%s grounding separate from its blocking policy",
+		(severity, dispositionClass, blocks) => {
+			const candidate = finding({
+				severity,
+				dispositionClass,
+				evidenceRefs: [],
+				affectedElementIds: [ids.taskVisit],
+			});
+			expect(findingBlocksAcceptance(candidate)).toBe(blocks);
+			const external = designFindingSchema.safeParse({
+				...candidate,
+				evidenceRefs: [messageRef()],
+				affectedElementIds: [],
+			});
+			expect(external.success).toBe(severity !== "advisory");
+			const ungrounded = designFindingSchema.safeParse({
+				...candidate,
+				affectedElementIds: [],
+			});
+			expect(ungrounded.success).toBe(severity === "advisory");
+			if (!ungrounded.success)
+				expect(ungrounded.error.issues.map((issue) => issue.path)).toEqual([
+					["evidenceRefs"],
+				]);
+		},
+	);
 });
 
 describe("the reviewer's symbol vocabulary resolves to the persisted shape", () => {
@@ -295,44 +454,17 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 });
 
 describe("citation grounding stays in lockstep with the review prompt", () => {
-	const ATTACHMENT_ASSET = "00000000-0000-4000-8000-000000000860";
+	const ATTACHMENT_ASSET = SOURCE_DOCUMENT;
 
 	function richPackage(): DesignSourcePackage {
-		const attachmentRef = {
-			kind: "attachment-extract" as const,
-			assetId: ATTACHMENT_ASSET as never,
-			extractorVersion: 3,
-			sectionPath: [],
-		};
-		return {
-			...pkg(),
-			claims: [
-				{
-					id: did(700),
-					statement: "The user answered the pilot questions.",
-					// One NEW coordinate plus a duplicate of the projected block —
-					// the tagged set must dedup, not double-list.
-					sourceRefs: [messageRef(9), messageRef()],
-				},
-			],
-			attachments: [
-				{
-					assetId: attachmentRef.assetId,
-					extractorVersion: 3,
-					filename: "spec.pdf",
-					extract: "## Requirements\nTrack visits.",
-					truncated: false,
-				},
-			],
-			sources: [{ ref: messageRef() }, { ref: attachmentRef }],
-		};
+		return pkg();
 	}
 
 	it("admits exactly the tags the prompt's legend renders, including claim refs", () => {
 		const sourcePackage = richPackage();
 		const tagged = taggedCitableSourceRefs(sourcePackage);
-		// message block + attachment + the claim's extra coordinate, deduped.
-		expect(tagged.map(({ tag }) => tag)).toEqual(["S1", "S2", "S3"]);
+		// Actual request block, extract, image and completed-card coordinate.
+		expect(tagged.map(({ tag }) => tag)).toEqual(["S1", "S2", "S3", "S4"]);
 		const schema = designReviewSchemaFor({
 			contract: makeContract(),
 			pkg: sourcePackage,
@@ -348,9 +480,9 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		const legend = renderSourceTagLegend(sourcePackage);
 		expect(legend.match(/^- /gm)).toHaveLength(tagged.length);
 		expect(legend).toContain("S1 — user message block");
-		expect(legend).toContain("S2 — attached document spec.pdf");
+		expect(legend).toContain("S2 — attached document requirements.txt");
 		expect(legend).toContain(
-			"S3 — a message coordinate from the normalized source notes",
+			"S4 — a message coordinate from the normalized source notes",
 		);
 	});
 
@@ -379,7 +511,7 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		expect(result.data.findings[0]?.evidenceRefs[0]).toEqual({
 			kind: "attachment-extract",
 			assetId: ATTACHMENT_ASSET,
-			extractorVersion: 3,
+			extractorVersion: EXTRACTOR_VERSION,
 			sectionPath: ["Requirements"],
 			figureMarker: '<nova:figure index="1"/>',
 		});
@@ -391,12 +523,13 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		// must resolve to the bare identity, not the claim's location.
 		const attachmentViaClaim = {
 			kind: "attachment-extract" as const,
-			assetId: ATTACHMENT_ASSET as never,
-			extractorVersion: 3,
+			assetId: ATTACHMENT_ASSET,
+			extractorVersion: EXTRACTOR_VERSION,
 			sectionPath: ["From the claim"],
 		};
 		const sourcePackage: DesignSourcePackage = {
 			...pkg(),
+			sources: [{ ref: messageRef() }],
 			claims: [
 				{
 					id: did(701),
@@ -418,7 +551,7 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		expect(result.data.findings[0]?.evidenceRefs[0]).toEqual({
 			kind: "attachment-extract",
 			assetId: ATTACHMENT_ASSET,
-			extractorVersion: 3,
+			extractorVersion: EXTRACTOR_VERSION,
 			sectionPath: [],
 		});
 	});
@@ -530,6 +663,85 @@ describe("blocking dispositions", () => {
 	});
 });
 
+describe("complete disposition closure", () => {
+	it.each([
+		{ kind: "missing", ids: [], paths: [["dispositions"]] },
+		{
+			kind: "unknown",
+			ids: [did(999)],
+			paths: [["dispositions", 0, "findingId"], ["dispositions"]],
+		},
+		{
+			kind: "duplicate",
+			ids: [did(300), did(300)],
+			paths: [["dispositions", 1, "findingId"]],
+		},
+		{
+			kind: "nonblocking",
+			ids: [did(300), did(301)],
+			paths: [["dispositions", 1, "findingId"]],
+		},
+	])(
+		"refuses $kind dispositions with exact diagnostic coordinates",
+		({ ids: dispositionIds, paths }) => {
+			const schema = designRevisionResultSchemaFor([
+				review([
+					finding(),
+					finding({ id: did(301), dispositionClass: "note" }),
+				]),
+			]);
+			const result = schema.safeParse({
+				contract: makeContract(),
+				dispositions: dispositionIds.map((findingId) => ({
+					findingId,
+					status: "accepted",
+					rationale: "Review the exact finding.",
+				})),
+			});
+			if (result.success) throw new Error("Expected disposition refusal");
+			expect(result.error.issues.map((issue) => issue.path)).toEqual(paths);
+		},
+	);
+	it.each([
+		{ status: "accepted", related: true, allowed: false },
+		{ status: "accepted", related: false, allowed: true },
+		{ status: "deferred", related: true, allowed: true },
+		{ status: "deferred", related: false, allowed: false },
+		{ status: "rejected", related: true, allowed: true },
+		{ status: "rejected", related: false, allowed: true },
+	] as const)(
+		"binds a $status user decision to related=$related pending questions",
+		({ status, related, allowed }) => {
+			const contract = makeContract();
+			contract.openQuestions.push({
+				id: ids.question,
+				question: "Which result should workers see?",
+				blocking: true,
+				relatedElementIds: [related ? ids.taskVisit : ids.taskRegister],
+			});
+			appDesignContractSchema.parse(contract);
+			const schema = designRevisionResultSchemaFor([
+				review([finding({ dispositionClass: "user-decision" })]),
+			]);
+			const parsed = schema.safeParse({
+				contract,
+				dispositions: [
+					{
+						findingId: did(300),
+						status,
+						rationale: "Preserve the explicit remaining decision.",
+					},
+				],
+			});
+			expect(parsed.success).toBe(allowed);
+			if (!parsed.success)
+				expect(parsed.error.issues.map((issue) => issue.path)).toEqual([
+					["dispositions", 0, "status"],
+				]);
+		},
+	);
+});
+
 describe("sensitivity preservation", () => {
 	it("rejects a quiet downgrade and allows only a correction naming that property", () => {
 		const parent = makeContract();
@@ -562,4 +774,79 @@ describe("sensitivity preservation", () => {
 			]),
 		).toEqual([]);
 	});
+});
+
+describe("sensitivity transitions", () => {
+	it.each([
+		["ordinary", "ordinary", false],
+		["ordinary", "sensitive", false],
+		["ordinary", "highly-sensitive", false],
+		["sensitive", "ordinary", true],
+		["sensitive", "sensitive", false],
+		["sensitive", "highly-sensitive", false],
+		["highly-sensitive", "ordinary", true],
+		["highly-sensitive", "sensitive", true],
+		["highly-sensitive", "highly-sensitive", false],
+	] as const)(
+		"checks %s to %s without a covering correction",
+		(before, after, refuses) => {
+			const parent = makeContract();
+			fixtureValue(
+				parent.records[0]?.properties.find(
+					(property) => property.id === ids.factRisk,
+				),
+				"risk",
+			).sensitivity = before;
+			appDesignContractSchema.parse(parent);
+			const revised = cloneContract(parent);
+			fixtureValue(
+				revised.records[0]?.properties.find(
+					(property) => property.id === ids.factRisk,
+				),
+				"risk",
+			).sensitivity = after;
+			const result = designRevisionResultSchemaFor([]).parse({
+				contract: revised,
+				dispositions: [],
+			});
+			expect(validateSensitivityNotSilentlyLowered(parent, result)).toEqual(
+				refuses
+					? [
+							`The property "Risk level" was quietly downgraded from ${before} to ${after}.`,
+						]
+					: [],
+			);
+		},
+	);
+	it.each(["rejected", "deferred"] as const)(
+		"does not treat a %s correction as permission to lower sensitivity",
+		(status) => {
+			const parent = makeContract();
+			const revised = cloneContract(parent);
+			fixtureValue(
+				revised.records[0]?.properties.find(
+					(property) => property.id === ids.factRisk,
+				),
+				"risk",
+			).sensitivity = "ordinary";
+			const reviews = [
+				review([finding({ affectedElementIds: [ids.factRisk] })]),
+			];
+			const result = designRevisionResultSchemaFor(reviews).parse({
+				contract: revised,
+				dispositions: [
+					{
+						findingId: did(300),
+						status,
+						rationale: "This correction was not accepted.",
+					},
+				],
+			});
+			expect(
+				validateSensitivityNotSilentlyLowered(parent, result, reviews),
+			).toEqual([
+				'The property "Risk level" was quietly downgraded from sensitive to ordinary.',
+			]);
+		},
+	);
 });

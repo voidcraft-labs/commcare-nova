@@ -81,9 +81,7 @@ export function declareCaseTypeForField(
  *  viewer declares its type even when no form writes `case_name` yet. */
 const NAME_COLUMN_HEADER = "Name";
 
-/** The canonical starter case-list column — a plain `case_name`/"Name" column.
- *  Born WITH an `order` key (the first-member seed `keyBetween(null, null)`) so
- *  it sorts correctly the moment a keyed column is added beside it. */
+/** The canonical starter case-list column; config membership arrays own order. */
 function nameColumn(uuid: Uuid) {
 	return {
 		...plainColumn(uuid, "case_name", NAME_COLUMN_HEADER),

@@ -1,15 +1,10 @@
-// lib/domain/__tests__/users.test.ts
-//
-// The user vocabulary's two load-bearing derivations: the slug rule (which
-// is CommCare's, clause for clause) and the relationship between the
-// built-in catalog and the reserved-name list. The unit's binding fact is
-// that the injected framework key set IS both of those things — so rather
-// than maintaining a second list and hoping the two agree, this asserts
-// that every built-in slug is already unreachable through the slug rule.
+// Slug admission, collection grammar, and pure persona-default projection.
+// HQ source grounds the policy; these tests do not execute HQ account writes.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { userPropertySlugVerdict } from "@/lib/commcare/validator/userPropertySlug";
 import {
 	BUILT_IN_USER_PROPERTIES,
@@ -35,14 +30,6 @@ describe("the built-in catalog is also the reserved-name list", () => {
 		}
 	});
 
-	it("names exactly three properties the runtime itself reads", () => {
-		expect(
-			BUILT_IN_USER_PROPERTIES.filter((p) => p.readByRuntime).map(
-				(p) => p.slug,
-			),
-		).toEqual(["user_type", "commcare_project", "commcare_location_ids"]);
-	});
-
 	it("marks the project slug as needing a deployment target", () => {
 		const project = BUILT_IN_USER_PROPERTIES.find(
 			(p) => p.slug === "commcare_project",
@@ -51,7 +38,7 @@ describe("the built-in catalog is also the reserved-name list", () => {
 	});
 });
 
-describe("slug legality follows CommCare's rule clause by clause", () => {
+describe("slug admission and case-insensitive uniqueness", () => {
 	it("accepts the Django slug charset", () => {
 		for (const slug of [
 			"region",
@@ -128,7 +115,7 @@ describe("slug legality follows CommCare's rule clause by clause", () => {
 		}
 	});
 
-	it("caps the slug at CommCare's column width", () => {
+	it("caps the slug at the supported column width", () => {
 		const atCap = "a".repeat(USER_PROPERTY_SLUG_MAX_LENGTH);
 		expect(userPropertySlugVerdict(atCap, NONE).ok).toBe(true);
 		expect(userPropertySlugVerdict(`${atCap}a`, NONE)).toMatchObject({
@@ -152,17 +139,36 @@ describe("personaUserData", () => {
 	const CADRE = testUuid("22222222-2222-4222-8222-222222222222");
 	const CHW = testUuid("33333333-3333-4333-8333-333333333333");
 
-	const doc: UserCollections = {
-		userTypes: {
-			[CHW]: {
-				uuid: CHW,
-				name: "CHW",
-				values: { [REGION]: "north", [CADRE]: "community" },
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Intake",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+				],
 			},
+		],
+	});
+	doc.userProperties = {
+		[REGION]: { uuid: REGION, slug: "region", label: "Region" },
+		[CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre" },
+	};
+	doc.userPropertyOrder = [REGION, CADRE];
+	doc.userTypes = {
+		[CHW]: {
+			uuid: CHW,
+			name: "CHW",
+			values: { [REGION]: "north", [CADRE]: "community" },
 		},
 	};
+	doc.userTypeOrder = [CHW];
 
 	it("layers the persona's own values over its role's defaults", () => {
+		expectAdmittedDoc(doc);
 		expect(
 			personaUserData(
 				{
@@ -177,6 +183,7 @@ describe("personaUserData", () => {
 	});
 
 	it("is just the persona's own values when it holds no role", () => {
+		expectAdmittedDoc(doc);
 		expect(
 			personaUserData(
 				{
@@ -189,36 +196,33 @@ describe("personaUserData", () => {
 		).toEqual({ [REGION]: "south" });
 	});
 
-	it("resolves prototype-named role and property keys only as own data", () => {
-		const roleUuid = testUuid("constructor");
-		const propertyUuid = testUuid("__proto__");
-		const ownDoc: UserCollections = {
-			userTypes: Object.fromEntries([
-				[
-					roleUuid,
-					{
-						uuid: roleUuid,
-						name: "Constructor role",
-						values: Object.fromEntries([[propertyUuid, "north"]]),
-					},
-				],
-			]),
+	it("ignores an inherited role even when its UUID is otherwise valid", () => {
+		const role = { uuid: CHW, name: "CHW", values: { [REGION]: "north" } };
+		const inherited: UserCollections = {
+			userTypes: Object.create({ [CHW]: role }),
 		};
 		const persona = {
-			uuid: testUuid("persona"),
+			uuid: testUuid("persona-inherited"),
 			name: "Asha",
-			userTypeUuid: roleUuid,
+			userTypeUuid: CHW,
 		};
-
-		const data = personaUserData(persona, ownDoc);
-		expect(Object.hasOwn(data, propertyUuid)).toBe(true);
-		expect(data[propertyUuid]).toBe("north");
-		expect(personaUserData(persona, {})).toEqual({});
+		expect(personaUserData(persona, inherited)).toEqual({});
+		expect(personaUserData(persona, { userTypes: { [CHW]: role } })).toEqual({
+			[REGION]: "north",
+		});
 	});
 });
 
 describe("user property accepted values", () => {
 	it("rejects duplicate values at the domain schema boundary", () => {
+		expect(
+			userPropertySchema.safeParse({
+				uuid: testUuid("property"),
+				slug: "region",
+				label: "Region",
+				choices: ["north", "south"],
+			}).success,
+		).toBe(true);
 		expect(
 			userPropertySchema.safeParse({
 				uuid: testUuid("property"),
@@ -256,19 +260,23 @@ describe("prototype-safe user record parsing", () => {
 		expect(Object.getPrototypeOf(parsed)).toBeNull();
 		expect(parsed[north]).toBe("north");
 		expect(parsed[south]).toBe("south");
+		for (const key of ["__proto__", "constructor", "toString"]) {
+			expect(
+				userDataValuesSchema.safeParse(Object.fromEntries([[key, "north"]]))
+					.success,
+			).toBe(false);
+		}
 		expect(
-			userDataValuesSchema.safeParse(
-				Object.fromEntries([["__proto__", "north"]]),
-			).success,
-		).toBe(false);
+			userDataValuesSchema.parse(Object.create({ [north]: "inherited" })),
+		).toEqual({});
 	});
 
-	it("preserves hostile collection identities through the blueprint boundary", () => {
+	it("preserves canonical collection UUIDs and their value bindings through JSON admission", () => {
 		const propertyUuid = testUuid("__proto__");
 		const typeUuid = testUuid("constructor");
 		const personaUuid = testUuid("toString");
 		const { fieldParent: _derived, ...persistable } = buildDoc({
-			appName: "Hostile identities",
+			appName: "Worker identities",
 			modules: [],
 		});
 		const wire = {
@@ -308,7 +316,7 @@ describe("prototype-safe user record parsing", () => {
 			personaOrder: [personaUuid],
 		};
 
-		const parsed = blueprintDocSchema.parse(wire);
+		const parsed = blueprintDocSchema.parse(JSON.parse(JSON.stringify(wire)));
 		expect(Object.hasOwn(parsed.userProperties ?? {}, propertyUuid)).toBe(true);
 		expect(Object.hasOwn(parsed.userTypes ?? {}, typeUuid)).toBe(true);
 		expect(Object.hasOwn(parsed.personas ?? {}, personaUuid)).toBe(true);

@@ -9,7 +9,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { type Column, emptyCaseListConfig } from "@/lib/domain";
 import {
 	projectCaseWorkspaceColumns,
-	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
 	showColumnOnDisplay,
 } from "../workspaceProjection";
@@ -52,7 +51,7 @@ describe("projectCaseWorkspaceColumns", () => {
 			listColumnOrder: [listOnly, both, detailOnly, fullyHidden].map(
 				(entry) => entry.uuid,
 			),
-			detailColumnOrder: [listOnly, both, detailOnly, fullyHidden].map(
+			detailColumnOrder: [fullyHidden, detailOnly, both, listOnly].map(
 				(entry) => entry.uuid,
 			),
 		});
@@ -72,12 +71,12 @@ describe("projectCaseWorkspaceColumns", () => {
 			testUuid("fully-hidden"),
 		]);
 		expect(uuids(projection.detailVisible)).toEqual([
-			testUuid("both"),
 			testUuid("detail-only"),
+			testUuid("both"),
 		]);
 		expect(uuids(projection.detailHidden)).toEqual([
-			testUuid("list-only"),
 			testUuid("fully-hidden"),
+			testUuid("list-only"),
 		]);
 		expect(uuids(projection.fullyHidden)).toEqual([testUuid("fully-hidden")]);
 
@@ -154,44 +153,22 @@ describe("showColumnOnDisplay", () => {
 		};
 
 		expect(showColumnOnDisplay([hidden], hidden.uuid, "list")).toEqual([
-			{ ...hidden, visibleInList: undefined },
+			column("hidden"),
 		]);
 	});
 
-	it("appends information that has never appeared on that screen", () => {
+	it("restores a previously Details-only definition without changing its Details visibility", () => {
 		const detailOnly = column("detail-only", {
 			visibleInList: false,
 		});
 
 		expect(showColumnOnDisplay([detailOnly], detailOnly.uuid, "list")).toEqual([
 			{
-				...detailOnly,
-				visibleInList: undefined,
+				uuid: detailOnly.uuid,
+				kind: "plain",
+				field: "detail-only",
+				header: "detail-only",
 			},
 		]);
-	});
-});
-
-describe("pruneStoppedSortOrphans", () => {
-	it("retains an off-screen definition after its final ordering job ends", () => {
-		const before = {
-			...column("sort-only", {
-				visibleInList: false,
-				visibleInDetail: false,
-			}),
-			sort: { direction: "asc" as const, priority: 0 },
-		};
-		const { sort: _sort, ...after } = before;
-
-		expect(pruneStoppedSortOrphans([before], [after])).toEqual([after]);
-	});
-
-	it("preserves untouched dormant off-screen definitions", () => {
-		const dormant = column("saved-search-only", {
-			visibleInList: false,
-			visibleInDetail: false,
-		});
-
-		expect(pruneStoppedSortOrphans([dormant], [dormant])).toEqual([dormant]);
 	});
 });

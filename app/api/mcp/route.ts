@@ -78,6 +78,7 @@ const dispatch = async (req: Request): Promise<Response> => {
 		authReq = new Request(url, {
 			method: req.method,
 			headers: req.headers,
+			signal: req.signal,
 			body: req.body,
 			/* Required when `body` is a stream: see module docblock. */
 			// @ts-expect-error - `duplex` not in TS DOM lib yet

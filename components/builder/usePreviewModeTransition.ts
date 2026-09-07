@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { readBuilderLocation, useNavigate } from "@/lib/routing/hooks";
+import { previewModeNavigation } from "./previewModeNavigation";
 
 /**
  * Wrap the session's preview setter with the URL transitions preview mode
@@ -33,15 +34,8 @@ export function usePreviewModeTransition(
 	return useCallback(
 		(on: boolean) => {
 			const loc = readBuilderLocation(docApi.getState());
-			if (!on && loc.kind === "cases" && loc.caseId !== undefined) {
-				navigate.replace({
-					kind: "detail-config",
-					moduleUuid: loc.moduleUuid,
-				});
-			}
-			if (on && (loc.kind === "app-setup" || loc.kind === "project-data")) {
-				navigate.push({ kind: "home" });
-			}
+			const change = previewModeNavigation(on, loc);
+			if (change) navigate[change.method](change.location);
 			setPreviewing(on);
 		},
 		[docApi, navigate, setPreviewing],

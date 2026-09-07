@@ -3,8 +3,7 @@
  * lifecycle: computed at init, recomputed when a filter dependency
  * changes (the runtime DAG edges promoted from the cycle proof),
  * dropped selections unselected, downstream dependents cascading in
- * the same pass, and the loud invariant when a carrier-bearing form
- * evaluates without a lookup snapshot.
+ * the same pass, and loading state while a carrier lacks its required snapshot.
  */
 
 import { describe, expect, it } from "vitest";
@@ -21,8 +20,11 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
+import { fieldSchema } from "@/lib/domain";
+import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { eq, formField, tableColumn, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -39,7 +41,7 @@ const DEFINITION: LookupTableDefinition = {
 	id: TABLE,
 	name: "Clinics",
 	tag: "clinics",
-	definitionRevision: "1" as LookupTableDefinition["definitionRevision"],
+	definitionRevision: parseLookupRevision("1"),
 	columns: [
 		{ id: COL_CODE, wireName: "code", label: "Code", dataType: "text" },
 		{ id: COL_NAME, wireName: "clinic_name", label: "Name", dataType: "text" },
@@ -54,20 +56,20 @@ function clinicRow(
 	region: string,
 ): LookupFixtureRow {
 	return {
-		id: id as LookupFixtureRow["id"],
+		id: lookupRowIdSchema.parse(id),
 		values: { [COL_CODE]: code, [COL_NAME]: name, [COL_REGION]: region },
 	};
 }
 
 const ROWS: readonly LookupFixtureRow[] = [
-	clinicRow("018f0000-0000-7000-8000-0000000000r1", "a1", "Arua", "north"),
-	clinicRow("018f0000-0000-7000-8000-0000000000r2", "b2", "Bario", "south"),
-	clinicRow("018f0000-0000-7000-8000-0000000000r3", "c3", "Cadu", "south"),
+	clinicRow("018f0000-0000-7000-8000-0000000000a1", "a1", "Arua", "north"),
+	clinicRow("018f0000-0000-7000-8000-0000000000a2", "b2", "Bario", "south"),
+	clinicRow("018f0000-0000-7000-8000-0000000000a3", "c3", "Cadu", "south"),
 ];
 
 function lookupData(): PreviewLookupData {
 	return previewLookupData({
-		projectRevision: "7",
+		projectRevision: parseLookupRevision("7"),
 		definitions: [DEFINITION],
 		rowsByTable: new Map([[TABLE, ROWS]]),
 	});
@@ -97,7 +99,7 @@ function dTree(
 	for (const n of fields) {
 		const uuid = testUuid(`form.${n.id}`);
 		order.push(uuid);
-		fieldMap[uuid as string] = { uuid, ...n } as Field;
+		fieldMap[uuid as string] = fieldSchema.parse({ uuid, ...n });
 	}
 	return {
 		form,
@@ -144,17 +146,17 @@ describe("lookup-backed choices in the engine", () => {
 		);
 		expect(engine.getState("/data/clinic").choices).toEqual([
 			{
-				key: "018f0000-0000-7000-8000-0000000000r1",
+				key: "018f0000-0000-7000-8000-0000000000a1",
 				value: "a1",
 				label: "Arua",
 			},
 			{
-				key: "018f0000-0000-7000-8000-0000000000r2",
+				key: "018f0000-0000-7000-8000-0000000000a2",
 				value: "b2",
 				label: "Bario",
 			},
 			{
-				key: "018f0000-0000-7000-8000-0000000000r3",
+				key: "018f0000-0000-7000-8000-0000000000a3",
 				value: "c3",
 				label: "Cadu",
 			},
@@ -178,12 +180,12 @@ describe("lookup-backed choices in the engine", () => {
 		engine.setValue("/data/region", "south");
 		expect(engine.getState("/data/clinic").choices).toEqual([
 			{
-				key: "018f0000-0000-7000-8000-0000000000r2",
+				key: "018f0000-0000-7000-8000-0000000000a2",
 				value: "b2",
 				label: "Bario",
 			},
 			{
-				key: "018f0000-0000-7000-8000-0000000000r3",
+				key: "018f0000-0000-7000-8000-0000000000a3",
 				value: "c3",
 				label: "Cadu",
 			},
@@ -192,7 +194,7 @@ describe("lookup-backed choices in the engine", () => {
 		engine.setValue("/data/region", "north");
 		expect(engine.getState("/data/clinic").choices).toEqual([
 			{
-				key: "018f0000-0000-7000-8000-0000000000r1",
+				key: "018f0000-0000-7000-8000-0000000000a1",
 				value: "a1",
 				label: "Arua",
 			},
@@ -239,9 +241,10 @@ describe("lookup-backed choices in the engine", () => {
 			lookupData(),
 		);
 		engine.setValue("/data/region", "south");
-		engine.setValue("/data/clinic", "b2 c3");
+		engine.setValue("/data/clinic", "a1 b2 c3");
 
-		// Both south rows survive a re-set of the same region.
+		// A mixed selection loses only the unoffered north token, preserving
+		// both surviving tokens in their original order.
 		engine.setValue("/data/region", "south");
 		expect(engine.getState("/data/clinic").value).toBe("b2 c3");
 
@@ -282,7 +285,10 @@ describe("lookup-backed choices in the engine", () => {
 		 * only from evaluateLookupChoices under a covering snapshot. */
 		const orphanSelect = clinicSelect("single_select", false);
 		orphanSelect.optionsSource = {
-			...(orphanSelect.optionsSource as LookupOptionsSource),
+			...clinicSelect("single_select", false).optionsSource,
+			kind: "lookup",
+			valueColumnId: COL_CODE,
+			labelColumnId: COL_NAME,
 			tableId: "018f0000-0000-7000-8000-00000000dead" as LookupTableId,
 		};
 		const engine = new FormEngine(

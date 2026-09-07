@@ -8,29 +8,27 @@ import {
 	useMemo,
 } from "react";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import {
-	useBlueprintDoc,
-	useBlueprintDocEq,
-} from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import {
+	useAppLocalization,
+	useLocalizedField as useDocLocalizedField,
+	useLocalizedModule as useDocLocalizedModule,
+	useLocalizedTranslationUnit as useDocLocalizedTranslationUnit,
+	useLocalizedValues as useDocLocalizedValues,
+} from "@/lib/doc/hooks/useLocalization";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
 	type CommitOutcome,
-	collectLocalizedTranslationUnits,
 	effectiveAppLocalization,
 	type Field,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
-	localizeTranslationUnit,
 	type Module,
 	parseLanguageTag,
-	projectLocalizedField,
-	projectLocalizedModule,
 	resolveAppLanguage,
 	type TranslationUnitId,
-	translationUnitsById,
 	type Uuid,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
@@ -59,40 +57,12 @@ const BuilderLocalizationContext = createContext<BuilderLanguageState | null>(
 	null,
 );
 
-/* Zustand publishes immutable document snapshots. Field rows and form/module
- * chrome ask for separate localized projections of the same snapshot, so
- * share its app-wide translation inventory instead of rebuilding it once per
- * selector. The WeakMap naturally discards every superseded snapshot. */
-const builderTranslationUnitsByDoc = new WeakMap<
-	Parameters<typeof translationUnitsById>[0],
-	ReturnType<typeof translationUnitsById>
->();
-
-function builderTranslationUnits(
-	doc: Parameters<typeof translationUnitsById>[0],
-): ReturnType<typeof translationUnitsById> {
-	const cached = builderTranslationUnitsByDoc.get(doc);
-	if (cached !== undefined) return cached;
-	const units = translationUnitsById(doc);
-	builderTranslationUnitsByDoc.set(doc, units);
-	return units;
-}
-
-function builderTranslationUnitsForProjection(
-	doc: Parameters<typeof translationUnitsById>[0],
-	language: LanguageTag,
-): ReturnType<typeof translationUnitsById> | undefined {
-	return language === effectiveAppLocalization(doc.localization).sourceLanguage
-		? undefined
-		: builderTranslationUnits(doc);
-}
-
 export function BuilderLocalizationProvider({
 	children,
 }: {
 	children: ReactNode;
 }) {
-	const persisted = useBlueprintDoc((doc) => doc.localization);
+	const persisted = useAppLocalization();
 	const search = useBuilderSearch();
 	const effective = useMemo(
 		() => effectiveAppLocalization(persisted),
@@ -141,38 +111,12 @@ export function useBuilderLanguage(): BuilderLanguageState {
 	return value;
 }
 
-function sameLocalizedUnit(
-	left: LocalizedTranslationUnit | undefined,
-	right: LocalizedTranslationUnit | undefined,
-): boolean {
-	if (left === right) return true;
-	if (left === undefined || right === undefined) return false;
-	return (
-		left.language === right.language &&
-		left.sourceFingerprint === right.sourceFingerprint &&
-		left.status === right.status &&
-		JSON.stringify(left.effective) === JSON.stringify(right.effective) &&
-		JSON.stringify(left.explicit) === JSON.stringify(right.explicit)
-	);
-}
-
 export function useLocalizedTranslationUnit(
 	unitId: TranslationUnitId,
 ): LocalizedTranslationUnit | undefined {
-	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const unit = builderTranslationUnits(doc).get(unitId);
-		return unit === undefined
-			? undefined
-			: localizeTranslationUnit(
-					doc,
-					resolveAppLanguage(doc.localization, language),
-					unit,
-				);
-	}, sameLocalizedUnit);
+	return useDocLocalizedTranslationUnit(useBuilderLanguage().language, unitId);
 }
 
-/** Resolve one semantic worker-facing slot through the selected Builder lens. */
 export function useLocalizedValue(
 	unitId: TranslationUnitId,
 ): LocalizedValue | undefined {
@@ -186,77 +130,19 @@ export function useLocalizedText(
 	return typeof value === "string" ? value : undefined;
 }
 
-function sameLocalizedValues(
-	left: ReadonlyMap<TranslationUnitId, LocalizedValue>,
-	right: ReadonlyMap<TranslationUnitId, LocalizedValue>,
-): boolean {
-	if (left.size !== right.size) return false;
-	for (const [id, value] of left) {
-		if (JSON.stringify(value) !== JSON.stringify(right.get(id))) return false;
-	}
-	return true;
-}
-
-/** One complete selected-language projection for list and tree renderers. */
 export function useLocalizedValues(): ReadonlyMap<
 	TranslationUnitId,
 	LocalizedValue
 > {
-	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
-		return new Map(
-			collectLocalizedTranslationUnits(doc, snapshotLanguage).map((unit) => [
-				unit.id,
-				unit.effective,
-			]),
-		);
-	}, sameLocalizedValues);
+	return useDocLocalizedValues(useBuilderLanguage().language);
 }
 
-function sameField(left: Field | undefined, right: Field | undefined): boolean {
-	return left === right || JSON.stringify(left) === JSON.stringify(right);
-}
-
-function sameModule(
-	left: Module | undefined,
-	right: Module | undefined,
-): boolean {
-	return left === right || JSON.stringify(left) === JSON.stringify(right);
-}
-
-/** Selected-language module chrome, case-list labels, and Search copy. */
 export function useLocalizedModule(uuid: Uuid | undefined): Module | undefined {
-	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
-		return uuid === undefined
-			? undefined
-			: projectLocalizedModule(
-					doc,
-					snapshotLanguage,
-					uuid,
-					builderTranslationUnitsForProjection(doc, snapshotLanguage),
-				);
-	}, sameModule);
+	return useDocLocalizedModule(useBuilderLanguage().language, uuid);
 }
 
-/**
- * Project a field through the central translation inventory. Identity, logic,
- * media, values, and references stay untouched; only worker-facing prose and
- * inline option labels can differ from the canonical entity.
- */
 export function useLocalizedField(uuid: Uuid): Field | undefined {
-	const { language } = useBuilderLanguage();
-	return useBlueprintDocEq((doc) => {
-		const snapshotLanguage = resolveAppLanguage(doc.localization, language);
-		return projectLocalizedField(
-			doc,
-			snapshotLanguage,
-			uuid,
-			builderTranslationUnitsForProjection(doc, snapshotLanguage),
-		);
-	}, sameField);
+	return useDocLocalizedField(useBuilderLanguage().language, uuid);
 }
 
 export interface TranslationUnitEditor {

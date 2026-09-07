@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
+import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
 import { getModuleTool } from "../../getModule";
-import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
+import {
+	FIELD_A,
+	FORM_A,
+	MOD_A,
+	makeCaseListDoc,
+	makeCaseListFixture,
+} from "./fixtures";
 
 const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -43,6 +50,9 @@ function independentlyArrangedDoc(): BlueprintDoc {
 describe("case-list read projections", () => {
 	it("reports bounded multiple selection on both model-facing reads", async () => {
 		const base = makeCaseListDoc();
+		base.forms[FORM_A] = { ...base.forms[FORM_A], type: "followup" };
+		const field = base.fields[FIELD_A];
+		if ("caseWrite" in field) delete field.caseWrite;
 		const config = base.modules[MOD_A]?.caseListConfig;
 		if (config === undefined) throw new Error("fixture config missing");
 		const doc = {
@@ -66,7 +76,7 @@ describe("case-list read projections", () => {
 			kind: "multiple",
 			maximum: 12,
 		});
-		expect(summarizeBlueprint(doc)).toContain(
+		expect(summarizeBlueprint(expectAdmittedDoc(doc))).toContain(
 			"selection: workers choose up to 12 cases before continuing",
 		);
 	});
@@ -105,7 +115,7 @@ describe("case-list read projections", () => {
 				},
 			},
 		};
-		const summary = summarizeBlueprint(doc);
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		const results = summary.indexOf("      results:");
 		const details = summary.indexOf("      details:");
 		const saved = summary.indexOf("      saved_off_screen:");
@@ -166,13 +176,13 @@ describe("case-list read projections", () => {
 			{ x: 0, y: 1, width: 6, height: 2 },
 		]);
 
-		const summary = summarizeBlueprint(doc);
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		expect(summary).toContain("layout: tile (kept above every form)");
 		expect(summary).toContain("@ 0,0 12x1");
 		expect(summary).toContain("@ 0,1 6x2");
 	});
 
-	it("reports grouping on both read surfaces, with what it costs", async () => {
+	it("projects grouping metadata and its worker-facing explanation", async () => {
 		// Grouping changes what a placement MEANS: a cell in the header band is
 		// drawn once per group, from the group's first case. A read surface
 		// that showed the cells without it would have the model rearranging a
@@ -212,22 +222,11 @@ describe("case-list read projections", () => {
 			grouping: { identifier: "parent", headerRows: 1 },
 		});
 
-		const summary = summarizeBlueprint(doc);
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		expect(summary).toContain("grouped_by: parent connection");
 		expect(summary).toContain("top row is the group heading");
 		expect(summary).toContain("choosing a group opens that first case");
 		expect(summary).toContain("cases with no parent connection are one group");
-	});
-
-	it("leaves an untiled case list's summary unchanged", () => {
-		// A case list with no DRAWN placement pays nothing, so an app that has
-		// never used a tile keeps a byte-identical prompt prefix — which is what
-		// the provider cache keys on.
-		const doc = independentlyArrangedDoc();
-		const summary = summarizeBlueprint(doc);
-
-		expect(summary).not.toContain("layout: tile");
-		expect(summary).not.toContain(" @ ");
 	});
 
 	it("reports a placement only where the tile actually draws it", () => {
@@ -267,7 +266,9 @@ describe("case-list read projections", () => {
 			},
 		});
 
-		const tiled = summarizeBlueprint(withCells({ persistOnForms: true }));
+		const tiled = summarizeBlueprint(
+			expectAdmittedDoc(withCells({ persistOnForms: true })),
+		);
 		// The drawn cell is reported in full.
 		expect(tiled).toContain("@ 0,0 4x1");
 		// The hidden carrier's retained cell is not.
@@ -281,7 +282,7 @@ describe("case-list read projections", () => {
 		// Switching the layout off keeps every cell on the document, so the
 		// author gets their drawing back — but nothing draws, so nothing is
 		// reported.
-		const untiled = summarizeBlueprint(withCells(undefined));
+		const untiled = summarizeBlueprint(expectAdmittedDoc(withCells(undefined)));
 		expect(untiled).not.toContain("layout: tile");
 		expect(untiled).not.toContain(" @ ");
 	});

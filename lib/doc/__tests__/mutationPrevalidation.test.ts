@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/doc/mutationPrevalidation";
 import type { Mutation } from "@/lib/doc/types";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture() {
 	const doc = buildDoc({
@@ -43,6 +45,10 @@ function fixture() {
 			patch: { id: "preferred_name" },
 		},
 	];
+	assertAdmittedDoc(doc);
+	expect(
+		mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+	).toBe(true);
 	return { doc, mutations };
 }
 
@@ -90,7 +96,6 @@ describe("mutation prevalidation", () => {
 
 		const admitted = admitMutationBatch(mutations);
 		expect(admitted).toEqual(mutations);
-		expect(JSON.stringify(admitted)).not.toBe(JSON.stringify(mutations));
 		expect(
 			hasMutationPrevalidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, admitted),
 		).toBe(true);

@@ -47,7 +47,7 @@ export interface RemotePlace {
 	readonly siteCode: string;
 	readonly parentLocationId: string | null;
 	/** What the place currently carries in CommCare HQ's `location_data`. */
-	readonly values: Readonly<Record<string, string>>;
+	readonly values: Readonly<Record<string, unknown>>;
 }
 
 /** One of Nova's live places, as the push would present it. */
@@ -180,7 +180,7 @@ export interface PlannedPlacePush {
 	 * Nova's alone would delete every field the app does not model, and on
 	 * an adopted place those belong to whoever made it.
 	 */
-	readonly locationData: Readonly<Record<string, string>> | null;
+	readonly locationData: Readonly<Record<string, unknown>> | null;
 }
 
 export type LocationResourcePlan =

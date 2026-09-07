@@ -9,9 +9,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc, PostSubmitDestination } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	type PostSubmitDestination,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 const INTAKE = testUuid("mod-intake");
@@ -118,10 +123,10 @@ function docWith(
 	});
 }
 
-const linkFindings = (doc: BlueprintDoc) =>
-	runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
-		e.code.startsWith("FORM_LINK"),
-	);
+const linkFindings = (doc: BlueprintDoc) => {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+};
 
 const toVisit = { type: "form", moduleUuid: CARE, formUuid: VISIT } as const;
 const toNote = { type: "form", moduleUuid: CARE, formUuid: NOTE } as const;
@@ -177,8 +182,8 @@ describe("FORM_LINK_NO_FALLBACK", () => {
 
 describe("FORM_LINK_DATUMS_INCOMPLETE", () => {
 	it("refuses an auto-matched link whose destination needs a case the source cannot supply", () => {
-		// A survey opens no case; Visit needs one. Core would open Visit
-		// with an empty case id rather than ask for one.
+		// A survey opens no case; Visit needs one. Core cannot supply Visit
+		// with a valid case and will not prompt to choose one.
 		const doc = docWith([{ uuid: "lnk", target: toVisit }]);
 		const findings = linkFindings(doc);
 		expect(findings.map((e) => e.code)).toEqual([
@@ -253,7 +258,7 @@ describe("FORM_LINK_DATUM_UNUSED", () => {
 });
 
 describe("targets, self references, and the cycle rule", () => {
-	it("stamps linkUuid on a dangling target and a self reference", () => {
+	it("admits a module target and attributes self-reference plus cycle findings", () => {
 		const doc = docWith([
 			{ uuid: "lnk-ghost", target: { type: "module", moduleUuid: INTAKE } },
 		]);
@@ -342,9 +347,11 @@ describe("targets, self references, and the cycle rule", () => {
 				},
 			],
 		});
-		const cycles = linkFindings(doc).filter(
-			(e) => e.code === "FORM_LINK_CIRCULAR",
-		);
+		const cycles = linkFindings(doc);
+		expect(cycles.map((e) => e.code)).toEqual([
+			"FORM_LINK_CIRCULAR",
+			"FORM_LINK_CIRCULAR",
+		]);
 		expect(cycles.map((e) => e.details?.formUuid).sort()).toEqual(
 			[testUuid("frm-a"), testUuid("frm-b")].sort(),
 		);
@@ -356,10 +363,12 @@ describe("deep XPath findings on a link", () => {
 		const doc = docWith([
 			{ uuid: "lnk", condition: "#form/q = 'yes'", target: toCare },
 		]);
-		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.details?.linkUuid === testUuid("lnk"),
-		);
-		expect(findings.length).toBeGreaterThan(0);
+		const all = linkFindings(doc);
+		expect(all.map((e) => e.code)).toEqual([
+			"FORM_LINK_NO_FALLBACK",
+			"INVALID_REF",
+		]);
+		const findings = all.filter((e) => e.code !== "FORM_LINK_NO_FALLBACK");
 		expect(findings[0].message).toContain(
 			'the link to the "Care" module, condition',
 		);

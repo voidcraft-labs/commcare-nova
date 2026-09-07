@@ -22,9 +22,7 @@ const T = (() => {
 	};
 })();
 
-/** A positional edit in the source string. Shared (with `applyEdits`,
- *  `collectSegmentsWithPositions`, and `walkForFormHashtagPrefix`) by the
- *  moveField rewriter at `lib/doc/mutations/pathRewrite.ts`. */
+/** A positional edit in the emitted runtime source string. */
 export interface SourceEdit {
 	from: number;
 	to: number;

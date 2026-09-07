@@ -5,12 +5,14 @@
 // attach", separate the by-design app-logo case from a genuine failure, and
 // emit the warn/error log decision.
 //
-// `interpretMediaAttach` runs against a real `walkAssetRefs` over a hand-built
+// `interpretMediaAttach` runs against a real `walkAssetRefs` over a normalized
 // doc + a plain asset → wire-path map (what the route projects from the
 // resolved manifest). `reportMediaAttach` is tested with the logger mocked so
 // its log decision (and the empty-detail guard) is asserted directly.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
@@ -25,41 +27,38 @@ vi.mock("@/lib/logger", () => ({
 	log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
 }));
 
-/**
- * A doc with a standalone logo (`logo-asset`) and a `photo` question whose
- * label image is `img-asset`. The cast is sound: `walkAssetRefs` reads only
- * the order/entity maps + media slots present here.
- */
+const LOGO_ID = testMediaAssetId("logo");
+const IMAGE_ID = testMediaAssetId("image");
+
 function doc(): BlueprintDoc {
-	return {
-		appId: "a",
-		appName: "A",
-		connectType: null,
-		caseTypes: null,
-		logo: "logo-asset",
-		moduleOrder: ["m1"],
-		modules: { m1: { uuid: "m1", id: "reg", name: "Registration" } },
-		formOrder: { m1: ["f1"] },
-		forms: {
-			f1: { uuid: "f1", id: "intake", name: "Intake", type: "registration" },
-		},
-		fieldOrder: { f1: ["fld1"] },
-		fields: {
-			fld1: {
-				kind: "text",
-				uuid: "fld1",
-				id: "photo",
-				label: proseText("Photo"),
-				label_media: { image: "img-asset" },
+	const blueprint = buildDoc({
+		modules: [
+			{
+				name: "Registration",
+				forms: [
+					{
+						name: "Intake",
+						type: "survey",
+						fields: [
+							{
+								kind: "text",
+								id: "photo",
+								label: proseText("Photo"),
+								label_media: { image: IMAGE_ID },
+							},
+						],
+					},
+				],
 			},
-		},
-		fieldParent: {},
-	} as unknown as BlueprintDoc;
+		],
+	});
+	blueprint.logo = LOGO_ID;
+	return blueprint;
 }
 
 const WIRE_PATHS = new Map([
-	["logo-asset", "commcare/logo.png"],
-	["img-asset", "commcare/img.png"],
+	[LOGO_ID, "commcare/logo.png"],
+	[IMAGE_ID, "commcare/img.png"],
 ]);
 
 const LOGO = { path: "commcare/logo.png", reason: "Did not match any Image." };
@@ -128,50 +127,41 @@ describe("interpretMediaAttach", () => {
 		expect(out.logoNotCarried).toBe(false);
 	});
 
-	it("joins multiple carriers for one shared asset", () => {
-		// `shared` is the label image on two questions; HQ reports its one wire
-		// path unmatched → both carriers are named (Intl.ListFormat conjunction).
-		const shared = {
-			appId: "a",
-			appName: "A",
-			connectType: null,
-			caseTypes: null,
-			moduleOrder: ["m1"],
-			modules: { m1: { uuid: "m1", id: "reg", name: "Registration" } },
-			formOrder: { m1: ["f1"] },
-			forms: {
-				f1: { uuid: "f1", id: "intake", name: "Intake", type: "registration" },
-			},
-			fieldOrder: { f1: ["a1", "a2"] },
-			fields: {
-				a1: {
-					kind: "text",
-					uuid: "a1",
-					id: "front",
-					label: proseText("Front"),
-					label_media: { image: "shared" },
+	it("treats an image reused as logo and form media as a failure, naming every carrier", () => {
+		// One asset is the logo and two label images. A bulk-upload failure
+		// must still report the form media even though it also serves the logo.
+		const sharedId = testMediaAssetId("shared");
+		const shared = buildDoc({
+			modules: [
+				{
+					name: "Registration",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: ["front", "back"].map((id) => ({
+								kind: "text",
+								id,
+								label_media: { image: sharedId },
+							})),
+						},
+					],
 				},
-				a2: {
-					kind: "text",
-					uuid: "a2",
-					id: "back",
-					label: proseText("Back"),
-					label_media: { image: "shared" },
-				},
-			},
-			fieldParent: {},
-		} as unknown as BlueprintDoc;
+			],
+		});
+		shared.logo = sharedId;
 
 		const out = interpretMediaAttach({
 			unmatched: [{ path: "commcare/s.png", reason: "?" }],
 			hqErrors: [],
-			assetWirePath: new Map([["shared", "commcare/s.png"]]),
+			assetWirePath: new Map([[sharedId, "commcare/s.png"]]),
 			doc: shared,
 		});
 		expect(out.failures).toHaveLength(1);
-		expect(out.failures[0].where).toBe(
-			`the image on field "front"'s label (form "Intake") and the image on field "back"'s label (form "Intake")`,
-		);
+		expect(out.failures[0].where).toContain('"front"');
+		expect(out.failures[0].where).toContain('"back"');
+		expect(out.failures[0].where).toContain("logo");
+		expect(out.logoNotCarried).toBe(false);
 	});
 
 	it("is clean when nothing is unmatched", () => {
@@ -261,7 +251,24 @@ describe("reportMediaAttach", () => {
 		const lines = run(result({ unmatched: 1, unmatchedFiles: [IMG] }));
 		expect(lines[0]).toMatch(/couldn't attach/i);
 		expect(lines[0]).toContain("photo");
-		expect(log.error).toHaveBeenCalledTimes(1);
+		expect(log.error).toHaveBeenCalledExactlyOnceWith(
+			expect.any(String),
+			undefined,
+			{
+				appId: "hq-1",
+				matched: 0,
+				unmatched: 1,
+				failures: [
+					{
+						where: expect.stringContaining("photo"),
+						path: IMG.path,
+						reason: IMG.reason,
+					},
+				],
+			},
+		);
+		expect(lines.join(" ")).not.toContain(IMG.path);
+		expect(lines.join(" ")).not.toContain(IMG.reason);
 		expect(log.warn).not.toHaveBeenCalled();
 	});
 

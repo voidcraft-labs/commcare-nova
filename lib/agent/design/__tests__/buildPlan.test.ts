@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
-	deriveBuildPlan,
+	deriveBuildPlan as deriveAdmittedBuildPlan,
 	newPlanAdmissionMessages,
 } from "@/lib/agent/design/buildPlan";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
 import {
 	lookupColumnIdSchema,
@@ -22,6 +23,7 @@ import {
 	makeContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
+	makeWorkflowChainContract,
 } from "./fixtures";
 
 const EXISTING_TABLE_ID = lookupTableIdSchema.parse(
@@ -39,6 +41,13 @@ const EXISTING_ROW_ID = lookupRowIdSchema.parse(
 const EXISTING_SECOND_ROW_ID = lookupRowIdSchema.parse(
 	"018f0000-0000-7000-8000-000000000005",
 );
+
+function deriveBuildPlan(args: Parameters<typeof deriveAdmittedBuildPlan>[0]) {
+	return deriveAdmittedBuildPlan({
+		...args,
+		contract: appDesignContractSchema.parse(args.contract),
+	});
+}
 
 function messages(
 	result: ReturnType<typeof buildPlanSchema.safeParse>,
@@ -148,6 +157,23 @@ describe("deterministic build planning", () => {
 			"later parent form",
 		);
 		parent.workflowIds = [parentOwner.id, parentFormOwner.id];
+		parent.role = "form-and-queue";
+		const parentList = {
+			...makeContract().lists[0],
+			id: did(890),
+			recordId: fixtureValue(parent.hostRecordId, "parent record"),
+			actorIds: parent.actorIds,
+			scanPropertyIds: [],
+			detailPropertyIds: [],
+			searchPropertyIds: [],
+		};
+		contract.lists.push(parentList);
+		parent.listIds = [parentList.id];
+		parentForm.mode = "selected-record";
+		parentFormOwner.contextRecordId = parent.hostRecordId;
+		parent.selection = { workflowIds: [parentFormOwner.id], cases: "one" };
+		delete displaced.hostRecordId;
+		parentOwnerForm.mode = "standalone";
 		parentForm.moduleCompositionId = parent.id;
 		parentOwnerForm.moduleCompositionId = displaced.id;
 		displaced.workflowIds = [parentOwner.id, parentFormOwner.id];
@@ -205,6 +231,10 @@ describe("deterministic build planning", () => {
 		parent.workflowIds = [parentOwner.id, writer.id];
 		child.parentModuleCompositionId = parent.id;
 		writerForm.moduleCompositionId = parent.id;
+		writerForm.mode = "selected-record";
+		writer.contextRecordId = parent.hostRecordId;
+		parent.selection = { workflowIds: [writer.id], cases: "one" };
+		contract.moduleCompositions.splice(2, 1);
 		writerEffect.recordId = fixtureValue(
 			child.hostRecordId,
 			"child host record",
@@ -254,48 +284,107 @@ describe("deterministic build planning", () => {
 		expect(second).toEqual(first);
 	});
 
-	it("assigns every buildable design element exactly once", () => {
+	it("owns the complete registration and visit construction, including shared catalog and queue work", () => {
 		const contract = makeContract();
-		const plan = makeBuildPlan();
-		const assigned = plan.slices.flatMap((slice) =>
-			slice.constructionGroups.flatMap((group) =>
-				group.elements.map((element) => element.id),
-			),
-		);
-		expect(new Set(assigned).size).toBe(assigned.length);
-		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
-	});
-
-	it("owns shared module composition once and keeps each form layout with its workflow", () => {
-		const plan = makeBuildPlan();
-		const first = plan.slices.find(
-			(slice) => slice.workflowId === ids.taskRegister,
-		);
-		const second = plan.slices.find(
-			(slice) => slice.workflowId === ids.taskVisit,
-		);
-		const elements = (slice: NonNullable<typeof first>) =>
-			slice.constructionGroups.flatMap((group) => group.elements);
-		expect(elements(first as NonNullable<typeof first>)).toEqual(
-			expect.arrayContaining([
-				{ kind: "module-composition", id: ids.modulePatients },
-				{ kind: "form-composition", id: ids.formRegister },
-				{ kind: "composition-section", id: ids.sectionRegisterIdentity },
-				{ kind: "composition-item", id: ids.itemRegisterGuidance },
-			]),
-		);
-		expect(elements(second as NonNullable<typeof second>)).toEqual(
-			expect.arrayContaining([
-				{ kind: "form-composition", id: ids.formVisit },
-				{ kind: "composition-section", id: ids.sectionVisit },
-				{ kind: "composition-item", id: ids.itemVisitSummary },
-			]),
-		);
+		const before = structuredClone(contract);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			planId: ids.planId,
+		});
+		const e = (kind: string, ...elementIds: string[]) =>
+			elementIds.map((id) => ({ kind, id }));
 		expect(
-			plan.slices
-				.flatMap((slice) => elements(slice))
-				.filter((element) => element.id === ids.modulePatients),
-		).toHaveLength(1);
+			plan.slices.map((slice) => ({
+				workflowId: slice.workflowId,
+				role: slice.role,
+				groups: slice.constructionGroups.map(
+					({ kind, elements, blueprintAreas }) => ({
+						kind,
+						elements,
+						blueprintAreas,
+					}),
+				),
+			})),
+		).toEqual([
+			{
+				workflowId: ids.taskRegister,
+				role: "materialization-root",
+				groups: [
+					{
+						kind: "foundation",
+						elements: [
+							...e("actor", ids.actorChw, ids.actorSupervisor),
+							...e("record", ids.recPatient),
+							...e("property", ids.factName, ids.factAge, ids.factRisk),
+						],
+						blueprintAreas: ["case-catalog", "users"],
+					},
+					{
+						kind: "workflow",
+						elements: [
+							...e("workflow", ids.taskRegister),
+							...e("form-composition", ids.formRegister),
+							...e("composition-section", ids.sectionRegisterIdentity),
+							...e("composition-item", ids.itemRegisterName),
+							...e("composition-section", ids.sectionRegisterTriage),
+							...e(
+								"composition-item",
+								ids.itemRegisterGuidance,
+								ids.itemRegisterAge,
+							),
+						],
+						blueprintAreas: ["app", "forms", "media-references"],
+					},
+					{
+						kind: "work-queue",
+						elements: e("list", ids.rmPatients),
+						blueprintAreas: ["case-list"],
+					},
+					{
+						kind: "access-navigation",
+						elements: [
+							...e("access", ids.accessSupervisor),
+							...e("navigation", ids.navMain),
+							...e("module-composition", ids.modulePatients),
+						],
+						blueprintAreas: ["navigation", "media-references", "users"],
+					},
+				],
+			},
+			{
+				workflowId: ids.taskVisit,
+				role: "ordinary",
+				groups: [
+					{
+						kind: "foundation",
+						elements: [
+							...e("record", ids.recVisit),
+							...e("property", ids.factVisitSummary),
+						],
+						blueprintAreas: ["case-catalog"],
+					},
+					{
+						kind: "workflow",
+						elements: [
+							...e("workflow", ids.taskVisit),
+							...e("form-composition", ids.formVisit),
+							...e("composition-section", ids.sectionVisit),
+							...e("composition-item", ids.itemVisitSummary),
+						],
+						blueprintAreas: ["forms", "case-operations", "media-references"],
+					},
+				],
+			},
+		]);
+		expect(contract).toEqual(before);
+		expect(
+			deriveBuildPlan({
+				contract: JSON.parse(JSON.stringify(contract)),
+				revision: { id: ids.revisionId, digest: "b".repeat(64) },
+				planId: ids.planId,
+			}),
+		).toEqual(plan);
 	});
 
 	it("derives thirteen exact workflow slices with unique construction ownership", () => {
@@ -319,37 +408,34 @@ describe("deterministic build planning", () => {
 	});
 
 	it("puts the materialization root first and gives it the only app-area owner", () => {
-		const contract = cloneContract(makeContract());
+		const contract = makeWorkflowChainContract(2);
 		contract.records = [];
-		contract.lists = [];
-		contract.access = [];
 		contract.workflows.forEach((workflow, index) => {
-			workflow.contextRecordId = undefined;
 			workflow.prerequisiteWorkflowIds = [];
 			workflow.prerequisites = [];
 			workflow.inputs = [
 				{
-					handle: `answer_${index}`,
-					name: `Answer ${index}`,
-					purpose: "Collect one standalone answer",
+					handle: `workflow_${index + 1}_value`,
+					name: "Answer",
+					purpose: "Collect a standalone response",
 					dataShape: "text",
 				},
 			];
-			workflow.decisions = [];
 			workflow.recordEffects = [];
 			workflow.readback = [];
 		});
-		contract.navigation.forEach((navigation) => {
-			navigation.listIds = [];
-		});
-		contract.charter.initialWorkflowId = ids.taskVisit;
+		for (const module of contract.moduleCompositions)
+			delete module.hostRecordId;
+		for (const form of contract.formCompositions) form.mode = "standalone";
+		contract.charter.initialWorkflowId = contract.workflows[1].id;
+		contract.moduleCompositions.reverse();
 
 		const plan = deriveBuildPlan({
 			contract,
 			revision: { id: ids.revisionId, digest: "9".repeat(64) },
 			planId: ids.planId,
 		});
-		expect(plan.slices[0]?.workflowId).toBe(ids.taskVisit);
+		expect(plan.slices[0]?.workflowId).toBe(contract.workflows[1].id);
 		expect(plan.slices[0]?.role).toBe("materialization-root");
 		const appOwners = plan.slices.flatMap((slice) =>
 			slice.constructionGroups
@@ -417,27 +503,22 @@ describe("deterministic build planning", () => {
 	});
 
 	it("plans a standalone form workflow without inventing a record effect", () => {
-		const contract = cloneContract(makeContract());
+		const contract = makeWorkflowChainContract(1);
 		const workflow = contract.workflows[0];
-		if (workflow === undefined) throw new Error("fixture workflow missing");
-		workflow.inputs = [
-			{
-				handle: "survey_answer",
-				name: "Survey answer",
-				purpose: "Collect a standalone response",
-				dataShape: "text",
-			},
-		];
-		workflow.decisions = [];
 		workflow.recordEffects = [];
 		workflow.readback = [];
-		expect(() =>
-			deriveBuildPlan({
-				contract,
-				revision: { id: ids.revisionId, digest: "1".repeat(64) },
-				planId: ids.planId,
-			}),
-		).not.toThrow();
+		contract.formCompositions[0].mode = "standalone";
+		delete contract.moduleCompositions[0].hostRecordId;
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+		});
+		expect(
+			plan.slices[0].constructionGroups.find(
+				(group) => group.kind === "workflow",
+			)?.blueprintAreas,
+		).toEqual(["app", "forms", "media-references"]);
+		expect(workflow.recordEffects).toEqual([]);
 	});
 
 	it("authorizes case operations for a standalone conditional primary create", () => {
@@ -577,19 +658,78 @@ describe("deterministic build planning", () => {
 		);
 	});
 
-	it("rejects prerequisite cycles and unknown prerequisites", () => {
-		const cyclic = makeBuildPlan();
-		const first = cyclic.slices[0];
-		const second = cyclic.slices[1];
-		if (!first || !second) throw new Error("fixture needs two slices");
-		first.prerequisiteSliceIds = [second.id];
-		expect(messages(buildPlanSchema.safeParse(cyclic))).toContain("acyclic");
+	it.each([
+		{ edges: [[], [0], [1], [1], [2, 3]], cyclic: [] },
+		{ edges: [[0], [], [], [], []], cyclic: [0] },
+		{ edges: [[1], [0], [1], [], [2]], cyclic: [0, 1, 2, 4] },
+		{ edges: [[], [2], [1], [4], [3]], cyclic: [1, 2, 3, 4] },
+		{ edges: [[1, 3], [2], [], [4], [3]], cyclic: [0, 3, 4] },
+	])(
+		"reports exactly the slices that reach a cycle: $edges",
+		({ edges, cyclic }) => {
+			const plan = deriveBuildPlan({
+				contract: makeWorkflowChainContract(5),
+				revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			});
+			plan.slices.forEach((slice, index) => {
+				slice.prerequisiteSliceIds = edges[index].map(
+					(target) => plan.slices[target].id,
+				);
+			});
+			const result = buildPlanSchema.safeParse(plan);
+			const cyclePaths = result.success
+				? []
+				: result.error.issues
+						.filter(
+							(issue) =>
+								issue.message === "Slice prerequisites must be acyclic.",
+						)
+						.map((issue) => issue.path);
+			expect(cyclePaths).toEqual(
+				cyclic.map((index) => ["slices", index, "prerequisiteSliceIds"]),
+			);
+			expect(result.success).toBe(cyclic.length === 0);
+		},
+	);
 
-		const unknown = makeBuildPlan();
-		unknown.slices[1]?.prerequisiteSliceIds.push(did(9999));
-		expect(messages(buildPlanSchema.safeParse(unknown))).toContain(
-			"does not exist",
+	it("admits a dense 24-workflow dependency DAG with every declared edge preserved", () => {
+		const contract = makeWorkflowChainContract(24);
+		contract.workflows.forEach((workflow, index) => {
+			workflow.prerequisiteWorkflowIds = contract.workflows
+				.slice(0, index)
+				.map((prerequisite) => prerequisite.id);
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		});
+		expect(plan.slices.map((slice) => slice.prerequisiteSliceIds)).toEqual(
+			plan.slices.map((_, index) =>
+				plan.slices.slice(0, index).map((slice) => slice.id),
+			),
 		);
+		expect(
+			plan.slices.reduce(
+				(count, slice) => count + slice.prerequisiteSliceIds.length,
+				0,
+			),
+		).toBe(276);
+	});
+
+	it("refuses an unknown prerequisite at its exact coordinate", () => {
+		const plan = makeBuildPlan();
+		plan.slices[1].prerequisiteSliceIds.push(did(9999));
+		const result = buildPlanSchema.safeParse(plan);
+		expect(result.success).toBe(false);
+		if (result.success)
+			throw new Error("Expected missing prerequisite refusal");
+		expect(result.error.issues).toEqual([
+			{
+				code: "custom",
+				path: ["slices", 1, "prerequisiteSliceIds", 1],
+				message: "The prerequisite slice does not exist.",
+			},
+		]);
 	});
 
 	it("rejects missing or foreign contract elements", () => {
@@ -676,6 +816,17 @@ describe("deterministic build planning", () => {
 			purpose: "Confirm the selected patient's current risk",
 			propertyId: ids.factRisk,
 		});
+		const visitForm = contract.formCompositions.find(
+			(form) => form.workflowId === visit.id,
+		);
+		if (visitForm?.layout.kind !== "sectioned")
+			throw new Error("Expected visit section");
+		visitForm.layout.sections[0].items.push({
+			kind: "input",
+			id: did(891),
+			inputHandle: "risk_confirmation",
+			labelMarkdown: "Risk confirmation",
+		});
 		const plan = deriveBuildPlan({
 			contract,
 			revision: { id: ids.revisionId, digest: "a".repeat(64) },
@@ -696,7 +847,7 @@ describe("deterministic build planning", () => {
 		expect(workflowGroup?.blueprintAreas).toContain("lookup-references");
 	});
 
-	it("refuses blocking external actions until a receipt producer exists", () => {
+	it("refuses unresolved external prerequisites at derivation and stored-plan admission", () => {
 		const contract = cloneContract(makeContract());
 		contract.externalRequirements.push({
 			id: ids.externalSetup,
@@ -713,15 +864,46 @@ describe("deterministic build planning", () => {
 			blocking: true,
 			relatedElementIds: [ids.externalSetup],
 		});
+		const admittedContract = appDesignContractSchema.parse(contract);
+		expect(() =>
+			deriveBuildPlan({
+				contract: admittedContract,
+				revision: { id: ids.revisionId, digest: "d".repeat(64) },
+				planId: ids.planId,
+			}),
+		).toThrow("Accepted design is not constructible: openQuestions.0:");
+
+		// Resolving the prerequisite and its question allows current derivation.
+		fixtureValue(
+			contract.externalRequirements[0],
+			"external prerequisite",
+		).blocksConstruction = false;
+		fixtureValue(contract.openQuestions[0], "prerequisite question").blocking =
+			false;
 		const plan = deriveBuildPlan({
 			contract,
 			revision: { id: ids.revisionId, digest: "d".repeat(64) },
 			planId: ids.planId,
 		});
-		expect(newPlanAdmissionMessages(plan)).toHaveLength(1);
-		expect(newPlanAdmissionMessages(plan)[0]).toContain(
-			"no registered completion producer",
-		);
+		expect(newPlanAdmissionMessages(plan)).toEqual([]);
+		const action = fixtureValue(plan.externalActions[0], "external action");
+		expect(action).toMatchObject({
+			requirementId: ids.externalSetup,
+			timing: "after-slice",
+		});
+
+		// The stored-plan schema retains this legacy timing. Its independent
+		// environment gate must still refuse it even though current derivation
+		// stops at the unanswered question before producing such a plan.
+		const storedPlan = buildPlanSchema.parse({
+			...plan,
+			externalActions: [{ ...action, timing: "blocked" }],
+		});
+		expect(newPlanAdmissionMessages(storedPlan)).toEqual([
+			expect.stringContaining(
+				`External action ${action.id} blocks construction, but no registered completion producer`,
+			),
+		]);
 	});
 
 	it("keeps non-blocking workflow readiness out of construction gating", () => {

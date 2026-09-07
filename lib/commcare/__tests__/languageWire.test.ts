@@ -3,7 +3,6 @@ import {
 	classicWideningTarget,
 	languageDirection,
 } from "@/lib/domain/languageRegistry";
-import { resolvedLanguageDisplayLabel } from "@/lib/domain/languageRegistry/names";
 import { classicLanguageRow } from "../classicLanguages";
 import { planLanguageWire } from "../languageWire";
 
@@ -33,8 +32,8 @@ describe("planLanguageWire", () => {
 		const chineseRow = classicLanguageRow(chineseMacro ?? "");
 		expect(chineseRow).toBeDefined();
 		const plan = planLanguageWire(["cmn-Hans"], "cmn-Hans");
-		expect(plan.wireCodeByTag.get("cmn-Hans")).toBe(chineseRow?.code);
-		expect(plan.languages).toEqual([chineseRow?.code]);
+		expect(plan.wireCodeByTag.get("cmn-Hans")).toBe("zho");
+		expect(plan.languages).toEqual(["zho"]);
 	});
 
 	it("emits the Set 3 code itself for a language with no Classic reach", () => {
@@ -65,22 +64,16 @@ describe("planLanguageWire", () => {
 
 	it("labels device-picker rows from the baked display labels", () => {
 		const plan = planLanguageWire(["eng", "cmn-Hans", "cmn-Hant"], "eng");
-		expect(plan.nameByWireCode.get("en")).toBe(
-			resolvedLanguageDisplayLabel({ language: "eng" }),
-		);
+		expect(plan.nameByWireCode.get("en")).toBe("English");
 		const simplified = plan.nameByWireCode.get("cmn-hans");
 		const traditional = plan.nameByWireCode.get("cmn-hant");
-		expect(simplified).toBe(
-			resolvedLanguageDisplayLabel({ language: "cmn", script: "Hans" }),
-		);
-		expect(traditional).toBe(
-			resolvedLanguageDisplayLabel({ language: "cmn", script: "Hant" }),
-		);
+		expect(simplified).toBe("简体中文");
+		expect(traditional).toBe("繁體中文");
 		// The two Mandarin branches stay distinguishable in the device menu.
 		expect(simplified).not.toBe(traditional);
 	});
 
-	it("is total over the input order and injective across generated tag lists", () => {
+	it("preserves order and distinct identities across a finite language corpus", () => {
 		const tagPools: readonly (readonly string[])[] = [
 			["eng"],
 			["eng", "spa", "swh", "afr", "hne"],
@@ -101,8 +94,7 @@ describe("planLanguageWire", () => {
 			}
 			const codes = [...plan.wireCodeByTag.values()];
 			expect(new Set(codes).size).toBe(codes.length);
-			// The direction derivation stays total over the same identities so
-			// no picker row can exist without a text direction.
+			// Check direction metadata for the same representative identities.
 			for (const tag of languageOrder) {
 				expect(["ltr", "rtl"]).toContain(languageDirection(tag));
 			}

@@ -10,15 +10,30 @@
  * as it would on a fresh load.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { splitIntoSections } from "@/lib/doc/formSectionMutations";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import type { Field, Uuid } from "@/lib/domain";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 import { EngineController } from "../engineController";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "./fixtures/controllerDoc";
+
+const controllers = new Set<EngineController>();
+function ownedController() {
+	const ctrl = new EngineController();
+	controllers.add(ctrl);
+	return ctrl;
+}
+afterEach(() => {
+	for (const ctrl of controllers) ctrl.dispose();
+	controllers.clear();
+});
 
 const MODULE_UUID = testUuid("module-1-uuid");
 const FORM_UUID = testUuid("form-1-uuid");
@@ -68,25 +83,21 @@ function makeDoc(): PersistableDoc {
 
 function liveController() {
 	const store = createBlueprintDocStore();
-	store.getState().load(makeDoc());
+	store.getState().load(admittedControllerDoc(makeDoc()));
 	store.getState().startTracking();
-	const ctrl = new EngineController();
+	const ctrl = ownedController();
 	ctrl.setDocStore(store);
 	ctrl.activateForm(FORM_UUID);
 	return { store, ctrl };
 }
 
 function splitLive(store: ReturnType<typeof createBlueprintDocStore>) {
-	const plan = splitIntoSections(
-		store.getState() as unknown as BlueprintDoc,
-		FORM_UUID,
-		{
-			atFieldUuid: Q2_UUID,
-			sectionUuids: [SECTION_A, SECTION_B],
-		},
-	);
+	const plan = splitIntoSections(store.getState(), FORM_UUID, {
+		atFieldUuid: Q2_UUID,
+		sectionUuids: [SECTION_A, SECTION_B],
+	});
 	if (!plan.ok) throw new Error(plan.reason);
-	store.getState().applyMany([...plan.mutations]);
+	applyControllerEdit(store, [...plan.mutations]);
 }
 
 describe("EngineController with a form split into pages while it runs", () => {
@@ -119,7 +130,7 @@ describe("EngineController with a form split into pages while it runs", () => {
 		});
 		expect(ctrl.validateSection(SECTION_B)).toBe(true);
 
-		const fresh = new EngineController();
+		const fresh = ownedController();
 		fresh.setDocStore(store);
 		fresh.activateForm(FORM_UUID);
 		expect(fresh.validateSection(SECTION_A)).toBe(false);
@@ -131,7 +142,7 @@ describe("EngineController with a form split into pages while it runs", () => {
 		 * only on the next rebuild: Submit and Next both let the blank
 		 * through. The single-page form pins the original symptom. */
 		const flat = liveController();
-		flat.store.getState().applyMany([
+		applyControllerEdit(flat.store, [
 			{
 				kind: "updateField",
 				uuid: Q2_UUID,
@@ -144,7 +155,7 @@ describe("EngineController with a form split into pages while it runs", () => {
 
 		const { store, ctrl } = liveController();
 		splitLive(store);
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: Q2_UUID,
@@ -157,7 +168,7 @@ describe("EngineController with a form split into pages while it runs", () => {
 		});
 		expect(ctrl.store.getState()[Q2_UUID].required).toBe(true);
 		expect(ctrl.validateSection(SECTION_B)).toBe(false);
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: Q2_UUID,

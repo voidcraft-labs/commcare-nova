@@ -31,48 +31,12 @@ import {
 } from "@/lib/domain";
 import { unhandledKindMessage } from "./errors";
 
-// CommCare's geopoint wire format from XForm GPS submissions: four
-// space-separated decimal numbers — `latitude longitude altitude
-// accuracy`.
-//
-// Pattern verified against CCHQ's own parser test suite at
-// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_valid_geopoint_properties`,
-// which exercises the strict (4-element) and flexible (2-element)
-// acceptance paths. Concrete accepted examples from that test:
-//   '42.3739063 -71.1109113 0.0 886.0'
-//   '-7.130 -41.563 7.53E-4 8.0'
-//   '-7.130 -41.563 -2.2709742188453674E-4 8.0'
-// Splitting + element-count semantics come from the parser at
-// `corehq/ex-submodules/couchforms/geopoint.py::_extract_elements` —
-// `split(' ')` on a literal single ASCII space, then a strict-mode
-// count of exactly 4.
-//
-// We accept:
-//   - 4 space-separated decimals (single ASCII space, not \s — tabs and
-//     newlines are not accepted because CCHQ splits on `' '`).
-//   - Optional sign (`-?`); CCHQ's accepted set does not include leading
-//     `+`, so we don't accept it either.
-//   - Optional fractional part.
-//   - Optional scientific notation `[eE][+-]?<digits>`.
-//
-// We do NOT accept (and CCHQ's accepted set does not include):
-//   - 2-element flexible-mode strings — those come from search inputs
-//     and the case-list search XPath functions, not from stored case
-//     data, so they don't belong on the case-database write path.
-//   - Out-of-range lat/lon — CCHQ's `_validate_range` catches those at
-//     parse time (`geopoint.py::_validate_range`); here the schema is
-//     structural, so range enforcement belongs in a downstream layer
-//     (the type checker or a runtime check).
-//   - Bare `NaN` literals — CCHQ rejects these on lat/lon (see
-//     `test_geopoint.py::test_invalid_geopoint_properties`).
-//     Altitude/accuracy on the wire are decimal numbers; NaN appears
-//     only as the in-memory default after a flexible 2-element parse
-//     extends to 4.
-//
-// Build the pattern from a `DECIMAL` fragment so the four-element
-// repetition is obvious at a glance and so future tweaks (e.g.
-// permitting Geocoder's 2-element form on a different code path) stay
-// structural rather than copy-pasted.
+// Nova's stored geopoint grammar: four decimal tokens separated by one ASCII
+// space, with optional negative signs and scientific notation. The finite
+// examples in couchforms/tests/test_geopoint.py support the common GPS form;
+// HQ's Decimal parser also accepts numeric spellings outside this grammar.
+// This pattern does not enforce latitude/longitude ranges. It is a storage
+// shape constraint, not a replacement for HQ's complete geopoint parser.
 const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
 const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 

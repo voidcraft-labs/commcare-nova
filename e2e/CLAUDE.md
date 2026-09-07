@@ -18,6 +18,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   validates the canonical generated `server.js` and XPath worker, places public +
   static assets, overlays sharp's dlopen-only `@img`
   runtime exactly like Docker, and launches that server with signal forwarding.
+  Launcher tests use real temporary assets and OS child processes, including
+  signal forwarding and parent-listener cleanup.
   The gate therefore exercises the deployed artifact, and `next dev`'s
   server→browser log forwarding can't trip the error guard. `next start` is not a
   supported runner for `output: "standalone"`. Costs ~2 min of build; don't
@@ -27,8 +29,16 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   so the production artifact remains reachable at `localhost:3000` without making an
   arbitrary external Host trusted. Cloud Run must never receive this variable.
 - **The `test` fixture is a strict error guard.** Every page test fails on a browser
-  `console.error` / `pageerror` / same-origin 5xx (`e2e/lib/fixtures.ts`, no benign-error
+  `console.error` / `pageerror` / same-origin 5xx or client error report
+  (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
+  Await `attachErrorGuard` before navigation. The fixture closes its page before
+  the final async assertion; explicit contexts assert after page close and before
+  context close. Live `/api/log/error` requests provide details, and a forwarding
+  beacon/fetch observer records attempts synchronously in per-page localStorage
+  because Chromium can deliver teardown reports without emitting network events.
+  `error-guard.spec.ts` proves native delivery and detection with a real local HTTP
+  receiver across reload/close, plus origin scope and page isolation.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
   there); `lib/auth/sessionCookie.ts` signs the cookie exactly like
@@ -49,7 +59,14 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **React profiling is a separate development harness.** `npm run profile:react`
   uses `e2e/react-profile/`, a dedicated `nova_react_profile` database, the same
   no-LLM seed, one headed Chromium page, and an authenticated loopback-only
-  React DevTools daemon. It deliberately does NOT reuse this suite's production
+  React DevTools daemon. With no arguments it runs only `builder-smoke.spec.ts`;
+  explicit Playwright arguments select other scenarios. Exports have unique test
+  identities, every export is analyzed, and measurements remain diagnostic rather
+  than CI latency budgets. CPU sessions and active React recordings are closed by
+  test teardown, including when an interaction assertion fails. Native Playwright
+  discovery allocates an independent large app per scenario, repeat and retry;
+  a field rename in one profile cannot change another profile's starting state. It deliberately
+  does NOT reuse this suite's production
   web server: React's component profiler hook must install before development
   React initializes. Never add the profiler to the smoke config, run the
   upstream package initializer, or leave its daemon alive after the browser.
@@ -67,14 +84,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **The case-changes journey gets one complete universe per attempt.** It
   reorders and extends the blueprint, then submits real changes into saved case
   rows, so a retry cannot reuse the prior attempt's app. `seed.ts` materializes
-  one app + lookup + case row per possible attempt
-  (`CASE_CHANGES_FIXTURE_COUNT`), and the spec selects
-  `seed.caseChanges[testInfo.retry]`. Keep that attempt-indexed contract when
-  extending the journey.
+  one app + lookup + case row for every discovered `@case-changes` test, repeat,
+  and retry. `requireScenarioSeed(seed.caseChangesScenarios, testInfo)` selects
+  that exact fixture, so the identity-projection and submission journeys never
+  share mutable state. Discovery runs before seeding through the smoke harness.
 - **The organization journey also gets one app per attempt.** It authors levels
   through blueprint mutations and places through the app-scoped organization
   store; assigns a persona; authors fixed and reverse case owners; exercises
-  archive, conflict recovery, viewer access, focus, and responsive layout; and
+  archive, conflict recovery, viewer access, focus, and responsive layout;
+  holds a real committed action response while newer text is typed; and
   keeps the whole run free of browser errors. `ORGANIZATION_FIXTURE_COUNT`,
   `seed.organizationAppIds[testInfo.retry]`, and the matching
   `seed.organizationCaseChangeRoutes[testInfo.retry]` keep a retry away from a
@@ -123,11 +141,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   owns a fixed-entity-id patient Search / Results / Details blueprint plus eight stable
   displayed rows. `seed.ts` installs it through `appendSyntheticBatch`, materializes
   its case schema, inserts the rows through the tenant-bound case store, and writes the
-  minted app/case ids + canonical routes under `.caseWorkspace` in `seed.json`.
+  minted app/case ids + canonical routes under `.caseWorkspace` in `seed.json`
+  for manual exploration. Automated `@case-workspace` tests resolve their own
+  `.caseWorkspaceScenarios` entry by Playwright identity, repeat and retry. Each
+  gets a distinct Project, app, case rows and lookup tables; restoring a gesture
+  inside one test is an assertion, not an isolation mechanism.
   `npm run case:manual` is the opt-in, forged-session, open-ended browser harness; its
   Playwright project is registered only under `CASE_WORKSPACE_MANUAL=1`, so CI cannot
   enter the forever-wait.
-- **The `multiplayer` project drives FOUR seeded users** in two blocks:
+- **The `multiplayer` project drives FOUR seeded users per scenario** in two blocks:
   the two-user matrix (the mechanism) and a four-user co-editing storm (the
   crowd-scale proof — simultaneous four-writer disjoint storm, same-slot
   contention convergence, crowd undo isolation, offline catch-up on a
@@ -150,8 +172,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   - The project has NO project-level `storageState` (the spec opens its own two
     contexts) and applies the strict error guard per-page via `attachErrorGuard`
     (`e2e/lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
-    revocation test does NOT guard Grace's page (a revoked stream + 404 presence
-    POSTs are the expected consequence of losing access).
+    revocation test guards both pages through teardown. Expected revocation and
+    404 presence responses do not emit application errors. Teardown settles every
+    page's guard and closes every context even when one reports a failure.
   - **Human-viewable modes** ride the same stack + seed: `npm run mp:watch` runs
     this suite headed with windows CDP-tiled (`MP_TILE=1` → `e2e/lib/windowTiling.ts`,
     best-effort so it can't fail a run) — halves for the two-user block, screen
@@ -168,9 +191,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
     carries a POPULATED, fixed-uuid blueprint installed via
     `appendSyntheticBatch` over `createApp`'s canonical sequence-1 starter, so
     both users deep-link straight to any entity.
-  - The suite shares ONE seeded app and mutates it cumulatively, so each test
-    asserts the CHANGE it makes (a unique marker), never a seed starting value a
-    prior test may have already edited.
+  - Every discovered scenario, repeat and retry owns a distinct app and Project.
+    Its four peers share only that scenario's state. Native assertions may rely
+    on the authored fixture values because no earlier test can edit them.
   - Co-edit targets: the module/form-name `EditableTitle` (`<input>`,
     `data-testid="editable-title"` — its unfocused value tracks the entity name,
     so a peer's input reflects a rename the instant the reconciler folds the
@@ -193,9 +216,23 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   reloads, launches the exact real case into the target form, and removes the
   point with route recovery. No endpoint, case read, or Preview launch is stubbed.
 
-CI runs three smoke shards against separate production servers and databases. Each
-shard retains one worker because tests within it share seeded data. Read
-`docs/testing.md` for boundary selection and asynchronous ownership.
+CI runs six smoke partitions against separate production servers and databases.
+Each retains one worker because tests within it share seeded data. The harness
+distributes native discovery identities by measured cost with `SMOKE_PARTITION=1/6`,
+then verifies the installed Playwright `--test-list` selects exactly that subset
+before seeding. This spreads the long full-app journeys instead of concentrating
+them in one contiguous shard. `e2e/smoke-timings.json` affects placement only;
+new or renamed tests receive a conservative default and are included automatically.
+Each report artifact contains `timings.json` with passing first-attempt durations
+for refreshing that baseline. Keep native discovery authoritative; do not add
+serial suites that depend on a prior test. CI fails on flaky results even when a
+diagnostic retry passes. Read `docs/testing.md` for boundary selection and
+asynchronous ownership.
+
+Clear TipTap content with native Select All and Backspace, then observe the empty
+draft before saving. `fill("")` selects only the DOM range; ProseMirror's delayed
+focus selection can replace it before Playwright sends Delete. Native input
+elements can still use `fill`.
 
 CI installs only Chromium headless shell (`playwright install --with-deps
 --only-shell chromium`), the browser its headless public/authed projects use.
@@ -206,3 +243,24 @@ For whole-pixel layout contracts, round browser geometry before comparing it
 with an integer pixel boundary: a 44px target can be reported as 43.999969px
 after transforms. Keep exact fractional comparisons only when the fraction
 itself is the behavior being tested.
+
+`reconciler-lifetime.spec.ts` changes the seeded multiplayer editor's role while
+away from the Builder, returns with native Back navigation, and verifies the
+visible title is read-only. It restores the exact prior membership role in
+`finally`. This proves permission refresh on return; it does not claim the
+current no-store Builder document was retained in BFCache.
+
+Automated multiplayer scenarios use native Playwright discovery identities to
+allocate separate Projects, apps, users and sessions for every repeat and retry.
+Manual multiplayer retains its single shared fixture. Contexts are owned as soon
+as they are created, partial parallel openings are joined, and membership
+restoration errors fail teardown.
+
+For animation-interruption checks, control the browser animation clock and observe
+the rendered result. Require settlement before the uninterrupted animation would
+finish; a fixed number of real animation frames is not a React/Motion commit barrier.
+
+Replace CodeMirror drafts with native Select All, Backspace, and keyboard input,
+observing the empty editor between deletion and typing. For syntax-refusal cases,
+use an incomplete expression such as `1 +`: inserting `(` can legitimately wrap
+the selected expression or insert its closing partner through auto-bracketing.

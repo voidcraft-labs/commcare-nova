@@ -486,10 +486,10 @@ export function createBlueprintDocStore() {
 	 * How many replay brackets are open — writes that arrived already persisted
 	 * from the server (`beginRemoteApply`).
 	 *
-	 * Separate from `suppressionDepth` because "is this one undo step" and "did
-	 * the author just do this" are different questions. An SA run is one step
-	 * for its whole duration, but the author keeps editing the canvas while it
-	 * streams, and those edits are theirs to save.
+	 * Separate from `suppressionDepth` because "is history being recorded" and "did
+	 * the author just do this" are different questions. Agent brackets suppress
+	 * history, but the author keeps editing the canvas while a run streams,
+	 * and those edits are theirs to save.
 	 */
 	let replayDepth = 0;
 	/**
@@ -568,14 +568,16 @@ export function createBlueprintDocStore() {
 
 	/** Close a suppression bracket opened by `openBracket`. */
 	function closeBracket(remote: boolean): void {
-		if (remote) store.setState({ remoteFrameApplyInProgress: false });
 		suppressionDepth = Math.max(0, suppressionDepth - 1);
 		openBrackets = Math.max(0, openBrackets - 1);
-		if (remote) replayDepth = Math.max(0, replayDepth - 1);
+		if (remote) {
+			replayDepth = Math.max(0, replayDepth - 1);
+			store.setState({ remoteFrameApplyInProgress: replayDepth > 0 });
+		}
 		// A `startTracking()` that arrived while a bracket was open (a fresh build's
 		// first `endRun` closes the agent bracket) releases the birth pause now that
 		// no bracket remains — so undo works after a build with no page reload.
-		if (pendingStartTracking) {
+		if (pendingStartTracking && openBrackets === 0) {
 			pendingStartTracking = false;
 			maybeReleaseBirthPause();
 		}

@@ -16,12 +16,15 @@
 
 import "server-only";
 
+import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
+
 import {
 	buildLookupFixtures,
 	type CompiledLookupFixtureSet,
 	lookupFixtureBudgetExcess,
 	type PreparedLookupWire,
 } from "@/lib/commcare/lookup/fixtures";
+import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -34,6 +37,7 @@ import {
 	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
+import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
 import {
 	type ValidationError,
 	validationError,
@@ -213,8 +217,7 @@ async function collectViolationsWithRegistry(
  * because it used to be half the stated reason. `owner-location-at-level`
  * reads `instance('locations')`, and that is CommCare's own restore
  * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
- * copy, and the flat serializer under `lib/commcare/locations/__tests__`
- * is an oracle rather than a producer). `fixed-location` reads no
+ * copy, and native compatibility scripts execute HQ's actual serializer). `fixed-location` reads no
  * instance at all — `predicate/instances.ts` groups it with `literal`.
  * What decides this is WHOSE IDENTITIES the printed expression carries.
  *
@@ -326,6 +329,7 @@ function organizationExportFindings(
 /** The row-bearing generation each mode's lookup verdicts are drawn from. */
 interface LookupRowVerdictInput {
 	readonly fixtureData: LookupFixtureDataSnapshot;
+	readonly textFindings: readonly ValidationError[];
 	/** Built for `ccz` only: the bytes the archive would embed. */
 	readonly fixtures?: CompiledLookupFixtureSet;
 	/**
@@ -357,6 +361,7 @@ function lookupExportFindings(
 ): ValidationError[] {
 	if (mode === undefined || lookupRows === undefined) return [];
 	return [
+		...lookupRows.textFindings,
 		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
 		...(lookupRows.fixtures === undefined
 			? []
@@ -606,15 +611,22 @@ async function prepareWithRegistry(
 		lookupTargets.tableIds.length === 0
 			? undefined
 			: lookupWireNaming(fixtureData.definitions);
+	const textFindings = [
+		...lookupXmlTextFindings(fixtureData),
+		...(input.mode === "ccz" ? [] : lookupHqCellTextFindings(fixtureData)),
+	];
 	const lookupWire =
-		naming === undefined || input.mode !== "ccz"
+		naming === undefined || input.mode !== "ccz" || textFindings.length > 0
 			? undefined
 			: {
 					naming,
 					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
 				};
 	const lookupWorkbook =
-		naming === undefined || input.mode === "ccz" || hasUnpushableTag(naming)
+		naming === undefined ||
+		input.mode === "ccz" ||
+		hasUnpushableTag(naming) ||
+		textFindings.length > 0
 			? undefined
 			: buildLookupWorkbook(naming, fixtureData.rowsByTable);
 
@@ -629,6 +641,7 @@ async function prepareWithRegistry(
 		input.mode,
 		{
 			fixtureData,
+			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
 			...(naming !== undefined && input.mode !== "ccz" && { hqNaming: naming }),
 			...(lookupWorkbook !== undefined && { workbook: lookupWorkbook }),
@@ -636,6 +649,16 @@ async function prepareWithRegistry(
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
+	}
+	if (input.mode !== "ccz") {
+		const hqSelectionViolations = hqNestedSelectionFindings(
+			input.doc,
+			input.mode,
+			naming,
+		);
+		if (hqSelectionViolations.length > 0) {
+			return { ok: false, violations: hqSelectionViolations };
+		}
 	}
 
 	/* Bytes are resolved only after the complete boundary succeeds. All three

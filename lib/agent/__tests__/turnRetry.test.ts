@@ -5,9 +5,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
 import type { ClassifiedError, ErrorType } from "../errorClassifier";
-import { summarizeBlueprint } from "../summarizeBlueprint";
 import {
 	buildTurnRetryContinuation,
 	MAX_TURN_RETRIES,
@@ -16,6 +16,7 @@ import {
 	turnRetryDelayMs,
 	turnRetryMessage,
 } from "../turnRetry";
+import { expectAdmittedDoc, surveyFixture } from "./admittedFixture";
 
 describe("turnRetryMessage", () => {
 	it("names a flagged prompt for what it is rather than a provider outage", () => {
@@ -94,30 +95,52 @@ describe("turnRetryDelayMs", () => {
 });
 
 describe("buildTurnRetryContinuation", () => {
-	it("returns null for an empty doc — a bare re-run IS the continuation", () => {
+	it("returns null for the pre-genesis empty context", () => {
 		expect(buildTurnRetryContinuation(buildDoc())).toBeNull();
 	});
 
 	it("carries the committed-state summary for a doc with modules", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			modules: [{ name: "Patients", forms: [] }],
-		});
+		const doc = expectAdmittedDoc(
+			buildDoc({
+				appName: "Clinic",
+				modules: [
+					{
+						name: "Patients",
+						forms: [
+							{
+								name: "Notes",
+								type: "survey",
+								fields: [f({ id: "note", kind: "text" })],
+							},
+						],
+					},
+				],
+			}),
+		);
 		const msg = buildTurnRetryContinuation(doc);
 		expect(msg).not.toBeNull();
 		expect(msg?.role).toBe("user");
-		// The model must see the SAME state rendering the edit prompt uses —
-		// one summarizer, no drift.
-		expect(msg?.content).toContain(summarizeBlueprint(doc));
+		// The continuation must carry actual authored identities and state,
+		// independently of how the summary helper renders its other sections.
+		expect(msg?.content).toContain('### App: "Clinic"');
+		expect(msg?.content).toContain('Module "Patients"');
+		expect(msg?.content).toContain("already committed");
 	});
+});
 
-	it("treats a committed case-type catalog alone as continuable state", () => {
-		// A build that died right after `generateSchema` committed (no modules
-		// yet) must still tell the retry the catalog exists — re-declaring a
-		// type is the gate rejection the note exists to avoid.
-		const doc = buildDoc({
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(buildTurnRetryContinuation(doc)).not.toBeNull();
-	});
+it("carries worker configuration through provider retry and instance redrive", () => {
+	const uuid = testUuid("retry-region");
+	const doc = expectAdmittedDoc(
+		withUserSequences({
+			...surveyFixture(),
+			userProperties: { [uuid]: { uuid, slug: "region", label: "Region" } },
+		}),
+	);
+	for (const cause of ["provider-retry", "redrive"] as const) {
+		const msg = buildTurnRetryContinuation(doc, cause);
+		expect(msg?.content).toContain(`region: "Region" [uuid ${uuid}]`);
+		expect(msg?.content).toContain("already committed");
+		if (cause === "redrive")
+			expect(msg?.content).not.toContain("provider error");
+	}
 });

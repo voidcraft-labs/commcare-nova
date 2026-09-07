@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Field, Uuid } from "@/lib/domain";
+import { type Field, fieldSchema, type Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
@@ -30,25 +30,26 @@ function fixture(relevant: (path: string) => boolean = () => true): {
 			kind: "repeat",
 			label: proseText("Items"),
 			repeat_mode: "user_controlled",
-		} as Field,
+		},
 		[valueUuid]: {
 			uuid: valueUuid,
 			id: "value",
 			kind: "text",
 			label: proseText("Value"),
-		} as Field,
+		},
 		[rankUuid]: {
 			uuid: rankUuid,
 			id: "rank",
 			kind: "int",
 			label: proseText("Rank"),
-		} as Field,
+		},
 	};
 	const root = testUuid("async-form");
 	const order: Record<string, Uuid[]> = {
 		[root]: [repeatUuid],
 		[repeatUuid]: [valueUuid, rankUuid],
 	};
+	for (const field of Object.values(fields)) fieldSchema.parse(field);
 	const data = new DataInstance();
 	data.initFromFields(buildFieldTree(root, fields, order));
 	data.addRepeatInstance("/data/items");
@@ -126,10 +127,15 @@ describe("async XPath evaluator", () => {
 	});
 
 	it("executes random(), uuid(), and the yielding call exactly once", async () => {
-		const original = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
 		const random = vi
 			.spyOn(globalThis.crypto, "getRandomValues")
-			.mockImplementation((array) => original(array));
+			.mockImplementation((array) => {
+				if (array !== null)
+					new Uint8Array(array.buffer, array.byteOffset, array.byteLength).fill(
+						1,
+					);
+				return array;
+			});
 		const delay = vi.fn(async () => undefined);
 		await evaluateAsync(
 			"sleep(0, concat(string(random()), uuid(4)))",

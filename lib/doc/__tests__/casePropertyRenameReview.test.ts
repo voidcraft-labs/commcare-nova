@@ -3,9 +3,10 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { reviewCasePropertyRenames } from "@/lib/doc/casePropertyRenameReview";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture() {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Rename review",
 		caseTypes: [
 			{
@@ -50,6 +51,8 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("reviewCasePropertyRenames", () => {
@@ -64,8 +67,11 @@ describe("reviewCasePropertyRenames", () => {
 		);
 		expect(reviewed.ok).toBe(true);
 		if (reviewed.ok) {
-			expect(reviewed.impact.totalOccurrences).toBeGreaterThan(0);
-			expect(reviewed.impact.byRename).toHaveLength(2);
+			expect(reviewed.impact.totalOccurrences).toBe(3);
+			expect(reviewed.impact.byRename).toEqual([
+				{ caseType: "patient", from: "a", to: "b", occurrences: 2 },
+				{ caseType: "patient", from: "b", to: "a", occurrences: 1 },
+			]);
 		}
 	});
 

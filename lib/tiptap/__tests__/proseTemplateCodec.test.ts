@@ -18,15 +18,15 @@ describe("proseTemplateSurvivesTiptapRoundTrip", () => {
 		expect(proseTemplateSurvivesTiptapRoundTrip(admissionOrdered)).toBe(true);
 	});
 
-	it("still rejects a genuinely lossy noncanonical template", () => {
+	it("rejects adjacent text parts that the editor canonicalizes", () => {
 		// Persisted/runtime input can bypass the static type. The editor merges
 		// adjacent text nodes into one canonical part, so this input does change.
-		const adjacentText = {
+		const adjacentText: ProseTemplate = {
 			parts: [
 				{ kind: "text", text: "Client" },
 				{ kind: "text", text: " summary" },
 			],
-		} as ProseTemplate;
+		};
 
 		expect(proseTemplateSurvivesTiptapRoundTrip(adjacentText)).toBe(false);
 	});

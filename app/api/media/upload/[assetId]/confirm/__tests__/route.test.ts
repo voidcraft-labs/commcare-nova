@@ -5,9 +5,13 @@
  * library bytes. These tests pin the safety invariants: validation failure
  * never deletes a shared object, validation success publishes the exact bytes
  * that passed validation, and duplicate confirms converge on one terminal
- * ready row.
+ * ready row. Database race outcomes are controlled here; actual locking
+ * and concurrent publication are proved by the media-store Postgres suite.
  */
 
+import { createHash } from "node:crypto";
+import { NextRequest } from "next/server";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { requireSession } from "@/lib/auth-utils";
@@ -26,7 +30,6 @@ import {
 	cleanupReleasedAssetStorage,
 	cleanupUnpublishedAssetObject,
 } from "@/lib/media/assetDeletion";
-import { validateMediaBytes } from "@/lib/media/validate";
 import {
 	downloadAssetBytes,
 	getStoredObjectSize,
@@ -34,7 +37,8 @@ import {
 } from "@/lib/storage/media";
 import { POST } from "../route";
 
-const HASH = "b".repeat(64);
+let HASH: string;
+let PNG: Buffer;
 const ASSET_ID = testMediaAssetId("asset-1");
 const CANONICAL_ASSET_ID = testMediaAssetId("asset-canonical");
 const WINNER_ASSET_ID = testMediaAssetId("asset-winner");
@@ -56,7 +60,6 @@ const {
 	downloadAssetBytesMock,
 	getStoredObjectSizeMock,
 	uploadAssetBytesMock,
-	validateMediaBytesMock,
 	withMediaObjectKeyLockMock,
 } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
@@ -74,7 +77,6 @@ const {
 	downloadAssetBytesMock: vi.fn(),
 	getStoredObjectSizeMock: vi.fn(),
 	uploadAssetBytesMock: vi.fn(() => Promise.resolve()),
-	validateMediaBytesMock: vi.fn(),
 	withMediaObjectKeyLockMock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
 			body({ pinned: true }),
@@ -94,11 +96,6 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 		publishPendingAssetForActor: publishPendingAssetForActorMock,
 		purgeExpiredMediaUploadAliases: purgeExpiredMediaUploadAliasesMock,
 		resolveReadyUploadAliasForActor: resolveReadyUploadAliasForActorMock,
-		toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => ({
-			id: asset.id,
-			status: asset.status,
-			gcsObjectKey: asset.gcsObjectKey,
-		})),
 	};
 });
 vi.mock("@/lib/storage/media", () => ({
@@ -110,9 +107,6 @@ vi.mock("@/lib/storage/media", () => ({
 vi.mock("@/lib/media/assetDeletion", () => ({
 	cleanupReleasedAssetStorage: cleanupReleasedAssetStorageMock,
 	cleanupUnpublishedAssetObject: cleanupUnpublishedAssetObjectMock,
-}));
-vi.mock("@/lib/media/validate", () => ({
-	validateMediaBytes: validateMediaBytesMock,
 }));
 vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
 	withMediaObjectKeyLock: withMediaObjectKeyLockMock,
@@ -129,32 +123,44 @@ function pendingAsset(
 		mimeType: "image/png",
 		kind: "image",
 		extension: ".png",
-		sizeBytes: 10,
+		sizeBytes: PNG.length,
 		gcsObjectKey: PENDING_OBJECT_KEY,
 		originalFilename: "logo.png",
 		displayName: "logo.png",
 		status: "pending",
+		created_at: new Date(0),
 		...overrides,
-	} as MediaAssetRecord;
+	};
 }
 
 function callConfirm() {
-	return POST({} as Parameters<typeof POST>[0], {
-		params: Promise.resolve({ assetId: ASSET_ID }),
-	});
+	return POST(
+		new NextRequest(`http://localhost/api/media/upload/${ASSET_ID}/confirm`, {
+			method: "POST",
+		}),
+		{
+			params: Promise.resolve({ assetId: ASSET_ID }),
+		},
+	);
 }
 
-beforeEach(() => {
-	vi.clearAllMocks();
+beforeEach(async () => {
+	vi.resetAllMocks();
+	PNG = await sharp({
+		create: { width: 1, height: 1, channels: 4, background: "red" },
+	})
+		.png()
+		.toBuffer();
+	HASH = createHash("sha256").update(PNG).digest("hex");
 	vi.mocked(requireSession).mockResolvedValue({
 		user: { id: "user-1" },
 	} as never);
 	vi.mocked(userInProject).mockResolvedValue(true);
 	vi.mocked(loadAssetById).mockResolvedValue(pendingAsset());
 	vi.mocked(resolveReadyUploadAliasForActor).mockResolvedValue(null);
-	vi.mocked(getStoredObjectSize).mockResolvedValue(10);
+	vi.mocked(getStoredObjectSize).mockResolvedValue(PNG.length);
 	copyAssetObjectMock.mockResolvedValue(undefined);
-	vi.mocked(downloadAssetBytes).mockResolvedValue(Buffer.from("bytes"));
+	vi.mocked(downloadAssetBytes).mockResolvedValue(PNG);
 	vi.mocked(uploadAssetBytes).mockResolvedValue(undefined);
 	vi.mocked(findReadyAssetByProjectAndHash).mockResolvedValue(null);
 	vi.mocked(canonicalizePendingAssetForActor).mockResolvedValue({
@@ -172,42 +178,19 @@ beforeEach(() => {
 		}),
 	});
 	vi.mocked(purgeExpiredMediaUploadAliases).mockResolvedValue(0);
-	vi.mocked(validateMediaBytes).mockResolvedValue({
-		ok: true,
-		validated: {
-			contentHash: HASH,
-			mimeType: "image/png",
-			extension: ".png",
-			sizeBytes: 10,
-			kind: "image",
-			dimensions: { width: 1, height: 1 },
-		},
-	});
 });
 
 describe("POST /api/media/upload/[assetId]/confirm", () => {
 	it("publishes the exact validated bytes even if the pending object is overwritten afterward", async () => {
-		let pendingGeneration = Buffer.alloc(10, 1);
+		let pendingGeneration = Buffer.from(PNG);
 		let publishedBytes: Buffer | null = null;
 		vi.mocked(downloadAssetBytes).mockImplementation(async () =>
 			Buffer.from(pendingGeneration),
 		);
-		vi.mocked(validateMediaBytes).mockImplementation(async ({ bytes }) => {
-			expect(bytes).toEqual(Buffer.alloc(10, 1));
-			// The signed URL remains usable while confirm runs. Model a hostile
-			// overwrite immediately after generation A passes validation.
-			pendingGeneration = Buffer.alloc(10, 2);
-			return {
-				ok: true,
-				validated: {
-					contentHash: HASH,
-					mimeType: "image/png",
-					extension: ".png",
-					sizeBytes: 10,
-					kind: "image",
-					dimensions: { width: 1, height: 1 },
-				},
-			};
+		vi.mocked(findReadyAssetByProjectAndHash).mockImplementation(async () => {
+			// This DB boundary runs after the real sniff, sharp parse, and hash check.
+			pendingGeneration = Buffer.alloc(PNG.length, 2);
+			return null;
 		});
 		vi.mocked(uploadAssetBytes).mockImplementation(async ({ bytes }) => {
 			publishedBytes = Buffer.from(bytes);
@@ -220,8 +203,8 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		const body = (await res.json()) as { asset: { gcsObjectKey: string } };
 
 		expect(res.status).toBe(200);
-		expect(pendingGeneration).toEqual(Buffer.alloc(10, 2));
-		expect(publishedBytes).toEqual(Buffer.alloc(10, 1));
+		expect(pendingGeneration).toEqual(Buffer.alloc(PNG.length, 2));
+		expect(publishedBytes).toEqual(PNG);
 		expect(copyAssetObjectMock).not.toHaveBeenCalled();
 		expect(uploadAssetBytes).toHaveBeenCalledWith({
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
@@ -250,7 +233,13 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 				gcsObjectKey: PENDING_OBJECT_KEY,
 			}),
 		);
-		expect(body.asset.gcsObjectKey).toBe(`projects/project-1/${HASH}.png`);
+		expect(body.asset).not.toHaveProperty("gcsObjectKey");
+		expect(body.asset).not.toHaveProperty("owner");
+		expect(body.asset).toMatchObject({
+			contentHash: HASH,
+			sizeBytes: PNG.length,
+			createdAt: new Date(0).toISOString(),
+		});
 		expect(withMediaObjectKeyLockMock).toHaveBeenNthCalledWith(
 			1,
 			`projects/project-1/${HASH}.png`,
@@ -261,7 +250,6 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 	it("returns the ready row when a lagging download loses to winner cleanup", async () => {
 		const ready = pendingAsset({
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		let loadCount = 0;
 		vi.mocked(loadAssetById).mockImplementation(async () => {
@@ -278,14 +266,12 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.asset).toEqual({
+		expect(body.asset).toMatchObject({
 			id: ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(loadAssetById).toHaveBeenCalledTimes(2);
 		expect(userInProject).toHaveBeenCalledTimes(2);
-		expect(validateMediaBytes).not.toHaveBeenCalled();
 		expect(uploadAssetBytes).not.toHaveBeenCalled();
 		expect(publishPendingAssetForActor).not.toHaveBeenCalled();
 	});
@@ -294,7 +280,6 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		const canonical = pendingAsset({
 			id: CANONICAL_ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		vi.mocked(loadAssetById).mockResolvedValue(null);
 		vi.mocked(resolveReadyUploadAliasForActor).mockResolvedValue(canonical);
@@ -305,10 +290,9 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.asset).toEqual({
+		expect(body.asset).toMatchObject({
 			id: CANONICAL_ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(resolveReadyUploadAliasForActor).toHaveBeenCalledWith({
 			attemptAssetId: ASSET_ID,
@@ -340,10 +324,9 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.asset).toEqual({
+		expect(body.asset).toMatchObject({
 			id: CANONICAL_ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(resolveReadyUploadAliasForActor).toHaveBeenCalledWith({
 			attemptAssetId: ASSET_ID,
@@ -351,19 +334,16 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		});
 		expect(findReadyAssetByProjectAndHash).not.toHaveBeenCalled();
 		expect(userInProject).toHaveBeenCalledOnce();
-		expect(validateMediaBytes).not.toHaveBeenCalled();
 		expect(deletePendingAssetForActor).not.toHaveBeenCalled();
 	});
 
-	it("deletes only a freshly-locked pending row after validation fails", async () => {
+	it("requests authorized pending-row deletion after real hash validation fails", async () => {
 		vi.mocked(loadAssetById).mockResolvedValue(
 			pendingAsset({ gcsObjectKey: `projects/project-1/${HASH}.png` }),
 		);
-		vi.mocked(validateMediaBytes).mockResolvedValue({
-			ok: false,
-			reason: "hash-claim-mismatch",
-			message: "The uploaded file did not match the declared hash.",
-		});
+		vi.mocked(loadAssetById).mockResolvedValue(
+			pendingAsset({ contentHash: "0".repeat(64) }),
+		);
 
 		const res = await callConfirm();
 		await res.json();
@@ -382,11 +362,9 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 			status: "ready",
 			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
-		vi.mocked(validateMediaBytes).mockResolvedValue({
-			ok: false,
-			reason: "hash-claim-mismatch",
-			message: "The uploaded file did not match the declared hash.",
-		});
+		vi.mocked(loadAssetById).mockResolvedValue(
+			pendingAsset({ contentHash: "0".repeat(64) }),
+		);
 		vi.mocked(deletePendingAssetForActor).mockResolvedValue({
 			kind: "already_ready",
 			asset: ready,
@@ -401,7 +379,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		expect(publishPendingAssetForActor).not.toHaveBeenCalled();
 	});
 
-	it("collapses a confirm race under the final-key lock and cleans only the losing pending object", async () => {
+	it("honors the canonicalized database outcome and cleans only the released pending object", async () => {
 		const sibling = pendingAsset({
 			id: WINNER_ASSET_ID,
 			status: "ready",
@@ -459,10 +437,9 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.asset).toEqual({
+		expect(body.asset).toMatchObject({
 			id: CANONICAL_ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(canonicalizePendingAssetForActor).toHaveBeenCalledOnce();
 		expect(deletePendingAssetForActor).not.toHaveBeenCalled();
@@ -504,10 +481,9 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 		};
 
 		expect(res.status).toBe(200);
-		expect(body.asset).toEqual({
+		expect(body.asset).toMatchObject({
 			id: ASSET_ID,
 			status: "ready",
-			gcsObjectKey: `projects/project-1/${HASH}.png`,
 		});
 		expect(uploadAssetBytes).not.toHaveBeenCalled();
 		expect(publishPendingAssetForActor).toHaveBeenCalledWith(

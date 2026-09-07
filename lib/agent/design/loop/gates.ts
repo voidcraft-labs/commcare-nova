@@ -342,7 +342,10 @@ function deriveExpectedNext(
 	if (plan !== null) {
 		return "The design phase is complete; the build continues from the persisted plan.";
 	}
-	if (blockingQuestions.length > 0) {
+	// The accepted artifact keeps its old questions as context. New source
+	// evidence already reopens authoring; asking the same questions again would
+	// contradict the legal next action and ignore the user's answer.
+	if (blockingQuestions.length > 0 && !verdicts.submitContract.legal) {
 		return "Ask the user the accepted design's blocking open questions with askQuestions; the answers reopen design work.";
 	}
 	if (verdicts.submitRevision.legal) {

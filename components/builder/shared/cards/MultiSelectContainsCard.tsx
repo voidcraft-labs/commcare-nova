@@ -26,11 +26,9 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { CaseProperty } from "@/lib/domain";
 import {
 	type Literal,
 	literal,
-	multiSelectAll,
 	multiSelectAny,
 	type Predicate,
 	type PropertyRef,
@@ -39,6 +37,11 @@ import {
 import { useEditorErrorsAt, usePredicateEditContext } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
+import {
+	multiSelectProperty,
+	replaceMultiSelectProperty,
+	replaceMultiSelectValues,
+} from "../multiSelectModel";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
@@ -91,13 +94,9 @@ export function MultiSelectContainsCard({
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 	const rowIdentity = useStableListIdentity(value.values);
 
-	const ct = useMemo(
-		() => ctx.caseTypes.find((c) => c.name === ctx.currentCaseType),
-		[ctx.caseTypes, ctx.currentCaseType],
-	);
-	const property = useMemo<CaseProperty | undefined>(
-		() => ct?.properties.find((p) => p.name === value.property.property),
-		[ct, value.property.property],
+	const property = useMemo(
+		() => multiSelectProperty(value.property, ctx.caseTypes),
+		[value.property, ctx.caseTypes],
 	);
 
 	const allOptions =
@@ -118,28 +117,19 @@ export function MultiSelectContainsCard({
 		// the new property's tokens. The `next` ref carries the
 		// preserved `via` walk (if any) verbatim: `PropertyRefPicker`'s
 		// canonical-edit branch rebuilds via `prop(caseType, name, via)`.
-		const nextProp = ct?.properties.find((p) => p.name === next.property);
-		const seed = nextProp?.options?.[0]?.value ?? "";
-		const builder =
-			value.quantifier === "all" ? multiSelectAll : multiSelectAny;
-		const firstValue = literal(seed);
-		const nextValues = [firstValue];
-		rowIdentity.stage(nextValues, { kind: "reset" });
-		onChange(builder(next, firstValue));
+		const nextValue = replaceMultiSelectProperty(value, next, ctx.caseTypes);
+		rowIdentity.stage(nextValue.values, { kind: "reset" });
+		onChange(nextValue);
 	};
 
 	const commitValues = (
 		next: readonly Literal[],
 		operation: StableListOperation,
 	) => {
-		// The schema rejects an empty values list. Keep the guard at the
-		// mutation boundary even though the last chip has no remove action.
-		if (next.length === 0) return;
-		const builder =
-			value.quantifier === "all" ? multiSelectAll : multiSelectAny;
-		const [first, ...rest] = next;
+		const result = replaceMultiSelectValues(value, next);
+		if (result === undefined) return;
 		rowIdentity.stage(next, operation);
-		onChange(builder(value.property, first, ...rest));
+		onChange(result);
 	};
 
 	const addOption = (optionValue: string) => {

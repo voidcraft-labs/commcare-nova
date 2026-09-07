@@ -1,3 +1,5 @@
+// Whole structural document admission. Contextual app validity and emission
+// have separate gates; these candidates exercise topology before those gates.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { blueprintDocSchema, type PersistableDoc } from "../blueprint";
@@ -85,7 +87,7 @@ function messages(input: unknown): string[] {
 }
 
 describe("closed blueprint topology", () => {
-	it("accepts the exact empty and runnable shapes", () => {
+	it("accepts closed empty and one-form document shapes", () => {
 		expect(blueprintDocSchema.safeParse(emptyDoc()).success).toBe(true);
 		expect(blueprintDocSchema.safeParse(oneFormDoc()).success).toBe(true);
 	});
@@ -103,6 +105,22 @@ describe("closed blueprint topology", () => {
 		doc.moduleOrder = [MODULE, MODULE_2, MODULE_3];
 		doc.formOrder = { [MODULE]: [], [MODULE_2]: [], [MODULE_3]: [] };
 		expect(blueprintDocSchema.safeParse(doc).success).toBe(true);
+	});
+
+	it("admits a connected group tree and refuses a disconnected cycle", () => {
+		const doc = {
+			...oneFormDoc(),
+			fields: {
+				[GROUP]: groupField(),
+				[GROUP_2]: groupField(GROUP_2),
+				[FIELD]: textField(),
+			},
+			fieldOrder: { [FORM]: [GROUP], [GROUP]: [GROUP_2], [GROUP_2]: [FIELD] },
+		};
+		expect(blueprintDocSchema.safeParse(doc).success).toBe(true);
+		doc.fieldOrder[FORM] = [];
+		doc.fieldOrder[GROUP_2] = [GROUP, FIELD];
+		expect(messages(doc)).toContain(`Field membership cycle reaches ${GROUP}.`);
 	});
 
 	it("rejects missing, nested, and noncontiguous module parents", () => {
@@ -189,14 +207,14 @@ describe("closed blueprint topology", () => {
 	it.each([
 		{
 			kind: "case-list column",
-			build: () => {
+			build: (nestedUuid = FORM) => {
 				const doc = oneFormDoc();
 				doc.modules[MODULE] = {
 					...module(),
 					caseListConfig: {
-						columns: [plainColumn(FORM, "case_name", "Name")],
-						listColumnOrder: [FORM],
-						detailColumnOrder: [FORM],
+						columns: [plainColumn(nestedUuid, "case_name", "Name")],
+						listColumnOrder: [nestedUuid],
+						detailColumnOrder: [nestedUuid],
 						searchInputs: [],
 					},
 				};
@@ -205,7 +223,7 @@ describe("closed blueprint topology", () => {
 		},
 		{
 			kind: "Search input",
-			build: () => {
+			build: (nestedUuid = FORM) => {
 				const doc = oneFormDoc();
 				doc.modules[MODULE] = {
 					...module(),
@@ -214,7 +232,13 @@ describe("closed blueprint topology", () => {
 						listColumnOrder: [],
 						detailColumnOrder: [],
 						searchInputs: [
-							simpleSearchInputDef(FORM, "query", "Query", "text", "case_name"),
+							simpleSearchInputDef(
+								nestedUuid,
+								"query",
+								"Query",
+								"text",
+								"case_name",
+							),
 						],
 					},
 				};
@@ -223,13 +247,13 @@ describe("closed blueprint topology", () => {
 		},
 		{
 			kind: "case operation",
-			build: () => {
+			build: (nestedUuid = FORM) => {
 				const doc = oneFormDoc();
 				doc.forms[FORM] = {
 					...form(),
 					caseOperations: [
 						{
-							uuid: FORM,
+							uuid: nestedUuid,
 							id: "create_case",
 							action: "create" as const,
 							caseType: "patient",
@@ -246,7 +270,7 @@ describe("closed blueprint topology", () => {
 		},
 		{
 			kind: "select option",
-			build: () => {
+			build: (nestedUuid = FORM) => {
 				const doc = {
 					...oneFormDoc(),
 					fields: {
@@ -258,7 +282,7 @@ describe("closed blueprint topology", () => {
 							optionsSource: {
 								kind: "inline" as const,
 								options: [
-									{ uuid: FORM, value: "a", label: proseText("A") },
+									{ uuid: nestedUuid, value: "a", label: proseText("A") },
 									{ uuid: OPTION_2, value: "b", label: proseText("B") },
 								],
 							},
@@ -270,8 +294,9 @@ describe("closed blueprint topology", () => {
 			},
 		},
 	])(
-		"includes every nested $kind UUID in the global namespace",
+		"admits a distinct $kind identity and refuses its collision with a form",
 		({ kind, build }) => {
+			expect(blueprintDocSchema.safeParse(build(UNKNOWN)).success).toBe(true);
 			expect(messages(build())).toContain(
 				`Authored uuid ${FORM} appears in both forms and ${kind}.`,
 			);
@@ -443,6 +468,7 @@ describe("closed blueprint topology", () => {
 		},
 	])("rejects $name", ({ edit, message }) => {
 		const doc = oneFormDoc();
+		expect(blueprintDocSchema.safeParse(doc).success).toBe(true);
 		edit(doc);
 		expect(messages(doc)).toContain(message);
 	});

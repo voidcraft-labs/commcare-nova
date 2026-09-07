@@ -1,22 +1,15 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
-/**
- * Phase 2 — merge-by-construction state-model tests.
- *
- * Every structural / collection / catalog edit is identity-keyed and carries an
- * absolute fractional `order` key, so two members editing DIFFERENT entities,
- * properties, list items, or reordering different things converge on the
- * guarded re-apply. These tests exercise the convergence purely (apply the two
- * batches in either order → same result) plus the gate rejections the new
- * granular reducers make reachable. No DOM — the state model + diff only.
+/** Serialized domain interleavings, not network or database concurrency.
+ * Each authored batch crosses the real JSON admission and commit gate. Disjoint
+ * slots commute; shared sequence anchors can produce different legal orders.
  */
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { updateColumnMutation } from "@/lib/agent/blueprintHelpers";
-import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
 import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import {
 	columnContentSnapshot,
@@ -33,37 +26,67 @@ import {
 	clearCaseSearchConfigSettingsMutations,
 } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { diffDocsToMutations as diffDocs } from "@/lib/doc/diffDocsToMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { applyMutations } from "@/lib/doc/mutations";
-import {
-	declareCaseTypeForField,
-	formScaffoldMutations,
-} from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
 import type { Mutation, Uuid } from "@/lib/doc/types";
+import { mutationSchema } from "@/lib/doc/types";
 import { updateUserTypeValueMutations } from "@/lib/doc/userMutations";
 import {
 	type BlueprintDoc,
-	calculatedColumn,
-	emptyCaseListConfig,
 	type Field,
-	fieldCaseWrite,
 	proseTemplateText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { input, literal, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	input,
+	literal,
+	prop,
+	term,
+	whenInput,
+} from "@/lib/domain/predicate";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
 function apply(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
-	return produce(doc, (draft) => {
-		for (const batch of batches) applyMutations(draft, batch);
-	});
+	assertAdmittedDoc(doc);
+	let current = doc;
+	for (const batch of batches) {
+		const wire = batch.map((m) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(m))),
+		);
+		const verdict = mutationCommitVerdict(
+			current,
+			wire,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict, JSON.stringify(verdict)).toMatchObject({ ok: true });
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict));
+		current = verdict.nextDoc;
+	}
+	return current;
 }
-
 function canonicalFixture(doc: BlueprintDoc): BlueprintDoc {
+	assertAdmittedDoc(doc);
 	return doc;
+}
+function diffDocsToMutations(
+	prev: BlueprintDoc,
+	next: BlueprintDoc,
+): Mutation[] {
+	assertAdmittedDoc(prev);
+	assertAdmittedDoc(next);
+	return diffDocs(prev, next);
+}
+function survey() {
+	return {
+		name: "F",
+		type: "survey" as const,
+		fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+	};
 }
 
 function byId(doc: BlueprintDoc, id: string): Field {
@@ -104,7 +127,7 @@ function twoFieldForm(): { doc: BlueprintDoc; formUuid: Uuid } {
 
 // ── Concurrent disjoint reorders converge ──────────────────────────────
 
-describe("concurrent disjoint reorders converge", () => {
+describe("serialized reorder batches", () => {
 	it("two members reordering different forms' fields both land", () => {
 		const doc = canonicalFixture(
 			buildDoc({
@@ -154,6 +177,24 @@ describe("concurrent disjoint reorders converge", () => {
 		expect(fieldDisplayIds(ba, formB)).toEqual(fieldDisplayIds(ab, formB));
 	});
 
+	it("different fields sharing one sequence obey serialization order", () => {
+		const { doc, formUuid } = twoFieldForm();
+		const a = byId(doc, "q1").uuid,
+			b = byId(doc, "q2").uuid,
+			c = byId(doc, "q3").uuid;
+		const moveA: Mutation[] = [
+			{ kind: "moveField", uuid: a, toParentUuid: formUuid, after: b },
+		];
+		const moveB: Mutation[] = [
+			{ kind: "moveField", uuid: b, toParentUuid: formUuid, after: c },
+		];
+		const ab = apply(doc, moveA, moveB),
+			ba = apply(doc, moveB, moveA);
+		expect(fieldDisplayIds(ab, formUuid)).toEqual(["q1", "q3", "q2"]);
+		expect(fieldDisplayIds(ba, formUuid)).toEqual(["q3", "q2", "q1"]);
+		expect(apply(doc, moveA, moveB)).toEqual(ab);
+		expect(apply(doc, moveB, moveA)).toEqual(ba);
+	});
 	it("a reorder is emitted by the diff and persists", () => {
 		const { doc, formUuid } = twoFieldForm();
 		// Move q3 to the very front by putting it first in the membership array,
@@ -184,7 +225,7 @@ describe("granular catalog merges", () => {
 	it("two concurrent addCaseProperty to one type both materialize", () => {
 		const doc = buildDoc({
 			caseTypes: [{ name: "patient", properties: [] }],
-			modules: [{ name: "M", caseType: "patient" }],
+			modules: [{ name: "M", forms: [survey()] }],
 		});
 		const batchA: Mutation[] = [
 			{
@@ -220,12 +261,12 @@ describe("granular catalog merges", () => {
 				{
 					name: "child",
 					properties: [],
-					parent_type: "parent",
+					parent_type: "household",
 					relationship: "child",
 				},
-				{ name: "parent", properties: [] },
+				{ name: "household", properties: [] },
 			],
-			modules: [{ name: "M", caseType: "child" }],
+			modules: [{ name: "M", forms: [survey()] }],
 		});
 		// Only `relationship` changes (child → extension); `parent_type` is untouched.
 		const next = produce(prev, (draft) => {
@@ -246,11 +287,16 @@ describe("granular catalog merges", () => {
 	it("concurrent edits to DIFFERENT ancestry slots both survive the merge", () => {
 		const doc = buildDoc({
 			caseTypes: [
-				{ name: "visit", properties: [] },
+				{
+					name: "visit",
+					properties: [],
+					parent_type: "clinic",
+					relationship: "child",
+				},
 				{ name: "patient", properties: [] },
 				{ name: "clinic", properties: [] },
 			],
-			modules: [{ name: "M", caseType: "visit" }],
+			modules: [{ name: "M", forms: [survey()] }],
 		});
 		// Member A sets `parent_type` on `visit`; member B sets `relationship` on
 		// `visit` — DIFFERENT slots of the same case type. Under the always-both
@@ -599,11 +645,10 @@ describe("disjoint collection edits merge", () => {
 		}
 	});
 
-	it("two same-Results gestures write one moved row each and commute", () => {
+	it("equivalent two-column swaps have the same outcome in either order", () => {
 		const { doc, moduleUuid, colA, colB } = moduleWithTwoColumns();
-		// A move names ONE uuid and ONE anchor, so it writes only the row it
-		// moved. Two authors dragging different rows on the same screen
-		// therefore commute — neither batch can reach the other's row.
+		// With exactly two rows, moving A after B and B to the front express
+		// the same desired swap. This is not a general sequence commutativity rule.
 		const moveA: Mutation = {
 			kind: "moveColumn",
 			moduleUuid,
@@ -632,7 +677,7 @@ describe("disjoint collection edits merge", () => {
 		).toEqual([colA, colB]);
 	});
 
-	it("two search-order gestures write one moved field each and commute", () => {
+	it("equivalent two-search-input swaps have the same outcome in either order", () => {
 		const inputA = simpleSearchInputDef(
 			testUuid("00000000-0000-4000-8000-000000000321"),
 			"case_name",
@@ -665,6 +710,7 @@ describe("disjoint collection edits merge", () => {
 						name: "Patients",
 						caseType: "patient",
 						caseListConfig: config,
+						caseListOnly: true,
 					},
 				],
 			}),
@@ -885,6 +931,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
+						forms: [survey()],
 						caseListConfig: {
 							...caseListConfig([{ field: "case_name", header: "Name" }]),
 							filter: { kind: "match-all" },
@@ -904,7 +951,7 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null },
+				patch: { caseType: null, caseListConfig: null },
 			},
 		]);
 		expect(aCommitted.modules[moduleUuid].caseListConfig).toBeUndefined();
@@ -930,19 +977,21 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null },
+				patch: { caseType: null, caseListConfig: null },
 			},
 		]);
 		// Apply B's setCaseListMeta directly (bypassing the guard): the reducer
 		// reads the config directly and no-ops — the removed case list stays
 		// removed rather than reappearing as an empty-but-present config.
-		const merged = apply(aCommitted, [
-			{
-				kind: "setCaseListMeta",
-				uuid: moduleUuid,
-				patch: { filter: { kind: "match-none" } },
-			},
-		]);
+		const merged = produce(aCommitted, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "setCaseListMeta",
+					uuid: moduleUuid,
+					patch: { filter: { kind: "match-none" } },
+				},
+			]);
+		});
 		expect(merged.modules[moduleUuid].caseListConfig).toBeUndefined();
 	});
 
@@ -971,14 +1020,14 @@ describe("setCaseListMeta on a peer-removed config", () => {
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: { caseListConfig: null },
+				patch: { caseType: null, caseListConfig: null },
 			},
 		]);
 		const rebirth: Mutation[] = [
 			{
 				kind: "updateModule",
 				uuid: moduleUuid,
-				patch: {},
+				patch: { caseType: "patient" },
 				ensureCaseListConfig: true,
 			},
 			{
@@ -995,45 +1044,57 @@ describe("setCaseListMeta on a peer-removed config", () => {
 				patch: { filter: { kind: "match-all" } },
 			},
 		];
-		expect(mutationTargetsInvalid(cleared, rebirth)).toBe(false);
+		expect(
+			apply(cleared, rebirth).modules[moduleUuid].caseListConfig?.filter,
+		).toEqual({ kind: "match-all" });
 	});
 });
 
 // ── Diff: case-list birth / case-type flip stay granular ───────────────
 
 describe("diff — case-list presence transition", () => {
-	it("emits an idempotent ensure for an empty absent→present transition", () => {
-		const prev = canonicalFixture(
-			buildDoc({
-				modules: [{ name: "M", caseType: "patient" }],
-			}),
-		);
+	it("refuses a case-list birth until its batch supplies a visible result field", () => {
+		const prev = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [{ name: "Survey", forms: [survey()] }],
+		});
+		assertAdmittedDoc(prev);
 		const moduleUuid = prev.moduleOrder[0];
-		const next = produce(prev, (draft) => {
-			draft.modules[moduleUuid].caseListConfig = emptyCaseListConfig();
-		});
-		const diff = diffDocsToMutations(prev, next);
-		expect(diff).toContainEqual({
-			kind: "updateModule",
-			uuid: moduleUuid,
-			patch: {},
-			ensureCaseListConfig: true,
-		});
-		expect(apply(prev, diff).modules[moduleUuid].caseListConfig).toEqual(
-			next.modules[moduleUuid].caseListConfig,
+		const verdict = mutationCommitVerdict(
+			prev,
+			[
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: { caseType: "patient" },
+				},
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					ensureCaseListConfig: true,
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) throw new Error("expected visible result field refusal");
+		expect(verdict.findings.map((f) => f.code)).toContain(
+			"MISSING_CASE_LIST_COLUMNS",
 		);
 	});
-
 	it("replays a populated birth over a peer config without losing peer items", () => {
 		const prev = canonicalFixture(
 			buildDoc({
-				modules: [{ name: "M", caseType: "patient" }],
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [{ name: "M", forms: [survey()] }],
 			}),
 		);
 		const moduleUuid = prev.moduleOrder[0];
 		const localColumnUuid = testUuid("00000000-0000-4000-8000-000000000061");
 		const peerColumnUuid = testUuid("00000000-0000-4000-8000-000000000062");
 		const next = produce(prev, (draft) => {
+			draft.modules[moduleUuid].caseType = "patient";
 			draft.modules[moduleUuid].caseListConfig = {
 				columns: [
 					{
@@ -1058,6 +1119,17 @@ describe("diff — case-list presence transition", () => {
 		});
 
 		const peerFresh = apply(prev, [
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: { caseType: "patient" },
+			},
+			{
+				kind: "updateModule",
+				uuid: moduleUuid,
+				patch: {},
+				ensureCaseListConfig: true,
+			},
 			{
 				kind: "addColumn",
 				moduleUuid,
@@ -1099,6 +1171,7 @@ describe("diff — case-list presence transition", () => {
 				modules: [
 					{
 						name: "M",
+						caseListOnly: true,
 						caseType: "patient",
 						caseListConfig: caseListConfig([
 							{ field: "case_name", header: "Name" },
@@ -1112,6 +1185,12 @@ describe("diff — case-list presence transition", () => {
 		const peerInputUuid = testUuid("00000000-0000-4000-8000-000000000064");
 		const next = produce(prev, (draft) => {
 			draft.modules[moduleUuid].caseType = "visit";
+			draft.modules[moduleUuid].caseListConfig?.listColumnOrder.push(
+				localColumnUuid,
+			);
+			draft.modules[moduleUuid].caseListConfig?.detailColumnOrder.push(
+				localColumnUuid,
+			);
 			draft.modules[moduleUuid].caseListConfig?.columns.push({
 				uuid: localColumnUuid,
 				kind: "plain",
@@ -1164,146 +1243,6 @@ describe("diff — case-list presence transition", () => {
 	});
 });
 
-// ── Declaration chokepoint ─────────────────────────────────────────────
-
-describe("every caseWrite surface declares the type", () => {
-	const baseDoc = () =>
-		buildDoc({
-			caseTypes: null,
-			modules: [
-				{
-					name: "M",
-					caseType: "patient",
-					forms: [{ name: "F", type: "survey", fields: [] }],
-				},
-			],
-		});
-
-	it("declareCaseTypeForField (the builder add/edit chokepoint) prepends declareCaseType", () => {
-		const doc = baseDoc();
-		const writer = f({
-			kind: "text",
-			id: "age",
-			label: proseText("Age"),
-			caseWrite: { caseType: "patient", property: "age" },
-		}) as unknown as Field;
-		const muts = declareCaseTypeForField(doc, writer);
-		expect(muts).toEqual([{ kind: "declareCaseType", caseType: "patient" }]);
-		// No-op when the type is already declared, or the field writes no case.
-		const declared = produce(doc, (d) => {
-			d.caseTypes = [{ name: "patient", properties: [] }];
-		});
-		expect(declareCaseTypeForField(declared, writer)).toEqual([]);
-		const noCase = f({
-			kind: "text",
-			id: "note",
-			label: proseText("Note"),
-		}) as Field;
-		expect(declareCaseTypeForField(doc, noCase)).toEqual([]);
-	});
-
-	it("assembleFieldMutations (the SA add path) prepends declareCaseType before the addField", () => {
-		const doc = baseDoc();
-		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-		const out = assembleFieldMutations({
-			doc,
-			formUuid,
-			items: [
-				{
-					kind: "text",
-					id: "age",
-					label: proseText("Age"),
-					caseWrite: { caseType: "patient", property: "age" },
-				},
-			] as never,
-		});
-		expect(out.ok).toBe(true);
-		if (!out.ok) return;
-		const declareIdx = out.mutations.findIndex(
-			(m) => m.kind === "declareCaseType",
-		);
-		const addIdx = out.mutations.findIndex((m) => m.kind === "addField");
-		expect(declareIdx).toBeGreaterThanOrEqual(0);
-		// Declaration BEFORE the add so the field's catalog sync can append.
-		expect(declareIdx).toBeLessThan(addIdx);
-	});
-
-	it("formScaffoldMutations (the builder add-form path) declares an absent module case type", () => {
-		// A viewer whose case type was dropped from the catalog while the module
-		// kept its `caseType` (a data-model edit, or a retire-vs-add race). Adding
-		// a registration form births a `case_name` writer on `patient`; without a
-		// prepended declaration that makes both the viewer column and born field
-		// resolvable; without it the absolute gate rejects the whole candidate.
-		const doc = produce(
-			buildDoc({
-				caseTypes: [
-					{
-						name: "patient",
-						properties: [{ name: "case_name", label: proseText("Name") }],
-					},
-				],
-				modules: [
-					{
-						name: "Patients",
-						caseType: "patient",
-						caseListOnly: true,
-						caseListConfig: caseListConfig([
-							{ field: "case_name", header: "Name" },
-						]),
-					},
-				],
-			}),
-			(d) => {
-				d.caseTypes = null;
-			},
-		);
-		const moduleUuid = doc.moduleOrder[0];
-		const scaffold = formScaffoldMutations(doc, moduleUuid, "registration");
-		expect(scaffold).not.toBeNull();
-		if (!scaffold) return;
-
-		const declareIdx = scaffold.mutations.findIndex(
-			(m) => m.kind === "declareCaseType",
-		);
-		const writerIdx = scaffold.mutations.findIndex(
-			(m) =>
-				m.kind === "addField" &&
-				fieldCaseWrite(m.field)?.caseType === "patient",
-		);
-		expect(declareIdx).toBeGreaterThanOrEqual(0);
-		expect(writerIdx).toBeGreaterThanOrEqual(0);
-		// Declared BEFORE the writer so the field's catalog sync can append to it.
-		expect(declareIdx).toBeLessThan(writerIdx);
-
-		// Stripping the declare from the SAME batch reproduces the bug: the
-		// case_name writer and Name column target an absent type → gate-rejected.
-		const withoutDeclare = scaffold.mutations.filter(
-			(m) => m.kind !== "declareCaseType",
-		);
-		const rejected = mutationCommitVerdict(
-			doc,
-			withoutDeclare,
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(rejected.ok).toBe(false);
-		if (!rejected.ok) {
-			expect(
-				rejected.findings.some(
-					(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
-				),
-				JSON.stringify(rejected.findings),
-			).toBe(true);
-		}
-
-		// The shipped builder batch (declare included) passes the gate — the form
-		// is created, not 409'd.
-		expect(
-			mutationCommitVerdict(doc, scaffold.mutations, LOOKUP_CONTEXT_UNAVAILABLE)
-				.ok,
-		).toBe(true);
-	});
-});
-
 // ── Diff round-trip over granular catalog + collection + option edits ──
 
 describe("diff round-trip — granular edits", () => {
@@ -1344,6 +1283,7 @@ describe("diff round-trip — granular edits", () => {
 		);
 		const moduleUuid = prev.moduleOrder[0];
 		const next = produce(prev, (draft) => {
+			draft.caseTypes?.push({ name: "household", properties: [] });
 			// Catalog: add a property + set meta.
 			const ct = draft.caseTypes?.find((c) => c.name === "patient");
 			if (ct) {
@@ -1419,8 +1359,7 @@ describe("case-search marker merges", () => {
 					caseType: "patient",
 					caseListOnly: true,
 					caseListConfig: {
-						columns: caseListConfig([{ field: "case_name", header: "Name" }])
-							.columns,
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						searchInputs: [
 							{
 								uuid: inputUuid,
@@ -2024,9 +1963,8 @@ describe("case-search marker merges", () => {
 });
 
 describe("Search-input identity merges", () => {
-	it("renaming a search input preserves every UUID-backed reference", () => {
-		const inputUuid = testUuid("00000000-0000-4000-8000-000000000061");
-		const calculatedUuid = testUuid("00000000-0000-4000-8000-000000000064");
+	it("a name edit preserves the filter's typed search identity while a peer edits a column", () => {
+		const inputUuid = testUuid("merge-search-ref");
 		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
 			simpleSearchInputDef(
@@ -2037,36 +1975,52 @@ describe("Search-input identity merges", () => {
 				"case_name",
 			),
 		];
-		config.columns.push(
-			calculatedColumn(calculatedUuid, "Copied answer", term(input(inputUuid))),
+		config.filter = whenInput(
+			input(inputUuid),
+			eq(prop("patient", "case_name"), input(inputUuid)),
 		);
-		config.listColumnOrder.push(calculatedUuid);
-		config.detailColumnOrder.push(calculatedUuid);
 		const doc = buildDoc({
-			modules: [{ name: "Patients", caseListConfig: config }],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: config,
+				},
+			],
 		});
-		const moduleUuid = doc.moduleOrder[0];
-		const current = doc.modules[moduleUuid].caseListConfig?.searchInputs[0];
-		if (current === undefined) throw new Error("missing target input");
-
-		const renamed = apply(doc, [
-			searchInputUpdateMutation(moduleUuid, current, {
-				...current,
-				name: "new_name",
-			}),
-		]);
-		const renamedConfig = renamed.modules[moduleUuid].caseListConfig;
-		expect(renamedConfig?.searchInputs[0]).toEqual(
-			expect.objectContaining({ uuid: inputUuid, name: "new_name" }),
+		const moduleUuid = doc.moduleOrder[0],
+			current = config.searchInputs[0];
+		const rename = searchInputUpdateMutation(moduleUuid, current, {
+			...current,
+			name: "new_name",
+		});
+		const relabel: Mutation = {
+			kind: "updateColumn",
+			moduleUuid,
+			uuid: config.columns[0].uuid,
+			column: { kind: "plain", field: "case_name", header: "Peer header" },
+		};
+		const ab = apply(doc, [rename], [relabel]),
+			ba = apply(doc, [relabel], [rename]);
+		expect(ab).toEqual(ba);
+		expect(ab.modules[moduleUuid].caseListConfig?.columns[0].header).toBe(
+			"Peer header",
 		);
-		const calculated = renamedConfig?.columns.find(
-			(column) => column.uuid === calculatedUuid,
-		);
-		expect(calculated).toEqual(
-			expect.objectContaining({
-				kind: "calculated",
-				expression: term(input(inputUuid)),
-			}),
+		expect(
+			ab.modules[moduleUuid].caseListConfig?.searchInputs[0],
+		).toMatchObject({ uuid: inputUuid, name: "new_name", label: "Original" });
+		expect(ab.modules[moduleUuid].caseListConfig?.filter).toEqual(
+			whenInput(
+				input(inputUuid),
+				eq(prop("patient", "case_name"), input(inputUuid)),
+			),
 		);
 	});
 });
@@ -2113,7 +2067,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 					id: "g",
 					kind: "group",
 					label: proseText("G"),
-				} as Field,
+				},
 			},
 			{ kind: "moveField", uuid: xUuid, toParentUuid: G, after: null },
 			{ kind: "removeField", uuid: hUuid },
@@ -2123,7 +2077,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 		// The evacuation (moveField X→G) must not precede the addField that
 		// creates G: the server-side guard walks the batch in order, and a
 		// move into a not-yet-existing container reads as a phantom conflict
-		// (409 → the reload silently drops the user's create+move+delete).
+		// This state-model proof checks the conflict prerequisite, not HTTP delivery.
 		expect(mutationTargetsInvalid(prev, diff)).toBe(false);
 		// The add of G comes before the move of X, which precedes H's remove
 		// (the evacuation contract) — assert the actual order.
@@ -2139,7 +2093,7 @@ describe("diff — evacuation into a same-diff-added container", () => {
 		expect(addG).toBeGreaterThanOrEqual(0);
 		expect(moveX).toBeGreaterThan(addG);
 		expect(removeH).toBeGreaterThan(moveX);
-		// An unguarded replay preserves the survivor under its new parent.
+		// The admitted serialized replay preserves the survivor under its new parent.
 		const replayed = apply(prev, diff);
 		expect(replayed.fields[xUuid]).toBeDefined();
 		expect(replayed.fields[hUuid]).toBeUndefined();
@@ -2153,7 +2107,7 @@ describe("user-data value multiplayer convergence", () => {
 		const propertyB = testUuid("property-b");
 		const roleUuid = testUuid("role");
 		const base: BlueprintDoc = {
-			...buildDoc(),
+			...buildDoc({ modules: [{ name: "Survey", forms: [survey()] }] }),
 			userProperties: {
 				[propertyA]: {
 					uuid: propertyA,

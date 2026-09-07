@@ -1,16 +1,15 @@
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
-import render from "dom-serializer";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { serializeXml } from "@/lib/commcare/serializeXml";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import { compileCcz } from "../compiler";
-import { RENDER_OPTS } from "../elementBuilders";
 import {
 	entryPointProjectionIssue,
 	projectEntryPoint,
@@ -24,39 +23,24 @@ import { expandDoc } from "../expander";
 import { formLinkProjectionContext } from "../formLinkProjection";
 import { runValidation } from "../validator/runner";
 import { validateSuite } from "../validator/suiteOracle";
+import {
+	endpointScenarios,
+	endpointWireFixture,
+	ENDPOINT_FORM as F,
+	ENDPOINT_MODULE as M,
+} from "./endpointWireFixture";
 
-const M = testUuid("module"),
-	F = testUuid("form");
 function fixture(multiple = false) {
-	const doc = buildDoc({
-		appName: "Links",
-		modules: [
-			{
-				uuid: "module",
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						uuid: "form",
-						name: "Visit",
-						type: "followup",
-						fields: [f({ kind: "text", id: "notes" })],
-					},
-				],
-			},
-		],
-	});
-	if (multiple && doc.modules[M].caseListConfig)
-		doc.modules[M].caseListConfig.selection = { kind: "multiple", maximum: 5 };
-	doc.forms[F].entryPoint = { uuid: testUuid("endpoint"), id: "visit" };
-	return doc;
+	return endpointWireFixture(multiple ? "multiple" : "single");
+}
+function admitted(doc: ReturnType<typeof fixture>) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 }
 function normalized(xml: string): unknown {
 	const node = (e: Element): unknown => ({
 		tag: e.name,
+		text: e.children.some(isTag) ? "" : textContent(e),
 		attrs: Object.fromEntries(Object.entries(e.attribs).sort()),
 		children: e.children.filter(isTag).map(node),
 	});
@@ -66,7 +50,7 @@ function normalized(xml: string): unknown {
 }
 describe("entry points", () => {
 	for (const multiple of [false, true])
-		it(`matches the HQ ${multiple ? "multiple" : "single"} claim fixture`, () => {
+		it(`matches the historical HQ ${multiple ? "multiple" : "single"} claim fixture`, () => {
 			const argumentId = multiple ? "selected_cases" : "case_id";
 			const expected = readFileSync(
 				new URL(
@@ -88,14 +72,14 @@ describe("entry points", () => {
 				},
 				"https://www.example.com/a/test-domain/phone/claim-case/",
 			);
-			expect(
-				normalized(`<partial>${render(emitted, RENDER_OPTS)}</partial>`),
-			).toEqual(normalized(expected));
+			expect(normalized(`<partial>${serializeXml(emitted)}</partial>`)).toEqual(
+				normalized(expected),
+			);
 		});
 	it("emits the HQ follow-up endpoint with claim then navigation push", () => {
 		const doc = fixture();
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		expect(normalized(render(result.endpoints[0], RENDER_OPTS))).toEqual(
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
 			normalized(
 				`<endpoint id="visit"><argument id="case_id"/><stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push><push><command value="'m0'"/><datum id="case_id" value="$case_id"/><command value="'m0-f0'"/></push></stack></endpoint>`,
 			),
@@ -133,9 +117,12 @@ describe("entry points", () => {
 	});
 	it("refuses a bare case-list promise and preserves its module command", () => {
 		const doc = fixture();
+		for (const uuid of doc.fieldOrder[F]) delete doc.fields[uuid];
+		delete doc.fieldOrder[F];
 		delete doc.forms[F];
 		doc.formOrder[M] = [];
 		doc.modules[M].caseListOnly = true;
+		admitted(doc);
 		expect(
 			entryPointProjectionIssue(doc, { kind: "case-list", moduleUuid: M }),
 		).toContain("module menu");
@@ -166,21 +153,9 @@ describe("entry points", () => {
 		).not.toBe(signature);
 	});
 	it("hydrates an inline known case with the HQ variable and no separate claim", () => {
-		const doc = fixture();
-		doc.modules[M].caseSearchConfig = { searchFirst: true };
-		const config = doc.modules[M].caseListConfig;
-		if (!config) throw new Error("Missing fixture config");
-		config.searchInputs = [
-			simpleSearchInputDef(
-				testUuid("search"),
-				"case_name",
-				"Name",
-				"text",
-				"case_name",
-			),
-		];
+		const doc = endpointWireFixture("inline");
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		const xml = render(result.endpoints[0], RENDER_OPTS);
+		const xml = serializeXml(result.endpoints[0]);
 		expect(result.remoteRequests).toHaveLength(0);
 		expect(xml).toContain('ref="$case_id"');
 		expect(xml).toContain("/phone/case_fixture/");
@@ -193,27 +168,16 @@ describe("entry points", () => {
 		expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
 	});
 	it("keeps registration computed datums runtime owned and form bypass explicit", () => {
-		const doc = fixture();
-		doc.forms[F].type = "registration";
-		const field = doc.fields[doc.fieldOrder[F][0]];
-		if (field.kind !== "text")
-			throw new Error("Expected the text fixture field");
-		field.caseWrite = { caseType: "patient", property: "case_name" };
-		doc.forms[F].entryPoint = {
-			uuid: testUuid("endpoint"),
-			id: "visit",
-			ignoreDisplayConditions: true,
-		};
+		const doc = endpointWireFixture("registration");
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		const xml = render(result.endpoints[0], RENDER_OPTS);
+		const xml = serializeXml(result.endpoints[0]);
 		expect(xml).toContain('respect-relevancy="false"');
 		expect(xml).not.toContain("<argument");
 		expect(xml).not.toContain("<datum");
 		expect(expandDoc(doc).modules[0].forms[0].respect_relevancy).toBe(false);
 	});
 	it("refuses no-matches registration regardless of display bypass", () => {
-		const doc = fixture();
-		doc.forms[F].type = "registration";
+		const doc = endpointWireFixture("registration");
 		doc.forms[F].entry = { kind: "search-no-matches" };
 		expect(
 			entryPointProjectionIssue(doc, {
@@ -222,6 +186,65 @@ describe("entry points", () => {
 				formUuid: F,
 			}),
 		).toContain("empty search");
+	});
+	it.each(endpointScenarios)(
+		"compiles the admitted %s fixture used by native HQ and Core proofs",
+		(scenario) => {
+			const doc = endpointWireFixture(scenario);
+			const suite = new AdmZip(
+				compileCcz(expandDoc(doc), doc.appName, doc),
+			).readAsText("suite.xml");
+			expect(endpointSuiteSignature(suite, "visit")).toBeDefined();
+		},
+	);
+	it.each([
+		"endpoint",
+		"claim",
+		"entry",
+		"form-namespace",
+		"claim-filter",
+		"selection-filter",
+	])("released closure detects %s corruption", (corruption) => {
+		const doc = fixture();
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc),
+		).readAsText("suite.xml");
+		const root = parseDocument(suite, { xmlMode: true }).children.filter(
+			isTag,
+		)[0];
+		const children = (e: Element) => e.children.filter(isTag);
+		const endpoint = children(root).find((e) => e.name === "endpoint"),
+			claim = children(root).find((e) => e.name === "remote-request"),
+			entry = children(root).find((e) => e.name === "entry");
+		if (!endpoint || !claim || !entry) throw new Error("Missing fixture wire");
+		if (corruption === "endpoint") root.children.push(endpoint);
+		else if (corruption === "claim")
+			root.children = root.children.filter((e) => e !== claim);
+		else if (corruption === "entry")
+			root.children = root.children.filter((e) => e !== entry);
+		else if (corruption === "form-namespace") {
+			const form = children(entry).find((e) => e.name === "form");
+			if (!form) throw new Error("Missing form");
+			form.children = parseDocument("different-namespace", {
+				xmlMode: true,
+			}).children;
+		} else if (corruption === "claim-filter") {
+			const post = children(claim).find((e) => e.name === "post");
+			if (!post) throw new Error("Missing claim post");
+			post.attribs.relevant = "false()";
+		} else {
+			const session = children(entry).find((e) => e.name === "session"),
+				datum = session && children(session).find((e) => e.name === "datum");
+			if (!datum) throw new Error("Missing selection");
+			datum.attribs.nodeset = "instance('casedb')/casedb/case[false()]";
+		}
+		const changed = endpointSuiteSignature(serializeXml(root), "visit");
+		if (["endpoint", "claim", "entry"].includes(corruption))
+			expect(changed).toBeUndefined();
+		else {
+			expect(changed).toBeDefined();
+			expect(changed).not.toBe(endpointSuiteSignature(suite, "visit"));
+		}
 	});
 	it("rejects malformed or multiply rooted released suites", () => {
 		expect(
@@ -241,59 +264,11 @@ describe("entry points", () => {
 	});
 
 	it("matches the HQ nested child form partial and binds both selections", () => {
-		const doc = buildDoc({
-			appName: "Families",
-			caseTypes: [
-				{ name: "mother", properties: [] },
-				{ name: "baby", parent_type: "mother", properties: [] },
-			],
-			modules: [
-				{
-					uuid: "mother-module",
-					name: "Mothers",
-					caseType: "mother",
-					forms: [
-						{
-							uuid: "mother-form",
-							name: "Register",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "name",
-									caseWrite: { caseType: "mother", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-				{
-					uuid: "baby-module",
-					name: "Babies",
-					caseType: "baby",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							uuid: "baby-form",
-							name: "Visit",
-							type: "followup",
-							fields: [f({ kind: "text", id: "notes" })],
-						},
-					],
-				},
-			],
-		});
-		const mother = testUuid("mother-module"),
-			baby = testUuid("baby-module"),
-			form = testUuid("baby-form");
-		doc.modules[baby].parentModuleUuid = mother;
-		doc.forms[form].entryPoint = { uuid: testUuid("baby-link"), id: "my_form" };
+		const doc = endpointWireFixture("child");
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		expect(normalized(render(result.endpoints[0], RENDER_OPTS))).toEqual(
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
 			normalized(
-				`<endpoint id="my_form"><argument id="parent_id"/><argument id="case_id"/><stack><push><datum id="parent_id" value="$parent_id"/><command value="'claim_command.my_form.parent_id'"/></push><push><datum id="case_id" value="$case_id"/><command value="'claim_command.my_form.case_id'"/></push><push><command value="'m0'"/><command value="'m1'"/><datum id="parent_id" value="$parent_id"/><datum id="case_id" value="$case_id"/><command value="'m1-f0'"/></push></stack></endpoint>`,
+				`<endpoint id="visit"><argument id="parent_id"/><argument id="case_id"/><stack><push><datum id="parent_id" value="$parent_id"/><command value="'claim_command.visit.parent_id'"/></push><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push><push><command value="'m0'"/><command value="'m1'"/><datum id="parent_id" value="$parent_id"/><datum id="case_id" value="$case_id"/><command value="'m1-f0'"/></push></stack></endpoint>`,
 			),
 		);
 	});
@@ -327,24 +302,12 @@ describe("entry points", () => {
 			(node) => isTag(node) && node.name === "remote-request",
 		);
 		root.children[old] = request;
-		expect(endpointSuiteSignature(render(root, RENDER_OPTS), "visit")).toBe(
+		expect(endpointSuiteSignature(serializeXml(root), "visit")).toBe(
 			endpointSuiteSignature(suite, "visit"),
 		);
 	});
 	it("normalizes only approved app identities in runtime URLs, preserving server and domain", () => {
-		const doc = fixture();
-		doc.modules[M].caseSearchConfig = { searchFirst: true };
-		const config = doc.modules[M].caseListConfig;
-		if (!config) throw new Error("Missing fixture config");
-		config.searchInputs = [
-			simpleSearchInputDef(
-				testUuid("search"),
-				"case_name",
-				"Name",
-				"text",
-				"case_name",
-			),
-		];
+		const doc = endpointWireFixture("inline");
 		const suite = new AdmZip(
 			compileCcz(expandDoc(doc), doc.appName, doc, {
 				runtimeTarget: {
@@ -372,21 +335,10 @@ describe("entry points", () => {
 			),
 		).not.toBe(expected);
 	});
-	it("accepts the upstream inline entry and optional HQ search-title omission", () => {
-		const doc = fixture();
+	it("accepts historical inline entry bytes and optional presentation omission", () => {
+		const doc = endpointWireFixture("inline");
 		doc.forms[F].postSubmit = "app_home";
-		doc.modules[M].caseSearchConfig = { searchFirst: true };
-		const config = doc.modules[M].caseListConfig;
-		if (!config) throw new Error("Missing fixture config");
-		config.searchInputs = [
-			simpleSearchInputDef(
-				testUuid("search"),
-				"case_name",
-				"Name",
-				"text",
-				"case_name",
-			),
-		];
+		admitted(doc);
 		const suite = new AdmZip(
 			compileCcz(expandDoc(doc), doc.appName, doc, {
 				runtimeTarget: {
@@ -417,9 +369,9 @@ describe("entry points", () => {
 		root.children[oldIndex] = actual;
 		const options = { appIds: ["working", "released"] };
 		const expected = endpointSuiteSignature(suite, "visit", options);
-		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
-		).toBe(expected);
+		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
+			expected,
+		);
 		const session = actual.children
 			.filter(isTag)
 			.find((node) => node.name === "session");
@@ -430,15 +382,15 @@ describe("entry points", () => {
 		query.children = query.children.filter(
 			(node) => !isTag(node) || node.name !== "title",
 		);
-		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
-		).toBe(expected);
+		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
+			expected,
+		);
 		query.attribs.url = query.attribs.url.replace(
 			"test-domain",
 			"other-domain",
 		);
 		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
+			endpointSuiteSignature(serializeXml(root), "visit", options),
 		).not.toBe(expected);
 	});
 });

@@ -188,101 +188,111 @@ describe("accepted capture generation storage race", () => {
 			attachmentIds: [ATTACHMENT_ID],
 			limit: 1,
 		});
-		await storage.firstCopyStarted();
+		const settledWorker = Promise.allSettled([staleWorker]);
+		try {
+			await Promise.race([
+				storage.firstCopyStarted(),
+				staleWorker.then(() => {
+					throw new Error("Worker ended before reaching the storage gate");
+				}),
+			]);
+			// Model a crashed worker's lease expiring after it copied the immutable
+			// destination but before its completion update returned.
+			await h
+				.db()
+				.updateTable("form_attachments")
+				.set({ next_preparation_at: new Date(Date.now() - 1_000) })
+				.where("attachment_id", "=", ATTACHMENT_ID)
+				.execute();
 
-		// Model a crashed worker's lease expiring after it copied the immutable
-		// destination but before its completion update returned.
-		await h
-			.db()
-			.updateTable("form_attachments")
-			.set({ next_preparation_at: new Date(Date.now() - 1_000) })
-			.where("attachment_id", "=", ATTACHMENT_ID)
-			.execute();
+			const intent = {
+				entryKey: ENTRY_KEY,
+				formUuid: FORM_UUID,
+				expectedAppMutationSeq: 0,
+				requestDigest: "accepted-generation-request",
+				attachments: [
+					{
+						attachmentName: `${ATTACHMENT_ID}.png`,
+						fieldUuid: FIELD_UUID,
+						instancePath: "/data/photo",
+					},
+				],
+				allowedAttachments: [
+					{
+						fieldUuid: FIELD_UUID,
+						instancePathTemplate: "/data/photo",
+						captureKind: "image" as const,
+						acceptedFormats: [{ extension: ".png", contentType: "image/png" }],
+					},
+				],
+			};
+			await prepareCaptureSubmissionBytes({
+				appId: APP_ID,
+				projectId: PROJECT_ID,
+				actorUserId: ACTOR_ID,
+				intent,
+			});
 
-		const intent = {
-			entryKey: ENTRY_KEY,
-			formUuid: FORM_UUID,
-			expectedAppMutationSeq: 0,
-			requestDigest: "accepted-generation-request",
-			attachments: [
-				{
-					attachmentName: `${ATTACHMENT_ID}.png`,
-					fieldUuid: FIELD_UUID,
-					instancePath: "/data/photo",
+			const store = new PostgresCaseStore({
+				projectId: PROJECT_ID,
+				actorUserId: ACTOR_ID,
+				ownerId: ACTOR_ID,
+				db: h.db() as unknown as Kysely<Database>,
+				sampleGenerator: new HeuristicCaseGenerator(),
+			});
+			await store.applySubmission({
+				appId: APP_ID,
+				ordinary: { kind: "none" },
+				submissionReceipt: {
+					entryKey: intent.entryKey,
+					formUuid: intent.formUuid,
+					expectedAppMutationSeq: intent.expectedAppMutationSeq,
+					blueprintDigest: "0".repeat(64),
+					requestDigest: intent.requestDigest,
 				},
-			],
-			allowedAttachments: [
-				{
-					fieldUuid: FIELD_UUID,
-					instancePathTemplate: "/data/photo",
-					captureKind: "image" as const,
-					acceptedFormats: [{ extension: ".png", contentType: "image/png" }],
-				},
-			],
-		};
-		await prepareCaptureSubmissionBytes({
-			appId: APP_ID,
-			projectId: PROJECT_ID,
-			actorUserId: ACTOR_ID,
-			intent,
-		});
+				captureIntent: intent,
+			});
 
-		const store = new PostgresCaseStore({
-			projectId: PROJECT_ID,
-			actorUserId: ACTOR_ID,
-			ownerId: ACTOR_ID,
-			db: h.db() as unknown as Kysely<Database>,
-			sampleGenerator: new HeuristicCaseGenerator(),
-		});
-		await store.applySubmission({
-			appId: APP_ID,
-			ordinary: { kind: "none" },
-			submissionReceipt: {
-				entryKey: intent.entryKey,
-				formUuid: intent.formUuid,
-				expectedAppMutationSeq: intent.expectedAppMutationSeq,
-				blueprintDigest: "0".repeat(64),
-				requestDigest: intent.requestDigest,
-			},
-			captureIntent: intent,
-		});
+			storage.releaseFirstCopy();
+			await expect(staleWorker).resolves.toEqual({
+				prepared: 0,
+				discarded: 0,
+				failed: 0,
+				superseded: 1,
+			});
 
-		storage.releaseFirstCopy();
-		await expect(staleWorker).resolves.toEqual({
-			prepared: 0,
-			discarded: 0,
-			failed: 0,
-			superseded: 1,
-		});
-
-		const accepted = await h
-			.db()
-			.selectFrom("form_attachments")
-			.select([
-				"status",
-				"object_generation",
-				"prepared_generation",
-				"preparation_attempts",
-			])
-			.where("attachment_id", "=", ATTACHMENT_ID)
-			.executeTakeFirstOrThrow();
-		expect(accepted).toEqual({
-			status: "submitted",
-			object_generation: "accepted-generation-41",
-			prepared_generation: null,
-			preparation_attempts: 2,
-		});
-		expect(
-			storage.objects.get(DESTINATION_KEY)?.get("accepted-generation-41")
-				?.bytes,
-		).toEqual(SOURCE_BYTES);
-		expect(storage.deleteGeneration).not.toHaveBeenCalledWith(
-			DESTINATION_KEY,
-			"accepted-generation-41",
-		);
-		expect(storage.currentGeneration.get(DESTINATION_KEY)).toBe(
-			"accepted-generation-41",
-		);
-		expect(storage.copy).toHaveBeenCalledTimes(2);
+			const accepted = await h
+				.db()
+				.selectFrom("form_attachments")
+				.select([
+					"status",
+					"object_generation",
+					"prepared_generation",
+					"preparation_attempts",
+				])
+				.where("attachment_id", "=", ATTACHMENT_ID)
+				.executeTakeFirstOrThrow();
+			expect(accepted).toEqual({
+				status: "submitted",
+				object_generation: "accepted-generation-41",
+				prepared_generation: null,
+				preparation_attempts: 2,
+			});
+			expect(
+				storage.objects.get(DESTINATION_KEY)?.get("accepted-generation-41")
+					?.bytes,
+			).toEqual(SOURCE_BYTES);
+			expect(storage.deleteGeneration).not.toHaveBeenCalledWith(
+				DESTINATION_KEY,
+				"accepted-generation-41",
+			);
+			expect(storage.currentGeneration.get(DESTINATION_KEY)).toBe(
+				"accepted-generation-41",
+			);
+			expect(storage.copy).toHaveBeenCalledTimes(2);
+		} finally {
+			storage.releaseFirstCopy();
+			await settledWorker;
+		}
 	});
 });

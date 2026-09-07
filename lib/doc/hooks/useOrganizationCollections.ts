@@ -13,8 +13,13 @@
 "use client";
 
 import { useMemo } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import type { LocationProperty, OrganizationLevel } from "@/lib/domain";
+import {
+	useBlueprintDoc,
+	useBlueprintDocShallow,
+} from "@/lib/doc/hooks/useBlueprintDoc";
+import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
+import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
+import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdicts";
 
 function inSequence<T>(
 	record: Record<string, T> | undefined,
@@ -49,4 +54,29 @@ export function useOrganizationLevelRecord(): Record<
 > {
 	const record = useBlueprintDoc((s) => s.organizationLevels);
 	return useMemo(() => record ?? Object.create(null), [record]);
+}
+
+/** Owner and assignment preflights also read case operations in every form.
+ * Field edits, translation overlays, and session bookkeeping are not inputs. */
+export function useOrganizationRuleInputs(): OrganizationRuleInputs {
+	return useBlueprintDocShallow((state) => ({
+		forms: state.forms,
+		personas: state.personas,
+		organizationLevels: state.organizationLevels,
+		organizationLevelOrder: state.organizationLevelOrder,
+	}));
+}
+
+/** Removal also checks the app-wide reference index, beyond owner-rule inputs. */
+export function useOrganizationLevelRemovalPlan(uuid: Uuid, occupied: boolean) {
+	const doc = useBlueprintDoc((state) => state);
+	return useMemo(
+		() =>
+			removeOrganizationLevelPlan(
+				doc,
+				uuid,
+				occupied ? new Set([uuid]) : undefined,
+			),
+		[doc, uuid, occupied],
+	);
 }

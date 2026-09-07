@@ -224,10 +224,11 @@ export interface PostgresCaseStoreArgs {
  * level; `addFormats` wires the temporal `format` handlers (without
  * it the formats are unrecognized and the schema silently passes
  * any string); `strict: false` admits the schema generator's loose
- * extra keywords.
+ * extra keywords. Numeric strictness stays enabled independently: nonfinite
+ * JavaScript numbers would otherwise pass validation and serialize to null.
  */
 function buildAjv(): Ajv2020 {
-	const ajv = new Ajv2020({ strict: false });
+	const ajv = new Ajv2020({ strict: false, strictNumbers: true });
 	addFormats(ajv);
 	return ajv;
 }
@@ -1823,7 +1824,7 @@ export class PostgresCaseStore implements CaseStore {
 				args.appId,
 				submissionCaseTypes(args),
 			);
-			const effects = await executeSubmissionEnvelope(
+			const { usercaseCaseId, ...effects } = await executeSubmissionEnvelope(
 				trx,
 				this.submissionEnvelopeHost(validators),
 				args,
@@ -1834,7 +1835,7 @@ export class PostgresCaseStore implements CaseStore {
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),
-				...(args.usercase === undefined ? [] : [this.requireOwnerId()]),
+				...(usercaseCaseId === undefined ? [] : [usercaseCaseId]),
 			];
 			const caseDatabasePatch = await this.readCaseDatabasePatchInTransaction(
 				trx,
@@ -4163,8 +4164,7 @@ export class PostgresCaseStore implements CaseStore {
 			.execute();
 		if (entries.length === 0) return 0;
 
-		const ajv = new Ajv2020({ strict: false });
-		addFormats(ajv);
+		const ajv = buildAjv();
 		const validators = new Map<string, ValidateFunction<unknown> | null>();
 		const conforms = (property: string, value: unknown): boolean => {
 			let validate = validators.get(property);
@@ -4657,8 +4657,7 @@ export class PostgresCaseStore implements CaseStore {
 				decodeStoredCaseSchema(appId, row.case_type, row.schema),
 			);
 		}
-		const ajv = new Ajv2020({ strict: false });
-		addFormats(ajv);
+		const ajv = buildAjv();
 		const cache = new Map<string, ValidateFunction<unknown> | null>();
 		return {
 			classify: (caseType, property, value) => {
@@ -5267,8 +5266,7 @@ function hasNoDataToKeep(value: unknown): boolean {
  * write).
  */
 const castConformance = (() => {
-	const ajv = new Ajv2020({ strict: false });
-	addFormats(ajv);
+	const ajv = buildAjv();
 	const cache = new Map<CasePropertyDataType, ValidateFunction<unknown>>();
 	return (dataType: CasePropertyDataType): ValidateFunction<unknown> => {
 		let validate = cache.get(dataType);

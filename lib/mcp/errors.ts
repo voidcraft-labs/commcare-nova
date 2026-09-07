@@ -45,6 +45,7 @@
 
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
+import { AppPaginationError } from "@/lib/db/appPagination";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -282,7 +283,10 @@ export function toMcpErrorResult(
 		...(ctx?.projectId !== undefined && { project_id: ctx.projectId }),
 	});
 
-	if (err instanceof McpInvalidInputError) {
+	if (
+		err instanceof McpInvalidInputError ||
+		err instanceof AppPaginationError
+	) {
 		/* Argument-validation failures short-circuit the classifier
 		 * because the failure shape is deterministic — the thrown
 		 * `message` is the precise reason (e.g. "edit mode requires

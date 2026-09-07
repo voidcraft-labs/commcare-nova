@@ -1,6 +1,5 @@
 import {
 	assignedLocationUuids,
-	type BlueprintDoc,
 	levelHoldsWorkers,
 	levelMayNestUnder,
 	type OrganizationLevel,
@@ -10,6 +9,7 @@ import {
 } from "@/lib/domain";
 import {
 	fixedLocationOwnerIssue,
+	type OrganizationRuleInputs,
 	reverseLocationOwnerIssue,
 } from "./ownerTargetVerdicts";
 import type { StoredLocation } from "./types";
@@ -19,10 +19,10 @@ export type OrganizationLevelPatch = Partial<
 > & { readonly parentLevelUuid?: Uuid | null };
 
 function candidateWithLevelPatch(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	levelUuid: string,
 	patch: OrganizationLevelPatch,
-): BlueprintDoc | undefined {
+): OrganizationRuleInputs | undefined {
 	const current = organizationLevelsOf(doc)[levelUuid];
 	if (current === undefined) return undefined;
 	const next: OrganizationLevel = { ...current, ...patch } as OrganizationLevel;
@@ -44,7 +44,7 @@ function candidateWithLevelPatch(
  * Blueprint in the first place, so conflict recovery never has to discard it.
  */
 export function organizationLevelPatchIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	locations: readonly StoredLocation[],
 	levelUuid: string,
 	patch: OrganizationLevelPatch,

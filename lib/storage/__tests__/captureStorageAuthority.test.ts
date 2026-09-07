@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 
 const expectedBytes = Buffer.from("nova-capture-storage-authority-v1", "utf8");
@@ -40,9 +40,10 @@ function isSourceKey(key: string): boolean {
 	return key.startsWith(STAGED_CAPTURE_PREFIX);
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("capture storage authority probe", () => {
 	beforeEach(() => {
-		vi.resetModules();
 		save.mockReset().mockResolvedValue(undefined);
 		getMetadata.mockReset().mockImplementation((key: string) =>
 			Promise.resolve([
@@ -62,10 +63,10 @@ describe("capture storage authority probe", () => {
 		copy.mockReset().mockResolvedValue(undefined);
 		deleteObject.mockReset().mockResolvedValue(undefined);
 		file.mockClear();
-		process.env.NOVA_MEDIA_BUCKET = "test-bucket";
+		vi.stubEnv("NOVA_MEDIA_BUCKET", "test-bucket");
 	});
 
-	it("proves create-only staged-to-durable copy and cleans up both exact generations", async () => {
+	it("requests create-only staged-to-durable copy and cleans up both exact generations", async () => {
 		const { probeCaptureStorageAuthority } = await import("../media");
 		await probeCaptureStorageAuthority();
 
@@ -148,18 +149,30 @@ describe("capture storage authority probe", () => {
 	});
 
 	it("surfaces the operation failure and every exact-generation cleanup failure", async () => {
+		const operationError = new Error("durable read denied");
+		const sourceCleanupError = new Error("staged delete denied");
+		const destinationCleanupError = new Error("durable delete denied");
 		download.mockImplementation((key: string) =>
 			key.startsWith("projects/")
-				? Promise.reject(new Error("durable read denied"))
+				? Promise.reject(operationError)
 				: Promise.resolve([expectedBytes]),
 		);
-		deleteObject.mockRejectedValue(new Error("delete denied"));
+		deleteObject.mockImplementation((key: string) =>
+			Promise.reject(
+				isSourceKey(key) ? sourceCleanupError : destinationCleanupError,
+			),
+		);
 		const { probeCaptureStorageAuthority } = await import("../media");
 
 		const failure = await probeCaptureStorageAuthority().catch(
 			(error: unknown) => error,
 		);
 		expect(failure).toBeInstanceOf(AggregateError);
-		expect((failure as AggregateError).errors).toHaveLength(3);
+		if (!(failure instanceof AggregateError)) throw failure;
+		expect(failure.errors).toEqual([
+			operationError,
+			destinationCleanupError,
+			sourceCleanupError,
+		]);
 	});
 });

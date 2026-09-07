@@ -1,28 +1,7 @@
-/**
- * Schema-compilation contract for the case-search-config SA tools.
- *
- * Two structural defenses on every CI pipeline run:
- *
- *   1. `z.toJSONSchema(...)` succeeds (the Zod 4 lazy-cycle bridge can
- *      throw on malformed recursive shapes; this asserts neither
- *      schema regresses into that state).
- *   2. The flat input shape's optional-field count stays ≤8. Both
- *      tools use the wholesale-with-`null`-clears pattern (every
- *      cluster slot is `*.nullable()` rather than `.optional()`),
- *      so the optional count is structurally zero — the test pins
- *      that invariant against an accidental `.optional()` flip
- *      that would push the schema past the
- *      8-optional ceiling.
- *
- * Plus representative-payload smoke parses for each tool's happy and
- * cleared-everything paths.
- *
- * The `scripts/test-schema.ts` harness covers the live-API
- * verification (it drives `generateText` against the live API and waits
- * for the response). This vitest file is the structural defense — it
- * runs in every CI pipeline without burning API credits.
- */
-
+/** Actual input requirements and global-expression refinements. Independent
+ * AJV validation covers emitted required/null shapes; no guessed provider
+ * optional-count limit or live API acceptance is claimed. */
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -38,55 +17,44 @@ import {
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
 
-/* JSON Schema shape this test introspects. `properties` and
- * `required` are present on object-shaped schemas; the cast keeps the
- * test typed against the relevant fields without pulling in a JSON
- * Schema type from the AI SDK. */
-interface ObjectJsonSchema {
-	type?: string;
-	properties?: Record<string, ObjectJsonSchema>;
-	required?: readonly string[];
-}
-
-/**
- * Both case-search-config tools use a flat input schema (no
- * discriminated-union slot). The 8-optional ceiling check therefore
- * runs against the top-level shape directly — count properties not in
- * `required` and assert ≤8. Because we adopted the
- * required-and-nullable pattern for every cluster slot, the count is
- * structurally zero on both tools.
- */
-function countTopLevelOptionals(schema: ObjectJsonSchema): number {
-	if (!schema.properties) {
-		throw new Error("expected JSON Schema with `properties`");
-	}
-	const required = new Set(schema.required ?? []);
-	return Object.keys(schema.properties).filter((k) => !required.has(k)).length;
-}
-
-const TOOLS = [
-	{ name: "setCaseSearchAdvanced", tool: setCaseSearchAdvancedTool },
-	{ name: "setCaseSearchDisplay", tool: setCaseSearchDisplayTool },
-] as const;
 const MODULE_UUID = testUuid("case-search-schema-module");
 
-describe("case-search-config tool schemas — 8-optional ceiling contract", () => {
-	for (const { name, tool } of TOOLS) {
-		it(`${name}: \`z.toJSONSchema\` succeeds`, () => {
-			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
-			expect(json.type).toBe("object");
-			expect(json.properties).toBeDefined();
-		});
-
-		it(`${name}: top-level optional count ≤8 (8-optional ceiling)`, () => {
-			const json = z.toJSONSchema(tool.inputSchema) as ObjectJsonSchema;
-			const optionalCount = countTopLevelOptionals(json);
-			expect(
-				optionalCount,
-				`${name}: top-level shape has ${optionalCount} optional fields`,
-			).toBeLessThanOrEqual(8);
-		});
-	}
+describe("case-search-config author schema boundaries", () => {
+	it.each([
+		[
+			"advanced",
+			setCaseSearchAdvancedTool.inputSchema,
+			{ moduleUuid: MODULE_UUID, excludedOwnerIds: null, searchFirst: null },
+		],
+		[
+			"display",
+			setCaseSearchDisplayTool.inputSchema,
+			{
+				moduleUuid: MODULE_UUID,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: null,
+				searchButtonDisplayCondition: null,
+			},
+		],
+	])(
+		"%s requires explicit choices for every cluster slot in both Zod and emitted JSON Schema",
+		(_name, schema, input) => {
+			const json = z.toJSONSchema(schema, { target: "draft-7", io: "input" });
+			const validate = new Ajv({
+				strict: false,
+				validateFormats: false,
+			}).compile(json);
+			expect(schema.safeParse(input).success).toBe(true);
+			expect(validate(input)).toBe(true);
+			for (const key of Object.keys(input)) {
+				const omitted = { ...input };
+				Reflect.deleteProperty(omitted, key);
+				expect(schema.safeParse(omitted).success, `missing ${key}`).toBe(false);
+				expect(validate(omitted), `missing ${key}`).toBe(false);
+			}
+		},
+	);
 
 	// ── Representative-payload smoke tests ────────────────────────────
 

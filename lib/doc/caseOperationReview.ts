@@ -29,8 +29,8 @@
 //     collapses to a set, and on a twenty-operation form "Update client
 //     uses it" is not actionable while "in the value of status" is.
 //     Its per-slot walk mirrors that function's structure exactly, and
-//     `__tests__/caseOperationReview.test.ts` asserts the two agree on
-//     every operation shape so they cannot drift apart.
+//     `__tests__/caseOperationReview.test.ts` checks explicit slot locations
+//     in admitted operations and move outcomes through the commit gate.
 
 import type { BlueprintDoc } from "@/lib/domain";
 import {
@@ -101,8 +101,8 @@ export function caseOperationDependencyOccurrences(
 
 /**
  * Mirrors `caseOperationDependencyUuids`' traversal, slot by slot. Any
- * new referencing slot must be added to BOTH; the parity test fails
- * otherwise.
+ * new referencing slot must be added to BOTH and covered with an explicit
+ * expected location in the review tests.
  */
 function referenceSlots(
 	operation: CaseOperation,

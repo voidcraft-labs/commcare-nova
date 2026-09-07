@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
@@ -12,7 +13,10 @@ import {
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	anyRelationPath,
@@ -30,8 +34,32 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { classifyError } from "../../../gate";
 import { runValidation } from "../../../runner";
+
+const TABLE = lookupTableIdSchema.parse("018f3e8a-7b2c-7def-8abc-00000000c0a1");
+const VALUE = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-00000000c0b1",
+);
+const NAME = lookupColumnIdSchema.parse("018f3e8a-7b2c-7def-8abc-00000000c0b2");
+const LOOKUP_CONTEXT: LookupValidationContext = {
+	kind: "available",
+	projectId: "project",
+	projectRevision: parseLookupRevision("1"),
+	definitions: [
+		{
+			id: TABLE,
+			name: "Names",
+			tag: "names",
+			definitionRevision: parseLookupRevision("1"),
+			columns: [
+				{ id: VALUE, wireName: "value", label: "Value", dataType: "text" },
+				{ id: NAME, wireName: "name", label: "Name", dataType: "text" },
+			],
+		},
+	],
+};
 
 const CODE = "CASE_LIST_EXPRESSION_NOT_ON_DEVICE" as const;
 
@@ -53,7 +81,6 @@ const standardCaseTypes = [
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "tags_json", label: "Saved tags", data_type: "text" as const },
 		],
 	},
@@ -72,7 +99,7 @@ const standardCaseTypes = [
 	{
 		name: "program",
 		properties: [
-			{ name: "name", label: "Program", data_type: "text" as const },
+			{ name: "program_name", label: "Program", data_type: "text" as const },
 		],
 	},
 	{
@@ -120,11 +147,18 @@ function errorsFor(args: FixtureArgs) {
 		],
 		caseTypes: standardCaseTypes,
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const findings = runValidation(doc, LOOKUP_CONTEXT);
+	if (findings.length === 0) expectAdmittedDoc(doc, LOOKUP_CONTEXT);
+	return findings;
 }
 
-function findingsFor(args: FixtureArgs) {
-	return errorsFor(args).filter((error) => error.code === CODE);
+function findingsFor(args: FixtureArgs, otherCodes: string[] = []) {
+	const all = errorsFor(args);
+	const hits = all.filter((error) => error.code === CODE);
+	expect(
+		all.filter((error) => error.code !== CODE).map((error) => error.code),
+	).toEqual(otherCodes);
+	return hits;
 }
 
 describe("onDeviceExpressionCompatibility", () => {
@@ -202,29 +236,35 @@ describe("onDeviceExpressionCompatibility", () => {
 		).toEqual([]);
 	});
 
-	it("checks simple and advanced search-input defaults with stable attribution", () => {
+	it("also attributes unsafe default reads already refused by the search-screen scope rule", () => {
 		const simpleUuid = testUuid("input-simple");
 		const advancedUuid = testUuid("input-advanced");
-		const hits = findingsFor({
-			searchInputs: [
-				simpleSearchInputDef(
-					simpleUuid,
-					"query",
-					"Query",
-					"text",
-					"case_name",
-					{ default: childNote() },
-				),
-				advancedSearchInputDef(
-					advancedUuid,
-					"saved_tags",
-					"Saved tags",
-					"text",
-					eq(prop("patient", "case_name"), literal("Alice")),
-					{ default: childNote() },
-				),
+		const hits = findingsFor(
+			{
+				searchInputs: [
+					simpleSearchInputDef(
+						simpleUuid,
+						"query",
+						"Query",
+						"text",
+						"case_name",
+						{ default: childNote() },
+					),
+					advancedSearchInputDef(
+						advancedUuid,
+						"saved_tags",
+						"Saved tags",
+						"text",
+						eq(prop("patient", "case_name"), literal("Alice")),
+						{ default: childNote() },
+					),
+				],
+			},
+			[
+				"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
+				"CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE",
 			],
-		});
+		);
 		expect(hits).toHaveLength(2);
 		expect(hits.map((hit) => hit.details?.inputUuid)).toEqual([
 			simpleUuid,
@@ -235,10 +275,13 @@ describe("onDeviceExpressionCompatibility", () => {
 		).toBe(true);
 	});
 
-	it("checks the assigned-cases scalar expression", () => {
-		const hits = findingsFor({
-			caseSearchConfig: { excludedOwnerIds: childNote() },
-		});
+	it("also attributes an unsafe assigned-cases read refused by its global scope rule", () => {
+		const hits = findingsFor(
+			{
+				caseSearchConfig: { excludedOwnerIds: childNote() },
+			},
+			["CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE"],
+		);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.surface).toBe("excluded-owner-ids");
 		expect(userFacingError(hits[0])).toContain("assigned cases setting");
@@ -351,10 +394,6 @@ describe("onDeviceExpressionCompatibility", () => {
 });
 
 describe("lookup-row escaped column", () => {
-	const TABLE = "018f3e8a-7b2c-7def-8abc-00000000c0a1" as LookupTableId;
-	const VALUE = "018f3e8a-7b2c-7def-8abc-00000000c0b1" as LookupColumnId;
-	const NAME = "018f3e8a-7b2c-7def-8abc-00000000c0b2" as LookupColumnId;
-
 	it("rejects a where comparing a lookup column with a related case's property", () => {
 		const findings = findingsFor({
 			filter: eq(
@@ -394,7 +433,7 @@ describe("lookup-row escaped column", () => {
 		expect(findings).toHaveLength(1);
 	});
 
-	it("accepts a related-case presence check beside a row-relative column read", () => {
+	it("accepts a lookup column compared with the current case value", () => {
 		const findings = findingsFor({
 			filter: eq(
 				tableLookup(

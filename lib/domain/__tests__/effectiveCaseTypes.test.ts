@@ -5,45 +5,56 @@
 // column-applicability + gate consumers depend on.
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { CasePropertyDataType, PersistableDoc } from "@/lib/domain";
-import { effectiveCaseTypes } from "@/lib/domain";
+import { blueprintDocSchema, effectiveCaseTypes } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-/** Test-local single-property read over the effective view —
- *  `undefined` conflates missing-and-unknown, which is fine for
- *  assertions but exactly why this is not a production API. */
+/** Assert the entry exists separately from its possibly unknown type. */
 function resolveEffectivePropertyType(
 	doc: PersistableDoc,
 	caseType: string,
 	property: string,
 ): CasePropertyDataType | undefined {
 	const ct = effectiveCaseTypes(doc).find((c) => c.name === caseType);
-	return ct?.properties.find((p) => p.name === property)?.data_type;
+	const entry = ct?.properties.find((p) => p.name === property);
+	expect(entry, `${caseType}/${property} must exist`).toBeDefined();
+	return entry?.data_type;
 }
 
 /** A doc with one module/form so writer fields have a home. */
 function docWith(args: {
 	fields: Parameters<typeof f>[0][];
+	candidateOnly?: boolean;
 	caseTypes?: NonNullable<Parameters<typeof buildDoc>[0]>["caseTypes"];
 }) {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "T",
 		caseTypes: args.caseTypes ?? [{ name: "patient", properties: [] }],
 		modules: [
 			{
 				name: "Mod",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Reg",
-						type: "registration",
-						fields: args.fields.map((spec) => f(spec)),
+						type: "followup",
+						fields: args.fields.length
+							? args.fields.map((spec) => f(spec))
+							: [f({ kind: "text", id: "note", label: "Note" })],
 					},
 				],
 			},
 		],
 	});
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	if (!args.candidateOnly) expectAdmittedDoc(doc);
+	return doc;
 }
 
 describe("effectiveCaseTypes — writer derivation", () => {
@@ -69,6 +80,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 
 	it("keeps a declared annotation over the writer derivation", () => {
 		const doc = docWith({
+			candidateOnly: true, // Pre-gate analysis of a structurally valid candidate.
 			caseTypes: [
 				{
 					name: "patient",
@@ -127,17 +139,23 @@ describe("effectiveCaseTypes — writer derivation", () => {
 		const doc = buildDoc({
 			appName: "T",
 			caseTypes: [
-				{ name: "patient", properties: [] },
-				{ name: "visit", properties: [] },
+				{
+					name: "patient",
+					properties: [{ name: "dob", label: proseText("DOB") }],
+				},
+				{ name: "visit", parent_type: "patient", properties: [] },
 			],
 			modules: [
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Reg",
-							type: "registration",
+							type: "followup",
 							fields: [
 								f({
 									kind: "date",
@@ -152,10 +170,13 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Visit",
-							type: "registration",
+							type: "followup",
 							fields: [
 								f({
 									kind: "hidden",
@@ -169,6 +190,7 @@ describe("effectiveCaseTypes — writer derivation", () => {
 				},
 			],
 		});
+		expectAdmittedDoc(doc);
 		expect(resolveEffectivePropertyType(doc, "visit", "dob")).toBe("date");
 	});
 
@@ -196,16 +218,17 @@ describe("effectiveCaseTypes — writer derivation", () => {
 
 	it("resolves unknown on writer disagreement instead of picking a side", () => {
 		const doc = docWith({
+			candidateOnly: true, // Pre-gate analysis of a structurally valid candidate.
 			fields: [
 				f({
 					kind: "date",
-					id: "x",
+					id: "date_answer",
 					label: proseText("X"),
 					caseWrite: { caseType: "patient", property: "x" },
 				}),
 				f({
 					kind: "int",
-					id: "x",
+					id: "int_answer",
 					label: proseText("X"),
 					caseWrite: { caseType: "patient", property: "x" },
 				}),
@@ -215,53 +238,37 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	});
 
 	it("resolves a reference cycle to unknown instead of recursing forever", () => {
-		const doc = buildDoc({
-			appName: "T",
+		const doc = docWith({
 			caseTypes: [
-				{ name: "a", properties: [] },
-				{ name: "b", properties: [] },
+				{
+					name: "patient",
+					properties: [
+						{ name: "left", label: proseText("Left") },
+						{ name: "right", label: proseText("Right") },
+					],
+				},
 			],
-			modules: [
-				{
-					name: "A",
-					caseType: "a",
-					forms: [
-						{
-							name: "FA",
-							type: "registration",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "p",
-									caseWrite: { caseType: "a", property: "p" },
-									default_value: "#b/p",
-								}),
-							],
-						},
-					],
-				},
-				{
-					name: "B",
-					caseType: "b",
-					forms: [
-						{
-							name: "FB",
-							type: "registration",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "p",
-									caseWrite: { caseType: "b", property: "p" },
-									default_value: "#a/p",
-								}),
-							],
-						},
-					],
-				},
+			fields: [
+				f({
+					kind: "hidden",
+					id: "left",
+					caseWrite: { caseType: "patient", property: "left" },
+					default_value: "#patient/right",
+				}),
+				f({
+					kind: "hidden",
+					id: "right",
+					caseWrite: { caseType: "patient", property: "right" },
+					default_value: "#patient/left",
+				}),
 			],
 		});
-		expect(resolveEffectivePropertyType(doc, "a", "p")).toBeUndefined();
-		expect(resolveEffectivePropertyType(doc, "b", "p")).toBeUndefined();
+		expect(
+			resolveEffectivePropertyType(doc, "patient", "left"),
+		).toBeUndefined();
+		expect(
+			resolveEffectivePropertyType(doc, "patient", "right"),
+		).toBeUndefined();
 	});
 });
 
@@ -278,6 +285,7 @@ describe("effectiveCaseTypes — the assembled view", () => {
 
 	it("never invents a case type the catalog doesn't declare", () => {
 		const doc = docWith({
+			candidateOnly: true, // Pre-gate analysis of a structurally valid candidate.
 			fields: [
 				f({
 					kind: "text",

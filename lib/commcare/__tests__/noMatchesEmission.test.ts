@@ -20,10 +20,10 @@
 
 import AdmZip from "adm-zip";
 import { type ChildNode, type Element, isTag } from "domhandler";
+import { textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { emissionPlan, syntheticModuleUuid } from "@/lib/commcare/emissionPlan";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -31,13 +31,20 @@ import { CASE_FIXTURE_URL_TEMPLATE } from "@/lib/commcare/formLinkProjection";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { simpleSearchInputDef } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import {
+	admitNoMatchesDoc,
+	FOLLOWUP_FORM,
+	HOST_MODULE,
+	noMatchesDoc,
+	noMatchesWireFixture,
+	REGISTER_FORM,
+} from "./noMatchesWireFixture";
 
 // ── Structural comparison ────────────────────────────────────────────
 
 interface Shape {
 	readonly name: string;
+	readonly text: string;
 	readonly attribs: Readonly<Record<string, string>>;
 	readonly children: readonly Shape[];
 }
@@ -45,6 +52,7 @@ interface Shape {
 function shapeOf(element: Element): Shape {
 	return {
 		name: element.name,
+		text: element.children.some(isTag) ? "" : textContent(element),
 		attribs: Object.fromEntries(
 			Object.entries(element.attribs).sort(([a], [b]) => a.localeCompare(b)),
 		),
@@ -72,95 +80,11 @@ function expectPartialEqual(actual: Element, expectedPartial: string): void {
 
 // ── The app ─────────────────────────────────────────────────────────
 
-const HOST_MODULE = testUuid("00000000-0000-4000-8000-0000000b0010");
-const FOLLOWUP_FORM = testUuid("00000000-0000-4000-8000-0000000b0011");
-const REGISTER_FORM = testUuid("00000000-0000-4000-8000-0000000b0012");
-const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000b0001");
-const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000b0020");
-const HOUSEHOLD_MODULE = testUuid("00000000-0000-4000-8000-0000000b0030");
-
-/**
- * A search-first "Patients" module with one prompt `patient_name`, one
- * followup menu form, and one no-matches registration form whose name
- * field defaults to `#search/patient_name`.
- */
-function noMatchesDoc(
-	options: { readonly label?: string; readonly caseListOnly?: boolean } = {},
-): BlueprintDoc {
-	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-	config.searchInputs = [
-		simpleSearchInputDef(
-			NAME_INPUT,
-			"patient_name",
-			"Patient name",
-			"text",
-			"case_name",
-		),
-	];
-	const registerForm = {
-		uuid: REGISTER_FORM,
-		name: "Register patient",
-		type: "registration" as const,
-		entry: {
-			kind: "search-no-matches" as const,
-			...(options.label !== undefined && { label: options.label }),
-		},
-		fields: [
-			f({
-				uuid: NAME_FIELD,
-				kind: "text",
-				id: "case_name",
-				label: proseText("Name"),
-				caseWrite: { caseType: "patient", property: "case_name" },
-				default_value: {
-					parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
-				},
-			}),
-		],
-	};
-	return buildDoc({
-		appName: "Registry",
-		modules: [
-			{
-				uuid: HOST_MODULE,
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
-				...(options.caseListOnly === true
-					? { caseListOnly: true, forms: [registerForm] }
-					: {
-							forms: [
-								{
-									uuid: FOLLOWUP_FORM,
-									name: "Visit",
-									type: "followup" as const,
-									fields: [
-										f({
-											kind: "text",
-											id: "note",
-											label: proseText("Note"),
-										}),
-									],
-								},
-								registerForm,
-							],
-						}),
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-	});
-}
-
 function compileSuite(doc: BlueprintDoc): {
 	suite: Element;
 	xform: (path: string) => string;
 } {
+	admitNoMatchesDoc(doc);
 	const ccz = compileCcz(expandDoc(doc), "Registry", doc);
 	const zip = new AdmZip(ccz);
 	const [suite] = parseXml(zip.readAsText("suite.xml"));
@@ -259,14 +183,29 @@ describe("no-matches registration form", () => {
 	it("declares the search-input instance and reads the answer in the XForm", () => {
 		const { xform } = compileSuite(noMatchesDoc());
 		const form = xform("modules-1/forms-0.xml");
-		expect(form).toContain(
-			'<instance src="jr://instance/search-input/results:inline" id="search-input:results:inline"/>',
-		);
-		// The serializer spells the quotes as `&apos;`.
-		expect(form).toContain(
-			'value="instance(&apos;search-input:results:inline&apos;)/input/field[@name=&apos;patient_name&apos;]"',
-		);
-		expect(form).not.toContain("#search/");
+		const nodes = (e: Element): Element[] => [
+			e,
+			...e.children.filter(isTag).flatMap(nodes),
+		];
+		const all = parseXml(form).flatMap(nodes);
+		expect(
+			all
+				.filter(
+					(e) =>
+						e.name === "instance" &&
+						e.attribs.id === "search-input:results:inline",
+				)
+				.map((e) => e.attribs.src),
+		).toEqual(["jr://instance/search-input/results:inline"]);
+		expect(
+			all
+				.filter(
+					(e) => e.name === "setvalue" && e.attribs.ref === "/data/case_name",
+				)
+				.map((e) => e.attribs.value),
+		).toEqual([
+			"instance('search-input:results:inline')/input/field[@name='patient_name']",
+		]);
 	});
 
 	it("labels the action from the entry label, else the form name", () => {
@@ -274,8 +213,16 @@ describe("no-matches registration form", () => {
 		const named = compileSuite(noMatchesDoc());
 		const strings = (suite: { xform: (path: string) => string }) =>
 			suite.xform("default/app_strings.txt");
-		expect(strings(labelled)).toContain("case_list_form.m0=Add a new patient");
-		expect(strings(named)).toContain("case_list_form.m0=Register patient");
+		expect(
+			strings(labelled)
+				.split("\n")
+				.filter((line) => line.startsWith("case_list_form.m0=")),
+		).toEqual(["case_list_form.m0=Add a new patient"]);
+		expect(
+			strings(named)
+				.split("\n")
+				.filter((line) => line.startsWith("case_list_form.m0=")),
+		).toEqual(["case_list_form.m0=Register patient"]);
 	});
 
 	it("emits case_list_form on the host and a hidden module in HQ JSON", () => {
@@ -298,39 +245,8 @@ describe("no-matches registration form", () => {
 		expect(hidden.case_list_form.form_id).toBeNull();
 	});
 
-	it("copies a parent selection from the host's first menu form (case-list-form-suite-parent-child-basic.xml)", () => {
-		const base = noMatchesDoc();
-		const doc: BlueprintDoc = {
-			...base,
-			modules: {
-				...base.modules,
-				[HOUSEHOLD_MODULE]: {
-					...base.modules[HOST_MODULE],
-					uuid: HOUSEHOLD_MODULE,
-					id: "households",
-					name: "Households",
-					caseListOnly: true,
-					caseType: "household",
-					caseSearchConfig: undefined,
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-				},
-			},
-			moduleOrder: [...base.moduleOrder, HOUSEHOLD_MODULE],
-			formOrder: { ...base.formOrder, [HOUSEHOLD_MODULE]: [] },
-			caseTypes: [
-				...(base.caseTypes ?? []).map((caseType) =>
-					caseType.name === "patient"
-						? { ...caseType, parent_type: "household" }
-						: caseType,
-				),
-				{
-					name: "household",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		};
+	it("keeps primary registration free of a catalog parent load", () => {
+		const doc = noMatchesWireFixture("parent");
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const { suite } = compileSuite(doc);
 		const detail = childrenNamed(suite, "detail").find(
@@ -340,9 +256,8 @@ describe("no-matches registration form", () => {
 		const [action] = childrenNamed(detail, "action");
 		const [stack] = childrenNamed(action, "stack");
 		const [push] = childrenNamed(stack, "push");
-		// HQ `get_datums_for_action`: the target's parent selection reads the
-		// session value of the host's first menu form's datum of that case
-		// type; the new-case datum keeps its function.
+		// Native HQ imports this exact app as requires:none/open_case; the
+		// catalog relationship does not turn primary registration into subcase creation.
 		expect(
 			elementsOf(push.children).map((child) => [
 				child.name,
@@ -351,14 +266,23 @@ describe("no-matches registration form", () => {
 			]),
 		).toEqual([
 			["command", "'m2-f0'", undefined],
-			[
-				"datum",
-				"case_id",
-				"instance('commcaresession')/session/data/parent_id",
-			],
 			["datum", "case_id_new_patient_0", "uuid()"],
 			["datum", "return_to", "'m0'"],
 		]);
+	});
+
+	it("admits primary registration on a bare parent-scoped search", () => {
+		const doc = noMatchesWireFixture("parent-bare"),
+			{ suite } = compileSuite(doc);
+		const entry = childrenNamed(suite, "entry").find((e) =>
+			childrenNamed(e, "command").some((c) => c.attribs.id === "m2-f0"),
+		);
+		if (!entry) throw new Error("Missing registration entry");
+		expect(
+			childrenNamed(childrenNamed(entry, "session")[0], "datum").map(
+				(e) => e.attribs.id,
+			),
+		).toEqual(["case_id_new_patient_0"]);
 	});
 
 	it("still lowers on a bare case list host, with a bare return frame", () => {

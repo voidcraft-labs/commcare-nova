@@ -2,10 +2,11 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
-import { applyMutations } from "@/lib/doc/mutations";
 import {
 	advancedSearchInputDef,
 	plainColumn,
@@ -13,6 +14,7 @@ import {
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 describe("Search-input final mutation shape", () => {
 	it("diffs and replays add, update, remove, and reorder across both exact arms", () => {
@@ -98,7 +100,7 @@ describe("Search-input final mutation shape", () => {
 				),
 				simpleSearchInputDef(
 					addedUuid,
-					"opened",
+					"date_opened",
 					"Opened",
 					"date-range",
 					"date_opened",
@@ -113,7 +115,11 @@ describe("Search-input final mutation shape", () => {
 			];
 		});
 
-		const forward = admitMutationBatch(diffDocsToMutations(previous, next));
+		assertAdmittedDoc(previous);
+		assertAdmittedDoc(next);
+		const forward = admitMutationBatch(
+			JSON.parse(JSON.stringify(diffDocsToMutations(previous, next))),
+		);
 		expect(forward.map((mutation) => mutation.kind)).toEqual(
 			expect.arrayContaining([
 				"addSearchInput",
@@ -122,15 +128,25 @@ describe("Search-input final mutation shape", () => {
 				"moveSearchInput",
 			]),
 		);
-		const replayed = produce(previous, (draft) => {
-			applyMutations(draft, forward);
-		});
+		const forwardVerdict = mutationCommitVerdict(
+			previous,
+			forward,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(forwardVerdict.ok ? [] : forwardVerdict.findings).toEqual([]);
+		const replayed = forwardVerdict.nextDoc;
 		expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(next));
 
-		const reverse = admitMutationBatch(diffDocsToMutations(next, previous));
-		const restored = produce(next, (draft) => {
-			applyMutations(draft, reverse);
-		});
+		const reverse = admitMutationBatch(
+			JSON.parse(JSON.stringify(diffDocsToMutations(next, previous))),
+		);
+		const reverseVerdict = mutationCommitVerdict(
+			next,
+			reverse,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(reverseVerdict.ok ? [] : reverseVerdict.findings).toEqual([]);
+		const restored = reverseVerdict.nextDoc;
 		expect(toPersistableDoc(restored)).toEqual(toPersistableDoc(previous));
 	});
 });

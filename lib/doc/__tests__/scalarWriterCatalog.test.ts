@@ -1,93 +1,80 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { applyMutations } from "@/lib/doc/mutations";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { CASE_SCALAR_PROPERTY_NAMES, type Field } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-const FIELD = testUuid("11111111-1111-4111-8111-111111111111");
-
-function base(fieldProperty?: string): BlueprintDoc {
-	return buildDoc({
+const FIELD = testUuid("scalar-writer");
+function base(): BlueprintDoc {
+	const doc = buildDoc({
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: [
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
-						name: "Register",
-						type: "registration",
-						fields:
-							fieldProperty === undefined
-								? []
-								: [
-										f({
-											uuid: FIELD,
-											kind: "text",
-											id: "value",
-											label: proseText("Value"),
-											caseWrite: {
-												caseType: "patient",
-												property: fieldProperty,
-											},
-										}),
-									],
+						name: "Visit",
+						type: "followup",
+						fields: [
+							{
+								uuid: FIELD,
+								kind: "text",
+								id: "value",
+								label: proseText("Value"),
+							},
+						],
 					},
 				],
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
-
-function reduce(
+function commit(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
-
 function catalogNames(doc: BlueprintDoc): string[] {
-	return doc.caseTypes?.[0]?.properties.map(({ name }) => name) ?? [];
+	return doc.caseTypes?.[0]?.properties.map((property) => property.name) ?? [];
 }
 
-describe("case scalar field writers never synthesize catalog properties", () => {
-	it("covers every scalar name through add, update, and convert reducers", () => {
-		for (const property of CASE_SCALAR_PROPERTY_NAMES) {
-			const addBase = base();
-			const formUuid = addBase.formOrder[addBase.moduleOrder[0]][0];
-			const added = reduce(addBase, [
+describe("scalar destinations and the authored property catalog", () => {
+	it.each(["case_name", "external_id"])(
+		"keeps writable scalar %s implicit through add, update and conversion",
+		(property) => {
+			const doc = base();
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const added = commit(doc, [
 				{
 					kind: "addField",
 					parentUuid: formUuid,
-					field: f({
-						uuid: FIELD,
+					field: {
+						uuid: testUuid("added-writer"),
 						kind: "text",
-						id: "value",
-						label: proseText("Value"),
+						id: "writer",
+						label: proseText("Writer"),
 						caseWrite: { caseType: "patient", property },
-					}) as Field,
+					},
 				},
 			]);
-			expect(catalogNames(added), `addField ${property}`).toEqual([]);
-
-			const updateBase = base();
-			const updateFormUuid = updateBase.formOrder[updateBase.moduleOrder[0]][0];
-			const updated = reduce(updateBase, [
-				{
-					kind: "addField",
-					parentUuid: updateFormUuid,
-					field: f({
-						uuid: FIELD,
-						kind: "text",
-						id: "value",
-						label: proseText("Value"),
-					}) as Field,
-				},
+			expect(catalogNames(added)).toEqual([]);
+			const updated = commit(doc, [
 				{
 					kind: "updateField",
 					uuid: FIELD,
@@ -95,12 +82,71 @@ describe("case scalar field writers never synthesize catalog properties", () => 
 					patch: { caseWrite: { caseType: "patient", property } },
 				},
 			]);
-			expect(catalogNames(updated), `updateField ${property}`).toEqual([]);
-
-			const converted = reduce(base(property), [
+			expect(catalogNames(updated)).toEqual([]);
+			const converted = commit(updated, [
 				{ kind: "convertField", uuid: FIELD, toKind: "secret" },
 			]);
-			expect(catalogNames(converted), `convertField ${property}`).toEqual([]);
-		}
+			expect(converted.fields[FIELD]).toMatchObject({
+				kind: "secret",
+				caseWrite: { caseType: "patient", property },
+			});
+			expect(catalogNames(converted)).toEqual([]);
+		},
+	);
+	it.each([
+		"case_id",
+		"case_type",
+		"owner_id",
+		"status",
+		"date_opened",
+		"last_modified",
+	])("refuses ordinary writes to platform scalar %s", (property) => {
+		const doc = base();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: FIELD,
+					targetKind: "text",
+					patch: { caseWrite: { caseType: "patient", property } },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
+		if (verdict.ok) throw new Error("Expected reserved destination refusal");
+		expect(verdict.findings.map((finding) => finding.code)).toContain(
+			"RESERVED_CASE_PROPERTY",
+		);
+		expect(catalogNames(doc)).toEqual([]);
+	});
+	it("registers a custom destination and preserves it after the writer is cleared", () => {
+		const doc = commit(base(), [
+			{
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "text",
+				patch: {
+					caseWrite: { caseType: "patient", property: "favorite_color" },
+				},
+			},
+		]);
+		expect(doc.caseTypes?.[0].properties).toEqual([
+			{
+				name: "favorite_color",
+				label: proseText("favorite_color"),
+				data_type: "text",
+			},
+		]);
+		const cleared = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: FIELD,
+				targetKind: "text",
+				patch: { caseWrite: null },
+			},
+		]);
+		expect(catalogNames(cleared)).toEqual(["favorite_color"]);
 	});
 });

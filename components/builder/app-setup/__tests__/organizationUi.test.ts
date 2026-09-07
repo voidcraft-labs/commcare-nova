@@ -1,293 +1,239 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
-	asUuid,
-	type BlueprintDoc,
 	LEVEL_CODE_MAX_LENGTH,
 	type LocationProperty,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import { organizationLevelSchema } from "@/lib/domain/organization";
 import {
 	flattenRequiredReverseHopDescendants,
-	localValueSaveDisposition,
-	locationValuePatch,
-	PERSONA_LOCATION_PAGE_SIZE,
 	personaLocationPage,
-	placementSaveDraftDisposition,
 	propertiesForLevel,
-	rebaseLocationValueDraft,
-	rebaseUntouchedLocationDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
-	scalarDraftStillMatchesSave,
 	uniqueLevelCode,
 	valuesForLevel,
 } from "../organizationUi";
 
-const REGION = asUuid("11111111-1111-4111-8111-111111111111");
-const FACILITY = asUuid("22222222-2222-4222-8222-222222222222");
-const EVERYWHERE = asUuid("33333333-3333-4333-8333-333333333333");
-const FACILITY_ONLY = asUuid("44444444-4444-4444-8444-444444444444");
-
-const properties: LocationProperty[] = [
+const region = testUuid("plan-region"),
+	facility = testUuid("plan-facility"),
+	queue = testUuid("plan-queue"),
+	room = testUuid("plan-room"),
+	bay = testUuid("plan-bay");
+const phone = testUuid("plan-phone"),
+	kind = testUuid("plan-kind");
+function level(
+	uuid: OrganizationLevel["uuid"],
+	code: string,
+	parentLevelUuid?: OrganizationLevel["uuid"],
+): OrganizationLevel {
+	return {
+		uuid,
+		code,
+		name: code,
+		...(parentLevelUuid === undefined ? {} : { parentLevelUuid }),
+		caseFlow: { workers: "none", ownsCases: true },
+		addressBook: { reach: "own-branch" },
+	};
+}
+const properties: readonly LocationProperty[] = [
+	{ uuid: phone, slug: "phone", label: "Phone", required: true },
 	{
-		uuid: EVERYWHERE,
-		slug: "phone",
-		label: "Phone",
-		required: true,
-	},
-	{
-		uuid: FACILITY_ONLY,
+		uuid: kind,
 		slug: "kind",
 		label: "Facility kind",
-		levelUuids: [FACILITY],
+		required: true,
+		levelUuids: [facility],
 		choices: ["Clinic", "Hospital"],
 	},
 ];
 
-describe("organization place-information UI", () => {
-	it("bounds derived level codes and reserves space for collision suffixes", () => {
-		const longName = "A".repeat(LEVEL_CODE_MAX_LENGTH + 20);
-		const first = uniqueLevelCode(longName, []);
-		const peers = [{ code: first }] as OrganizationLevel[];
-		const second = uniqueLevelCode(longName, peers);
-
-		expect(first).toHaveLength(LEVEL_CODE_MAX_LENGTH);
-		expect(second).toHaveLength(LEVEL_CODE_MAX_LENGTH);
-		expect(second.endsWith("_2")).toBe(true);
-		expect(second).not.toBe(first);
-		expect(first).toMatch(/^[a-z_][a-z0-9_-]*$/);
-		expect(second).toMatch(/^[a-z_][a-z0-9_-]*$/);
-	});
-
-	it("mounts only one bounded page of a maximum-size persona assignment", () => {
-		const assigned = Array.from({ length: 10_000 }, (_, index) =>
-			String(index),
+describe("organization authoring projections", () => {
+	it("derives schema-accepted level codes and searches collisions within the length limit", () => {
+		for (const [name, expected] of [
+			["North Coast", "north_coast"],
+			["12 wards", "l_12_wards"],
+			["!!!", "level"],
+			[" RÉGION / North ", "r_gion_north"],
+		]) {
+			const code = uniqueLevelCode(name, []);
+			expect(code).toBe(expected);
+			expect(
+				organizationLevelSchema.safeParse(level(region, code)).success,
+			).toBe(true);
+		}
+		const long = "a".repeat(LEVEL_CODE_MAX_LENGTH);
+		const peers = [
+			level(region, long),
+			level(facility, `${long.slice(0, -2)}_2`),
+			level(queue, `${long.slice(0, -2)}_3`),
+		];
+		expect(uniqueLevelCode(`${long} plus`, peers)).toBe(
+			`${long.slice(0, -2)}_4`,
 		);
-		const page = personaLocationPage(assigned, 199);
-		expect(page.ids).toHaveLength(PERSONA_LOCATION_PAGE_SIZE);
-		expect(page.ids[0]).toBe("9950");
-		expect(page.ids.at(-1)).toBe("9999");
-		expect(page.pageCount).toBe(200);
+		expect(peers.map((peer) => peer.code)).toEqual([
+			long,
+			`${long.slice(0, -2)}_2`,
+			`${long.slice(0, -2)}_3`,
+		]);
 	});
 
-	it("projects the authored catalog to the selected level", () => {
-		expect(
-			propertiesForLevel(properties, REGION).map(({ uuid }) => uuid),
-		).toEqual([EVERYWHERE]);
-		expect(
-			propertiesForLevel(properties, FACILITY).map(({ uuid }) => uuid),
-		).toEqual([EVERYWHERE, FACILITY_ONLY]);
-	});
-
-	it("drops values a changed level can no longer carry", () => {
-		expect(
-			valuesForLevel(properties, REGION, {
-				[EVERYWHERE]: "555-0100",
-				[FACILITY_ONLY]: "Clinic",
-			}),
-		).toEqual({ [EVERYWHERE]: "555-0100" });
-	});
-
-	it("requires only applicable required values", () => {
-		expect(requiredValuesPresent(properties, FACILITY, {})).toBe(false);
-		expect(
-			requiredValuesPresent(properties, FACILITY, { [EVERYWHERE]: "555-0100" }),
-		).toBe(true);
-	});
-
-	it("rebases an async field save without erasing another in-progress draft", () => {
-		expect(
-			rebaseLocationValueDraft(
-				{ [EVERYWHERE]: "saved A", [FACILITY_ONLY]: "peer B" },
-				{ [FACILITY_ONLY]: "local B" },
-			),
-		).toEqual({
-			[EVERYWHERE]: "saved A",
-			[FACILITY_ONLY]: "local B",
+	it("returns bounded assignment slices and clamps a removed last page", () => {
+		const ids = Array.from(
+			{ length: 10_000 },
+			(_, index) => `assignment-${index}`,
+		);
+		expect(personaLocationPage(ids, 199)).toEqual({
+			ids: ids.slice(9950),
+			page: 199,
+			pageCount: 200,
+			start: 9950,
+		});
+		expect(personaLocationPage(ids.slice(0, 50), 199)).toEqual({
+			ids: ids.slice(0, 50),
+			page: 0,
+			pageCount: 1,
+			start: 0,
+		});
+		expect(personaLocationPage(ids, -1)).toEqual({
+			ids: ids.slice(0, 50),
+			page: 0,
+			pageCount: 200,
+			start: 0,
+		});
+		expect(personaLocationPage([], 3)).toEqual({
+			ids: [],
+			page: 0,
+			pageCount: 1,
+			start: 0,
 		});
 	});
 
-	it("keeps only genuinely dirty scalar fields over a peer snapshot", () => {
-		expect(
-			rebaseUntouchedLocationDraft({
-				authoritative: {
-					name: "Peer facility",
-					externalId: "peer-id",
-					latitude: "1",
-					longitude: "2",
-					levelUuid: REGION,
-					parentId: "peer-parent",
-				},
-				draft: {
-					name: "Local name",
-					externalId: "old-id",
-					latitude: "old-latitude",
-					longitude: "old-longitude",
-					levelUuid: FACILITY,
-					parentId: "old-parent",
-				},
-				dirty: {
-					name: true,
-					externalId: false,
-					latitude: false,
-					longitude: false,
-					levelUuid: false,
-					parentId: false,
-				},
-			}),
-		).toEqual({
-			name: "Local name",
-			externalId: "peer-id",
-			latitude: "1",
-			longitude: "2",
-			levelUuid: REGION,
-			parentId: "peer-parent",
+	it("projects the ordered applicable catalog and values without mutating either", () => {
+		const values = {
+			[phone]: "555-0100",
+			[kind]: "Clinic",
+			[testUuid("removed-property")]: "old value",
+		};
+		const before = structuredClone({ properties, values });
+		expect(propertiesForLevel(properties, region)).toEqual([properties[0]]);
+		expect(propertiesForLevel(properties, facility)).toEqual(properties);
+		expect(valuesForLevel(properties, region, values)).toEqual({
+			[phone]: "555-0100",
 		});
+		expect(valuesForLevel(properties, facility, values)).toEqual({
+			[phone]: "555-0100",
+			[kind]: "Clinic",
+		});
+		expect({ properties, values }).toEqual(before);
 	});
 
-	it("does not settle a scalar save after the author typed a newer draft", () => {
-		expect(scalarDraftStillMatchesSave("newer name", "submitted name")).toBe(
+	it("requires every applicable mandatory value while leaving accepted-value admission to the writer", () => {
+		expect(requiredValuesPresent(properties, region, {})).toBe(false);
+		expect(requiredValuesPresent(properties, region, { [phone]: "" })).toBe(
 			false,
 		);
 		expect(
-			scalarDraftStillMatchesSave("submitted name", "submitted name"),
+			requiredValuesPresent(properties, region, { [phone]: "555-0100" }),
+		).toBe(true);
+		expect(
+			requiredValuesPresent(properties, facility, { [phone]: "555-0100" }),
+		).toBe(false);
+		expect(
+			requiredValuesPresent(properties, facility, {
+				[phone]: "555-0100",
+				[kind]: "Clinic",
+			}),
+		).toBe(true);
+		expect(
+			requiredValuesPresent(
+				properties.map((property) => ({ ...property, required: false })),
+				region,
+				{},
+			),
 		).toBe(true);
 	});
 
-	it("records an accepted value save before a staged retype without settling its draft", () => {
-		expect(
-			localValueSaveDisposition({
-				currentBaseLevelUuid: REGION,
-				beforeLevelUuid: REGION,
-				currentDraftLevelUuid: FACILITY,
-				submittedLevelUuid: REGION,
-			}),
-		).toBe("record-only");
-		expect(
-			localValueSaveDisposition({
-				currentBaseLevelUuid: FACILITY,
-				beforeLevelUuid: REGION,
-				currentDraftLevelUuid: FACILITY,
-				submittedLevelUuid: REGION,
-			}),
-		).toBe("obsolete");
-	});
-
-	it("requires a second apply for values authored during a placement save", () => {
-		expect(
-			placementSaveDraftDisposition({
-				responseIsLatest: true,
-				levelMatches: true,
-				parentMatches: true,
-				valuesMatch: false,
-				dirtyValueCount: 1,
-			}),
-		).toEqual({ current: false, valuesNeedApply: true });
-		expect(
-			placementSaveDraftDisposition({
-				responseIsLatest: true,
-				levelMatches: true,
-				parentMatches: true,
-				valuesMatch: true,
-				dirtyValueCount: 0,
-			}),
-		).toEqual({ current: true, valuesNeedApply: false });
-	});
-
-	it("transports Clear as key deletion rather than a stored empty string", () => {
-		expect(locationValuePatch("")).toBeNull();
-		expect(locationValuePatch("Clinic")).toBe("Clinic");
-	});
-
-	it("plans every reverse-hop destination below a new source in one branch", () => {
-		const queue = asUuid("55555555-5555-4555-8555-555555555555");
-		const room = asUuid("66666666-6666-4666-8666-666666666666");
+	it("plans branched and chained reverse-owner destinations in authored order without duplicate requests", () => {
+		const formUuid = testUuid("plan-form");
 		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{
-					name: "Organization",
-					forms: [{ name: "Route", type: "survey" }],
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
 				},
 			],
-		}) as BlueprintDoc;
-		const formUuid = doc.formOrder[doc.moduleOrder[0]]?.[0];
-		if (formUuid === undefined) throw new Error("fixture form missing");
-		doc.forms[formUuid].caseOperations = [
-			{
-				uuid: asUuid("77777777-7777-4777-8777-777777777777"),
-				id: "route-to-queue",
-				action: "update",
-				caseType: "case",
-				target: { kind: "session" },
-				owner: {
-					kind: "term",
-					term: {
-						kind: "owner-location-at-level",
-						levelUuid: queue,
-						ownerCaseType: "case",
-					},
-				},
-			},
-			{
-				uuid: asUuid("88888888-8888-4888-8888-888888888888"),
-				id: "route-to-room",
-				action: "update",
-				caseType: "case",
-				target: { kind: "session" },
-				owner: {
-					kind: "term",
-					term: {
-						kind: "owner-location-at-level",
-						levelUuid: room,
-						ownerCaseType: "case",
-					},
-				},
-			},
-		];
+		});
 		doc.organizationLevels = {
-			[FACILITY]: {
-				uuid: FACILITY,
-				code: "facility",
-				name: "Facility",
-				caseFlow: {
-					workers: "assigned" as const,
-					ownsCases: true,
-					descendantCases: { kind: "none" as const },
-				},
-				addressBook: { reach: "own-branch" as const },
-			},
-			[queue]: {
-				uuid: queue,
-				code: "queue",
-				name: "Queue",
-				parentLevelUuid: FACILITY,
-				caseFlow: { workers: "none" as const, ownsCases: true },
-				addressBook: { reach: "own-branch" as const },
-			},
-			[room]: {
-				uuid: room,
-				code: "room",
-				name: "Room",
-				parentLevelUuid: queue,
-				caseFlow: { workers: "none" as const, ownsCases: true },
-				addressBook: { reach: "own-branch" as const },
-			},
+			[region]: level(region, "region"),
+			[facility]: level(facility, "facility", region),
+			[queue]: level(queue, "queue", facility),
+			[room]: level(room, "room", queue),
+			[bay]: level(bay, "bay", facility),
 		};
-		doc.organizationLevelOrder = [FACILITY, queue, room];
-
-		const branch = requiredReverseHopDescendants(doc, FACILITY);
-		expect(branch).toHaveLength(1);
-		expect(branch[0]?.level.uuid).toBe(queue);
-		expect(branch[0]?.descendants[0]?.level.uuid).toBe(room);
-		expect(
-			flattenRequiredReverseHopDescendants(branch).map((entry) => ({
-				level: entry.level.uuid,
-				uiPath: entry.uiPath,
-			})),
-		).toEqual([
-			{ level: queue, uiPath: "0" },
-			{ level: room, uiPath: "0.0" },
+		doc.organizationLevelOrder = [region, facility, bay, queue, room];
+		doc.forms[formUuid].caseOperations = [queue, room, bay, queue].map(
+			(uuid, index) => ({
+				uuid: testUuid(`plan-owner-${index}`),
+				id: `route_${index}`,
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: {
+					kind: "term",
+					term: {
+						kind: "owner-location-at-level",
+						levelUuid: uuid,
+						ownerCaseType: "patient",
+					},
+				},
+			}),
+		);
+		const before = structuredClone(doc);
+		const branch = requiredReverseHopDescendants(doc, facility);
+		expect(branch).toEqual([
+			{
+				uiPath: "0",
+				level: doc.organizationLevels[bay],
+				depth: 0,
+				descendants: [],
+			},
+			{
+				uiPath: "1",
+				level: doc.organizationLevels[queue],
+				depth: 0,
+				descendants: [
+					{
+						uiPath: "1.0",
+						level: doc.organizationLevels[room],
+						depth: 1,
+						descendants: [],
+					},
+				],
+			},
 		]);
+		expect(
+			flattenRequiredReverseHopDescendants(branch).map(
+				({ level, depth, uiPath }) => ({ level: level.uuid, depth, uiPath }),
+			),
+		).toEqual([
+			{ level: bay, depth: 0, uiPath: "0" },
+			{ level: queue, depth: 0, uiPath: "1" },
+			{ level: room, depth: 1, uiPath: "1.0" },
+		]);
+		expect(requiredReverseHopDescendants(doc, region)).toEqual([]);
+		expect(requiredReverseHopDescendants(doc, room)).toEqual([]);
+		expect(doc).toEqual(before);
 	});
 });

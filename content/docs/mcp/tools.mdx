@@ -9,7 +9,7 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 
 `get_agent_prompt` returns the same instructions Commcare Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Commcare Nova already tunes for these tools is the fastest path to good results.
 
-It's a long result, a whole system prompt. A prompt that fits the model-facing result budget arrives as plain text. A larger prompt instead arrives as a `nova-agent-prompt-page` JSON object. Have your agent save its `prompt_chunk`, call the tool again with the same `mode` and `app_id` plus `next_cursor`, and repeat until `complete` is true. `offset_unit` is `unicode-code-points`: `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points, not UTF-16 code units or UTF-8 bytes, and a chunk never splits a surrogate pair. Each page must have the same `prompt_sha256`, each `chunk_start` must equal the preceding `chunk_end`, and the final `chunk_end` must equal `prompt_length`. The agent can then concatenate the chunks in order and follow the assembled prompt. If the app changes while those pages are being fetched, CommCare Nova refuses to mix the snapshots and asks the agent to restart without a cursor.
+It's a long result, a whole system prompt. A prompt that fits the model-facing result budget arrives as plain text. A larger prompt instead arrives as a `nova-agent-prompt-page` JSON object. Have your agent save its `prompt_chunk`, call the tool again with the same `mode` and `app_id` plus `next_cursor`, and repeat until `complete` is true. `offset_unit` is `unicode-code-points`: `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points, not UTF-16 code units or UTF-8 bytes, and a chunk never splits a surrogate pair. Each page must have the same `prompt_sha256`, each `chunk_start` must equal the preceding `chunk_end`, and the final `chunk_end` must equal `prompt_length`. The agent can then concatenate the chunks in order and follow the assembled prompt. If the app changes while those pages are being fetched, CommCare Nova refuses to mix the snapshots and asks the agent to restart without a cursor. Edit mode is available to Project members with view access, including viewers. Every continuation checks that access again; a saved cursor does not preserve access after membership is removed.
 
 The complete assembled prompt always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing. Pagination keeps all guidance and the complete app summary; it does not shorten either one to fit.
 
@@ -96,6 +96,10 @@ never table tags, export names, or display labels.
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. Entries carry the same Project columns as `list_apps`. |
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. The summary opens with the app's Nova Project, so your agent always knows whose workspace it's editing. |
 | `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
+
+Database failures return a safe operational error. Correctable tool-input refusals keep their specific explanation so the agent can revise the request.
+
+For app listing, keep the same sort when following `next_cursor`. An invalid or mismatched cursor returns `invalid_input`; restart without the cursor. Search scans a bounded batch of apps on each call, so follow `next_cursor` even when a page contains no matches.
 
 ## Languages and translations
 
@@ -189,7 +193,7 @@ destination later with `check_project_space_compatibility`.
 | Tool | What it does |
 |---|---|
 | `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. Pass `project_id` (from `list_projects`) to create the app in a shared Project; omit it and the app lands in your personal Project. |
-| `delete_app` | Soft-delete an app. Recoverable within the returned window. |
+| `delete_app` | Soft-delete an app. It becomes unavailable to active app tools and routes until restored, and remains recoverable within the returned window. |
 
 ## Projects and sharing
 
@@ -205,6 +209,8 @@ Every app lives in exactly one **Nova Project**, and the Project is the sharing 
 | `move_app` | Move an app into another Project, bringing its case data, media, and chat history along in one transaction. Needs an admin or owner role in both the source and destination Projects, and the move can't take the app away from the source Project's owner: either the owner moves it themselves, or every source owner must already be a member of the destination. The response's `result` field says what happened — `moved`, or `already_in_project` when the app was already there (nothing moves; its case-data tenancy is verified and repaired where needed). |
 
 The roles: a **viewer** reads apps and data, an **editor** also edits them, an **admin** also manages members, and the **owner** is the member who created the Project. Owner isn't assignable — the creator stays the one owner.
+
+After a concurrent move, an `already_in_project` response names the app's actual Project in `project_id`. Use that returned identity when continuing; another member may have moved the app since your request began.
 
 Prefer creating an app in the right Project from the start. An app that references Project data tables or has captured form submissions can't move between Projects, so `move_app` is the recovery path for apps born in the wrong place (typically the personal Project), not the everyday flow.
 
@@ -569,7 +575,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value worked out when the Search screen opens. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
+| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
@@ -936,6 +942,11 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `attach_option_media` | Set or clear the media on dropdown choices (single- or multi-select), a whole picture-choice field in one call. |
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles: any mix of both, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
+
+Media uploads require an editor role or higher. If your access changes during
+an upload, Nova checks it again before adding the file to the library or
+returning an existing file. If a response is lost, retrying the same bytes
+returns the saved file when you still have access.
 
 ## Publishing
 

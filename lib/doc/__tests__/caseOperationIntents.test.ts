@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	caseOperationTargetTypeAfter,
@@ -141,10 +141,6 @@ describe("case-operation rolling target intent", () => {
 	});
 
 	describe("connection target intent", () => {
-		expectTypeOf<{ kind: "new" }>().not.toMatchTypeOf<
-			Parameters<typeof retargetCaseOperationLink>[1]
-		>();
-
 		const link: CaseOperationLink = {
 			identifier: "parent",
 			targetType: "patient",

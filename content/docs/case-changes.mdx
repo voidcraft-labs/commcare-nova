@@ -90,6 +90,11 @@ fixed values, from information about the person using the app, from Project data
 or from a calculation you build. A Project data value is found by matching one of
 the table's rows; the complete change remains editable.
 
+A calculation can count related cases, such as visits belonging to the selected
+patient. A condition can also check whether related cases exist or are missing.
+These rules travel with the exported form, including when no other question
+reads case information.
+
 ## How often a change happens
 
 A change normally happens once per submission. Set **How often** to a repeating
@@ -114,6 +119,10 @@ A connection says how the case relates to another one:
 - **Belongs to that case**: ordinary parent-and-child.
 - **Uses that case as its host**: a host connection distinct from ordinary
   parent-and-child. Closing the host does not close this case.
+
+A host connection keeps its relationship in Preview, downloaded apps, and apps
+uploaded to CommCare HQ, including when ordinary question answers create the
+related case.
 
 Set the connection's target to **Remove this connection** to break an existing
 one instead of making it. That is what you reach for when a temporary grouping

@@ -1,20 +1,4 @@
-/**
- * requiredState: pure tests for the tri-state lifecycle helpers.
- *
- *   - `deriveRequiredState(value)` decides toggle position + condition
- *     visibility for every value the registry can serve.
- *   - `nextRequiredValue(transition)` decides what value to write for
- *     each user action, including the load-bearing rules that empty
- *     condition input falls back to the sentinel and that removing a
- *     condition leaves the toggle on.
- *   - `shouldShowConditionEditor(...)` decides when the nested XPath
- *     editor mounts vs the Add Condition pill.
- *
- * `RequiredEditor` is a pure renderer over these helpers. The XPath
- * editing experience that mounts when a condition is active is owned
- * by `XPathField`'s tests + Playwright.
- */
-
+// Tests the production presentation-state model, not XPath parsing or field mutation admission.
 import { describe, expect, it } from "vitest";
 import {
 	ALWAYS_REQUIRED,
@@ -72,8 +56,8 @@ describe("nextRequiredValue", () => {
 	});
 
 	it("toggle-off clears the property entirely (undefined)", () => {
-		// Undefined is the reducer's removal patch: the property is
-		// stripped from the field, not left as an empty string.
+		// The adapter receives an explicit clear result; reducer behavior is
+		// outside this presentation-model boundary.
 		expect(nextRequiredValue({ type: "toggle-off" })).toBeUndefined();
 	});
 

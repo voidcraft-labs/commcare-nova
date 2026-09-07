@@ -34,7 +34,7 @@ interface ColumnRow extends QueryResultRow {
 }
 
 interface IndexRow extends QueryResultRow {
-	readonly indexdef: string;
+	readonly exact: boolean;
 }
 
 export type BetterAuthAccountIdentityState =
@@ -85,14 +85,24 @@ async function readIssuerColumn(db: Queryable): Promise<ColumnRow | undefined> {
 
 async function hasExactIssuerIndex(db: Queryable): Promise<boolean> {
 	const result = await db.query<IndexRow>(
-		"SELECT indexdef FROM pg_indexes WHERE schemaname = $1 AND tablename = $2 AND indexname = $3",
+		`SELECT i.indisunique AND i.indisvalid AND i.indisready
+			AND i.indpred IS NULL AND i.indexprs IS NULL
+			AND i.indnkeyatts = 2 AND i.indnatts = 2
+			AND ARRAY(
+				SELECT a.attname::text
+				FROM unnest(i.indkey) WITH ORDINALITY AS key(attnum, position)
+				JOIN pg_catalog.pg_attribute a
+					ON a.attrelid = i.indrelid AND a.attnum = key.attnum
+				ORDER BY key.position
+			) = ARRAY['issuer', 'accountId'] AS exact
+		 FROM pg_catalog.pg_index i
+		 JOIN pg_catalog.pg_class idx ON idx.oid = i.indexrelid
+		 JOIN pg_catalog.pg_class tbl ON tbl.oid = i.indrelid
+		 JOIN pg_catalog.pg_namespace ns ON ns.oid = tbl.relnamespace
+		 WHERE ns.nspname = $1 AND tbl.relname = $2 AND idx.relname = $3`,
 		["public", "auth_account", ACCOUNT_INDEX],
 	);
-	const definition = result.rows[0]?.indexdef;
-	return (
-		definition?.includes("CREATE UNIQUE INDEX") === true &&
-		definition.includes('(issuer, "accountId")')
-	);
+	return result.rows[0]?.exact === true;
 }
 
 /** Inspect the live schema and account identities without returning user IDs. */

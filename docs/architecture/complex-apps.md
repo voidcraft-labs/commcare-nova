@@ -113,34 +113,25 @@ they cannot become a subtly wrong arithmetic, name, or nested expression.
 **A device's `locations` fixture is HQ's to deliver, not Nova's.**
 `FlatLocationSerializer` runs on RESTORE, from the domain's own `SQLLocation`
 rows, so nothing Nova exports carries it and nothing Nova could export would:
-a `.ccz` is an app, and this fixture is per worker. Nova emits it anyway, as a
-TEST ASSET (`lib/commcare/locations/__tests__/flatLocationsFixture.ts`), for one
-reason — the lowering has to be provable against the exact bytes a device reads,
-and a shape nobody can execute is a shape nobody can check. It is the wire's
-specimen, not a delivery path, and it lives beside the test that reads it so
-nobody mistakes it for one. It matches
-`locations/fixtures.py::FlatLocationSerializer.get_xml_nodes` node for node: the
-sorted app-wide index schema, places ordered by `site_code`, one `{code}_id`
-attribute per level present-and-empty except for the place itself and each
-ancestor, HQ's seven children in order, and one `location_data` carrying every
-declared field. It is a RESTORE fixture and never a suite one — it carries
-`user_id` and differs per worker, which is exactly what `suiteOracle::checkFixtures`
-rejects inside a `<suite>`. The instance declaration that would otherwise void
-it silently rides the XForm already: a location term is authorable in exactly
-one slot, a case operation's `owner`, and reaches the XForm through the
-AST-level accumulator rather than as text, so no authored placeholder question
-exists for an author to wonder about.
+a `.ccz` is an app, and this fixture is per worker. The native compatibility
+scripts execute HQ's actual `FlatLocationSerializer.get_xml_nodes` and index
+schema producer over supplied ORM rows, then parse the resulting restores into
+Core's indexed fixture storage. Both local and HQ-regenerated forms consume
+those bytes through native form initialization and case processing. The corpus
+covers immediate and multi-rung owner hops, independent branch identities,
+skipped intermediate places, empty fixtures and missing destinations. Core's
+in-memory storage proves evaluation and refusal, not transaction rollback.
 
-**The bytes are load-bearing rather than plausible.** One authored rule has two
-independent lowerings — XPath over the fixture, and a recursive CTE over
-`app_locations` — that share a rule but no code path, so they can drift into
-disagreement with no symptom until a device assigns a case somewhere the
-preview did not. Over generated organizations, every owner/destination pair the
-commit gate admits resolves to the same place id on both sides, with the wire
-side evaluated by a Lezer-driven reference evaluator that knows nothing about
-organizations. An ambiguous hop is skipped rather than compared:
-`assertReverseHopTargetsUnambiguous` refuses that shape and both sides pick
-arbitrarily, so comparing them would test two coin flips.
+The companion Postgres tests create valid branches through the organization
+service, execute the actual recursive owner SQL, and verify that adding an
+ambiguous destination rolls back the rows and revision together. These are
+explicit expected destinations rather than a copied serializer/evaluator pair.
+HQ footprint SQL and remote restore are outside this native corpus.
+
+A location term occupies exactly one slot, a case operation's complete owner
+expression. Its AST accumulator automatically declares the XForm instance.
+The per-worker fixture never belongs in the app's suite, and no placeholder
+question is needed to force its declaration.
 
 **Export is closed for one owner shape, and no longer for two.** A
 `fixed-location` owner emits a Nova place UUID as a literal `owner_id`, which
@@ -490,9 +481,10 @@ workflow and carry no UUID material.
 SA, MCP, commits, durable rows, events, streams, diffs, undo, and replay.
 There is no second canonical schema and no whole-catalog `setCaseTypes` —
 catalog creation and edits use only the granular kinds.
-`lib/doc/mutationWireRegistry.ts` derives every semantic leaf and nullable
-slot from that schema and pins both inventories in checked-in snapshots, so a
-new kind or patch key fails CI until its final meaning is reviewed.
+Grammar tests exercise the actual schema and canonical admission boundary.
+Serialized state-transition tests establish clear, omission, stored-null, and
+placement behavior; compiler-only envelope guarantees are checked by
+`npm run typecheck`.
 
 `lib/doc/mutationAdmission.ts::admitMutationBatch` is the one shared boundary
 in front of it, and on every path it is the outermost mutation operation:
@@ -761,6 +753,13 @@ retypes, and owner assignment — validated by
 `lib/commcare/validator/rules/caseOperations.ts` and emitted by
 `lib/commcare/xform/caseOps.ts`.
 
+Relation operators carry their own case-instance dependency. An unfiltered
+count, exists or missing condition still reads related rows, even when its AST
+contains no property leaf. The shared instance collector includes these nodes
+through both predicate and expression nesting; self-only constant relations add
+no external dependency. Native Core opens and submits independent forms for
+each consumer so an unrelated property read cannot mask a missing declaration.
+
 Facet legality by action is closed in the stored action-discriminated schema:
 `create` requires a new target and a name and forbids rename/retype; `update`
 forbids a new target and a name; `close` forbids a new target, name, owner,
@@ -814,14 +813,25 @@ FormActions-driven blocks, with its single collision guard reading the direct
 `/data/case` child. Operations therefore ride the XForm source on both export
 paths, at nested container paths, never at bare `/data/case`.
 
+Ordinary extension-case creation also rides the source XForm. HQ's basic
+`_create_casexml` ignores the relationship in an `OpenSubCaseAction`, so emitting
+that action alone would silently create a child relationship. Nova retains the
+extension action with condition `never` solely to preserve HQ's case ID datums
+and navigation matching, and emits the active extension under `__nova_subcases`
+at its exact root or repeat scope. The native redundant block is irrelevant;
+local CCZ compilation omits it. Non-repeat source creates consume the retained
+session IDs, and repeat creates mint one ID per iteration. Several-case forms
+continue using the shared selected-parent iteration. `scripts/fixtures/hq/`
+records the reproducible native import/build and navigation evidence.
+
 Authored case ids follow Vellum's repeat-context split: creates outside a repeat
 seed `@case_id` via `<setvalue event="xforms-ready">`, while creates under a
 repeat use a bind calculate over the per-instance path. Generated UUIDs take the
 setvalue path; authored deterministic keys stay live calculate binds.
 
-An owner expression's result lands verbatim and unvalidated in the case block —
-the only server-side check is length ≤ 255. Typed owner addressing is entirely
-Nova's guarantee.
+The wire carries owner IDs as text; it does not establish that an ID names a
+person or group. Nova owns typed owner addressing and normalizes scalar text
+before emission.
 
 Operations are authored on the form's own URL — `/{formUuid}/operations`, with
 `/{operationUuid}` selecting one — reached from the form settings panel. The
@@ -1347,13 +1357,29 @@ values, literals, never case data — and the only home of the `matches-pattern`
 leaf (JavaRosa `regex()`, evaluated in Preview's dedicated Search worker
 runtime). Enforcement is Web Apps only; every surface says so.
 
+Search value expressions preserve their suite context through native CSQL
+function arguments, including lookup fixture naming and worker/input identities.
+A table value can therefore be converted or used in date arithmetic without
+losing its declared instance. Later function arguments are explicitly grouped
+where they can begin with another function: HQ's pinned eulxml lexer otherwise
+reads that function name as a path after a comma. Native Core-to-HQ payload
+proofs cover the conversion, calendar result and nested argument structure;
+`lib/commcare/CLAUDE.md` owns the emission detail.
+
+Static search-value reachability follows emitted Core equality: null literals
+are empty text, boolean literals are text, and numeric equality uses Core's
+absolute tolerance. Unknown numeric/text conversions keep both branches
+reachable. This prevents admission from discarding the actual runtime branch
+when checking whether a fixed result can be quoted in the server query.
+
 #### Search first
 
 A module may open on its Search screen instead of a browse list
 (`caseSearchConfig.searchFirst: true`, `lib/domain/modules.ts::moduleOpensOnSearch`).
 Results exist only after a completed search and show only what it found, with
 **Search again** returning to Search; a search-first module with no visible
-prompt runs its search on its own. The setting is offered for a case-first
+prompt runs its search on its own. Removing the final search field preserves
+Search first and its automatic search with the remaining rules. The setting is offered for a case-first
 module or a bare case list, because a registration form on the menu needs a
 fresh case id that breaks the shared datum, and it refuses a Search-button
 display condition (there is no button to gate) and **Previous screen** as an
@@ -1553,18 +1579,18 @@ connection are shown together under one heading. Grouping lives INSIDE the tile
 layout, so "a group on a detail with no tile" is unrepresentable rather than
 merely rejected, and turning the tile off clears the grouping in the same write.
 
-It emits `<group function="string(./index/<id>)" header-rows="N"/>` as the last
-child of BOTH short details — `m{N}_case_short` and the deep-copied
+Nova emits `<group function="string(./index/<id>)" header-rows="N"/>` on both
+short details, `m{N}_case_short` and the deep-copied
 `m{N}_search_short`, because
 `suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail` gates
 on `detail_type.endswith('short')` — plus a companion
 `<datum id="<caseDatumId>_parent_ids">` on every FORM entry that loads a case
 (`suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module`
 adds it only under `if form:`). HQ JSON writes the same thing as
-`case_tile_group`. The byte oracle is
-`tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`, whose
-inline `assertXmlPartialEqual` pair pins both exactly; three of the four upstream
-`<group>` fixtures misspell the attribute `grid-header-rows` and prove nothing.
+`case_tile_group`. The native proof in `scripts/fixtures/hq/` imports Nova's
+actual export and regenerates its details with HQ's `DetailContributor`;
+Core's `SuiteParser` reads both paths. Child order is not a runtime constraint:
+Nova appends the group last, while HQ can put the Search action after it.
 `header-rows` is always written, because the client falls back to `1`
 (`DetailGroupParser::ATTRIBUTE_NAME_HEADER_ROWS`) while HQ's model defaults to
 `2`.
@@ -1746,7 +1772,10 @@ written instead. `"url"` writes a link to the file, built as
 `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/',
 /data/meta/instanceID, '/', <capture>))` on a SIBLING node
 (`lib/commcare/xform/captureUrlNode.ts`), which `formActions.ts` then names as
-the update's `question_path`.
+the update's `question_path`. The sibling follows the capture's relevance: a
+hidden capture emits no update, preserving the old case link; an active blank
+capture emits a blank property. Capture answers are never preloaded from case
+properties, since an old address is not a filename in the current submission.
 
 That indirection is the unit's whole reason for existing.
 `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>`
@@ -1771,8 +1800,9 @@ capture question deliberately, so HQ's structural rule builds the
 `.ccz` reaches the same shape by running HQ's own rule rather than by being
 told — `caseBlocks.ts::attachmentQuestionPaths` collects the body's
 `<upload ref>` set, which is exactly what `::is_attachment` computes, so the
-two surfaces consume one input pair (`FormActions` + the body) and cannot
-diverge. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
+two surfaces consume one input pair (`FormActions` + the body). The native HQ
+and Core capture proof checks both generated forms through serialization; shared
+inputs alone do not establish equivalent runtime behavior. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
 and its `_advanced` twin: an empty `<update/>`, a sibling `<attachment>` whose
 child is named by the case property and carries `src="" from="local"`, and
 binds spelled `relevant="count(<question>) = 1"` plus `@src`
@@ -1918,6 +1948,21 @@ attributed to who and when. `pushed_identity` holds the external name a
 resource carries there, which is what makes a renamed resource reportable as
 left behind. `lib/deployment/CLAUDE.md` owns the detail.
 
+Remote inventory is authority for replacement only after every identity and
+pagination cursor has been validated against the selected space and resource.
+Malformed inventory stops publishing before data writes. Unknown lookup-upload
+verdicts preserve the possibility of partial acceptance and trigger the
+ownership re-read. An app import acknowledgement must identify the app that
+was created or the exact mapped app requested for an update. After import and
+its mapping commit, media transport failures remain warnings alongside that
+published app and its retry guidance.
+Organization reads preserve complete foreign JSON metadata and resolve level
+parents from the whole inventory. Every paginated inventory shares one bounded
+deadline. Place batches remain atomic, but a lost acknowledgement is an unknown
+outcome; only confirmed batches acquire mappings, and a retry resolves unowned
+site-code matches through explicit adoption. Lookup warning verdicts and lost
+responses remain distinct, with actionable HQ details preserved through MCP.
+
 The lifecycle is `preflight → resources → uploaded → built → released →
 runnable`, plus the
 terminal refusal `incomplete`, which carries the phase a retry resumes at and
@@ -2052,7 +2097,9 @@ key can make are `views/releases.py::current_app_version` (`@login_or_api_key`)
 for the version numbers, the read-only
 `api/resources/v0_4.py::ApplicationResource.dehydrate_versions` for build ids and
 release flags, and one build's `profile.ccpr` as the runnable proof. That last
-one is the device's own install request rather than a pure read: the catch-all
+response must be a valid profile referring to the selected build's exact remote
+suite; a successful HTTP status with empty or unrelated content does not prove
+readiness. The request is the device's own install request rather than a pure read: the catch-all
 `^download/<app_id>/<path>` route reaches `views/download.py::download_file`,
 not `::download_odk_profile`, and that view regenerates a build's files when
 they are missing — CommCare HQ repairing a build for a device, which cannot
@@ -2166,7 +2213,10 @@ checking and provisioning write and are withheld from viewers. The Workers
 panel lives inside each record's card there and NOWHERE else — it is the only
 place a worker's password is ever shown, and `DeploymentStatus` takes the
 panel as a composed slot precisely so a second credential surface cannot exist
-by accident. The Publish dialog keeps the destination select, the
+by accident. Confirmed and uncertain credentials share one session outcome per
+server/project-space target. Every distinct uncertain retry password survives;
+another destination can neither show nor clear it. Display and clipboard retain
+account-versus-password uncertainty. The Publish dialog keeps the destination select, the
 project-space compatibility check, the publish itself, and the landed outcome's record; above its form
 the targets the app has already reached render as compact rows linking to the
 section rather than as a second full copy that would have to be kept honest.
@@ -2533,3 +2583,16 @@ the link opens. It never probes a link by executing it, because execution may
 claim cases. HQ IDs are explicit external inputs; multiple selections use HQ's
 comma-separated transport and reject IDs that cannot round-trip. The domain,
 CommCare, Preview, and deployment subtree contracts own the detailed behavior.
+
+### Manual links into Search
+
+Core defines every frame step against the source evaluation context. HQ's
+manual link matcher leaves an inline hydration query pointed at the target's
+old selection even when the following datum assigns another value. Native
+`StackFrameStep.defineStep` reproduces the resulting missing-value failure
+from both emitted suites. `projectFormLinks` uses automatic matching when all
+non-query steps are identical to the manual projection, preserving authored
+intent while letting HQ bind hydration to the actual source case. Otherwise a
+manual query may only retain an existing source selection under the same datum.
+`FORM_LINK_SEARCH_CASE_UNREPRESENTABLE` refuses incompatible manual assignments
+at both shared mutation gates. Ordinary list destinations retain manual values.

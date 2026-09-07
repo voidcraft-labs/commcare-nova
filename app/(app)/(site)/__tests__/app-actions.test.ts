@@ -1,15 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppAccessError } from "@/lib/db/appAccess";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 
 const mocks = vi.hoisted(() => {
-	class MockAppAccessError extends Error {}
-	class MockAppBusyError extends Error {}
-	class MockAppRunStateCorruptError extends Error {}
-
 	return {
-		AppAccessError: MockAppAccessError,
-		AppBusyError: MockAppBusyError,
-		AppRunStateCorruptError: MockAppRunStateCorruptError,
 		getSession: vi.fn(),
 		moveAppToProject: vi.fn(),
 		resolveAppAccess: vi.fn(),
@@ -22,8 +16,8 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth-utils", () => ({ getSession: mocks.getSession }));
-vi.mock("@/lib/db/appAccess", () => ({
-	AppAccessError: mocks.AppAccessError,
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
 	resolveAppAccess: mocks.resolveAppAccess,
 	resolveAppScope: mocks.resolveAppScope,
 }));
@@ -31,9 +25,8 @@ vi.mock("@/lib/db/apps", () => ({
 	restoreApp: mocks.restoreApp,
 	softDeleteApp: mocks.softDeleteApp,
 }));
-vi.mock("@/lib/db/moveAppToProject", () => ({
-	AppBusyError: mocks.AppBusyError,
-	AppRunStateCorruptError: mocks.AppRunStateCorruptError,
+vi.mock("@/lib/db/moveAppToProject", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/moveAppToProject")>()),
 	moveAppToProject: mocks.moveAppToProject,
 }));
 
@@ -93,7 +86,11 @@ describe("moveApp Project policy", () => {
 			role: "owner",
 			actorUserId: "user-1",
 		});
-		mocks.moveAppToProject.mockResolvedValue(undefined);
+		mocks.moveAppToProject.mockResolvedValue({
+			kind: "moved",
+			fromProjectId: "project-source",
+			projectId: "project-target",
+		});
 	});
 
 	it("moves the app", async () => {
@@ -111,9 +108,7 @@ describe("moveApp Project policy", () => {
 	});
 
 	it("keeps source denials opaque instead of revealing the move policy", async () => {
-		mocks.resolveAppAccess.mockRejectedValue(
-			new mocks.AppAccessError("not found"),
-		);
+		mocks.resolveAppAccess.mockRejectedValue(new AppAccessError("not_found"));
 
 		await expect(moveApp("foreign-app", "project-target")).resolves.toEqual({
 			success: false,
@@ -124,6 +119,10 @@ describe("moveApp Project policy", () => {
 	});
 
 	it("retains exact same-Project case-data recovery", async () => {
+		mocks.moveAppToProject.mockResolvedValue({
+			kind: "already_in_project",
+			projectId: "project-source",
+		});
 		await expect(moveApp("app-1", "project-source")).resolves.toEqual({
 			success: true,
 			kind: "same_project_recovered",

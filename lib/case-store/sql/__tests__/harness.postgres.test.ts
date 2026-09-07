@@ -1,58 +1,25 @@
-// lib/case-store/sql/__tests__/harness.postgres.test.ts
-//
-// Smoke tests for the case-store Postgres harness.
-//
-// These tests prove the harness's contract end-to-end against the
-// live container booted by `globalSetup.ts`:
-//
-//   - Container is reachable; the `inject("postgresTestUrl")` URI
-//     is well-formed.
-//   - Required extensions installed (`pg_trgm`, `fuzzystrmatch`,
-//     `postgis`).
-//   - Schema seeded with the four case-store tables.
-//   - INSERT + SELECT round-trip succeeds against the live
-//     engine.
-//   - Per-test rollback isolation: a sentinel row inserted here
-//     is invisible to the sibling smoke file. That sibling file
-//     also verifies the URI is non-empty (the architectural
-//     guarantee that parallel test files share the container —
-//     Vitest's globalSetup runs once per `vitest run`, so any
-//     two files seeing identical URIs prove the contract).
-//
-// ## What this file deliberately does not test
-//
-// Operator-level behavior — `pg_trgm`'s `%` matching, PostGIS's
-// `ST_DWithin`, etc. — is the Term/Predicate compiler tests'
-// concern. The harness's only contract is "the engine is real,
-// the schema is seeded, transactions roll back."
-
-import { describe, inject } from "vitest";
+// Real extension/schema access and rollback isolation of the shared SQL fixture.
+import { Client } from "pg";
+import { afterAll, describe, inject } from "vitest";
 import { expect, makeCaseRow, test } from "./setup";
 
-// -- Container reachability -----------------------------------------
-
-describe("case-store harness — container connectivity", () => {
-	// `it.runs-without-fixtures` checks the URI surface that
-	// globalSetup populates. Kept outside the fixture-using tests
-	// because a missing URI would also break the fixture itself,
-	// so this assertion has to surface the failure first.
-	test("publishes a postgres:// connection URI via globalSetup", () => {
-		// `inject` returns the URI globalSetup published. A typed
-		// surface (the `ProvidedContext` augmentation in
-		// globalSetup.ts) guarantees `string`, not `unknown`.
-		const url = inject("postgresTestUrl");
-		expect(url).toMatch(/^postgres:\/\//);
-	});
-
-	test("connects through the per-test fixture and runs SELECT 1", async ({
-		pgClient,
-	}) => {
-		// Use the bare `pgClient` escape hatch: Kysely doesn't model
-		// a `SELECT 1` literal, and this test exists to prove the
-		// raw connection path before any Kysely code runs.
-		const result = await pgClient.query<{ ok: number }>("SELECT 1 AS ok");
-		expect(result.rows[0]?.ok).toBe(1);
-	});
+afterAll(async () => {
+	const observer = new Client({ connectionString: inject("postgresTestUrl") });
+	try {
+		await observer.connect();
+		const remaining = await observer.query(
+			"SELECT case_id FROM cases WHERE case_id = ANY($1::text[])",
+			[
+				[
+					"11111111-1111-1111-1111-111111111111",
+					"22222222-2222-2222-2222-222222222222",
+				],
+			],
+		);
+		expect(remaining.rows).toEqual([]);
+	} finally {
+		await observer.end();
+	}
 });
 
 // -- Extensions -----------------------------------------------------
@@ -221,8 +188,11 @@ describe("case-store harness — INSERT/SELECT round-trip", () => {
 		expect(fetched.properties).toEqual({ name: "Alice", age: 30 });
 	});
 
-	test("rollback isolates per-test writes", async ({ db, pgClient }) => {
-		// Insert a row through Kysely, then verify a parallel
+	test("Kysely and the raw client observe the same uncommitted transaction", async ({
+		db,
+		pgClient,
+	}) => {
+		// Insert a row through Kysely, then verify a raw
 		// query through the same transaction sees it (sanity
 		// check — same connection, same BEGIN scope, must see
 		// uncommitted writes).
@@ -259,10 +229,3 @@ describe("case-store harness — INSERT/SELECT round-trip", () => {
 		expect(result.rows[0]?.count).toBe("0");
 	});
 });
-
-// Cross-file container-sharing is verified by
-// `harness-isolation.postgres.test.ts` (sibling). That file reads the same
-// `inject("postgresTestUrl")` URI; equality across files proves
-// Vitest's globalSetup ran once for the whole `vitest run`. The
-// architectural guarantee is documented in `globalSetup.ts`'s
-// header — the test confirms the behavior end-to-end.

@@ -1,15 +1,6 @@
-// components/builder/case-operations/__tests__/formFieldScope.test.ts
-//
-// The picker offers exactly the answers the commit gate accepts.
-//
-// `caseOperations.ts::validateOperationTerm` is the rule these mirror: a
-// singular change cannot read a repeated answer (there would be one
-// value per iteration and no way to say which), and a repeated change
-// may read repeated answers only from the repeat it runs over. Getting
-// this wrong does not corrupt anything: it makes the editor offer a
-// reference the gate then refuses, which is exactly the
-// offer-then-reject drift the valid-by-construction rule exists to
-// prevent.
+/** Direct projection of operation repeat/identity read rules onto ordered
+ * picker entries. This suite checks the editor boundary; whole-document
+ * admission is covered by caseOperationValidByConstruction.test.ts. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";

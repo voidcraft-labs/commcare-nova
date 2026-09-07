@@ -1,29 +1,10 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import type { Stats } from "node:fs";
 import { cp, mkdir, stat } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import path from "node:path";
 
-interface StatLike {
-	isDirectory(): boolean;
-	isFile(): boolean;
-}
-
-export interface StandaloneFileSystem {
-	cp(
-		source: string,
-		destination: string,
-		options: { recursive: true; force: true },
-	): Promise<void>;
-	mkdir(
-		directory: string,
-		options: { recursive: true },
-	): Promise<string | undefined>;
-	stat(target: string): Promise<StatLike>;
-}
-
-const nodeFileSystem: StandaloneFileSystem = { cp, mkdir, stat };
-
-export interface StandalonePaths {
+interface StandalonePaths {
 	readonly repositoryRoot: string;
 	readonly standaloneRoot: string;
 	readonly server: string;
@@ -36,7 +17,7 @@ export interface StandalonePaths {
 	readonly sharpDestination: string;
 }
 
-export function standalonePaths(repositoryRoot: string): StandalonePaths {
+function standalonePaths(repositoryRoot: string): StandalonePaths {
 	const resolvedRoot = path.resolve(repositoryRoot);
 	const standaloneRoot = path.join(resolvedRoot, ".next", "standalone");
 	return {
@@ -71,7 +52,7 @@ type CopyStep = {
 	readonly destination: string;
 };
 
-export function standalonePreparationPlan(repositoryRoot: string): {
+function standalonePreparationPlan(repositoryRoot: string): {
 	readonly paths: StandalonePaths;
 	readonly requirements: readonly RequiredArtifact[];
 	readonly copies: readonly CopyStep[];
@@ -146,16 +127,15 @@ function artifactProblem(
 
 export async function prepareStandalone(
 	repositoryRoot: string,
-	fileSystem: StandaloneFileSystem = nodeFileSystem,
 ): Promise<StandalonePaths> {
 	const plan = standalonePreparationPlan(repositoryRoot);
 
 	/* Validate the complete source boundary before writing any placements, so a
 	 * missing build or dependency cannot leave a half-prepared runtime tree. */
 	for (const artifact of plan.requirements) {
-		let info: StatLike;
+		let info: Stats;
 		try {
-			info = await fileSystem.stat(artifact.target);
+			info = await stat(artifact.target);
 		} catch (error) {
 			throw new Error(artifactProblem(artifact, "is missing"), {
 				cause: error,
@@ -169,8 +149,8 @@ export async function prepareStandalone(
 	}
 
 	for (const step of plan.copies) {
-		await fileSystem.mkdir(path.dirname(step.destination), { recursive: true });
-		await fileSystem.cp(step.source, step.destination, {
+		await mkdir(path.dirname(step.destination), { recursive: true });
+		await cp(step.source, step.destination, {
 			recursive: true,
 			force: true,
 		});
@@ -179,7 +159,7 @@ export async function prepareStandalone(
 	return plan.paths;
 }
 
-export function standaloneServerInvocation(
+function standaloneServerInvocation(
 	paths: StandalonePaths,
 	environment: NodeJS.ProcessEnv = process.env,
 	executable = process.execPath,
@@ -197,7 +177,7 @@ export function standaloneServerInvocation(
 	};
 }
 
-export function childExitStatus(
+function childExitStatus(
 	code: number | null,
 	signal: NodeJS.Signals | null,
 ): number {
@@ -207,25 +187,8 @@ export function childExitStatus(
 	return typeof signalNumber === "number" ? 128 + signalNumber : 1;
 }
 
-export interface SupervisedChild {
-	readonly exitCode: number | null;
-	readonly signalCode: NodeJS.Signals | null;
-	kill(signal: NodeJS.Signals): boolean;
-	once(event: "error", listener: (error: Error) => void): unknown;
-	once(
-		event: "exit",
-		listener: (code: number | null, signal: NodeJS.Signals | null) => void,
-	): unknown;
-}
-
-export interface StandaloneSignalSource {
-	off(signal: "SIGINT" | "SIGTERM", handler: () => void): unknown;
-	on(signal: "SIGINT" | "SIGTERM", handler: () => void): unknown;
-}
-
 export async function superviseStandaloneChild(
-	child: SupervisedChild,
-	signalSource: StandaloneSignalSource = process,
+	child: ChildProcess,
 ): Promise<number> {
 	const forwardedSignals = ["SIGINT", "SIGTERM"] as const;
 	const forward = (signal: NodeJS.Signals) => {
@@ -235,7 +198,7 @@ export async function superviseStandaloneChild(
 	};
 	const handlers = forwardedSignals.map((signal) => {
 		const handler = () => forward(signal);
-		signalSource.on(signal, handler);
+		process.on(signal, handler);
 		return { signal, handler };
 	});
 
@@ -250,7 +213,7 @@ export async function superviseStandaloneChild(
 		return childExitStatus(result.code, result.signal);
 	} finally {
 		for (const { signal, handler } of handlers) {
-			signalSource.off(signal, handler);
+			process.off(signal, handler);
 		}
 		/* A spawn error or parent-side exception must not strand a child that did
 		 * start. Normal and signaled exits have already cleared exitCode/signalCode. */

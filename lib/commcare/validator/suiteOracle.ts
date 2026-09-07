@@ -1,145 +1,51 @@
-/**
- * Post-emit suite.xml ORACLE.
- *
- * Mirrors the contract CommCare's device runtime enforces over `suite.xml` —
- * the navigation / detail / entry manifest the mobile + web runtimes parse and
- * then resolve against at session time. Any state Nova's compiler can reach
- * must pass this oracle: a failing suite here is a generator bug, never an
- * authoring error a user could fix. Co-developed with a property fuzzer
- * (`__tests__/suiteOracle.fuzz.test.ts`) that compiles schema-valid
- * `BlueprintDoc`s and asserts the oracle returns clean — that fuzzer is what
- * proves the suite emitter total and also defines the oracle's faithfulness: a
- * check that flags legitimately-emitted output is the ORACLE being wrong, never
- * a new reject rule.
- *
- * ## Two failure categories
- *
- * The device handles a malformed suite in two very different ways, and the
- * oracle owns both:
- *
- *   - **Category 1 — fatal at parse.** `SuiteParser` and its sub-parsers throw
- *     `InvalidStructureException` (or a raw `RuntimeException`) while reading
- *     the suite, so the device rejects the whole app at load. Missing required
- *     attributes, bad enum values, and non-path datum values / nodesets land
- *     here.
- *
- *   - **Category 2 — parse-clean, runtime-fatal.** This is the dangerous gap.
- *     `SuiteParser::parse` builds `details` / `entries` / `endpoints` as plain
- *     `Hashtable`s, and `Suite::getDetail` / `getEntry` / `getEndpoint` are
- *     bare `get(id)` calls that return `null` on a miss with NO validation. So
- *     a dangling cross-reference (a `<menu>` command naming no `<entry>`, a
- *     `<datum detail-select>` naming no `<detail>`, an `instance('foo')`
- *     reference with no `<instance id="foo">`) parses cleanly and only
- *     detonates LATER, at session runtime — at menu open
- *     (`CommCareSession.java::getStillValidEntriesFromMenu` →
- *     `RuntimeException("No entry found for menu command [...]")`), at title
- *     render (`FormDataUtil.java::getMenuTitleString` NPE), or at XPath
- *     evaluation (`EvaluationContext.java::resolveReference` →
- *     `XPathMissingInstanceException`). The device load gate will NEVER catch
- *     these, so Nova must guarantee them itself. This is the heart of the
- *     oracle.
- *
- * ## Sort — silently tolerated
- *
- * `DetailFieldParser::parseSort` is deliberately permissive: a bad `@order` /
- * `@direction` / `@type` / `@blanks` is swallowed (the comment in Core spells
- * out the "be flexible for now" intent) and the sort silently falls back to a
- * default rather than throwing. The runtime then *behaves wrong* — sorts the
- * wrong way, or not at all — and never surfaces a diagnostic. Nothing in the
- * device will ever flag these, so the oracle must: bad sort attributes are
- * generator bugs the fuzzer is meant to catch.
- *
- * ## Two XPath surfaces
- *
- * Classified with the same shared Lezer-backed gate the XForm oracle uses
- * (`xform/pathExpression.ts`):
- *   - PATH-only — session `<datum nodeset>` and (when present) its `value`,
- *     `<data nodeset>`, and `<data ref>` WHEN the same `<data>` also carries a
- *     `nodeset` (Core's `ListQueryData` branch routes ref through
- *     `getPathExpr`). Core routes these through `XPathReference.getPathExpr`,
- *     which throws on a non-path. `isPathExpression` mirrors that.
- *   - ANY-expression — every other XPath surface (`<xpath function>` in detail
- *     templates / headers / sort text, `<data ref>` WITHOUT a nodeset, `<data
- *     exclude>`, stack-frame `<datum value>`, `<post relevant>`, stack-op `if`
- *     conditions, prompt defaults). Core only requires these parse as XPath.
- *     `isParseableXPath` mirrors that.
- *
- * ## Runtime-provided instances + locales
- *
- * Some `instance('...')` ids and some `<locale id>` references resolve from the
- * runtime itself, not from a `<instance>` declaration or an `app_strings.txt`
- * entry. Referencing one of those is NOT a finding. The runtime-provided sets
- * (`RUNTIME_INSTANCE_IDS`, `RUNTIME_LOCALE_IDS`) are the safety net — most of
- * Nova's emitters DO declare their instances explicitly; the allowlist exists
- * so a legitimately runtime-resolved reference is never flagged.
+/** Selected Core suite parser rules and Nova static emission joins.
+ * Native SuiteOracleRuntimeTest consumes the external-wire corpus, installs
+ * fixture data, evaluates locale titles and probes actual session scope.
+ * The guard is intentionally stricter for broken joins or silent fallbacks;
+ * neither its finite corpus nor the compiler corpus proves totality.
  */
 
-import { type Document, type Element, isTag } from "domhandler";
-import { findAll, getAttributeValue, getChildren } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
+import { type AnyNode, type Document, type Element, isTag } from "domhandler";
+import { getAttributeValue, getChildren } from "domutils";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import {
 	isParseableXPath,
 	isPathExpression,
 } from "@/lib/commcare/xform/pathExpression";
+import { parser } from "@/lib/commcare/xpath";
+import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
 	type ValidationLocation,
 	validationError,
 } from "./errors";
 
-const XML_OPTS = { xmlMode: true } as const;
-
-/**
- * Secondary-instance ids the runtime resolves WITHOUT requiring a `<instance>`
- * declaration on the enclosing element. A wire XPath referencing one of these
- * is in scope whether or not the element declares it, so the C2-4 check treats
- * them as always-resolvable. The set is the closed vocabulary Nova's emitters
- * actually produce — found by searching non-test `lib/commcare` source for
- * `instance(...)` calls: `casedb`, `commcaresession`, `results`, `results:inline`,
- * `search-input:results`. Nothing else.
- *
- *   - `casedb` / `commcaresession` — platform-seeded into every session's
- *     `formInstances` by Core (`commcare-core .../session/CommCareSession.java::
- *     addInstancesFromFrame` feeds the per-frame instance scope
- *     `EvaluationContext.resolveReference` reads). They resolve even when no
- *     `<instance>` declares them. Nova declares them on entries ANYWAY to stay
- *     byte-compatible with the suite CCHQ regenerates from an HQ upload
- *     (`commcare-hq/.../suite_xml/post_process/instances.py::
- *     InstancesHelper.add_entry_instances`); both the declared form and the
- *     ambient form resolve, so they belong in this set regardless.
- *   - `results` / `results:inline` — the remote-search result rosters the
- *     `<remote-request>` runtime materializes.
- *   - `search-input:results` — the in-flight search input values CCHQ exposes
- *     during `<remote-request>` evaluation.
- *
- * `session` and `registry` are intentionally absent: Nova never emits a ref to
- * either (Core's canonical session id is `commcaresession`; registry queries
- * are a CCHQ feature Nova doesn't model). An over-broad allowlist is latent
- * under-strictness — adding an id here that the emitter never produces would
- * silently waive the C2-4 check for a shape that, if it ever appeared, would be
- * a real bug.
- */
-const RUNTIME_INSTANCE_IDS: ReadonlySet<string> = new Set([
-	"casedb",
-	"commcaresession",
-	"results",
-	"results:inline",
-	"search-input:results",
-	"search-input:results:inline",
-]);
-
-/**
- * Locale ids the runtime resolves from a built-in default rather than from
- * `app_strings.txt`. Nova's detail emitters reference `cchq.case` as the
- * case-detail `<title>` without registering it — CommCare HQ ships it with a
- * `default="Case"` fallback (`commcare-hq/.../app_manager/id_strings.py::
- * _case_detail_title_locale`), so an unregistered `cchq.case` reference renders
- * "Case" rather than throwing. Any other built-in the emitter references
- * without registering goes here.
- */
-const RUNTIME_LOCALE_IDS: ReadonlySet<string> = new Set(["cchq.case"]);
+/** Core only gets instances from the active entry/menu and frame. Nova's
+ * emitted entries declare their dependencies; no id is globally ambient. */
+function findAll(
+	predicate: (element: Element) => boolean,
+	roots: readonly AnyNode[],
+): Element[] {
+	const result: Element[] = [];
+	const visit = (nodes: readonly AnyNode[]) => {
+		for (const node of nodes) {
+			if (!isTag(node)) continue;
+			if (predicate(node)) result.push(node);
+			if (node.name !== "fixture") visit(node.children);
+		}
+	};
+	visit(roots);
+	return result;
+}
+/** Nova emits ASCII integer spellings. Core accepts a leading sign and rejects
+ * values outside signed 32-bit range. */
+function isWireInteger(value: string): boolean {
+	return (
+		/^[+-]?\d+$/.test(value) &&
+		Number(value) >= -2147483648 &&
+		Number(value) <= 2147483647
+	);
+}
 
 /** Stack-operation tags Core's `StackOpParser` accepts. */
 const VALID_STACK_OPS: ReadonlySet<string> = new Set([
@@ -170,7 +76,7 @@ const VALID_SORT_BLANKS: ReadonlySet<string> = new Set(["first", "last"]);
  * An entry-like top-level element (`<entry>` or `<remote-request>`) plus the
  * instance ids declared directly on it. CommCare resolves an `instance('foo')`
  * reference appearing inside the element against the element's own `<instance>`
- * declarations (or the runtime-provided set), so instance scope is per-entry,
+ * declarations so instance scope is per-entry,
  * not global.
  */
 interface EntryScope {
@@ -213,7 +119,7 @@ interface SuiteModel {
 	readonly entryScopes: readonly EntryScope[];
 	/** Every menu and the declarations Core uses to build relevance scopes. */
 	readonly menuScopes: readonly MenuScope[];
-	/** First direct entry/view definition for each command id. */
+	/** Last direct entry/view definition for each command id. */
 	readonly directCommandInstanceScopes: ReadonlyMap<
 		string,
 		ReadonlySet<string>
@@ -234,7 +140,7 @@ interface SuiteModel {
 /**
  * Collect the instance ids declared on an entry-like element. Mirrors Core's
  * per-entry instance resolution: an `instance('foo')` inside the element
- * resolves against THESE declarations (union the runtime-provided set), not a
+ * resolves against THESE declarations rather than a
  * global table.
  */
 function collectDeclaredInstances(entry: Element): Set<string> {
@@ -323,7 +229,7 @@ function checkDatums(
 	const errors: ValidationError[] = [];
 
 	for (const datum of findAll(
-		(el) => el.name === "datum",
+		(el) => el.name === "datum" || el.name === "instance-datum",
 		model.doc.children,
 	)) {
 		const datumId = getAttributeValue(datum, "id") ?? "(unnamed)";
@@ -341,7 +247,7 @@ function checkDatums(
 						loc,
 					),
 				);
-			} else if (value !== "" && !isParseableXPath(value)) {
+			} else if (!isParseableXPath(value)) {
 				errors.push(
 					validationError(
 						"SUITE_DATUM_NON_PATH_VALUE",
@@ -356,8 +262,19 @@ function checkDatums(
 
 		// Session datum. A `<datum function=…>` (ComputedDatum) requires nothing;
 		// the entity-datum contract below only applies when `function` is absent.
-		const isComputed = getAttributeValue(datum, "function") !== undefined;
-		if (isComputed) continue;
+		const computed = getAttributeValue(datum, "function");
+		if (computed !== undefined) {
+			if (!isParseableXPath(computed))
+				errors.push(
+					validationError(
+						"SUITE_INVALID_XPATH",
+						"app",
+						"The suite has an invalid computed selection expression.",
+						loc,
+					),
+				);
+			continue;
+		}
 
 		// Entity datum: `nodeset` REQUIRED + PATH.
 		if (nodeset === undefined) {
@@ -369,7 +286,7 @@ function checkDatums(
 					loc,
 				),
 			);
-		} else if (nodeset !== "" && !isPathExpression(nodeset)) {
+		} else if (!isPathExpression(nodeset)) {
 			errors.push(
 				validationError(
 					"SUITE_DATUM_NON_PATH_NODESET",
@@ -381,7 +298,7 @@ function checkDatums(
 		}
 
 		// Entity datum: `value` OPTIONAL, but a PATH when present (C2-8).
-		if (value !== undefined && value !== "" && !isPathExpression(value)) {
+		if (value !== undefined && !isPathExpression(value)) {
 			errors.push(
 				validationError(
 					"SUITE_DATUM_NON_PATH_VALUE",
@@ -425,7 +342,7 @@ function checkDetails(
 		// C1-8: a detail must open with a `<title>` (DetailParser requires it
 		// before any field). A `<detail>` that nests sub-`<detail>` blocks
 		// (tabbed long detail) carries its own title too.
-		const hasTitle = children.some((c) => c.name === "title");
+		const hasTitle = children[0]?.name === "title";
 		if (!hasTitle) {
 			errors.push(
 				validationError(
@@ -520,7 +437,7 @@ function checkDetailGroup(
 		];
 	}
 	const headerRows = getAttributeValue(group, "header-rows");
-	if (headerRows !== undefined && !/^-?\d+$/.test(headerRows)) {
+	if (headerRows !== undefined && !isWireInteger(headerRows)) {
 		return [
 			validationError(
 				"SUITE_DETAIL_GROUP_INVALID",
@@ -586,7 +503,7 @@ function checkFieldStyle(
 	const missing: string[] = [];
 	for (const attr of ["grid-x", "grid-y", "grid-width", "grid-height"]) {
 		const value = getAttributeValue(grid, attr);
-		if (value === undefined || !/^-?\d+$/.test(value)) missing.push(attr);
+		if (value === undefined || !isWireInteger(value)) missing.push(attr);
 	}
 	if (missing.length === 0) return [];
 	return [
@@ -673,11 +590,7 @@ function checkEntries(
 			}
 			// C1-16: `<post relevant>`, when present, must be valid XPath.
 			const relevant = getAttributeValue(post, "relevant");
-			if (
-				relevant !== undefined &&
-				relevant !== "" &&
-				!isParseableXPath(relevant)
-			) {
+			if (relevant !== undefined && !isParseableXPath(relevant)) {
 				errors.push(
 					validationError(
 						"SUITE_INVALID_XPATH",
@@ -725,7 +638,10 @@ function checkEntries(
 		(el) => el.name === "query" && !isStackFrameChild(el),
 		model.doc.children,
 	)) {
-		if (getAttributeValue(query, "url") === undefined) {
+		if (
+			getAttributeValue(query, "url") === undefined ||
+			!URL.canParse(getAttributeValue(query, "url") ?? "")
+		) {
 			errors.push(
 				validationError(
 					"SUITE_QUERY_NO_URL",
@@ -977,7 +893,7 @@ function checkSuiteVersion(
 			),
 		];
 	}
-	if (!/^-?\d+$/.test(version)) {
+	if (!isWireInteger(version)) {
 		return [
 			validationError(
 				"SUITE_VERSION_NOT_INTEGER",
@@ -1040,7 +956,7 @@ function checkXPathSurfaces(
 	for (const { tag, attr, label } of attrSurfaces) {
 		for (const el of findAll((e) => e.name === tag, model.suite.children)) {
 			const expr = getAttributeValue(el, attr);
-			if (expr !== undefined && expr !== "") {
+			if (expr !== undefined) {
 				surfaces.push({ expr, where: label });
 			}
 		}
@@ -1091,7 +1007,7 @@ function checkQueryData(
 		const ref = getAttributeValue(data, "ref");
 		const nodeset = getAttributeValue(data, "nodeset");
 		const exclude = getAttributeValue(data, "exclude");
-		const hasNodeset = nodeset !== undefined && nodeset !== "";
+		const hasNodeset = nodeset !== undefined;
 
 		// C1-13: `ref` is required.
 		if (ref === undefined) {
@@ -1103,7 +1019,7 @@ function checkQueryData(
 					loc,
 				),
 			);
-		} else if (ref !== "") {
+		} else {
 			// C1-14: when a nodeset is present, `ref` must be a PATH (the
 			// ListQueryData branch routes it through getPathExpr); otherwise it
 			// need only parse (the ValueQueryData branch).
@@ -1143,7 +1059,7 @@ function checkQueryData(
 		}
 
 		// `exclude`, when present, must parse as valid XPath.
-		if (exclude !== undefined && exclude !== "" && !isParseableXPath(exclude)) {
+		if (exclude !== undefined && !isParseableXPath(exclude)) {
 			errors.push(
 				validationError(
 					"SUITE_INVALID_XPATH",
@@ -1315,7 +1231,7 @@ function checkDetailReferences(
 	const errors: ValidationError[] = [];
 
 	for (const datum of findAll(
-		(el) => el.name === "datum",
+		(el) => el.name === "datum" || el.name === "instance-datum",
 		model.doc.children,
 	)) {
 		const datumId = getAttributeValue(datum, "id") ?? "(unnamed)";
@@ -1394,52 +1310,11 @@ function collectRelevanceEvaluationInstances(
 	return instances;
 }
 
-/**
- * Per-entry instance resolution (C2-4) + per-entry instance-id uniqueness
- * (C2-5).
- *
- * C2-4: every `instance('foo')` reference appearing in an XPath inside an
- * `<entry>` / `<remote-request>` must have a matching `<instance id="foo">` on
- * that same element (or be one of the runtime-provided ids). A miss is parse-
- * clean; `EvaluationContext::resolveReference` throws
- * `XPathMissingInstanceException` at evaluation. The check sweeps every XPath
- * surface the element body holds — datum value/nodeset, query data ref/nodeset,
- * prompt defaults, post relevant, stack-op values + ifs, and any direct
- * `<xpath function>`.
- *
- * **Reachability note.** Nova's emitted instance vocabulary today is closed to
- * the five ids in `RUNTIME_INSTANCE_IDS`, all runtime-resolved — so C2-4 can
- * NEVER fire on current emitter output (the fuzzer cannot construct a missing
- * declaration). The check is a forward-looking REGRESSION GUARD: the moment an
- * emitter starts emitting `instance('foo')` for a non-runtime `foo` without a
- * matching declaration on the loading scope, this fires. The unit tests cover
- * it with hand-built suites; the fuzzer proves the rest of the oracle, not this.
- *
- * C2-5: a duplicate `<instance id>` on one element silently last-writer-wins
- * (Core's `ParseInstance` Hashtable).
- *
- * Note on details: Nova emits `<detail>` blocks at suite top level, not nested
- * in entries. CCHQ resolves a detail's instance refs against the SPECIFIC entry
- * that loads it (via that entry's `<datum detail-select>` / `detail-confirm>`),
- * not the union of every entry. A detail reachable from two entries must have
- * its refs resolve in BOTH, so the detail branch checks each detail's refs
- * against the INTERSECTION of its referrers' declared instances (∪ the runtime
- * set) — a ref present in only one referrer's scope would `XPathMissingInstance`
- * when the detail is loaded from the other. A detail with zero referrers has no
- * scope to resolve against and is skipped (the empty intersection would
- * degenerate to the runtime set and false-flag any legitimate non-runtime ref
- * on an orphaned detail). The emit-time accumulators
- * (`session.ts::deriveEntryDefinition`, `searchSession.ts::emitSearchSession`)
- * are what make every referrer carry the detail's instances; this is their
- * cross-surface backstop.
- *
- * Referrers are gathered from `detail-select` / `detail-confirm` only — the two
- * detail-loading datum attributes Nova emits. Core's `SessionDatumParser` also
- * recognizes `detail-inline` / `detail-persistent`; Nova emits neither, so a
- * referrer can never hide behind those. If an emitter ever adds an inline or
- * persistent detail, that loading entry must be folded into the referrer map
- * here, or its scope would be missed and the intersection left too wide.
- */
+/** References are joined to the declarations on each loading entry. Details
+ * shared by multiple entries require the reference in every loading scope.
+ * Unreferenced details have no loading scope. Fresh sessions have no global
+ * casedb, session or search-result exemption; runtime frame-carried instances
+ * are outside this static emitted-document contract. */
 /**
  * Suite-embedded lookup fixtures. `SuiteParser` hands each `<fixture>` to
  * `FixtureXmlParser`, which requires an `id`, stores a `user_id`-less fixture
@@ -1556,10 +1431,7 @@ function checkInstanceResolution(
 		}
 
 		// C2-4: every instance ref inside this element must resolve.
-		const inScope = new Set<string>([
-			...RUNTIME_INSTANCE_IDS,
-			...scope.declaredInstances,
-		]);
+		const inScope = new Set<string>([...scope.declaredInstances]);
 		for (const expr of collectEntryScopeXPaths(scope.element)) {
 			for (const ref of collectInstanceRefs(expr)) {
 				if (!inScope.has(ref)) {
@@ -1581,7 +1453,7 @@ function checkInstanceResolution(
 	// selects the first resulting entry (falling back to a direct same-id entry),
 	// then adds declarations from every same-id menu. A command's containing menu
 	// is therefore irrelevant unless its own id equals the command id. Do not
-	// union RUNTIME_INSTANCE_IDS here; see collectRelevanceEvaluationInstances.
+	// assume any globally ambient instances here.
 	for (const menu of model.menuScopes) {
 		const seen = new Set<string>();
 		for (const inst of getChildren(menu.element)) {
@@ -1645,7 +1517,7 @@ function checkInstanceResolution(
 	// LOADED by the entries that name it via `detail-select` / `detail-confirm`.
 	// Core resolves the detail's refs against the loading entry's instance scope,
 	// so a ref must resolve in EVERY referrer's scope — the intersection of all
-	// referrers' declared instances (∪ runtime). A detail with no referrer has no
+	// referrers' declared instances. A detail with no referrer has no
 	// scope to resolve against and is skipped (checking it against the empty
 	// intersection's runtime-only set would false-flag a legitimate non-runtime
 	// ref on an orphaned detail).
@@ -1680,22 +1552,19 @@ function checkInstanceResolution(
 
 /**
  * The instance ids resolvable in EVERY referrer's scope: the intersection of
- * each referrer's declared instances, unioned with the always-resolvable
- * runtime set. A ref not in this set would fail to resolve from at least one
+ * each referrer's declared instances. A ref not in this set would fail to resolve from at least one
  * entry that loads the detail. Callers guarantee `referrers` is non-empty.
  */
 function intersectDeclaredInstances(
 	referrers: readonly EntryScope[],
 ): Set<string> {
 	// Seed the intersection with the first referrer's declared set, then narrow
-	// against each subsequent referrer. The runtime set is unioned in at the end
-	// because it's resolvable in every scope regardless of declaration.
+	// against each subsequent referrer.
 	let intersection = new Set<string>(referrers[0].declaredInstances);
 	for (let i = 1; i < referrers.length; i++) {
 		const declared = referrers[i].declaredInstances;
 		intersection = new Set([...intersection].filter((id) => declared.has(id)));
 	}
-	for (const id of RUNTIME_INSTANCE_IDS) intersection.add(id);
 	return intersection;
 }
 
@@ -1709,7 +1578,18 @@ function collectEntryScopeXPaths(entry: Element): string[] {
 	const out: string[] = [];
 
 	// Datum value + nodeset (session datums + stack datums).
-	for (const datum of findAll((e) => e.name === "datum", entry.children)) {
+	for (const datum of findAll(
+		(e) =>
+			e.name === "datum" ||
+			e.name === "instance-datum" ||
+			(e.name === "form" &&
+				e.parent !== null &&
+				isTag(e.parent) &&
+				e.parent.name === "session"),
+		entry.children,
+	)) {
+		const computed = getAttributeValue(datum, "function");
+		if (computed) out.push(computed);
 		const value = getAttributeValue(datum, "value");
 		if (value) out.push(value);
 		const nodeset = getAttributeValue(datum, "nodeset");
@@ -1721,6 +1601,8 @@ function collectEntryScopeXPaths(entry: Element): string[] {
 		if (ref) out.push(ref);
 		const nodeset = getAttributeValue(data, "nodeset");
 		if (nodeset) out.push(nodeset);
+		const exclude = getAttributeValue(data, "exclude");
+		if (exclude) out.push(exclude);
 	}
 	// Prompt defaults.
 	for (const prompt of findAll((e) => e.name === "prompt", entry.children)) {
@@ -1752,7 +1634,7 @@ function collectEntryScopeXPaths(entry: Element): string[] {
 
 /**
  * Every `<locale id="...">` reference must resolve to an `app_strings.txt`
- * entry (C2-6), or be one of the runtime-provided built-in locale ids. A miss
+ * entry (C2-6). Core has no built-in cchq.case mapping. A miss
  * is render-time fatal: `Localization.get` throws `NoLocalizedTextException`
  * when the string isn't registered.
  */
@@ -1767,7 +1649,6 @@ function checkLocaleResolution(
 	for (const id of collectLocaleRefs(model.suite)) {
 		if (seen.has(id)) continue;
 		seen.add(id);
-		if (RUNTIME_LOCALE_IDS.has(id)) continue;
 		if (!appStringKeys.has(id)) {
 			errors.push(
 				validationError(
@@ -1909,30 +1790,22 @@ function checkMediaResolution(
 	return errors;
 }
 
-/**
- * Extract every `commcare/<...>` wire path embedded as a quoted XPath
- * `jr://file/...` literal inside one `<xpath function>` body. Nova's
- * image-map emitter inlines the paths as quoted XPath string literals
- * inside a nested `if(...)` chain (see `suite/case-list/columns.ts::
- * imageMapDisplayXpath`); the scan walks every quoted occurrence and
- * pulls the post-prefix slice. Both quote styles are scanned because the
- * emitter's quote choice is deterministic but the oracle should tolerate
- * either — a future quote-flip would otherwise silently waive the check.
- *
- * The regex bodies are local to this call so the `/g` lastIndex stays
- * scoped to the iteration — `matchAll` consumes the regex via its own
- * iterator and never leaks state outside the loop.
- */
-function extractJrFileLiterals(xpathFunction: string): string[] {
+/** Only actual XPath string literal nodes are media candidates. A quoted
+ * substring inside a different string is data, not a second XPath literal. */
+function extractJrFileLiterals(source: string): string[] {
 	const paths: string[] = [];
-	for (const pattern of [
-		/'(jr:\/\/file\/[^']*)'/g,
-		/"(jr:\/\/file\/[^"]*)"/g,
-	]) {
-		for (const match of xpathFunction.matchAll(pattern)) {
-			paths.push(match[1].slice(JR_FILE_PREFIX.length));
-		}
-	}
+	const cursor = parser.parse(source).cursor();
+	do {
+		if (cursor.type.name !== "StringLiteral") continue;
+		const quoted = source.slice(cursor.from, cursor.to);
+		const quote = quoted[0];
+		const value = quoted
+			.slice(1, -1)
+			.split(quote + quote)
+			.join(quote);
+		if (value.startsWith(JR_FILE_PREFIX))
+			paths.push(value.slice(JR_FILE_PREFIX.length));
+	} while (cursor.next());
 	return paths;
 }
 
@@ -1955,7 +1828,7 @@ function checkSort(
 		const order = getAttributeValue(sort, "order");
 		// An empty / absent order is the "no explicit order" state Core tolerates
 		// cleanly; only a present non-integer silently misbehaves.
-		if (order !== undefined && order !== "" && !/^-?\d+$/.test(order)) {
+		if (order !== undefined && order !== "" && !isWireInteger(order)) {
 			errors.push(
 				validationError(
 					"SUITE_SORT_BAD_ORDER",
@@ -2041,26 +1914,24 @@ export function validateSuite(
 ): ValidationError[] {
 	const loc: ValidationLocation = {};
 
-	// Strict well-formedness gate — the only parse-failure path. htmlparser2
-	// (used for the DOM walk) is an HTML-recovery parser that heals malformed
-	// XML rather than throwing, so it can't be the gate; fast-xml-parser's
-	// XMLValidator is a strict XML 1.0 validator matching how Core's
-	// KXmlParser rejects a malformed suite.
-	const xmlValidation = XMLValidator.validate(suiteXml);
-	if (xmlValidation !== true) {
+	// Syntax and decoded values come from one namespace-aware XML parse.
+	const parsed = tryParseXml(suiteXml);
+	if ("issue" in parsed) {
 		return [
 			validationError(
 				"SUITE_PARSE_ERROR",
 				"app",
-				`The generator produced malformed suite.xml that CommCare will reject: ${xmlValidation.err.msg}. This is a bug in the suite generator.`,
+				`The generator produced malformed suite.xml that CommCare will reject: ${parsed.issue}. This is a bug in the suite generator.`,
 				loc,
 			),
 		];
 	}
 
-	const doc = parseDocument(suiteXml, XML_OPTS);
+	const { doc } = parsed;
 
-	const suiteEl = findAll((el) => el.name === "suite", doc.children)[0];
+	const suiteEl = doc.children.find(
+		(child): child is Element => isTag(child) && child.name === "suite",
+	);
 	if (suiteEl === undefined) {
 		return [
 			validationError(
@@ -2112,11 +1983,7 @@ export function validateSuite(
 		if (id) {
 			commandIds.add(id);
 			const parent = cmd.parent;
-			if (
-				!directCommandInstanceScopes.has(id) &&
-				parent !== null &&
-				isTag(parent)
-			) {
+			if (parent !== null && isTag(parent)) {
 				directCommandInstanceScopes.set(id, collectDeclaredInstances(parent));
 			}
 		}
@@ -2144,7 +2011,7 @@ export function validateSuite(
 	const detailReferrers = new Map<string, EntryScope[]>();
 	for (const scope of entryScopes) {
 		for (const datum of findAll(
-			(el) => el.name === "datum",
+			(el) => el.name === "datum" || el.name === "instance-datum",
 			scope.element.children,
 		)) {
 			for (const attr of ["detail-select", "detail-confirm"]) {

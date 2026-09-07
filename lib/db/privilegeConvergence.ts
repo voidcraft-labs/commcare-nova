@@ -609,6 +609,7 @@ interface PublicRoutineIdentity {
 }
 
 const EXPECTED_PUBLIC_ROUTINES = [
+	{ name: "rotate_deployment_push_token", identityArguments: "" },
 	{
 		name: "nova_admit_app_change_fold_baseline_insert",
 		identityArguments: "",

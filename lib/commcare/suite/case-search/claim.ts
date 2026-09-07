@@ -1,4 +1,5 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
+
 // lib/commcare/suite/case-search/claim.ts
 //
 // `<post>` claim element inside `<remote-request>`. CCHQ's runtime
@@ -12,9 +13,8 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // escaping authority on the attribute values it carries (the CCHQ XPath
 // guard, the search-case-id ref, the claim URL).
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 
 /** Portable URL used only by unbound structural emission and fixture tests.
  * Actual exports supply their resolved selected-server runtime target. */
@@ -164,14 +164,4 @@ export function buildInlineClaimPost(args: {
 			...(collection && others.length === 0 ? [] : ["commcaresession"]),
 		],
 	};
-}
-
-/**
- * String adapter — serializes `buildClaimPost`'s Element for callers
- * that assert against the rendered XML string (the `claim.test.ts`
- * test surface). The orchestrator (`remoteRequest.ts`) calls
- * `buildClaimPost` directly.
- */
-export function emitClaimPost(multiple = false): string {
-	return render(buildClaimPost(multiple), RENDER_OPTS);
 }

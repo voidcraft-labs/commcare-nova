@@ -144,7 +144,6 @@ describe("commitGuardedBatch — seq recompute", () => {
 		// A multi-connection pool so the two commits genuinely contend on the app
 		// row's `FOR UPDATE` lock (the harness's per-test pool is max: 1).
 		const contendPool = new Pool({ connectionString: h.uri(), max: 4 });
-		contendPool.on("error", () => {});
 		__setAppDbForTests(
 			new Kysely<AppDatabase>({
 				dialect: new PostgresDialect({
@@ -153,7 +152,7 @@ describe("commitGuardedBatch — seq recompute", () => {
 			}),
 		);
 		try {
-			const [a, b] = await Promise.all([
+			const outcomes = await Promise.allSettled([
 				commitGuardedBatch({
 					appId,
 					expectedProjectId: PROJECT,
@@ -172,19 +171,17 @@ describe("commitGuardedBatch — seq recompute", () => {
 				}),
 			]);
 
-			// The row lock serialized them: distinct, gap-free seqs (order arbitrary).
-			expect([a.seq, b.seq].sort()).toEqual([1, 2]);
+			// Join both writers before teardown, including when one rejects.
+			const results = outcomes.map((outcome) => {
+				if (outcome.status === "rejected") throw outcome.reason;
+				return outcome.value;
+			});
+			expect(results.map((result) => result.seq).sort()).toEqual([1, 2]);
 		} finally {
 			await contendPool.end();
 			// Restore getAppDb to the harness's per-test pool for the read below +
 			// any later test's setup before its own beforeEach re-injects.
-			__setAppDbForTests(
-				new Kysely<AppDatabase>({
-					dialect: new PostgresDialect({
-						pool: h.pool() as unknown as PostgresPool,
-					}),
-				}),
-			);
+			__setAppDbForTests(h.db());
 		}
 
 		// Exactly two stream rows, seqs 1 and 2 with no gap/dup, and the counter

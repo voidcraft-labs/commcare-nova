@@ -144,8 +144,8 @@ function sectionTitle(doc: BlueprintDoc, section: Field): string {
  * pages some questions and not others. And a repeat the worker grows by
  * hand cannot live under a section (`FORM_SECTION_USER_REPEAT`): a
  * field-list is one screen, and the app adds repeat entries only from a
- * screen of its own (`FormEntryController` never raises
- * `EVENT_PROMPT_NEW_REPEAT` inside a field-list host), so the repeat would
+ * screen of its own (`FormEntryController.getQuestionPrompts` skips
+ * `EVENT_PROMPT_NEW_REPEAT` while collecting a field-list host), so the repeat would
  * be unreachable on device. Count-bound and query-bound repeats are fine.
  *
  * An empty section is legal: the app skips a page with nothing to show, and
@@ -651,9 +651,8 @@ function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
  *     the backstop for a document that reached the rules another way.
  *   - `FORM_LINK_TARGET_NOT_FOUND` / `FORM_LINK_SELF_REFERENCE` — per link.
  *   - `FORM_LINK_UNREACHABLE` — a link after an unconditional one. The
- *     projection gives it the exclusive guard `not(<earlier>)`, which an
- *     unconditional earlier link makes `not(true)`: it can never fire, so
- *     the author meant something else.
+ *     authoring contract chooses the first matching link, so later links
+ *     cannot run. The low-level projector stays total over this refused input.
  *   - `FORM_LINK_NO_FALLBACK` — the last link is conditional and the form
  *     has no EXPLICIT `postSubmit`. The form-type default is what a form
  *     does with no links at all, not a destination the author chose for
@@ -662,8 +661,8 @@ function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
  *   - `FORM_LINK_DATUMS_INCOMPLETE` — a form target needs a case the link
  *     cannot supply. The runtime does NOT prompt for it: HQ's
  *     `_get_datums_matched_to_source` yields an unmatched selection datum
- *     as a self-named session ref, Core evaluates that to "" at push, and
- *     the person lands in the target form with an empty case id. Nova
+ *     as a self-named session ref. Core raises for an absent source node or
+ *     carries an empty value without prompting for a case. Nova
  *     refuses the link instead. With explicit datums, every selection datum
  *     of the target must be named.
  *   - `FORM_LINK_DATUM_UNUSED` — an explicit datum the target never reads
@@ -831,10 +830,21 @@ function formLinkValidation(
 					"FORM_LINK_DATUMS_INCOMPLETE",
 					"form",
 					authored.datums === undefined
-						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, so the destination would open with no case selected and no way to pick one. Name the value to carry on the link, point it at a form this one can hand a case to, or link to the module's form list so the person picks a case there.`
+						? `"${ctx.formName}" ${label} cannot carry the case its destination needs (${datumIds}): nothing this form opens or creates matches it, so CommCare cannot open the destination with the case it needs. Name the value to carry on the link, point it at a form this one can hand a case to, or link to the module's form list so the person picks a case there.`
 						: `"${ctx.formName}" ${label} names values to carry but leaves out one its destination needs (${datumIds}). Name every value the destination form asks for.`,
 					loc,
 					{ ...details, datumIds },
+				),
+			);
+		}
+		if (link.unrepresentableQueryDatums?.length) {
+			errors.push(
+				validationError(
+					"FORM_LINK_SEARCH_CASE_UNREPRESENTABLE",
+					"form",
+					`"${ctx.formName}" ${label} assigns a different case to a destination that opens on Search. CommCare would fetch the previous case before applying this assignment. Automatic case matching can carry the case this form selected or created; removing the manual assignment lets Nova check that match. Another option is a destination that opens on its case list.`,
+					loc,
+					{ ...details, datumIds: link.unrepresentableQueryDatums.join(", ") },
 				),
 			);
 		}

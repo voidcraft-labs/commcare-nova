@@ -1,207 +1,160 @@
-/**
- * Tests for the LogWriter batcher.
- *
- * These exercise `LogWriter`'s batching + failure-isolation semantics via
- * an injected sink stub — no database. The default production sink
- * (`pgSink`) and its column mapping are covered end-to-end by
- * `reader.postgres.test.ts` (a writer with the default sink writes, then
- * `readEvents` reads the rows back).
- */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+/** The real batcher with controlled persistence completion. Postgres storage,
+ * JSONB and cross-writer collisions are exercised in writer.postgres.test.ts. */
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { log } from "@/lib/logger";
 import type { Event } from "../types";
-import { LogWriter } from "../writer";
+import { type EventSink, LogWriter } from "../writer";
 
-function makeEvent(seq: number, runId = "r"): Event {
+function event(seq: number): Event {
 	return {
 		kind: "mutation",
-		runId,
-		ts: Date.now(),
+		runId: "run",
+		ts: 1000 + seq,
 		seq,
-		/* Matches the writer's own source so most tests are exercising
-		 * the pass-through path; the authority test below deliberately
-		 * passes a conflicting value to verify overwrite behavior. */
 		source: "chat",
 		actor: "agent",
-		mutation: { kind: "setAppName", name: `app-${seq}` },
+		mutation: { kind: "setAppName", name: `Name ${seq}` },
 	};
 }
 
-describe("LogWriter", () => {
-	beforeEach(() => {
-		vi.useFakeTimers();
-	});
-	afterEach(() => {
+const writers: LogWriter[] = [];
+function writer(sink: EventSink, source: "chat" | "mcp" = "chat") {
+	const instance = new LogWriter("app", source, { sink });
+	writers.push(instance);
+	return instance;
+}
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(async () => {
+	try {
+		await Promise.all(writers.splice(0).map((instance) => instance.flush()));
+		expect(vi.getTimerCount()).toBe(0);
+	} finally {
 		vi.useRealTimers();
-	});
+	}
+});
 
-	it("does not write synchronously — buffers until the flush timer fires", async () => {
-		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink });
+it("coalesces a burst until the original timer deadline, then disarms the timer", async () => {
+	const sink = vi.fn<EventSink>().mockResolvedValue(undefined);
+	const w = writer(sink);
+	w.logEvent(event(0));
+	await vi.advanceTimersByTimeAsync(99);
+	w.logEvent(event(1));
+	expect(sink).not.toHaveBeenCalled();
+	expect(vi.getTimerCount()).toBe(1);
+	await vi.advanceTimersByTimeAsync(1);
+	await w.flush();
+	expect(sink.mock.calls).toEqual([["app", [event(0), event(1)]]]);
+	expect(vi.getTimerCount()).toBe(0);
+});
 
-		writer.logEvent(makeEvent(0));
-		expect(sink).not.toHaveBeenCalled();
+it("bounds a default batch at 450 and drains the tail exactly once", async () => {
+	const sink = vi.fn<EventSink>().mockResolvedValue(undefined);
+	const w = writer(sink);
+	const events = Array.from({ length: 452 }, (_, seq) => event(seq));
+	for (const e of events.slice(0, 449)) w.logEvent(e);
+	await Promise.resolve();
+	expect(sink).not.toHaveBeenCalled();
+	w.logEvent(events[449]);
+	await Promise.resolve();
+	expect(sink.mock.calls).toEqual([["app", events.slice(0, 450)]]);
+	expect(vi.getTimerCount()).toBe(0);
+	for (const e of events.slice(450)) w.logEvent(e);
+	await Promise.all([w.flush(), w.flush()]);
+	expect(sink.mock.calls).toEqual([
+		["app", events.slice(0, 450)],
+		["app", events.slice(450)],
+	]);
+	await vi.advanceTimersByTimeAsync(100);
+	expect(sink).toHaveBeenCalledTimes(2);
+});
 
-		/* advanceTimersByTimeAsync drains the microtask queue after firing the
-		 * timer, so the chained sink call inside flush() has a chance to run. */
-		await vi.advanceTimersByTimeAsync(100);
-		expect(sink).toHaveBeenCalledTimes(1);
-		expect(sink).toHaveBeenCalledWith("app-1", [
-			expect.objectContaining({ seq: 0 }),
-		]);
-	});
+it("drains immediately on request finalization without leaving a later duplicate timer write", async () => {
+	const sink = vi.fn<EventSink>().mockResolvedValue(undefined);
+	const w = writer(sink);
+	w.logEvent(event(0));
+	await w.flush();
+	expect(sink.mock.calls).toEqual([["app", [event(0)]]]);
+	expect(vi.getTimerCount()).toBe(0);
+	await w.flush();
+	await vi.advanceTimersByTimeAsync(100);
+	expect(sink.mock.calls).toEqual([["app", [event(0)]]]);
+});
 
-	it("coalesces bursts into a single batch", async () => {
-		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink });
-
-		for (let i = 0; i < 5; i++) writer.logEvent(makeEvent(i));
-		expect(sink).not.toHaveBeenCalled();
-
-		await vi.advanceTimersByTimeAsync(100);
-		expect(sink).toHaveBeenCalledTimes(1);
-		expect(sink.mock.calls[0][1]).toHaveLength(5);
-	});
-
-	it("flushes immediately when buffer exceeds MAX_BATCH", async () => {
-		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink, maxBatch: 3 });
-
-		writer.logEvent(makeEvent(0));
-		writer.logEvent(makeEvent(1));
-		writer.logEvent(makeEvent(2));
-		/* Threshold crossed during the third push — flush is kicked off via
-		 * `void this.flush()`. The sink call runs as a microtask on the inflight
-		 * chain, so drain once before asserting. */
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(sink).toHaveBeenCalledTimes(1);
-		expect(sink.mock.calls[0][1]).toHaveLength(3);
-	});
-
-	it("flush() drains the buffer immediately", async () => {
-		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink });
-
-		writer.logEvent(makeEvent(0));
-		writer.logEvent(makeEvent(1));
-		await writer.flush();
-
-		expect(sink).toHaveBeenCalledTimes(1);
-		expect(sink.mock.calls[0][1]).toHaveLength(2);
-	});
-
-	it("continues after a sink failure", async () => {
+it.each([false, true])(
+	"joins the in-flight write before finalization (buffered tail: %s)",
+	async (bufferedTail) => {
+		const blocked = Promise.withResolvers<void>();
 		const sink = vi
-			.fn()
-			.mockRejectedValueOnce(new Error("database down"))
-			.mockResolvedValueOnce(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink });
-
-		writer.logEvent(makeEvent(0));
-		await writer.flush();
-		writer.logEvent(makeEvent(1));
-		await writer.flush();
-
-		expect(sink).toHaveBeenCalledTimes(2);
-	});
-
-	it("flush() awaits in-flight sinks from prior timer fires", async () => {
-		let resolveSlow: (() => void) | undefined;
-		const slowSink = vi
-			.fn()
-			.mockImplementationOnce(
-				() =>
-					new Promise<void>((res) => {
-						resolveSlow = res;
-					}),
-			)
+			.fn<EventSink>()
+			.mockImplementationOnce(() => blocked.promise)
 			.mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "chat", { sink: slowSink });
+		const w = writer(sink);
+		let completion: Promise<void> | undefined;
+		try {
+			w.logEvent(event(0));
+			await vi.advanceTimersByTimeAsync(100);
+			expect(sink.mock.calls).toEqual([["app", [event(0)]]]);
+			if (bufferedTail) w.logEvent(event(1));
+			let finished = false;
+			completion = w.flush().then(() => {
+				finished = true;
+			});
+			await vi.advanceTimersByTimeAsync(100);
+			expect(finished).toBe(false);
+			expect(sink.mock.calls).toEqual([["app", [event(0)]]]);
+			blocked.resolve();
+			await completion;
+			expect(finished).toBe(true);
+			expect(sink.mock.calls).toEqual(
+				bufferedTail
+					? [
+							["app", [event(0)]],
+							["app", [event(1)]],
+						]
+					: [["app", [event(0)]]],
+			);
+		} finally {
+			blocked.resolve();
+			await completion;
+		}
+	},
+);
 
-		writer.logEvent(makeEvent(0));
-		/* Advance through the 100ms timer — first sink starts, does not resolve. */
-		await vi.advanceTimersByTimeAsync(100);
-		expect(slowSink).toHaveBeenCalledTimes(1);
-
-		/* Enqueue another event + call flush while the first sink is still pending. */
-		writer.logEvent(makeEvent(1));
-		const secondFlush = writer.flush();
-
-		/* secondFlush must NOT have resolved yet — it's awaiting the slow sink. */
-		let resolved = false;
-		void secondFlush.then(() => {
-			resolved = true;
-		});
-		await Promise.resolve(); // microtask drain
-		expect(resolved).toBe(false);
-
-		/* Resolve the slow sink; now the chain completes and secondFlush settles. */
-		resolveSlow?.();
-		await secondFlush;
-		expect(slowSink).toHaveBeenCalledTimes(2);
-	});
-
-	it("flush() on an empty buffer still awaits prior in-flight sinks", async () => {
-		let resolveSlow: (() => void) | undefined;
-		const slowSink = vi.fn().mockImplementationOnce(
-			() =>
-				new Promise<void>((res) => {
-					resolveSlow = res;
-				}),
+it.each(["reject", "throw"] as const)(
+	"reports a sink %s without rejecting finalization or losing the next batch",
+	async (failure) => {
+		const error = new Error("Storage unavailable");
+		const sink = vi
+			.fn<EventSink>()
+			.mockImplementationOnce(() => {
+				if (failure === "throw") throw error;
+				return Promise.reject(error);
+			})
+			.mockResolvedValue(undefined);
+		const w = writer(sink);
+		w.logEvent(event(0));
+		await expect(w.flush()).resolves.toBeUndefined();
+		expect(log.error).toHaveBeenCalledWith(
+			"[LogWriter] batch flush failed",
+			error,
+			{ appId: "app", count: "1" },
 		);
-		const writer = new LogWriter("app-1", "chat", { sink: slowSink });
+		w.logEvent(event(1));
+		await expect(w.flush()).resolves.toBeUndefined();
+		expect(sink.mock.calls).toEqual([
+			["app", [event(0)]],
+			["app", [event(1)]],
+		]);
+	},
+);
 
-		writer.logEvent(makeEvent(0));
-		await vi.advanceTimersByTimeAsync(100);
-
-		/* Now call flush with an empty buffer — must still wait for the prior sink. */
-		const emptyFlush = writer.flush();
-		let resolved = false;
-		void emptyFlush.then(() => {
-			resolved = true;
-		});
-		await Promise.resolve();
-		expect(resolved).toBe(false);
-
-		resolveSlow?.();
-		await emptyFlush;
-		expect(resolved).toBe(true);
-	});
-
-	/**
-	 * Authority guarantee: the writer stamps its constructor-provided
-	 * `source` onto every event, overwriting whatever the caller set on
-	 * the envelope. This matters because tool adapters and
-	 * GenerationContext deliberately include `source` inline (for type
-	 * safety + SSE wire semantics) — if a caller ever built an envelope
-	 * with the wrong surface tag, the writer must overwrite it so the
-	 * persisted stream cannot lie about its origin. Regression here
-	 * would let a chat-surface miswire leak into MCP analytics (or
-	 * vice-versa).
-	 */
-	it("overwrites caller-provided source with the writer's own", async () => {
-		const sink = vi.fn().mockResolvedValue(undefined);
-		const writer = new LogWriter("app-1", "mcp", { sink });
-
-		// Caller lies and says "chat"; writer built with "mcp" must win.
-		const misstamped: Event = {
-			kind: "mutation",
-			runId: "r",
-			ts: Date.now(),
-			seq: 0,
-			source: "chat",
-			actor: "agent",
-			mutation: { kind: "setAppName", name: "x" },
-		};
-		writer.logEvent(misstamped);
-		await writer.flush();
-
-		expect(sink).toHaveBeenCalledTimes(1);
-		const flushed = sink.mock.calls[0][1] as readonly Event[];
-		expect(flushed).toHaveLength(1);
-		expect(flushed[0].source).toBe("mcp");
-		// Original envelope must not have been mutated — the writer
-		// spreads into a fresh object before stamping.
-		expect(misstamped.source).toBe("chat");
-	});
+it("stamps the writer's source without mutating the supplied envelope", async () => {
+	const sink = vi.fn<EventSink>().mockResolvedValue(undefined);
+	const w = writer(sink, "mcp");
+	const supplied = Object.freeze(event(0));
+	w.logEvent(supplied);
+	await w.flush();
+	expect(sink.mock.calls).toEqual([["app", [{ ...event(0), source: "mcp" }]]]);
+	expect(supplied).toEqual(event(0));
 });

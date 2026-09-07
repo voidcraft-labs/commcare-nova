@@ -1,24 +1,30 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	type LookupOptionsSource,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
+import { matchNone } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { validateLookupRowValues } from "@/lib/lookup/coercion";
 import type {
 	LookupCellValue,
 	LookupDataType,
 	LookupFixtureDataSnapshot,
 	LookupFixtureRow,
 	LookupRevision,
-	LookupRowId,
 	LookupRowValues,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { lookupSelectSourceRowFindings } from "../selectSourceRows";
+import { wireUuid } from "./lookupWireCorpus";
 
 const TABLE = "018f0000-0000-7000-8000-0000000000a1" as LookupTableId;
 const OTHER_TABLE = "018f0000-0000-7000-8000-0000000000a2" as LookupTableId;
@@ -75,7 +81,7 @@ function searchPromptDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
 				caseType: "patient",
 				caseListOnly: true,
 				caseListConfig: {
-					columns: [],
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
 					searchInputs: [
 						simpleSearchInputDef(
 							testUuid("search-status"),
@@ -125,7 +131,10 @@ function vals(entries: Record<string, LookupCellValue>): LookupRowValues {
 let rowSeq = 0;
 function row(values: LookupRowValues): LookupFixtureRow {
 	rowSeq += 1;
-	return { id: `018f0000-0000-7000-8000-row${rowSeq}` as LookupRowId, values };
+	return {
+		id: lookupRowIdSchema.parse(wireUuid(`source-row-${rowSeq}`)),
+		values,
+	};
 }
 
 function snapshot(
@@ -145,10 +154,21 @@ function findings(
 	definition: LookupTableDefinition,
 	rows: readonly LookupFixtureRow[],
 ) {
-	return lookupSelectSourceRowFindings(
-		carrierDoc(),
-		snapshot(definition, rows),
-	);
+	const doc = carrierDoc();
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(
+		runValidation(doc, {
+			kind: "available",
+			projectId: "project-1",
+			projectRevision: "1" as LookupRevision,
+			definitions: [definition],
+		}),
+	).toEqual([]);
+	for (const row of rows)
+		expect(
+			validateLookupRowValues(definition.columns, row.values).success,
+		).toBe(true);
+	return lookupSelectSourceRowFindings(doc, snapshot(definition, rows));
 }
 
 describe("lookupSelectSourceRowFindings — blank values", () => {
@@ -217,9 +237,9 @@ describe("lookupSelectSourceRowFindings — duplicate values", () => {
 			row(vals({ [VALUE_COL]: "x ", [LABEL_COL]: "L1" })), // whitespace, not a value
 			row(vals({ [VALUE_COL]: "x", [LABEL_COL]: "L2" })),
 		]);
-		const codes = errors.map((e) => e.code);
-		expect(codes).toContain("LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE");
-		expect(codes).not.toContain("LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE");
+		expect(errors.map((e) => e.code)).toEqual([
+			"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
+		]);
 	});
 
 	it("keeps duplicate labels valid when their values are distinct", () => {
@@ -291,7 +311,12 @@ describe("lookupSelectSourceRowFindings — reported-position cap", () => {
 		]);
 		expect(errors[0].details?.offendingRowCount).toBe("7");
 		expect(errors[0].details?.offendingRowPositions).toBe("1,2,3,4,5");
-		expect(errors[0].details?.offendingRowIds.split(",")).toHaveLength(5);
+		expect(errors[0].details?.offendingRowIds).toBe(
+			rows
+				.slice(0, 5)
+				.map((row) => row.id)
+				.join(","),
+		);
 	});
 });
 
@@ -337,4 +362,35 @@ describe("lookupSelectSourceRowFindings — Search prompt owner", () => {
 			),
 		).toEqual([]);
 	});
+});
+
+it("checks the complete source table even when the filter would exclude every bad row", () => {
+	const doc = carrierDoc({ ...SOURCE, filter: matchNone() });
+	const definition = table();
+	expect(
+		runValidation(doc, {
+			kind: "available",
+			projectId: "project-1",
+			projectRevision: "1" as LookupRevision,
+			definitions: [definition],
+		}),
+	).toEqual([]);
+	const errors = lookupSelectSourceRowFindings(
+		doc,
+		snapshot(definition, [
+			row(vals({ [VALUE_COL]: "bad value", [LABEL_COL]: "Label" })),
+		]),
+	);
+	expect(errors.map((error) => error.code)).toEqual([
+		"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
+	]);
+});
+it("keeps distinct Unicode spellings and non-XML whitespace inside saved values", () => {
+	expect(
+		findings(table(), [
+			row(vals({ [VALUE_COL]: "é", [LABEL_COL]: "Same" })),
+			row(vals({ [VALUE_COL]: "e\u0301", [LABEL_COL]: "Same" })),
+			row(vals({ [VALUE_COL]: "a\u00a0b", [LABEL_COL]: "Same" })),
+		]),
+	).toEqual([]);
 });

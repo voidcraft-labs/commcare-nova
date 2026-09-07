@@ -8,14 +8,9 @@
 // reads as "search is broken" to anyone who types a lowercase
 // first name.
 //
-// Search-field creation still chooses a useful initial property because that
-// canvas has one concise add action. Display-field creation is different: its
-// center-canvas chooser asks which information the author wants, then the
-// helpers here build a working column for that explicit property. The widget
-// follows the property's data type; text-shaped search properties seed with
-// FORGIVING (fuzzy) match: typo-and-case-tolerant on both the wire (CCHQ's
-// per-prompt fuzzy flag) and the preview runtime (pg_trgm), with Exact one
-// click away in the Match picker.
+// Search and display creation both begin with an explicit property choice.
+// These helpers supply only its complete mechanical defaults; text-shaped
+// searches start with forgiving matching and dates receive date widgets.
 
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
@@ -140,27 +135,6 @@ export function widgetTypeForProperty(property: CaseProperty): SearchInputType {
 // ── Seeds ─────────────────────────────────────────────────────────
 
 /**
- * A fully-working search input: bound property, human label, legal
- * unique name, widget matched to the data type, and fuzzy match for
- * text. Returns `undefined` when the case type has no properties to
- * bind (the canvas disables the add affordance in that state).
- */
-export function seedSearchInput(
-	config: CaseListConfig,
-	caseType: CaseType | undefined,
-	project: ProseProjector,
-): SimpleSearchInputDef | undefined {
-	const used = new Set(
-		config.searchInputs.flatMap((s) =>
-			s.kind === "simple" ? [s.property] : [],
-		),
-	);
-	const property = pickSeedProperty(caseType, used);
-	if (property === undefined) return undefined;
-	return seedSearchInputForProperty(config, property, project);
-}
-
-/**
  * Build a working search field for the case property the author explicitly
  * chose on the Search canvas. The explicit choice owns intent; this helper
  * owns only the mechanical defaults that keep a fresh field useful.
@@ -205,28 +179,8 @@ export function seedHiddenSearchInput(
 	);
 }
 
-/**
- * A presentable column: bound to an unused property, headed in human
- * words, and date-formatted when the property is date-shaped.
- * Returns `undefined` when the case type has no properties.
- */
-export function seedColumn(
-	config: CaseListConfig,
-	caseType: CaseType | undefined,
-	project: ProseProjector,
-	slots?: { visibleInList?: boolean; visibleInDetail?: boolean },
-): Column | undefined {
-	const used = new Set(
-		config.columns.flatMap((c) => (c.kind !== "calculated" ? [c.field] : [])),
-	);
-	const property = pickSeedProperty(caseType, used);
-	if (property === undefined) return undefined;
-	return seedColumnForProperty(property, project, slots);
-}
-
 /** Build a presentable display field for the property the author explicitly
- * chose in Add information. Unlike `seedColumn`, this never guesses which
- * information they meant. */
+ * chose in Add information. The explicit choice owns the information. */
 export function seedColumnForProperty(
 	property: CaseProperty,
 	project: ProseProjector,

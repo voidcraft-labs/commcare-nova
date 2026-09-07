@@ -2,13 +2,10 @@
  * Carry an existing case-list item's identity and its tile placement onto a
  * rebuilt body.
  *
- * The column / search-input editors rebuild the body (`preservedColumnSwap`,
- * `simpleSearchInputDef` / `advancedSearchInputDef`) without re-emitting these
- * slots, so a bare replace through the workspace's wholesale
- * `updateModule({ caseListConfig })` path would read as a remove+add, a lost
- * identity: on the auto-save diff whenever the rebuild re-minted a uuid.
- * Applying this at the workspace level makes the preservation independent of
- * whichever editor produced the body.
+ * Column and search-input editors rebuild their content before the workspace
+ * lowers the replacement into granular mutations. Carrying the saved identity
+ * keeps the edit attached to the same item, including when a factory minted a
+ * new UUID. A column's saved placement survives the content replacement too.
  *
  * Sequence is NOT among the slots this carries: Results and Details order live
  * in the config's two arrays, which a column-body rebuild cannot reach. A tile

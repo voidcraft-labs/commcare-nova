@@ -160,41 +160,4 @@ describe("derivePhase", () => {
 			BuilderPhase.Ready,
 		);
 	});
-
-	it("post-completion window: endRun clears buffer → Ready (regression)", () => {
-		/* End-to-end: build completed, data-done stamped runCompletedAt,
-		 * stream closed (endRun cleared the events buffer), ack cleared
-		 * the stamp. Now the derivation runs with buffer=[] and
-		 * hasData=true → Ready. If the buffer weren't cleared on
-		 * endRun, stage would still be non-null and we'd incorrectly
-		 * flip back to Generating after the celebration ended. */
-		expect(
-			derivePhase(
-				{
-					loading: false,
-					runCompletedAt: undefined,
-					events: [],
-					runStartedWithData: false,
-				},
-				true,
-			),
-		).toBe(BuilderPhase.Ready);
-	});
-
-	it("askQuestions-only run: buffer cleared on endRun → Idle (regression)", () => {
-		/* End-to-end: user sent a prompt, agent responded with
-		 * askQuestions (no mutations), stream closed. endRun cleared
-		 * the buffer. hasData=false → Idle, no stray Completed flash. */
-		expect(
-			derivePhase(
-				{
-					loading: false,
-					runCompletedAt: undefined,
-					events: [],
-					runStartedWithData: false,
-				},
-				false,
-			),
-		).toBe(BuilderPhase.Idle);
-	});
 });

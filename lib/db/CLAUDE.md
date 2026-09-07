@@ -48,7 +48,7 @@ design sessions for one actor can never both hold. Canonical commits,
 thread writes, and unchanged-holder verification (the heartbeats) take NO
 actor gate and keep authority-row-first ordering — gate-after-row on any
 lifecycle path would permit a gate↔row deadlock, which is exactly what the
-`actorGenerationGate.postgres.test.ts` source scan forbids.
+`actorGenerationGate.test.ts` source scan forbids.
 
 **Builder hydration is one authorized snapshot.**
 `appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the
@@ -103,7 +103,16 @@ App lifecycle status is the exact closed set `generating | complete | error`
 and every row-to-view path parses it rather than casting arbitrary database
 text. Soft deletion is only the independent `deleted_at` /
 `recoverable_until` pair; there is no `"deleted"` status arm or compatibility
-projection.
+projection. Active authorization rejects a non-null `deleted_at` on both
+full blueprint reads (`resolveAppAccess`) and lightweight Project reads
+(`loadAppProjectId`), matching the locked scope resolver. Inspection and explicit
+restore continue to use the stored row; Project membership alone does not make
+a deleted app active.
+
+App list/search cursors are admitted by `appPagination.ts` before SQL: their
+sort, composite key, encoding and canonical timestamp must match the emitted
+shape. Invalid cursors throw `AppPaginationError`; MCP reports `invalid_input`
+with a restart instruction rather than an operational failure.
 
 **`app_changes` is permanent history.** It is the durable edit log and realtime
 catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,
@@ -179,6 +188,15 @@ channels. Replacement waits for bounded closure of the old client before a new
 one is constructed, preserving the exact connection budget in
 `lib/case-store/postgres/connection.ts`.
 
+Both relays own their reads through response completion. All app lanes, chat
+replay, and authorization cadences use the coalesced pump; `close()` prevents
+new work immediately and returns the active read's drain. Teardown clears
+subscriptions/timers and awaits every pump before EOF; consumer `cancel()`
+returns that same drain. A pump may initiate teardown but never awaits its own
+close. Cadence ticks coalesce instead of starting overlapping authorization
+queries. The chat dead-run fallback explicitly drains its requested final replay
+before synthesizing a finish.
+
 **Lookup data uses snapshot invalidation, not mutation replay.**
 `lookup_project_state.revision` is the commit-ordered Project clock;
 definition and row revisions on each lookup table form its optimistic token.
@@ -215,7 +233,8 @@ holder + reservation columns when a transfer rides the birth), locks/reads
 lookup definitions, evaluates the absolute verdict, checks full export
 readiness, applies organization cross-store integrity, admits media references,
 replaces exact edges, admits runtime
-case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
+case schemas (every type in `buildCaseTypeMap`, including the built-in worker
+case for survey-only apps; `applySchemaChangePhaseA` at synced seq 1; concurrent index
 work drains post-commit off `index_pending_seq`), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
 `createExplicitBlankApp` (the builder action + MCP `create_app`) births the
@@ -244,6 +263,20 @@ Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded
 deterministic mutations.
+Its post-commit schema sweep precedes worker-row synchronization, so a batch
+that adds worker information and persona values stores them against the updated
+schema. Worker-only edits still synchronize even when no schema changed.
+
+Worker rows use `(app, commcare-user, hq_user_id)` as their semantic identity.
+`syncUsercaseRow` preserves a matching existing row's case id, including the
+historical worker-id spelling. Only new rows derive a UUID from the app and
+worker ids; Project is excluded so app moves preserve identity. Concurrent
+first resolutions converge by re-reading that exact semantic identity after
+`CaseStore.insert` has rolled back a primary-key conflict in its own transaction.
+An unrelated collision, duplicate worker identity, or mismatched owner refuses.
+Held and closed rows remain existing rows and are never silently replaced or
+reopened. Persona removal finds the same record before closing it. No migration
+or case-primary-key change is needed.
 
 **Every app belongs to exactly one Project.** `apps.project_id` is `NOT NULL`
 and has the validated
@@ -277,7 +310,11 @@ writes no row and advances no sequence. A named-system repair may load a source
 that strictly parses but fails today's absolute gate—the reason the repair is
 needed—while its requested target still passes the complete current gate before
 anything commits; user-attributed synthetic writes retain strict source
-admission. `repairLookupReferenceEdges` is the
+admission. `appendSyntheticBatchInTransaction` shares that same implementation
+when a repair must compose document/history changes with related data writes.
+The choice-value repair uses it so a case-row failure rolls back the document
+too, preserving the old-to-new mapping for a complete retry.
+`repairLookupReferenceEdges` is the
 app-locked maintenance sibling for derived edge state only: it rederives the
 structural target set from the committed blueprint and replaces the stored
 edge sets, writing no entity, history, or sequence. It is server-only and
@@ -294,7 +331,10 @@ sessions and Project-scoped external-action receipts, appends one attributed
 emits app/presence notifications atomically. Media byte copies are the only
 non-destructive pre-transaction work. Exact same-Project recovery instead locks
 the app, derives its fresh Project, and repairs only case tenancy: no migration
-row and no presence purge.
+row and no presence purge. The orchestration returns the committed move or the
+freshly locked repair Project. MCP and Server Actions project that result rather
+than inferring success from a stale preflight scope; a concurrent winner may
+change both the operation kind and the returned Project.
 Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
 lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 `55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the
@@ -814,6 +854,16 @@ apps released through the historical **Use what’s built** path stay editable.
 A failed or interrupted current build remains frozen even after its live lease
 has gone away.
 
+**Scans own the cleanup they start.** Standalone admission scans and app listings
+await stale-holder reaps before returning. Successful app/session claims await
+collected reaps AFTER their claim transaction commits, so cleanup never tries to
+reacquire an actor gate the caller still holds. Reaps run sequentially to bound
+pool pressure and remain best effort with logged failures. Listing results and
+cursors retain the original query snapshot, including timestamps; cleanup does
+not re-sort a page. Tests hold the old authority row in actual PostgreSQL and
+prove the caller is pending while the new claim is already committed, then check
+the refund immediately after the call returns.
+
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
@@ -1060,7 +1110,8 @@ GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires
 the verified destination outside that TTL prefix before commit. The scheduled
-worker and initiate-route sweep share `purgeExpiredFormAttachments`. Repeat
+worker runs `purgeExpiredFormAttachments`; upload requests await their own
+cleanup and leave expiry maintenance to that worker. Repeat
 compaction preserves attachment-id identity and CAS-moves only a `staged` row's
 concrete `instance_path` under the same entry advisory lock; pending uploads
 cancel, `preparing`/`prepared` rows are fenced from retarget, and `submitted`

@@ -32,16 +32,14 @@ test.describe("public surface", () => {
 	test("GET /api/auth/get-session is healthy (200, not a 500)", async ({
 		request,
 	}) => {
-		// THE regression net. With no cookie this must return 200 (a null
-		// session), and it exercises the auth datastore + rate limiter over the
-		// Cloud SQL connector's outbound credential stack — the exact path that
-		// 500'd under the undici / node-fetch regressions, taking prod login down
-		// with nothing in Sentry.
+		// This verifies the anonymous auth response over HTTP. A missing cookie
+		// need not query the datastore; authenticated checks own that path.
 		const res = await request.get("/api/auth/get-session");
 		expect(
 			res.status(),
 			`GET /api/auth/get-session returned ${res.status()} — the auth boundary is broken (this is how prod login outages have looked)`,
 		).toBe(200);
+		expect(await res.json()).toBeNull();
 	});
 
 	test("clicking 'Sign in with Google' hands off to Google's OAuth screen", async ({
@@ -69,7 +67,9 @@ test.describe("public surface", () => {
 			(req) => urlHost(req.url()) === "accounts.google.com",
 			{ timeout: 15_000 },
 		);
-		await page.getByRole("button", { name: "Sign in with Google" }).click();
-		await googleHandoff;
+		await Promise.all([
+			googleHandoff,
+			page.getByRole("button", { name: "Sign in with Google" }).click(),
+		]);
 	});
 });

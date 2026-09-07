@@ -6,6 +6,9 @@ description: What happens when you publish an app, how to turn it into something
 Publishing sends your app to a CommCare HQ project space. Nova remembers where
 it went, so you can come back at any time and see how far along it is.
 
+Question types carry through to the published form. For example, a Decimal
+question remains a Decimal question when you open it on CommCare HQ.
+
 Getting an app into workers' hands takes six stages. Nova completes the first
 three, you make and release a version on CommCare HQ, and Nova confirms the
 released app is ready for workers.
@@ -30,6 +33,11 @@ notes, and, when you can edit the app and your connected API key reaches that
 project space, a **Publish again** that opens the Publish dialog already
 pointed at it.
 
+The setup notes use your app's current names and ordering. Organization levels
+appear with parents before children, and place totals stay with their level
+when you rename it. Renaming or reordering something in Nova updates these
+notes; changes you apply by hand on CommCare HQ still need to be made there.
+
 The Publish dialog is where a publish starts. With a CommCare HQ connection
 set up, opening it also shows the same project spaces as short status rows
 above the form, with a link across to Publishing for the full picture.
@@ -42,6 +50,11 @@ itself has nothing outstanding, and that the project space supports the app
 features that need destination support. If any required support is missing, or
 Nova cannot confirm it, nothing is sent. The result names the capability and
 the next step.
+
+If Nova cannot confirm the complete list of project spaces your key can reach,
+it reports the connection problem instead of showing an incomplete list. A
+status check that cannot read reliable build or release information keeps the
+last confirmed status.
 
 Nova also reports useful guidance that does not stop the publish. For example,
 the project space may be able to run the app while large Search results open
@@ -61,10 +74,22 @@ This step only appears when your app has one of them.
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
 app does not read are left alone.
 
+If Nova cannot reliably read the tables already on your project space, it
+stops before sending data. Check your CommCare HQ connection, then publish again.
+
 **Places.** If your app has an [organization](/docs/organization), Nova creates
 and updates its places there, working down from the top so each one can name the
 place above it. It sends every place that is not archived, along with whatever
 place information you filled in.
+Nova keeps other information already stored on those places, including fields
+this app does not use. Clearing one of your app's fields clears it on the
+project space too.
+
+If a connection drops while data is being sent, Nova reports what it could
+confirm and holds back the app. Some data may already have arrived. Publishing
+again checks what is there and may ask you to confirm which existing resources
+Nova can update. If CommCare HQ names an invalid row or place, that detail stays
+with the refusal so you can fix it before retrying.
 
 **If something of that name is already there and Nova did not make it**, Nova
 stops rather than write over it, and names it. CommCare HQ matches a lookup
@@ -72,7 +97,8 @@ table on its export tag and a place on its site code, and two things could be
 true: it is yours, from before you used Nova, or it belongs to something else on
 that project space. Nova cannot tell, so you choose. Tick the ones that are
 yours and publish again, and Nova will keep them up to date from then on. Leave
-one unticked and it stays exactly as it is.
+one unticked and it stays exactly as it is. Closing the dialog or changing the
+destination clears those choices. You can confirm them again on your next attempt.
 
 **Nova cannot make organization levels**, so if your places stand at levels the
 project space does not have, or your organization skips a rung the project space
@@ -95,10 +121,19 @@ project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
 tells you so when you try, and publishing once more creates a fresh one.
 
+If a status check overlaps a new publish, Nova keeps the new publish's status.
+Answers about the earlier version cannot replace it.
+
 Immediately before an update, Nova reads the current CommCare HQ app and keeps
 destination-specific behavior it does not own. If that app cannot be read
 safely, Nova leaves the existing HQ app unchanged instead of guessing what to
 keep.
+
+If the app arrives but its media upload cannot be confirmed, Nova keeps the
+published app and reports the media warning. Publishing again updates that app
+and retries its media upload. When CommCare HQ accepts the media but Nova cannot
+confirm that processing finished, the warning says so. You can check the media
+in CommCare HQ before deciding whether to retry.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup
@@ -106,6 +141,8 @@ table whose tag you renamed, Nova names it and leaves it to you. A table
 is named by the tag it still carries on CommCare HQ, which is what you will
 look for on the Lookup Tables screen. Nothing appears here for a table you
 simply republished, only for one nothing in your app points at any more.
+If a later publish uses an earlier resource again, Nova removes it from this
+list. Each unused resource appears only once.
 
 ### Version made, and Released
 
@@ -123,8 +160,9 @@ again.
 ### Ready for workers
 
 Once a version is released, Nova checks that it actually serves the file a
-device installs from. That is the strongest sign it will open for workers, and
-the only one of the five steps Nova can confirm rather than take on trust.
+device installs from, with a valid reference to that released version. An empty
+file or sign-in page leaves the version **Released**, with a note that Nova
+couldn't confirm it is ready. Choose **Check status** to try again.
 
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.
@@ -149,12 +187,33 @@ what the app says now, rather than making a second one. Its password is
 untouched.
 
 Occasionally CommCare HQ breaks off partway through making an account without
-saying whether it made one. Nova shows that row with the other passwords, marked
-**May not exist**, and keeps it on screen through everything you do next. Copy it
+saying whether it made one. An unreadable response or a connection that times out
+can leave the same uncertainty. Nova shows that row with the other passwords, marked
+**Account unconfirmed**, and keeps it on screen through everything you do next. Copy it
 anyway: if the account turned out to be real, that is the only password it will
 ever have. Then look for that username on your project space. If it isn't there,
 choose Make workers again. If it is, give CommCare HQ a moment to notice its own
 new account first, and then Make workers offers you the one already there.
+
+Passwords stay with their own server and project space. If more than one attempt
+is unconfirmed, Nova keeps every possible password for that username. Taking over
+an account confirms that it exists; a password Nova has not verified is marked
+**Password unconfirmed**. **Copy all** includes these labels. **I have this**
+removes only the selected candidate from this page. If the same username now
+belongs to a different account, the previous password becomes unconfirmed too.
+
+If CommCare HQ stops responding during a publish, Nova stops waiting and keeps
+the last confirmed result. A timed-out upload may still have changed the project
+space. The publishing result explains what Nova could confirm before a retry.
+
+If the connection to Nova breaks before the answer reaches this page, some workers
+may already exist without their passwords reaching you. You can check their
+usernames in CommCare HQ before trying again. A password that never reached this
+page will need to be reset there.
+
+If a lookup table you previously took over is deleted in CommCare HQ, the next
+publish can recreate it. Nova records the new table as created by Nova and keeps
+the earlier takeover in its history.
 
 Three things Nova will refuse rather than guess at:
 
@@ -231,6 +290,7 @@ An app can have named entry points for modules, case lists, and forms. After
 publishing and releasing the app, its Publishing card lets you generate and
 copy a link. Nova checks the released entry point each time you generate or
 copy it. Cases for these links use IDs from that CommCare HQ project space.
+When the app or destination changes, Nova clears earlier links and check messages.
 See [Deep links](/docs/deep-links) for Preview testing and release behavior.
 
 ## Choosing a server for downloads

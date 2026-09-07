@@ -47,18 +47,13 @@
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
-// The emitter does NOT register the `<title>` text into
-// app_strings — `cchq.case` is CCHQ's built-in locale with a
-// runtime fallback (registered with `default="Case"` at
-// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
-// Same pattern as the short-detail emitter so both `<detail>`
-// blocks display a consistent runtime title without app-strings
-// entries.
+// The compiler owns the shared cchq.case title locale in every app-string
+// table. Core has no ambient mapping for this id.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
@@ -210,12 +205,12 @@ export function emitLongDetail(args: {
 	readonly target?: DetailTarget;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildLongDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
+	return { xml: serializeXml(element), strings, translationUnits };
 }
 
 /**
  * Build the surrounding `<detail>` Element. The title routes through
- * the built-in `cchq.case` locale; the field Elements slot in between
+ * the compiler-registered `cchq.case` locale; the field Elements slot in between
  * the title and the closing tag.
  */
 function buildDetailShell(

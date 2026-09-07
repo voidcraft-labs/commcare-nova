@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { formatThinkingDuration, reasoningAutoBehavior } from "./reasoning";
+import {
+	formatThinkingDuration,
+	reasoningAutoBehavior,
+} from "./reasoningPolicy";
 
 describe("reasoningAutoBehavior", () => {
 	const base = {

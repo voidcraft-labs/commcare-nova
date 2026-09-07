@@ -114,3 +114,13 @@ describe("prettyPrintXPath", () => {
 		expect(result).not.toContain("\n");
 	});
 });
+
+it.each([formatXPath, prettyPrintXPath])(
+	"preserves literal whitespace, escapes and meaning-bearing grouping",
+	(format) => {
+		const text = "concat(' a  b\n(c) ', 'C:\\notes', (10 - (3 - 2)))";
+		expect(format(text)).toBe(text);
+		expect(format(format(text))).toBe(format(text));
+		expect(format("concat('broken'")).toBe("concat('broken'");
+	},
+);

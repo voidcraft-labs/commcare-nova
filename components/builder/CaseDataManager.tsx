@@ -459,6 +459,7 @@ export function CaseDataManager({
 							<div className="grid gap-1.5 pt-2 text-xs font-medium text-nova-text-secondary">
 								<span id={caseTypeSelectLabelId}>Case type</span>
 								<Select
+									disabled={loading}
 									value={caseType.name}
 									onValueChange={(value) => {
 										if (value === null) return;
@@ -523,6 +524,7 @@ export function CaseDataManager({
 								type="button"
 								variant="outline"
 								className="mt-2.5 w-full"
+								disabled={loading}
 								onClick={() => {
 									setPopoverOpen(false);
 									// The review screen is an edit surface: in preview the
@@ -555,6 +557,7 @@ export function CaseDataManager({
 							type="button"
 							variant="outline"
 							className="mt-3 w-full"
+							disabled={loading}
 							onClick={() => {
 								setPopoverOpen(false);
 								setPropertiesOpen(true);

@@ -2,27 +2,31 @@
 
 import {
 	type ContextType,
-	createContext,
 	memo,
 	type ReactNode,
-	useContext,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
 } from "react";
+import {
+	type BuilderLookupCatalog,
+	BuilderLookupCatalogContext,
+} from "./catalogContext";
+
+export {
+	type BuilderLookupCatalog,
+	useBuilderLookupCatalog,
+} from "./catalogContext";
+
 import type { EditorLookupTableDecl } from "@/components/builder/shared/lookupTablePresentation";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { LookupCommitContext } from "@/lib/doc/lookupCommitContext";
-import {
-	LOOKUP_CONTEXT_UNAVAILABLE,
-	type LookupValidationContext,
-} from "@/lib/doc/lookupReferences";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { getAllLookupDefinitionsAction } from "@/lib/lookup/actions";
 import type {
 	LookupDefinitionsSnapshot,
 	LookupManifest,
-	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
 import {
@@ -30,33 +34,6 @@ import {
 	useProjectId,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
-
-export type BuilderLookupCatalog =
-	| {
-			readonly kind: "unmanaged";
-			readonly lookupContext: LookupValidationContext;
-	  }
-	| {
-			readonly kind: "loading";
-			readonly lookupContext: LookupValidationContext;
-	  }
-	| {
-			readonly kind: "error";
-			readonly message: string;
-			readonly retry: () => Promise<void>;
-			readonly lookupContext: LookupValidationContext;
-	  }
-	| {
-			readonly kind: "ready";
-			readonly definitions: readonly LookupTableDefinition[];
-			readonly tables: readonly EditorLookupTableDecl[];
-			readonly byId: ReadonlyMap<
-				EditorLookupTableDecl["id"],
-				EditorLookupTableDecl
-			>;
-			readonly lookupContext: LookupValidationContext;
-			readonly retry: () => Promise<void>;
-	  };
 
 type CatalogResource =
 	| { readonly kind: "idle" }
@@ -66,11 +43,6 @@ type CatalogResource =
 			readonly snapshot: LookupDefinitionsSnapshot;
 	  }
 	| { readonly kind: "error"; readonly message: string };
-
-const BuilderLookupCatalogContext = createContext<BuilderLookupCatalog>({
-	kind: "unmanaged",
-	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
-});
 
 function sameCatalogValue(
 	left: BuilderLookupCatalog,
@@ -257,8 +229,4 @@ export function BuilderLookupCatalogProvider({
 			{children}
 		</BuilderLookupCatalogBoundary>
 	);
-}
-
-export function useBuilderLookupCatalog(): BuilderLookupCatalog {
-	return useContext(BuilderLookupCatalogContext);
 }

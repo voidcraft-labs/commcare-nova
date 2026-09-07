@@ -23,15 +23,9 @@ import {
 	useXPathProjection,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import type { CommitOutcome, FormLink, XPathExpression } from "@/lib/domain";
+import type { CommitOutcome, FormLink } from "@/lib/domain";
 import { EMPTY_CONDITION_REFUSAL } from "./afterSubmitCopy";
-
-/** Whether a parsed expression reads the form it would run after. */
-export function readsForm(expression: XPathExpression): boolean {
-	return expression.parts.some(
-		(part) => part.kind === "field-ref" || part.kind === "path-ref",
-	);
-}
+import { readsForm } from "./sessionExpression";
 
 export function LinkConditionEditor({
 	formUuid,

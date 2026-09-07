@@ -19,12 +19,14 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
 import { validateMediaBytes } from "../validate";
 
 /**
- * Produce a deterministic 8×8 PNG via sharp. Tests reuse this so
+ * Produce a deterministic 8×13 PNG via sharp. Tests reuse this so
  * the pipeline runs against bytes that pass the magic-bytes sniff,
  * parse cleanly through sharp, and have known dimensions.
  */
@@ -32,7 +34,7 @@ async function makeTinyPng(): Promise<Buffer> {
 	return sharp({
 		create: {
 			width: 8,
-			height: 8,
+			height: 13,
 			channels: 3,
 			background: { r: 12, g: 34, b: 56 },
 		},
@@ -40,6 +42,11 @@ async function makeTinyPng(): Promise<Buffer> {
 		.png()
 		.toBuffer();
 }
+
+let tinyPng: Buffer;
+beforeAll(async () => {
+	tinyPng = await makeTinyPng();
+});
 
 /**
  * Synthesize a minimal valid PCM WAV in-process — no encoder, no
@@ -77,20 +84,23 @@ function makeTinyWav(): Buffer {
 
 describe("validateMediaBytes — happy path", () => {
 	it("validates a real PNG end-to-end", async () => {
-		const bytes = await makeTinyPng();
+		const bytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "image/png",
 			claimedSizeBytes: bytes.length,
-			originalFilename: "logo.png",
+			originalFilename: "Logo.PNG",
 		});
 		expect(result.ok).toBe(true);
 		if (result.ok) {
 			expect(result.validated.mimeType).toBe("image/png");
 			expect(result.validated.extension).toBe(".png");
 			expect(result.validated.kind).toBe("image");
-			expect(result.validated.dimensions).toEqual({ width: 8, height: 8 });
-			expect(result.validated.contentHash).toMatch(/^[a-f0-9]{64}$/);
+			expect(result.validated.dimensions).toEqual({ width: 8, height: 13 });
+			expect(result.validated.contentHash).toBe(
+				createHash("sha256").update(bytes).digest("hex"),
+			);
+			expect(result.validated.sizeBytes).toBe(bytes.length);
 		}
 	});
 
@@ -118,7 +128,7 @@ describe("validateMediaBytes — happy path", () => {
 	});
 
 	it("verifies the client's hash claim when supplied", async () => {
-		const bytes = await makeTinyPng();
+		const bytes = tinyPng;
 		const expectedHash = createHash("sha256").update(bytes).digest("hex");
 		const result = await validateMediaBytes({
 			bytes,
@@ -131,7 +141,9 @@ describe("validateMediaBytes — happy path", () => {
 	});
 
 	it("accepts identical UTF-8 bytes as txt or markdown with one content hash", async () => {
-		const bytes = Buffer.from("# Shared requirements\n\nCollect a name.");
+		const bytes = Buffer.from(
+			"# Shared requirements\n\nCollect a name: Jos\u00e9 \u65e5\u672c.",
+		);
 		const plain = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "text/plain",
@@ -156,6 +168,22 @@ describe("validateMediaBytes — happy path", () => {
 });
 
 describe("validateMediaBytes — rejection paths", () => {
+	it.each([
+		{ name: "invalid UTF-8", bytes: Buffer.from([0xc3, 0x28]) },
+		{
+			name: "NUL in otherwise valid text",
+			bytes: Buffer.from("before\0after"),
+		},
+	])("rejects $name in text uploads", async ({ bytes }) => {
+		await expect(
+			validateMediaBytes({
+				bytes,
+				claimedMimeType: "text/plain",
+				claimedSizeBytes: bytes.length,
+				originalFilename: "document.txt",
+			}),
+		).resolves.toMatchObject({ ok: false, reason: "text-not-utf8" });
+	});
 	it("rejects an unaccepted file extension before reading bytes", async () => {
 		const result = await validateMediaBytes({
 			bytes: Buffer.from([0x00, 0x00]),
@@ -184,8 +212,8 @@ describe("validateMediaBytes — rejection paths", () => {
 	});
 
 	it("rejects an oversized image", async () => {
-		// 6 MB of zeros — the image cap is 5 MB.
-		const bytes = Buffer.alloc(6 * 1024 * 1024);
+		// Cross the actual image byte boundary by exactly one byte.
+		const bytes = Buffer.alloc(ASSET_SIZE_CAPS_BYTES.image + 1);
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "image/png",
@@ -199,7 +227,7 @@ describe("validateMediaBytes — rejection paths", () => {
 	});
 
 	it("rejects when actual byte length disagrees with the claim", async () => {
-		const bytes = await makeTinyPng();
+		const bytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "image/png",
@@ -212,8 +240,8 @@ describe("validateMediaBytes — rejection paths", () => {
 		}
 	});
 
-	it("rejects a MIME claim outside the accepted set", async () => {
-		const bytes = await makeTinyPng();
+	it("rejects a document MIME claim for image bytes", async () => {
+		const bytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "application/pdf",
@@ -227,7 +255,7 @@ describe("validateMediaBytes — rejection paths", () => {
 	});
 
 	it("rejects a MIME spoof (PNG bytes claimed as JPEG)", async () => {
-		const pngBytes = await makeTinyPng();
+		const pngBytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes: pngBytes,
 			claimedMimeType: "image/jpeg",
@@ -241,7 +269,7 @@ describe("validateMediaBytes — rejection paths", () => {
 	});
 
 	it("rejects a hash mismatch when the client's claim is supplied", async () => {
-		const bytes = await makeTinyPng();
+		const bytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "image/png",
@@ -272,7 +300,7 @@ describe("validateMediaBytes — rejection paths", () => {
 	});
 
 	it("rejects bytes where the extension and the sniffed MIME disagree", async () => {
-		const pngBytes = await makeTinyPng();
+		const pngBytes = tinyPng;
 		const result = await validateMediaBytes({
 			bytes: pngBytes,
 			claimedMimeType: "image/png",
@@ -286,9 +314,7 @@ describe("validateMediaBytes — rejection paths", () => {
 		});
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			expect(["mime-claim-mismatch", "extension-mime-mismatch"]).toContain(
-				result.reason,
-			);
+			expect(result.reason).toBe("extension-mime-mismatch");
 		}
 	});
 });
@@ -300,8 +326,17 @@ describe("validateMediaBytes — sharp parse failure", () => {
 		const pngHeader = Buffer.from([
 			0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 		]);
-		const garbage = Buffer.alloc(64, 0xff);
-		const bytes = Buffer.concat([pngHeader, garbage]);
+		// An IDAT marker is enough for the sniffer, but the missing IHDR
+		// makes the image body invalid to sharp. Prove we reached that gate.
+		const bytes = Buffer.concat([
+			pngHeader,
+			Buffer.from([0, 0, 0, 0]),
+			Buffer.from("IDAT"),
+			Buffer.alloc(4),
+		]);
+		expect(await fileTypeFromBuffer(bytes)).toMatchObject({
+			mime: "image/png",
+		});
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "image/png",
@@ -310,11 +345,7 @@ describe("validateMediaBytes — sharp parse failure", () => {
 		});
 		expect(result.ok).toBe(false);
 		if (!result.ok) {
-			// `file-type` may or may not accept the truncated header
-			// — both reasons indicate the same class of rejection.
-			expect(["magic-bytes-sniff-failed", "image-parse-failed"]).toContain(
-				result.reason,
-			);
+			expect(result.reason).toBe("image-parse-failed");
 		}
 	});
 });
@@ -333,10 +364,8 @@ describe("validateMediaBytes — audio & video (music-metadata)", () => {
 			expect(result.validated.kind).toBe("audio");
 			expect(result.validated.mimeType).toBe("audio/wav");
 			expect(result.validated.extension).toBe(".wav");
-			// 800 samples ÷ 8 kHz = 0.1 s. Bounded rather than exact to
-			// absorb any rounding in the container's duration math.
-			expect(result.validated.durationMs).toBeGreaterThanOrEqual(90);
-			expect(result.validated.durationMs).toBeLessThanOrEqual(110);
+			// 800 samples at 8 kHz is exactly 100 ms.
+			expect(result.validated.durationMs).toBe(100);
 			expect(result.validated.dimensions).toBeUndefined();
 		}
 	});

@@ -946,8 +946,7 @@ export function moveCaseOperationMutation(
 		(candidate) => candidate.uuid === uuid,
 	);
 	if (targetIndex === currentIndex) {
-		// An already-placed operation is a true no-op: do not mint a different
-		// fractional key for the same rank. Apart from pointless multiplayer
+		// An already-placed operation is a true no-op. Apart from pointless multiplayer
 		// traffic, that would create an undo entry for a gesture that changed
 		// nothing the author can observe.
 		return { ok: true, mutations: [] };

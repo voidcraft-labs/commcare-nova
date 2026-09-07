@@ -81,10 +81,10 @@ async function commitTransitionWhileWriterWaits<T>(args: {
 }): Promise<T> {
 	const controller = new Client({ connectionString: h.uri() });
 	const observer = new Client({ connectionString: h.uri() });
-	await Promise.all([controller.connect(), observer.connect()]);
 	let writeOutcome: Promise<Outcome<T>> | undefined;
 	let committed = false;
 	try {
+		await Promise.all([controller.connect(), observer.connect()]);
 		await controller.query("BEGIN");
 		await args.transition(controller);
 		const controllerPid = await backendPid(controller);

@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
-import { resolveAppScope } from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { listThreadMetas } from "@/lib/db/threads";
 import { GET } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({ resolveAppScope: vi.fn() }));
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppScope: vi.fn(),
+}));
 vi.mock("@/lib/db/threads", () => ({ listThreadMetas: vi.fn() }));
 
 beforeEach(() => {
@@ -29,5 +32,22 @@ describe("GET /api/apps/[id]/threads", () => {
 		expect(response.headers.get("Cache-Control")).toBe("private, no-store");
 		expect(resolveAppScope).toHaveBeenCalledWith("app-1", "user-1", "view");
 		expect(await response.json()).toEqual({ threads: [] });
+		expect(listThreadMetas).toHaveBeenCalledWith({
+			kind: "app",
+			appId: "app-1",
+		});
 	});
+});
+
+it("keeps an access denial non-cacheable and does not read any transcript", async () => {
+	vi.mocked(resolveAppScope).mockRejectedValueOnce(
+		new AppAccessError("not_member"),
+	);
+	const response = await GET(new Request("http://localhost"), {
+		params: Promise.resolve({ id: "app-1" }),
+	});
+	expect(response.status).toBe(404);
+	expect(response.headers.get("cache-control")).toBe("private, no-store");
+	expect(await response.json()).toEqual({ error: "App not found" });
+	expect(listThreadMetas).not.toHaveBeenCalled();
 });

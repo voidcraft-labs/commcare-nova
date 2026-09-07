@@ -1,3 +1,5 @@
+/** Lexical CST acceptance and operator tree shape; native Core parity owns wire compatibility. */
+import type { SyntaxNode } from "@lezer/common";
 import { describe, expect, it } from "vitest";
 import { parser } from "@/lib/commcare/xpath";
 
@@ -7,7 +9,7 @@ function parsesClean(expr: string): boolean {
 	let hasError = false;
 	tree.iterate({
 		enter(node) {
-			if (node.name === "⚠") hasError = true;
+			if (node.type.isError) hasError = true;
 		},
 	});
 	return !hasError;
@@ -120,7 +122,7 @@ describe("CommCare XPath Parser", () => {
 	});
 
 	// --------------- Operator associativity ---------------
-	describe("associativity", () => {
+	describe("operator chains parse", () => {
 		const cases = [
 			"1 or 2 or 3",
 			"1 and 2 and 3",
@@ -136,7 +138,7 @@ describe("CommCare XPath Parser", () => {
 	});
 
 	// --------------- Operator precedence ---------------
-	describe("precedence", () => {
+	describe("mixed operators parse", () => {
 		const cases = [
 			"1 < 2 = 3 > 4 and 5 <= 6 != 7 >= 8 or 9 and 10",
 			"1 * 2 + 3 div 4 < 5 mod 6 | 7 - 8",
@@ -300,4 +302,48 @@ describe("CommCare XPath Parser", () => {
 			expect(parsesClean(expr)).toBe(true);
 		});
 	});
+});
+
+function operatorShape(node: SyntaxNode, text: string): unknown {
+	if (node.name === "NumberLiteral")
+		return Number(text.slice(node.from, node.to));
+	const operands: unknown[] = [];
+	for (let child = node.firstChild; child; child = child.nextSibling) {
+		if (child.name.endsWith("Expr") || child.name === "NumberLiteral")
+			operands.push(operatorShape(child, text));
+	}
+	return node.name === "XPath" ? operands[0] : [node.name, ...operands];
+}
+it.each([
+	["10 - 3 - 2", ["SubtractExpr", ["SubtractExpr", 10, 3], 2]],
+	["10 - (3 - 2)", ["SubtractExpr", 10, ["SubtractExpr", 3, 2]]],
+	["8 div 2 * 3", ["MultiplyExpr", ["DivideExpr", 8, 2], 3]],
+	["1 + 2 * 3", ["AddExpr", 1, ["MultiplyExpr", 2, 3]]],
+	["(1 + 2) * 3", ["MultiplyExpr", ["AddExpr", 1, 2], 3]],
+	[
+		"1 = 2 or 3 = 4 and 5 = 6",
+		[
+			"OrExpr",
+			["EqualsExpr", 1, 2],
+			["AndExpr", ["EqualsExpr", 3, 4], ["EqualsExpr", 5, 6]],
+		],
+	],
+])("gives %s the intended nested operator structure", (text, expected) => {
+	expect(
+		operatorShape(parser.parse(text as string).topNode, text as string),
+	).toEqual(expected);
+});
+it.each([
+	"1 +",
+	"(1 + 2",
+	"1 + 2)",
+	"'unterminated",
+	"concat(, 1)",
+	"concat(1,)",
+	"foo[]",
+	"foo[1",
+	"@",
+	"#form/",
+])("marks malformed syntax %s", (text) => {
+	expect(parsesClean(text)).toBe(false);
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { showProjectToast, showToast, toastStore } from "@/lib/ui/toastStore";
 
 let testScope = 0;
@@ -10,6 +10,12 @@ beforeEach(() => {
 		scopeId: `test-scope-${testScope}`,
 		epoch: 0,
 	});
+});
+
+afterEach(() => {
+	toastStore.deactivateProjectScope(`test-scope-${testScope}`);
+	toastStore.deactivateProjectScope(`replacement-${testScope}`);
+	toastStore.clear();
 });
 
 describe("Project-scoped toasts", () => {
@@ -28,24 +34,35 @@ describe("Project-scoped toasts", () => {
 		]);
 	});
 
-	it("rejects late source completions and refuses their stale actions", () => {
-		const scopeId = `test-scope-${testScope}`;
-		const action = vi.fn();
-		const sourceToastId = showProjectToast(
-			{ scopeId, epoch: 0 },
-			"warning",
-			"Value dismissed",
-			undefined,
-			{ action: { label: "Undo", onPress: action } },
-		);
+	it.each(["epoch", "builder"])(
+		"rejects late source completions after a %s change",
+		(change) => {
+			const scopeId = `test-scope-${testScope}`;
+			const action = vi.fn();
+			const sourceToastId = showProjectToast(
+				{ scopeId, epoch: 0 },
+				"warning",
+				"Value dismissed",
+				undefined,
+				{ action: { label: "Undo", onPress: action } },
+			);
 
-		toastStore.activateProjectScope({ scopeId, epoch: 1 });
-		toastStore.invokeAction(sourceToastId);
-		expect(action).not.toHaveBeenCalled();
+			toastStore.activateProjectScope(
+				change === "epoch"
+					? { scopeId, epoch: 1 }
+					: { scopeId: `replacement-${testScope}`, epoch: 0 },
+			);
+			toastStore.invokeAction(sourceToastId);
+			expect(action).not.toHaveBeenCalled();
 
-		showProjectToast({ scopeId, epoch: 0 }, "info", "Late source filename.pdf");
-		expect(toastStore.toasts).toHaveLength(0);
-	});
+			showProjectToast(
+				{ scopeId, epoch: 0 },
+				"info",
+				"Late source filename.pdf",
+			);
+			expect(toastStore.toasts).toHaveLength(0);
+		},
+	);
 
 	it("runs an action only in its current Project generation", () => {
 		const scopeId = `test-scope-${testScope}`;

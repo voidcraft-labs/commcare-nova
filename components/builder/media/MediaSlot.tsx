@@ -483,8 +483,7 @@ function AttachButton({
  * doc, which is exactly the contract: the doc gets the reference only
  * when the upload confirms.
  */
-/** @internal Exported for focused state/accessibility coverage. */
-export function StagedUploadChip({
+function StagedUploadChip({
 	upload,
 	onCancel,
 	onDismiss,

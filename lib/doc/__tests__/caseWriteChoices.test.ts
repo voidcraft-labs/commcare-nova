@@ -4,6 +4,7 @@ import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture(): { doc: BlueprintDoc; name: Field; notes: Field } {
 	const doc = buildDoc({
@@ -71,6 +72,7 @@ function fixture(): { doc: BlueprintDoc; name: Field; notes: Field } {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
 	const [nameUuid, notesUuid] = doc.fieldOrder[formUuid];
@@ -119,14 +121,17 @@ describe("caseWriteChoiceVerdict", () => {
 	});
 
 	it("disables a duplicate writer and a declared type mismatch", () => {
-		const { doc, name, notes } = fixture();
+		const { doc, notes } = fixture();
 		const duplicate = caseWriteChoiceVerdict(
 			doc,
-			name,
-			{ caseType: "patient", property: "notes" },
+			notes,
+			{ caseType: "patient", property: "case_name" },
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(duplicate.ok).toBe(false);
+		expect(duplicate).toMatchObject({
+			ok: false,
+			reason: expect.stringMatching(/more than one field naming/),
+		});
 
 		const mismatch = caseWriteChoiceVerdict(
 			doc,

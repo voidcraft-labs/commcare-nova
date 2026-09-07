@@ -1,3 +1,5 @@
+/** Pure codec and deterministic grouping tests. Synthetic units isolate the
+ * protocol; they do not assert app inventory completeness or translation quality. */
 import { describe, expect, it } from "vitest";
 import {
 	makeTranslationUnitId,
@@ -113,6 +115,63 @@ describe("translation protocol", () => {
 		});
 	});
 
+	it("disambiguates a real reference from literal text spelling its generated token", () => {
+		const original: TranslationUnit = {
+			...textUnit("collision", "unused"),
+			valueKind: "prose",
+			source: { parts: [{ kind: "field-ref", uuid: FIELD }] },
+		};
+		const marker = encodeTranslationUnit(original).protectedTokens[0];
+		if (!marker) throw new Error("reference token missing");
+		const source: ProseTemplate = {
+			parts: [
+				{ kind: "field-ref", uuid: FIELD },
+				{ kind: "text", text: ` and literal ${marker}` },
+			],
+		};
+		const encoded = encodeTranslationUnit({
+			...original,
+			source,
+			sourceFingerprint: translationSourceFingerprint("prose", source),
+		});
+		expect(encoded.protectedTokens).toHaveLength(2);
+		expect(new Set(encoded.protectedTokens).size).toBe(2);
+		expect(encoded.protectedTokens).not.toContain(marker);
+		expect(
+			decodeTranslatedValue(
+				encoded,
+				`${encoded.protectedTokens[1]} puis ${encoded.protectedTokens[0]}`,
+			),
+		).toEqual({
+			parts: [
+				{ kind: "text", text: `${marker} puis ` },
+				{ kind: "field-ref", uuid: FIELD },
+			],
+		});
+	});
+
+	it("splits large owning screens without losing units and keeps an indivisible oversized unit alone", () => {
+		const units = Array.from({ length: 8 }, (_, index) =>
+			textUnit(`large-${index}`, `Instruction ${index}: ${"a".repeat(12000)}`),
+		);
+		const batches = planTranslationBatches(units);
+		expect(batches.length).toBeGreaterThan(1);
+		expect(
+			batches.every((batch) => batch.length > 0 && batch.length < units.length),
+		).toBe(true);
+		expect(batches.flat().map((unit) => unit.unitId)).toEqual(
+			units.map((unit) => unit.id),
+		);
+		const giant = textUnit("giant", "b".repeat(100000));
+		const isolated = planTranslationBatches([units[0], giant, units[1]]);
+		expect(isolated.map((batch) => batch.map((unit) => unit.unitId))).toEqual([
+			[units[0].id],
+			[giant.id],
+			[units[1].id],
+		]);
+		expect(isolated[1][0].sourceText).toBe(giant.source);
+	});
+
 	it("requires exactly one valid result for every requested unit", () => {
 		const first = encodeTranslationUnit(textUnit("first", "Name"));
 		const second = encodeTranslationUnit(textUnit("second", "Age"));
@@ -147,6 +206,22 @@ describe("translation protocol", () => {
 				translations: [{ unitId: first.unitId, translatedText: "  " }],
 			}),
 		).toThrow("cannot be blank");
+	});
+
+	it("refuses a foreign unit and accepts blank text only when its slot permits blank", () => {
+		const unit = encodeTranslationUnit(
+			textUnit("requested", "Hint", { contentPolicy: "allow-blank" }),
+		);
+		expect(
+			validateTranslationBatchOutput([unit], {
+				translations: [{ unitId: unit.unitId, translatedText: "" }],
+			}),
+		).toEqual(new Map([[unit.unitId, ""]]));
+		expect(() =>
+			validateTranslationBatchOutput([unit], {
+				translations: [{ unitId: "foreign", translatedText: "Hint" }],
+			}),
+		).toThrow("unexpected unit");
 	});
 
 	it("rejects locale-file-unsafe app strings before accepting a paid batch", () => {
@@ -191,8 +266,8 @@ describe("translation protocol", () => {
 		});
 		const batches = planTranslationBatches([
 			textUnit("first", "Name"),
-			sameForm,
 			app,
+			sameForm,
 		]);
 		expect(batches.map((batch) => batch.map((unit) => unit.unitId))).toEqual([
 			[makeTranslationUnitId("first"), makeTranslationUnitId("same-form")],

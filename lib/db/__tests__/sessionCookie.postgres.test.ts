@@ -37,6 +37,11 @@ const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "auth_session_contract_",
 	establishLocalMigrationAuthority: true,
+	prepareTemplate: async (db, pool) => {
+		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+		await runMigrations();
+		await runAuthAppMigrations(db);
+	},
 });
 
 /**
@@ -101,11 +106,6 @@ describe("session-cookie contract", () => {
 	let auth: ReturnType<typeof createTestAuth>;
 
 	beforeEach(async () => {
-		const { runMigrations } = await getMigrations(
-			authMigrateOptions(dbHandle.pool),
-		);
-		await runMigrations();
-		await runAuthAppMigrations(dbHandle.db);
 		auth = createTestAuth(dbHandle.pool);
 		await seedUser(auth);
 	});

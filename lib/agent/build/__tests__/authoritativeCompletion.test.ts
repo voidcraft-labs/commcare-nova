@@ -1,92 +1,105 @@
 import { describe, expect, it } from "vitest";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
-import { makeBuildPlan } from "@/lib/agent/design/__tests__/fixtures";
-import type { BuildSlice } from "@/lib/agent/design/buildPlan";
+import { asDesignId } from "@/lib/agent/design/ids";
 import {
 	assertExactCommittedSliceReceipts,
 	BuildCompletionVerificationError,
+	type FrozenBuildLineage,
 } from "../authoritativeCompletion";
 
-const SESSION_ID = "session";
-const REVISION_ID = "revision";
-const REVISION_DIGEST = "a".repeat(64);
-const PLAN_ID = "plan";
-const PLAN_DIGEST = "b".repeat(64);
-const APP_ID = "app";
-
-function receiptFor(slice: BuildSlice, index: number): CommittedSliceReceipt {
-	return {
-		id: `receipt-${index}`,
-		changeSetId: `change-set-${index}`,
-		appId: APP_ID,
-		seq: index + 1,
-		batchId: `batch-${index}`,
-		committedSnapshotDigest: "c".repeat(64),
-		mutationCount: 1,
-		committedAt: new Date(0),
-		designSessionId: SESSION_ID,
-		designRevisionId: REVISION_ID,
-		designRevisionDigest: REVISION_DIGEST,
-		buildPlanId: PLAN_ID,
-		buildPlanDigest: PLAN_DIGEST,
-		sliceId: slice.id,
-		attemptId: `attempt-${index}`,
-	};
-}
-
+// This gate consumes slice identity only. Database authority, app state and
+// receipt persistence are exercised by the PostgreSQL completion tests.
+const lineage: FrozenBuildLineage = {
+	designSessionId: "session",
+	designRevisionId: "revision",
+	designRevisionDigest: "a".repeat(64),
+	buildPlanId: "plan",
+	buildPlanDigest: "b".repeat(64),
+	appId: "app",
+};
 function fixture() {
-	const slices = makeBuildPlan().slices;
-	return {
-		expectedSlices: slices,
-		receipts: slices.map(receiptFor),
-		lineage: {
-			designSessionId: SESSION_ID,
-			designRevisionId: REVISION_ID,
-			designRevisionDigest: REVISION_DIGEST,
-			buildPlanId: PLAN_ID,
-			buildPlanDigest: PLAN_DIGEST,
-			appId: APP_ID,
-		},
-	};
+	const expectedSlices = [1, 2].map((n) => ({
+		id: asDesignId(`00000000-0000-4000-8000-${String(n).padStart(12, "0")}`),
+	}));
+	const receipts: CommittedSliceReceipt[] = expectedSlices.map(
+		(slice, index) => ({
+			...lineage,
+			id: `receipt-${index}`,
+			changeSetId: `change-set-${index}`,
+			seq: 10 + index * 3,
+			batchId: `batch-${index}`,
+			committedSnapshotDigest: "c".repeat(64),
+			mutationCount: 1,
+			committedAt: new Date(0),
+			sliceId: slice.id,
+			attemptId: `attempt-${index}`,
+		}),
+	);
+	return { expectedSlices, receipts, lineage };
+}
+function changeSecond(patch: Partial<CommittedSliceReceipt>) {
+	const value = fixture();
+	value.receipts = value.receipts.map((receipt, index) =>
+		index === 1 ? { ...receipt, ...patch } : receipt,
+	);
+	return value;
 }
 
-describe("assertExactCommittedSliceReceipts", () => {
-	it("admits the exact ordered receipt set", () => {
-		expect(() => assertExactCommittedSliceReceipts(fixture())).not.toThrow();
-	});
-
-	it("refuses completion while any planned workflow is uncommitted", () => {
+describe("immutable receipt-set admission", () => {
+	it("accepts planned order with increasing noncontiguous app revisions without mutating evidence", () => {
 		const value = fixture();
-		let error: unknown;
-		try {
-			assertExactCommittedSliceReceipts({
-				...value,
-				receipts: value.receipts.slice(0, -1),
-			});
-		} catch (caught) {
-			error = caught;
-		}
-		expect(error).toBeInstanceOf(BuildCompletionVerificationError);
-		expect((error as Error).message).toMatch(/1 of 2 planned workflow slices/);
+		const before = structuredClone(value);
+		expect(() => assertExactCommittedSliceReceipts(value)).not.toThrow();
+		expect(value).toEqual(before);
 	});
-
-	it("refuses reordered, duplicate, foreign-lineage, or empty receipts", () => {
+	it.each(["missing", "extra"] as const)("refuses a %s receipt", (kind) => {
 		const value = fixture();
-		const first = value.receipts[0];
-		const second = value.receipts[1];
-		if (first === undefined || second === undefined) {
-			throw new Error("completion fixture must contain two slices");
-		}
-		const cases: readonly (readonly CommittedSliceReceipt[])[] = [
-			[second, first],
-			[first, { ...second, sliceId: first.sliceId }],
-			[first, { ...second, buildPlanDigest: "d".repeat(64) }],
-			[first, { ...second, mutationCount: 0 }],
-		];
-		for (const receipts of cases) {
+		value.receipts =
+			kind === "missing"
+				? value.receipts.slice(0, 1)
+				: [...value.receipts, ...value.receipts];
+		expect(() => assertExactCommittedSliceReceipts(value)).toThrow(
+			BuildCompletionVerificationError,
+		);
+	});
+	const foreign: Record<keyof FrozenBuildLineage, string> = {
+		designSessionId: "another-session",
+		designRevisionId: "another-revision",
+		designRevisionDigest: "d".repeat(64),
+		buildPlanId: "another-plan",
+		buildPlanDigest: "e".repeat(64),
+		appId: "another-app",
+	};
+	it.each(Object.entries(foreign))(
+		"refuses foreign %s even with correct slice order",
+		(key, value) => {
 			expect(() =>
-				assertExactCommittedSliceReceipts({ ...value, receipts }),
-			).toThrow(/Build completion refused/);
-		}
+				assertExactCommittedSliceReceipts(changeSecond({ [key]: value })),
+			).toThrow(BuildCompletionVerificationError);
+		},
+	);
+	it.each([
+		["empty mutation batch", { mutationCount: 0 }],
+		["duplicate sequence", { seq: 10 }],
+		["backwards sequence", { seq: 9 }],
+		[
+			"unplanned slice",
+			{ sliceId: asDesignId("00000000-0000-4000-8000-000000000099") },
+		],
+		[
+			"duplicate slice",
+			{ sliceId: asDesignId("00000000-0000-4000-8000-000000000001") },
+		],
+	] as const)("refuses %s", (_label, patch) => {
+		expect(() =>
+			assertExactCommittedSliceReceipts(changeSecond(patch)),
+		).toThrow(BuildCompletionVerificationError);
+	});
+	it("refuses reordered planned slices even if sequence values increase", () => {
+		const value = fixture();
+		value.expectedSlices.reverse();
+		expect(() => assertExactCommittedSliceReceipts(value)).toThrow(
+			BuildCompletionVerificationError,
+		);
 	});
 });

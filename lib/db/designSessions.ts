@@ -345,14 +345,16 @@ function requireActiveBuildSession(row: LockedSessionRow): void {
 	}
 }
 
-/** Fire the reapers the admission scan surfaced — AFTER the claim
+/** Await the reapers the admission scan surfaced — AFTER the claim
  * transaction committed, exactly like the app claim's post-commit reaps. */
-function fireScanReaps(reapable: readonly ReapableGenerationTarget[]): void {
+async function reapScannedTargets(
+	reapable: readonly ReapableGenerationTarget[],
+): Promise<void> {
 	for (const target of reapable) {
 		if (target.kind === "app") {
-			void reapStaleGenerating(target.appId, target.identity);
+			await reapStaleGenerating(target.appId, target.identity);
 		} else {
-			void reapStaleDesignSessionRun(target.designSessionId, target.identity);
+			await reapStaleDesignSessionRun(target.designSessionId, target.identity);
 		}
 	}
 }
@@ -427,7 +429,7 @@ export async function createAndClaimDesignSessionRun(args: {
 			})
 			.execute();
 	});
-	fireScanReaps(reapable);
+	await reapScannedTargets(reapable);
 	return {
 		designSessionId,
 		proposedAppId,
@@ -578,7 +580,7 @@ export async function claimAndReserveDesignSessionRun(
 				.execute();
 			return { reservation: { period, reserved: cost }, holderNonce };
 		});
-		fireScanReaps(reapable);
+		await reapScannedTargets(reapable);
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -826,8 +828,8 @@ export async function failAndRefundDesignSessionRun(
 /**
  * Reap a stale design-session run: refund the stranded hold + release the
  * authority state, staleness re-validated in-transaction
- * (`refundStaleDesignSessionRun`). Idempotent; fire-and-forget at scan call
- * sites and awaited from a claim's conflict nudge.
+ * (`refundStaleDesignSessionRun`). Idempotent; awaited at scan call
+ * sites and from a claim's conflict nudge.
  */
 export async function reapStaleDesignSessionRun(
 	designSessionId: string,

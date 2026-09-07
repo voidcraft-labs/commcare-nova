@@ -32,4 +32,20 @@ describe("organization location order keys", () => {
 			true,
 		);
 	});
+	it("redistributes a crowded middle slot while preserving both neighbor identities", () => {
+		const prefix = "V".repeat(MAX_LOCATION_ORDER_KEY_LENGTH);
+		const input = [`${prefix}A`, `${prefix}B`];
+		const before = [...input];
+		const plan = boundedLocationOrderKeyAtIndex(input, 1);
+		expect(plan.rebalancedExistingKeys).toHaveLength(2);
+		const neighbors = plan.rebalancedExistingKeys;
+		if (!neighbors) throw new Error("Expected bounded redistribution");
+		expect(neighbors[0] < plan.key && plan.key < neighbors[1]).toBe(true);
+		expect(
+			[neighbors[0], plan.key, neighbors[1]].every(
+				(key) => key.length <= MAX_LOCATION_ORDER_KEY_LENGTH,
+			),
+		).toBe(true);
+		expect(input).toEqual(before);
+	});
 });

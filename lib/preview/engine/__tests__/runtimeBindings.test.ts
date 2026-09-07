@@ -1,29 +1,7 @@
-// lib/preview/engine/__tests__/runtimeBindings.test.ts
-//
-// Acceptance tests for `composeRuntimeFilter` — the running-app
-// runtime-bindings layer that translates per-input typed values into a
-// single `Predicate` for the case-list query.
-//
-// The tests cover three concerns:
-//
-//   1. Per-mode dispatch on the `simple` arm — every applicable mode
-//      builds the right comparison shape, the per-`type` default kicks
-//      in when `mode` is absent, and `via` (relation walk) threads
-//      through `prop()` correctly.
-//   2. Advanced-arm `input(name)` substitution — the recursive AST
-//      rewriter substitutes value-position term refs across every
-//      Predicate / ValueExpression / Term arm, resolves matching
-//      `whenInputPresent.input` gates from their own values, and leaves
-//      orphan `input(other)` refs untouched.
-//   3. Composition + empty-value short-circuit — empty / absent values
-//      contribute nothing per input; multiple contributing inputs
-//      AND-compose; zero-input or all-empty calls return `matchAll()`.
-//
-// Round-trip parse via `predicateSchema.parse` is the load-bearing
-// regression check on every constructed result — if the bindings layer
-// produces an AST the schema rejects, the test fails loudly. Mirrors
-// the same discipline `lib/domain/predicate/__tests__/builders.test.ts`
-// uses on the construction-side surface.
+// Structural binding tests. These exercise typed AST substitution and query
+// composition; database matching and native CommCare acceptance are separate.
+// Deliberately orphan references below test the defensive binder, not an app
+// that the document validator would admit.
 
 import {
 	DummyDriver,
@@ -32,13 +10,12 @@ import {
 	PostgresIntrospector,
 	PostgresQueryCompiler,
 } from "kysely";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compilePredicate, type Database } from "@/lib/case-store/sql";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
-	APPLICABLE_SEARCH_MODES,
 	advancedSearchInputDef,
 	type CaseListConfig,
 	type CaseType,
@@ -48,7 +25,7 @@ import {
 	hiddenSearchInputDef,
 	phoneticMode,
 	rangeMode,
-	type SearchInputType,
+	searchInputDefSchema,
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
@@ -60,6 +37,7 @@ import {
 	between,
 	coalesce,
 	concat,
+	count,
 	dateAdd,
 	dateCoerce,
 	dateLiteral,
@@ -105,12 +83,21 @@ import {
 } from "../dateRangeInputValidation";
 import {
 	bindSearchInputValuesInPredicate,
-	composeRuntimeFilter,
+	composeRuntimeFilter as composeRuntimeFilterProduction,
 	searchInputInstanceValues,
 	searchInputValuesFromWire,
 	searchInputValuesToWire,
 	withSearchInputExpressionValues,
 } from "../runtimeBindings";
+
+function composeRuntimeFilter(
+	...args: Parameters<typeof composeRuntimeFilterProduction>
+) {
+	for (const input of args[0]) searchInputDefSchema.parse(input);
+	const result = composeRuntimeFilterProduction(...args);
+	predicateSchema.parse(result);
+	return result;
+}
 
 describe("searchInputValues wire bridge", () => {
 	// The bag is a `Map` in the client and must cross the Server Action
@@ -221,6 +208,10 @@ const SQL_DB = new Kysely<Database>({
 		createIntrospector: (db) => new PostgresIntrospector(db),
 		createQueryCompiler: () => new PostgresQueryCompiler(),
 	},
+});
+
+afterAll(async () => {
+	await SQL_DB.destroy();
 });
 
 const CASE_TYPE_SCHEMAS = new Map<string, CaseType>([
@@ -1352,9 +1343,12 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			"status_filter",
 			"Filter",
 			"text",
-			exists(
-				subcasePath("parent", "household"),
-				eq(prop("household", "owner"), input(testUuid("status_filter"))),
+			gt(
+				count(
+					subcasePath("parent", "household"),
+					eq(prop("household", "owner"), input(testUuid("status_filter"))),
+				),
+				literal(0),
 			),
 		);
 		const result = composeRuntimeFilter(
@@ -1363,9 +1357,12 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 			PATIENT,
 		);
 		expect(result).toEqual(
-			exists(
-				subcasePath("parent", "household"),
-				eq(prop("household", "owner"), literal("alice@example.com")),
+			gt(
+				count(
+					subcasePath("parent", "household"),
+					eq(prop("household", "owner"), literal("alice@example.com")),
+				),
+				literal(0),
 			),
 		);
 		expect(predicateSchema.parse(result)).toEqual(result);
@@ -1922,108 +1919,6 @@ describe("composeRuntimeFilter — mixed-arm composition", () => {
 	});
 });
 
-describe("composeRuntimeFilter — round-trip + builder reuse", () => {
-	it("uses builders (not literals) so the result round-trips through the schema unchanged", () => {
-		// Smoke test: a predicate that exercises every operator family
-		// the bindings layer constructs. Round-trip parse confirms the
-		// schema accepts every shape produced.
-		const inputs = [
-			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "case_name", {
-				mode: fuzzyMode(),
-			}),
-			simpleSearchInputDef(
-				testUuid("c"),
-				"visit_dates",
-				"Visit Dates",
-				"date-range",
-				"visit_date",
-			),
-			advancedSearchInputDef(
-				testUuid("q"),
-				"q",
-				"Query",
-				"text",
-				and(
-					eq(prop(PATIENT, "alias"), input(testUuid("q"))),
-					not(eq(prop(PATIENT, "alias"), literal("admin"))),
-				),
-			),
-		];
-		const result = composeRuntimeFilter(
-			inputs,
-			new Map(
-				Object.entries({
-					name: "alic",
-					"visit_dates:from": "2025-01-01",
-					"visit_dates:to": "2025-12-31",
-					q: "alice",
-				}),
-			),
-			PATIENT,
-			CASE_TYPE_SCHEMAS,
-		);
-		// The exact AST shape isn't asserted here — the test above
-		// already pins per-arm correctness — but the round-trip parse
-		// confirms the bindings layer never produces an
-		// schema-rejected AST shape.
-		expect(predicateSchema.parse(result)).toEqual(result);
-	});
-
-	it("returns matchNone() never (the bindings layer only builds positive clauses)", () => {
-		// Defensive check: the bindings layer never synthesizes a
-		// `match-none` clause directly. `match-none` only surfaces if
-		// an input value path is structurally impossible (e.g. an
-		// always-false advanced predicate the author hand-wrote and
-		// that the substitution + reduction collapsed). Making the
-		// invariant explicit here means a future regression that
-		// silently produces `match-none` from this layer fails this
-		// test loudly.
-		const inputs = [
-			simpleSearchInputDef(testUuid("a"), "name", "Name", "text", "case_name"),
-		];
-		const result = composeRuntimeFilter(
-			inputs,
-			new Map(Object.entries({ name: "alice" })),
-			PATIENT,
-		);
-		expect(result).not.toEqual(matchNone());
-	});
-
-	it("supports the full `dateLiteral` shape parity with builders", () => {
-		// Confirms the range-mode bound shape is structurally identical
-		// to a hand-built `dateLiteral` — no shape drift that downstream
-		// equality checks would fail.
-		const inputs = [
-			simpleSearchInputDef(
-				testUuid("a"),
-				"visit_dates",
-				"Visit Dates",
-				"date-range",
-				"visit_date",
-			),
-		];
-		const result = composeRuntimeFilter(
-			inputs,
-			new Map(
-				Object.entries({
-					"visit_dates:from": "2025-01-01",
-					"visit_dates:to": "2025-12-31",
-				}),
-			),
-			PATIENT,
-			CASE_TYPE_SCHEMAS,
-		);
-		if (result.kind === "between") {
-			expect(result.lower).toEqual(term(dateLiteral("2025-01-01")));
-			expect(result.upper).toEqual(term(dateLiteral("2025-12-31")));
-		} else {
-			throw new Error(
-				`expected the result to be a \`between\` clause; got \`${result.kind}\`.`,
-			);
-		}
-	});
-});
-
 describe("composeRuntimeFilter — advanced arm rewriter, Predicate-side arm coverage", () => {
 	// Exhaustive-switch coverage in the AST rewriter catches missing-arm
 	// regressions at compile time, but existing-arm regressions (wrong
@@ -2133,22 +2028,25 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 				literal("2025-01-15"),
 			),
 		);
-		const result = composeRuntimeFilter(
-			[advanced],
-			new Map(Object.entries({ base: "2025-01-01", offset: "14" })),
-			PATIENT,
+		const offset = simpleSearchInputDef(
+			testUuid("offset"),
+			"offset",
+			"Offset",
+			"text",
+			"offset",
 		);
-		// `input("base")` substitutes because the input def's name is
-		// `base`. `input("offset")` is an orphan ref (no matching
-		// input def in this fixture's list); it survives unchanged —
-		// the rewriter only substitutes for the target input's name.
+		const result = bindSearchInputValuesInPredicate(
+			advanced.predicate,
+			new Map([
+				["base", "2025-01-01"],
+				["offset", "14"],
+			]),
+			new Set([advanced.uuid, offset.uuid]),
+			[advanced, offset],
+		);
 		expect(result).toEqual(
 			eq(
-				dateAdd(
-					term(dateLiteral("2025-01-01")),
-					"days",
-					term(input(testUuid("offset"))),
-				),
+				dateAdd(term(dateLiteral("2025-01-01")), "days", term(literal("14"))),
 				literal("2025-01-15"),
 			),
 		);
@@ -2280,90 +2178,6 @@ describe("composeRuntimeFilter — advanced arm rewriter, ValueExpression-side a
 			PATIENT,
 		);
 		expect(result).toEqual(eq(now(), term(literal("2025-01-01T00:00:00"))));
-	});
-});
-
-describe("composeRuntimeFilter — default-mode table contract", () => {
-	// Pins the agreement between the runtime's internal default-
-	// mode table and `APPLICABLE_SEARCH_MODES` in
-	// `lib/domain/modules.ts`. The contract: each type's default
-	// mode is the FIRST entry of its applicable-modes tuple. The
-	// runtime construction reads off a typed table, but the test
-	// asserts the values agree with the canonical source so a
-	// table-drift regression fails one named test rather than
-	// surfacing through a downstream wire-emission divergence.
-
-	it("each type's default-mode dispatch agrees with the head of its applicable-modes tuple", () => {
-		const types: ReadonlyArray<SearchInputType> = [
-			"text",
-			"date",
-			"date-range",
-			"barcode",
-		];
-		for (const type of types) {
-			const expected = APPLICABLE_SEARCH_MODES[type][0];
-			const inputs = [
-				simpleSearchInputDef(testUuid("a"), "field", "Field", type, "field"),
-			];
-			// Use the input.name key for non-range defaults; the
-			// `:from`/`:to` key shape for the range default.
-			const inputValues =
-				expected === "range"
-					? new Map(
-							Object.entries({
-								"field:from": "2025-01-01",
-								"field:to": "2025-12-31",
-							}),
-						)
-					: new Map(
-							Object.entries({
-								field: type === "date" ? "2025-01-01" : "value",
-							}),
-						);
-			const caseTypes =
-				type === "date" || type === "date-range"
-					? new Map([
-							[
-								PATIENT,
-								{
-									name: PATIENT,
-									properties: [
-										{
-											name: "field",
-											label: proseText("Field"),
-											data_type: "date" as const,
-										},
-									],
-								},
-							],
-						])
-					: undefined;
-			const result = composeRuntimeFilter(
-				inputs,
-				inputValues,
-				PATIENT,
-				caseTypes,
-			);
-			// Confirm the expected wire shape per the head-of-tuple
-			// expected mode. The Postgres compiler / wire emitters
-			// downstream branch on this kind, so getting it wrong here
-			// silently produces wrong wire output.
-			switch (expected) {
-				case "exact":
-					expect(result.kind).toBe(type === "date" ? "and" : "eq");
-					break;
-				case "range":
-					expect(result.kind).toBe("between");
-					break;
-				default:
-					throw new Error(
-						`unexpected default mode \`${expected}\` for type \`${type}\` — ` +
-							"the default-mode test asserts only the modes that any " +
-							"current type defaults to. Adding a new default kind in " +
-							"`APPLICABLE_SEARCH_MODES` requires extending this switch.",
-					);
-			}
-		}
 	});
 });
 

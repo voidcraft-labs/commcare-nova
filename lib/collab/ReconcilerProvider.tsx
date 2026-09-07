@@ -8,7 +8,7 @@
  *   - creates the reconciler once per mount (`createReconciler`), wiring the
  *     real PUT / reload-GET / resubscribe / retry side effects as deps;
  *   - opens ONE `EventSource` to
- *     `/api/apps/{appId}/stream?since=<baseSeq>&receiverVersion=<manifest>` and
+ *     `/api/apps/{appId}/stream?since=<baseSeq>` and
  *     routes `mutation` / `reload` / `revoked` frames into the reconciler and
  *     `presence` frames to `subscribePresence` subscribers and seq-less full
  *     lookup manifests to `subscribeLookupManifest` subscribers;
@@ -172,6 +172,28 @@ export interface ReconcilerProviderProps {
 	children: ReactNode;
 }
 
+/** Browser effects sit outside the protocol/state owner. Native browser journeys
+ * cover URL/history behavior; the runtime can be driven without a DOM. */
+export interface ReconcilerBrowserEffects {
+	pageUrl(): string;
+	activateHistory: typeof activateBuilderHistoryScope;
+	deactivateHistory: typeof deactivateBuilderHistoryScope;
+	navigateToReview(appId: string, url: string): void;
+}
+
+const browserEffects: ReconcilerBrowserEffects = {
+	pageUrl: () => (typeof window === "undefined" ? "" : window.location.href),
+	activateHistory: activateBuilderHistoryScope,
+	deactivateHistory: deactivateBuilderHistoryScope,
+	navigateToReview(appId, url) {
+		if (window.location.pathname.startsWith(`/build/${appId}`)) {
+			pushBuilderHistory(url);
+		} else {
+			window.location.assign(url);
+		}
+	},
+};
+
 /** Build the reconciler and its network wiring once. Pure of React — the
  *  provider calls it lazily from a `useRef` initializer. */
 export function createReconcilerRuntime(
@@ -181,6 +203,7 @@ export function createReconcilerRuntime(
 	/** Leaves preview mode — the conversion toast's "Review data" action
 	 *  navigates to an edit-only surface, which preview would mask. */
 	exitPreview: () => void,
+	effects: ReconcilerBrowserEffects = browserEffects,
 ): ReconcilerRuntime {
 	const appIdBox: { current: string | undefined } = { current: init.appId };
 	const projectScopeId = `builder-project-scope-${++nextProjectScopeId}`;
@@ -239,7 +262,7 @@ export function createReconcilerRuntime(
 		}),
 	);
 	projectScopeResetRegistry.subscribe((scopeEpoch) =>
-		activateBuilderHistoryScope(projectScopeId, appIdBox.current, scopeEpoch),
+		effects.activateHistory(projectScopeId, appIdBox.current, scopeEpoch),
 	);
 	projectScopeResetRegistry.subscribe(() => lookupManifestBroker.reset());
 	projectScopeResetRegistry.subscribe(() => clearPresenceState());
@@ -253,6 +276,7 @@ export function createReconcilerRuntime(
 	 * untear-downable EventSource or schedule an orphan timer — while staying
 	 * RE-ARMABLE for StrictMode's setup→cleanup→setup replay. */
 	let active = false;
+	let reloadController: AbortController | undefined;
 	/* Backoff attempt counter for the stream REOPEN path below — reset by a
 	 * successful `open`, so an isolated failure retries at 1s while a sustained
 	 * outage backs off to the 30s cap. */
@@ -296,7 +320,7 @@ export function createReconcilerRuntime(
 						? (error.stack ?? error.message)
 						: String(error),
 				source: "manual",
-				url: typeof window === "undefined" ? "" : window.location.href,
+				url: effects.pageUrl(),
 			});
 			return false;
 		}
@@ -323,7 +347,7 @@ export function createReconcilerRuntime(
 								: String(error),
 					}),
 			source: "manual",
-			url: typeof window === "undefined" ? "" : window.location.href,
+			url: effects.pageUrl(),
 		});
 	}
 
@@ -367,6 +391,12 @@ export function createReconcilerRuntime(
 				return;
 			void fetch(`/api/apps/${id}/presence`, { cache: "no-store" })
 				.then(async (response) => {
+					if (
+						!active ||
+						generation !== presenceRecoveryGeneration ||
+						scopeEpoch !== sessionStore.getState().scopeEpoch
+					)
+						return;
 					if (response.status === 404) {
 						cancelCurrentFrameRecoveries();
 						reconciler.onReloadEvent();
@@ -532,7 +562,7 @@ export function createReconcilerRuntime(
 						stack:
 							originalError instanceof Error ? originalError.stack : undefined,
 						source: "manual",
-						url: window.location.href,
+						url: effects.pageUrl(),
 						diagnostics: {
 							component: "reconciler",
 							operation: "mutation-frame",
@@ -595,7 +625,7 @@ export function createReconcilerRuntime(
 				reportClientError({
 					message: "Reconciler: malformed revocation frame",
 					source: "manual",
-					url: window.location.href,
+					url: effects.pageUrl(),
 				});
 				reloadAfterProtocolFailure();
 				return;
@@ -791,8 +821,16 @@ export function createReconcilerRuntime(
 			// batch, mis-classifying its real echo as remote → double-apply). Treat a
 			// seq-less 200 as a transient failure so the batch retries and re-derives
 			// a real seq via `batchDedup`.
-			if (typeof body.seq !== "number") {
-				return { ok: false, kind: "network", detail: "200 without seq" };
+			if (
+				typeof body.seq !== "number" ||
+				!Number.isSafeInteger(body.seq) ||
+				body.seq < 1
+			) {
+				return {
+					ok: false,
+					kind: "network",
+					detail: "200 without a positive safe integer seq",
+				};
 			}
 			// A commit whose row migration SET VALUES ASIDE must be loud — the
 			// values left the case rows into the review surface's store. A
@@ -856,11 +894,7 @@ export function createReconcilerRuntime(
 										// only while THIS app's builder is mounted to hear
 										// them — pressed from anywhere else, the button must
 										// be a real navigation, not a silent URL swap.
-										if (window.location.pathname.startsWith(`/build/${id}`)) {
-											pushBuilderHistory(url);
-										} else {
-											window.location.assign(url);
-										}
+										effects.navigateToReview(id, url);
 									},
 								},
 							},
@@ -918,18 +952,9 @@ export function createReconcilerRuntime(
 				httpStatus: 400,
 			};
 		}
-		// Fine-grained 4xx taxonomy — the terminal-freeze `permanent` is narrowed
-		// to ONLY a 400 "Invalid mutations" (the genuine client↔server commit-gate
-		// DISAGREEMENT the freeze was designed for). The other 4xx are recoverable
-		// and must NOT discard the user's unsaved edits:
-		//   - 401 (session lapsed/rotated) → transient: KEEP the batch and retry; a
-		//     cookie refresh / re-login makes the retry succeed. Freezing + dropping
-		//     a user's work because their session lapsed would be data loss.
-		//   - 413 (accumulated delta > the request cap) → `tooLarge`: retrying the
-		//     same body won't shrink it, so STOP the retry loop (no 413-storm) and
-		//     surface it, but KEEP the edits (a reload is the user's choice).
-		//   - any OTHER 4xx → transient (retry), never discard.
-		//   - 5xx → transient (retry).
+		// Session lapses, unknown 4xx and server outages retain the exact batch
+		// for retry. A 413 retains it but stops re-sending the oversized payload;
+		// only the typed canonicality/collision responses above freeze saving.
 		const detail = `HTTP ${res.status}`;
 		if (res.status === 413) {
 			return {
@@ -947,7 +972,7 @@ export function createReconcilerRuntime(
 		};
 	};
 
-	const reload = async () => {
+	const readReloadSnapshot = async (signal: AbortSignal) => {
 		const id = appIdBox.current;
 		if (!id) {
 			throw new ReconcilerReloadError("network", {
@@ -956,7 +981,7 @@ export function createReconcilerRuntime(
 		}
 		let res: Response;
 		try {
-			res = await fetch(`/api/apps/${id}`, { cache: "no-store" });
+			res = await fetch(`/api/apps/${id}`, { cache: "no-store", signal });
 		} catch (error) {
 			throw new ReconcilerReloadError("network", {
 				message: "reconciler reload network request failed",
@@ -976,11 +1001,12 @@ export function createReconcilerRuntime(
 		let body: unknown;
 		try {
 			body = await res.json();
-		} catch (error) {
+		} catch {
 			throw new ReconcilerReloadError("invalid-json", {
 				message: "reconciler reload response was not JSON",
 				httpStatus: res.status,
-				originalError: error,
+				// Native JSON errors quote response content. Retain only this
+				// neutral wrapper, without the original message, stack or cause.
 			});
 		}
 		let data: ReturnType<typeof parseAppReadSnapshot>;
@@ -1005,6 +1031,19 @@ export function createReconcilerRuntime(
 			blueprint: data.blueprint,
 			seq: data.baseSeq,
 		};
+	};
+
+	const reload = async () => {
+		const controller = new AbortController();
+		reloadController = controller;
+		try {
+			return await readReloadSnapshot(controller.signal);
+		} catch (error) {
+			if (controller.signal.aborted) return { kind: "interrupted" as const };
+			throw error;
+		} finally {
+			if (reloadController === controller) reloadController = undefined;
+		}
 	};
 
 	const scheduleRetry = (attempt: number, run: () => void): (() => void) => {
@@ -1057,7 +1096,7 @@ export function createReconcilerRuntime(
 					stack:
 						failure.error instanceof Error ? failure.error.stack : undefined,
 					source: "manual",
-					url: window.location.href,
+					url: effects.pageUrl(),
 					diagnostics: {
 						component: "reconciler",
 						operation: failure.operation,
@@ -1092,7 +1131,7 @@ export function createReconcilerRuntime(
 	function activate(newAppId: string, baseSeq: number): void {
 		if (appIdBox.current !== undefined) return; // already active
 		appIdBox.current = newAppId;
-		activateBuilderHistoryScope(
+		effects.activateHistory(
 			projectScopeId,
 			newAppId,
 			sessionStore.getState().scopeEpoch,
@@ -1111,7 +1150,7 @@ export function createReconcilerRuntime(
 			scopeId: projectScopeId,
 			epoch: sessionStore.getState().scopeEpoch,
 		});
-		activateBuilderHistoryScope(
+		effects.activateHistory(
 			projectScopeId,
 			appIdBox.current,
 			sessionStore.getState().scopeEpoch,
@@ -1119,8 +1158,14 @@ export function createReconcilerRuntime(
 		// An existing app (or a replay of the mount effect after activation)
 		// opens at the reconciler's confirmed cursor; a dormant new build waits
 		// for `activate` to open at the server-provided creation cursor.
-		if (appIdBox.current !== undefined) {
-			openStream(reconciler.getSnapshot().baseSeq);
+		const snapshot = reconciler.getSnapshot();
+		if (
+			appIdBox.current !== undefined &&
+			!snapshot.revoked &&
+			!snapshot.reloadPending &&
+			!snapshot.reloadInFlight
+		) {
+			openStream(snapshot.baseSeq);
 		}
 		// Re-arm the reconciler's recovery machine — work that survived the
 		// suspend window (an un-acked batch, a pending reload) gets its tick back.
@@ -1129,9 +1174,10 @@ export function createReconcilerRuntime(
 
 	function suspend(): void {
 		active = false;
+		reloadController?.abort();
 		cancelCurrentFrameRecoveries();
 		toastStore.deactivateProjectScope(projectScopeId);
-		deactivateBuilderHistoryScope(projectScopeId);
+		effects.deactivateHistory(projectScopeId);
 		closeOwnedStream();
 		for (const t of retryTimers) clearTimeout(t);
 		retryTimers.clear();
@@ -1195,7 +1241,23 @@ export function ReconcilerProvider({
 		const runtime = runtimeRef.current;
 		if (!runtime) return;
 		runtime.start();
-		return () => runtime.suspend();
+		// A full document navigation does not run React effect cleanup. Cancel
+		// reads before Chromium aborts them, and retain resumable state for BFCache.
+		const onPageHide = () => runtime.suspend();
+		const onPageShow = (event: PageTransitionEvent) => {
+			if (!event.persisted) return;
+			// Permissions and Project ownership may have changed while cached.
+			// Pause authoring synchronously before restoring network activity.
+			runtime.reconciler.onReloadEvent();
+			runtime.start();
+		};
+		window.addEventListener("pagehide", onPageHide);
+		window.addEventListener("pageshow", onPageShow);
+		return () => {
+			window.removeEventListener("pagehide", onPageHide);
+			window.removeEventListener("pageshow", onPageShow);
+			runtime.suspend();
+		};
 	}, []);
 
 	const runtime = runtimeRef.current;

@@ -1,40 +1,22 @@
-/**
- * Case-type-record retirement planner — the cascade that keeps "stop
- * tracking this case type" satisfiable under the single commit rule.
- *
- * The contract under test:
- *   - removing a case type's LAST owning module retires the record in
- *     the same batch when nothing else names the type;
- *   - the removed module's own subtree never counts as a reference (it
- *     goes with the removal), but on a RETYPE the module stays and its
- *     references block;
- *   - every reference class blocks with a person-readable description:
- *     a child record's `parent_type`, a field's `caseWrite.caseType`, a
- *     `#<type>/…` hashtag in an XPath or prose slot, and a predicate
- *     AST leaf naming the type;
- *   - a type still owned by another module needs no cascade at all.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	hiddenSearchInputDef,
-	type ProseTemplate,
-	type SearchInputDef,
 	simpleSearchInputDef,
-	type Uuid,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
+	exists,
 	literal,
-	matchesPattern,
 	now,
 	ownerLocationAtLevel,
 	prop,
@@ -42,92 +24,54 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
-	return { parts };
-}
+const PATIENT = testUuid("retire-patient-module");
+const VISIT = testUuid("retire-visit-module");
+const PATIENT_FORM = testUuid("retire-patient-form");
+const VISIT_FORM = testUuid("retire-visit-form");
+const SUMMARY = testUuid("retire-summary");
 
-const PATIENT_RECORD = {
-	name: "patient",
-	properties: [
-		{ name: "case_name", label: "Name" },
-		{ name: "village", label: "Village" },
-	],
-};
-
-const VISIT_RECORD = {
-	name: "visit",
-	properties: [{ name: "case_name", label: "Name" }],
-};
-
-/** Two modules, two records; the visit module is visit's only owner. */
-function twoModuleDoc(overrides?: {
-	visitParent?: string;
-	patientExtraFields?: ReturnType<typeof f>[];
-	patientFilter?: boolean;
-	patientSearchInputs?: readonly SearchInputDef[];
-	patientAssignedCasesReference?: boolean;
-	patientModuleDisplayReference?: boolean;
-	patientFormDisplayReference?: boolean;
-}): BlueprintDoc {
-	return buildDoc({
+function fixture(): BlueprintDoc {
+	const doc = buildDoc({
 		appName: "Clinic",
 		caseTypes: [
-			PATIENT_RECORD,
+			{ name: "patient", properties: [{ name: "village", label: "Village" }] },
 			{
-				...VISIT_RECORD,
-				...(overrides?.visitParent && {
-					parent_type: overrides.visitParent,
-				}),
+				name: "visit",
+				properties: [
+					{ name: "case_name", label: "Name" },
+					{ name: "visit_note", label: "Visit note" },
+					{ name: "summary", label: "Summary" },
+				],
 			},
 		],
 		modules: [
 			{
+				uuid: PATIENT,
 				name: "Patients",
 				caseType: "patient",
-				caseListConfig: {
-					...caseListConfig([{ field: "case_name", header: "Name" }]),
-					...(overrides?.patientFilter && {
-						filter: eq(prop("visit", "case_name"), literal("x")),
-					}),
-					...(overrides?.patientSearchInputs && {
-						searchInputs: [...overrides.patientSearchInputs],
-					}),
-				},
-				...(overrides?.patientModuleDisplayReference && {
-					displayCondition: eq(prop("visit", "case_name"), literal("open")),
-				}),
-				...(overrides?.patientAssignedCasesReference && {
-					caseSearchConfig: {
-						excludedOwnerIds: {
-							kind: "term",
-							term: prop("visit", "case_name"),
-						},
-					},
-				}),
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
-						name: "Register patient",
-						type: "registration",
-						...(overrides?.patientFormDisplayReference && {
-							displayCondition: eq(prop("visit", "case_name"), literal("open")),
-						}),
+						uuid: PATIENT_FORM,
+						name: "Review patient",
+						type: "followup",
 						fields: [
 							f({
+								uuid: SUMMARY,
 								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: {
-									caseType: "patient",
-									property: "case_name",
-								},
+								id: "summary",
+								label: "Summary",
 							}),
-							...(overrides?.patientExtraFields ?? []),
 						],
 					},
 				],
 			},
 			{
+				uuid: VISIT,
 				name: "Visits",
 				caseType: "visit",
 				caseListConfig: caseListConfig([
@@ -135,17 +79,14 @@ function twoModuleDoc(overrides?: {
 				]),
 				forms: [
 					{
+						uuid: VISIT_FORM,
 						name: "Record visit",
-						type: "registration",
+						type: "followup",
 						fields: [
 							f({
 								kind: "text",
 								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: {
-									caseType: "visit",
-									property: "case_name",
-								},
+								caseWrite: { caseType: "visit", property: "case_name" },
 							}),
 						],
 					},
@@ -153,47 +94,151 @@ function twoModuleDoc(overrides?: {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+function commit(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	const result = mutationCommitVerdict(
+		doc,
+		mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!result.ok) throw new Error(JSON.stringify(result.findings));
+	return result.nextDoc;
+}
+function remove(doc: BlueprintDoc, moduleUuid = VISIT) {
+	assertAdmittedDoc(doc);
+	const plan = planCaseTypeRetirementOnRemove(doc, moduleUuid);
+	if (plan.kind === "retire") {
+		const next = commit(doc, [
+			{ kind: "removeModule", uuid: moduleUuid },
+			...plan.mutations,
+		]);
+		expect(next.modules[moduleUuid]).toBeUndefined();
+		expect(
+			next.caseTypes?.some((type) => type.name === plan.caseType) ?? false,
+		).toBe(false);
+	}
+	return plan;
+}
+function blocked(doc: BlueprintDoc, moduleUuid = VISIT) {
+	const plan = remove(doc, moduleUuid);
+	if (plan.kind !== "blocked") throw new Error("expected reference blocker");
+	expect(plan.userMessage).toContain("Update or remove");
+	return plan;
+}
+function parent(doc: BlueprintDoc, child: string, parent: string) {
+	const type = doc.caseTypes?.find((type) => type.name === child);
+	if (!type) throw new Error("missing case type");
+	type.parent_type = parent;
 }
 
-function moduleUuidByName(doc: BlueprintDoc, name: string): Uuid {
-	const uuid = doc.moduleOrder.find((u) => doc.modules[u]?.name === name);
-	if (!uuid) throw new Error(`no module named ${name} in fixture`);
-	return uuid;
-}
-
-describe("planCaseTypeRetirementOnRemove", () => {
-	it("blocks when a reverse location owner names the retiring owner case type", () => {
-		const doc = twoModuleDoc();
-		const patientModule = moduleUuidByName(doc, "Patients");
-		const formUuid = doc.formOrder[patientModule]?.[0];
-		if (formUuid === undefined) throw new Error("patient form missing");
-		doc.forms[formUuid].caseOperations = [
-			{
-				uuid: testUuid("reverse-owner-retirement"),
-				id: "reverse_owner",
-				action: "update",
-				caseType: "patient",
-				target: { kind: "session" },
-				owner: term(ownerLocationAtLevel(testUuid("facility-level"), "visit")),
-			},
-		];
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references.join(" ")).toMatch(/owner.*visit|visit.*owner/i);
+describe("case type retirement from admitted workflows", () => {
+	it("retires the last module's record and preserves unrelated modules and fields", () => {
+		const doc = fixture();
+		const plan = remove(doc);
+		expect(plan).toEqual({
+			kind: "retire",
+			caseType: "visit",
+			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
+		});
 	});
-
-	it("blocks when an automation runs on the retiring case type", () => {
-		const doc = twoModuleDoc();
-		const automationUuid = testUuid("retirement-automation");
+	it("leaves the record when another module still manages the type", () => {
+		const doc = fixture();
+		const other = testUuid("retire-other-visit");
+		doc.modules[other] = {
+			uuid: other,
+			id: "more_visits",
+			name: "More visits",
+			caseType: "visit",
+			caseListOnly: true,
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+		};
+		doc.moduleOrder.push(other);
+		doc.formOrder[other] = [];
+		expect(remove(doc)).toEqual({ kind: "none" });
+		const next = commit(doc, [{ kind: "removeModule", uuid: VISIT }]);
+		expect(next.caseTypes?.map((type) => type.name)).toEqual([
+			"patient",
+			"visit",
+		]);
+	});
+	it("canonicalizes the last record to null while a survey remains", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "visit", properties: [] }],
+			modules: [
+				{
+					uuid: VISIT,
+					name: "Visits",
+					caseType: "visit",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				},
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Feedback",
+							type: "survey",
+							fields: [{ kind: "text", id: "feedback" }],
+						},
+					],
+				},
+			],
+		});
+		const plan = remove(doc);
+		if (plan.kind !== "retire") throw new Error("expected retirement");
+		expect(
+			commit(doc, [{ kind: "removeModule", uuid: VISIT }, ...plan.mutations])
+				.caseTypes,
+		).toBeNull();
+	});
+	it("ignores absent module identities and case-free modules", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: PATIENT,
+					name: "Survey",
+					forms: [
+						{
+							name: "Feedback",
+							type: "survey",
+							fields: [{ kind: "text", id: "feedback" }],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		expect(planCaseTypeRetirementOnRemove(doc, PATIENT)).toEqual({
+			kind: "none",
+		});
+		expect(planCaseTypeRetirementOnRemove(doc, testUuid("absent"))).toEqual({
+			kind: "none",
+		});
+	});
+	it("names the remaining child record that requires the retiring parent", () => {
+		const doc = fixture();
+		parent(doc, "visit", "patient");
+		expect(blocked(doc, PATIENT).references).toEqual([
+			'case type "visit" declares "patient" as its parent',
+		]);
+	});
+	it("names an automation that still targets the retiring type", () => {
+		const doc = fixture(),
+			uuid = testUuid("retire-automation");
 		doc.automations = {
-			[automationUuid]: {
-				uuid: automationUuid,
+			[uuid]: {
+				uuid,
 				kind: "case-update",
-				name: "Close stale visits",
+				name: "Close visits",
 				caseType: "visit",
 				criteriaOperator: "all",
 				criteria: [],
@@ -202,538 +247,254 @@ describe("planCaseTypeRetirementOnRemove", () => {
 				closeCase: true,
 			},
 		};
-		doc.automationOrder = [automationUuid];
-
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references).toContain(
-			'automation "Close stale visits" uses the "visit" case type',
-		);
-		expect(plan.userMessage).toMatch(/update or remove.*first/i);
-	});
-
-	it("blocks on module and form display-condition case-type references", () => {
-		const doc = twoModuleDoc({
-			patientModuleDisplayReference: true,
-			patientFormDisplayReference: true,
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references).toContain(
-			'the display condition on module "Patients" reads a "visit" property',
-		);
-		expect(plan.references).toContain(
-			'form "Register patient" (module "Patients") reads a "visit" property in its "form_display_condition" condition',
-		);
-	});
-
-	it("retires the record when the removed module is its last owner and nothing references it", () => {
-		const doc = twoModuleDoc();
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("retire");
-		if (plan.kind !== "retire") return;
-		expect(plan.caseType).toBe("visit");
-		expect(plan.mutations).toEqual([
-			{ kind: "retireCaseType", caseType: "visit" },
+		doc.automationOrder = [uuid];
+		expect(blocked(doc).references).toEqual([
+			'automation "Close visits" uses the "visit" case type',
 		]);
 	});
-
-	it("retires the only record to null — the same empty-catalog shape a fresh app is born with", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [PATIENT_RECORD],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Register",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: {
-										caseType: "patient",
-										property: "case_name",
-									},
-								}),
-							],
-						},
-					],
+	it("names independent case operations outside the removed module", () => {
+		const doc = fixture();
+		doc.forms[PATIENT_FORM].caseOperations = [
+			{
+				uuid: testUuid("retire-create-visit"),
+				id: "create_visit",
+				action: "create",
+				caseType: "visit",
+				target: { kind: "new" },
+				name: term(literal("Visit")),
+			},
+		];
+		expect(blocked(doc).references).toEqual([
+			'case operation "create_visit" in form "Review patient" (module "Patients") targets "visit"',
+		]);
+	});
+	it("names both writers that create a child case in another module", () => {
+		const doc = fixture();
+		parent(doc, "visit", "patient");
+		const nameUuid = testUuid("retire-child-name");
+		const next = commit(doc, [
+			{
+				kind: "addField",
+				parentUuid: PATIENT_FORM,
+				field: {
+					uuid: nameUuid,
+					id: "visit_name",
+					kind: "text",
+					label: proseText("Visit name"),
+					caseWrite: { caseType: "visit", property: "case_name" },
 				},
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Patients"),
-		);
-
-		expect(plan).toMatchObject({
-			kind: "retire",
-			mutations: [{ kind: "retireCaseType", caseType: "patient" }],
-		});
-	});
-
-	it("needs no cascade when another module still manages the type", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [PATIENT_RECORD],
-			modules: [
-				{ name: "Patients A", caseType: "patient" },
-				{ name: "Patients B", caseType: "patient" },
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Patients A"),
-		);
-		expect(plan).toEqual({ kind: "none" });
-	});
-
-	it("needs no cascade when the module has no case type or the type has no record", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [PATIENT_RECORD],
-			modules: [
-				{ name: "Surveys" },
-				{ name: "Ghost typed", caseType: "unrecorded" },
-			],
-		});
-		expect(
-			planCaseTypeRetirementOnRemove(doc, moduleUuidByName(doc, "Surveys")),
-		).toEqual({ kind: "none" });
-		expect(
-			planCaseTypeRetirementOnRemove(doc, moduleUuidByName(doc, "Ghost typed")),
-		).toEqual({ kind: "none" });
-	});
-
-	it("blocks when a child record names the retired type as its parent", () => {
-		// Removing "Patients" orphans the patient record, and the visit
-		// record's `parent_type: "patient"` still names it.
-		const doc = twoModuleDoc({ visitParent: "patient" });
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Patients"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.caseType).toBe("patient");
-		expect(plan.references).toEqual([
-			'case type "visit" declares "patient" as its parent',
+			},
+			{
+				kind: "updateField",
+				uuid: SUMMARY,
+				targetKind: "text",
+				patch: { caseWrite: { caseType: "visit", property: "summary" } },
+			},
 		]);
-		expect(plan.message).toContain('Removing module "Patients"');
-		expect(plan.message).toContain("Remove or retarget");
-	});
-
-	it("blocks when a field in ANOTHER module still saves to the type", () => {
-		const doc = twoModuleDoc({
-			patientExtraFields: [
-				f({
-					kind: "text",
-					id: "visit_note",
-					label: proseText("Visit note"),
-					caseWrite: { caseType: "visit", property: "visit_note" },
-				}),
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
+		const plan = blocked(next);
 		expect(plan.references).toEqual([
-			'field "visit_note" in form "Register patient" (module "Patients") saves to it (caseWrite.caseType)',
+			'field "summary" in form "Review patient" (module "Patients") saves to it (caseWrite.caseType)',
+			'field "visit_name" in form "Review patient" (module "Patients") saves to it (caseWrite.caseType)',
 		]);
-	});
-
-	it("two-voice split: message keeps the authored slot, userMessage is jargon-free", () => {
-		// The same blocked verdict feeds the SA `{ error }` envelope (verbose
-		// `message` — the exact `caseWrite.caseType` slot, the `#type/…`
-		// reference shape) AND the builder toast (`userMessage` — neither).
-		const doc = twoModuleDoc({
-			patientExtraFields: [
-				f({
-					kind: "text",
-					id: "summary",
-					label: prose(
-						{ kind: "text", text: "Last visit was " },
-						{
-							kind: "case-ref",
-							caseType: "visit",
-							property: "case_name",
-						},
-					),
-					caseWrite: { caseType: "visit", property: "summary" },
-				}),
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-
-		// SA voice keeps the detail it self-corrects on.
-		expect(plan.message).toContain("(caseWrite.caseType)");
-		expect(plan.message).toContain("#visit/");
-
-		// Builder voice carries neither — same facts, no wire vocabulary.
-		expect(plan.userMessage).not.toContain("caseWrite.caseType");
-		expect(plan.userMessage).not.toContain("#visit/");
 		expect(plan.userMessage).toContain('field "summary"');
-		expect(plan.userMessage).toContain("saves to it");
-		// The user frame drops the "retire / manages / retarget" wording for
-		// plain English — the SA `message` keeps it (asserted above).
-		expect(plan.userMessage).toContain("Update or remove");
-		expect(plan.userMessage).not.toContain("retire");
+		expect(plan.userMessage).not.toContain("caseWrite.caseType");
 	});
-
-	it("blocks on a #type/… hashtag in another module's XPath and prose slots", () => {
-		const doc = twoModuleDoc({
-			patientExtraFields: [
-				f({
-					kind: "text",
-					id: "summary",
-					label: prose(
-						{ kind: "text", text: "Last visit was " },
-						{
-							kind: "case-ref",
-							caseType: "visit",
-							property: "case_name",
-						},
-					),
-					relevant: "#visit/case_name != ''",
-				}),
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references).toEqual([
-			'field "summary" in form "Register patient" (module "Patients") references #visit/… in its "relevant" expression',
-			'field "summary" in form "Register patient" (module "Patients") references #visit/… in its "label" text',
+	it("names typed XPath and prose reads of an ancestor case", () => {
+		const doc = fixture();
+		parent(doc, "patient", "visit");
+		const next = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: SUMMARY,
+				targetKind: "text",
+				patch: {
+					relevant: xp("#visit/case_name != ''"),
+					label: {
+						parts: [
+							{ kind: "text", text: "Visit " },
+							{ kind: "case-ref", caseType: "visit", property: "case_name" },
+						],
+					},
+				},
+			},
 		]);
+		const plan = blocked(next);
+		expect(plan.references).toEqual([
+			'case type "patient" declares "visit" as its parent',
+			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "relevant" expression',
+			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "label" text',
+		]);
+		expect(plan.userMessage).not.toContain("#visit/");
 	});
-
-	it("blocks on a predicate AST leaf naming the type in another module's case-list filter", () => {
-		const doc = twoModuleDoc({ patientFilter: true });
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
+	it("names a case-list relation filter and a search input's child relation", () => {
+		const doc = fixture();
+		parent(doc, "visit", "patient");
+		const config = doc.modules[PATIENT].caseListConfig;
+		if (!config) throw new Error("missing list");
+		config.filter = exists(subcasePath("parent", "visit"));
+		config.searchInputs = [
+			simpleSearchInputDef(
+				testUuid("retire-search"),
+				"visit_name",
+				"Visit name",
+				"text",
+				"case_name",
+				{ via: subcasePath("parent", "visit") },
+			),
+		];
+		const plan = blocked(doc);
 		expect(plan.references).toEqual([
 			'the case-list filter on module "Patients" reads a "visit" property',
+			'search input "visit_name" on module "Patients" walks through "visit"',
 		]);
-		expect(plan.userMessage).toContain(
-			'the Cases available setting on module "Patients" uses "visit" information',
-		);
-		expect(plan.userMessage).not.toContain("case-list filter");
-		expect(plan.userMessage).not.toContain('a "visit" property');
+		expect(plan.userMessage).toContain("Cases available");
+		expect(plan.userMessage).toContain('search field "Visit name"');
 	});
-
-	it("blocks on the Search prompt slots that name the type, in the search field's voice", () => {
-		// The choice list's row rule, a required condition, a check, and a
-		// hidden value are each a registry slot the walk visits. The gate
-		// refuses a case read in the Search-screen slots, so the fixture
-		// reaches them through a relation walk and a `prop` leaf directly to
-		// prove the walk is total over the registry rather than trusting that.
-		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-		const doc = twoModuleDoc({
-			patientSearchInputs: [
-				simpleSearchInputDef(
-					testUuid("search-region"),
-					"region",
-					"Region",
-					"select",
-					"village",
-					{
-						via: subcasePath("parent", "visit"),
-						options: {
-							kind: "lookup",
-							tableId,
-							valueColumnId:
-								"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId,
-							labelColumnId:
-								"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId,
-							filter: eq(prop("visit", "case_name"), literal("x")),
-						},
-					},
-				),
-				simpleSearchInputDef(
-					testUuid("search-name"),
-					"full_name",
-					"",
-					"text",
-					"case_name",
-					{
-						required: { when: eq(prop("visit", "case_name"), literal("x")) },
-						validation: {
-							rule: eq(prop("visit", "case_name"), literal("x")),
-							message: "No.",
-						},
-					},
-				),
-				hiddenSearchInputDef(
-					testUuid("search-site"),
-					"site",
-					"Site",
-					term(prop("visit", "case_name")),
-				),
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
+	it("names a selected-case read that would survive a module retype", () => {
+		const doc = fixture();
+		doc.forms[VISIT_FORM].displayCondition = eq(
+			prop("visit", "case_name"),
+			literal("open"),
 		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references).toEqual([
-			'search input "region" on module "Patients" walks through "visit"',
-			'search input "region" on module "Patients" narrows its choices with a "visit" property',
-			'search input "full_name" on module "Patients" is required under a "visit" property',
-			'search input "full_name" on module "Patients" is checked against a "visit" property',
-			'search input "site" on module "Patients" is worked out from a "visit" property',
-		]);
-		expect(plan.userMessage).toContain(
-			'the row rule for search field "Region" on module "Patients" uses "visit" information',
+		assertAdmittedDoc(doc);
+		const plan = planCaseTypeRetirementOnRetype(doc, VISIT, "patient");
+		if (plan.kind !== "blocked") throw new Error("expected blocker");
+		expect(plan.references).toContain(
+			'form "Record visit" (module "Visits") reads a "visit" property in its "form_display_condition" condition',
 		);
-		expect(plan.userMessage).toContain(
-			'the required condition for search field "full_name" on module "Patients" uses "visit" information',
-		);
-		expect(plan.userMessage).toContain(
-			'the check on search field "full_name" on module "Patients" uses "visit" information',
-		);
-		expect(plan.userMessage).toContain(
-			'the hidden value search field "Site" on module "Patients" uses "visit" information',
-		);
-		expect(plan.userMessage).not.toContain("search_input");
 	});
-
-	it("retires the record past a choice prompt and a hidden value that name nothing", () => {
-		// A select prompt's property is contextual (it follows its own
-		// module's type), and a hidden input carries no property at all, so
-		// neither holds the retiring record.
-		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-		const doc = twoModuleDoc({
-			patientSearchInputs: [
-				simpleSearchInputDef(
-					testUuid("search-village"),
-					"village",
-					"Village",
-					"multi-select",
-					"village",
-					{
-						options: {
-							kind: "lookup",
-							tableId,
-							valueColumnId:
-								"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId,
-							labelColumnId:
-								"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId,
-						},
-						required: {},
-						validation: {
-							rule: matchesPattern(
-								{ kind: "input", searchInputUuid: testUuid("search-village") },
-								"^[a-z_]+$",
-							),
-							message: "Pick a village.",
-						},
-					},
-				),
-				hiddenSearchInputDef(
-					testUuid("search-time"),
-					"search_time",
-					"Search time",
-					now(),
-				),
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan).toMatchObject({
-			kind: "retire",
-			caseType: "visit",
-			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
-		});
-	});
-
-	it("describes the assigned cases setting without exposing its stored slot name", () => {
-		const doc = twoModuleDoc({ patientAssignedCasesReference: true });
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-		);
-
-		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.references).toEqual([
-			'the assigned cases setting on module "Patients" reads "visit" information',
-		]);
-		expect(plan.userMessage).not.toContain("excluded_owner_ids");
-		expect(plan.userMessage).not.toContain("excluded owners");
-	});
-
-	it("never counts the removed module's OWN subtree — its references go with it", () => {
-		// The visit module's own registration field writes to "visit";
-		// removing the module takes that field with it, so it must not
-		// block its own removal. (`twoModuleDoc`'s visit form has exactly
-		// that shape, and the happy-path test above already retires — this
-		// pins the exclusion against a label ref too.)
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [PATIENT_RECORD, VISIT_RECORD],
-			modules: [
-				{ name: "Patients", caseType: "patient" },
-				{
-					name: "Visits",
-					caseType: "visit",
-					forms: [
-						{
-							name: "Record visit",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Visit for #visit/case_name"),
-									caseWrite: {
-										caseType: "visit",
-										property: "case_name",
-									},
-									relevant: "#visit/case_name != ''",
-								}),
-							],
-						},
-					],
+	it("names an owner-to-place hop that reads the current owner during retype", () => {
+		const doc = fixture();
+		const region = testUuid("retire-region"),
+			facility = testUuid("retire-facility");
+		doc.organizationLevels = {
+			[region]: {
+				uuid: region,
+				code: "region",
+				name: "Region",
+				caseFlow: { workers: "none", ownsCases: true },
+				addressBook: { reach: "own-branch" },
+			},
+			[facility]: {
+				uuid: facility,
+				code: "facility",
+				name: "Facility",
+				parentLevelUuid: region,
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "none" },
 				},
-			],
-		});
-		const plan = planCaseTypeRetirementOnRemove(
-			doc,
-			moduleUuidByName(doc, "Visits"),
+				addressBook: { reach: "shared-branch", fromLevelUuid: region },
+			},
+		};
+		doc.organizationLevelOrder = [region, facility];
+		doc.forms[VISIT_FORM].caseOperations = [
+			{
+				uuid: testUuid("retire-owner-operation"),
+				id: "reverse_owner",
+				action: "update",
+				caseType: "visit",
+				target: { kind: "session" },
+				owner: term(ownerLocationAtLevel(facility, "visit")),
+			},
+		];
+		assertAdmittedDoc(doc);
+		const plan = planCaseTypeRetirementOnRetype(doc, VISIT, "patient");
+		if (plan.kind !== "blocked") throw new Error("expected blocker");
+		expect(plan.references).toContain(
+			'case operation "reverse_owner" in form "Record visit" (module "Visits") derives its owner from "visit"',
 		);
-		expect(plan.kind).toBe("retire");
 	});
-});
 
-describe("planCaseTypeRetirementOnRetype", () => {
-	it("blocks when the module's OWN fields still save to the old type — they stay behind", () => {
-		const doc = twoModuleDoc();
-		const plan = planCaseTypeRetirementOnRetype(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-			"patient",
-		);
-
+	it("permits retirement past a hidden search value that reads no case data", () => {
+		const doc = fixture();
+		const config = doc.modules[PATIENT].caseListConfig;
+		if (!config) throw new Error("missing list");
+		config.searchInputs = [
+			hiddenSearchInputDef(
+				testUuid("retire-search-time"),
+				"search_time",
+				"Search time",
+				now(),
+			),
+		];
+		expect(remove(doc).kind).toBe("retire");
+	});
+	it("excludes actual typed references inside the module being removed", () => {
+		const doc = fixture();
+		const fieldUuid = doc.fieldOrder[VISIT_FORM][0];
+		const next = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: {
+					label: {
+						parts: [
+							{ kind: "case-ref", caseType: "visit", property: "case_name" },
+						],
+					},
+				},
+			},
+		]);
+		expect(remove(next).kind).toBe("retire");
+	});
+	it("blocks a module retype while its own surviving fields still name the old type", () => {
+		const doc = fixture();
+		assertAdmittedDoc(doc);
+		const plan = planCaseTypeRetirementOnRetype(doc, VISIT, "patient");
 		expect(plan.kind).toBe("blocked");
-		if (plan.kind !== "blocked") return;
-		expect(plan.caseType).toBe("visit");
+		if (plan.kind !== "blocked") throw new Error("expected reference blocker");
 		expect(plan.references).toEqual([
 			'field "case_name" in form "Record visit" (module "Visits") saves to it (caseWrite.caseType)',
 		]);
-		expect(plan.message).toContain(
-			'Changing module "Visits" to case type "patient"',
-		);
+		expect(planCaseTypeRetirementOnRetype(doc, VISIT, "visit")).toEqual({
+			kind: "none",
+		});
 	});
-
-	it("retires the old record when the retyped module carries no reference to it", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [PATIENT_RECORD, VISIT_RECORD],
-			modules: [
-				{ name: "Patients", caseType: "patient" },
+	it.each(["patient", undefined])(
+		"retires an unused old record during a survey module change to %s",
+		(nextType) => {
+			const doc = buildDoc({
+				caseTypes: [
+					{ name: "visit", properties: [] },
+					{ name: "patient", properties: [] },
+				],
+				modules: [
+					{
+						uuid: VISIT,
+						name: "Survey",
+						caseType: "visit",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Feedback",
+								type: "survey",
+								fields: [{ kind: "text", id: "feedback" }],
+							},
+						],
+					},
+				],
+			});
+			assertAdmittedDoc(doc);
+			const plan = planCaseTypeRetirementOnRetype(doc, VISIT, nextType);
+			if (plan.kind !== "retire") throw new Error("expected retirement");
+			const next = commit(doc, [
 				{
-					name: "Visits",
-					caseType: "visit",
-					forms: [
-						{
-							name: "Feedback",
-							type: "survey",
-							fields: [
-								f({
-									kind: "text",
-									id: "comments",
-									label: proseText("Comments"),
-								}),
-							],
-						},
-					],
+					kind: "updateModule",
+					uuid: VISIT,
+					patch: {
+						caseType: nextType ?? null,
+						...(nextType === undefined ? { caseListConfig: null } : {}),
+					},
 				},
-			],
-		});
-		const plan = planCaseTypeRetirementOnRetype(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-			"patient",
-		);
-
-		expect(plan).toMatchObject({
-			kind: "retire",
-			caseType: "visit",
-			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
-		});
-	});
-
-	it("needs no cascade when the type is unchanged", () => {
-		const doc = twoModuleDoc();
-		expect(
-			planCaseTypeRetirementOnRetype(
-				doc,
-				moduleUuidByName(doc, "Visits"),
-				"visit",
-			),
-		).toEqual({ kind: "none" });
-	});
-
-	it("a CLEAR (caseType → undefined) plans the same retirement as a retype", () => {
-		const doc = buildDoc({
-			appName: "Clinic",
-			caseTypes: [VISIT_RECORD],
-			modules: [{ name: "Visits", caseType: "visit" }],
-		});
-		const plan = planCaseTypeRetirementOnRetype(
-			doc,
-			moduleUuidByName(doc, "Visits"),
-			undefined,
-		);
-		expect(plan).toMatchObject({
-			kind: "retire",
-			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
-		});
-	});
+				...plan.mutations,
+			]);
+			expect(next.modules[VISIT].caseType).toBe(nextType);
+			expect(next.caseTypes?.map((type) => type.name)).toEqual(["patient"]);
+		},
+	);
 });

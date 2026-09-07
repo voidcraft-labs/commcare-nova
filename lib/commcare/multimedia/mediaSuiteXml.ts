@@ -28,9 +28,9 @@
 // writes each asset's bytes into the CCZ at its wire path; this descriptor
 // points the runtime at them.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { ResolvedMediaAsset } from "./assetWirePath";
 
 /**
@@ -41,12 +41,12 @@ import type { ResolvedMediaAsset } from "./assetWirePath";
 const MEDIA_INSTALL_PATH = "../../commcare";
 
 /**
- * Render a `<suite>` element to the wire string. `dom-serializer` doesn't
+ * Render a `<suite>` element to the wire string. `serializeXml` doesn't
  * emit the XML declaration, so it's prepended here (as `compiler.ts` does);
  * the serializer stays the sole escaping authority.
  */
 function serializeSuite(suite: Element): string {
-	return `<?xml version="1.0"?>\n${render(suite, RENDER_OPTS)}`;
+	return `<?xml version="1.0"?>\n${serializeXml(suite)}`;
 }
 
 /**

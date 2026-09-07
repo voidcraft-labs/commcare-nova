@@ -135,6 +135,13 @@ remain allowed while referenced and do not rewrite edges.
 
 ## Values, ordering, and limits
 
+Table-tag admission reserves the runtime instance names in `constants.ts`,
+including the case-insensitive `selected_cases` family with optional case-type
+suffixes and repeated `parent_` prefixes, plus `search_selected_cases`. Column
+wire names do not share this restriction. Existing table identities are never
+renamed automatically; the compiler refuses a referenced historical collision
+with the table named so an authorized caller can explicitly change its tag.
+
 - Missing UUID key means a missing cell. JSON `null`, booleans, arrays, objects,
   unknown column ids, NUL, and unpaired UTF-16 surrogates are invalid. Empty text
   is valid for typed writes; an empty CSV cell omits the key.
@@ -233,3 +240,14 @@ stale manifest or installs a partial table page.
 Keep pure schema/coercion/CSV/order tests separate from Postgres integration
 tests. Bundle Postgres-focused tests into one invocation so local and CI runs do
 not create unnecessary containers.
+
+Snapshot tests should hold a real writer between definition and row reads and
+assert that the complete result stays in one generation. A sequential read of
+matching revisions cannot prove snapshot isolation. Own the pending reader from
+start to finish, release database gates in `finally`, and join it before teardown.
+
+Prove rollback after writes have occurred; preflight rejection alone cannot
+establish batch atomicity. Pagination assertions should join all pages and check
+ordered identities and cells. Blocker-name filtering belongs in a real database
+test with foreign and unrelated apps, because a mocked query chain cannot prove
+Project isolation.

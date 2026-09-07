@@ -1219,12 +1219,14 @@ export class EngineController {
 				requested.formUuid,
 				requested.caseData,
 				requested.caseDatabase,
+				requested.searchAnswers,
 			).catch(() => undefined);
 		} else {
 			this.activateForm(
 				requested.formUuid,
 				requested.caseData,
 				requested.caseDatabase,
+				requested.searchAnswers,
 			);
 		}
 	}

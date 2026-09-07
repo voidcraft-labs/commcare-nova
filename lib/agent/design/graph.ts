@@ -275,6 +275,7 @@ function issue(ctx: z.RefinementCtx, path: Path, message: string): void {
 function proveForest(
 	members: readonly { id: string; parent?: string }[],
 	path: string,
+	parentKey: "parentRecordId" | "parentNavigationId",
 	ctx: z.RefinementCtx,
 ): void {
 	const byId = new Map(members.map((member) => [member.id, member]));
@@ -282,7 +283,7 @@ function proveForest(
 		if (member.parent !== undefined && !byId.has(member.parent)) {
 			issue(
 				ctx,
-				[path, index, "parent"],
+				[path, index, parentKey],
 				"The parent does not exist in this contract.",
 			);
 		}
@@ -292,7 +293,7 @@ function proveForest(
 			if (seen.has(cursor)) {
 				issue(
 					ctx,
-					[path, index, "parent"],
+					[path, index, parentKey],
 					"Parent relationships must not form a cycle.",
 				);
 				break;
@@ -723,8 +724,9 @@ export function validateDesignGraph(
 		);
 	}
 	if (
+		contract.charter.includedWorkflowIds.length !== contract.workflows.length ||
 		new Set(contract.charter.includedWorkflowIds).size !==
-		contract.workflows.length
+			contract.workflows.length
 	) {
 		issue(
 			ctx,
@@ -739,6 +741,7 @@ export function validateDesignGraph(
 			parent: value.parentRecordId,
 		})),
 		"records",
+		"parentRecordId",
 		ctx,
 	);
 	proveForest(
@@ -747,6 +750,7 @@ export function validateDesignGraph(
 			parent: value.parentNavigationId,
 		})),
 		"navigation",
+		"parentNavigationId",
 		ctx,
 	);
 

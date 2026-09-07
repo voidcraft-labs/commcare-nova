@@ -1,233 +1,87 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { proseText } from "@/lib/domain/prose";
-/**
- * Tests for `searchInputTypeMatchesPropertyType`. The rule gates a
- * simple-arm search input's WIDGET kind against the destination
- * property's `data_type` — orthogonal to the mode-vs-data-type rule.
- */
-
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, simpleSearchInputDef } from "@/lib/domain";
-import { runValidation } from "../../../runner";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	advancedSearchInputDef,
+	type CasePropertyDataType,
+	type SearchInputDef,
+	type SearchInputType,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import { matchAll } from "@/lib/domain/predicate";
+import { proseText } from "@/lib/domain/prose";
+import {
+	admittedCaseListDoc,
+	findings,
+	withSearchInputs,
+} from "./caseListRuleFixture";
 
-const CODE = "CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH" as const;
-
-describe("searchInputTypeMatchesPropertyType", () => {
-	it("fires when a date widget targets a text property", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"name_q",
-								"Name",
-								"date",
-								"case_name",
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain('"date" widget');
-		expect(hits[0].message).toContain("case_name");
+const scalarTypes: CasePropertyDataType[] = [
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"datetime",
+	"time",
+	"geopoint",
+	"single_select",
+	"multi_select",
+];
+const code = "CASE_LIST_SEARCH_INPUT_TYPE_PROPERTY_TYPE_MISMATCH";
+function candidate(
+	type: SearchInputType,
+	dataType: CasePropertyDataType,
+	advanced = false,
+) {
+	const base = admittedCaseListDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "value", label: proseText("Value"), data_type: dataType },
+				],
+			},
+		],
 	});
-
-	it("fires when a barcode widget targets an int property", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"age_q",
-								"Age",
-								"barcode",
-								"age",
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "age", label: proseText("Age"), data_type: "int" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
+	const input: SearchInputDef = advanced
+		? advancedSearchInputDef(
+				testUuid("prompt"),
+				"value",
+				"Value",
+				type,
+				matchAll(),
+			)
+		: simpleSearchInputDef(testUuid("prompt"), "value", "Value", type, "value");
+	return withSearchInputs(base, [input]);
+}
+describe("search widget admission", () => {
+	it.each(scalarTypes)("accepts text exact search over %s", (dataType) =>
+		expect(findings(candidate("text", dataType))).toEqual([]),
+	);
+	it.each([
+		{ type: "date", dataType: "date", codes: [] },
+		{ type: "date", dataType: "datetime", codes: [] },
+		{ type: "date", dataType: "time", codes: [code] },
+		{ type: "date", dataType: "text", codes: [code] },
+		{ type: "date-range", dataType: "date", codes: [] },
+		{ type: "date-range", dataType: "datetime", codes: [] },
+		{ type: "date-range", dataType: "int", codes: [code] },
+		{ type: "barcode", dataType: "text", codes: [] },
+		{ type: "barcode", dataType: "int", codes: [code] },
+	] satisfies {
+		type: SearchInputType;
+		dataType: CasePropertyDataType;
+		codes: string[];
+	}[])("$type over $dataType", ({ type, dataType, codes }) => {
+		const errors = findings(candidate(type, dataType));
+		expect(errors.map((error) => error.code)).toEqual(codes);
+		if (codes.length)
+			expect(errors[0].details).toMatchObject({
+				inputUuid: testUuid("prompt"),
+				inputType: type,
+				dataType,
+				destinationCaseType: "patient",
+			});
 	});
-
-	it("admits text widget against every property type (admit-list is undefined)", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"age_q",
-								"Age",
-								"text",
-								"age",
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "age", label: proseText("Age"), data_type: "int" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("is silent on advanced-arm inputs (their predicate may compose multi-typed properties)", () => {
-		// Validator's predicate-type-check rule handles advanced-arm
-		// property references; this rule has no single (widget, property)
-		// gate to apply to the advanced shape.
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							{
-								kind: "advanced",
-								uuid: testUuid("si-1"),
-								name: "adv",
-								label: "Advanced",
-								type: "date",
-								predicate: { kind: "match-all" },
-							},
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
+	it("admits a date advanced prompt without inventing one target property", () =>
+		expect(findings(candidate("date", "int", true))).toEqual([]));
 });

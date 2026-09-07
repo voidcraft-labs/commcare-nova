@@ -133,7 +133,8 @@ export const CASE_PROPERTY_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 /** Valid case type identifier: same rules as case property names. */
 export const CASE_TYPE_REGEX = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 
-/** Valid XML element name for XForm property elements (no hyphens — XML spec). */
+/** Nova-supported XForm element names: ASCII letters, digits, underscores.
+ * XML itself also permits other characters; this is Nova's narrower vocabulary. */
 export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
 
 /**
@@ -152,9 +153,6 @@ export const XML_ELEMENT_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
  * corrupt a sibling repeat's cardinality.
  */
 export const RESERVED_XFORM_NODE_PREFIX = "__nova_";
-
-/** Valid XForm data path (e.g. /data/name, /data/group/age). */
-export const XFORM_PATH_REGEX = /^\/data\/[a-zA-Z0-9_/]+$/;
 
 /** Maximum length for case type names (CommCare Core CaseXmlParser constraint). */
 export const MAX_CASE_TYPE_LENGTH = 255;

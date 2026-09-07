@@ -39,9 +39,8 @@
 // `<default>` element; barcode rides on `@appearance="barcode_scan"`,
 // not `@input`. Both verified against the `QueryPrompt` model.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	type LookupOptionsSource,
@@ -52,7 +51,6 @@ import {
 	searchInputOptions,
 	searchInputRequiredMessage,
 	searchInputRuntimeValueType,
-	searchRuntimeValidationMessage,
 	type TranslationUnitId,
 	type WireStringSource,
 } from "@/lib/domain";
@@ -69,7 +67,6 @@ import {
 	collectPredicateInstances,
 	emitCaseListFilter,
 } from "../../predicate";
-import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
@@ -77,9 +74,7 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
  * `<remote-request>` orchestrator (`remoteRequest.ts::buildRemoteRequest`
  * via `searchSession.ts::buildSearchSession`). The per-prompt subtrees
  * slot into the surrounding `<query>` parent without a parse-then-
- * reserialize round-trip. `emitSearchPrompts` serializes the Elements
- * for callers that assert against the rendered XML string (the test
- * surface).
+ * reserialize round-trip.
  */
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
@@ -93,9 +88,6 @@ export interface SearchPromptsEmission {
 	 */
 	readonly instances: ReadonlySet<string>;
 }
-
-export const RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE =
-	searchRuntimeValidationMessage(new Set(["quote"]))?.message ?? "";
 
 /**
  * One pre-submit prompt assertion derived from the exact emitted CSQL wrapper.
@@ -413,34 +405,6 @@ export function buildSearchPrompts(
 	}
 
 	return { elements, strings, translationUnits, instances };
-}
-
-/**
- * String adapter — serializes `buildSearchPrompts`'s Elements to a
- * newline-joined string for callers that assert against the rendered
- * XML (the test surface). The orchestrator (`remoteRequest.ts` via
- * `searchSession.ts`) calls `buildSearchPrompts` directly.
- */
-export function emitSearchPrompts(
-	searchInputs: ReadonlyArray<SearchInputDef>,
-	moduleId: string,
-	runtimeValidations?: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
-	relationContext: RelationEvaluationScopeContext = {},
-	lookupNaming?: LookupWireNaming,
-): CaseListEmission {
-	const { elements, strings, translationUnits } = buildSearchPrompts(
-		searchInputs,
-		moduleId,
-		runtimeValidations,
-		relationContext,
-		lookupNaming,
-	);
-	if (elements.length === 0) return { xml: "", strings, translationUnits };
-	return {
-		xml: elements.map((promptEl) => render(promptEl, RENDER_OPTS)).join("\n"),
-		strings,
-		translationUnits,
-	};
 }
 
 /**

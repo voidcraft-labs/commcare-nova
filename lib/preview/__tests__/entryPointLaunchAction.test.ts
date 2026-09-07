@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 const { authorize, readDevice, recheck, telemetry } = vi.hoisted(() => ({
 	authorize: vi.fn(),
@@ -53,6 +54,7 @@ beforeEach(() => {
 		],
 	});
 	doc.forms[testUuid("form")].entryPoint = { uuid: E, id: "survey" };
+	assertAdmittedPreviewDoc(doc);
 	authorize.mockResolvedValue({
 		kind: "ready",
 		identity: {
@@ -74,7 +76,7 @@ beforeEach(() => {
 	recheck.mockResolvedValue({ baseSeq: 4, projectId: "project" });
 });
 describe("entry point launch server boundary", () => {
-	it("derives committed topology and mandatory device scope under viewer authorization", async () => {
+	it("requests viewer authorization and threads the authorized device scope into its data reader", async () => {
 		expect(await launchEntryPointAction(request)).toMatchObject({
 			kind: "ready",
 		});
@@ -106,16 +108,62 @@ describe("entry point launch server boundary", () => {
 			expect(readDevice).not.toHaveBeenCalled();
 		},
 	);
-	it("rejects an app move during device loading", async () => {
+	it("refuses a post-read authorization snapshot for a different Project", async () => {
 		recheck.mockResolvedValue({ baseSeq: 4, projectId: "different" });
 		expect(await launchEntryPointAction(request)).toMatchObject({
 			kind: "refused",
 		});
 	});
-	it("rejects a concurrent document edit during device loading", async () => {
+	it("refuses a post-read snapshot with a newer document sequence", async () => {
 		recheck.mockResolvedValue({ baseSeq: 5, projectId: "project" });
 		expect(await launchEntryPointAction(request)).toMatchObject({
 			kind: "refused",
 		});
+	});
+	it("waits for its device read before requesting fresh authorization", async () => {
+		const read = Promise.withResolvers<{ rows: []; indices: [] }>();
+		const entered = Promise.withResolvers<void>();
+		readDevice.mockImplementation(async () => {
+			entered.resolve();
+			return read.promise;
+		});
+		const result = launchEntryPointAction(request);
+		try {
+			await entered.promise;
+			expect(recheck).not.toHaveBeenCalled();
+			read.resolve({ rows: [], indices: [] });
+			expect(await result).toMatchObject({ kind: "ready" });
+			expect(recheck).toHaveBeenCalledTimes(1);
+		} finally {
+			read.resolve({ rows: [], indices: [] });
+			await result;
+		}
+	});
+
+	it.each([
+		{ ...request, expectedSeq: -1 },
+		{ ...request, selections: [{ moduleUuid: "invalid", caseIds: ["a"] }] },
+		{ ...request, unauthorizedExtra: true },
+	])("rejects malformed requests before dependencies run", async (input) => {
+		expect(
+			await launchEntryPointAction(
+				input as unknown as Parameters<typeof launchEntryPointAction>[0],
+			),
+		).toMatchObject({
+			kind: "refused",
+		});
+		expect(authorize).not.toHaveBeenCalled();
+		expect(readDevice).not.toHaveBeenCalled();
+	});
+
+	it("contains an unexpected read failure without exposing private details", async () => {
+		readDevice.mockRejectedValue(new Error("private database detail"));
+		const result = await launchEntryPointAction(request);
+		expect(result).toMatchObject({
+			kind: "refused",
+			message: "We could not open this entry point. Try again.",
+		});
+		expect(telemetry).toHaveBeenCalledTimes(1);
+		expect(recheck).not.toHaveBeenCalled();
 	});
 });

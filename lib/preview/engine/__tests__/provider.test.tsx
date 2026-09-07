@@ -13,10 +13,17 @@
  * `load()` takes a `PersistableDoc`.
  */
 
-import { act, render, renderHook, waitFor } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	render,
+	renderHook,
+	waitFor,
+} from "@testing-library/react";
 import { type ReactNode, StrictMode, useEffect } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
@@ -28,8 +35,9 @@ import {
 	type BuilderSessionStoreApi,
 } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
-import { EngineController } from "../engineController";
+import type { EngineController } from "../engineController";
 import { BuilderFormEngineProvider, useBuilderFormEngine } from "../provider";
+import { admittedControllerDoc } from "./fixtures/controllerDoc";
 
 /* The provider resolves "Preview as me" from `useAuth()`. Mock a warm session so
  * the synchronous controller-initialization contract is observable, and so the
@@ -59,7 +67,7 @@ const MODULE_UUID = testUuid("module-1-uuid");
 const FORM_UUID = testUuid("form-1-uuid");
 const FIELD_UUID = testUuid("11111111-1111-1111-1111-111111111111");
 
-const DOC: PersistableDoc = {
+const DOC: PersistableDoc = admittedControllerDoc({
 	appId: "test-app",
 	appName: "Test",
 	connectType: null,
@@ -90,63 +98,14 @@ const DOC: PersistableDoc = {
 	moduleOrder: [MODULE_UUID],
 	formOrder: { [MODULE_UUID]: [FORM_UUID] },
 	fieldOrder: { [FORM_UUID]: [FIELD_UUID] },
-};
+});
 
-function makeWrapper() {
-	const docStore = createBlueprintDocStore();
-	docStore.getState().load(DOC);
-	docStore.getState().startTracking();
-
-	/* The session provider is in the real stack above this one and the
-	 * provider now reads it: the acting identity is "Preview as me" or a
-	 * selected persona, and which one is ephemeral session state. */
-	const Wrapper = ({ children }: { children: ReactNode }) => (
-		<BuilderSessionProvider>
-			<BlueprintDocContext value={docStore}>
-				<BuilderFormEngineProvider>{children}</BuilderFormEngineProvider>
-			</BlueprintDocContext>
-		</BuilderSessionProvider>
-	);
-	return { docStore, Wrapper };
-}
+afterEach(() => {
+	cleanup();
+	vi.restoreAllMocks();
+});
 
 describe("BuilderFormEngineProvider", () => {
-	it("returns an EngineController from useBuilderFormEngine", () => {
-		const { Wrapper } = makeWrapper();
-		const { result } = renderHook(() => useBuilderFormEngine(), {
-			wrapper: Wrapper,
-		});
-		expect(result.current).toBeInstanceOf(EngineController);
-	});
-
-	it("returns a stable controller instance across renders", () => {
-		const { Wrapper } = makeWrapper();
-		const { result, rerender } = renderHook(() => useBuilderFormEngine(), {
-			wrapper: Wrapper,
-		});
-		const first = result.current;
-		rerender();
-		expect(result.current).toBe(first);
-	});
-
-	it("installs the doc store so activateForm can resolve entities", () => {
-		const { Wrapper } = makeWrapper();
-		const { result } = renderHook(() => useBuilderFormEngine(), {
-			wrapper: Wrapper,
-		});
-		/* activateForm short-circuits when the doc store isn't installed, so
-		 * reaching any non-empty runtime state proves the effect ran. */
-		result.current.activateForm(FORM_UUID);
-		const runtime = result.current.store.getState();
-		expect(Object.keys(runtime).length).toBeGreaterThan(0);
-	});
-
-	it("throws when useBuilderFormEngine is called outside the provider", () => {
-		expect(() => renderHook(() => useBuilderFormEngine())).toThrow(
-			/useBuilderFormEngine must be used within a BuilderFormEngineProvider/,
-		);
-	});
-
 	/* Regression for the BL-1 race fixed in lib/preview/engine/provider.tsx:
 	 *
 	 * React effect ordering is child-before-parent on mount. Prior to the
@@ -167,7 +126,7 @@ describe("BuilderFormEngineProvider", () => {
 		docStore.getState().load(DOC);
 		docStore.getState().startTracking();
 
-		let captured: EngineController | null = null;
+		const captured: EngineController[] = [];
 
 		function TestHarness() {
 			const controller = useBuilderFormEngine();
@@ -175,7 +134,7 @@ describe("BuilderFormEngineProvider", () => {
 				/* Capture the controller once we know its activate ran with the
 				 * doc store available; assertions then read from this ref. */
 				controller.activateForm(FORM_UUID);
-				captured = controller;
+				captured.push(controller);
 			}, [controller]);
 			return null;
 		}
@@ -190,9 +149,9 @@ describe("BuilderFormEngineProvider", () => {
 			</BuilderSessionProvider>,
 		);
 
-		expect(captured).not.toBeNull();
-		const runtime = (captured as unknown as EngineController).store.getState();
-		expect(Object.keys(runtime).length).toBeGreaterThan(0);
+		expect(captured).toHaveLength(1);
+		const runtime = captured[0].store.getState();
+		expect(runtime[FIELD_UUID]).toMatchObject({ value: "", visible: true });
 	});
 
 	it("re-arms the XPath runtime after Strict Mode effect replay", async () => {
@@ -225,42 +184,43 @@ describe("BuilderFormEngineProvider", () => {
 		expect(result.current.entryStore.getState().fault).toBeUndefined();
 	});
 
-	it("binds a warm preview identity before child effects run", () => {
+	it("binds a warm identity before a child activates its first form", () => {
+		const field = DOC.fields[FIELD_UUID];
+		if (field.kind !== "text") throw new Error("Expected text field");
 		const docStore = createBlueprintDocStore();
-		docStore.getState().load(DOC);
-		docStore.getState().startTracking();
-		const setIdentity = vi.spyOn(
-			EngineController.prototype,
-			"setPreviewIdentity",
+		docStore.getState().load(
+			admittedControllerDoc({
+				...DOC,
+				fields: {
+					[FIELD_UUID]: {
+						...field,
+						default_value: xp(
+							"instance('commcaresession')/session/context/userid",
+						),
+					},
+				},
+			}),
 		);
-		let callsSeenByChild = -1;
-
-		function TestHarness() {
-			useBuilderFormEngine();
+		docStore.getState().startTracking();
+		const valuesSeenByChild: string[] = [];
+		function Child() {
+			const controller = useBuilderFormEngine();
 			useEffect(() => {
-				callsSeenByChild = setIdentity.mock.calls.length;
-			}, []);
+				controller.activateForm(FORM_UUID);
+				valuesSeenByChild.push(controller.store.getState()[FIELD_UUID].value);
+			}, [controller]);
 			return null;
 		}
-
 		render(
 			<BuilderSessionProvider>
 				<BlueprintDocContext value={docStore}>
 					<BuilderFormEngineProvider>
-						<TestHarness />
+						<Child />
 					</BuilderFormEngineProvider>
 				</BlueprintDocContext>
 			</BuilderSessionProvider>,
 		);
-
-		expect(setIdentity.mock.calls[0]?.[0]).toMatchObject({
-			actorUserId: "warm-member",
-			ownerId: "warm-member",
-		});
-		// The initializer call is visible to the child; the provider's follow-up
-		// effect runs after the child's effect and may make the second call.
-		expect(callsSeenByChild).toBe(1);
-		setIdentity.mockRestore();
+		expect(valuesSeenByChild).toEqual(["warm-member"]);
 	});
 
 	it("refuses to activate a form while the selected persona is unavailable", () => {

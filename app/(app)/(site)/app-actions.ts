@@ -30,7 +30,6 @@ import {
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
 import { log } from "@/lib/logger";
-import { appProjectMovePolicy } from "@/lib/projects/moveTargets";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -156,10 +155,9 @@ export async function restoreApp(appId: string): Promise<RestoreAppResult> {
 /**
  * Project-move boundary. Source authorization happens before the policy
  * response, so a caller cannot use a refusal message to distinguish another
- * tenant's app from a missing id. The move switch is read here for
- * person-readable copy; the move transaction re-reads it `FOR SHARE` and is the
- * authority. An exact same-Project call is not a move at all, it is the
- * atomic, app-locked case-tenancy repair path.
+ * tenant's app from a missing id. The transaction reauthorizes the fresh app
+ * and Project memberships. Its returned outcome determines the response: a
+ * concurrent move may turn a requested move into case-tenancy recovery.
  */
 export async function moveApp(
 	appId: string,
@@ -204,9 +202,7 @@ export async function moveApp(
 			throw err;
 		}
 
-		const policy = appProjectMovePolicy(access.projectId, toProjectId);
-
-		await moveAppToProject({
+		const result = await moveAppToProject({
 			appId,
 			fromProjectId: access.projectId,
 			toProjectId,
@@ -215,10 +211,7 @@ export async function moveApp(
 		revalidatePath("/");
 		return {
 			success: true,
-			kind:
-				policy.kind === "cross_project_move"
-					? "moved"
-					: "same_project_recovered",
+			kind: result.kind === "moved" ? "moved" : "same_project_recovered",
 		};
 	} catch (err) {
 		if (err instanceof AppBusyError) {

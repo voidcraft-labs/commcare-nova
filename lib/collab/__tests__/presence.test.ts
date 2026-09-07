@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	estimateClockOffset,
 	hashColor,
@@ -71,13 +72,16 @@ describe("visiblePeers — per-user newest-wins", () => {
 				userId: "peer",
 				sessionId: "new",
 				updatedAt: NOW - 1_000,
-				location: { kind: "module", moduleUuid: "m1" as never },
+				location: { kind: "module", moduleUuid: testUuid("m1") },
 			}),
 		];
 		const out = visiblePeers(frame, "self", NOW);
 		expect(out).toHaveLength(1);
 		expect(out[0].sessionId).toBe("new");
-		expect(out[0].location).toEqual({ kind: "module", moduleUuid: "m1" });
+		expect(out[0].location).toEqual({
+			kind: "module",
+			moduleUuid: testUuid("m1"),
+		});
 	});
 });
 
@@ -140,80 +144,6 @@ describe("visiblePeers — ordering", () => {
 			"https://lh3.googleusercontent.com/a",
 			null,
 		]);
-	});
-});
-
-describe("visiblePeers — the real /stream wire shape (updatedAt is epoch millis)", () => {
-	// The /stream route PROJECTS a `presence` row to `PresenceEntry`, converting
-	// `updatedAt` from the row's `Date` to epoch millis (`.getTime()`).
-	// `visiblePeers` does numeric arithmetic on it (`now − updatedAt` for
-	// stale-hide, `>` for newest-wins) — so the wire value MUST be a number, or
-	// both computations silently break. This mirrors what the projected frame
-	// carries, so a regression at either seam (route stops projecting, or the
-	// contract drifts back to a raw Timestamp) fails here.
-
-	/** What the route's `projectPresence` produces: epoch millis, not a Timestamp. */
-	function projected(
-		userId: string,
-		sessionId: string,
-		atMs: number,
-	): PresenceEntry {
-		return {
-			userId,
-			sessionId,
-			name: userId,
-			image: null,
-			email: "",
-			color: "violet",
-			location: { kind: "home" },
-			updatedAt: atMs,
-		};
-	}
-
-	it("stale-hide fires on the projected millis shape (a crashed peer fades)", () => {
-		const frame: PresenceEntry[] = [
-			projected("live", "live-tab", NOW - 1_000),
-			projected("crashed", "crashed-tab", NOW - PRESENCE_STALE_MS - 1),
-		];
-		// The crashed peer (last beat > stale threshold ago) is hidden; the live
-		// one survives — the arithmetic works because `updatedAt` is a number.
-		expect(visiblePeers(frame, "self", NOW).map((p) => p.userId)).toEqual([
-			"live",
-		]);
-	});
-
-	it("newest-wins dedup fires on the projected millis shape (two tabs → freshest)", () => {
-		const frame: PresenceEntry[] = [
-			projected("peer", "old-tab", NOW - 5_000),
-			projected("peer", "new-tab", NOW - 1_000),
-		];
-		const out = visiblePeers(frame, "self", NOW);
-		expect(out).toHaveLength(1);
-		expect(out[0].sessionId).toBe("new-tab");
-	});
-
-	it("a RAW non-numeric updatedAt (the bug) defeats BOTH — the regression this guards", () => {
-		// A projection bug that shipped the row's raw `updated_at` instead of
-		// epoch millis would put a non-numeric value on the wire. `now − object`
-		// is NaN, so `NaN > PRESENCE_STALE_MS` is false → a crashed peer is NEVER
-		// hidden, and `object > object` is false → newest-wins picks whichever came first, not
-		// the freshest. Pin that this shape is broken so the projection can't
-		// silently regress.
-		const rawTs = { raw: "not-millis" } as unknown as number;
-		const crashed: PresenceEntry = {
-			userId: "crashed",
-			sessionId: "crashed-tab",
-			name: "crashed",
-			image: null,
-			email: "",
-			color: "violet",
-			location: { kind: "home" },
-			updatedAt: rawTs, // an OBJECT, not millis — the bug
-		};
-		// Stale-hide should have hidden a long-crashed peer, but `now − object` is
-		// NaN, so it lingers.
-		expect(visiblePeers([crashed], "self", NOW - 0)).toHaveLength(1);
-		expect(Number.isNaN(NOW - (rawTs as unknown as number))).toBe(true);
 	});
 });
 

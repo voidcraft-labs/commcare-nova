@@ -26,7 +26,7 @@ describe("deriveOAuthClientDisclosure", () => {
 	it("formats Claude Code plugin details as a reported client-name claim", () => {
 		expect(
 			deriveOAuthClientDisclosure({
-				clientName: "Claude Code (plugin:nova:nova)",
+				clientName: "Claude Code (plugin:publisher:nova)",
 				redirectUri: "http://localhost:49802/callback",
 				trusted: false,
 			}),
@@ -70,18 +70,49 @@ describe("deriveOAuthClientDisclosure", () => {
 		});
 	});
 
-	it("flags untrusted clients with Nova/CommCare/Dimagi-like names", () => {
-		const disclosure = deriveOAuthClientDisclosure({
-			clientName: "CommCare Nova",
-			redirectUri: "https://example.test/oauth/callback",
-			trusted: false,
-		});
+	it.each(["Nova", "COMMCARE", "dimagi"])(
+		"flags an untrusted client using the %s brand",
+		(clientName) => {
+			const disclosure = deriveOAuthClientDisclosure({
+				clientName,
+				redirectUri: "https://example.test/oauth/callback",
+				trusted: false,
+			});
 
-		expect(disclosure.trustLabel).toBe("Unverified application");
-		expect(disclosure.verificationKind).toBe("remote");
-		expect(disclosure.redirectDisplay).toBe("example.test");
-		expect(disclosure.brandWarning).toBe(true);
-	});
+			expect(disclosure.trustLabel).toBe("Unverified application");
+			expect(disclosure.verificationKind).toBe("remote");
+			expect(disclosure.redirectDisplay).toBe("example.test");
+			expect(disclosure.brandWarning).toBe(true);
+		},
+	);
+
+	it.each([
+		["http://127.0.0.1:456/callback", "local", "127.0.0.1:456"],
+		["http://[::1]:456/callback", "local", "[::1]:456"],
+		[
+			"https://localhost.attacker.test/callback",
+			"remote",
+			"localhost.attacker.test",
+		],
+		["https://localhost@remote.test/callback", "remote", "remote.test"],
+		["custom-app://localhost/callback", "remote", "custom-app://"],
+		["invalid uri", "remote", "Unknown destination"],
+	] as const)(
+		"classifies %s by its actual destination",
+		(redirectUri, verificationKind, redirectDisplay) => {
+			expect(
+				deriveOAuthClientDisclosure({
+					clientName: "Client",
+					redirectUri,
+					trusted: false,
+				}),
+			).toMatchObject({
+				verificationKind,
+				redirectDisplay,
+				trustLabel: "Unverified application",
+			});
+		},
+	);
 
 	it("does not flag reserved brand names for trusted clients", () => {
 		const disclosure = deriveOAuthClientDisclosure({

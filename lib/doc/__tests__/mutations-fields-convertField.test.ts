@@ -1,842 +1,274 @@
-/**
- * Reducer tests for the `convertField` mutation.
- *
- * Covers the six conversion families declared in each kind's
- * `FieldKindMetadata.convertTargets` (the single source of truth, reachable
- * via `getConvertibleTypes`) plus invariants: uuid preserved, id/label
- * preserved, incompatible keys dropped, options transferred where both
- * kinds accept them, no-op when the kind is already the target, skip when
- * uuid is unknown, and rejection of cross-paradigm swaps not listed in
- * `convertTargets` (the reducer's authoritative convertibility gate).
- *
- * Test fixtures use `buildDoc` + `f` from `lib/__tests__/docHelpers.ts` to
- * produce normalized `BlueprintDoc` values without touching wire formats.
- * All field uuids are explicit strings to keep assertion code readable.
- */
-
 import { produce } from "immer";
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { applyMutation } from "@/lib/doc/mutations";
-import type { BlueprintDoc } from "@/lib/domain";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
-	isXPathExpression,
-	printProseTemplate,
-	printXPath,
-	xpathPrintContext,
-} from "@/lib/domain";
-import { isProseTemplate, proseText } from "@/lib/domain/prose";
+	type BlueprintDoc,
+	type Mutation,
+	mutationSchema,
+} from "@/lib/doc/types";
+import { type FieldKind, proseText } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-// ---------------------------------------------------------------------------
-// Shared fixture builder
-// ---------------------------------------------------------------------------
-
-/**
- * Build a doc with a single module, single form, and one field at the top
- * level. The field spec is passed through verbatim — callers set kind, id,
- * uuid, and any kind-specific properties.
- */
-function docWithField(field: Parameters<typeof f>[0]) {
-	return buildDoc({
-		appId: "app-1",
+const Q = testUuid("conversion-subject");
+const CHILD = testUuid("conversion-child");
+function fixture(field: Parameters<typeof f>[0]): BlueprintDoc {
+	const doc = buildDoc({
 		modules: [
 			{
-				uuid: "m-1",
-				name: "M",
+				name: "Survey",
 				forms: [
 					{
-						uuid: "form-1",
-						name: "F",
-						type: "registration",
-						fields: [f(field)],
+						name: "Collect",
+						type: "survey",
+						fields: [
+							f({ uuid: Q, label: proseText("Answer"), ...field }),
+							f({ id: "spare", kind: "text", label: proseText("Spare") }),
+						],
 					},
 				],
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
-
-// ---------------------------------------------------------------------------
-// 1. Text ↔ Secret — text input family
-// ---------------------------------------------------------------------------
-
-/** Printed text of an AST-stored slot value off a converted field. */
-function printSlot(value: unknown, doc: BlueprintDoc): string | undefined {
-	return isXPathExpression(value)
-		? printXPath(value, xpathPrintContext(doc))
-		: (value as string | undefined);
+function convert(
+	doc: BlueprintDoc,
+	toKind: FieldKind,
+	extra: Partial<Extract<Mutation, { kind: "convertField" }>> = {},
+): BlueprintDoc {
+	const mutation = mutationSchema.parse(
+		JSON.parse(
+			JSON.stringify({ kind: "convertField", uuid: Q, toKind, ...extra }),
+		),
+	);
+	const verdict = mutationCommitVerdict(
+		doc,
+		[mutation],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
-
-function printProse(value: unknown, doc: BlueprintDoc): string | undefined {
-	return isProseTemplate(value) ? printProseTemplate(value, doc) : undefined;
-}
-
-describe("convertField — text / secret family", () => {
-	it("text → secret preserves id, label, uuid, hint, required, validate", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "pin",
-			label: proseText("PIN"),
-			required: "true()",
-			hint: proseText("four digits"),
-			validate: "string-length(.) = 4",
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "secret",
+const options = [
+	{ uuid: testUuid("conversion-red"), value: "red", label: proseText("Red") },
+	{
+		uuid: testUuid("conversion-blue"),
+		value: "blue",
+		label: proseText("Blue"),
+	},
+];
+describe("admitted field conversion", () => {
+	it.each([
+		["text", "secret"],
+		["secret", "text"],
+		["int", "decimal"],
+		["decimal", "int"],
+		["date", "time"],
+		["datetime", "date"],
+		["image", "audio"],
+		["video", "signature"],
+		["text", "barcode"],
+		["barcode", "text"],
+	] as const)(
+		"%s to %s preserves the authored identity and common slots",
+		(kind, toKind) => {
+			const before = fixture({
+				id: "answer",
+				kind,
+				required: xp("true()"),
+				relevant: xp("true()"),
+				hint: proseText("Instructions"),
 			});
+			const next = convert(before, toKind);
+			expect(next.fields[Q]).toEqual({ ...before.fields[Q], kind: toKind });
+			expect(next.fieldOrder).toEqual(before.fieldOrder);
+			expect(next.fieldParent).toEqual(before.fieldParent);
+		},
+	);
+	it("preserves nontrivial numeric validation and text default values", () => {
+		const numeric = fixture({ id: "answer", kind: "int", validate: ". > 0" });
+		expect(convert(numeric, "decimal").fields[Q]).toEqual({
+			...numeric.fields[Q],
+			kind: "decimal",
 		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("secret");
-		expect(converted.id).toBe("pin");
-		expect(printProse(converted.label, next)).toBe("PIN");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(printProse(converted.hint, next)).toBe("four digits");
-		expect(printSlot(converted.required, next)).toBe("true()");
-		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 4");
-		// `calculate` exists on text but not secret — must be stripped.
-		expect(converted.calculate).toBeUndefined();
-	});
-
-	it("secret → text preserves id, label, hint, validate", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "secret",
-			id: "token",
-			label: proseText("Token"),
-			hint: proseText("enter token"),
+		const text = fixture({
+			id: "answer",
+			kind: "text",
+			default_value: "'unknown'",
 			validate: "string-length(.) > 0",
 		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "text",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("text");
-		expect(converted.id).toBe("token");
-		expect(printProse(converted.hint, next)).toBe("enter token");
-		expect(printSlot(converted.validate, next)).toBe("string-length(.) > 0");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 2. Int ↔ Decimal — numeric family
-// ---------------------------------------------------------------------------
-
-describe("convertField — int / decimal family", () => {
-	it("int → decimal preserves id, label, uuid, and numeric validation", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "int",
-			id: "age",
-			label: proseText("Age"),
-			validate: ". > 0",
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "decimal",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("decimal");
-		expect(converted.id).toBe("age");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(printSlot(converted.validate, next)).toBe(". > 0");
-	});
-
-	it("decimal → int preserves relevant and required", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "decimal",
-			id: "price",
-			label: proseText("Price"),
-			relevant: "/data/show_price = 'yes'",
-			required: "true()",
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "int",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("int");
-		expect(printSlot(converted.relevant, next)).toBe(
-			"/data/show_price = 'yes'",
-		);
-		expect(printSlot(converted.required, next)).toBe("true()");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 3. Temporal family — date / time / datetime
-// ---------------------------------------------------------------------------
-
-describe("convertField — temporal family", () => {
-	it("date → time preserves id, label, uuid", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "date",
-			id: "visit_date",
-			label: proseText("Visit Date"),
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "time",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("time");
-		expect(converted.id).toBe("visit_date");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-	});
-
-	it("datetime → date preserves relevant and its case destination", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "datetime",
-			id: "appt_dt",
-			label: proseText("Appointment"),
-			relevant: ". != ''",
-			caseWrite: { caseType: "appointment_dt", property: "appt_dt" },
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "date",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("date");
-		expect(printSlot(converted.relevant, next)).toBe(". != ''");
-		expect(converted.caseWrite).toEqual({
-			caseType: "appointment_dt",
-			property: "appt_dt",
-		});
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 4. Selection family — single_select ↔ multi_select
-// ---------------------------------------------------------------------------
-
-describe("convertField — selection family", () => {
-	it("single_select → multi_select preserves options, id, label, uuid", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "single_select",
-			id: "color",
-			label: proseText("Color"),
-			optionsSource: {
-				kind: "inline",
-				options: [
-					{
-						uuid: testUuid("red"),
-						value: "r",
-						label: proseText("Red"),
-					},
-					{
-						uuid: testUuid("blue"),
-						value: "b",
-						label: proseText("Blue"),
-					},
-				],
-			},
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "multi_select",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("multi_select");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.id).toBe("color");
-		const source = converted.optionsSource as {
-			kind: "inline";
-			options: Array<{ value: string }>;
-		};
-		expect(source.options).toHaveLength(2);
-		expect(source.options[0]?.value).toBe("r");
-	});
-
-	it("multi_select → single_select transfers options", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "multi_select",
-			id: "symptoms",
-			label: proseText("Symptoms"),
-			optionsSource: {
-				kind: "inline",
-				options: [
-					{
-						uuid: testUuid("fever"),
-						value: "fever",
-						label: proseText("Fever"),
-					},
-					{
-						uuid: testUuid("cough"),
-						value: "cough",
-						label: proseText("Cough"),
-					},
-					{
-						uuid: testUuid("headache"),
-						value: "headache",
-						label: proseText("Headache"),
-					},
-				],
-			},
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "single_select",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("single_select");
-		const source = converted.optionsSource as {
-			kind: "inline";
-			options: Array<{ value: string }>;
-		};
-		expect(source.options).toHaveLength(3);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 5. Media family — image / audio / video / signature
-// ---------------------------------------------------------------------------
-
-describe("convertField — media family", () => {
-	it("image → audio preserves id, label, uuid, hint, relevant", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "image",
-			id: "photo",
-			label: proseText("Photo"),
-			hint: proseText("take a clear photo"),
-			relevant: "/data/needs_photo = 'yes'",
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "audio",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("audio");
-		expect(converted.id).toBe("photo");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(printProse(converted.hint, next)).toBe("take a clear photo");
-		expect(printSlot(converted.relevant, next)).toBe(
-			"/data/needs_photo = 'yes'",
-		);
-	});
-
-	it("video → signature preserves id and label", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "video",
-			id: "consent_video",
-			label: proseText("Consent Video"),
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "signature",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("signature");
-		expect(converted.id).toBe("consent_video");
-		expect(printProse(converted.label, next)).toBe("Consent Video");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 6. Structural family — group ↔ repeat
-// ---------------------------------------------------------------------------
-
-describe("convertField — structural family", () => {
-	it("group → repeat preserves id, label, uuid, and children (fieldOrder untouched)", () => {
-		const doc = buildDoc({
-			appId: "app-1",
-			modules: [
-				{
-					uuid: "m-1",
-					name: "M",
-					forms: [
-						{
-							uuid: "form-1",
-							name: "F",
-							type: "registration",
-							fields: [
-								f({
-									uuid: "g-1",
-									kind: "group",
-									id: "demographics",
-									label: proseText("Demographics"),
-									children: [
-										f({
-											uuid: "c-1",
-											kind: "text",
-											id: "name",
-											label: proseText("Name"),
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("g-1"),
-				toKind: "repeat",
-			});
-		});
-		const converted = next.fields[testUuid("g-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("repeat");
-		expect(converted.id).toBe("demographics");
-		expect(converted.uuid).toBe(testUuid("g-1"));
-		// Children must remain in fieldOrder under the same parent uuid.
-		expect(next.fieldOrder[testUuid("g-1")]).toEqual([testUuid("c-1")]);
-		expect(next.fields[testUuid("c-1")]).toBeDefined();
-	});
-
-	it("repeat → group preserves id, label, uuid, and relevant", () => {
-		const doc = buildDoc({
-			appId: "app-1",
-			modules: [
-				{
-					uuid: "m-1",
-					name: "M",
-					forms: [
-						{
-							uuid: "form-1",
-							name: "F",
-							type: "registration",
-							fields: [
-								f({
-									uuid: "r-1",
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									relevant: "/data/has_visits = 'yes'",
-									children: [],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("r-1"),
-				toKind: "group",
-			});
-		});
-		const converted = next.fields[testUuid("r-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("group");
-		expect(converted.id).toBe("visits");
-		expect(printSlot(converted.relevant, next)).toBe(
-			"/data/has_visits = 'yes'",
-		);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Invariants
-// ---------------------------------------------------------------------------
-
-describe("convertField — invariants", () => {
-	it("no-op when the kind is already the target (same reference returned by immer)", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "pin",
-			label: proseText("PIN"),
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "text",
-			});
-		});
-		// Immer returns the original object unchanged when no mutation occurs.
-		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
-	});
-
-	it("skips entirely when the source uuid is unknown", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "pin",
-			label: proseText("PIN"),
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("does-not-exist"),
-				toKind: "secret",
-			});
-		});
-		// The fields map must be unchanged.
-		expect(next.fields).toEqual(doc.fields);
-	});
-
-	it("uuid is preserved end-to-end on the converted field", () => {
-		// reconcileFieldForKind spreads the source (including uuid) into the
-		// candidate, Zod's uuidSchema preserves it, and the Field return type
-		// guarantees it — so the uuid survives the kind swap. This test pins
-		// the end-state contract so any future refactor that breaks the
-		// carry-through gets caught here.
-		const doc = docWithField({
-			uuid: "q-stable",
-			kind: "int",
-			id: "count",
-			label: proseText("Count"),
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-stable"),
-				toKind: "decimal",
-			});
-		});
-		expect(next.fields[testUuid("q-stable")]?.uuid).toBe(testUuid("q-stable"));
-	});
-
-	it("no-ops when the target kind is not in the source's convertTargets", () => {
-		// group is a cross-paradigm destination for text (leaf → container)
-		// that Zod's strip behavior would happily accept structurally, but
-		// the resulting doc would have no `fieldOrder` entry for the new
-		// "group" and break the "every container has an order slot"
-		// invariant. The reducer's convertibility gate rejects the swap
-		// before reconciliation runs.
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "name",
-			label: proseText("Name"),
-		});
-		// The convertibility gate console.warns on the skip (the reducer's
-		// client-safe degraded-path convention); silence the expected noise.
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "group",
-			});
-		});
-		expect(warn).toHaveBeenCalledTimes(1);
-		warn.mockRestore();
-		// Immer returns the original object unchanged when no mutation occurs.
-		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
-	});
-
-	it("no-ops on container → leaf (gate rejects; children stay intact)", () => {
-		// Exercises the destructive-swap corruption path the gate exists to
-		// prevent: a group with children becoming a text entity would strand
-		// `fieldOrder[groupUuid]` with orphan descendants that walkers +
-		// navigation still see. group's convertTargets is ["repeat"] only.
-		const doc = buildDoc({
-			appId: "app-1",
-			modules: [
-				{
-					uuid: "m-1",
-					name: "M",
-					forms: [
-						{
-							uuid: "form-1",
-							name: "F",
-							type: "registration",
-							fields: [
-								f({
-									uuid: "g-1",
-									kind: "group",
-									id: "demographics",
-									label: proseText("Demographics"),
-									children: [
-										f({
-											uuid: "c-1",
-											kind: "text",
-											id: "name",
-											label: proseText("Name"),
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("g-1"),
-				toKind: "text",
-			});
-		});
-		expect(warn).toHaveBeenCalledTimes(1);
-		warn.mockRestore();
-		// Group must remain a group — the entity, its fieldOrder entry, and
-		// its child must all be unchanged.
-		expect(next.fields[testUuid("g-1")]?.kind).toBe("group");
-		expect(next.fieldOrder[testUuid("g-1")]).toEqual([testUuid("c-1")]);
-		expect(next.fields[testUuid("c-1")]).toBeDefined();
-	});
-});
-
-// ---------------------------------------------------------------------------
-// 7. The string-compatible tier — text ↔ barcode, text → select/hidden,
-//    select → text
-// ---------------------------------------------------------------------------
-
-describe("convertField — string-compatible tier", () => {
-	it("text → barcode preserves id, label, uuid, hint, validate, default_value", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "tracking_code",
-			label: proseText("Tracking code"),
-			hint: proseText("on the package"),
-			validate: "string-length(.) = 12",
-			default_value: '"unknown"',
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "barcode",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("barcode");
-		expect(converted.id).toBe("tracking_code");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(printProse(converted.hint, next)).toBe("on the package");
-		expect(printSlot(converted.validate, next)).toBe("string-length(.) = 12");
-		expect(printSlot(converted.default_value, next)).toBe('"unknown"');
-	});
-
-	it("barcode → text preserves id, label, uuid, required", () => {
-		const doc = docWithField({
-			uuid: "q-1",
+		expect(convert(text, "barcode").fields[Q]).toEqual({
+			...text.fields[Q],
 			kind: "barcode",
-			id: "sample_id",
-			label: proseText("Sample"),
-			required: "true()",
 		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "text",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("text");
-		expect(converted.id).toBe("sample_id");
-		expect(printSlot(converted.required, next)).toBe("true()");
 	});
-
-	it("text → single_select lands the mutation's seed options verbatim", () => {
-		const doc = docWithField({
-			uuid: "q-1",
+	it.each([
+		["single_select", "multi_select"],
+		["multi_select", "single_select"],
+	] as const)(
+		"%s to %s keeps option identities and complete authored values",
+		(kind, toKind) => {
+			const before = fixture({
+				id: "answer",
+				kind,
+				optionsSource: { kind: "inline", options },
+			});
+			expect(convert(before, toKind).fields[Q]).toEqual({
+				...before.fields[Q],
+				kind: toKind,
+			});
+		},
+	);
+	it("seeds new option identities at the conversion boundary then drops the source on conversion back to text", () => {
+		const before = fixture({
+			id: "answer",
 			kind: "text",
-			id: "facility",
-			label: proseText("Specialist facility"),
-			hint: proseText("referral target"),
-			caseWrite: { caseType: "patient", property: "facility" },
+			hint: proseText("Choose a color"),
 		});
-		const seed = [
-			{
-				value: "clinic_a",
-				label: proseText("Clinic A"),
-				uuid: testUuid("o-1"),
-			},
-			{
-				value: "clinic_b",
-				label: proseText("Clinic B"),
-				uuid: testUuid("o-2"),
-			},
-		];
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "single_select",
-				optionsSource: { kind: "inline", options: seed },
-			});
+		const selected = convert(before, "single_select", {
+			optionsSource: { kind: "inline", options },
 		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("single_select");
-		expect(converted.id).toBe("facility");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(printProse(converted.hint, next)).toBe("referral target");
-		expect(converted.caseWrite).toEqual({
-			caseType: "patient",
-			property: "facility",
-		});
-		// The payload's minted identity survives untouched — the reducer
-		// never re-mints, which is what keeps a replayed/peer-applied batch
-		// byte-identical to the committer's.
-		expect(converted.optionsSource).toEqual({
-			kind: "inline",
-			options: seed,
-		});
-	});
-
-	it("text → single_select with no seed options no-ops (schema requires min 2)", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "facility",
-			label: proseText("Facility"),
-		});
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "single_select",
-			});
-		});
-		expect(warn).toHaveBeenCalledTimes(1);
-		warn.mockRestore();
-		expect(next.fields[testUuid("q-1")]).toBe(doc.fields[testUuid("q-1")]);
-	});
-
-	it("text → hidden drops label/hint/required/validate, keeps id/uuid/relevant/default_value/case binding", () => {
-		const doc = docWithField({
-			uuid: "q-1",
-			kind: "text",
-			id: "full_name",
-			label: proseText("Full name"),
-			hint: proseText("first and last"),
-			required: "true()",
-			validate: "string-length(.) > 1",
-			relevant: "true()",
-			default_value: '"unnamed"',
-			caseWrite: { caseType: "patient", property: "full_name" },
-		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "hidden",
-			});
-		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("hidden");
-		expect(converted.id).toBe("full_name");
-		expect(converted.uuid).toBe(testUuid("q-1"));
-		expect(converted.caseWrite).toEqual({
-			caseType: "patient",
-			property: "full_name",
-		});
-		expect(printSlot(converted.relevant, next)).toBe("true()");
-		expect(printSlot(converted.default_value, next)).toBe('"unnamed"');
-		// Hidden declares none of the visible-control slots.
-		expect(converted.label).toBeUndefined();
-		expect(converted.hint).toBeUndefined();
-		expect(converted.required).toBeUndefined();
-		expect(converted.validate).toBeUndefined();
-	});
-
-	it("single_select → text drops options, keeps validate and case binding", () => {
-		const doc = docWithField({
-			uuid: "q-1",
+		expect(selected.fields[Q]).toEqual({
+			...before.fields[Q],
 			kind: "single_select",
-			id: "status",
-			label: proseText("Status"),
-			options: [
-				{ value: "open", label: "Open" },
-				{ value: "closed", label: "Closed" },
+			optionsSource: { kind: "inline", options },
+		});
+		expect(convert(selected, "text").fields[Q]).toEqual(before.fields[Q]);
+	});
+	it("converts a populated group to a repeat and back while preserving all descendants", () => {
+		const before = fixture({
+			id: "answer",
+			kind: "group",
+			relevant: "true()",
+			children: [
+				f({
+					uuid: CHILD,
+					id: "child",
+					kind: "text",
+					label: proseText("Child"),
+				}),
 			],
-			validate: ". != ''",
-			caseWrite: { caseType: "patient", property: "status" },
 		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "text",
-			});
+		const repeated = convert(before, "repeat");
+		expect(repeated.fields[Q]).toEqual({
+			...before.fields[Q],
+			kind: "repeat",
+			repeat_mode: "user_controlled",
 		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("text");
-		expect(converted.id).toBe("status");
-		expect(converted.options).toBeUndefined();
-		expect(printSlot(converted.validate, next)).toBe(". != ''");
-		expect(converted.caseWrite).toEqual({
-			caseType: "patient",
-			property: "status",
+		expect(repeated.fieldOrder[Q]).toEqual([CHILD]);
+		expect(repeated.fieldParent[CHILD]).toBe(Q);
+		expect(convert(repeated, "group").fields).toEqual(before.fields);
+	});
+	it("removes repeat-specific count settings when becoming a group", () => {
+		const before = fixture({
+			id: "answer",
+			kind: "repeat",
+			repeat_mode: "count_bound",
+			repeat_count: "3",
+			children: [
+				f({
+					uuid: CHILD,
+					id: "child",
+					kind: "text",
+					label: proseText("Child"),
+				}),
+			],
+		});
+		expect(convert(before, "group").fields[Q]).toEqual({
+			uuid: Q,
+			id: "answer",
+			kind: "group",
+			label: proseText("Answer"),
 		});
 	});
-
-	it("seed options are ignored when the target kind has no options slot", () => {
-		// A stray payload on e.g. text → secret must not smuggle an
-		// `options` key onto a kind whose strict schema rejects it — the
-		// key filter drops it before the parse.
-		const doc = docWithField({
-			uuid: "q-1",
+	it("keeps the hidden value and visibility expression while removing visible control content", () => {
+		const before = fixture({
+			id: "answer",
 			kind: "text",
-			id: "pin",
-			label: proseText("PIN"),
+			hint: proseText("Hint"),
+			required: "true()",
+			relevant: "true()",
+			validate: "string-length(.) > 0",
+			default_value: "'unnamed'",
 		});
-		const next = produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "convertField",
-				uuid: testUuid("q-1"),
-				toKind: "secret",
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: testUuid("secret-option-a"),
-							value: "a",
-							label: proseText("A"),
-						},
-						{
-							uuid: testUuid("secret-option-b"),
-							value: "b",
-							label: proseText("B"),
-						},
-					],
-				},
-			});
+		expect(convert(before, "hidden").fields[Q]).toEqual({
+			uuid: Q,
+			id: "answer",
+			kind: "hidden",
+			relevant: xp("true()"),
+			default_value: xp("'unnamed'"),
 		});
-		const converted = next.fields[testUuid("q-1")] as Record<string, unknown>;
-		expect(converted.kind).toBe("secret");
-		expect(converted.optionsSource).toBeUndefined();
+	});
+	it("leaves the same kind unchanged", () => {
+		const before = fixture({ id: "answer", kind: "text" });
+		expect(convert(before, "text").fields[Q]).toBe(before.fields[Q]);
+	});
+	it.each([
+		"leaf-to-container",
+		"container-to-leaf",
+		"missing-option-seed",
+		"hidden-without-value",
+	] as const)("refuses %s at the real gate", (scenario) => {
+		const before = fixture(
+			scenario === "container-to-leaf"
+				? {
+						id: "answer",
+						kind: "group",
+						children: [
+							f({
+								uuid: CHILD,
+								id: "child",
+								kind: "text",
+								label: proseText("Child"),
+							}),
+						],
+					}
+				: { id: "answer", kind: "text" },
+		);
+		const toKind =
+			scenario === "leaf-to-container"
+				? "group"
+				: scenario === "container-to-leaf"
+					? "text"
+					: scenario === "missing-option-seed"
+						? "single_select"
+						: "hidden";
+		const mutation: Mutation = { kind: "convertField", uuid: Q, toKind };
+		expect(
+			mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(false);
+		// The schema can represent an empty hidden value, so its semantic refusal belongs
+		// to the commit gate. Structural conversions and missing seeds have reducer guards.
+		if (scenario === "hidden-without-value") return;
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			expect(
+				toPersistableDoc(
+					produce(before, (draft) => {
+						applyMutations(draft, [mutation]);
+					}),
+				),
+			).toEqual(toPersistableDoc(before));
+		} finally {
+			warn.mockRestore();
+		}
+	});
+	it("replays an unknown subject without manufacturing a field", () => {
+		const before = fixture({ id: "answer", kind: "text" });
+		expect(
+			toPersistableDoc(
+				produce(before, (draft) => {
+					applyMutations(draft, [
+						{ kind: "convertField", uuid: testUuid("gone"), toKind: "secret" },
+					]);
+				}),
+			),
+		).toEqual(toPersistableDoc(before));
 	});
 });

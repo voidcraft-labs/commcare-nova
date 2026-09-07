@@ -1,350 +1,66 @@
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { plainColumn } from "@/lib/domain";
-import { eq, gt, literal, prop } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../../runner";
+import { f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { blueprintDocSchema } from "@/lib/domain";
+import { eq, gt, literal, type Predicate, prop } from "@/lib/domain/predicate";
+import { admittedCaseListDoc, findings } from "./caseListRuleFixture";
 
-describe("filterTypeCheck", () => {
-	it("fires when the filter has an operand-type mismatch", () => {
-		// `gt` on a `text` property — strings aren't ordered, so the type
-		// checker rejects the comparison.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						filter: gt(prop("patient", "full_name"), literal("M")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "full_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "full_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR")).toBe(
-			true,
-		);
+function candidate(filter: Predicate) {
+	const base = admittedCaseListDoc({
+		fields: [
+			f({
+				kind: "text",
+				id: "nickname",
+				label: "Nickname",
+				caseWrite: { caseType: "patient", property: "nickname" },
+			}),
+		],
 	});
-
-	it("does not fire on a well-typed filter", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						// `eq(prop, literal)` — text vs string literal is structurally
-						// compatible.
-						filter: eq(prop("patient", "full_name"), literal("Alice")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "full_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "full_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("fires when the filter references an unknown property", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						filter: eq(prop("patient", "ghost"), literal("x")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
-					e.message.toLowerCase().includes("unknown property"),
-			),
-		).toBe(true);
-	});
-
-	// ── Augmentation regression coverage ─────────────────────────
-	//
-	// The next four tests pin the rule-set-wide property admission
-	// model: a filter referencing a writer-derived OR standard
-	// property must NOT spuriously fire "Unknown property", and a
-	// type-mismatch against the resolved data type must surface.
-	// Removing the augmentation hop in `moduleTypeContext` (i.e.
-	// reverting to a raw `caseTypes` list) breaks each of these in
-	// turn, which is the regression these pins exist to catch.
-
-	it("admits a writer-derived-only property in a filter (no spurious unknown)", () => {
-		// `nickname` is written via `caseWrite` but NOT declared
-		// on `ct.properties[]`. The augmented case-type list adds it as
-		// `text`, so `eq(prop("patient", "nickname"), literal("Al"))`
-		// type-checks cleanly.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						filter: eq(prop("patient", "nickname"), literal("Al")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "nickname",
-									label: proseText("Nickname"),
-									caseWrite: { caseType: "patient", property: "nickname" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("admits a standard-only property in a filter (no spurious unknown)", () => {
-		// `case_name` is implicit at the wire layer — never declared on
-		// `ct.properties[]`. The augmented list adds it as `text`, so a
-		// filter against it type-checks cleanly.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						filter: eq(prop("patient", "case_name"), literal("Alice")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("surfaces a type mismatch on a standard property's implicit data_type", () => {
-		// `date_opened` is implicitly `datetime` per
-		// `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`. Comparing it via
-		// `eq` against a string literal is a type mismatch the predicate
-		// AST type checker rejects — pins that the augmentation
-		// supplied the typed entry, not a fall-through to text.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-						filter: eq(prop("patient", "date_opened"), literal("not-a-date")),
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "CASE_LIST_FILTER_TYPE_ERROR" &&
-					e.message.toLowerCase().includes("type mismatch"),
-			),
-		).toBe(true);
-	});
-
-	it("short-circuits cleanly when the filter slot is absent", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_FILTER_TYPE_ERROR",
-			),
-		).toBe(false);
+	const id = base.moduleOrder[0];
+	const module = base.modules[id];
+	if (!module.caseListConfig) throw new Error("Missing admitted config");
+	const doc = {
+		...base,
+		modules: {
+			...base.modules,
+			[id]: {
+				...module,
+				caseListConfig: { ...module.caseListConfig, searchInputs: [], filter },
+			},
+		},
+	};
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return doc;
+}
+describe("case-list filter type admission", () => {
+	it.each(["nickname", "case_name"])(
+		"accepts equality using the effective %s property",
+		(property) =>
+			expect(
+				findings(candidate(eq(prop("patient", property), literal("Alice")))),
+			).toEqual([]),
+	);
+	it.each([
+		{
+			name: "unordered text",
+			predicate: gt(prop("patient", "nickname"), literal("M")),
+			message: "ordered",
+		},
+		{
+			name: "unknown property",
+			predicate: eq(prop("patient", "ghost"), literal("x")),
+			message: "Unknown property 'ghost'",
+		},
+		{
+			name: "standard datetime mismatch",
+			predicate: eq(prop("patient", "date_opened"), literal("not-a-date")),
+			message: "Type mismatch",
+		},
+	])("$name", ({ predicate, message }) => {
+		const errors = findings(candidate(predicate));
+		expect(errors.map((error) => error.code)).toEqual([
+			"CASE_LIST_FILTER_TYPE_ERROR",
+		]);
+		expect(errors[0].message).toContain(message);
 	});
 });

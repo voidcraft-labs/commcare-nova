@@ -50,7 +50,7 @@ export interface DeriveRunIdInput {
  *
  * - If the app has a `currentRunId` and `lastActiveMs` is within
  *   `RUN_WINDOW_MS` of `now`, reuse it. Subsequent writes in the same
- *   run group onto the same event-log row.
+ *   run share a grouping id across their event-log rows.
  * - Otherwise (no prior run, or window elapsed), mint a fresh UUID v4.
  *   The caller is responsible for persisting the new id back onto the
  *   app doc so the next call in this run reuses it.
@@ -64,25 +64,4 @@ export function deriveRunId(input: DeriveRunIdInput): string {
 		return input.currentRunId;
 	}
 	return crypto.randomUUID();
-}
-
-/** Anything carrying a `.toMillis()` method (a fabricated test double). */
-interface MillisCarrier {
-	toMillis(): number;
-}
-
-/**
- * Extract epoch-ms from the `updated_at` value on an `AppDoc` — a `Date` in
- * production, a `.toMillis()` carrier in some test doubles, and
- * `null`/`undefined` for never-written rows. Unknown shapes fall through to
- * `null`, which the derivation treats as "closed run" and mints a fresh id
- * from.
- */
-export function timestampToMillis(
-	ts: MillisCarrier | Date | null | undefined,
-): number | null {
-	if (ts == null) return null;
-	if (ts instanceof Date) return ts.getTime();
-	const result = ts.toMillis();
-	return Number.isFinite(result) ? result : null;
 }

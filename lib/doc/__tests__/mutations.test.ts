@@ -1,732 +1,87 @@
-/**
- * Round-trip tests for `mutationSchema` — one assertion per Mutation kind
- * proves the Zod schema accepts the exact shape a reducer would consume.
- * The event log reader validates persisted mutation payloads via this
- * schema, so every new mutation variant needs a fixture here.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
-import type { Field, Form, Module } from "@/lib/domain";
 import { emptyCaseListConfig } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
 
-// Shared fixtures — stable UUIDs so failures point at specific payloads.
-const moduleUuid = testUuid("11111111-1111-1111-1111-111111111111");
-const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
-const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
-const otherModuleUuid = testUuid("44444444-4444-4444-4444-444444444444");
-const otherFieldUuid = testUuid("55555555-5555-5555-5555-555555555555");
-
-const module_: Module = {
-	uuid: moduleUuid,
-	id: "patients",
-	name: "Patients",
+const uuid = testUuid("mutation-grammar-subject");
+const columnUuid = testUuid("mutation-grammar-column");
+const column = { kind: "plain", field: "case_name", header: "Name" };
+const input = {
+	kind: "simple",
+	name: "name",
+	label: "Name",
+	type: "text",
+	property: "case_name",
 };
 
-const form_: Form = {
-	uuid: formUuid,
-	id: "intake",
-	name: "Intake",
-	type: "registration",
-};
-
-const field_: Field = {
-	kind: "text",
-	uuid: fieldUuid,
-	id: "name",
-	label: proseText("Name"),
-};
-
-const displayCondition = eq(sessionUser("role"), literal("supervisor"));
-
-/**
- * Expect `mutation` to round-trip through `mutationSchema` unchanged.
- *
- * Wrapping the assertion in a helper keeps each per-kind test to a single
- * line so the table reads like a fixture matrix. The helper also gives
- * failing assertions a stable label via the input's `kind` discriminator.
- */
-function expectRoundTrip(mutation: Mutation): void {
-	expect(mutationSchema.parse(mutation)).toEqual(mutation);
-}
-
-describe("mutationSchema round-trip", () => {
-	describe("module", () => {
-		it("addModule", () => {
-			expectRoundTrip({ kind: "addModule", module: module_ });
-		});
-
-		it("addModule naming the module it follows", () => {
-			expectRoundTrip({ kind: "addModule", module: module_, after: null });
-		});
-
-		it("addModule carrying a case list", () => {
-			const columnUuid = testUuid("66666666-6666-6666-6666-666666666666");
-			expectRoundTrip({
-				kind: "addModule",
-				module: {
-					...module_,
-					caseListConfig: {
-						columns: [
-							{
-								uuid: columnUuid,
-								kind: "plain",
-								field: "case_name",
-								header: "Name",
-							},
-						],
-						listColumnOrder: [columnUuid],
-						detailColumnOrder: [columnUuid],
-						searchInputs: [],
-					},
-				},
-			});
-		});
-
-		it("rejects an update-only Search patch on addModule", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "addModule",
-					module: module_,
-					caseSearchConfigPatch: { searchScreenTitle: "Find cases" },
-				}).success,
-			).toBe(false);
-		});
-
-		it("rejects owner-only addModule state that disagrees with its fallback", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "addModule",
-					module: {
-						...module_,
-						caseSearchConfig: {
-							excludedOwnerIds: {
-								kind: "term",
-								term: { kind: "literal", value: "owner-b" },
-							},
-							searchButtonDisplayCondition: { kind: "match-none" },
-						},
-					},
-					caseSearchConfigValue: {
-						searchActionEnabled: false,
-						excludedOwnerIds: {
-							kind: "term",
-							term: { kind: "literal", value: "owner-a" },
-						},
-					},
-				}).success,
-			).toBe(false);
-		});
-
-		it("removeModule", () => {
-			expectRoundTrip({ kind: "removeModule", uuid: moduleUuid });
-		});
-
-		it("moveModule", () => {
-			expectRoundTrip({ kind: "moveModule", uuid: moduleUuid, after: null });
-		});
-
-		it("renameModule", () => {
-			expectRoundTrip({
-				kind: "renameModule",
-				uuid: moduleUuid,
-				newId: "renamed",
-			});
-		});
-
-		it("updateModule", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {
-					caseType: "patient",
-					displayCondition,
-				},
-			});
-		});
-
-		// Empty patches must round-trip — the agent can emit updateModule
-		// with `{}` when coalescing no-op edits, and tightening the schema
-		// to require non-empty patches would silently drop those events.
-		it("updateModule with empty patch", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-			});
-		});
-
-		it("updateModule with a complete case-list ensure", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				ensureCaseListConfig: true,
-			});
-		});
-
-		it("rejects a case-list ensure paired with a duplicate snapshot", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: { caseListConfig: emptyCaseListConfig() },
-					ensureCaseListConfig: true,
-				}).success,
-			).toBe(false);
-		});
-	});
-
-	describe("form", () => {
-		it("addForm", () => {
-			expectRoundTrip({
-				kind: "addForm",
-				moduleUuid,
-				form: form_,
-			});
-		});
-
-		it("addForm naming the form it follows", () => {
-			expectRoundTrip({
-				kind: "addForm",
-				moduleUuid,
-				form: form_,
-				after: null,
-			});
-		});
-
-		it("removeForm", () => {
-			expectRoundTrip({ kind: "removeForm", uuid: formUuid });
-		});
-
-		it("moveForm", () => {
-			expectRoundTrip({
-				kind: "moveForm",
-				uuid: formUuid,
-				toModuleUuid: otherModuleUuid,
-				after: null,
-			});
-		});
-
-		it("renameForm", () => {
-			expectRoundTrip({
-				kind: "renameForm",
-				uuid: formUuid,
-				newId: "checkup",
-			});
-		});
-
-		it("updateForm", () => {
-			expectRoundTrip({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {
-					type: "followup",
-					displayCondition,
-				},
-			});
-		});
-
-		it("clears optional display conditions through explicit null", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: { displayCondition: null },
-			});
-			expectRoundTrip({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: { displayCondition: null },
-			});
-		});
-
-		// See updateModule — empty patches are a valid coalesced-no-op shape.
-		it("updateForm with empty patch", () => {
-			expectRoundTrip({
-				kind: "updateForm",
-				uuid: formUuid,
-				patch: {},
-			});
-		});
-	});
-
-	describe("field", () => {
-		it("addField", () => {
-			expectRoundTrip({
-				kind: "addField",
-				parentUuid: formUuid,
-				field: field_,
-			});
-		});
-
-		it("addField with index", () => {
-			expectRoundTrip({
-				kind: "addField",
-				parentUuid: formUuid,
-				field: field_,
-				after: null,
-			});
-		});
-
-		it("removeField", () => {
-			expectRoundTrip({ kind: "removeField", uuid: fieldUuid });
-		});
-
-		it("moveField", () => {
-			expectRoundTrip({
-				kind: "moveField",
-				uuid: fieldUuid,
-				toParentUuid: otherFieldUuid,
-				after: null,
-			});
-		});
-
-		it("updateField field ID", () => {
-			expectRoundTrip({
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: { id: "full_name" },
-			});
-		});
-
-		it("updateField", () => {
-			expectRoundTrip({
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: {
-					label: proseText("Updated Label"),
-					hint: proseText("Enter name"),
-				},
-			});
-		});
-
-		// See updateModule — empty patches are a valid coalesced-no-op shape.
-		it("updateField with empty patch", () => {
-			expectRoundTrip({
-				kind: "updateField",
-				uuid: fieldUuid,
-				targetKind: "text",
-				patch: {},
-			});
-		});
-
-		it("convertField", () => {
-			expectRoundTrip({
-				kind: "convertField",
-				uuid: fieldUuid,
-				toKind: "secret",
-			});
-		});
-	});
-
-	describe("app-level", () => {
-		it("setAppName", () => {
-			expectRoundTrip({ kind: "setAppName", name: "My App" });
-		});
-
-		it("setConnectType (learn)", () => {
-			expectRoundTrip({ kind: "setConnectType", connectType: "learn" });
-		});
-
-		it("setConnectType (null)", () => {
-			expectRoundTrip({ kind: "setConnectType", connectType: null });
-		});
-
-		it("declareCaseType", () => {
-			expectRoundTrip({
-				kind: "declareCaseType",
-				caseType: "patient",
-			});
-		});
-
-		it("addCaseProperty", () => {
-			expectRoundTrip({
-				kind: "addCaseProperty",
-				caseType: "patient",
-				property: { name: "full_name", label: proseText("Name") },
-			});
-		});
-	});
-
-	describe("case-list column surface order", () => {
-		const columnUuid = testUuid("66666666-6666-6666-6666-666666666666");
-		const column = {
+// Reachable commands are parsed, serialized and committed in their owning behavior
+// suites. This boundary suite rejects ambiguous or obsolete grammar without stripping
+// it into a different accepted command; it is not a parallel mutation inventory.
+describe("canonical mutation grammar", () => {
+	it.each([
+		{
+			kind: "updateModule",
+			uuid,
+			patch: { caseListConfig: emptyCaseListConfig() },
+			ensureCaseListConfig: true,
+		},
+		{
+			kind: "updateModule",
+			uuid,
+			patch: { caseSearchConfig: { searchScreenTitle: "Old" } },
+			caseSearchConfigPatch: { searchScreenTitle: "New" },
+		},
+		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
 			uuid: columnUuid,
-			kind: "plain" as const,
-			field: "case_name",
-			header: "Name",
-		};
-
-		it("rejects add/update fallbacks with nested current-only surface keys", () => {
-			for (const kind of ["addColumn", "updateColumn"] as const) {
-				expect(
-					mutationSchema.safeParse({
-						kind,
-						moduleUuid,
-						...(kind === "updateColumn" && { uuid: columnUuid }),
-						column: { ...column, listOrder: "nested" },
-					}).success,
-				).toBe(false);
-			}
-		});
-
-		it("updateColumn with a content payload", () => {
-			expectRoundTrip({
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				column: {
-					kind: column.kind,
-					field: column.field,
-					header: column.header,
-				},
-			});
-		});
-
-		it("updateColumn with a sort patch", () => {
-			expectRoundTrip({
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				sortPatch: { direction: "desc", priority: 1 },
-			});
-		});
-
-		it("rejects a sort patch combined with content", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateColumn",
-					moduleUuid,
-					uuid: columnUuid,
-					column,
-					sortPatch: { direction: "desc", priority: 0 },
-				}).success,
-			).toBe(false);
-		});
-
-		it("updateColumn with a visibility patch", () => {
-			expectRoundTrip({
-				kind: "updateColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				visibilityPatch: { surface: "list", visible: false },
-			});
-		});
-
-		it("rejects a visibility patch combined with content", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateColumn",
-					moduleUuid,
-					uuid: columnUuid,
-					column,
-					visibilityPatch: { surface: "list", visible: false },
-				}).success,
-			).toBe(false);
-		});
-
-		it.each(["list", "detail"] as const)(
-			"rejects a %s visibility patch that contradicts its fallback column",
-			(surface) => {
-				expect(
-					mutationSchema.safeParse({
-						kind: "updateColumn",
-						moduleUuid,
-						uuid: columnUuid,
-						column,
-						visibilityPatch: { surface, visible: false },
-					}).success,
-				).toBe(false);
+			column,
+			sortPatch: { direction: "desc", priority: 0 },
+		},
+		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			column,
+			visibilityPatch: { surface: "list", visible: false },
+		},
+		{
+			kind: "updateColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			column: { ...column, listOrder: "obsolete" },
+		},
+		{
+			kind: "moveColumn",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			surfaceOrderPatch: { surface: "list", order: "obsolete" },
+		},
+		{
+			kind: "updateSearchInput",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			searchInput: input,
+			renamedTo: "alternate",
+		},
+		{
+			kind: "updateSearchInput",
+			moduleUuid: uuid,
+			uuid: columnUuid,
+			searchInput: {
+				...input,
+				type: "date-range",
+				property: "date_opened",
+				mode: { kind: "range" },
+				default: { kind: "today" },
 			},
-		);
-
-		it("moveColumn names the surface it reorders and the column it follows", () => {
-			expectRoundTrip({
-				kind: "moveColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				surface: "list",
-				after: null,
-			});
-			expectRoundTrip({
-				kind: "moveColumn",
-				moduleUuid,
-				uuid: columnUuid,
-				surface: "detail",
-				after: columnUuid,
-			});
-		});
-
-		it("rejects the removed surface-order extension", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "moveColumn",
-					moduleUuid,
-					uuid: columnUuid,
-					surfaceOrderPatch: { surface: "list", order: "semantic-z" },
-				}).success,
-			).toBe(false);
-		});
-	});
-
-	describe("case-search semantic operations", () => {
-		const ownerRule = {
-			kind: "term" as const,
-			term: { kind: "literal" as const, value: "owner-a" },
-		};
-
-		it("enables with the semantic operation as the complete payload", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigOperation: "enable",
-			});
-		});
-
-		it("conditionally disables with the semantic operation", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigOperation: "disable-if-unused",
-			});
-		});
-
-		it("conditionally removes a cleared Search bag", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigOperation: "remove-if-no-authored-settings",
-			});
-		});
-
-		it("cleans up the final input with one semantic operation", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigOperation: "cleanup-after-final-input",
-			});
-		});
-
-		it("stores owner-only state in its semantic value", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigOperation: "set-owner-only",
-				caseSearchConfigValue: {
-					searchActionEnabled: false,
-					excludedOwnerIds: ownerRule,
-				},
-			});
-		});
-
-		it("merges one Search setting with one semantic patch", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigPatch: { searchScreenTitle: "Find cases" },
-			});
-		});
-
-		it("clears one Search setting with one semantic patch", () => {
-			expectRoundTrip({
-				kind: "updateModule",
-				uuid: moduleUuid,
-				patch: {},
-				caseSearchConfigPatch: { excludedOwnerIds: null },
-			});
-		});
-
-		it("rejects a Search setting patch that contradicts its fallback", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: { caseSearchConfig: { searchScreenTitle: "Old fallback" } },
-					caseSearchConfigPatch: { searchScreenTitle: "New semantic" },
-				}).success,
-			).toBe(false);
-		});
-
-		it("rejects owner-only settings that disagree with the fallback", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: {
-						caseSearchConfig: {
-							excludedOwnerIds: {
-								kind: "term",
-								term: { kind: "literal", value: "owner-b" },
-							},
-							searchButtonDisplayCondition: { kind: "match-none" },
-						},
-					},
-					caseSearchConfigOperation: "set-owner-only",
-					caseSearchConfigValue: {
-						searchActionEnabled: false,
-						excludedOwnerIds: ownerRule,
-					},
-				}).success,
-			).toBe(false);
-		});
-
-		it("rejects whole Search state inside the generic module patch", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateModule",
-					uuid: moduleUuid,
-					patch: {
-						caseSearchConfig: {
-							searchActionEnabled: false,
-							excludedOwnerIds: ownerRule,
-						},
-					},
-				}).success,
-			).toBe(false);
-		});
-	});
-
-	describe("Search-input final shape", () => {
-		const inputUuid = testUuid("77777777-7777-4777-8777-777777777777");
-		const otherInputUuid = testUuid("88888888-8888-4888-8888-888888888888");
-
-		it("round-trips add, remove, and move envelopes", () => {
-			expectRoundTrip({
-				kind: "addSearchInput",
-				moduleUuid,
-				searchInput: {
-					uuid: inputUuid,
-					kind: "simple",
-					name: "name",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
-			});
-			expectRoundTrip({
-				kind: "removeSearchInput",
-				moduleUuid,
-				uuid: inputUuid,
-			});
-			expectRoundTrip({
-				kind: "moveSearchInput",
-				moduleUuid,
-				uuid: inputUuid,
-				after: otherInputUuid,
-			});
-		});
-
-		it("round-trips every UUID-omitted update arm", () => {
-			const bodies: Extract<
-				Mutation,
-				{ kind: "updateSearchInput" }
-			>["searchInput"][] = [
-				{
-					kind: "simple",
-					name: "name",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
-				{
-					kind: "simple",
-					name: "opened",
-					label: "Opened",
-					type: "date-range",
-					property: "date_opened",
-					mode: { kind: "range" },
-				},
-				{
-					kind: "advanced",
-					name: "active",
-					label: "Active",
-					type: "text",
-					predicate: { kind: "match-all" },
-				},
-				{
-					kind: "advanced",
-					name: "window",
-					label: "Window",
-					type: "date-range",
-					predicate: { kind: "match-all" },
-				},
-			];
-			for (const searchInput of bodies) {
-				expectRoundTrip({
-					kind: "updateSearchInput",
-					moduleUuid,
-					uuid: inputUuid,
-					searchInput,
-				});
-			}
-		});
-
-		it("keeps the scalar/date-range split exact", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateSearchInput",
-					moduleUuid,
-					uuid: inputUuid,
-					searchInput: {
-						kind: "simple",
-						name: "opened",
-						label: "Opened",
-						type: "date-range",
-						property: "date_opened",
-						mode: { kind: "range" },
-						default: { kind: "today" },
-					},
-				}).success,
-			).toBe(false);
-		});
-
-		it("carries the desired name in the final content row", () => {
-			expectRoundTrip({
-				kind: "updateSearchInput",
-				moduleUuid,
-				uuid: inputUuid,
-				searchInput: {
-					kind: "simple",
-					name: "new_name",
-					label: "Name",
-					type: "text",
-					property: "case_name",
-				},
-			});
-		});
-
-		it("rejects the removed external rename extension", () => {
-			expect(
-				mutationSchema.safeParse({
-					kind: "updateSearchInput",
-					moduleUuid,
-					uuid: inputUuid,
-					searchInput: {
-						kind: "simple",
-						name: "same_name",
-						label: "Name",
-						type: "text",
-						property: "case_name",
-					},
-					renamedTo: "same_name",
-				}).success,
-			).toBe(false);
-		});
-	});
-
-	it("rejects an unknown mutation kind", () => {
-		const bad = { kind: "totallyMadeUp", uuid: moduleUuid };
-		expect(() => mutationSchema.parse(bad)).toThrow();
+		},
+		{ kind: "totallyMadeUp", uuid },
+	])("refuses the complete non-canonical payload %j", (payload) => {
+		expect(mutationSchema.safeParse(payload).success).toBe(false);
+		expect(() =>
+			admitMutationBatch([payload as unknown as Mutation]),
+		).toThrow();
 	});
 });

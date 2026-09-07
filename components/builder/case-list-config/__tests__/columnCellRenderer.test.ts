@@ -1,11 +1,12 @@
-// @vitest-environment happy-dom
+// Pure display/SSR projection. Native focus and popover interaction live in
+// e2e/tests/case-workspace-audit.spec.ts; wire dates have their native Core suite.
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { DomUtils, parseDocument } from "htmlparser2";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { rowMatchesFilterText } from "@/components/preview/shared/listFilter";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	calculatedColumn,
 	dateColumn,
@@ -21,7 +22,10 @@ import {
 import { prop, term } from "@/lib/domain/predicate";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
-import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseRowWithCalculated,
+	JsonObject,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	type ColumnDisplayContext,
 	formatDateForPreview,
@@ -31,6 +35,7 @@ import {
 	renderColumnCell,
 	resolveCalculatedTemporalType,
 } from "../columnCellRenderer";
+import { admittedWorkspace } from "./admittedWorkspace";
 
 const originalTimeZone = process.env.TZ;
 const COLUMN_UUID = testUuid("00000000-0000-4000-8000-000000000001");
@@ -160,6 +165,49 @@ describe("case-list Preview cell formatting", () => {
 		});
 	});
 
+	it.each(["not an address", "javascript:alert(1)", "   "])(
+		"keeps link fallback Quick Filter aligned with visible text for %j",
+		(address) => {
+			const column = linkColumn(
+				COLUMN_UUID,
+				"photo_url",
+				"Photo",
+				"View photo",
+			);
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			config.columns = [column];
+			config.listColumnOrder = [column.uuid];
+			config.detailColumnOrder = [column.uuid];
+			admittedWorkspace(
+				[
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "photo_url",
+								label: proseText("Photo"),
+								data_type: "text",
+							},
+						],
+					},
+				],
+				config,
+			);
+			const row = makeRow({ photo_url: address });
+			expect(projectColumnDisplay(column, row, EMPTY_CONTEXT)).toEqual({
+				kind: "value",
+				text: address.trim(),
+			});
+			expect(
+				rowMatchesFilterText([column], row, "View photo", EMPTY_CONTEXT),
+			).toBe(false);
+			if (address.trim())
+				expect(
+					rowMatchesFilterText([column], row, address.trim(), EMPTY_CONTEXT),
+				).toBe(true);
+		},
+	);
+
 	describe("phone columns", () => {
 		it("renders the promised tappable tel action and keeps the visible number", () => {
 			const html = renderToStaticMarkup(
@@ -171,8 +219,6 @@ describe("case-list Preview cell formatting", () => {
 			);
 			expect(html).toContain('href="tel:+1 202 555 0123"');
 			expect(html).toContain('aria-label="Call +1 202 555 0123"');
-			expect(html).toContain("min-h-11");
-			expect(html).toContain("min-w-11");
 			expect(html).toContain("+1 202 555 0123");
 		});
 	});
@@ -482,29 +528,6 @@ describe("case-list Preview cell formatting", () => {
 		);
 	});
 
-	it("opens malformed-value guidance from a real keyboard and touch target", async () => {
-		render(
-			renderColumnCell(
-				dateColumn(COLUMN_UUID, "visit", "Visit", "%B %e, %Y"),
-				makeRow({ visit: "not-a-date" }),
-				EMPTY_CONTEXT,
-			) as ReactElement,
-		);
-		const trigger = screen.getByRole("button", {
-			name: "not-a-date. More information",
-		});
-		expect(trigger.className).toContain("min-h-11");
-		expect(trigger.className).toContain("min-w-11");
-
-		fireEvent.click(trigger);
-		expect(await screen.findByText("Why this value is shown")).toBeDefined();
-		expect(
-			screen.getByText(
-				"Showing the original value because it isn't a valid date",
-			),
-		).toBeDefined();
-	});
-
 	it("preserves calculated missing, invalid-date, and structured fallbacks", () => {
 		const missing = renderToStaticMarkup(renderCalculatedCell(null));
 		expect(missing).toContain('aria-hidden="true"');
@@ -521,14 +544,13 @@ describe("case-list Preview cell formatting", () => {
 	});
 });
 
+/** Read SSR text through an HTML parser; this is not an HTML sanitizer. */
 function visibleText(html: string): string {
-	return (
-		new DOMParser().parseFromString(html, "text/html").body.textContent ?? ""
-	);
+	return DomUtils.textContent(parseDocument(html));
 }
 
 function makeRow(
-	properties: Record<string, unknown>,
+	properties: JsonObject,
 	calculated: CaseRowWithCalculated["calculated"] = {},
 ): CaseRowWithCalculated {
 	return {
@@ -543,7 +565,7 @@ function makeRow(
 		closed_on: null,
 		external_id: null,
 		parent_case_id: null,
-		properties: properties as never,
+		properties,
 		calculated,
-	} as CaseRowWithCalculated;
+	};
 }

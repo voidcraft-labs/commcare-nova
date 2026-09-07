@@ -1,14 +1,13 @@
 /**
  * Shared add-path normalization for the SA's field-add tools.
  *
- * Both `addFields` (batch) and `addField` (single) walk this pipeline
+ * The atomic field-creation tools walk this pipeline
  * before emitting `addField` mutations:
  *
- *   1. **`stripEmpty`** — batch-only. Normalizes the in-batch `parentUuid`
+ *   1. **`stripEmpty`** — normalizes the in-batch `parentUuid`
  *      (absent → `null`, the "insert at form level" sentinel the batch
  *      handler reads) and defensively collapses any empty string / empty
- *      array the SA sends to absence. The single-field `addField` path has
- *      no in-batch parent to resolve and skips this step.
+ *      array the SA sends to absence.
  *   2. **`applyDefaults`** — both surfaces. Case-type property defaulting
  *      seeds only intrinsic field shape (`kind`, canonical `label`, and
  *      choice `options`) wherever the payload left it unset. Form-context
@@ -139,9 +138,7 @@ export function prepareFlatFieldIdentities(
  * logic reads an explicit value. The SA usually omits `parentUuid`, which
  * lands here as `undefined` → `null`.
  *
- * Batch-path only — the `addFields` tool runs its input through this
- * before `applyDefaults`. `addField` (single) feeds `applyDefaults`
- * directly.
+ * The field assembly owner runs creation input through this before defaults.
  *
  * Input is typed as `FlatField` (the wide processing shape); output is
  * `Partial<FlatField>` because any non-required key may be absent after
@@ -282,8 +279,7 @@ function describeFieldFailure(
 /**
  * Build a validated domain `Field` from an add-path flat payload.
  *
- * Two steps: reshape the SA-authoring shape into the domain shape (nested
- * `validate`/`repeat` → flat keys), then validate.
+ * Reshape nested `validate`/`repeat` input into domain keys, then validate.
  * Before validating we FILTER the candidate to the kind's schema-declared
  * keys via `pickFieldKeysForKind` — the same projection `reconcileFieldForKind`
  * and the `updateField` reducer use. The per-kind schemas are `.strict()`,
@@ -294,14 +290,11 @@ function describeFieldFailure(
  * seeding, or schema drift.)
  *
  * Returns `{ ok: true, field }`, or `{ ok: false, reason }` naming the
- * specific parse failure. After the per-kind tool input + kind-aware
- * `applyDefaults`, a valid payload always assembles — a failure here means
- * the generator and the domain schema have drifted (a code bug), which the
- * reason makes diagnosable. The `__tests__` fuzz over every kind asserts
- * this totality.
+ * specific parse failure. Schema-admitted per-kind witnesses exercise this
+ * boundary; whole-document validity is established by the mutation gate.
  *
  * Lives alongside `stripEmpty` + `applyDefaults` because the three helpers
- * form the shared add-path pipeline both `addFields` and `addField` walk.
+ * form the shared pipeline the atomic creation tools walk.
  */
 export function flatFieldToField(
 	q: Partial<PreparedFlatField>,
@@ -337,8 +330,7 @@ export function flatFieldToField(
 		// (`count` exists only on count_bound, `ids_query` only on
 		// query_bound); the domain schema discriminates over `repeat_mode`
 		// with `repeat_count` (count_bound) or `data_source: { ids_query }`
-		// (query_bound). Reshape here, unescaping XPath HTML entities on the
-		// inner expressions. Mode is required inside the nested object so
+		// (query_bound). Preserve each canonical expression while reshaping. Mode is required inside the nested object so
 		// there's no silent default — if the SA emits `kind: "repeat"`
 		// without a `repeat` object, the candidate has no `repeat_mode` and
 		// the domain parse rejects, surfacing the omission as a parse error

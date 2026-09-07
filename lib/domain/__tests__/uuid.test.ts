@@ -13,6 +13,20 @@ const VALID_BY_VERSION = [
 	"00000000-0000-8000-b000-000000000008",
 ] as const;
 
+const INVALID = [
+	VALID_BY_VERSION[3].toUpperCase(),
+	"00000000-0000-0000-0000-000000000000",
+	"ffffffff-ffff-ffff-ffff-ffffffffffff",
+	"00000000-0000-9000-8000-000000000001",
+	"00000000-0000-4000-7000-000000000001",
+	"00000000000040008000000000000001",
+	"{00000000-0000-4000-8000-000000000001}",
+	"module-1",
+	` ${VALID_BY_VERSION[3]}`,
+	`${VALID_BY_VERSION[3]}\n`,
+	`${VALID_BY_VERSION[3]}x`,
+];
+
 describe("canonical Nova UUIDs", () => {
 	it("accepts lowercase RFC UUID versions 1 through 8", () => {
 		for (const value of VALID_BY_VERSION) {
@@ -21,23 +35,19 @@ describe("canonical Nova UUIDs", () => {
 		}
 	});
 
-	it.each([
-		["uppercase", VALID_BY_VERSION[3].toUpperCase()],
-		["nil", "00000000-0000-0000-0000-000000000000"],
-		["max", "ffffffff-ffff-ffff-ffff-ffffffffffff"],
-		["non-versioned", "00000000-0000-9000-8000-000000000001"],
-		["non-RFC variant", "00000000-0000-4000-7000-000000000001"],
-		["compact", "00000000000040008000000000000001"],
-		["braced", "{00000000-0000-4000-8000-000000000001}"],
-		["short", "module-1"],
-	])("rejects %s input rather than normalizing it", (_label, value) => {
+	it.each(INVALID)("rejects %s rather than normalizing it", (value) => {
 		expect(uuidSchema.safeParse(value).success).toBe(false);
-		expect(() => asUuid(value)).toThrow();
+		expect(() => asUuid(value)).toThrow(z.ZodError);
 	});
 
-	it("exports the complete canonical rule to JSON Schema", () => {
-		expect(JSON.stringify(z.toJSONSchema(uuidSchema))).toContain(
-			"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8]",
-		);
+	it("exports a pattern that admits and refuses the same identity corpus", () => {
+		const exported = z.toJSONSchema(uuidSchema);
+		expect(exported.type).toBe("string");
+		if (typeof exported.pattern !== "string")
+			throw new Error("Missing UUID admission pattern");
+		const pattern = new RegExp(exported.pattern);
+		for (const value of VALID_BY_VERSION)
+			expect(pattern.test(value)).toBe(true);
+		for (const value of INVALID) expect(pattern.test(value)).toBe(false);
 	});
 });

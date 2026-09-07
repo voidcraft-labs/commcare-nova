@@ -4,8 +4,7 @@
  *
  * Determinism without timers: items yield a controlled number of microtask
  * ticks so completion order is exercised against input order with no
- * wall-clock dependency (and nothing left scheduled past the test, which
- * would trip the async-leak gate).
+ * wall-clock dependency. Every started callback is joined before test exit.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,14 +12,18 @@ import { mapWithConcurrency } from "../concurrency";
 
 describe("mapWithConcurrency", () => {
 	it("preserves input order even when later items complete first", async () => {
-		const out = await mapWithConcurrency([0, 1, 2, 3], 4, async (n) => {
+		const completed: number[] = [];
+		const out = await mapWithConcurrency([0, 1, 2, 3], 4, async (n, index) => {
+			expect(index).toBe(n);
 			// Earlier items yield MORE microtask ticks, so they settle LAST —
 			// completion order is the reverse of input order.
 			for (let i = 0; i < 4 - n; i++) await Promise.resolve();
+			completed.push(n);
 			return n * 10;
 		});
 		// Results are written by index, so order matches the input regardless.
 		expect(out).toEqual([0, 10, 20, 30]);
+		expect(completed).toEqual([3, 2, 1, 0]);
 	});
 
 	it("runs in parallel but never exceeds the limit", async () => {
@@ -38,9 +41,7 @@ describe("mapWithConcurrency", () => {
 			},
 		);
 		// Bounded at the limit (the property under test)…
-		expect(peak).toBeLessThanOrEqual(3);
-		// …and actually concurrent, not serialized one-at-a-time.
-		expect(peak).toBeGreaterThan(1);
+		expect(peak).toBe(3);
 	});
 
 	it("propagates the first rejection", async () => {

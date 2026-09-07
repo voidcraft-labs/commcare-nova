@@ -297,7 +297,8 @@ export function buildFormActions(
 			base.update_case.update = updateMap;
 		}
 
-		// Preload case data from the exact admitted primary-update writers.
+		// Scalar case values can seed answers. Capture answers name files in
+		// this submission; a stored URL or case attachment is not such a file.
 		if (
 			effectiveCaseSelection === "single" &&
 			casePreload &&
@@ -305,6 +306,7 @@ export function buildFormActions(
 		) {
 			const preloadMap: Record<string, string> = {};
 			for (const binding of casePreload) {
+				if (isCaptureField(doc.fields[binding.fieldUuid])) continue;
 				preloadMap[binding.path.toXPath()] =
 					binding.property === "case_name" ? "name" : binding.property;
 			}

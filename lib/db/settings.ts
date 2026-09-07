@@ -127,15 +127,15 @@ export async function getCommCareSettings(
 }
 
 /**
- * Resolve decrypted credentials AND the target project space for an upload,
+ * Resolve stored credentials and the target project space for an upload,
  * in a single Postgres read. `requested` is an optional explicit space name
  * (per-call MCP arg / per-request body field); with none supplied the resolver
  * uses the sole reachable space (single-space key) or returns `ambiguous` for a
  * multi-space key. Used by both the MCP upload tool and the HTTP upload route so
  * they share one authorization decision.
  *
- * The API key is decrypted only after the target resolves, so an unauthorized
- * or ambiguous request never reaches KMS.
+ * Returns the encrypted key without reaching KMS. Consumers decrypt it only
+ * when an admitted operation needs to use it.
  */
 export async function resolveUploadTarget(
 	userId: string,

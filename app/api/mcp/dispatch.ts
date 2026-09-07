@@ -21,7 +21,11 @@
  * caller's identity into every subsequent request.
  */
 
-import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import {
+	createMcpHandler,
+	isJsonContentType,
+	McpServer,
+} from "@modelcontextprotocol/server";
 import * as Sentry from "@sentry/nextjs";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
@@ -62,5 +66,44 @@ export async function dispatchMcpTools(
 	/* No `handler.close()` after fetch: the Response body may still be
 	 * streaming (SSE) when fetch resolves, and the per-request handler
 	 * is released with the request scope anyway. */
+	// Supply the SDK's supported pre-parsed body so classification does not
+	// tee a native request into an unread forwarding branch. The SDK retains
+	// ownership of JSON-RPC validation and protocol-version routing.
+	if (
+		req.method.toUpperCase() === "POST" &&
+		isJsonContentType(req.headers.get("content-type"))
+	) {
+		let text: string;
+		try {
+			text = await req.text();
+		} catch {
+			return Response.json(
+				{
+					jsonrpc: "2.0",
+					error: {
+						code: -32700,
+						message: "Parse error: the request body could not be read",
+					},
+					id: null,
+				},
+				{ status: 400 },
+			);
+		}
+		let parsedBody: unknown;
+		try {
+			parsedBody = JSON.parse(text);
+		} catch {
+			// Malformed and empty bodies still use the SDK's own parse-error path.
+			return handler.fetch(
+				new Request(req.url, {
+					method: req.method,
+					headers: req.headers,
+					signal: req.signal,
+					body: text,
+				}),
+			);
+		}
+		return handler.fetch(req, { parsedBody });
+	}
 	return handler.fetch(req);
 }

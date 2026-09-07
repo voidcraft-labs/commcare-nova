@@ -105,8 +105,9 @@
 		"clsx": "^2.1.1",
 		"commander": "^15.0.0",
 		"date-fns": "^4.1.0",
-		"dom-serializer": "^3.0.0",
+		"domhandler": "^6.0.1",
 		"domutils": "^4.0.0",
+		"entities": "^8.0.0",
 		"file-type": "^22.0.2",
 		"fumadocs-core": "^16.15.4",
 		"fumadocs-mdx": "^15.3.1",
@@ -125,6 +126,7 @@
 		"react-day-picker": "^10.0.0",
 		"react-dom": "19.2.8",
 		"react-hotkeys-hook": "^5.3.3",
+		"saxes": "^6.0.0",
 		"server-only": "^0.0.1",
 		"shadcn": "^4.19.0",
 		"sharp": "^0.35.3",
@@ -140,6 +142,7 @@
 	"devDependencies": {
 		"@base-ui/react": "^1.7.0",
 		"@biomejs/biome": "2.5.11",
+		"@bufbuild/cel": "0.6.1",
 		"@iconify-icons/tabler": "^2.0.0",
 		"@lezer/generator": "^1.8.0",
 		"@modelcontextprotocol/client": "^2.0.0",
@@ -156,6 +159,7 @@
 		"@typescript/native-preview": "^7.0.0-dev.20260707.2",
 		"agent-react-devtools": "0.4.0",
 		"class-variance-authority": "^0.7.1",
+		"dockerfile-ast": "0.7.1",
 		"dotenv": "^17.3.1",
 		"esbuild": "^0.28.2",
 		"fast-check": "^4.9.0",
@@ -167,7 +171,8 @@
 		"tailwindcss": "^4",
 		"tsx": "^4.23.12",
 		"typescript": "7.0.2",
-		"vitest": "^4.1.11"
+		"vitest": "^4.1.11",
+		"yaml": "2.9.0"
 	},
 	"overrides": {
 		"@types/react": "19.2.18",

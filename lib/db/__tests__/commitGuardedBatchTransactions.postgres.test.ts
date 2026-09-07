@@ -27,14 +27,15 @@
  *   - `appendSyntheticBatch` upholds the identical seq+stream coupling while
  *     persisting deterministic repair mutations as a blueprint migration.
  *
- * The in-transaction `auth_member` role read is mocked so each test controls
- * the actor's fresh role; the reauth LOGIC downstream is the real code under
- * test (the role read itself is covered by the auth integration suites).
+ * Membership changes use actual `auth_member` rows and the production
+ * in-transaction authority read, including revocation after a successful edit.
  *
  * Runs unconditionally under `npm test`.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sql } from "kysely";
+import { describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
@@ -48,20 +49,12 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import {
+	createLocation,
+	readOrganization,
+	updateLocation,
+} from "@/lib/organization/service";
 import { setupAppStateTestDb } from "./appStateTestDb";
-
-// The fresh role read is the only auth dependency in the guarded path. Mock it
-// so each test controls the role observed under the app transaction's locks.
-const { projectRoleForInTransactionMock } = vi.hoisted(() => ({
-	projectRoleForInTransactionMock:
-		vi.fn<(_tx: unknown, u: string, o: string) => Promise<string | null>>(),
-}));
-vi.mock("@/lib/db/projectMembership", () => ({
-	// Keep the out-of-transaction helper present for any incidental module
-	// consumer; the guarded writer authorizes exclusively in-transaction.
-	projectRoleFor: vi.fn(),
-	projectRoleForInTransaction: projectRoleForInTransactionMock,
-}));
 
 const {
 	appendSyntheticBatch,
@@ -96,14 +89,13 @@ const {
 	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } = await import("../commitGuard");
-const { decomposeBlueprint } = await import("../blueprintRows");
 
 const OWNER = "user-owner";
 const MEMBER = "user-member";
 const PROJECT = "project-1";
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
-const h = setupAppStateTestDb("commit_guard_");
+const h = setupAppStateTestDb("commit_guard_", { poolMax: 2 });
 
 /** A minimal valid registration doc writing two case properties. */
 function minDoc(appName = "Test"): BlueprintDoc {
@@ -156,69 +148,16 @@ function minDoc(appName = "Test"): BlueprintDoc {
 	});
 }
 
-/** Seed a stored app at `mutation_seq: 0` with the given blueprint + tenancy,
- *  returning its id. Writes the `apps` scalar slice + the `blueprint_entities`
- *  rows exactly as `createApp` would, so the guarded writer reassembles it. */
+/** Persist the document and actual Project memberships used by the writer. */
 async function seedApp(
 	doc: BlueprintDoc,
 	opts: { projectId: string; owner?: string } = { projectId: PROJECT },
 ): Promise<string> {
-	const appId = crypto.randomUUID();
-	const p = toPersistableDoc(doc);
-	const formCount = p.moduleOrder.reduce(
-		(s, m) => s + (p.formOrder[m]?.length ?? 0),
-		0,
-	);
-	await h.withTransaction(async (tx) => {
-		await tx
-			.insertInto("apps")
-			.values({
-				id: appId,
-				owner: opts.owner ?? OWNER,
-				project_id: opts.projectId,
-				app_name: p.appName,
-				app_name_lower: p.appName.toLowerCase(),
-				connect_type: p.connectType ?? null,
-				case_types: p.caseTypes === null ? null : JSON.stringify(p.caseTypes),
-				localization:
-					p.localization === undefined ? null : JSON.stringify(p.localization),
-				logo: p.logo ?? null,
-				module_count: p.moduleOrder.length,
-				form_count: formCount,
-				mutation_seq: 0,
-				status: "complete",
-				awaiting_input: false,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: null,
-				res_period: null,
-				res_reserved: null,
-				res_settled: null,
-				res_user_id: null,
-				res_run_id: null,
-				lock_run_id: null,
-				lock_actor_user_id: null,
-				lock_expire_at: null,
-			})
-			.execute();
-		const rows = decomposeBlueprint(p);
-		if (rows.length > 0) {
-			await tx
-				.insertInto("blueprint_entities")
-				.values(
-					rows.map((r) => ({
-						app_id: appId,
-						uuid: r.uuid,
-						kind: r.kind,
-						parent_uuid: r.parent_uuid,
-						ordinal: r.ordinal,
-						data: JSON.stringify(r.data),
-					})),
-				)
-				.execute();
-		}
+	const appId = await h.seedAppWithBlueprint(doc, {
+		owner: opts.owner ?? OWNER,
+		projectId: opts.projectId,
 	});
+	await h.seedProjectMember(MEMBER, opts.projectId, "editor");
 	return appId;
 }
 
@@ -288,16 +227,7 @@ async function readSeq(appId: string): Promise<number> {
 	return Number(row?.mutation_seq);
 }
 /** All `app_changes` rows for an app, seq-ordered. */
-async function readStream(appId: string): Promise<
-	Array<{
-		seq: number;
-		batch_id: string;
-		run_id: string | null;
-		actor_id: string;
-		kind: string;
-		mutations: unknown[];
-	}>
-> {
+async function readStream(appId: string) {
 	const rows = await h
 		.db()
 		.selectFrom("app_changes")
@@ -305,7 +235,7 @@ async function readStream(appId: string): Promise<
 		.where("app_id", "=", appId)
 		.orderBy("seq")
 		.execute();
-	return rows.map((r) => ({ ...r, seq: Number(r.seq) })) as never;
+	return rows.map((r) => ({ ...r, seq: Number(r.seq) }));
 }
 
 async function readRunFenceState(appId: string) {
@@ -329,11 +259,6 @@ async function readRunFenceState(appId: string) {
 		.where("id", "=", appId)
 		.executeTakeFirstOrThrow();
 }
-
-beforeEach(() => {
-	// Default: the actor is an editor of the app's Project.
-	projectRoleForInTransactionMock.mockReset().mockResolvedValue("editor");
-});
 
 describe("commitGuardedBatch (Postgres)", () => {
 	it("exercises the exact writer inside a caller-owned rollback transaction", async () => {
@@ -385,17 +310,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 			batchId,
 			runId: "run-1",
 			mutations: renameVillageLabel(doc, "Home village"),
-			actorUserId: OWNER,
+			actorUserId: MEMBER,
 			kind: "mcp",
 		});
 
 		expect(result.seq).toBe(1);
 		expect(result.deduped).toBe(false);
-		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
-			expect.anything(),
-			OWNER,
-			PROJECT,
-		);
 		// The committed doc carries the edit.
 		const village = Object.values(result.committedDoc.fields).find(
 			(fl) => fl.id === "village",
@@ -417,7 +337,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			seq: 1,
 			batch_id: batchId,
 			run_id: "run-1",
-			actor_id: OWNER,
+			actor_id: MEMBER,
 			kind: "mcp",
 		});
 		expect(stream[0].mutations).toHaveLength(1);
@@ -611,26 +531,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 				proseTemplateText(village.label),
 		).toBe("Reassembled");
 		expect(reloaded?.mutation_seq).toBe(result.seq);
-	});
-
-	it("produces gap-free seqs across serial commits (each re-reads the advanced seq)", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc);
-		let working = doc;
-		for (let i = 1; i <= 4; i++) {
-			const result = await commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(working, `Village v${i}`),
-				actorUserId: OWNER,
-				kind: "autosave",
-			});
-			expect(result.seq).toBe(i);
-			working = result.committedDoc;
-		}
-		expect((await readStream(appId)).map((r) => r.seq)).toEqual([1, 2, 3, 4]);
-		expect(await readSeq(appId)).toBe(4);
+		expect(reloaded?.blueprint).toEqual(toPersistableDoc(result.committedDoc));
 	});
 
 	it("is idempotent on a re-committed batchId — returns the prior seq/basis and writes nothing", async () => {
@@ -732,6 +633,178 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 		expect(replay).toMatchObject({ seq: 1, deduped: true });
 		expect(await readStream(appId)).toHaveLength(1);
+	});
+
+	it("refuses an automation derived from old places after waiting behind a competing organization writer", async () => {
+		const doc = minDoc();
+		const levelUuid = testUuid("fence-region-level");
+		const automationUuid = testUuid("fence-location-automation");
+		doc.organizationLevels = {
+			[levelUuid]: {
+				uuid: levelUuid,
+				code: "region",
+				name: "Region",
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "none" },
+				},
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		doc.organizationLevelOrder = [levelUuid];
+		doc.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "case-update",
+				name: "Close selected patients",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				updates: [],
+				closeCase: true,
+			},
+		};
+		doc.automationOrder = [automationUuid];
+		const appId = await seedApp(doc);
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			role: "owner",
+		};
+		const created = await createLocation(scope, {
+			levelUuid,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+		expect(created.revision).toBe("1");
+		const before = await loadApp(appId);
+		const batchId = crypto.randomUUID();
+		const mutations: Mutation[] = [
+			{
+				kind: "editAutomationItem",
+				automationUuid,
+				targetKind: "case-update",
+				edit: {
+					collection: "criterion",
+					operation: "add",
+					value: {
+						uuid: testUuid("fence-location-criterion"),
+						kind: "location",
+						locationUuid: created.location.id,
+						includeDescendants: false,
+					},
+				},
+			},
+		];
+		const request = {
+			appId,
+			expectedProjectId: PROJECT,
+			expectedOrganizationRevision: created.revision,
+			batchId,
+			mutations,
+			actorUserId: OWNER,
+			kind: "autosave" as const,
+		};
+		let commitSettled = false;
+		let commitOutcome: Promise<unknown> | undefined;
+		try {
+			// The actual place writer acquires the app's shared lock, then waits
+			// on this held organization row. Its app lock blocks the canonical
+			// automation writer until the place change and clock advance commit.
+			const changed = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query(
+						"SELECT revision FROM app_organization_state WHERE app_id = $1 FOR UPDATE",
+						[appId],
+					),
+				() =>
+					updateLocation(
+						scope,
+						created.location.id,
+						{ name: "Northern region" },
+						created.revision,
+					),
+				async (writerSettled, pg) => {
+					expect(writerSettled).toBe(false);
+					const writers = await pg.query<{ pid: number }>(
+						"SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+					);
+					expect(writers.rows).toHaveLength(1);
+					const writerPid = writers.rows[0].pid;
+					commitOutcome = commitGuardedBatch(request).then(
+						(receipt) => {
+							commitSettled = true;
+							return receipt;
+						},
+						(error: unknown) => {
+							commitSettled = true;
+							return error;
+						},
+					);
+					await expect
+						.poll(async () => {
+							await pg.query("SELECT pg_stat_clear_snapshot()");
+							const waiting = await pg.query<{ count: number }>(
+								"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))",
+								[writerPid],
+							);
+							return waiting.rows[0].count;
+						})
+						.toBe(1);
+					expect(commitSettled).toBe(false);
+					const pending = await pg.query<{ seq: string; changes: string }>(
+						"SELECT mutation_seq::text AS seq, (SELECT count(*)::text FROM app_changes WHERE app_id = $1) AS changes FROM apps WHERE id = $1",
+						[appId],
+					);
+					expect(pending.rows).toEqual([{ seq: "0", changes: "0" }]);
+				},
+			);
+			expect(changed.revision).toBe("2");
+			const refused = await commitOutcome;
+			expect(refused).toBeInstanceOf(BlueprintCommitRejectedError);
+			expect(refused).toMatchObject({
+				message:
+					"This app's places changed while the automation was being saved. Retry the automation change so its CommCare HQ setup guide uses the current organization.",
+			});
+			expect((await loadApp(appId))?.blueprint).toEqual(before?.blueprint);
+			expect(await readSeq(appId)).toBe(0);
+			expect(await readStream(appId)).toEqual([]);
+			expect(await readOrganization(scope)).toMatchObject({
+				revision: "2",
+				locations: [{ id: created.location.id, name: "Northern region" }],
+			});
+
+			// The exact automation batch is valid against the refreshed clock.
+			// This distinguishes the fence refusal from malformed-fixture failure.
+			const committed = await commitGuardedBatch({
+				...request,
+				expectedOrganizationRevision: changed.revision,
+			});
+			expect(committed).toMatchObject({ seq: 1, deduped: false });
+			expect(
+				committed.committedDoc.automations?.[automationUuid].criteria,
+			).toEqual([
+				{
+					uuid: testUuid("fence-location-criterion"),
+					kind: "location",
+					locationUuid: created.location.id,
+					includeDescendants: false,
+				},
+			]);
+			expect(await readStream(appId)).toHaveLength(1);
+		} finally {
+			// whileBlocked releases its row lock and joins the organization write
+			// on every failure; the separately started canonical task is ours.
+			await commitOutcome;
+		}
 	});
 
 	it("rejects a reused batchId whose admitted content differs", async () => {
@@ -836,7 +909,12 @@ describe("commitGuardedBatch (Postgres)", () => {
 			appId,
 			expectedProjectId: PROJECT,
 			batchId,
-			mutations: [structuredClone(first()), structuredClone(first())],
+			mutations: [1, 2].map(() => ({
+				kind: "updateField",
+				uuid: villageUuid(doc),
+				targetKind: "text",
+				patch: { label: structuredClone(sharedLabel) },
+			})),
 			actorUserId: OWNER,
 			kind: "autosave",
 		});
@@ -896,6 +974,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 				lock_run_id: "e1",
 				lock_actor_user_id: OWNER,
 				lock_expire_at: nearExpiry,
+				run_holder_nonce: HOLDER_NONCE,
 			})
 			.where("id", "=", appId)
 			.execute();
@@ -911,7 +990,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 
 		const lock = await h.readRunLock(appId);
-		expect(lock?.expireAt.getTime()).toBeLessThan(Date.now() + 5 * 60_000);
+		expect(lock?.expireAt.getTime()).toBe(nearExpiry.getTime());
 	});
 
 	it("rejects a stale reserved build batch without changing the live successor's doc, cursor, identity, or marker", async () => {
@@ -924,6 +1003,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			.set({
 				status: "generating",
 				run_id: successorRun,
+				run_holder_nonce: HOLDER_NONCE,
 				res_period: "2026-07",
 				res_reserved: 100,
 				res_settled: false,
@@ -975,6 +1055,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 			.updateTable("apps")
 			.set({
 				run_id: successorRun,
+				run_holder_nonce: HOLDER_NONCE,
 				res_period: "2026-07",
 				res_reserved: 5,
 				res_settled: false,
@@ -1020,100 +1101,54 @@ describe("commitGuardedBatch (Postgres)", () => {
 		).toBe("Village");
 	});
 
-	it("denies a non-member with a terminal CommitReauthError (nothing written)", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForInTransactionMock.mockResolvedValue(null); // not a member
-
-		await expect(
-			commitGuardedBatch({
+	it.each([
+		{ actor: MEMBER, nextRole: null, reason: "a removed member" },
+		{
+			actor: MEMBER,
+			nextRole: "viewer" as const,
+			reason: "a downgraded editor",
+		},
+		{ actor: OWNER, nextRole: null, reason: "the removed app creator" },
+	])(
+		"rejects the next edit from $reason without changing persisted state",
+		async ({ actor, nextRole }) => {
+			const doc = minDoc();
+			const appId = await seedApp(doc);
+			await commitGuardedBatch({
 				appId,
 				expectedProjectId: PROJECT,
 				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Home village"),
-				actorUserId: MEMBER,
+				mutations: renameVillageLabel(doc, "Authorized edit"),
+				actorUserId: actor,
 				kind: "autosave",
-			}),
-		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(await readSeq(appId)).toBe(0);
-	});
+			});
+			const before = await loadApp(appId);
+			const history = await readStream(appId);
+			expect(before?.mutation_seq).toBe(1);
+			expect(history).toHaveLength(1);
 
-	it("denies a member whose role lacks `edit` (viewer) with CommitReauthError", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForInTransactionMock.mockResolvedValue("viewer");
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Home village"),
-				actorUserId: MEMBER,
-				kind: "autosave",
-			}),
-		).rejects.toBeInstanceOf(CommitReauthError);
-	});
-
-	it("requires Project membership even when the actor is the app creator", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT, owner: OWNER });
-		projectRoleForInTransactionMock.mockResolvedValue(null);
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Creator edit"),
-				actorUserId: OWNER,
-				kind: "autosave",
-			}),
-		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
-			expect.anything(),
-			OWNER,
-			PROJECT,
-		);
-	});
-
-	it("denies when the fresh in-transaction membership read finds no role", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-		projectRoleForInTransactionMock.mockResolvedValue(null);
-
-		await expect(
-			commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: renameVillageLabel(doc, "Home village"),
-				actorUserId: MEMBER,
-				kind: "autosave",
-			}),
-		).rejects.toBeInstanceOf(CommitReauthError);
-		expect(await readSeq(appId)).toBe(0);
-	});
-
-	it("commits when the caller's expected Project still matches", async () => {
-		const doc = minDoc();
-		const appId = await seedApp(doc, { projectId: PROJECT });
-
-		const ok = await commitGuardedBatch({
-			appId,
-			batchId: crypto.randomUUID(),
-			mutations: renameVillageLabel(doc, "Home village"),
-			actorUserId: MEMBER,
-			kind: "autosave",
-			expectedProjectId: PROJECT,
-		});
-		expect(ok.seq).toBe(1);
-		expect(projectRoleForInTransactionMock).toHaveBeenCalledWith(
-			expect.anything(),
-			MEMBER,
-			PROJECT,
-		);
-	});
+			if (nextRole === null) {
+				await sql`DELETE FROM auth_member
+				WHERE "userId" = ${actor} AND "organizationId" = ${PROJECT}`.execute(
+					h.db(),
+				);
+			} else {
+				await h.seedProjectMember(actor, PROJECT, nextRole);
+			}
+			await expect(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations: renameVillageLabel(doc, "Revoked edit"),
+					actorUserId: actor,
+					kind: "autosave",
+				}),
+			).rejects.toBeInstanceOf(CommitReauthError);
+			expect(await loadApp(appId)).toEqual(before);
+			expect(await readStream(appId)).toEqual(history);
+		},
+	);
 
 	it("rejects when the app moved away from the caller's expected Project", async () => {
 		const doc = minDoc();
@@ -1150,10 +1185,13 @@ describe("commitGuardedBatch (Postgres)", () => {
 				expectedProjectId: PROJECT,
 			}),
 		).rejects.toBeInstanceOf(AppProjectChangedError);
-		expect(projectRoleForInTransactionMock).not.toHaveBeenCalled();
+		expect(await readSeq(appId)).toBe(1);
+		expect(await readStream(appId)).toMatchObject([
+			{ kind: "project-move", seq: 1 },
+		]);
 	});
 
-	it("rejects a batch targeting a concurrently-removed field with BlueprintCommitRejectedError", async () => {
+	it("rejects a batch targeting a field absent from the current document", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
 		const mutations: Mutation[] = [
@@ -1273,7 +1311,7 @@ describe("commitGuardedBatch (Postgres)", () => {
 		).toEqual({ project_id: PROJECT, asset_id: assetId, app_id: appId });
 	});
 
-	it("rejects a media attach whose asset was concurrently deleted (in-txn re-check)", async () => {
+	it("rejects a media attach whose asset is absent at commit", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc, { projectId: PROJECT });
 		// The asset is GONE by the time the transaction reads the asset rows.

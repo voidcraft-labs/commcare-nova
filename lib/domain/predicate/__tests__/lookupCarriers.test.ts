@@ -1,10 +1,12 @@
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-	type LookupColumnId,
 	type LookupOptionsSource,
-	type LookupTableId,
+	lookupColumnIdSchema,
 	lookupOptionsSourceSchema,
+	lookupTableIdSchema,
 } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -23,11 +25,19 @@ import {
 	walkExpressionTerms,
 } from "@/lib/domain/predicate";
 
-const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-const OTHER_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ac" as LookupTableId;
-const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const LABEL_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-const MISSING_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890af" as LookupColumnId;
+const TABLE = lookupTableIdSchema.parse("018f3e8a-7b2c-7def-8abc-1234567890ab");
+const OTHER_TABLE = lookupTableIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ac",
+);
+const VALUE_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ad",
+);
+const LABEL_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ae",
+);
+const MISSING_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890af",
+);
 
 const columns = new Map([
 	[VALUE_COLUMN, "int" as const],
@@ -70,28 +80,58 @@ describe("lookup carrier schemas", () => {
 			termSchema.safeParse({
 				kind: "table-column",
 				tableId: "households",
-				columnId: "district",
+				columnId: VALUE_COLUMN,
 			}).success,
 		).toBe(false);
 		expect(
 			valueExpressionSchema.safeParse({
 				kind: "table-lookup",
 				tableId: "households",
-				resultColumnId: "district",
+				resultColumnId: VALUE_COLUMN,
 				where: { kind: "match-all" },
 			}).success,
 		).toBe(false);
 	});
 
-	it("keeps every lookup-bearing recursive schema JSON-schema representable", () => {
-		for (const schema of [
-			lookupOptionsSourceSchema,
-			termSchema,
-			predicateSchema,
-			valueExpressionSchema,
-		]) {
-			expect(() => z.toJSONSchema(schema)).not.toThrow();
+	it("executes converted recursive schemas against lookup payloads", () => {
+		const filter = eq(tableColumn(TABLE, LABEL_COLUMN), literal("Enabled"));
+		const source = {
+			kind: "lookup",
+			tableId: TABLE,
+			valueColumnId: VALUE_COLUMN,
+			labelColumnId: LABEL_COLUMN,
+			filter,
+		};
+		for (const [schema, valid] of [
+			[lookupOptionsSourceSchema, source],
+			[termSchema, tableColumn(TABLE, VALUE_COLUMN)],
+			[predicateSchema, filter],
+			[valueExpressionSchema, tableLookup(TABLE, VALUE_COLUMN, filter)],
+		] as const) {
+			const ajv = new Ajv2020({ strict: false });
+			addFormats(ajv);
+			const validate = ajv.compile(z.toJSONSchema(schema));
+			expect(schema.parse(valid)).toStrictEqual(valid);
+			expect(validate(valid)).toBe(true);
+			expect(validate({ ...valid, unknown: true })).toBe(false);
 		}
+	});
+	it("refuses a column slug beside a valid table identity", () => {
+		expect(
+			termSchema.safeParse({
+				kind: "table-column",
+				tableId: TABLE,
+				columnId: "district",
+			}).success,
+		).toBe(false);
+		expect(
+			valueExpressionSchema.safeParse({
+				kind: "table-lookup",
+				tableId: TABLE,
+				resultColumnId: "district",
+				where: matchAll(),
+			}).success,
+		).toBe(false);
 	});
 });
 

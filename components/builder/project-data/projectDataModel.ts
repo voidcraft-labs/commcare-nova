@@ -593,7 +593,9 @@ function parseTemporalText(
 		const time = parseClockTime(raw);
 		return time === null ? null : `${time}${timezone}`;
 	}
-	const [datePart, timePart] = raw.split("T");
+	const parts = raw.split("T");
+	if (parts.length !== 2) return null;
+	const [datePart, timePart] = parts;
 	if (datePart === undefined || timePart === undefined) return null;
 	const time = parseClockTime(timePart);
 	if (time === null) return null;
@@ -832,18 +834,6 @@ export function rowWriteConflictVerdict(args: {
 	return rowValuesEqual(args.baseline, args.current.values)
 		? { kind: "retry" }
 		: { kind: "ask", reason: "row-changed" };
-}
-
-/**
- * Decide what to do about a refused whole-table replacement (a CSV import).
- *
- * Never `retry`. A replacement discards every existing row by definition, so
- * "the table changed underneath" is exactly the case where resending would
- * destroy the change. The author re-confirms against what the table now
- * holds.
- */
-export function replacementConflictVerdict(): ConflictVerdict {
-	return { kind: "ask", reason: "table-replaced" };
 }
 
 /** Whether two column lists are the same definition, in the same order. */

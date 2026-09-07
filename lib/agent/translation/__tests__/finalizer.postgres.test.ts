@@ -1,14 +1,28 @@
+/** Native localization ledger and canonical transaction tests. The accepted
+ * design rows are FK-valid fixtures; real genesis and run claims establish
+ * source history and authority. Responses-peer cases retain the real SDK. */
+
 import { sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { z } from "zod";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import {
+	respondWithObject,
+	withResponsesPeer,
+} from "@/lib/agent/__tests__/responsesPeer";
 import {
 	cloneContract,
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
+import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { loadApp } from "@/lib/db/apps";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import { claimAndReserveRun, loadApp } from "@/lib/db/apps";
 import { writeRunSummaryWithDurableContributions } from "@/lib/db/runSummary";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { effectiveAppLocalization } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { finalizeInitialBuildLocalization } from "../finalizer";
@@ -17,8 +31,9 @@ import {
 	claimTranslationBatch,
 } from "../store";
 import type { TranslationBatchInput } from "../translator";
+import { createProductionTranslationBatchRunner } from "../translator";
 
-const APP = "localization-finalizer-app";
+let APP: string;
 const PROJECT = "project-test";
 const ACTOR = "owner-test";
 const RUN = "translation-run";
@@ -29,42 +44,14 @@ let lineage: Awaited<ReturnType<typeof h.seedDesignLineage>>;
 let source = buildDoc();
 
 beforeEach(async () => {
-	source = buildDoc({
-		appId: APP,
-		appName: "Clinic",
-		modules: [
-			{
-				name: "Patients",
-				forms: [
-					{
-						name: "Intake",
-						type: "survey",
-						fields: [f({ kind: "text", id: "patient_name", label: "Name" })],
-					},
-				],
-			},
-		],
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+	const born = await createExplicitBlankApp(ACTOR, PROJECT, "source-genesis", {
+		name: "Clinic",
+		status: "complete",
 	});
-	await h.seedAppWithBlueprint(source, {
-		id: APP,
-		owner: ACTOR,
-		projectId: PROJECT,
-	});
-	/* Materialization normally creates sequence 1. This fixture starts from the
-	 * same canonical document and stamps that already-committed source head so
-	 * the localization receipt can prove it descends at sequence 2. */
-	await h
-		.db()
-		.updateTable("apps")
-		.set({
-			mutation_seq: 1,
-			status: "generating",
-			run_id: RUN,
-			run_holder_nonce: NONCE,
-			updated_at: new Date(),
-		})
-		.where("id", "=", APP)
-		.execute();
+	APP = born.appId;
+	source = hydratePersistedBlueprint(born.blueprint);
+	await claimAndReserveRun(APP, "build", RUN, ACTOR, 100, PROJECT, NONCE);
 	const designSessionId = await h.seedDesignSession({
 		mode: "build",
 		project_id: PROJECT,
@@ -81,6 +68,269 @@ beforeEach(async () => {
 });
 
 describe("initial-build localization finalizer", () => {
+	it.each([true, false])(
+		"retains provider completion status through native persistence (incomplete=%s)",
+		async (incomplete) => {
+			const contract = cloneContract(makeContract());
+			contract.charter.localization = {
+				sourceLanguage: { language: "eng" },
+				defaultLanguage: { language: "eng" },
+				targets: [
+					{
+						language: { language: "spa" },
+						seedFrom: { language: "eng" },
+						strategy: "translate-with-nova",
+					},
+				],
+			};
+			const args = {
+				lineage: {
+					designSessionId: lineage.designSessionId,
+					designRevisionId: lineage.designRevisionId,
+					designRevisionDigest: lineage.designRevisionDigest,
+					buildPlanId: lineage.buildPlanId,
+					buildPlanDigest: lineage.buildPlanDigest,
+					appId: APP,
+				},
+				authority: {
+					actorUserId: ACTOR,
+					projectId: PROJECT,
+					runId: RUN,
+					holderNonce: NONCE,
+				},
+				contract,
+				sourceBlueprint: toPersistableDoc(source),
+				sourceSeq: 1,
+				meter: undefined,
+				signal: new AbortController().signal,
+			};
+			let requests = 0;
+			const peerErrors: unknown[] = [];
+			await withResponsesPeer(
+				(request, response) => {
+					let body = "";
+					request.setEncoding("utf8");
+					request.on("data", (chunk) => {
+						body += chunk;
+					});
+					request.on("end", () => {
+						try {
+							const requestBody = z
+								.object({
+									input: z.array(
+										z.object({ role: z.string(), content: z.unknown() }),
+									),
+								})
+								.parse(JSON.parse(body));
+							const content = z
+								.array(
+									z.object({ type: z.string(), text: z.string().optional() }),
+								)
+								.parse(
+									requestBody.input.find((item) => item.role === "user")
+										?.content,
+								);
+							const text = content.find(
+								(item) => item.type === "input_text",
+							)?.text;
+							const payload = z
+								.object({
+									units: z.array(
+										z.object({ unitId: z.string(), sourceText: z.string() }),
+									),
+								})
+								.parse(JSON.parse(text ?? ""));
+							requests++;
+							respondWithObject(
+								response,
+								JSON.stringify({
+									translations: payload.units.map((unit) => ({
+										unitId: unit.unitId,
+										translatedText: `ES: ${unit.sourceText}`,
+									})),
+								}),
+								{ incomplete },
+							);
+						} catch (error) {
+							peerErrors.push(error);
+							response.writeHead(400);
+							response.end(
+								JSON.stringify({
+									error: { message: "Invalid translation fixture request" },
+								}),
+							);
+						}
+					});
+				},
+				async (_provider, transport) => {
+					const context = new DesignGenerationContext({
+						apiKey: "synthetic-local",
+						transport,
+						userId: ACTOR,
+						projectId: PROJECT,
+						runId: RUN,
+						designSessionId: lineage.designSessionId,
+					});
+					const deps = {
+						runBatch: createProductionTranslationBatchRunner(context),
+						automaticTranslationAvailable: () => true,
+					};
+					if (incomplete) {
+						await expect(
+							finalizeInitialBuildLocalization(args, deps),
+						).rejects.toMatchObject({ code: "translation-output-truncated" });
+						expect((await loadApp(APP))?.blueprint).toEqual(
+							toPersistableDoc(source),
+						);
+						expect((await loadApp(APP))?.mutation_seq).toBe(1);
+						expect(
+							await h
+								.db()
+								.selectFrom("design_localization_receipts")
+								.selectAll()
+								.execute(),
+						).toEqual([]);
+						const failed = await h
+							.db()
+							.selectFrom("design_localization_batches")
+							.select(["status", "failure_code", "usage"])
+							.execute();
+						expect(failed).toEqual([
+							{
+								status: "failed",
+								failure_code: "translation-output-truncated",
+								usage: {
+									inputTokens: 11,
+									outputTokens: 7,
+									cacheReadTokens: 3,
+									cacheWriteTokens: 0,
+								},
+							},
+						]);
+						await expect(
+							finalizeInitialBuildLocalization(args, deps),
+						).rejects.toMatchObject({ code: "translation-output-truncated" });
+						expect(requests).toBe(1);
+					} else {
+						const receipt = await finalizeInitialBuildLocalization(args, deps);
+						expect(receipt?.seq).toBe(2);
+						const app = await loadApp(APP);
+						if (!app) throw new Error("missing app");
+						expect(
+							effectiveAppLocalization(app.blueprint.localization).translations
+								.spa,
+						).toBeDefined();
+						const called = requests;
+						expect(
+							await finalizeInitialBuildLocalization(
+								{ ...args, sourceBlueprint: app.blueprint },
+								deps,
+							),
+						).toEqual(receipt);
+						expect(requests).toBe(called);
+						expect(requests).toBeGreaterThan(0);
+					}
+				},
+			);
+			expect(peerErrors).toEqual([]);
+		},
+	);
+
+	it("rolls back localization and its attempt when the last receipt insert fails, then retries", async () => {
+		const contract = cloneContract(makeContract());
+		contract.charter.localization = {
+			sourceLanguage: { language: "eng" },
+			defaultLanguage: { language: "spa" },
+			targets: [
+				{
+					language: { language: "spa" },
+					seedFrom: { language: "eng" },
+					strategy: "copy-only",
+				},
+			],
+		};
+		const args = {
+			lineage: {
+				designSessionId: lineage.designSessionId,
+				designRevisionId: lineage.designRevisionId,
+				designRevisionDigest: lineage.designRevisionDigest,
+				buildPlanId: lineage.buildPlanId,
+				buildPlanDigest: lineage.buildPlanDigest,
+				appId: APP,
+			},
+			authority: {
+				actorUserId: ACTOR,
+				projectId: PROJECT,
+				runId: RUN,
+				holderNonce: NONCE,
+			},
+			contract,
+			sourceBlueprint: toPersistableDoc(source),
+			sourceSeq: 1,
+			meter: undefined,
+			signal: new AbortController().signal,
+		};
+		const deps = {
+			runBatch: vi.fn(async () => {
+				throw new Error("copy-only finalization must not call a model");
+			}),
+			automaticTranslationAvailable: () => false,
+		};
+		await h.pool().query(`
+   CREATE FUNCTION audit_refuse_localization_receipt() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN
+    IF NOT EXISTS (SELECT 1 FROM apps WHERE id = NEW.app_id AND mutation_seq = 2)
+       OR NOT EXISTS (SELECT 1 FROM app_changes WHERE app_id = NEW.app_id AND seq = 2)
+       OR NOT EXISTS (SELECT 1 FROM design_localization_attempts WHERE id = NEW.attempt_id AND status = 'committed')
+    THEN RAISE EXCEPTION 'audit fault did not reach the complete write tail'; END IF;
+    RAISE EXCEPTION 'audit final localization receipt failure';
+   END $$;
+   CREATE TRIGGER audit_refuse_localization_receipt BEFORE INSERT ON design_localization_receipts
+    FOR EACH ROW EXECUTE FUNCTION audit_refuse_localization_receipt();
+  `);
+		try {
+			await expect(
+				finalizeInitialBuildLocalization(args, deps),
+			).rejects.toThrow("audit final localization receipt failure");
+			const app = await loadApp(APP);
+			expect(app?.mutation_seq).toBe(1);
+			expect(app?.blueprint).toEqual(toPersistableDoc(source));
+			expect(
+				await h
+					.db()
+					.selectFrom("app_changes")
+					.select("seq")
+					.where("app_id", "=", APP)
+					.where("seq", ">", 1)
+					.execute(),
+			).toEqual([]);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_localization_receipts")
+					.selectAll()
+					.execute(),
+			).toEqual([]);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_localization_attempts")
+					.select(["status", "committed_seq", "committed_batch_id"])
+					.execute(),
+			).toEqual([
+				{ status: "running", committed_seq: null, committed_batch_id: null },
+			]);
+		} finally {
+			await h
+				.pool()
+				.query(
+					"DROP TRIGGER IF EXISTS audit_refuse_localization_receipt ON design_localization_receipts; DROP FUNCTION IF EXISTS audit_refuse_localization_receipt();",
+				);
+		}
+		expect((await finalizeInitialBuildLocalization(args, deps))?.seq).toBe(2);
+		expect(deps.runBatch).not.toHaveBeenCalled();
+	});
+
 	it("commits copy-only localization and its receipt as one canonical revision", async () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {

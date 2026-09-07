@@ -1,20 +1,28 @@
 import { sql } from "kysely";
-import { beforeEach, describe, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "../../migrate";
+import { Migrator } from "kysely/migration";
+import { describe, expect, it } from "vitest";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
-import { down, up } from "../20260802000000_case_type_schema_retirement";
+import { caseStoreMigrations } from "..";
+import { up } from "../20260802000000_case_type_schema_retirement";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "case_type_schema_retirement_migration_",
-});
-
-beforeEach(async () => {
-	await runCaseStoreMigrations(database.db);
+	prepareTemplate: async (db) => {
+		const provider = {
+			getMigrations: async () =>
+				Object.fromEntries(
+					Object.entries(caseStoreMigrations).filter(
+						([name]) => name < "20260802000000_case_type_schema_retirement",
+					),
+				),
+		};
+		const result = await new Migrator({ db, provider }).migrateToLatest();
+		if (result.error !== undefined) throw result.error;
+	},
 });
 
 describe("case-type schema retirement migration", () => {
-	it("backfills existing schema rows as active", async () => {
-		await down(database.db);
+	it("backfills active rows and derives retirement and reactivation from their sequence", async () => {
 		await sql`
 			INSERT INTO public.case_type_schemas
 				(app_id, case_type, schema, synced_seq)
@@ -34,10 +42,23 @@ describe("case-type schema retirement migration", () => {
 			WHERE app_id = 'migration-app' AND case_type = 'patient'
 		`.execute(database.db);
 		expect(row.rows).toEqual([{ is_active: true, retired_seq: null }]);
+		await sql`UPDATE public.case_type_schemas SET retired_seq = synced_seq`.execute(
+			database.db,
+		);
+		const retired = await sql<{
+			is_active: boolean;
+		}>`SELECT is_active FROM public.case_type_schemas`.execute(database.db);
+		expect(retired.rows).toEqual([{ is_active: false }]);
+		await sql`UPDATE public.case_type_schemas SET synced_seq = synced_seq + 1`.execute(
+			database.db,
+		);
+		const restored = await sql<{
+			is_active: boolean;
+		}>`SELECT is_active FROM public.case_type_schemas`.execute(database.db);
+		expect(restored.rows).toEqual([{ is_active: true }]);
 	});
 
 	it("fails closed and rolls back when a lifecycle column already has the wrong shape", async () => {
-		await down(database.db);
 		await sql`
 			ALTER TABLE public.case_type_schemas
 				ADD COLUMN is_active boolean NOT NULL DEFAULT true

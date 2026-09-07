@@ -23,62 +23,13 @@
 import { useCallback, useContext } from "react";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDocState } from "@/lib/doc/store";
 import { asUuid } from "@/lib/domain";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useSelectedFormUuid } from "@/lib/routing/hooks";
+import { referenceContextChanged } from "./referenceContextChanged";
 
 interface BuilderReferenceProviderProps {
 	children: React.ReactNode;
-}
-
-/** `buildLintContext` reads only these field slots. A scalar edit to case
- * storage, validation, defaults, media, or choice configuration cannot change
- * a reference's path, display label, or value-producing kind. */
-function referenceFieldsChanged(
-	current: BlueprintDocState["fields"],
-	previous: BlueprintDocState["fields"],
-): boolean {
-	if (current === previous) return false;
-	const currentEntries = Object.entries(current);
-	if (currentEntries.length !== Object.keys(previous).length) return true;
-	for (const [uuid, field] of currentEntries) {
-		const before = previous[uuid];
-		if (
-			before === undefined ||
-			field.id !== before.id ||
-			field.kind !== before.kind ||
-			("label" in field ? field.label : undefined) !==
-				("label" in before ? before.label : undefined)
-		) {
-			return true;
-		}
-	}
-	return false;
-}
-
-function referenceFormsChanged(
-	current: BlueprintDocState["forms"],
-	previous: BlueprintDocState["forms"],
-): boolean {
-	if (current === previous) return false;
-	const currentEntries = Object.entries(current);
-	if (currentEntries.length !== Object.keys(previous).length) return true;
-	return currentEntries.some(
-		([uuid, form]) => previous[uuid]?.type !== form.type,
-	);
-}
-
-function referenceModulesChanged(
-	current: BlueprintDocState["modules"],
-	previous: BlueprintDocState["modules"],
-): boolean {
-	if (current === previous) return false;
-	const currentEntries = Object.entries(current);
-	if (currentEntries.length !== Object.keys(previous).length) return true;
-	return currentEntries.some(
-		([uuid, module]) => previous[uuid]?.caseType !== module.caseType,
-	);
 }
 
 export function BuilderReferenceProvider({
@@ -113,15 +64,7 @@ export function BuilderReferenceProvider({
 		(listener: () => void) => {
 			if (!docStore) return () => {};
 			return docStore.subscribe((current, previous) => {
-				if (
-					current.fieldOrder !== previous.fieldOrder ||
-					current.formOrder !== previous.formOrder ||
-					current.caseTypes !== previous.caseTypes ||
-					current.userProperties !== previous.userProperties ||
-					referenceFieldsChanged(current.fields, previous.fields) ||
-					referenceFormsChanged(current.forms, previous.forms) ||
-					referenceModulesChanged(current.modules, previous.modules)
-				) {
+				if (referenceContextChanged(current, previous)) {
 					listener();
 				}
 			});

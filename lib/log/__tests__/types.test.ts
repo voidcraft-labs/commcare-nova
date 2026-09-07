@@ -1,339 +1,291 @@
-/**
- * Tests for the event log type + schema. Covers Zod round-trip for every
- * event variant and payload shape — the event log read path relies on
- * `eventSchema.parse()` to validate persisted data.
- */
-
-import { describe, expect, it } from "vitest";
+/** Persisted-event decoding: complete supported payload families, strict
+ * envelopes, private annotation boundaries and explicit opaque archives. */
+import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { proseText } from "@/lib/domain/prose";
+import { DESTINATIONS_LOOKUP } from "@/lib/__tests__/lookupFixtures";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { decodeEvents } from "../reader";
+import { type ConversationPayload, type Event, eventSchema } from "../types";
 
-import {
-	type ConversationEvent,
-	type Event,
-	eventSchema,
-	type MutationEvent,
-	mutationEventSchema,
-} from "../types";
-
-describe("eventSchema", () => {
-	it("parses a mutation event round-trip", () => {
-		const event: MutationEvent = {
-			kind: "mutation",
-			runId: "run-1",
-			ts: 1_700_000_000_000,
-			seq: 0,
-			source: "chat",
-			actor: "agent",
-			stage: "scaffold",
-			mutation: { kind: "setAppName", name: "App" },
-		};
-		const parsed = eventSchema.parse(event);
-		expect(parsed).toEqual(event);
-	});
-
-	it("parses a mutation event without optional stage", () => {
-		const event: MutationEvent = {
-			kind: "mutation",
-			runId: "run-1",
-			ts: 1,
-			seq: 1,
-			source: "chat",
-			actor: "user",
-			mutation: {
-				kind: "addField",
-				parentUuid: testUuid("form-1"),
-				field: {
-					kind: "text",
-					uuid: testUuid("fld-1"),
-					id: "name",
-					label: proseText("Name"),
+const envelope = { runId: "run", ts: 1000, seq: 0, source: "chat" } as const;
+const payloads = {
+	"user-message": [
+		{
+			type: "user-message",
+			text: "Visit",
+			attachments: [
+				{
+					assetId: asMediaAssetId(testUuid("audit-asset")),
+					kind: "audio",
+					filename: "visit.mp3",
+					mimeType: "audio/mpeg",
+					title: "Recorded visit",
+					summary: "A historical attachment receipt",
 				},
+			],
+		},
+	],
+	"assistant-text": [{ type: "assistant-text", text: "Visit recorded" }],
+	"assistant-reasoning": [
+		{ type: "assistant-reasoning", text: "Checking the workflow" },
+	],
+	"tool-call": [
+		{
+			type: "tool-call",
+			toolCallId: "call",
+			toolName: "setAppName",
+			input: { name: "Visits", nested: [1, null, true] },
+		},
+	],
+	"tool-result": [
+		{
+			type: "tool-result",
+			toolCallId: "call",
+			toolName: "setAppName",
+			output: null,
+		},
+		{
+			type: "tool-result",
+			toolCallId: "other",
+			toolName: "inspectApp",
+			output: { name: "Visits" },
+		},
+	],
+	error: [
+		{
+			type: "error",
+			error: {
+				type: "rate_limit",
+				message: "Trying again",
+				fatal: false,
+				runContinues: true,
 			},
-		};
-		const parsed = eventSchema.parse(event);
-		expect(parsed).toEqual(event);
-	});
+		},
+	],
+	"validation-attempt": [
+		{
+			type: "validation-attempt",
+			attempt: 1,
+			errors: ["Historical validation finding"],
+		},
+	],
+	"step-usage": [
+		{
+			type: "step-usage",
+			model: "model",
+			pricingTier: "long",
+			inputTokens: 100,
+			outputTokens: 20,
+			cacheReadTokens: 75,
+			cacheWriteTokens: 0,
+			finishReason: "tool-calls",
+			rawFinishReason: "tool_calls",
+			stepTimeMs: 123.45,
+			responseTimeMs: 100.25,
+			toolCallIds: ["call"],
+		},
+	],
+	"design-tool-outcome": [
+		{
+			type: "design-tool-outcome",
+			toolCallId: "design-call",
+			toolName: "stageContract",
+			inputChars: 24,
+			durationMs: 12,
+			outcome: "needs-input",
+			code: "CONSTRUCTION_NEEDS_INPUT",
+			validationStage: "construction",
+			issueCount: 1,
+		},
+	],
+	"executor-tool-outcome": [
+		{
+			type: "executor-tool-outcome",
+			modelStep: 1,
+			toolName: "addModule",
+			operationIndex: 0,
+			workspaceRevision: 2,
+			outcome: "non-applied",
+			code: "TARGET_INVALID",
+		},
+	],
+	"attachment-prep": [
+		{ type: "attachment-prep", phase: "start", count: 1 },
+		{ type: "attachment-prep", phase: "done" },
+	],
+} satisfies {
+	[K in ConversationPayload["type"]]: Extract<
+		ConversationPayload,
+		{ type: K }
+	>[];
+};
 
-	it("preserves canonical lookup carriers in durable mutation events", () => {
-		const event = {
-			kind: "mutation",
-			runId: "run-lookup-replay",
-			ts: 1_700_000_000_000,
-			seq: 2,
-			source: "chat",
-			actor: "agent",
-			mutation: {
-				kind: "addModule",
-				module: {
-					uuid: testUuid("10000000-0000-4000-8000-000000000000"),
-					id: "visits",
-					name: "Visits",
-					displayCondition: {
-						kind: "eq",
-						left: {
-							kind: "term",
-							term: {
-								kind: "table-column",
-								tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
-								columnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
-							},
-						},
-						right: {
-							kind: "term",
-							term: { kind: "literal", value: "open" },
+function conversation(payload: ConversationPayload): Event {
+	return { ...envelope, kind: "conversation", payload };
+}
+
+it.each(Object.entries(payloads))(
+	"decodes every persisted %s payload without losing fields",
+	(_kind, samples) => {
+		const events = samples.map(conversation);
+		expect(decodeEvents(JSON.parse(JSON.stringify(events)))).toEqual(events);
+	},
+);
+
+it("preserves canonical mutation identity and rejects an invalid mutation inside an otherwise valid envelope", () => {
+	const event: Event = {
+		...envelope,
+		kind: "mutation",
+		actor: "agent",
+		stage: "app",
+		mutation: {
+			kind: "addModule",
+			module: {
+				uuid: testUuid("module"),
+				id: "visits",
+				name: "Visits",
+				displayCondition: {
+					kind: "eq",
+					left: {
+						kind: "term",
+						term: {
+							kind: "table-column",
+							tableId: DESTINATIONS_LOOKUP.tableId,
+							columnId: DESTINATIONS_LOOKUP.valueColumnId,
 						},
 					},
+					right: { kind: "term", term: { kind: "literal", value: "open" } },
 				},
 			},
-		};
+		},
+	};
+	expect(eventSchema.parse(event)).toEqual(event);
+	expect(
+		eventSchema.safeParse({ ...event, mutation: { kind: "unknown-mutation" } })
+			.success,
+	).toBe(false);
+	expect(
+		eventSchema.safeParse({ ...event, actor: "unknown-actor" }).success,
+	).toBe(false);
+});
 
-		expect(mutationEventSchema.parse(event)).toEqual(event);
-		expect(eventSchema.parse(event)).toEqual(event);
-	});
+it("rejects unknown discriminators and envelope fields independently", () => {
+	const valid = conversation(payloads["assistant-text"][0]);
+	expect(eventSchema.parse(valid)).toEqual(valid);
+	const invalid = [
+		{ ...valid, kind: "unknown-event" },
+		{ ...valid, source: "unknown-source" },
+		{ ...valid, payload: { type: "unknown-payload", text: "Visit" } },
+		{ ...valid, futureEnvelope: true },
+		{
+			...valid,
+			payload: { ...payloads["assistant-text"][0], futurePayload: true },
+		},
+		{ ...valid, seq: -1 },
+		{ ...valid, seq: 0.5 },
+		{ ...valid, ts: -1 },
+		{ ...valid, ts: 0.5 },
+	];
+	for (const event of invalid)
+		expect(eventSchema.safeParse(event).success).toBe(false);
+	const { source: _source, ...missingSource } = valid;
+	expect(eventSchema.safeParse(missingSource).success).toBe(false);
+});
 
-	it("parses every conversation payload variant", () => {
-		const samples: ConversationEvent[] = [
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 0,
-				seq: 0,
-				source: "chat",
-				payload: { type: "user-message", text: "hi" },
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 1,
-				seq: 1,
-				source: "chat",
-				payload: { type: "assistant-text", text: "hi back" },
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 2,
-				seq: 2,
-				source: "chat",
-				payload: {
-					type: "assistant-reasoning",
-					text: "thinking …",
-				},
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 3,
-				seq: 3,
-				source: "chat",
-				payload: {
-					type: "tool-call",
-					toolCallId: "tc-1",
-					toolName: "setCaseListColumns",
-					input: { moduleIndex: 0, columns: [] },
-				},
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 4,
-				seq: 4,
-				source: "chat",
-				payload: {
-					type: "tool-result",
-					toolCallId: "tc-1",
-					toolName: "setCaseListColumns",
-					output: "Success",
-				},
-			},
-			// Exercises the documented "null when the tool returned void"
-			// contract from conversationPayloadSchema — without this fixture a
-			// future refactor could tighten `output` to a non-null schema
-			// without breaking any test.
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 5,
-				seq: 5,
-				source: "chat",
-				payload: {
-					type: "tool-result",
-					toolCallId: "tc-2",
-					toolName: "setAppName",
-					output: null,
-				},
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 6,
-				seq: 6,
-				source: "chat",
-				payload: {
-					type: "error",
-					error: {
-						type: "api_auth",
-						message: "Unauthorized",
-						fatal: false,
-					},
-				},
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 7,
-				seq: 7,
-				source: "chat",
-				payload: {
-					type: "executor-tool-outcome",
-					modelStep: 3,
-					toolName: "addUserProperties",
-					operationIndex: 0,
-					workspaceRevision: 2,
-					outcome: "mutation-rejected",
-					code: "TARGET_INVALID",
-				},
-			},
-			{
-				kind: "conversation",
-				runId: "r",
-				ts: 8,
-				seq: 8,
-				source: "chat",
-				payload: {
-					type: "design-tool-outcome",
-					toolCallId: "design-call-1",
-					toolName: "stageContract",
-					inputChars: 2400,
-					durationMs: 812,
-					outcome: "needs-input",
-					code: "design-construction-needs-input",
-					validationStage: "construction",
-					issueCount: 7,
-				},
-			},
-		];
-		for (const ev of samples) {
-			expect(eventSchema.parse(ev)).toEqual(ev);
+it("keeps private outcome annotations free of raw inputs, outputs, and rejection prose", () => {
+	for (const payload of [
+		payloads["executor-tool-outcome"][0],
+		payloads["design-tool-outcome"][0],
+	]) {
+		expect(eventSchema.parse(conversation(payload))).toEqual(
+			conversation(payload),
+		);
+		for (const extra of [
+			{ input: { name: "Private design" } },
+			{ output: { result: "Private result" } },
+			{ message: "Private rejection" },
+		]) {
+			expect(
+				eventSchema.safeParse({
+					...envelope,
+					kind: "conversation",
+					payload: { ...payload, ...extra },
+				}).success,
+			).toBe(false);
 		}
-	});
+		for (const patch of [
+			{ outcome: "unknown-outcome" },
+			{ code: "" },
+			{ toolName: "" },
+		]) {
+			expect(
+				eventSchema.safeParse({
+					...envelope,
+					kind: "conversation",
+					payload: { ...payload, ...patch },
+				}).success,
+			).toBe(false);
+		}
+	}
+});
 
-	it("rejects unknown event kinds", () => {
-		const bad: Partial<Event> = {
-			// @ts-expect-error — intentional invalid kind
-			kind: "spooky",
-			runId: "r",
-			ts: 0,
-			seq: 0,
-		};
-		expect(() => eventSchema.parse(bad)).toThrow();
-	});
-
-	it("rejects unknown conversation payload types", () => {
-		const bad = {
-			kind: "conversation" as const,
-			runId: "r",
-			ts: 0,
-			seq: 0,
-			payload: { type: "gossip", text: "…" },
-		};
-		expect(() => eventSchema.parse(bad)).toThrow();
-	});
-
-	it("rejects unknown envelope and payload keys", () => {
-		const base = {
-			kind: "conversation" as const,
-			runId: "r",
-			ts: 0,
-			seq: 0,
-			source: "chat" as const,
-			payload: { type: "assistant-text" as const, text: "done" },
-		};
-		expect(() =>
-			eventSchema.parse({ ...base, futureEnvelope: true }),
-		).toThrow();
-		expect(() =>
-			eventSchema.parse({
-				...base,
-				payload: { ...base.payload, futurePayload: true },
-			}),
-		).toThrow();
-	});
-
-	it("refuses raw executor payloads in outcome annotations", () => {
-		const event = {
-			kind: "conversation" as const,
-			runId: "r",
-			ts: 0,
-			seq: 0,
-			source: "chat" as const,
-			payload: {
-				type: "executor-tool-outcome",
-				modelStep: 1,
-				toolName: "createModule",
-				workspaceRevision: 1,
-				outcome: "wire-invalid",
-				code: "TOOL_INPUT_INVALID",
-				input: { customerAuthored: "must not persist" },
-			},
-		};
-		expect(() => eventSchema.parse(event)).toThrow();
-	});
-
-	it("accepts a payload-free non-applied executor outcome", () => {
-		expect(() =>
-			eventSchema.parse({
+it("accepts fractional measured durations while rejecting malformed usage counters and aggregate cost", () => {
+	const payload = payloads["step-usage"][0];
+	expect(eventSchema.parse(conversation(payload))).toEqual(
+		conversation(payload),
+	);
+	for (const patch of [
+		{ inputTokens: -1 },
+		{ outputTokens: 1.5 },
+		{ cacheReadTokens: -1 },
+		{ stepTimeMs: -1 },
+		{ responseTimeMs: Number.POSITIVE_INFINITY },
+		{ cost: 0.5 },
+		{ toolCallIds: [""] },
+	]) {
+		expect(
+			eventSchema.safeParse({
+				...envelope,
 				kind: "conversation",
-				runId: "r",
-				ts: 0,
-				seq: 0,
-				source: "chat",
-				payload: {
-					type: "executor-tool-outcome",
-					modelStep: 1,
-					toolName: "configureCaseSelection",
-					workspaceRevision: 1,
-					outcome: "non-applied",
-					code: "CASE_SELECTION_NEEDS_CHANGES",
-				},
-			}),
-		).not.toThrow();
-	});
+				payload: { ...payload, ...patch },
+			}).success,
+		).toBe(false);
+	}
+});
 
-	it("refuses raw design payloads in outcome annotations", () => {
-		const event = {
-			kind: "conversation" as const,
-			runId: "r",
-			ts: 0,
-			seq: 0,
-			source: "chat" as const,
+it("keeps classified errors and historical attachment receipts strict at their own nested boundaries", () => {
+	const error = payloads.error[0];
+	const message = payloads["user-message"][0];
+	expect(
+		eventSchema.safeParse({
+			...envelope,
+			kind: "conversation",
+			payload: { ...error, error: { ...error.error, stack: "internal stack" } },
+		}).success,
+	).toBe(false);
+	expect(
+		eventSchema.safeParse({
+			...envelope,
+			kind: "conversation",
 			payload: {
-				type: "design-tool-outcome",
-				toolCallId: "design-call-1",
-				toolName: "updateWorkflows",
-				inputChars: 24,
-				durationMs: 12,
-				outcome: "accepted",
-				code: "tool-completed",
-				input: { customerAuthored: "must not persist" },
+				...message,
+				attachments: [
+					{ ...message.attachments[0], url: "https://example.test/live-asset" },
+				],
 			},
-		};
-		expect(() => eventSchema.parse(event)).toThrow();
-	});
+		}).success,
+	).toBe(false);
+});
 
-	it("keeps archived bytes opaque while enforcing their envelope", () => {
-		const archived = {
-			kind: "archived-mutation" as const,
-			runId: "r",
-			ts: 0,
-			seq: 0,
-			source: "chat" as const,
-			archived: { any: ["pre-cutover", { shape: true }] },
-		};
-		expect(eventSchema.parse(archived)).toEqual(archived);
-		expect(() =>
-			eventSchema.parse({ ...archived, compatibilityHint: "ignore-me" }),
-		).toThrow();
-	});
+it("keeps archived bytes opaque while enforcing their envelope, and never returns a partial page", () => {
+	const archived: Event = {
+		...envelope,
+		kind: "archived-mutation",
+		archived: { oldKind: "pre-cutover", arbitrary: [null, { shape: true }] },
+	};
+	const text = conversation(payloads["assistant-text"][0]);
+	expect(decodeEvents([text, archived])).toEqual([text, archived]);
+	expect(() =>
+		decodeEvents([text, { ...archived, compatibilityHint: "ignore" }, text]),
+	).toThrow();
 });

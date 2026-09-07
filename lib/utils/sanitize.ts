@@ -38,6 +38,8 @@ export function sanitizeFilename(name: string): string {
  * nothing survives.
  */
 export function sanitizeArchiveMemberName(name: string): string {
+	// Strip leading dots and whitespace together below: trimming after a
+	// dot-only pass can expose a surviving "." or ".." archive member.
 	// Drop control bytes (C0 range + DEL) by CODE POINT rather than a regex, so
 	// no literal control byte lives in this source and no lint suppression is
 	// needed. NUL is the load-bearing case: `"a\0b"` extracts as `"a"` in
@@ -51,7 +53,7 @@ export function sanitizeArchiveMemberName(name: string): string {
 	return (
 		printable
 			.replace(/[\\/:*?"<>|]/g, "")
-			.replace(/^\.+/, "")
+			.replace(/^[.\s]+/, "")
 			.trim() || "app"
 	);
 }

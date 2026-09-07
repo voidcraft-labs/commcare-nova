@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { applyLookupAuthoringBatchInTransaction } from "../authoringBatch";
-import { LookupError } from "../errors";
 import {
 	getAllLookupDefinitions,
 	getLookupTable,
@@ -87,16 +86,41 @@ describe("lookup atomic authoring batch", () => {
 			[receipt.tables[0].columnIds[0].id]: "north",
 			[receipt.tables[0].columnIds[1].id]: "North",
 		});
+		expect(regions.rows.map(({ id }) => id)).toEqual(
+			receipt.tables[0].rowIds.map(({ id }) => id),
+		);
+		expect(regions.columns.map(({ id }) => id)).toEqual(
+			receipt.tables[0].columnIds.map(({ id }) => id),
+		);
+		const priorities = await getLookupTable(OWNER, receipt.tables[1].tableId);
+		expect(priorities.rows.map(({ id, values }) => ({ id, values }))).toEqual([
+			{
+				id: receipt.tables[1].rowIds[0].id,
+				values: { [receipt.tables[1].columnIds[0].id]: 3 },
+			},
+		]);
+		expect(priorities.columns.map(({ id }) => id)).toEqual(
+			receipt.tables[1].columnIds.map(({ id }) => id),
+		);
 		const catalog = await getAllLookupDefinitions(OWNER);
-		expect(catalog.definitions).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					id: regions.id,
-					columnCount: 2,
-					rowCount: 1,
-					tableRevision: "1",
+		expect(
+			catalog.definitions.map(
+				({ id, columnCount, rowCount, tableRevision }) => ({
+					id,
+					columnCount,
+					rowCount,
+					tableRevision,
 				}),
-			]),
+			),
+		).toEqual(
+			[regions, priorities]
+				.sort((a, b) => (a.id < b.id ? -1 : 1))
+				.map(({ id, columnCount, rowCount }) => ({
+					id,
+					columnCount,
+					rowCount,
+					tableRevision: "1",
+				})),
 		);
 	});
 
@@ -233,7 +257,7 @@ describe("lookup atomic authoring batch", () => {
 		expect(snapshot.rows[0].id).toBe(migrated.tables[0].rowIds[0].id);
 	});
 
-	it("rolls the whole multi-table batch back when a later table is invalid", async () => {
+	it("refuses duplicate tags before creating tables", async () => {
 		await expect(
 			runBatch({
 				createTables: [
@@ -269,6 +293,69 @@ describe("lookup atomic authoring batch", () => {
 			}),
 		).rejects.toMatchObject({ code: "tag_taken" });
 		expect((await getAllLookupDefinitions(OWNER)).definitions).toEqual([]);
+	});
+
+	it("rolls back earlier table, column, and row writes when a later table has invalid cells", async () => {
+		await expect(
+			h
+				.db()
+				.transaction()
+				.execute(async (tx) => {
+					try {
+						await applyLookupAuthoringBatchInTransaction(tx, OWNER, {
+							createTables: ["good", "bad"].map((key) => ({
+								key,
+								name: key,
+								tag: key,
+								columns: [
+									{
+										key: "value",
+										wireName: "value",
+										label: "Value",
+										dataType: "int",
+									},
+								],
+								rows: [
+									{
+										key: "row",
+										cells: [
+											{
+												columnKey: "value",
+												value: key === "good" ? 1 : "invalid",
+											},
+										],
+									},
+								],
+							})),
+						});
+					} catch (error) {
+						// Verify writes really happened before the refusal and before rollback.
+						expect(
+							await tx.selectFrom("lookup_tables").select("tag").execute(),
+						).toEqual([{ tag: "good" }]);
+						expect(
+							await tx
+								.selectFrom("lookup_columns")
+								.select("wire_name")
+								.execute(),
+						).toEqual([{ wire_name: "value" }]);
+						expect(
+							await tx.selectFrom("lookup_rows").select("id").execute(),
+						).toHaveLength(1);
+						throw error;
+					}
+				}),
+		).rejects.toMatchObject({ code: "invalid_input" });
+		expect((await getAllLookupDefinitions(OWNER)).definitions).toEqual([]);
+		expect(
+			await h.db().selectFrom("lookup_columns").selectAll().execute(),
+		).toEqual([]);
+		expect(
+			await h.db().selectFrom("lookup_rows").selectAll().execute(),
+		).toEqual([]);
+		expect(
+			await h.db().selectFrom("lookup_project_state").selectAll().execute(),
+		).toEqual([]);
 	});
 
 	it("pages 100 ordered rows and refuses a cursor after table drift", async () => {
@@ -311,6 +398,12 @@ describe("lookup atomic authoring batch", () => {
 		});
 		expect(second.rows).toHaveLength(1);
 		expect(second.complete).toBe(true);
+		expect([...first.rows, ...second.rows]).toEqual(
+			table.rowIds.map(({ id }, index) => ({
+				id,
+				cells: [{ columnId: valueColumnId, value: `value-${index}` }],
+			})),
+		);
 
 		await runBatch({
 			updateTables: [
@@ -327,18 +420,13 @@ describe("lookup atomic authoring batch", () => {
 				},
 			],
 		});
-		let caught: unknown;
-		try {
-			await getLookupTableRowsPage(OWNER, {
+		await expect(
+			getLookupTableRowsPage(OWNER, {
 				tableId: table.tableId,
 				columnIds: [valueColumnId],
 				cursor: first.nextCursor,
-			});
-		} catch (error) {
-			caught = error;
-		}
-		expect(caught).toBeInstanceOf(LookupError);
-		expect(caught).toMatchObject({ code: "conflict" });
+			}),
+		).rejects.toMatchObject({ code: "conflict" });
 	});
 
 	it("continues by byte budget when fewer than 100 large rows fit", async () => {
@@ -379,6 +467,17 @@ describe("lookup atomic authoring batch", () => {
 		});
 		expect(second.rows).toHaveLength(1);
 		expect(second.complete).toBe(true);
+		expect([...first.rows, ...second.rows]).toEqual(
+			table.rowIds.map(({ id }, index) => ({
+				id,
+				cells: [{ columnId, value: `${index}${large}` }],
+			})),
+		);
+		for (const page of [first, second]) {
+			expect(
+				Buffer.byteLength(JSON.stringify({ kind: "read", data: page }), "utf8"),
+			).toBeLessThanOrEqual(LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES);
+		}
 	});
 
 	it("budgets wide rows in the exact cell-array shape returned to both model surfaces", async () => {
@@ -417,7 +516,6 @@ describe("lookup atomic authoring batch", () => {
 		expect(first.complete).toBe(false);
 		expect(first.nextCursor?.length).toBeLessThanOrEqual(4096);
 		expect(first.rows[0]?.cells).toHaveLength(250);
-		expect(JSON.stringify(first.rows)).not.toContain('"values"');
 		const sharedToolBytes = Buffer.byteLength(
 			JSON.stringify({ kind: "read", data: first }),
 			"utf8",
@@ -440,5 +538,11 @@ describe("lookup atomic authoring batch", () => {
 		});
 		expect(first.rows.length + second.rows.length).toBe(3);
 		expect(second.complete).toBe(true);
+		expect([...first.rows, ...second.rows]).toEqual(
+			table.rowIds.map(({ id }, index) => ({
+				id,
+				cells: columnIds.map((columnId) => ({ columnId, value: `v${index}` })),
+			})),
+		);
 	});
 });

@@ -34,12 +34,20 @@ const TEMPLATE: ProseTemplate = {
 };
 
 describe("prose identity projection", () => {
-	it("prints current friendly names while preserving UUID-backed storage", () => {
+	it("resolves current friendly names without rewriting the template", () => {
 		const doc = makeDoc();
+		const original = structuredClone(TEMPLATE);
 		expect(projectProseTemplate(TEMPLATE, doc)).toEqual({
 			ok: true,
 			text: "#form/first_name / #user/district / #user/commcare_project",
 		});
+		doc.fields[FIELD] = { id: "given_name" };
+		doc.userProperties = { [USER_PROPERTY]: { slug: "region" } };
+		expect(projectProseTemplate(TEMPLATE, doc)).toEqual({
+			ok: true,
+			text: "#form/given_name / #user/region / #user/commcare_project",
+		});
+		expect(TEMPLATE).toEqual(original);
 	});
 
 	it("returns the authored text alone, spelling no reference at all", () => {

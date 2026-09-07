@@ -1,54 +1,91 @@
-/**
- * `softDeleteApp` — the persistence helper `delete_app` (MCP) and the home-page
- * Server Action sit on, against the real per-test Postgres.
- *
- * Locks the contract:
- *   - The write sets exactly `deleted_at` + `recoverable_until`; lifecycle
- *     `status` is intentionally untouched (`deleted_at != null` is the sole
- *     soft-delete marker; soft-delete and status are orthogonal axes).
- *   - It returns the ISO `recoverable_until`, and the gap to `deleted_at` is the
- *     30-day retention window.
- *   - A write against a missing row THROWS (the Kysely `numUpdatedRows === 0`
- *     guard) so callers surface a missing-row error rather than a silent no-op —
- *     an UPDATE against an absent id touches zero rows and creates nothing, so
- *     the guard turns that into an explicit error.
- */
-
-import { describe, expect, it } from "vitest";
+/** Deletion and restoration are one persisted lifecycle: exactly two marker
+ * columns change, reads stop while deleted, and the original app survives. */
+import { expect, it } from "vitest";
+import { loadAppProjectId, restoreApp, softDeleteApp } from "../apps";
+import { CommitReauthError } from "../commitGuard";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
-const h = setupAppStateTestDb("soft_delete_");
-const RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const APP = "app-1";
-
-describe("softDeleteApp", () => {
-	it("writes deleted_at + recoverable_until and returns the recovery deadline, status untouched", async () => {
-		await h.seedApp({ id: APP, status: "complete" });
-		const { softDeleteApp } = await import("../apps");
-
-		const recoverableUntil = await softDeleteApp(APP, "owner-test");
-
-		const row = await h.readAppRow(APP);
-		if (!row) throw new Error("soft-deleted app row missing");
-		expect(row.deleted_at).toBeInstanceOf(Date);
-		expect(row.recoverable_until).toBeInstanceOf(Date);
-		// Soft-delete is the existence axis — status stays exactly as it was.
-		expect(row.status).toBe("complete");
-		// The returned value is the same ISO string written to `recoverable_until`.
-		expect(recoverableUntil).toBe(
-			(row.recoverable_until as Date).toISOString(),
+const h = setupAppStateTestDb("app_deletion_", { authSchema: "migrated" });
+it.each(["complete", "error"] as const)(
+	"deletes and restores a %s app without changing its other persisted state",
+	async (status) => {
+		const app = await h.seedApp({
+			id: "app",
+			owner: "creator",
+			project_id: "project",
+			status,
+			error_type: status === "error" ? "internal" : null,
+			run_id: "historic-run",
+			updated_at: new Date("2026-04-01T00:00:00Z"),
+		});
+		await h.seedProjectMember("co-admin", "project", "admin");
+		const before = await h.readAppRow(app);
+		const entities = await h
+			.db()
+			.selectFrom("blueprint_entities")
+			.selectAll()
+			.where("app_id", "=", app)
+			.orderBy("uuid")
+			.execute();
+		expect(entities.length).toBeGreaterThan(0);
+		const start = Date.now();
+		const deadline = await softDeleteApp(app, "co-admin");
+		const end = Date.now();
+		const deleted = await h.readAppRow(app);
+		expect(deleted).toEqual({
+			...before,
+			deleted_at: expect.any(Date),
+			recoverable_until: expect.any(Date),
+		});
+		if (
+			!(deleted?.deleted_at instanceof Date) ||
+			!(deleted.recoverable_until instanceof Date)
+		)
+			throw new Error("Missing deletion markers");
+		expect(deleted.deleted_at.getTime()).toBeGreaterThanOrEqual(start);
+		expect(deleted.deleted_at.getTime()).toBeLessThanOrEqual(end);
+		expect(
+			deleted.recoverable_until.getTime() - deleted.deleted_at.getTime(),
+		).toBe(2_592_000_000);
+		expect(deadline).toBe(deleted.recoverable_until.toISOString());
+		expect(await loadAppProjectId(app)).toEqual({ kind: "not-found" });
+		await restoreApp(app, "co-admin");
+		expect(await h.readAppRow(app)).toEqual(before);
+		expect(await loadAppProjectId(app)).toEqual({
+			kind: "found",
+			projectId: "project",
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("blueprint_entities")
+				.selectAll()
+				.where("app_id", "=", app)
+				.orderBy("uuid")
+				.execute(),
+		).toEqual(entities);
+	},
+);
+it("refuses deletion and restoration by an underprivileged member without changing either state", async () => {
+	const app = await h.seedApp({ owner: "creator", project_id: "project" });
+	await h.seedProjectMember("member", "project", "editor");
+	const active = await h.readAppRow(app);
+	await expect(softDeleteApp(app, "member")).rejects.toBeInstanceOf(
+		CommitReauthError,
+	);
+	expect(await h.readAppRow(app)).toEqual(active);
+	await softDeleteApp(app, "creator");
+	const deleted = await h.readAppRow(app);
+	await expect(restoreApp(app, "member")).rejects.toBeInstanceOf(
+		CommitReauthError,
+	);
+	expect(await h.readAppRow(app)).toEqual(deleted);
+});
+it("refuses nonexistent targets without creating a ghost row", async () => {
+	for (const write of [softDeleteApp, restoreApp]) {
+		await expect(write("missing", "member")).rejects.toBeInstanceOf(
+			CommitReauthError,
 		);
-		// The retention window: recoverable_until − deleted_at ≈ 30 days.
-		const delta =
-			(row.recoverable_until as Date).getTime() -
-			(row.deleted_at as Date).getTime();
-		expect(delta).toBeCloseTo(RETENTION_MS, -3);
-	});
-
-	it("throws on a missing row so callers can surface a missing-row error", async () => {
-		const { softDeleteApp } = await import("../apps");
-		await expect(
-			softDeleteApp("does-not-exist", "owner-test"),
-		).rejects.toThrow();
-	});
+	}
+	expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual([]);
 });

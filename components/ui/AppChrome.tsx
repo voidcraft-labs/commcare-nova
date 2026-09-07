@@ -10,7 +10,7 @@
  * element for the life of the session, so the app list and the builder are the
  * same page wearing different menus.
  *
- * This component owns what is constant — the mark, the account control, the
+ * This component owns what is constant — the mark, the account position, the
  * impersonation banner — plus the site's own menus. Everything else arrives as
  * a CLAIM from the surface below (`components/ui/headerSlots`): the claiming
  * surface says what the band should be, its controls portal into the band's
@@ -78,6 +78,7 @@ export function AppChrome({
 	const [claim, setClaim] = useState<HeaderClaim | null>(null);
 	const [centerSlot, setCenterSlot] = useState<HTMLElement | null>(null);
 	const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
+	const [accountSlot, setAccountSlot] = useState<HTMLElement | null>(null);
 	/* Claims are rebuilt every render by whatever is claiming, so hold the
 	 * value and ignore an identical one: storing each new object would
 	 * re-render the band on every keystroke in the builder. */
@@ -88,8 +89,13 @@ export function AppChrome({
 	/* The slot targets are the only thing consumers read, and they settle once
 	 * at mount, so a claim never re-renders the surfaces reading this. */
 	const slots = useMemo(
-		() => ({ center: centerSlot, actions: actionsSlot, claim: claimBand }),
-		[centerSlot, actionsSlot, claimBand],
+		() => ({
+			center: centerSlot,
+			actions: actionsSlot,
+			account: accountSlot,
+			claim: claimBand,
+		}),
+		[centerSlot, actionsSlot, accountSlot, claimBand],
 	);
 
 	if (!isAuthenticated) return children;
@@ -110,9 +116,6 @@ export function AppChrome({
 			userEmail={impersonating.userEmail}
 		/>
 	) : null;
-
-	const showAccount = claim ? claim.showAccount : true;
-	const canManageFiles = claim ? claim.canManageFiles : canEditActiveProject;
 
 	return (
 		<HeaderSlotsProvider value={slots}>
@@ -183,16 +186,14 @@ export function AppChrome({
 					</>
 				}
 				account={
-					showAccount ? (
-						/* Files is Project-scoped. A key change closes its dialog and
-						 * unmounts the old library/upload/delete controllers before the
-						 * new Project can render, so no stale asset list crosses the
-						 * tenancy boundary. */
-						<AccountMenu
-							key={activeProjectId ?? "no-active-project"}
-							canManageFiles={canManageFiles}
-						/>
-					) : null
+					<span ref={setAccountSlot} className="flex items-center">
+						{siteMenus ? (
+							<AccountMenu
+								key={activeProjectId ?? "no-active-project"}
+								canManageFiles={canEditActiveProject}
+							/>
+						) : null}
+					</span>
 				}
 			/>
 			{children}

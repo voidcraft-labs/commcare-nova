@@ -1,529 +1,298 @@
-/**
- * Tests for the `data-mutations` dispatch branch in `applyStreamEvent`.
- *
- * The live server emits fine-grained `Mutation[]` batches directly via
- * `GenerationContext.emitMutations()` and now also ships the matching
- * `MutationEvent[]` envelopes in the same payload so the client can
- * mirror the persisted log into its session events buffer. These tests
- * verify that the dispatcher:
- *
- *   - applies single mutations and multi-mutation atomic batches,
- *   - appends the envelopes to the session events buffer,
- *   - accepts canonical empty batches and rejects a missing batch, and
- *   - carries the optional `stage` tag on each envelope.
- *
- * We use real wired stores (BlueprintDocStore + BuilderSessionStore) so
- * reducers and selectors run exactly as in production.
- */
-
-import { beforeEach, describe, expect, it } from "vitest";
+/** Admitted server batches through the actual receiver, stores and reconciler. */
+import { afterEach, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { createReconciler } from "@/lib/collab/reconciler";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	availableLookupContext,
+	lookupTableDefinition,
+} from "@/lib/__tests__/lookupFixtures";
+import { createReconciler, type Reconciler } from "@/lib/collab/reconciler";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
-import type { BlueprintDocStoreApi } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	blueprintDocSchema,
 	lookupOptionsSourceSchema,
-	type PersistableDoc,
 	type SelectOptionsSource,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { MutationEvent } from "@/lib/log/types";
-import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { signalGrid } from "@/lib/signalGrid/store";
 import { applyStreamEvent } from "../streamDispatcher";
 import { createWiredStores, hydrateDoc } from "./testHelpers";
 
-/** Build MutationEvent envelopes for each mutation, stamping the
- *  optional stage tag — mirrors what `GenerationContext.emitMutations`
- *  now produces on the server. */
-function envelopes(mutations: Mutation[], stage?: string): MutationEvent[] {
-	return mutations.map((mutation, i) => ({
-		kind: "mutation",
-		runId: "test-run",
-		ts: 0,
-		seq: i,
-		source: "chat",
-		actor: "agent",
-		...(stage && { stage }),
-		mutation,
-	}));
-}
-
-const LOOKUP_MODULE = testUuid("10000000-0000-4000-8000-000000000000");
-const LOOKUP_FORM = testUuid("20000000-0000-4000-8000-000000000000");
-const LOOKUP_FIELD = testUuid("30000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_A = testUuid("40000000-0000-4000-8000-000000000000");
-const LOOKUP_OPTION_B = testUuid("50000000-0000-4000-8000-000000000000");
-const LOOKUP_SOURCE_A = lookupOptionsSourceSchema.parse({
-	kind: "lookup",
-	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab",
-	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ad",
-	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890ae",
-});
-const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
-	kind: "lookup",
-	tableId: "018f3e8a-7b2c-7def-8abc-1234567890ac",
-	valueColumnId: "018f3e8a-7b2c-7def-8abc-1234567890af",
-	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
-});
-const INLINE_SOURCE: SelectOptionsSource = {
+const FORM = testUuid("receiver-form");
+const FIELD = testUuid("receiver-field");
+const EXTRA = testUuid("receiver-extra");
+const INLINE: SelectOptionsSource = {
 	kind: "inline",
 	options: [
+		{ uuid: testUuid("option"), value: "active", label: proseText("Active") },
 		{
-			uuid: LOOKUP_OPTION_A,
-			value: "active",
-			label: proseText("Active"),
-		},
-		{
-			uuid: LOOKUP_OPTION_B,
+			uuid: testUuid("option-closed"),
 			value: "closed",
 			label: proseText("Closed"),
 		},
 	],
 };
-
-function lookupSourceMutation(optionsSource: SelectOptionsSource): Mutation {
-	return {
-		kind: "updateField",
-		uuid: LOOKUP_FIELD,
-		targetKind: "single_select",
-		patch: { optionsSource },
-	};
-}
-
-function lookupReceiverDoc(): PersistableDoc {
-	return {
-		appId: "lookup-dispatch",
-		appName: "Lookup dispatch",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[LOOKUP_MODULE]: {
-				uuid: LOOKUP_MODULE,
-				id: "lookups",
-				name: "Lookups",
-			},
-		},
-		forms: {
-			[LOOKUP_FORM]: {
-				uuid: LOOKUP_FORM,
-				id: "intake",
+const sources = ["a", "b"].map((key) =>
+	lookupOptionsSourceSchema.parse({
+		kind: "lookup",
+		tableId: `01912d68-783e-7000-8000-00000000${key}001`,
+		valueColumnId: `01912d68-783e-7000-8000-00000000${key}002`,
+		labelColumnId: `01912d68-783e-7000-8000-00000000${key}003`,
+	}),
+);
+const catalog = availableLookupContext(
+	sources.map((source, index) =>
+		lookupTableDefinition({
+			id: source.tableId,
+			name: `Table ${index}`,
+			tag: `table_${index}`,
+			columns: [
+				{ id: source.valueColumnId, wireName: "code", label: "Code" },
+				{ id: source.labelColumnId, wireName: "name", label: "Name" },
+			],
+		}),
+	),
+);
+const owned: Reconciler[] = [];
+afterEach(() => {
+	for (const reconciler of owned.splice(0)) reconciler.dispose();
+	signalGrid.reset();
+});
+function setup() {
+	const stores = createWiredStores();
+	const base = buildDoc({
+		appId: "receiver",
+		appName: "Receiver",
+		modules: [
+			{
 				name: "Intake",
-				type: "survey",
+				forms: [
+					{
+						uuid: FORM,
+						name: "Intake",
+						type: "survey",
+						fields: [
+							f({
+								uuid: FIELD,
+								id: "status",
+								kind: "single_select",
+								optionsSource: INLINE,
+							}),
+						],
+					},
+				],
 			},
-		},
-		fields: {
-			[LOOKUP_FIELD]: {
-				uuid: LOOKUP_FIELD,
-				id: "status",
-				kind: "single_select",
-				label: proseText("Status"),
-				optionsSource: INLINE_SOURCE,
-			},
-		},
-		moduleOrder: [LOOKUP_MODULE],
-		formOrder: { [LOOKUP_MODULE]: [LOOKUP_FORM] },
-		fieldOrder: { [LOOKUP_FORM]: [LOOKUP_FIELD] },
-	};
+		],
+	});
+	blueprintDocSchema.parse(toPersistableDoc(base));
+	expect(mutationCommitVerdict(base, [], catalog).ok).toBe(true);
+	hydrateDoc(stores.docStore, toPersistableDoc(base));
+	signalGrid.reset();
+	return stores;
 }
-
-/** Mirror the generation SSE payload's JSON encode/decode before onData calls
- * `applyStreamEvent`. */
-function rawLookupPayload(
-	mutation: Mutation,
-	seq: number,
-): Record<string, unknown> {
-	const event: MutationEvent = {
+function payload(mutations: readonly Mutation[], seq = 2) {
+	const events: MutationEvent[] = mutations.map((mutation, index) => ({
 		kind: "mutation",
-		runId: "lookup-run",
-		ts: 1_000 + seq,
-		seq,
+		runId: "run",
+		ts: seq,
+		seq: index,
 		source: "chat",
 		actor: "agent",
-		stage: "lookup",
+		stage: "form:0-0",
 		mutation,
-	};
+	}));
 	return JSON.parse(
-		JSON.stringify({
-			mutations: [mutation],
-			events: [event],
-			seq: seq + 1,
-			batchId: `lookup-batch-${seq}`,
-			stage: "lookup",
-		}),
-	) as Record<string, unknown>;
+		JSON.stringify({ mutations, events, batchId: `batch-${seq}`, seq }),
+	);
 }
-
-function owns(value: object, key: PropertyKey): boolean {
-	return Object.hasOwn(value, key);
+function admitted(
+	stores: ReturnType<typeof setup>,
+	mutations: readonly Mutation[],
+) {
+	const verdict = mutationCommitVerdict(
+		stores.docStore.getState(),
+		mutations,
+		catalog,
+	);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	blueprintDocSchema.parse(toPersistableDoc(verdict.nextDoc));
+	return verdict;
 }
-
-// ── Test suite ──────────────────────────────────────────────────────────
-
-describe("applyStreamEvent — data-mutations", () => {
-	let docStore: BlueprintDocStoreApi;
-	let sessionStore: BuilderSessionStoreApi;
-
-	beforeEach(() => {
-		const stores = createWiredStores();
-		docStore = stores.docStore;
-		sessionStore = stores.sessionStore;
-		signalGrid.reset();
-	});
-
-	it("applies a single mutation AND appends its envelope to the buffer", () => {
-		const mutations: Mutation[] = [
-			{ kind: "setAppName", name: "Clinical Trial App" },
-		];
-		const events = envelopes(mutations, "schema");
-
-		applyStreamEvent(
-			"data-mutations",
-			{ mutations, events, stage: "schema" },
-			docStore,
-			sessionStore,
-			null,
-			undefined,
-		);
-
-		expect(docStore.getState().appName).toBe("Clinical Trial App");
-		expect(sessionStore.getState().events).toEqual(events);
-	});
-
-	it("applies a multi-mutation batch atomically AND appends all envelopes", () => {
-		const moduleUuid = testUuid("mod-live-1");
-		const formUuid = testUuid("form-live-1");
-
-		const mutations: Mutation[] = [
-			{ kind: "setAppName", name: "Field Survey" },
-			{
-				kind: "addModule",
-				module: {
-					uuid: moduleUuid,
-					id: "intake",
-					name: "Intake",
-					caseType: "participant",
-				},
+it("commits one atomic receiver notification and preserves server event envelopes", () => {
+	const stores = setup();
+	const mutations: readonly Mutation[] = [
+		{ kind: "setAppName", name: "Renamed" },
+		{
+			kind: "addField",
+			parentUuid: FORM,
+			field: {
+				uuid: EXTRA,
+				id: "extra",
+				kind: "text",
+				label: proseText("Extra"),
 			},
-			{
-				kind: "addForm",
-				moduleUuid,
-				form: {
-					uuid: formUuid,
-					id: "enroll",
-					name: "Enroll Participant",
-					type: "registration",
-				},
-			},
-		];
-		const events = envelopes(mutations, "scaffold");
-
-		applyStreamEvent(
-			"data-mutations",
-			{ mutations, events, stage: "scaffold" },
-			docStore,
-			sessionStore,
-			null,
-			undefined,
-		);
-
-		const doc = docStore.getState();
-		expect(doc.appName).toBe("Field Survey");
-		expect(doc.moduleOrder).toEqual([moduleUuid]);
-		expect(doc.modules[moduleUuid]?.name).toBe("Intake");
-		expect(doc.formOrder[moduleUuid]).toEqual([formUuid]);
-		expect(doc.forms[formUuid]?.name).toBe("Enroll Participant");
-
-		expect(sessionStore.getState().events).toHaveLength(3);
-	});
-
-	it("ignores an empty mutations array — neither store changes", () => {
-		const docBefore = docStore.getState();
-		const eventsBefore = sessionStore.getState().events;
-
-		applyStreamEvent(
-			"data-mutations",
-			{ mutations: [] as Mutation[], events: [] as MutationEvent[] },
-			docStore,
-			sessionStore,
-			null,
-			undefined,
-		);
-
-		expect(docStore.getState().appName).toBe(docBefore.appName);
-		expect(docStore.getState().moduleOrder).toBe(docBefore.moduleOrder);
-		/* Reference-preserving on empty push. */
-		expect(sessionStore.getState().events).toBe(eventsBefore);
-	});
-
-	it("rejects a payload without its canonical mutations member", () => {
-		const appNameBefore = docStore.getState().appName;
-		const eventsBefore = sessionStore.getState().events;
-
-		expect(() => {
-			applyStreamEvent(
-				"data-mutations",
-				{},
-				docStore,
-				sessionStore,
-				null,
-				undefined,
-			);
-		}).toThrow(
-			expect.objectContaining({
-				code: "MUTATION_WIRE_CANONICALITY_INVALID",
-				details: {
-					mutationIndex: null,
-					pointer: "",
-					reason: "non-json-value",
-				},
-			}),
-		);
-
-		expect(docStore.getState().appName).toBe(appNameBefore);
-		expect(sessionStore.getState().events).toBe(eventsBefore);
-		expect(signalGrid.drainEnergy()).toBe(0);
-	});
-
-	it("stamps the optional `stage` tag onto every envelope", () => {
-		const mutations: Mutation[] = [
-			{ kind: "setAppName", name: "Staged Build" },
-		];
-		const events = envelopes(mutations, "scaffold");
-
-		applyStreamEvent(
-			"data-mutations",
-			{ mutations, events, stage: "scaffold" },
-			docStore,
-			sessionStore,
-			null,
-			undefined,
-		);
-
-		expect(docStore.getState().appName).toBe("Staged Build");
-		const bufferEvent = sessionStore.getState().events[0];
-		expect(bufferEvent?.kind).toBe("mutation");
-		expect(bufferEvent?.kind === "mutation" && bufferEvent.stage).toBe(
-			"scaffold",
-		);
-	});
-
-	it("replays inline-to-lookup, lookup replacement, and lookup-to-inline from raw generation SSE payloads", () => {
-		hydrateDoc(docStore, lookupReceiverDoc());
-		const setSource = lookupSourceMutation(LOOKUP_SOURCE_A);
-		const replaceSource = lookupSourceMutation(LOOKUP_SOURCE_B);
-		const returnInline = lookupSourceMutation(INLINE_SOURCE);
-
-		const payloads = [setSource, replaceSource, returnInline].map(
-			rawLookupPayload,
-		);
-		for (const [index, expectedSource] of [
-			LOOKUP_SOURCE_A,
-			LOOKUP_SOURCE_B,
-			INLINE_SOURCE,
-		].entries()) {
-			const payload = payloads[index];
-			if (!payload) throw new Error(`missing raw lookup payload ${index}`);
-			const rawMutation = (
-				payload.mutations as Record<string, unknown>[] | undefined
-			)?.[0];
-			const rawEvent = (
-				payload.events as
-					| Array<{ mutation?: Record<string, unknown> }>
-					| undefined
-			)?.[0];
-			if (!rawMutation || !rawEvent?.mutation) {
-				throw new Error(`malformed raw lookup payload ${index}`);
-			}
-
-			/* Both copies carry the same final nested field patch. */
-			expect(owns(rawMutation, "optionsSource")).toBe(false);
-			expect(rawMutation.patch).toEqual({ optionsSource: expectedSource });
-			expect(owns(rawEvent.mutation, "optionsSource")).toBe(false);
-			expect(rawEvent.mutation.patch).toEqual({
-				optionsSource: expectedSource,
-			});
-
-			applyStreamEvent(
-				"data-mutations",
-				payload,
-				docStore,
-				sessionStore,
-				null,
-				"lookup-run",
-			);
-
-			const field = docStore.getState().fields[LOOKUP_FIELD];
-			if (field?.kind !== "single_select") {
-				throw new Error("lookup receiver field is missing");
-			}
-			expect(field.optionsSource).toEqual(expectedSource);
-		}
-
-		const rawInline = payloads[2]?.mutations as
-			| Record<string, unknown>[]
-			| undefined;
-		const rawInlineEvent = payloads[2]?.events as
-			| Array<{ mutation?: Record<string, unknown> }>
-			| undefined;
-		expect(rawInline?.[0]?.patch).toEqual({ optionsSource: INLINE_SOURCE });
-		expect(rawInlineEvent?.[0]?.mutation?.patch).toEqual({
-			optionsSource: INLINE_SOURCE,
-		});
-
-		const bufferedInline = sessionStore.getState().events.at(-1);
-		expect(bufferedInline?.kind).toBe("mutation");
+		},
+	];
+	const verdict = admitted(stores, mutations);
+	const notifications: unknown[] = [];
+	const unsubscribe = stores.docStore.subscribe((state, previous) => {
 		if (
-			bufferedInline?.kind !== "mutation" ||
-			bufferedInline.mutation.kind !== "updateField" ||
-			bufferedInline.mutation.targetKind !== "single_select"
+			state.appName !== previous.appName ||
+			state.fieldOrder[FORM] !== previous.fieldOrder[FORM]
 		) {
-			throw new Error("inline-source MutationEvent was not buffered");
+			notifications.push({
+				name: state.appName,
+				order: state.fieldOrder[FORM],
+			});
 		}
-		expect(bufferedInline.mutation.patch.optionsSource).toEqual(INLINE_SOURCE);
-		expect(sessionStore.getState().events).toHaveLength(3);
 	});
-
-	// The end-to-end echo-vs-register race across the two transports. The chat
-	// commit writes Postgres (→ the /stream echo frame) BEFORE the
-	// `data-mutations` chunk is written. When the echo lands FIRST, the reconciler
-	// folds the batch into `displayed`; the late `data-mutations` chunk must NOT
-	// re-apply it to the store, or the non-dedup `addModule` reducer splices the
-	// module uuid twice and the builder tree renders it DUPLICATED for the rest of
-	// the run (the P6/P7 bug, healed only at data-done).
-	describe("echo-before-data-mutations race (no store duplication)", () => {
-		const MOD = testUuid("mod-base");
-		const NEW_MOD = testUuid("mod-added");
-
-		/** A base doc with one module, hydrated + tracking (a live builder). */
-		function seedDoc(store: BlueprintDocStoreApi): void {
-			store.getState().load(
-				toPersistableDoc({
-					appId: "app-1",
-					appName: "Base",
-					connectType: null,
-					caseTypes: null,
-					modules: { [MOD]: { uuid: MOD, id: "m", name: "Module" } },
-					forms: {},
-					fields: {},
-					moduleOrder: [MOD],
-					formOrder: { [MOD]: [] },
-					fieldOrder: {},
-					fieldParent: {},
-				} as never),
-			);
-			store.getState().startTracking();
-		}
-
-		const addModuleBatch: Mutation[] = [
+	const frame = payload(verdict.mutations);
+	try {
+		applyStreamEvent(
+			"data-mutations",
+			frame,
+			stores.docStore,
+			stores.sessionStore,
+			null,
+			"run",
+		);
+	} finally {
+		unsubscribe();
+	}
+	expect(notifications).toEqual([{ name: "Renamed", order: [FIELD, EXTRA] }]);
+	expect(stores.sessionStore.getState().events).toEqual(frame.events);
+	expect(stores.docStore.getState().canUndo).toBe(false);
+});
+it("rejects a noncanonical batch before touching the document, event buffer or energy", () => {
+	const stores = setup();
+	const before = stores.docStore.getState();
+	const events = stores.sessionStore.getState().events;
+	expect(() =>
+		applyStreamEvent(
+			"data-mutations",
+			{},
+			stores.docStore,
+			stores.sessionStore,
+			null,
+			"run",
+		),
+	).toThrow(
+		expect.objectContaining({ code: "MUTATION_WIRE_CANONICALITY_INVALID" }),
+	);
+	expect(stores.docStore.getState()).toBe(before);
+	expect(stores.sessionStore.getState().events).toBe(events);
+	expect(signalGrid.drainEnergy()).toBe(0);
+	applyStreamEvent(
+		"data-mutations",
+		{ mutations: [], events: [] },
+		stores.docStore,
+		stores.sessionStore,
+		null,
+		"run",
+	);
+	expect(stores.docStore.getState()).toBe(before);
+	expect(stores.sessionStore.getState().events).toBe(events);
+});
+it("receives admitted inline-to-lookup, table replacement and return-to-inline JSON frames", () => {
+	const stores = setup();
+	for (const [index, source] of [...sources, INLINE].entries()) {
+		const mutation: Mutation = {
+			kind: "updateField",
+			uuid: FIELD,
+			targetKind: "single_select",
+			patch: { optionsSource: source },
+		};
+		const verdict = admitted(stores, [mutation]);
+		applyStreamEvent(
+			"data-mutations",
+			payload(verdict.mutations, index + 2),
+			stores.docStore,
+			stores.sessionStore,
+			null,
+			"run",
+		);
+		const field = stores.docStore.getState().fields[FIELD];
+		expect(field.kind).toBe("single_select");
+		if (field.kind !== "single_select")
+			throw new Error("Receiver changed field kind");
+		expect(field.optionsSource).toEqual(source);
+	}
+	expect(stores.sessionStore.getState().events).toHaveLength(3);
+});
+it.each(["echo-first", "chat-first"] as const)(
+	"%s delivers one committed field through both transports exactly once",
+	(order) => {
+		const stores = setup();
+		const mutations: readonly Mutation[] = [
 			{
-				kind: "addModule",
-				module: { uuid: NEW_MOD, id: "m2", name: "Added" } as never,
+				kind: "addField",
+				parentUuid: FORM,
+				field: {
+					uuid: EXTRA,
+					id: "extra",
+					kind: "text",
+					label: proseText("Extra"),
+				},
 			},
 		];
-
-		it("the echo folds the module in, the late data-mutations chunk does NOT re-apply it", () => {
-			seedDoc(docStore);
-			const reconciler = createReconciler(
-				docStore,
-				{
-					appId: "app-1",
-					baseSeq: 0,
-					baseDoc: docStore.getState(),
-					userId: "u1",
+		const verdict = admitted(stores, mutations);
+		const reconciler = createReconciler(
+			stores.docStore,
+			{
+				appId: "receiver",
+				baseSeq: 1,
+				baseDoc: stores.docStore.getState(),
+				userId: "actor",
+			},
+			{
+				put: async () => {
+					throw new Error("Receiver must not PUT committed server edits");
 				},
-				{
-					put: async () => ({ ok: true, seq: 1 }),
-					canEdit: () => true,
-					reload: async () => {
-						throw new Error("no reload in this test");
-					},
-					resubscribe: () => {},
-					scheduleRetry: () => () => {},
+				reload: async () => {
+					throw new Error("No sequence gap to reload");
 				},
-			);
-			reconciler.setSelfActiveRunId("run-1");
-
-			// ECHO FIRST — the /stream frame beats the chat chunk. The reconciler
-			// classifies it (self actor + active runId), folds it into confirmedDoc
-			// AND displayed. The store now shows exactly one added module.
+				canEdit: () => true,
+				resubscribe: () => {
+					throw new Error("Unexpected reconnect");
+				},
+				scheduleRetry: () => () => {},
+			},
+		);
+		owned.push(reconciler);
+		reconciler.setSelfActiveRunId("run");
+		const echo = () =>
 			reconciler.onFrame({
-				seq: 1,
-				batchId: "chat-1",
-				actorId: "u1",
-				runId: "run-1",
+				seq: 2,
+				batchId: "batch-2",
+				actorId: "actor",
+				runId: "run",
 				kind: "chat",
-				mutations: admitMutationBatch(addModuleBatch),
+				mutations: admitMutationBatch(verdict.mutations),
 			});
-			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
-
-			// THEN the late data-mutations chunk. registerChatBatch reports
-			// `alreadyConfirmed`, so the dispatcher SKIPS applyMany — no second splice.
+		const chat = () =>
 			applyStreamEvent(
 				"data-mutations",
-				{ mutations: addModuleBatch, events: [], batchId: "chat-1", seq: 1 },
-				docStore,
-				sessionStore,
+				payload(verdict.mutations),
+				stores.docStore,
+				stores.sessionStore,
 				reconciler,
-				"run-1",
+				"run",
 			);
-
-			// The module appears EXACTLY once — no duplicate. Before the fix this was
-			// [MOD, NEW_MOD, NEW_MOD].
-			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
-			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);
-			reconciler.dispose();
-		});
-
-		it("the common ordering (data-mutations before echo) still applies once", () => {
-			seedDoc(docStore);
-			const reconciler = createReconciler(
-				docStore,
-				{
-					appId: "app-1",
-					baseSeq: 0,
-					baseDoc: docStore.getState(),
-					userId: "u1",
-				},
-				{
-					put: async () => ({ ok: true, seq: 1 }),
-					canEdit: () => true,
-					reload: async () => {
-						throw new Error("no reload in this test");
-					},
-					resubscribe: () => {},
-					scheduleRetry: () => () => {},
-				},
-			);
-			reconciler.setSelfActiveRunId("run-1");
-
-			// data-mutations FIRST: registerChatBatch reports NOT alreadyConfirmed, so
-			// the dispatcher DOES applyMany — the store gains the module once.
-			applyStreamEvent(
-				"data-mutations",
-				{ mutations: addModuleBatch, events: [], batchId: "chat-1", seq: 1 },
-				docStore,
-				sessionStore,
-				reconciler,
-				"run-1",
-			);
-			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
-			expect(reconciler.getSnapshot().sentPending).toHaveLength(1);
-
-			// The echo then drops the batch; the store is untouched (one module).
-			reconciler.onFrame({
-				seq: 1,
-				batchId: "chat-1",
-				actorId: "u1",
-				runId: "run-1",
-				kind: "chat",
-				mutations: admitMutationBatch(addModuleBatch),
-			});
-			expect(docStore.getState().moduleOrder).toEqual([MOD, NEW_MOD]);
-			expect(reconciler.getSnapshot().sentPending).toHaveLength(0);
-			reconciler.dispose();
-		});
-	});
-});
+		for (const deliver of order === "echo-first"
+			? [echo, chat]
+			: [chat, echo]) {
+			deliver();
+			expect(stores.docStore.getState().fieldOrder[FORM]).toEqual([
+				FIELD,
+				EXTRA,
+			]);
+		}
+		expect(reconciler.getSnapshot().sentPending).toEqual([]);
+		expect(reconciler.getSnapshot().baseSeq).toBe(2);
+		expect(stores.docStore.getState().canUndo).toBe(false);
+	},
+);

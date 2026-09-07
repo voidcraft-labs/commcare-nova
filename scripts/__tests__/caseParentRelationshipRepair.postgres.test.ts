@@ -117,7 +117,7 @@ describe("case parent relationship scan-then-migrate", () => {
 				[CLEAN_ID, REPAIRABLE_ID, UNKNOWN_ID, TOUCHED_ID].map((caseId) => ({
 					case_id: caseId,
 					ancestor_id: PARENT_ID,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: caseId === CLEAN_ID ? "extension" : "child",
 					depth: 1,
@@ -162,6 +162,29 @@ describe("case parent relationship scan-then-migrate", () => {
 			[UNKNOWN_ID]: "unknown-origin",
 		});
 
+		const casesBefore = await db
+			.selectFrom("cases")
+			.selectAll()
+			.orderBy("case_id")
+			.execute();
+		const repair = {
+			appId: APP_ID,
+			projectId: PROJECT_ID,
+			caseType: "visit",
+			parentType: "household",
+			caseIds: [REPAIRABLE_ID],
+		};
+		for (const wrongScope of [
+			{ appId: "another-app" },
+			{ projectId: "another-project" },
+			{ caseType: "another-child-type" },
+			{ parentType: "another-parent-type" },
+		]) {
+			expect(
+				await repairCaseParentRelationships(db, { ...repair, ...wrongScope }),
+			).toEqual([]);
+		}
+
 		expect(
 			await repairCaseParentRelationships(db, {
 				appId: APP_ID,
@@ -191,6 +214,89 @@ describe("case parent relationship scan-then-migrate", () => {
 			{ case_id: REPAIRABLE_ID, relationship: "extension" },
 			{ case_id: UNKNOWN_ID, relationship: "child" },
 		]);
+		expect(
+			await db.selectFrom("cases").selectAll().orderBy("case_id").execute(),
+		).toEqual(casesBefore);
+	});
+
+	test("refuses missing, deep and mismatched parent edges even with ordinary receipts", async ({
+		db,
+	}) => {
+		const childIds = ["missing-edge", "deep-edge", "mismatched-edge"];
+		await db
+			.insertInto("cases")
+			.values([
+				makeCaseRow({ case_id: PARENT_ID, case_type: "household" }),
+				makeCaseRow({ case_id: "other-parent", case_type: "household" }),
+				...childIds.map((caseId) =>
+					makeCaseRow({
+						case_id: caseId,
+						case_type: "visit",
+						parent_case_id: PARENT_ID,
+					}),
+				),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values([
+				{
+					case_id: "deep-edge",
+					ancestor_id: PARENT_ID,
+					target_case_type: "household",
+					identifier: "parent",
+					relationship: "child",
+					depth: 2,
+				},
+				{
+					case_id: "mismatched-edge",
+					ancestor_id: "other-parent",
+					target_case_type: "household",
+					identifier: "parent",
+					relationship: "child",
+					depth: 1,
+				},
+			])
+			.execute();
+		await seedReceipt(db, {
+			entryKey: "ordinary-malformed-topology",
+			createdAt: new Date("2026-08-01T00:00:00Z"),
+			childCaseIds: childIds,
+		});
+		const edges = await db
+			.selectFrom("case_indices")
+			.selectAll()
+			.orderBy("case_id")
+			.execute();
+		expect(
+			(
+				await findCaseParentRelationshipFindings(db, {
+					appId: APP_ID,
+					projectId: PROJECT_ID,
+					blueprint,
+				})
+			).map(({ caseId, standing }) => ({ caseId, standing })),
+		).toEqual([
+			{ caseId: "deep-edge", standing: "noncanonical-topology" },
+			{ caseId: "mismatched-edge", standing: "noncanonical-topology" },
+			{ caseId: "missing-edge", standing: "noncanonical-topology" },
+		]);
+		expect(
+			await repairCaseParentRelationships(db, {
+				appId: APP_ID,
+				projectId: PROJECT_ID,
+				caseType: "visit",
+				parentType: "household",
+				caseIds: childIds,
+			}),
+		).toEqual([]);
+		expect(
+			await db
+				.selectFrom("case_indices")
+				.selectAll()
+				.orderBy("case_id")
+				.execute(),
+		).toEqual(edges);
 	});
 
 	test("loads Project placement from the classification snapshot instead of stale enumeration", async ({
@@ -217,7 +323,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: REPAIRABLE_ID,
 				ancestor_id: PARENT_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -277,7 +383,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: historicalCatalogId,
 				ancestor_id: PARENT_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -376,7 +482,7 @@ describe("case parent relationship scan-then-migrate", () => {
 			.values({
 				case_id: candidateId,
 				ancestor_id: PARENT_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,

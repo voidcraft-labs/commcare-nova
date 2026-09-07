@@ -4,6 +4,7 @@ import {
 	designCollectionUpdateInputSchemas,
 	designWorkspaceBoundError,
 	designWorkspaceCandidateSummary,
+	designWorkspaceMutationCount,
 	initialDesignWorkspaceCandidate,
 	inspectDesignWorkspaceCandidate,
 	normalizeStoredDesignArtifactWorkspaceOperation,
@@ -12,6 +13,7 @@ import {
 	setDesignRootInputSchema,
 	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
+import { appDesignContractSchema } from "../contract";
 import {
 	addPatientReviewWorkflow,
 	did,
@@ -21,17 +23,48 @@ import {
 } from "./fixtures";
 
 describe("design artifact workspaces", () => {
-	it("starts every authoring workspace with the complete current contract root", () => {
-		expect(initialDesignWorkspaceCandidate("contract")).toMatchObject({
-			schemaVersion: 1,
-			lookupTables: [],
+	it("reconstructs an admitted complete contract from independently persisted semantic updates", () => {
+		const contract = appDesignContractSchema.parse(makeContract());
+		const operations = [
+			designArtifactWorkspaceOperationSchema.parse({
+				kind: "contract",
+				root: { schemaVersion: 1, id: contract.id, charter: contract.charter },
+				collections: [],
+			}),
+			...Object.entries(contract).flatMap(([collection, items]) =>
+				Array.isArray(items) && items.length > 0
+					? [
+							designArtifactWorkspaceOperationSchema.parse({
+								kind: "contract",
+								collections: [{ collection, upserts: items, removeIds: [] }],
+							}),
+						]
+					: [],
+			),
+		];
+		const stored = operations.map((operation) =>
+			JSON.parse(
+				JSON.stringify(
+					prepareDesignArtifactWorkspaceOperationForStorage(operation),
+				),
+			),
+		);
+		const candidate = replayDesignWorkspace({
+			kind: "contract",
+			operations: stored.map(normalizeStoredDesignArtifactWorkspaceOperation),
 		});
-		const replayed = replayDesignWorkspace({
-			kind: "revision",
-			baseContract: makeContract(),
-			operations: [],
-		});
-		expect(replayed).toMatchObject({ schemaVersion: 1, lookupTables: [] });
+		expect(candidate).toEqual(contract);
+		expect(appDesignContractSchema.parse(candidate)).toEqual(contract);
+		expect(
+			replayDesignWorkspace({
+				kind: "revision",
+				baseContract: contract,
+				operations: [],
+			}),
+		).toEqual({ ...contract, dispositions: [] });
+		expect(() => initialDesignWorkspaceCandidate("revision")).toThrow(
+			/base contract/,
+		);
 	});
 
 	it("replays semantic root and collection updates", () => {
@@ -300,18 +333,51 @@ describe("design artifact workspaces", () => {
 		).toThrow();
 	});
 
-	it("keeps blocking dispositions separate from contract collections", () => {
-		const parsed = updateFindingDispositionsInputSchema.parse({
-			upserts: [
-				{
-					findingId: did(500),
-					status: "accepted",
-					rationale: "Corrected the workflow readback.",
+	it("applies disposition updates by finding identity without changing the contract", () => {
+		const contract = appDesignContractSchema.parse(makeContract());
+		const first = {
+			findingId: did(500),
+			status: "accepted" as const,
+			rationale: "Corrected the workflow readback.",
+		};
+		const second = {
+			findingId: did(501),
+			status: "rejected" as const,
+			rationale: "The existing workflow meets the request.",
+		};
+		const updated = {
+			...first,
+			rationale: "Confirmed the corrected workflow.",
+		};
+		const operations = [
+			{ upserts: [first, second], removeIds: [] },
+			{ upserts: [updated], removeIds: [second.findingId] },
+		].map((input) =>
+			designArtifactWorkspaceOperationSchema.parse({
+				kind: "revision",
+				collections: [],
+				dispositions: {
+					collection: "dispositions",
+					...updateFindingDispositionsInputSchema.parse(input),
 				},
-			],
-			removeIds: [],
-		});
-		expect(parsed.upserts).toHaveLength(1);
+			}),
+		);
+		const before = structuredClone(operations);
+		expect(
+			replayDesignWorkspace({
+				kind: "revision",
+				baseContract: contract,
+				operations,
+			}),
+		).toEqual({ ...contract, dispositions: [updated] });
+		expect(operations).toEqual(before);
+		expect(
+			replayDesignWorkspace({
+				kind: "revision",
+				baseContract: contract,
+				operations: [],
+			}),
+		).toEqual({ ...contract, dispositions: [] });
 	});
 
 	it("rejects empty semantic updates and bounds oversized operations", () => {
@@ -363,6 +429,186 @@ describe("design artifact workspaces", () => {
 				limit: 1,
 			},
 		});
-		expect(view).toMatchObject({ total: 2, truncated: true });
+		expect(view).toEqual({
+			kind: "collection",
+			collection: "workflows",
+			items: [makeContract().workflows[0]],
+			total: 2,
+			offset: 0,
+			truncated: true,
+		});
+	});
+});
+
+describe("workspace semantic boundaries", () => {
+	it("preserves retained order, replaces identities and appends new identities through repeated operations", () => {
+		const contract = appDesignContractSchema.parse(makeContract());
+		const first = fixtureValue(contract.actors[0], "first actor");
+		const second = fixtureValue(contract.actors[1], "second actor");
+		const third = { ...first, id: did(600), name: "Supervisor" };
+		const fourth = { ...first, id: did(601), name: "Observer" };
+		const replaced = { ...second, name: "Updated existing actor" };
+		const operations = [
+			{ upserts: [third, replaced], removeIds: [first.id] },
+			{ upserts: [fourth], removeIds: [] },
+			{ upserts: [], removeIds: [third.id, did(777)] },
+		].map((input) =>
+			designArtifactWorkspaceOperationSchema.parse({
+				kind: "revision",
+				collections: [{ collection: "actors", ...input }],
+			}),
+		);
+		const inputBefore = structuredClone({ contract, operations });
+		const candidate = replayDesignWorkspace({
+			kind: "revision",
+			baseContract: contract,
+			operations,
+		});
+		// This intentionally partial edit may leave actor references unresolved;
+		// replay owns identity/order, while final graph admission is a separate gate.
+		expect(candidate).toEqual({
+			...contract,
+			actors: [replaced, fourth],
+			dispositions: [],
+		});
+		expect({ contract, operations }).toEqual(inputBefore);
+		expect(() =>
+			replayDesignWorkspace({ kind: "contract", operations }),
+		).toThrow(/different artifact kind/);
+	});
+	it.each(["duplicate", "conflict", "empty", "two-collections"] as const)(
+		"refuses %s semantic ambiguity before replay",
+		(kind) => {
+			const actor = fixtureValue(makeContract().actors[0], "actor");
+			const collection = {
+				collection: "actors",
+				upserts: [actor],
+				removeIds: [],
+			};
+			const candidate =
+				kind === "duplicate"
+					? { ...collection, upserts: [actor, actor] }
+					: kind === "conflict"
+						? { ...collection, removeIds: [actor.id] }
+						: kind === "empty"
+							? { ...collection, upserts: [] }
+							: collection;
+			expect(
+				designArtifactWorkspaceOperationSchema.safeParse({
+					kind: "contract",
+					collections:
+						kind === "two-collections" ? [candidate, candidate] : [candidate],
+				}).success,
+			).toBe(false);
+		},
+	);
+	it("counts root, collection and disposition work together at the exact cap", () => {
+		const actors = Array.from({ length: 30 }, (_, index) => ({
+			...fixtureValue(makeContract().actors[0], "actor"),
+			id: did(1000 + index),
+		}));
+		const operation = designArtifactWorkspaceOperationSchema.parse({
+			kind: "revision",
+			root: { id: did(800) },
+			collections: [{ collection: "actors", upserts: actors, removeIds: [] }],
+			dispositions: {
+				collection: "dispositions",
+				upserts: [
+					{ findingId: did(900), status: "accepted", rationale: "Resolved." },
+				],
+				removeIds: [],
+			},
+		});
+		expect(designWorkspaceMutationCount(operation)).toBe(32);
+		expect(
+			designWorkspaceBoundError({ input: operation, operation }),
+		).toBeNull();
+		const over = designArtifactWorkspaceOperationSchema.parse({
+			...operation,
+			root: { ...operation.root, schemaVersion: 1 },
+		});
+		expect(designWorkspaceBoundError({ input: over, operation: over })).toBe(
+			"This call contains 33 item changes; submit at most 32 and continue in another semantic call.",
+		);
+	});
+	it("bounds encoded input bytes, including Unicode, independently of mutation count", () => {
+		const operation = designArtifactWorkspaceOperationSchema.parse({
+			kind: "contract",
+			root: { schemaVersion: 1 },
+			collections: [],
+		});
+		// JSON string quotes cost two bytes; every e-acute costs two UTF-8 bytes.
+		const exact = "é".repeat(24575);
+		expect(designWorkspaceBoundError({ input: exact, operation })).toBeNull();
+		expect(designWorkspaceBoundError({ input: `${exact}x`, operation })).toBe(
+			"This call is 49153 bytes; keep each semantic call at or below 49152 bytes and continue in another call.",
+		);
+	});
+	it("filters identities before pagination and keeps source inspection independent", () => {
+		const source = appDesignContractSchema.parse(makeContract());
+		const changed = {
+			...source,
+			charter: { ...source.charter, appName: "Edited app" },
+			workflows: [...source.workflows].reverse(),
+		};
+		const view = (
+			selection: Parameters<
+				typeof inspectDesignWorkspaceCandidate
+			>[0]["selection"],
+		) =>
+			inspectDesignWorkspaceCandidate({
+				kind: "revision",
+				candidate: changed,
+				sourceContract: source,
+				selection,
+			});
+		expect(view({ kind: "root" })).toEqual({
+			kind: "root",
+			root: { schemaVersion: 1, id: source.id, charter: changed.charter },
+		});
+		expect(view({ kind: "sourceRoot" })).toEqual({
+			kind: "sourceRoot",
+			root: { schemaVersion: 1, id: source.id, charter: source.charter },
+		});
+		const selected = fixtureValue(source.workflows[1], "second workflow");
+		expect(
+			view({
+				kind: "sourceCollection",
+				collection: "workflows",
+				ids: [selected.id, did(999), selected.id],
+				offset: 0,
+				limit: 1,
+			}),
+		).toEqual({
+			kind: "sourceCollection",
+			collection: "workflows",
+			items: [selected],
+			total: 1,
+			offset: 0,
+			truncated: false,
+		});
+		expect(
+			view({
+				kind: "collection",
+				collection: "workflows",
+				ids: [],
+				offset: 2,
+				limit: 1,
+			}),
+		).toEqual({
+			kind: "collection",
+			collection: "workflows",
+			items: [],
+			total: 2,
+			offset: 2,
+			truncated: false,
+		});
+		expect(() =>
+			inspectDesignWorkspaceCandidate({
+				kind: "contract",
+				candidate: source,
+				selection: { kind: "sourceRoot" },
+			}),
+		).toThrow(/no immutable source/);
 	});
 });

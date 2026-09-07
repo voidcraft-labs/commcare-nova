@@ -20,7 +20,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Uuid } from "@/lib/doc/types";
-import type { Field } from "@/lib/domain";
+import { type Field, fieldSchema, proseText } from "@/lib/domain";
 import { buildFormRows, type CollapseState, type RowSource } from "../rowModel";
 
 // ── Fixture helpers ────────────────────────────────────────────────────
@@ -31,15 +31,21 @@ const Q = (n: number) => testUuid(`qst${n}-0000-0000-0000-000000000000`);
 const R = (n: number) => testUuid(`rep${n}-0000-0000-0000-000000000000`);
 
 function text(uuid: Uuid, id: string): Field {
-	return { uuid, id, kind: "text", label: id } as unknown as Field;
+	return { uuid, id, kind: "text", label: proseText(id) };
 }
 
 function group(uuid: Uuid, id: string): Field {
-	return { uuid, id, kind: "group", label: id } as unknown as Field;
+	return { uuid, id, kind: "group", label: proseText(id) };
 }
 
 function repeat(uuid: Uuid, id: string): Field {
-	return { uuid, id, kind: "repeat", label: id } as unknown as Field;
+	return {
+		uuid,
+		id,
+		kind: "repeat",
+		repeat_mode: "user_controlled",
+		label: proseText(id),
+	};
 }
 
 const EMPTY: CollapseState = new Set<Uuid>();
@@ -51,6 +57,7 @@ function src(
 	fields: Record<Uuid, Field>,
 	order: Record<Uuid, Uuid[]>,
 ): RowSource {
+	for (const field of Object.values(fields)) fieldSchema.parse(field);
 	return { fields, fieldOrder: order };
 }
 
@@ -332,7 +339,7 @@ describe("buildFormRows — row id stability", () => {
 const S = (n: number) => testUuid(`sec${n}-0000-0000-0000-000000000000`);
 
 function section(uuid: Uuid, id: string): Field {
-	return { uuid, id, kind: "section", label: id } as unknown as Field;
+	return { uuid, id, kind: "section", label: proseText(id) };
 }
 
 describe("buildFormRows — sections", () => {
@@ -449,8 +456,8 @@ describe("buildFormRows — sections", () => {
 	});
 
 	it("counts only sections for k-of-n when the root is briefly mixed", () => {
-		// The gate never commits this shape, but a replay race can show it
-		// for a frame: the heading still says 1 of 1 rather than 1 of 2.
+		// This deliberately malformed projection tests defensive rendering only.
+		// It is not an admissible document or a possible committed replay frame.
 		const rows = buildFormRows(
 			src(
 				{ [S(1)]: section(S(1), "intro"), [Q(1)]: text(Q(1), "a") },

@@ -39,6 +39,26 @@ const caseTypes: readonly CaseType[] = [
 ];
 
 describe("case-property rename draft", () => {
+	it("keeps same-named properties in different case types independently selectable", () => {
+		const sources = [
+			{ caseType: "client", property: "name", label: "Name" },
+			{ caseType: "visit", property: "name", label: "Name" },
+		];
+		expect(
+			availableCasePropertyRenameSources(sources, [
+				{ caseType: "client", property: "name", to: "full_name" },
+			]),
+		).toStrictEqual([sources[1]]);
+	});
+	it.each([
+		"{}",
+		"null",
+		'["client"]',
+		'["client", 1]',
+		'["client", "name", "extra"]',
+	])("refuses malformed source identity %s", (value) => {
+		expect(parseCasePropertyRenameSourceId(value)).toBeUndefined();
+	});
 	it("shows every row scalar even when it is not an effective catalog entry", () => {
 		expect(casePropertyInventoryNames(caseTypes[0] as CaseType)).toEqual([
 			"case_name",

@@ -7,21 +7,17 @@
  * group is one screen (`FormEntryController::getQuestionPrompts` returns
  * every descendant question of the host), nested field-lists flatten onto
  * the outer screen with no separator, and the app adds repeat entries only
- * from a screen of its own (`EVENT_PROMPT_NEW_REPEAT` is never raised inside
- * a field-list host, so an add-entries repeat there is unreachable).
+ * from a screen of its own (`getQuestionPrompts` ignores `EVENT_PROMPT_NEW_REPEAT` while collecting
+ * the page, so an add-entries repeat there is unreachable).
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, type FieldSpec, f, xp } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
-
-const SECTION_CODES = new Set([
-	"FORM_SECTION_NOT_TOP_LEVEL",
-	"FORM_SECTIONS_INCOMPLETE",
-	"FORM_SECTION_USER_REPEAT",
-]);
 
 function text(id: string): FieldSpec {
 	return f({ kind: "text", id, label: proseText(id) });
@@ -53,9 +49,8 @@ function sectionFindings(fields: FieldSpec[]) {
 			{ name: "Visits", forms: [{ name: "Visit", type: "survey", fields }] },
 		],
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((e) =>
-		SECTION_CODES.has(e.code),
-	);
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 }
 
 describe("form sections", () => {
@@ -244,7 +239,8 @@ describe("form sections", () => {
 			],
 		});
 		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const empty = findings.find((e) => e.code === "EMPTY_FORM");
+		expect(findings.map((e) => e.code)).toEqual(["EMPTY_FORM"]);
+		const empty = findings[0];
 		expect(empty?.message).toContain("nothing on any of them");
 		// One question on any page is a buildable form again.
 		const withQuestion = buildDoc({
@@ -262,11 +258,7 @@ describe("form sections", () => {
 				},
 			],
 		});
-		expect(
-			runValidation(withQuestion, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(e) => e.code === "EMPTY_FORM",
-			),
-		).toEqual([]);
+		expect(runValidation(withQuestion, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 
 	it("reports a nested section and the add-entries repeat it holds as two findings", () => {

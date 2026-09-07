@@ -2,7 +2,7 @@
  * The threads migration's message transform: lossy StoredThreadMessage rows
  * → text-parts-only UIMessages that hydrate `useChat` and read as plain
  * dialogue to the SA. The DDL itself is exercised by every harness run
- * (the per-test databases replay all migrations).
+ * (the shared template replays all migrations once per run).
  */
 import { describe, expect, it } from "vitest";
 import { storedMessageToUIMessage } from "../20260714000000_threads_first_class";

@@ -11,8 +11,9 @@
  * writer's exact-holder compare-and-set makes a stale ghost a no-op; and a
  * question-only session leaves no app anywhere.
  */
-import { describe, expect, it } from "vitest";
-import { AppAccessError } from "../appAccess";
+import { Client } from "pg";
+import { describe, expect, it, vi } from "vitest";
+import { actorGenerationGateKey } from "../actorGenerationGate";
 import { GenerationInProgressError } from "../apps";
 import { OutOfCreditsError, refundDesignSessionReservation } from "../credits";
 import {
@@ -31,13 +32,43 @@ import {
 } from "../designSessions";
 import { resolveGenerationTargetScope } from "../generationTargetScope";
 import { getCurrentPeriod } from "../period";
+import { __setAppDbForTests } from "../pg";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import { createPerTestAppDb } from "./perTestAppDb";
 
 const h = setupAppStateTestDb("design_sessions_");
 const ACTOR = "owner-test";
 const PROJECT = "project-test";
 const PERIOD = getCurrentPeriod();
 const NONCE = "00000000-0000-4000-8000-0000000000d1";
+
+/** Prove both independent transactions have reached the actor's advisory gate. */
+async function contendAtActorGate(start: () => readonly Promise<unknown>[]) {
+	const contenders = createPerTestAppDb(h.uri());
+	const gate = new Client({ connectionString: h.uri() });
+	const key = actorGenerationGateKey(ACTOR).toString();
+	let pending: Promise<PromiseSettledResult<unknown>[]> | undefined;
+	try {
+		await gate.connect();
+		await gate.query("SELECT pg_advisory_lock($1::bigint)", [key]);
+		__setAppDbForTests(contenders.appDb);
+		pending = Promise.allSettled(start());
+		await vi.waitFor(async () => {
+			const blocked = await gate.query<{ count: number }>(`
+				SELECT count(*)::integer AS count FROM pg_stat_activity
+				WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0
+			`);
+			expect(blocked.rows[0]?.count).toBe(2);
+		});
+		await gate.query("SELECT pg_advisory_unlock($1::bigint)", [key]);
+		return await pending;
+	} finally {
+		await gate.end();
+		await pending;
+		__setAppDbForTests(h.db());
+		await contenders.destroy();
+	}
+}
 
 describe("active design artifact selection", () => {
 	it("requires the exact holder and one accepted same-session lineage", async () => {
@@ -138,7 +169,8 @@ describe("createAndClaimDesignSessionRun", () => {
 			res_user_id: ACTOR,
 			res_run_id: "run-1",
 		});
-		expect(row?.proposed_app_id).toBeTruthy();
+		expect(row?.proposed_app_id).toBe(created.proposedAppId);
+		expect(row?.run_holder_nonce).toBe(created.holderNonce);
 		expect(created.reservation).toEqual({ period: PERIOD, reserved: 100 });
 		expect(await h.readConsumed(ACTOR, PERIOD)).toBe(100);
 		/* A question-only session leaves no app anywhere. */
@@ -194,7 +226,7 @@ describe("createAndClaimDesignSessionRun", () => {
 		 * per-actor advisory gate serializes them; the loser's in-transaction
 		 * scan then sees the winner's live holder and rejects with the
 		 * cross-target cap — never two sessions, never two reservations. */
-		const outcomes = await Promise.allSettled([
+		const outcomes = await contendAtActorGate(() => [
 			createAndClaimDesignSessionRun({
 				projectId: PROJECT,
 				actorUserId: ACTOR,
@@ -322,7 +354,7 @@ describe("claimAndReserveDesignSessionRun", () => {
 		});
 	});
 
-	it("claim racing the reaper on a lapsed session: exactly one holder or none survives (§20.9)", async () => {
+	it("claim racing the reaper retains the fresh holder and refunds the old charge once", async () => {
 		await seedActor();
 		const sessionId = await h.seedDesignSession({
 			owner_user_id: ACTOR,
@@ -344,7 +376,7 @@ describe("claimAndReserveDesignSessionRun", () => {
 			bonus: 0,
 		});
 		const { refundStaleDesignSessionRun } = await import("../credits");
-		const [claim, reap] = await Promise.allSettled([
+		const [claim, reap] = await contendAtActorGate(() => [
 			claimAndReserveDesignSessionRun(
 				sessionId,
 				"run-take",
@@ -507,6 +539,18 @@ describe("pause / resume / heartbeat", () => {
 				PROJECT,
 			),
 		).toEqual({ outcome: "superseded" });
+		await h.seedProjectMember("co-member", PROJECT, "editor");
+		const beforeDeniedResume = await h.readDesignSessionRow(sessionId);
+		await expect(
+			reacquireDesignSessionLease(
+				sessionId,
+				"run-held",
+				NONCE,
+				"co-member",
+				PROJECT,
+			),
+		).resolves.toEqual({ outcome: "released" });
+		expect(await h.readDesignSessionRow(sessionId)).toEqual(beforeDeniedResume);
 		const owned = await reacquireDesignSessionLease(
 			sessionId,
 			"run-held",
@@ -676,6 +720,23 @@ describe("terminal writers (§20.10)", () => {
 				nonce: NONCE,
 			}),
 		).toBe("state_changed");
+		await claimAndReserveDesignSessionRun(
+			sessionId,
+			"run-successor",
+			ACTOR,
+			100,
+			PROJECT,
+		);
+		const successor = await h.readDesignSessionRow(sessionId);
+		await expect(
+			refundStaleDesignSessionRun(sessionId, {
+				mode: "build",
+				runId: "run-stale",
+				nonce: NONCE,
+			}),
+		).resolves.toBe("state_changed");
+		expect(await h.readDesignSessionRow(sessionId)).toEqual(successor);
+		expect(await h.readConsumed(ACTOR, PERIOD)).toBe(100);
 	});
 });
 
@@ -953,6 +1014,22 @@ describe("§18.4 impossible combinations are database-rejected", () => {
 				res_run_id: "run-2",
 			}),
 		).rejects.toThrow(/design_sessions_reservation_names_run/);
+		await expect(
+			insert({
+				run_id: "run-1",
+				run_holder_nonce: NONCE,
+				run_actor_user_id: ACTOR,
+				run_mode: "build",
+				res_period: PERIOD,
+				res_reserved: 100,
+				res_settled: false,
+				res_user_id: "different-actor",
+				res_run_id: "run-1",
+			}),
+		).rejects.toMatchObject({
+			code: "23514",
+			constraint: "design_sessions_reservation_names_actor",
+		});
 	});
 });
 
@@ -986,7 +1063,7 @@ describe("target resolver (§ opaque authorization)", () => {
 				"stranger",
 				"view",
 			),
-		).rejects.toBeInstanceOf(AppAccessError);
+		).rejects.toMatchObject({ name: "AppAccessError", reason: "not_found" });
 		await expect(
 			resolveGenerationTargetScope(
 				{
@@ -996,6 +1073,6 @@ describe("target resolver (§ opaque authorization)", () => {
 				ACTOR,
 				"view",
 			),
-		).rejects.toBeInstanceOf(AppAccessError);
+		).rejects.toMatchObject({ name: "AppAccessError", reason: "not_found" });
 	});
 });

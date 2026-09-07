@@ -9,7 +9,13 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { UserCollections } from "@/lib/domain";
+import { withUserSequences } from "@/lib/__tests__/docHelpers";
+import {
+	personaSchema,
+	type UserCollections,
+	userPropertySchema,
+	userTypeSchema,
+} from "@/lib/domain";
 import {
 	previewAsMe,
 	previewAsPersona,
@@ -30,7 +36,7 @@ const ASHA = testUuid("44444444-4444-4444-8444-444444444444");
 const NORTH = testUuid("55555555-5555-4555-8555-555555555551");
 const CLINIC = testUuid("55555555-5555-4555-8555-555555555552");
 
-const DOC: UserCollections = {
+const DOC: UserCollections = withUserSequences({
 	userProperties: {
 		[REGION]: { uuid: REGION, slug: "region", label: "Region" },
 		[CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre" },
@@ -50,7 +56,14 @@ const DOC: UserCollections = {
 			values: { [REGION]: "south" },
 		},
 	},
-};
+});
+
+for (const value of Object.values(DOC.userProperties ?? {}))
+	userPropertySchema.parse(value);
+for (const value of Object.values(DOC.userTypes ?? {}))
+	userTypeSchema.parse(value);
+for (const value of Object.values(DOC.personas ?? {}))
+	personaSchema.parse(value);
 
 const ASHA_PERSONA = DOC.personas?.[ASHA];
 if (ASHA_PERSONA === undefined) throw new Error("fixture persona missing");
@@ -70,7 +83,7 @@ describe("the authorizing member and the acting worker are separate", () => {
 		expect(identity?.personaUuid).toBe(ASHA);
 	});
 
-	it("no authored persona value can become the actor", () => {
+	it("an authored persona name cannot become the actor", () => {
 		const identity = previewAsPersona(
 			FULL_USER,
 			{ ...ASHA_PERSONA, name: "someone-elses-user-id" },
@@ -403,6 +416,38 @@ describe("samePreviewIdentity", () => {
 				previewAsPersona(FULL_USER, ASHA_PERSONA, DOC),
 			),
 		).toBe(false);
+	});
+
+	it("invalidates an unchanged worker when a custom property is renamed or its stored case value changes", () => {
+		const identity = previewAsPersona(FULL_USER, ASHA_PERSONA, DOC);
+		if (identity === null) throw new Error("Expected identity");
+		const renamed = previewAsPersona(FULL_USER, ASHA_PERSONA, {
+			...DOC,
+			userProperties: {
+				...DOC.userProperties,
+				[REGION]: { uuid: REGION, slug: "district", label: "District" },
+			},
+		});
+		expect(renamed?.session.user.district).toBe("south");
+		expect(renamed?.session.userPropertySlugs[REGION]).toBe("district");
+		expect(samePreviewIdentity(identity, renamed)).toBe(false);
+		expect(
+			samePreviewIdentity(identity, {
+				...identity,
+				usercase: { ...identity.usercase, region: "east" },
+			}),
+		).toBe(false);
+		expect(
+			samePreviewIdentity(identity, {
+				...identity,
+				session: {
+					...identity.session,
+					user: Object.fromEntries(
+						Object.entries(identity.session.user).reverse(),
+					),
+				},
+			}),
+		).toBe(true);
 	});
 
 	it("treats null as equal only to null", () => {

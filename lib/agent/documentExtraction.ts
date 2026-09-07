@@ -31,7 +31,6 @@ import {
 } from "@/lib/domain/multimedia";
 import { log } from "@/lib/logger";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
-import { normalizeExtractText } from "./extractNormalization";
 import {
 	type SubGenerationImage,
 	type SubGenerationProviderOptions,
@@ -51,8 +50,8 @@ import {
  * older stored extracts (produced before they existed) lack them and a failed
  * extraction has none; a fresh successful extract always carries both. `truncated`
  * is retained for the stored shape but is always `false` on a fresh extract — a
- * structured result is complete by construction (a truncated one is unparseable,
- * so extraction fails rather than returning a partial). `title`/`summary` feed a
+ * provider completion and schema parsing must both succeed; an incomplete response
+ * fails extraction even when its JSON happens to parse. `title`/`summary` feed a
  * future "browse my attachments" tool; the SA reading path uses only `extract`.
  */
 export interface ExtractResult {
@@ -617,7 +616,7 @@ export function isAnimatedGif(bytes: Buffer): boolean {
 	let frames = 0;
 	while (pos < bytes.length) {
 		const block = at(pos);
-		if (block === 0x3b) return frames > 1; // trailer
+		if (block === 0x3b) return frames !== 1; // a complete still GIF has one frame
 		if (block === 0x21) {
 			// Extension: introducer + label, then sub-blocks to a 0 terminator.
 			pos += 2;
@@ -637,7 +636,7 @@ export function isAnimatedGif(bytes: Buffer): boolean {
 			return true; // unwalkable structure: don't attach
 		}
 	}
-	return frames > 1; // truncated after a single frame still reads as still
+	return true; // no complete trailer: the stream cannot be proven still
 }
 
 /** The stateful figure collector one docx conversion owns: `figures` fills in
@@ -650,8 +649,7 @@ export interface FigureCollector {
 /**
  * Create the per-conversion figure collector, split from the mammoth wiring
  * so numbering, sniffing, budget latching, and unreadable-image behavior are
- * unit-testable without loading mammoth (whose import the async-leak detector
- * flags). Every attachment verdict is decided HERE, where it can also bound
+ * unit-testable independently of Mammoth conversion. Every attachment verdict is decided HERE, where it can also bound
  * memory: once the count or total-byte budget latches, later occurrences are
  * recorded without ever reading their bytes; an unreadable, unrecognizable,
  * animated-GIF, or oversized figure records its verdict and drops its buffer
@@ -1021,16 +1019,19 @@ function clampedSheetRange(
  * count is bounded by the byte-capped file content, and the formula list is
  * capped besides.
  */
-function collectSheetFormulae(
-	ws: XLSX.WorkSheet,
-): { addr: string; formula: string }[] {
+function collectSheetFormulae(ws: XLSX.WorkSheet): {
+	formulae: { addr: string; formula: string }[];
+	omittedCount: number;
+} {
 	const formulae: { addr: string; formula: string }[] = [];
+	let omittedCount = 0;
 	for (const addr of Object.keys(ws)) {
 		if (addr.startsWith("!")) continue; // skip `!ref` / `!cols` / … metadata
 		const cell = ws[addr] as XLSX.CellObject | undefined;
 		if (cell?.f) {
-			formulae.push({ addr, formula: cell.f });
-			if (formulae.length >= MAX_XLSX_FORMULAE_PER_SHEET) break;
+			if (formulae.length < MAX_XLSX_FORMULAE_PER_SHEET)
+				formulae.push({ addr, formula: cell.f });
+			else omittedCount++;
 		}
 	}
 	// Object key order isn't guaranteed row-major; sort to reading order so the
@@ -1040,7 +1041,7 @@ function collectSheetFormulae(
 		const pb = XLSX.utils.decode_cell(b.addr);
 		return pa.r - pb.r || pa.c - pb.c;
 	});
-	return formulae;
+	return { formulae, omittedCount };
 }
 
 /**
@@ -1059,7 +1060,7 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 	preflightOfficeArchive(buffer, "xlsx");
 	const workbook = XLSX.read(buffer, { type: "buffer", cellFormula: true });
 	// Cap the sheet count first — each sheet does bounded-but-real work.
-	return workbook.SheetNames.slice(0, MAX_XLSX_SHEETS)
+	const sections = workbook.SheetNames.slice(0, MAX_XLSX_SHEETS)
 		.map((name) => {
 			const ws = workbook.Sheets[name];
 			// Read over the clamped window — `sheet_to_json` builds a grid across
@@ -1080,15 +1081,23 @@ export function xlsxToMarkdown(buffer: Buffer): string {
 				: "";
 			// Append the formula list only when the sheet has one, so value-only
 			// sheets stay clean. The h4 nests under the sheet's h3 heading.
-			const formulae = collectSheetFormulae(ws);
+			const { formulae, omittedCount } = collectSheetFormulae(ws);
 			const calculations = formulae.length
 				? `\n\n#### Calculations\n\n${formulae
 						.map(({ addr, formula }) => `- ${addr} = ${formula}`)
 						.join("\n")}`
 				: "";
-			return `### ${name}\n\n${rowsToMarkdownTable(grid)}${truncationNote}${calculations}`;
+			const formulaNote =
+				omittedCount > 0
+					? `\n\n_(${omittedCount} additional ${omittedCount === 1 ? "formula was" : "formulas were"} not read because this sheet reached the extraction limit)_`
+					: "";
+			return `### ${name}\n\n${rowsToMarkdownTable(grid)}${truncationNote}${calculations}${formulaNote}`;
 		})
 		.join("\n\n");
+	const omittedSheets = workbook.SheetNames.length - MAX_XLSX_SHEETS;
+	return omittedSheets > 0
+		? `${sections}\n\n_(${omittedSheets} additional ${omittedSheets === 1 ? "sheet was" : "sheets were"} not read because this workbook reached the extraction limit)_`
+		: sections;
 }
 
 // ── Extraction entry point ────────────────────────────────────────────────
@@ -1187,12 +1196,11 @@ export async function extractDocument(opts: {
 		});
 	}
 
-	// A `null` object means no parseable result. The common cause is truncation —
-	// the extract + title + summary together overran the output ceiling, leaving
-	// the JSON cut off. A structured call has no partial to salvage, so this is a
-	// failed extraction: throw, and the caller records `failed` / inlines the raw
-	// document.
-	if (!result.object) {
+	// Parsing alone does not establish completion: a provider may stop at its
+	// output ceiling after emitting valid JSON. Refuse both incomplete responses
+	// and unparseable output so the caller records failure instead of storing a
+	// partial extract as successful.
+	if (result.truncated || !result.object) {
 		throw new Error(
 			result.truncated
 				? `Extraction of "${filename}" hit the summarizer's output ceiling before it could finish, and the document is too large to extract in one pass. Ask the user to split it into smaller documents.`
@@ -1201,14 +1209,12 @@ export async function extractDocument(opts: {
 	}
 
 	return {
-		// Repair a double-escaped extract before anyone stores or reads it — the
-		// summarizer over-escapes a large markdown body under structured generation
-		// (see `normalizeExtractText`); a clean extract passes through untouched.
-		extract: normalizeExtractText(result.object.extract),
+		// The SDK already decoded JSON. A second escape pass would corrupt
+		// legitimate regex, path and literal-example content.
+		extract: result.object.extract,
 		title: result.object.title,
 		summary: result.object.summary,
-		// A parsed structured object is complete by construction (a truncated one is
-		// unparseable → thrown above), so a successful extract is never partial.
+		// Both the provider completion status and parsed shape passed above.
 		truncated: false,
 	};
 }

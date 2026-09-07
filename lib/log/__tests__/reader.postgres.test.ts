@@ -1,27 +1,13 @@
-/**
- * Integration tests for the event-log reader, against a real Postgres (the
- * per-test-database harness). Seeds `events` rows directly, then exercises the
- * reader's contract: `readEvents` filters by `(app_id, run_id)`, orders by
- * `(ts, seq)`, and rejects the complete page when one payload is invalid;
- * `readLatestRunId` reads the newest run off the `run_id` COLUMN (never the
- * payload); and `decodeEvents` never manufactures partial history.
- *
- * `readRunSummary` is a thin delegate to `lib/db/runSummary.ts::loadRunSummary`
- * — its behavior is covered by that module's own tests, not duplicated here.
- *
- * Runs unconditionally under `npm test` (the case-store testcontainer boots in
- * `globalSetup`).
- */
-import { describe, expect, it } from "vitest";
+/** Seed storage independently of LogWriter to test query scoping, ordering,
+ * envelope-column lookup and atomic decoding of the complete event page. */
+import { expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { decodeEvents, readEvents, readLatestRunId } from "../reader";
+import { readEvents, readLatestRunId } from "../reader";
 import type { Event } from "../types";
 
 const h = setupAppStateTestDb("log_reader_");
-
-const APP = "app-reader-int";
-
-function mutationEvent(seq: number, ts: number, runId: string): Event {
+const APP = "app-reader";
+function event(seq: number, ts: number, runId = "run"): Event {
 	return {
 		kind: "mutation",
 		runId,
@@ -29,110 +15,55 @@ function mutationEvent(seq: number, ts: number, runId: string): Event {
 		seq,
 		source: "chat",
 		actor: "agent",
-		stage: "app",
-		mutation: { kind: "setAppName", name: `n-${seq}` },
+		mutation: { kind: "setAppName", name: `Name ${seq}` },
 	};
 }
-
-/** Insert one `events` row; `payloadOverride` lets a test store a jsonb payload
- *  that will fail `eventSchema` while keeping valid envelope columns. */
-async function insertEvent(
-	ev: Event,
-	payloadOverride?: unknown,
-): Promise<void> {
+async function insert(ev: Event, appId = APP, payload: unknown = ev) {
 	await h
 		.db()
 		.insertInto("events")
 		.values({
-			app_id: APP,
+			app_id: appId,
 			run_id: ev.runId,
 			ts: ev.ts,
 			seq: ev.seq,
 			source: ev.source,
 			kind: ev.kind,
-			event: JSON.stringify(payloadOverride ?? ev),
+			event: JSON.stringify(payload),
 		})
 		.execute();
 }
 
-describe("readEvents", () => {
-	it("returns one run's events sorted by (ts, seq), filtering out other runs", async () => {
-		/* Insert out of chronological order + a foreign run so the query's
-		 * WHERE + ORDER BY both have to do real work. */
-		await insertEvent(mutationEvent(2, 11, "r1"));
-		await insertEvent(mutationEvent(0, 10, "r1"));
-		await insertEvent(mutationEvent(1, 10, "r1"));
-		await insertEvent(mutationEvent(0, 10, "r2"));
-
-		const events = await readEvents(APP, "r1");
-		expect(events.map((e) => e.seq)).toEqual([0, 1, 2]);
-		expect(events.every((e) => e.runId === "r1")).toBe(true);
-	});
-
-	it("returns an empty page for a run with no rows", async () => {
-		expect(await readEvents(APP, "no-such-run")).toEqual([]);
-	});
-
-	it("rejects the complete page when one payload is unparseable", async () => {
-		await insertEvent(mutationEvent(0, 10, "r1"));
-		/* Envelope columns are valid, but the jsonb payload fails
-		 * `eventSchema` (unknown `kind`). */
-		await insertEvent(mutationEvent(1, 11, "r1"), {
-			kind: "bogus-future-kind",
-			runId: "r1",
-			ts: 11,
-			seq: 1,
-			source: "chat",
-		});
-		await insertEvent(mutationEvent(2, 12, "r1"));
-
-		await expect(readEvents(APP, "r1")).rejects.toThrow();
-	});
+it("returns only the requested app and run in timestamp then sequence order", async () => {
+	const expected = [event(7, 10), event(8, 10), event(0, 11)];
+	await insert(expected[2]);
+	await insert(expected[1]);
+	await insert(expected[0]);
+	// Both filters must exclude a real row, not merely match an empty table.
+	await insert(event(90, 10, "other-run"));
+	await insert(event(91, 10), "other-app");
+	expect(await readEvents(APP, "run")).toEqual(expected);
+	expect(await readEvents(APP, "missing-run")).toEqual([]);
+	expect(await readEvents("missing-app", "run")).toEqual([]);
 });
 
-describe("readLatestRunId", () => {
-	it("returns the run id of the most recent event by ts", async () => {
-		await insertEvent(mutationEvent(0, 10, "older"));
-		await insertEvent(mutationEvent(0, 99, "newer"));
-		await insertEvent(mutationEvent(1, 50, "older"));
-
-		expect(await readLatestRunId(APP)).toBe("newer");
-	});
-
-	it("returns null when the app has no events", async () => {
-		expect(await readLatestRunId("app-with-no-events")).toBeNull();
-	});
-
-	it("reads run_id off the column, surviving a drifted newest payload", async () => {
-		/* The newest row's payload would fail `eventSchema`, but `run_id` is a
-		 * real column present regardless — the read must still resolve it. */
-		await insertEvent(mutationEvent(0, 10, "old-run"));
-		await insertEvent(mutationEvent(0, 99, "latest-run"), {
-			kind: "bogus-future-kind",
-			runId: "latest-run",
-			ts: 99,
-			seq: 0,
-			source: "chat",
-		});
-
-		expect(await readLatestRunId(APP)).toBe("latest-run");
-	});
+it("rejects the entire page when a malformed payload separates valid neighbors", async () => {
+	await insert(event(0, 10));
+	await insert(event(1, 11), APP, { ...event(1, 11), kind: "unknown-event" });
+	await insert(event(2, 12));
+	await expect(readEvents(APP, "run")).rejects.toThrow();
+	// A corrupt event in one run does not invalidate another run's history.
+	const other = event(0, 15, "other-run");
+	await insert(other);
+	expect(await readEvents(APP, "other-run")).toEqual([other]);
 });
 
-describe("decodeEvents", () => {
-	/**
-	 * One invalid raw payload invalidates the complete ordered page. Returning
-	 * the valid neighbors would invent a partial event sequence.
-	 */
-	it("rejects a page containing any invalid payload", () => {
-		const good = mutationEvent(0, 1, "r");
-		expect(() =>
-			decodeEvents([good, { kind: "attachment-prep-but-wrong-shape" }, good]),
-		).toThrow();
-	});
-
-	it("returns an all-valid page exactly", () => {
-		const good = mutationEvent(0, 1, "r");
-		expect(decodeEvents([good, good])).toEqual([good, good]);
-	});
+it("finds the latest run by timestamp and app using columns even if the payload is undecodable", async () => {
+	await insert(event(999, 10, "older"));
+	await insert(event(0, 99, "latest"), APP, { kind: "unknown-event" });
+	await insert(event(0, 200, "foreign"), "other-app");
+	await insert(event(1000, 50, "older"));
+	expect(await readLatestRunId(APP)).toBe("latest");
+	expect(await readLatestRunId("other-app")).toBe("foreign");
+	expect(await readLatestRunId("missing-app")).toBeNull();
 });

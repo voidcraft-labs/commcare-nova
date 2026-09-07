@@ -77,8 +77,9 @@ staging-prefix bytes and must never match the durable capture prefix. The media
 policy identity applies that policy with a metageneration fence, disables soft
 delete, versioning, and default event holds, and refuses to remove an operator
 retention policy. Capture object names are accepted only when every prefix
-segment is non-empty; the IAM condition and its domain mirror enforce the same
-shape. The condition uses only Cloud Storage's supported `resource.name`
+segment is non-empty. Tests evaluate the actual IAM condition with a CEL engine
+and Google's documented `extract` extension; there is no separate policy imitation.
+The condition uses only Cloud Storage's supported `resource.name`
 surface: `startsWith`, `endsWith`, `extract`, and equality.
 
 Every non-local database process declares one final workload:
@@ -125,7 +126,12 @@ Before either dry-run or apply, Cloud SQL's PG18 membership API must give that
 temporary administrator direct MEMBER plus SET access to migration, runtime,
 cleanup, audit, and the legacy source owner when present. The bootstrap audits
 all four permanent identities as direct non-superuser LOGIN roles and refuses
-to alter a role it cannot fully inspect or `SET ROLE` to.
+to alter a role it cannot fully inspect or `SET ROLE` to. It inventories every
+application role's direct parent, allowing only migration-to-runtime and the
+Cloud SQL-managed `cloudsqliamserviceaccount` membership. This also refuses
+indirect access through an unexpected intermediary before ownership changes.
+The CLI validates credentials before opening a connector and closes every
+created client/connector on failure, including option discovery.
 
 Delete the temporary administrator through Cloud SQL only after that audit
 succeeds. Subsequent deploys use only the permanent identities and the ordinary
@@ -143,3 +149,23 @@ The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field
 inside `cloudbuild.yaml`; the checked-in provisioning script is the source of
 truth for that identity.
+
+## Testing deployment contracts
+
+Run the native Python policy/transport tests with
+`python3 -B -m unittest discover -s scripts/infra/tests -v`; the Vitest
+infrastructure launcher includes them in ordinary CI. Keep test fixtures out of
+the production deployment entrypoint. Job and media fixtures state independent
+API facts instead of copying the constants being checked.
+
+Deployment tests parse YAML and Dockerfile structure and execute the authored
+shell steps with controlled external executables. Job entrypoint tests execute
+the actual bundled scripts, replacing only their database/storage service
+boundaries; real database suites own those services' semantics. Only the
+required production-image CI build proves Docker context filtering.
+
+HTTP tests retain request serialization and response interpretation. A local
+HTTP server exercises abrupt disconnects and truncated bodies. Bounded read
+polling may retry these transport failures; writes remain terminal after one
+attempt. Authentication status remains terminal even if its error body is
+incomplete, and error responses are explicitly closed.

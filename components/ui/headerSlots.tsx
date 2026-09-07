@@ -31,16 +31,6 @@ export interface HeaderClaim {
 	readonly markOnly: boolean;
 	/** Give the claimed tools their own row under the band. */
 	readonly stacked: boolean;
-	/** Whether the account control may be on screen at all. The builder says
-	 *  no while app access is unresolved: a control whose popup is deliberately
-	 *  quarantined must not be left visible. */
-	readonly showAccount: boolean;
-	/** Whether the account's file manager may write. OMIT to defer to the live
-	 *  session capability, which is what the builder wants: `MediaPickerDialog`
-	 *  resolves `canWriteOverride ?? sessionCanEdit`, so an explicit `false`
-	 *  is not "unspecified", it is a hard read-only that takes upload and
-	 *  delete away from an editor. */
-	readonly canManageFiles?: boolean;
 	/** Whether this claim IS a build starting, rather than the state the page
 	 *  opened in. Only a handoff plays the brand animation.
 	 *
@@ -58,6 +48,7 @@ export interface HeaderSlots {
 	 *  is also why nothing claimed renders on the server. */
 	readonly center: HTMLElement | null;
 	readonly actions: HTMLElement | null;
+	readonly account: HTMLElement | null;
 	/** Take the band, or hand it back with `null`. Stable across renders, so a
 	 *  claiming effect can depend on it. */
 	readonly claim: (claim: HeaderClaim | null) => void;
@@ -87,8 +78,6 @@ export function sameHeaderClaim(
 		a.homeLabel === b.homeLabel &&
 		a.markOnly === b.markOnly &&
 		a.stacked === b.stacked &&
-		a.showAccount === b.showAccount &&
-		a.canManageFiles === b.canManageFiles &&
 		a.handoff === b.handoff
 	);
 }

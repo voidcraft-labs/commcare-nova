@@ -10,7 +10,7 @@ function codes(source: string): string[] {
 	);
 }
 
-describe("JavaRosa executable XPath compatibility", () => {
+describe("XPath carrier admission classifier", () => {
 	it.each([
 		"/data/x",
 		"/data/x[p]/@id",
@@ -25,7 +25,7 @@ describe("JavaRosa executable XPath compatibility", () => {
 		"current()/parent :: node()/@id",
 		"foo.bar/baz.qux",
 		"#form/group/value[. != '']",
-	])("accepts Core-executable path syntax: %s", (source) => {
+	])("admits supported path syntax: %s", (source) => {
 		expect(codes(source)).toEqual([]);
 	});
 
@@ -49,7 +49,7 @@ describe("JavaRosa executable XPath compatibility", () => {
 		["current()/@id/../bar", "XPATH_UNSUPPORTED_PATH"],
 		["child :: x/parent :: node()", "XPATH_UNSUPPORTED_PATH"],
 		["$value", "XPATH_UNBOUND_VARIABLE"],
-	] as const)("rejects non-executable syntax: %s", (source, code) => {
+	] as const)("classifies unsupported syntax: %s", (source, code) => {
 		expect(codes(source)).toContain(code);
 	});
 

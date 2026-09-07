@@ -1,314 +1,335 @@
-/**
- * The executor's provider-facing schemas — where references widen to
- * `uuid | { handle }`, where creation identities narrow to required handles,
- * and where neither projection mutates the shared tool schema.
- */
-
-import { jsonSchema } from "ai";
-import { describe, expect, it } from "vitest";
-import { executionBlockerSchema } from "@/lib/agent/build/executionBlocker";
-import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
+/** Offline executor grammar admission. These tests validate complete provider
+ * payloads and canonical parsing; they do not claim provider acceptance or a
+ * persisted tool dispatch. */
+import Ajv from "ajv";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+	expectAdmittedDoc,
+	surveyFixture,
+} from "@/lib/agent/__tests__/admittedFixture";
+import { sharedHandleDeclarer } from "@/lib/agent/change-set/handleDeclarations";
+import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
+import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import { proseText } from "@/lib/domain/prose";
+import { buildExecutorTools } from "../executorLoop";
 import {
 	executorCatalogDefaultHandleIssue,
+	executorCreationHandleIssue,
 	executorWireToolSchema,
-} from "@/lib/agent/build/executorWireSchemas";
-import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
-import { CHANGE_SET_HANDLE_PATTERN } from "@/lib/agent/change-set/schemas";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
-import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
-import { proseText } from "@/lib/domain/prose";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+} from "../executorWireSchemas";
 
-type JsonNode = Record<string, unknown>;
-
-function schemaFor(name: string): JsonNode {
-	const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
-	if (entry === undefined) throw new Error(`No change-set tool ${name}`);
-	return executorWireToolSchema(
-		name,
-		entry.tool.inputSchema,
-	) as unknown as JsonNode;
-}
-
-function property(schema: JsonNode, name: string): JsonNode {
-	const properties = schema.properties as JsonNode | undefined;
-	const slot = properties?.[name];
-	if (slot === undefined) {
-		throw new Error(
-			`No ${name} property; saw ${Object.keys(properties ?? {}).join(", ")}`,
-		);
-	}
-	return slot as JsonNode;
-}
-
-/** Every `{ handle }` arm anywhere in a schema. */
-function handleArms(node: unknown): JsonNode[] {
-	const found: JsonNode[] = [];
-	const walk = (value: unknown): void => {
-		if (Array.isArray(value)) {
-			for (const entry of value) walk(entry);
-			return;
-		}
-		if (value === null || typeof value !== "object") return;
-		const schema = value as JsonNode;
-		const properties = schema.properties as JsonNode | undefined;
-		if (properties !== undefined && "handle" in properties) found.push(schema);
-		for (const entry of Object.values(schema)) walk(entry);
-	};
-	walk(node);
-	return found;
-}
-
-/** Every uuid-patterned string leaf anywhere in a schema. */
-function uuidLeaves(node: unknown): JsonNode[] {
-	const found: JsonNode[] = [];
-	const walk = (value: unknown): void => {
-		if (Array.isArray(value)) {
-			for (const entry of value) walk(entry);
-			return;
-		}
-		if (value === null || typeof value !== "object") return;
-		const schema = value as JsonNode;
-		if (schema.pattern === CANONICAL_UUID_PATTERN.source) found.push(schema);
-		for (const entry of Object.values(schema)) walk(entry);
-	};
-	walk(node);
-	return found;
-}
-
-function schemasWithProperty(node: unknown, name: string): JsonNode[] {
-	const found: JsonNode[] = [];
-	const walk = (value: unknown): void => {
-		if (Array.isArray(value)) {
-			for (const entry of value) walk(entry);
-			return;
-		}
-		if (value === null || typeof value !== "object") return;
-		const schema = value as JsonNode;
-		const properties = schema.properties as JsonNode | undefined;
-		if (properties !== undefined && name in properties) found.push(schema);
-		for (const entry of Object.values(schema)) walk(entry);
-	};
-	walk(node);
-	return found;
-}
-
-describe("executor tool surface", () => {
-	it("mounts ordinary Nova tools and only the two server-owned controls", () => {
-		const names = Object.keys(buildExecutorTools());
-		expect(names).toEqual(
-			expect.arrayContaining([
-				"searchBlueprint",
-				"createModule",
-				"createForm",
-				"configureCaseList",
-				"configureCaseSelection",
-				"addCaseListColumns",
-				"finishWorkflow",
-				"reportExecutionBlocker",
-			]),
-		);
-		for (const retired of [
-			"readBatch",
-			"stageBatch",
-			"inspectChangeSet",
-			"commitChangeSet",
-			"discardChangeSet",
-			"stageModule",
-			"stageForm",
-		]) {
-			expect(names).not.toContain(retired);
-		}
-	});
+const uuid = "11111111-1111-4111-8111-111111111111";
+const lookup = "018f0000-0000-7000-8000-000000000001";
+const h = (handle: string) => ({ handle });
+const address = {
+	moduleUuid: h("@patients"),
+	formUuid: h("@visit"),
+	fieldUuid: h("@risk"),
+};
+const option = (name: string) => ({
+	optionUuid: h(`@${name}`),
+	value: name,
+	label: proseText(name),
 });
-
-describe("executorWireToolSchema", () => {
-	it("requires handled options when a case-bound select would inherit catalog UUIDs", () => {
-		const doc = emptyBlueprintDoc("app-select-defaults");
-		doc.caseTypes = [
+function moduleInput() {
+	return {
+		moduleUuid: h("@patients"),
+		name: "Patients",
+		case_type: "patient",
+		forms: [
 			{
-				name: "patient",
-				properties: [
+				formUuid: h("@register"),
+				name: "Register",
+				type: "registration",
+				fields: [
 					{
-						name: "risk",
+						fieldUuid: h("@name"),
+						id: "name",
+						kind: "text",
+						label: proseText("Name"),
+						caseWrite: { caseType: "patient", property: "case_name" },
+					},
+					{
+						fieldUuid: h("@risk"),
+						id: "risk",
+						kind: "single_select",
 						label: proseText("Risk"),
-						data_type: "single_select",
-						options: [
-							{ value: "routine", label: proseText("Routine") },
-							{ value: "priority", label: proseText("Priority") },
-						],
+						optionsSource: {
+							kind: "inline",
+							options: [option("routine"), option("priority")],
+						},
 					},
 				],
 			},
-		];
-		const baseField = {
-			fieldUuid: { handle: "@risk" },
-			id: "risk",
-			caseWrite: { caseType: "patient", property: "risk" },
+		],
+		case_list_columns: [
+			{
+				columnUuid: h("@name_column"),
+				kind: "plain",
+				field: "case_name",
+				header: "Name",
+			},
+		],
+	};
+}
+let surface: ReturnType<typeof buildExecutorTools>;
+const validators = new Map<string, ReturnType<Ajv["compile"]>>();
+beforeAll(() => {
+	surface = buildExecutorTools();
+});
+function admits(name: string, input: unknown) {
+	let validate = validators.get(name);
+	if (!validate) {
+		validate = new Ajv({ strict: false }).compile(surface[name].inputSchema);
+		validators.set(name, validate);
+	}
+	return {
+		valid: validate(JSON.parse(JSON.stringify(input))),
+		errors: validate.errors,
+	};
+}
+function expectAdmission(name: string, input: unknown) {
+	const result = admits(name, input);
+	expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+}
+
+describe("executor creation grammar", () => {
+	it("admits coherent nested creation and binds only its declared identities", () => {
+		const input = moduleInput();
+		expectAdmission("createModule", input);
+		expect(executorCreationHandleIssue("createModule", input)).toBeNull();
+		expect(sharedHandleDeclarer("createModule")?.(input)).toEqual([
+			{ handle: "@patients", entityKind: "module" },
+			{ handle: "@register", entityKind: "form" },
+			{ handle: "@name", entityKind: "field" },
+			{ handle: "@risk", entityKind: "field" },
+			{ handle: "@routine", entityKind: "option" },
+			{ handle: "@priority", entityKind: "option" },
+			{ handle: "@name_column", entityKind: "case_list_column" },
+		]);
+	});
+	it.each([
+		["moduleUuid"],
+		["forms", 0, "formUuid"],
+		["forms", 0, "fields", 0, "fieldUuid"],
+		["forms", 0, "fields", 1, "optionsSource", "options", 1, "optionUuid"],
+		["case_list_columns", 0, "columnUuid"],
+	])(
+		"refuses missing, canonical, malformed and extended handles at %j",
+		(...path) => {
+			for (const value of [
+				undefined,
+				uuid,
+				null,
+				{ handle: "risk" },
+				{ handle: "@risk", extra: true },
+			]) {
+				const input = JSON.parse(JSON.stringify(moduleInput()));
+				expectAdmission("createModule", input);
+				let target = input;
+				for (const key of path.slice(0, -1)) target = target[key];
+				target[path[path.length - 1]] = value;
+				expect(admits("createModule", input).valid).toBe(false);
+				expect(executorCreationHandleIssue("createModule", input)).toBe(
+					`input.${path.join(".")} must declare a durable handle.`,
+				);
+			}
+		},
+	);
+	it("requires handles in replacement-created columns and select options", () => {
+		const columns = {
+			moduleUuid: h("@patients"),
+			case_list_columns: moduleInput().case_list_columns,
 		};
+		const choices = {
+			...address,
+			source: {
+				kind: "inline",
+				options: [option("routine"), option("priority")],
+			},
+		};
+		expectAdmission("updateModule", columns);
+		expectAdmission("setFieldOptionsSource", choices);
+		const badColumn = JSON.parse(JSON.stringify(columns));
+		badColumn.case_list_columns[0].columnUuid = uuid;
+		const badChoice = JSON.parse(JSON.stringify(choices));
+		badChoice.source.options[0].optionUuid = uuid;
+		expect(admits("updateModule", badColumn).valid).toBe(false);
+		expect(admits("setFieldOptionsSource", badChoice).valid).toBe(false);
+	});
+	it.each([uuid, h("@existing")])(
+		"admits existing entity references %j and nullable root placement",
+		(reference) => {
+			expectAdmission("moveField", {
+				moduleUuid: reference,
+				formUuid: reference,
+				fieldUuid: reference,
+				parentUuid: null,
+			});
+			expectAdmission("moveField", { ...address, beforeFieldUuid: reference });
+			expectAdmission("moveField", {
+				...address,
+				afterFieldUuid: reference,
+				parentUuid: reference,
+			});
+			expect(
+				admits("moveField", { ...address, beforeFieldUuid: { handle: "bad" } })
+					.valid,
+			).toBe(false);
+		},
+	);
+});
+
+describe("external identity and canonical parser boundaries", () => {
+	it("keeps media assets canonical while field addresses accept handles", () => {
+		const input = {
+			attachments: [{ ...address, slot: "label", media: { image: uuid } }],
+		};
+		expectAdmission("attachFieldMedia", input);
 		expect(
-			executorCatalogDefaultHandleIssue(
-				"addFields",
-				{ fields: [baseField] },
-				doc,
-			),
-		).toContain("explicit inline optionsSource");
-		expect(
-			executorCatalogDefaultHandleIssue(
-				"addFields",
-				{ fields: [{ ...baseField, optionsSource: null }] },
-				doc,
-			),
-		).toContain("explicit inline optionsSource");
-		expect(
-			executorCatalogDefaultHandleIssue(
-				"addFields",
-				{ fields: [{ ...baseField, kind: "text" }] },
-				doc,
-			),
-		).toBeNull();
-		expect(
-			executorCatalogDefaultHandleIssue(
-				"addFields",
+			admits("attachFieldMedia", {
+				attachments: [
+					{ ...input.attachments[0], media: { image: h("@image") } },
+				],
+			}).valid,
+		).toBe(false);
+	});
+	it.each(["existing-project-lookup", "designed-project-lookup"])(
+		"admits exact accepted %s sources, without offering handles for table or columns",
+		(kind) => {
+			const source = {
+				kind,
+				tableId: lookup,
+				valueColumnId: lookup,
+				labelColumnId: lookup,
+			};
+			expectAdmission("setFieldOptionsSource", { ...address, source });
+			for (const key of ["tableId", "valueColumnId", "labelColumnId"])
+				expect(
+					admits("setFieldOptionsSource", {
+						...address,
+						source: { ...source, [key]: h("@external") },
+					}).valid,
+				).toBe(false);
+			expect(
+				admits("setFieldOptionsSource", {
+					...address,
+					source: { ...source, kind: "lookup" },
+				}).valid,
+			).toBe(false);
+		},
+	);
+	it("leaves chat grammar and original canonical parsing unchanged after private projection", async () => {
+		const entry = CHANGE_SET_TOOL_REGISTRY.get("createModule");
+		if (!entry) throw new Error("Missing creator");
+		const chat = wireToolSchema(entry.tool.inputSchema);
+		const before = structuredClone(chat.jsonSchema);
+		const privateSchema = executorWireToolSchema(
+			"createModule",
+			entry.tool.inputSchema,
+		);
+		// Mutating the returned private tree must not mutate the cached chat tree.
+		privateSchema.description = "Private caller annotation";
+		const privateName = privateSchema.properties?.name;
+		if (!privateName || typeof privateName !== "object")
+			throw new Error("Missing private name schema");
+		privateName.description = "Private nested annotation";
+		expect(chat.jsonSchema).toEqual(before);
+		const input = moduleInput();
+		const canonical = JSON.parse(JSON.stringify(input), (_key, value) =>
+			value &&
+			typeof value === "object" &&
+			Object.keys(value).length === 1 &&
+			typeof value.handle === "string"
+				? uuid
+				: value,
+		);
+		const chatGrammar = new Ajv({ strict: false }).compile(chat.jsonSchema);
+		expect(chatGrammar(canonical), JSON.stringify(chatGrammar.errors)).toBe(
+			true,
+		);
+		expect(chatGrammar(input)).toBe(false);
+		const parsedCanonical = await chat.validate?.(canonical);
+		expect(parsedCanonical?.success, JSON.stringify(parsedCanonical)).toBe(
+			true,
+		);
+		expect((await chat.validate?.(input))?.success).toBe(false);
+		expect(admits("createModule", canonical).valid).toBe(false);
+	});
+});
+
+describe("catalog default declaration guard", () => {
+	it.each(["addFields", "createForm", "createModule"])(
+		"requires explicit option identities for %s inferred selects",
+		(name) => {
+			const doc = surveyFixture();
+			doc.caseTypes = [
 				{
-					fields: [
+					name: "patient",
+					properties: [
 						{
-							...baseField,
-							optionsSource: {
-								kind: "inline",
-								options: [
-									{
-										optionUuid: { handle: "@risk_routine" },
-										value: "routine",
-										label: proseText("Routine"),
-									},
-								],
-							},
+							name: "risk",
+							label: proseText("Risk"),
+							data_type: "single_select",
+							options: [
+								{ value: "routine", label: proseText("Routine") },
+								{ value: "priority", label: proseText("Priority") },
+							],
 						},
 					],
 				},
-				doc,
-			),
-		).toBeNull();
-	});
-
-	it("requires a durable handle for a created module", () => {
-		const schema = schemaFor("createModule");
-		expect(
-			(property(schema, "moduleUuid").properties as JsonNode | undefined)
-				?.handle,
-		).toMatchObject({
-			type: "string",
-			pattern: CHANGE_SET_HANDLE_PATTERN.source,
-		});
-		expect(schema.required).toContain("moduleUuid");
-		expect(uuidLeaves(property(schema, "moduleUuid"))).toHaveLength(0);
-	});
-
-	it("widens a shared tool's Blueprint-entity slots", () => {
-		const schema = schemaFor("moveField");
-		expect(handleArms(property(schema, "fieldUuid"))).toHaveLength(1);
-		expect(handleArms(schema).length).toBeGreaterThan(1);
-	});
-
-	it("requires durable handles for columns seeded by updateModule", () => {
-		const schema = schemaFor("updateModule");
-		const columns = property(schema, "case_list_columns");
-		const columnArms = schemasWithProperty(columns, "columnUuid");
-		expect(columnArms.length).toBeGreaterThan(0);
-		for (const item of columnArms) {
-			const columnUuid = property(item, "columnUuid");
-			expect(handleArms(columnUuid)).toHaveLength(1);
-			expect(uuidLeaves(columnUuid)).toHaveLength(0);
-			expect(item.required).toContain("columnUuid");
-		}
-	});
-
-	it("leaves non-uuid strings untouched", () => {
-		const schema = schemaFor("createModule");
-		expect(property(schema, "name")).toMatchObject({
-			type: "string",
-			minLength: 1,
-		});
-		expect(handleArms(property(schema, "case_type"))).toHaveLength(0);
-	});
-
-	it("does not widen canonical-only identity families", () => {
-		/* Media assets, lookup tables, and lookup columns exist outside the
-		 * private candidate, so a handle for one could never resolve — the
-		 * reviewed staging classification keeps them canonical. */
-		const media = schemaFor("attachFieldMedia");
-		expect(uuidLeaves(media).length).toBeGreaterThan(0);
-		const mediaHandles = handleArms(media);
-		expect(mediaHandles.length).toBeGreaterThan(0); /* fields still widen */
-
-		const lookup = schemaFor("setFieldOptionsSource");
-		const lookupSource = JSON.stringify(lookup);
-		const tableId = lookupSource.includes('"tableId"');
-		expect(tableId).toBe(true);
-		/* The compiler keeps the accepted semantic source. It neither receives a
-		 * handle nor sees the canonical carrier used after server resolution. */
-		expect(lookupSource).toContain('"const":"existing-project-lookup"');
-		expect(lookupSource).toContain('"const":"designed-project-lookup"');
-		expect(lookupSource).not.toContain('"const":"lookup"');
-		expect(lookupSource).not.toContain('"tableId":{"anyOf"');
-		expect(lookupSource).not.toContain('"valueColumnId":{"anyOf"');
-		expect(lookupSource).not.toContain('"labelColumnId":{"anyOf"');
-	});
-
-	it("adds no handle arm to the server-owned tools", () => {
-		/* An implementation coordinate names something that already exists;
-		 * a design id is never a handle. */
-		const schema = executorWireToolSchema(
-			"reportExecutionBlocker",
-			executionBlockerSchema,
-		);
-		expect(handleArms(schema)).toHaveLength(0);
-	});
-
-	it("never mutates the projection chat sends", () => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get("createModule");
-		if (entry === undefined) throw new Error("no createModule");
-		schemaFor("createModule");
-		const chat = wireToolSchema(entry.tool.inputSchema)
-			.jsonSchema as unknown as JsonNode;
-		expect(handleArms(chat)).toHaveLength(0);
-		expect(JSON.stringify(chat)).toContain('"const":"lookup"');
-		expect(JSON.stringify(chat)).not.toContain(
-			'"const":"designed-project-lookup"',
-		);
-	});
-
-	it("projects handles while leaving resolved input validation canonical", async () => {
-		const entry = CHANGE_SET_TOOL_REGISTRY.get("createModule");
-		if (entry === undefined) throw new Error("no createModule");
-		const validate = jsonSchema(
-			executorWireToolSchema("createModule", entry.tool.inputSchema),
-		);
-		expect(await validate.jsonSchema).toBeDefined();
-
-		/* The widened wire shape is what the provider sees; the ORIGINAL Zod
-		 * schema stays the gate, and it accepts the resolved uuid only. */
-		const uuid = "11111111-1111-4111-8111-111111111111";
-		expect(
-			entry.tool.inputSchema.safeParse({
-				moduleUuid: uuid,
-				name: "Intake",
-			}).success,
-		).toBe(true);
-		expect(
-			entry.tool.inputSchema.safeParse({
-				moduleUuid: { handle: "@intake" },
-				name: "Intake",
-			}).success,
-		).toBe(false);
-	});
-
-	it("projects every mounted change-set tool without throwing", () => {
-		for (const [name, entry] of CHANGE_SET_TOOL_REGISTRY) {
-			expect(() =>
-				executorWireToolSchema(name, entry.tool.inputSchema),
-			).not.toThrow();
-		}
-	});
+			];
+			expectAdmittedDoc(doc);
+			const wrap = (field: unknown) =>
+				name === "createModule"
+					? { forms: [{ fields: [field] }] }
+					: { fields: [field] };
+			const field = {
+				fieldUuid: h("@risk"),
+				id: "risk",
+				caseWrite: { caseType: "patient", property: "risk" },
+			};
+			for (const kind of [undefined, null, "single_select", "multi_select"])
+				for (const optionsSource of [undefined, null])
+					expect(
+						executorCatalogDefaultHandleIssue(
+							name,
+							wrap({ ...field, kind, optionsSource }),
+							doc,
+						),
+					).toBe(
+						"input field 0 writes select property patient.risk; pass its catalog options as an explicit inline optionsSource and give every optionUuid a durable handle.",
+					);
+			expect(
+				executorCatalogDefaultHandleIssue(
+					name,
+					wrap({ ...field, kind: "text" }),
+					doc,
+				),
+			).toBeNull();
+			expect(
+				executorCatalogDefaultHandleIssue(
+					name,
+					wrap({
+						...field,
+						optionsSource: {
+							kind: "inline",
+							options: [option("routine"), option("priority")],
+						},
+					}),
+					doc,
+				),
+			).toBeNull();
+			expect(
+				executorCatalogDefaultHandleIssue(
+					name,
+					wrap({
+						...field,
+						caseWrite: { caseType: "patient", property: "case_name" },
+					}),
+					doc,
+				),
+			).toBeNull();
+		},
+	);
 });

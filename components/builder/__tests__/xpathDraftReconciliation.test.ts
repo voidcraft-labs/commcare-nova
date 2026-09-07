@@ -30,6 +30,58 @@ function reconcileRename({
 }
 
 describe("reconcileXPathDraft", () => {
+	it("leaves quoted hashtag-looking text untouched while renaming a real token", () => {
+		expect(
+			reconcileRename({
+				base: "#user/region",
+				draft: "concat('#user/region', #user/region)",
+				incoming: "#user/district",
+			}),
+		).toStrictEqual({
+			base: "#user/district",
+			draft: "concat('#user/region', #user/district)",
+			conflict: false,
+		});
+	});
+	it("refuses ambiguous duplicate catalog UUIDs even with one matching token", () => {
+		expect(
+			reconcileXPathDraft({
+				base: "#user/region",
+				draft: "not(#user/region)",
+				incoming: "#user/district",
+				baseUserProperties: [
+					...BASE_WORKER_INFORMATION,
+					...BASE_WORKER_INFORMATION,
+				],
+				incomingUserProperties: RENAMED_WORKER_INFORMATION,
+			}),
+		).toStrictEqual({
+			base: "#user/district",
+			draft: "not(#user/region)",
+			conflict: true,
+		});
+	});
+	it("keeps a dirty draft when only an unrelated worker property changed", () => {
+		expect(
+			reconcileXPathDraft({
+				base: "#user/region",
+				draft: "not(#user/region)",
+				incoming: "#user/region",
+				baseUserProperties: [
+					...BASE_WORKER_INFORMATION,
+					{ uuid: "other", slug: "other" },
+				],
+				incomingUserProperties: [
+					...BASE_WORKER_INFORMATION,
+					{ uuid: "other", slug: "elsewhere" },
+				],
+			}),
+		).toStrictEqual({
+			base: "#user/region",
+			draft: "not(#user/region)",
+			conflict: false,
+		});
+	});
 	it("projects a peer rename through an unsaved suffix addition", () => {
 		const base = "#user/region = 'north'";
 		const draft = "#user/region = 'north' and #form/active = 'yes'";

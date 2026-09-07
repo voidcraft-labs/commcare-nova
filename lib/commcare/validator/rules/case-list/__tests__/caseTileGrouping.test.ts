@@ -1,29 +1,16 @@
-/**
- * Tests for `caseTileGrouping`. Three refusals, one shared premise: the
- * header boundary has to be a real horizontal cut of the layout, because
- * Web Apps splits the tile on a cell's START ROW alone
- * (`views.js::CaseTileGroupedListView.initialize` computes
- * `isHeaderRow = (y) => y < groupHeaderRows`) and never splits a cell.
- *
- * The fourth state the unit worries about is absent here on purpose: a
- * `<group>` on a detail with no tile is unrepresentable, because
- * grouping is a slot INSIDE `caseTileLayoutSchema`. The schema test at
- * the bottom is what keeps that true.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	blueprintDocSchema,
 	type CaseTileLayout,
 	type Column,
-	caseTileLayoutSchema,
 	plainColumn,
 	TILE_GRID_ROWS,
 	type TileCell,
 	tileCell,
-	tileGroupHeaderRowChoices,
 } from "@/lib/domain";
 import { runValidation } from "../../../runner";
 
@@ -69,9 +56,10 @@ function codesFor(columns: readonly Column[], tile: CaseTileLayout): string[] {
 		],
 		caseTypes,
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-		.map((error) => error.code)
-		.filter((code) => code.startsWith("CASE_LIST_TILE_GROUP_"));
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+		(error) => error.code,
+	);
 }
 
 function named(uuid: string, field: string, cell?: TileCell): Column {
@@ -187,11 +175,7 @@ describe("caseTileGrouping", () => {
 		).toEqual([HEADER_EMPTY]);
 	});
 
-	it("agrees exactly with the depths the builder offers", () => {
-		// The builder withholds an unavailable header depth instead of
-		// letting an author reach a rejected commit to discover it. That is
-		// only honest while the two answers match, in BOTH directions: every
-		// offered depth commits clean, and every withheld one is refused.
+	it("admits exactly the independently enumerated horizontal cuts", () => {
 		const layouts: readonly (readonly Column[])[] = [
 			CLEAN_CUT,
 			[
@@ -211,11 +195,9 @@ describe("caseTileGrouping", () => {
 			],
 			[named("a", "case_name", tileCell(0, 0, 12, 1))],
 		];
-		for (const columns of layouts) {
-			const cells = columns.flatMap((column) =>
-				column.tile === undefined ? [] : [column.tile],
-			);
-			const offered = new Set(tileGroupHeaderRowChoices(cells));
+		const cuts = [[1, 2], [], [2, 3], [1], []];
+		for (const [index, columns] of layouts.entries()) {
+			const offered = new Set(cuts[index]);
 			for (let headerRows = 1; headerRows <= TILE_GRID_ROWS - 1; headerRows++) {
 				const clean = codesFor(columns, grouping(headerRows)).length === 0;
 				expect({ headerRows, clean }).toEqual({
@@ -224,26 +206,5 @@ describe("caseTileGrouping", () => {
 				});
 			}
 		}
-	});
-
-	it("cannot represent grouping without a tile", () => {
-		// The refusal the unit names second is a schema fact, not a rule:
-		// `grouping` lives inside the layout, so there is no document in
-		// which a `<group>` could reach a detail with no tile.
-		expect(
-			caseTileLayoutSchema.safeParse({
-				grouping: { identifier: "parent", headerRows: 2 },
-			}).success,
-		).toBe(true);
-		expect(
-			caseTileLayoutSchema.safeParse({
-				grouping: { identifier: "parent-case", headerRows: 2 },
-			}).success,
-		).toBe(false);
-		expect(
-			caseTileLayoutSchema.safeParse({
-				grouping: { identifier: "parent", headerRows: 0 },
-			}).success,
-		).toBe(false);
 	});
 });

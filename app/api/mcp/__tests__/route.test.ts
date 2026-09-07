@@ -1,101 +1,30 @@
-/**
- * Tests for the MCP plugin endpoint's two auth paths and shared
- * dispatch.
- *
- * The route is mounted as a Better Auth plugin endpoint (see
- * `app/api/mcp/auth-plugin.ts`), and the Next.js entry shim at
- * `app/api/mcp/route.ts` synthesizes a Request with URL
- * `/api/auth/mcp` before forwarding to `auth.handler`. Tests target
- * `dispatchMcpAuthRequest` directly with the post-shim URL shape:
- * that is the request the dispatcher always sees in production, and
- * the synthesizing shim itself is a 5-line URL rewrite that doesn't
- * carry the kind of branching logic worth unit-testing. (The SDK's
- * `createMcpHandler` is fetch-native — no pathname matching — so the
- * synthesized URL matters only to Better Auth's router, whose routing
- * `auth-plugin.ts` owns.)
- *
- * **Why the MCP SDK is mocked at the boundary.** The real
- * `createMcpHandler` would drive the full JSON-RPC exchange —
- * protocol-version routing, session negotiation, streamed response
- * bodies — none of which these auth-path tests assert on, and its
- * request/response body streams would sit undrained here, surfacing as
- * leaked async resources under `--detect-async-leaks`. We mock it to a
- * sentinel handler (mirroring
- * `lib/db/__tests__/mcp-revocation.postgres.test.ts`) whose `fetch`
- * still invokes the per-request server factory — so the real
- * `registerNovaTools` call in `dispatchMcpTools` runs and the
- * `ToolContext` propagation assertions stay meaningful — and returns a
- * body-less Response; the request-body stream is drained in the
- * `dispatch` test wrapper. Together they take this file to zero leaked
- * async resources with no per-test teardown.
- *
- * **API-key-path coverage**: the dispatcher forks on the bearer
- * prefix. Tests below assert the fork picks the right path
- * (prefix-match → API key, else → JWT), the API-key 401s carry the
- * right `WWW-Authenticate` shape (Bearer challenge, no
- * `resource_metadata` parameter), and a successful verify reaches the
- * shared dispatch with the verified key's `referenceId` + scopes.
- *
- * The OAuth verify layer + plugin verify endpoint + tool registration
- * + consent lookup are mocked so the tests don't reach into the DB
- * or KMS.
+/** Native MCP SDK JSON-RPC dispatch with controlled credential verification.
+ * Actual JWT signatures, persisted consent revocation, and Better Auth rate
+ * limiting belong to the native Postgres endpoint suites. This suite owns
+ * credential-path selection and authenticated context reaching a real tool.
  */
-
-import type {
-	createMcpHandler,
-	McpRequestContext,
-} from "@modelcontextprotocol/server";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+import type { ToolContext } from "@/lib/mcp/types";
 
 const verifyApiKeyMock = vi.fn();
-const registerNovaToolsMock = vi.fn();
+const authHandlerMock = vi.fn();
+const registerNovaToolsMock = vi.fn(
+	(server: McpServer, context: ToolContext) => {
+		server.registerTool(
+			"audit_context",
+			{
+				description: "Expose authenticated context for this transport test",
+				inputSchema: z.object({}),
+			},
+			async () => ({
+				content: [{ type: "text", text: JSON.stringify(context) }],
+			}),
+		);
+	},
+);
 const isUserActiveMock = vi.fn(async (_userId: string) => true);
-
-/**
- * Mock `createMcpHandler` at the SDK boundary. Typed against the real
- * export so the mock's construction arg (the per-request server
- * factory) and its returned handler shape stay in lockstep with the
- * SDK: a signature drift surfaces as a type error here rather than a
- * silent runtime mismatch.
- *
- * The mock's `fetch` invokes the factory once per request — mirroring
- * the real handler's per-request serving — so the real
- * `dispatchMcpTools` body runs its `registerNovaTools` call and the
- * `ToolContext` assertions hold (the `McpServer` the factory constructs
- * comes from the stub class below and is never inspected:
- * `registerNovaTools` is itself a `vi.fn()`). It then returns a
- * body-less success Response so the "reached transport / not 401 /
- * not 404" assertions pass.
- *
- * **Why the success Response carries no body.** A Response built from a
- * string body is itself an undrained `ReadableStream`, and none of the
- * assertions read the response body (they check only status +
- * `WWW-Authenticate`). A `null`-body Response is both sufficient and
- * leak-free. The *request* body is drained one layer up, in the
- * `dispatch` test wrapper: see its docblock for why draining lives
- * there (single owner) rather than here.
- */
-vi.mock("@modelcontextprotocol/server", () => ({
-	/* `registerNovaTools` is mocked, so the server instance is never
-	 * inspected: a bare stub class is sufficient and avoids pulling the
-	 * real `McpServer` (and its transport machinery) into the unit
-	 * suite. */
-	McpServer: class {},
-	createMcpHandler: ((factory) => ({
-		fetch: async (_req: Request): Promise<Response> => {
-			/* The production factory ignores the SDK's per-request context
-			 * (ToolContext arrives via closure), so an empty object is a
-			 * faithful stand-in. */
-			await factory({} as McpRequestContext);
-			return new Response(null, { status: 200 });
-		},
-		close: () => Promise.resolve(),
-		/* Never read by `dispatch.ts` — present only to keep the handler
-		 * shape complete under `satisfies`. */
-		notify: undefined as never,
-		bus: undefined as never,
-	})) satisfies typeof createMcpHandler,
-}));
 
 /** Bypass JWT verification: invoke the inner handler with synthetic claims. */
 vi.mock("@better-auth/mcp", () => ({
@@ -147,12 +76,13 @@ vi.mock("@/lib/db/api-keys", () => ({
 vi.mock("@/lib/auth", () => ({
 	getAuth: () => ({
 		api: { verifyApiKey: verifyApiKeyMock },
+		handler: authHandlerMock,
 	}),
 }));
 
 beforeEach(() => {
 	verifyApiKeyMock.mockReset();
-	registerNovaToolsMock.mockReset();
+	registerNovaToolsMock.mockClear();
 	isUserActiveMock.mockReset();
 	isUserActiveMock.mockResolvedValue(true);
 });
@@ -168,7 +98,7 @@ beforeEach(() => {
  * `dispatchMcpAuthRequest` the post-shim URL because that is the shape
  * the dispatcher always sees in production.
  */
-function buildRequest(authHeader?: string): Request {
+function buildRequest(authHeader?: string, method = "initialize"): Request {
 	const headers: Record<string, string> = {
 		"Content-Type": "application/json",
 		Accept: "application/json, text/event-stream",
@@ -179,51 +109,37 @@ function buildRequest(authHeader?: string): Request {
 		headers,
 		body: JSON.stringify({
 			jsonrpc: "2.0",
-			method: "initialize",
+			method,
 			id: 1,
-			params: {
-				protocolVersion: "2025-03-26",
-				capabilities: {},
-				clientInfo: { name: "regression-test", version: "0" },
-			},
+			params:
+				method === "tools/call"
+					? { name: "audit_context", arguments: {} }
+					: {
+							protocolVersion: "2025-03-26",
+							capabilities: {},
+							clientInfo: { name: "regression-test", version: "0" },
+						},
 		}),
 	});
 }
 
-/**
- * Drive a request through the plugin dispatcher and drain its body
- * stream afterward. Every test goes through this one entry point so the
- * leak fix lives in a single place.
- *
- * The dispatcher is imported lazily here rather than at module top.
- * Vitest hoists the `vi.mock` factories above the imports, but the
- * `*Mock` consts those factories close over are ordinary declarations
- * that are NOT hoisted: eagerly importing `../auth-plugin` pulls in
- * `api-key-auth.ts`, whose `vi.mock("@/lib/db/api-keys", …)` factory
- * runs before `isUserActiveMock` is initialized and throws
- * "Cannot access 'isUserActiveMock' before initialization". Deferring
- * the import to call time lets the consts initialize first.
- *
- * The runtime wraps each request's JSON body as a `ReadableStream`.
- * Because the SDK's `createMcpHandler` is mocked away, nobody reads
- * that stream: the success paths reach the mock handler (which returns
- * without touching the body) and the auth-rejection paths return before
- * the body is ever looked at. Either way the stream's internal pull promise stays
- * pending, which `--detect-async-leaks` reports as a leaked PROMISE.
- *
- * We settle it by fully consuming the body here, after the dispatch
- * resolves and we already hold the Response we need. `arrayBuffer()`
- * reads the buffered string to completion and resolves the pull
- * promise; `cancel()` was tried first but undici's wrapper around a
- * synchronously-buffered string body does not reliably settle on
- * `cancel()`: it wedged the test. `bodyUsed` guards the rare path
- * where something downstream already read the body, so we never call
- * `arrayBuffer()` on a disturbed stream (which would throw).
- */
+const envelopes = new WeakMap<Response, unknown>();
+/** Read the actual SDK response to EOF. Auth failures can leave request bytes unread. */
 async function dispatch(req: Request): Promise<Response> {
 	const { dispatchMcpAuthRequest } = await import("../auth-plugin");
 	const res = await dispatchMcpAuthRequest(req);
 	if (!req.bodyUsed) await req.arrayBuffer();
+	const text = await res.text();
+	if (text) {
+		const json = res.headers.get("content-type")?.includes("text/event-stream")
+			? text
+					.split(/\r?\n/)
+					.filter((line) => line.startsWith("data: "))
+					.map((line) => JSON.parse(line.slice(6)))
+					.at(-1)
+			: JSON.parse(text);
+		envelopes.set(res, json);
+	}
 	return res;
 }
 
@@ -272,6 +188,11 @@ describe("MCP plugin host gate", () => {
 				jsonrpc: "2.0",
 				method: "initialize",
 				id: 1,
+				params: {
+					protocolVersion: "2025-03-26",
+					capabilities: {},
+					clientInfo: { name: "audit", version: "1" },
+				},
 			}),
 		});
 		const res = await dispatch(req);
@@ -309,11 +230,16 @@ describe("MCP plugin host gate", () => {
 				jsonrpc: "2.0",
 				method: "initialize",
 				id: 1,
+				params: {
+					protocolVersion: "2025-03-26",
+					capabilities: {},
+					clientInfo: { name: "audit", version: "1" },
+				},
 			}),
 		});
 		const res = await dispatch(req);
 
-		expect(res.status).not.toBe(404);
+		expect(res.status).toBe(200);
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
 	});
 });
@@ -340,7 +266,12 @@ describe("POST /api/mcp (API-key path)", () => {
 		 * we see a transport-level response (not a 401). Floor-scope
 		 * check is local (not delegated to verifyApiKey): see the
 		 * dedicated test below for that behavior. */
-		expect(res.status).not.toBe(401);
+		expect(res.status).toBe(200);
+		expect(envelopes.get(res)).toMatchObject({
+			jsonrpc: "2.0",
+			id: 1,
+			result: { serverInfo: { name: "nova", version: "1.0.0" } },
+		});
 		/* Tool registration must receive the verified credential's
 		 * identity unchanged. A regression in `ToolContext` construction
 		 * (lost userId, swapped fields, dropped scopes) trips here even
@@ -584,3 +515,97 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(verifyApiKeyMock).toHaveBeenCalledTimes(1);
 	});
 });
+
+it("dispatches each caller to a real SDK tool with its own authenticated context", async () => {
+	for (const userId of ["user-one", "user-two"]) {
+		verifyApiKeyMock.mockResolvedValue({
+			valid: true,
+			error: null,
+			key: {
+				id: `key-${userId}`,
+				referenceId: userId,
+				permissions: { scope: ["nova.read", "nova.write"] },
+			},
+		});
+		const response = await dispatch(
+			buildRequest(`Bearer sk-nova-v1-${userId}`, "tools/call"),
+		);
+		expect(response.status).toBe(200);
+		expect(envelopes.get(response)).toEqual({
+			jsonrpc: "2.0",
+			id: 1,
+			result: {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify({
+							userId,
+							scopes: ["nova.read", "nova.write"],
+							authKind: "api-key",
+						}),
+					},
+				],
+			},
+		});
+	}
+});
+
+it("forwards native body, headers, query and cancellation through the auth-router shim", async () => {
+	const controller = new AbortController();
+	let forwarded: Request | undefined;
+	let body = "";
+	authHandlerMock.mockImplementation(async (request: Request) => {
+		forwarded = request;
+		body = await request.text();
+		return new Response(null, { status: 204 });
+	});
+	const { POST } = await import("../route");
+	const request = new Request("https://mcp.commcare.app/mcp?client=a", {
+		method: "POST",
+		headers: {
+			authorization: "Bearer sk-nova-v1-test",
+			"x-client-trace": "trace-1",
+		},
+		body: "native body",
+		signal: controller.signal,
+	});
+	const response = await POST(request);
+	try {
+		expect(response.status).toBe(204);
+		expect(forwarded?.url).toBe(
+			"https://mcp.commcare.app/api/auth/mcp?client=a",
+		);
+		expect(forwarded?.headers.get("authorization")).toBe(
+			"Bearer sk-nova-v1-test",
+		);
+		expect(forwarded?.headers.get("x-client-trace")).toBe("trace-1");
+		expect(body).toBe("native body");
+		expect(request.bodyUsed).toBe(true);
+		controller.abort();
+		expect(forwarded?.signal.aborted).toBe(true);
+	} finally {
+		controller.abort();
+	}
+});
+
+it.each(["", "{bad json"])(
+	"preserves the native SDK parse error for malformed body %j",
+	async (body) => {
+		const request = new Request("https://mcp.commcare.app/api/auth/mcp", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				accept: "application/json, text/event-stream",
+				authorization: "Bearer opaque.jwt",
+			},
+			body,
+		});
+		const response = await dispatch(request);
+		expect(response.status).toBe(400);
+		expect(envelopes.get(response)).toMatchObject({
+			jsonrpc: "2.0",
+			id: null,
+			error: { code: -32700 },
+		});
+	},
+);

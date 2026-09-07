@@ -37,19 +37,29 @@ export interface MoveAppToProjectArgs {
 	readonly actorUserId: string;
 }
 
+/** The result comes from the committed move or freshly locked repair, never
+ * from a caller's preflight snapshot. */
+export type AppProjectMoveResult =
+	| {
+			readonly kind: "moved";
+			readonly fromProjectId: string;
+			readonly projectId: string;
+	  }
+	| { readonly kind: "already_in_project"; readonly projectId: string };
+
 /**
  * Production entry point. Exact same-Project calls are not moves: they take
  * the app-locked case-only repair and derive the destination from the fresh row.
  */
 export async function moveAppToProject(
 	args: MoveAppToProjectArgs,
-): Promise<void> {
+): Promise<AppProjectMoveResult> {
 	const policy = appProjectMovePolicy(args.fromProjectId, args.toProjectId);
 	if (policy.kind === "cross_project_move") {
-		await runCrossProjectMove(args);
-		return;
+		return await runCrossProjectMove(args);
 	}
-	await repairAppCaseTenancy(args.appId, args.actorUserId);
+	const repaired = await repairAppCaseTenancy(args.appId, args.actorUserId);
+	return { kind: "already_in_project", projectId: repaired.projectId };
 }
 
 /**
@@ -59,7 +69,7 @@ export async function moveAppToProject(
  */
 export async function runCrossProjectMove(
 	args: MoveAppToProjectArgs,
-): Promise<void> {
+): Promise<AppProjectMoveResult> {
 	for (let attempt = 1; attempt <= MAX_MOVE_ATTEMPTS; attempt++) {
 		const preparation = await prepareAppProjectMove({
 			appId: args.appId,
@@ -68,8 +78,8 @@ export async function runCrossProjectMove(
 			actorUserId: args.actorUserId,
 		});
 		if (preparation.kind === "already_moved") {
-			await repairAppCaseTenancy(args.appId, args.actorUserId);
-			return;
+			const repaired = await repairAppCaseTenancy(args.appId, args.actorUserId);
+			return { kind: "already_in_project", projectId: repaired.projectId };
 		}
 		if (preparation.kind === "busy") throw new AppBusyError();
 		if (preparation.kind === "corrupt_holder") {
@@ -95,10 +105,15 @@ export async function runCrossProjectMove(
 			actorUserId: args.actorUserId,
 			assetIdMap,
 		});
-		if (committed.kind === "moved") return;
+		if (committed.kind === "moved")
+			return {
+				kind: "moved",
+				fromProjectId: args.fromProjectId,
+				projectId: args.toProjectId,
+			};
 		if (committed.kind === "already_moved") {
-			await repairAppCaseTenancy(args.appId, args.actorUserId);
-			return;
+			const repaired = await repairAppCaseTenancy(args.appId, args.actorUserId);
+			return { kind: "already_in_project", projectId: repaired.projectId };
 		}
 		if (committed.kind === "busy") throw new AppBusyError();
 		if (committed.kind === "corrupt_holder") {

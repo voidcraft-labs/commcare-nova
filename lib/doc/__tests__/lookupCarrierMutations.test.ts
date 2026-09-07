@@ -1,9 +1,10 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
-import { applyMutations } from "@/lib/doc/mutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
@@ -15,6 +16,8 @@ import {
 	proseText,
 	type SelectOptionsSource,
 } from "@/lib/domain";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
 const FORM = testUuid("20000000-0000-4000-8000-000000000000");
@@ -33,6 +36,37 @@ const LABEL_COLUMN = lookupColumnIdSchema.parse(
 	"018f3e8a-7b2c-7def-8abc-1234567890ae",
 );
 
+const VALUE_COLUMN_B = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890af",
+);
+const LABEL_COLUMN_B = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890b0",
+);
+const lookupContext: LookupValidationContext = {
+	kind: "available",
+	projectId: "project",
+	projectRevision: parseLookupRevision("1"),
+	definitions: [TABLE_A, TABLE_B].map((id, index) => ({
+		id,
+		name: `Choices ${index}`,
+		tag: `choices_${index}`,
+		definitionRevision: parseLookupRevision("1"),
+		columns: [
+			{
+				id: index === 0 ? VALUE_COLUMN : VALUE_COLUMN_B,
+				wireName: "value",
+				label: "Value",
+				dataType: "text",
+			},
+			{
+				id: index === 0 ? LABEL_COLUMN : LABEL_COLUMN_B,
+				wireName: "label",
+				label: "Label",
+				dataType: "text",
+			},
+		],
+	})),
+};
 const SOURCE_A: LookupOptionsSource = {
 	kind: "lookup",
 	tableId: TABLE_A,
@@ -43,6 +77,8 @@ const SOURCE_A: LookupOptionsSource = {
 const SOURCE_B: LookupOptionsSource = {
 	...SOURCE_A,
 	tableId: TABLE_B,
+	valueColumnId: VALUE_COLUMN_B,
+	labelColumnId: LABEL_COLUMN_B,
 	filter: {
 		kind: "eq",
 		left: {
@@ -101,13 +137,22 @@ function baseDoc(field = selectField()): BlueprintDoc {
 				type: "survey",
 			},
 		},
-		fields: { [FIELD]: field },
+		fields: {
+			[FIELD]: field,
+			[testUuid("lookup-spare")]: {
+				uuid: testUuid("lookup-spare"),
+				kind: "text",
+				id: "notes",
+				label: proseText("Notes"),
+			},
+		},
 		moduleOrder: [MODULE],
 		formOrder: { [MODULE]: [FORM] },
-		fieldOrder: { [FORM]: [FIELD] },
-		fieldParent: { [FIELD]: FORM },
+		fieldOrder: { [FORM]: [FIELD, testUuid("lookup-spare")] },
+		fieldParent: { [FIELD]: FORM, [testUuid("lookup-spare")]: FORM },
 	};
 	doc.refIndex = buildReferenceIndex(doc);
+	assertAdmittedDoc(doc, lookupContext);
 	return doc;
 }
 
@@ -115,25 +160,33 @@ function emptyDoc(): BlueprintDoc {
 	const doc = baseDoc();
 	const empty: BlueprintDoc = {
 		...doc,
-		fields: {},
-		fieldOrder: { [FORM]: [] },
-		fieldParent: {},
+		fields: {
+			[testUuid("lookup-spare")]: doc.fields[testUuid("lookup-spare")],
+		},
+		fieldOrder: { [FORM]: [testUuid("lookup-spare")] },
+		fieldParent: { [testUuid("lookup-spare")]: FORM },
 	};
 	empty.refIndex = buildReferenceIndex(empty);
+	assertAdmittedDoc(empty, lookupContext);
 	return empty;
 }
 
-function roundTrip<M extends Mutation>(mutation: M): M {
-	return mutationSchema.parse(JSON.parse(JSON.stringify(mutation))) as M;
+function roundTrip(mutation: Mutation): Mutation {
+	return mutationSchema.parse(JSON.parse(JSON.stringify(mutation)));
 }
 
 function replay(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, mutations.map(roundTrip));
-	});
+	assertAdmittedDoc(doc, lookupContext);
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations.map(roundTrip),
+		lookupContext,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 describe("lookup options source mutations", () => {
@@ -246,6 +299,8 @@ describe("lookup options source mutations", () => {
 					: undefined,
 			);
 		}
-		expect(replay(before, mutations)).toEqual(after);
+		expect(toPersistableDoc(replay(before, mutations))).toEqual(
+			toPersistableDoc(after),
+		);
 	});
 });

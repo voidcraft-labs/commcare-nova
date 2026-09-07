@@ -20,7 +20,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
@@ -33,7 +33,6 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { predicateExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	checkPredicate,
@@ -66,6 +65,7 @@ import {
 } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
+import { logicalClauses, planLogicalGroupEdit } from "./logicalGroupModel";
 import type {
 	EditorLookupTableDecl,
 	EditorLookupTableScope,
@@ -83,6 +83,10 @@ import {
 import { ExpressionPicker } from "./primitives/ExpressionPicker";
 import { RelationPathBuilder } from "./primitives/RelationPathBuilder";
 import { pathsEqual, RuleFocusProvider } from "./RuleFocusContext";
+import {
+	relatedPathEditAdmission,
+	replaceRelatedPath,
+} from "./relatedPathEdit";
 import { resolveRelationDestination } from "./relationDestination";
 import {
 	DEFAULT_RULE_ROOT_LABEL,
@@ -99,6 +103,7 @@ import {
 	type StableListOperation,
 	useStableListIdentity,
 } from "./useStableListIdentity";
+import { workbenchExpressionAdmission } from "./workbenchAdmission";
 
 /** The structural shapes the Add-condition menu offers, beside its one
  *  comparison leaf. Exported so the per-carrier invariant tests can
@@ -508,20 +513,14 @@ export function PredicateWorkbench({
 		],
 	);
 	const admitRuntimeExpression = useCallback(
-		(path: EditorPath, next: ValueExpression) => {
-			const candidate = replaceRuleNodeAtPath(value, path, {
-				family: "expression",
-				value: next,
-			});
-			const verdict = predicateExpressionRuntimeEditVerdict(
-				candidate,
+		(path: EditorPath, next: ValueExpression) =>
+			workbenchExpressionAdmission(
+				value,
+				path,
+				next,
 				evaluationTarget,
 				typeContext,
-			);
-			return verdict.ok
-				? ({ admitted: true } as const)
-				: ({ admitted: false, reason: verdict.reason } as const);
-		},
+			),
 		[value, evaluationTarget, typeContext],
 	);
 
@@ -1068,88 +1067,26 @@ function FocusedLogicalGroup({
 		operation: StableListOperation,
 	) => {
 		rowIdentity.stage(clauses, operation);
-		if (clauses.length === 0) {
-			onChange(
-				predicateCardSchemas[
-					value.kind === "and" ? "match-all" : "match-none"
-				].defaultValue(editContext),
-			);
-			return;
-		}
-		if (clauses.length === 1) {
-			onChange(clauses[0]);
-			return;
-		}
-		onChange({ ...value, clauses: clauses as [Predicate, ...Predicate[]] });
+		onChange(logicalClauses(value.kind, clauses));
 	};
 
-	const updateAt = (index: number, next: Predicate) => {
-		updateClauses(
-			value.clauses.map((clause, clauseIndex) =>
-				clauseIndex === index ? next : clause,
-			),
-			{ kind: "replace" },
-		);
+	const editGroup = (
+		action: Parameters<typeof planLogicalGroupEdit>[1],
+		restoreFocus = true,
+	) => {
+		const plan = planLogicalGroupEdit(value, action);
+		if (plan === undefined) return;
+		updateClauses(plan.clauses, plan.operation);
+		if (restoreFocus)
+			onRestoreAfterRemoval(appendKindIndex(path, value.kind, plan.focusIndex));
 	};
-
-	const move = (index: number, direction: -1 | 1) => {
-		const destination = index + direction;
-		if (destination < 0 || destination >= value.clauses.length) return;
-		const moved = value.clauses[index];
-		if (moved === undefined) return;
-		const clauses = [...value.clauses];
-		clauses.splice(index, 1);
-		clauses.splice(destination, 0, moved);
-		updateClauses(clauses, {
-			kind: "move",
-			fromIndex: index,
-			toIndex: destination,
-		});
-		onRestoreAfterRemoval(appendKindIndex(path, value.kind, destination));
-	};
-
-	const groupWithNext = (index: number) => {
-		const first = value.clauses[index];
-		const second = value.clauses[index + 1];
-		if (first === undefined || second === undefined) return;
-		const nested: Predicate = {
-			kind: value.kind === "and" ? "or" : "and",
-			clauses: [first, second],
-		};
-		updateClauses(
-			[
-				...value.clauses.slice(0, index),
-				nested,
-				...value.clauses.slice(index + 2),
-			],
-			{
-				kind: "splice",
-				index,
-				deleteCount: 2,
-				insertCount: 1,
-			},
-		);
-		onRestoreAfterRemoval(appendKindIndex(path, value.kind, index));
-	};
-
-	const ungroup = (index: number) => {
-		const child = value.clauses[index];
-		if (child?.kind !== "and" && child?.kind !== "or") return;
-		updateClauses(
-			[
-				...value.clauses.slice(0, index),
-				...child.clauses,
-				...value.clauses.slice(index + 1),
-			],
-			{
-				kind: "splice",
-				index,
-				deleteCount: 1,
-				insertCount: child.clauses.length,
-			},
-		);
-		onRestoreAfterRemoval(appendKindIndex(path, value.kind, index));
-	};
+	const updateAt = (index: number, next: Predicate) =>
+		editGroup({ kind: "replace", index, value: next }, false);
+	const move = (index: number, direction: -1 | 1) =>
+		editGroup({ kind: "move", index, direction });
+	const groupWithNext = (index: number) =>
+		editGroup({ kind: "group-next", index });
+	const ungroup = (index: number) => editGroup({ kind: "ungroup", index });
 
 	return (
 		<div className="space-y-3">
@@ -1168,15 +1105,13 @@ function FocusedLogicalGroup({
 							path={appendKindIndex(path, value.kind, index)}
 							onChange={(next) => updateAt(index, next)}
 							onRemove={() => {
-								const remaining = value.clauses.filter(
-									(_, clauseIndex) => clauseIndex !== index,
-								);
-								updateClauses(remaining, {
-									kind: "splice",
+								const plan = planLogicalGroupEdit(value, {
+									kind: "remove",
 									index,
-									deleteCount: 1,
-									insertCount: 0,
 								});
+								if (plan === undefined) return;
+								const remaining = plan.clauses;
+								updateClauses(remaining, plan.operation);
 								onRestoreAfterRemoval(
 									remaining.length === 1
 										? path
@@ -1489,15 +1424,12 @@ function FocusedRelation({
 		editContext.currentCaseType,
 		editContext.caseTypes,
 	);
+	const admitVia = (via: RelationPath) =>
+		relatedPathEditAdmission(value, via, editContext);
 	const setVia = (via: RelationPath) => {
-		const builder = value.kind === "exists" ? exists : missing;
-		// Changing the connection must not silently reseed a carefully authored
-		// nested rule. If the new destination makes that rule invalid, the
-		// type-checker keeps it visible and explains what needs attention.
-		onChange(
-			value.where === undefined ? builder(via) : builder(via, value.where),
-		);
+		if (admitVia(via).admitted) onChange(replaceRelatedPath(value, via));
 	};
+
 	const setWhere = (where: Predicate | undefined) => {
 		const builder = value.kind === "exists" ? exists : missing;
 		onChange(
@@ -1518,6 +1450,7 @@ function FocusedRelation({
 				<RelationPathBuilder
 					value={value.via}
 					onChange={setVia}
+					admitChange={admitVia}
 					allowSelf={false}
 				/>
 			</div>

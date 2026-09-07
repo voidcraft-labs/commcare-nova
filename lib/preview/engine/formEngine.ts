@@ -57,6 +57,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseWriteField,
 	type ContainerField,
+	caseDataTypeForFieldKind,
 	casePropertyDataTypes,
 	deriveCaseWriteInventory,
 	expressionSource,
@@ -497,6 +498,8 @@ export class FormEngine {
 	/** uuid → generic path cache for lookup-filter `formFields` bindings,
 	 *  keyed by tree identity so every tree rebuild refreshes it lazily. */
 	private fieldPathsCache: ReadonlyMap<Uuid, string> = new Map();
+	private fieldTypesCache: ReadonlyMap<Uuid, CasePropertyDataType | undefined> =
+		new Map();
 	private fieldPathsCacheTree: FieldTreeNode[] | undefined;
 	/** Live repeat-instance counts for the DAG's generic→concrete
 	 *  materialization. Arrow property so it can pass as a bare callback. */
@@ -1000,7 +1003,7 @@ export class FormEngine {
 
 	/** Evaluate a field's `default_value` for one concrete path. Returns
 	 *  the value to apply, or undefined when the slot is absent or the
-	 *  result is empty/`"false"` — the one gate every default-applying
+	 *  result is empty — the one gate every default-applying
 	 *  flow (form load, new repeat instance, incremental add, default
 	 *  edit) shares. */
 	private computeDefault(field: Field, path: string): string | undefined {
@@ -1013,7 +1016,7 @@ export class FormEngine {
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
 		const value = xpathToString(result);
-		return value && value !== "false" ? value : undefined;
+		return value === "" ? undefined : value;
 	}
 
 	/**
@@ -3584,7 +3587,7 @@ export class FormEngine {
 		const source = expressionSource(field, "default_value", this.printDoc);
 		if (!source) return undefined;
 		const value = xpathToString(await evaluateAsync(source, path));
-		return value && value !== "false" ? value : undefined;
+		return value === "" ? undefined : value;
 	}
 
 	private async applyDefaultsIntoAsync(
@@ -3978,6 +3981,7 @@ export class FormEngine {
 		return evaluateLookupChoices(source, data, {
 			outer: this.lookupOuterContext(ctx),
 			formFields: this.fieldPathsByUuid(),
+			formFieldTypes: this.fieldTypesCache,
 			userPropertySlugs: previewUserPropertySlugMap(
 				previewSessionValues(this.previewIdentity),
 			),
@@ -4011,15 +4015,18 @@ export class FormEngine {
 	private fieldPathsByUuid(): ReadonlyMap<Uuid, string> {
 		if (this.fieldPathsCacheTree !== this.tree) {
 			const paths = new Map<Uuid, string>();
+			const types = new Map<Uuid, CasePropertyDataType | undefined>();
 			const walk = (nodes: FieldTreeNode[], prefix: string): void => {
 				for (const node of nodes) {
 					const nodePath = `${prefix}/${node.field.id}`;
 					paths.set(node.field.uuid, nodePath);
+					types.set(node.field.uuid, caseDataTypeForFieldKind(node.field.kind));
 					if (node.children) walk(node.children, nodePath);
 				}
 			};
 			walk(this.tree, "/data");
 			this.fieldPathsCache = paths;
+			this.fieldTypesCache = types;
 			this.fieldPathsCacheTree = this.tree;
 		}
 		return this.fieldPathsCache;

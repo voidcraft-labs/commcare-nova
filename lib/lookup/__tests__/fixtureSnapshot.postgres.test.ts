@@ -4,7 +4,8 @@
 // snapshot — the compile path may not loop `getLookupTable`, whose
 // per-call snapshots could mix generations.
 
-import { describe, expect, it } from "vitest";
+import { Client } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
@@ -13,9 +14,9 @@ import {
 	getLookupFixtureData,
 	getLookupManifest,
 } from "../service";
-import type { LookupRowValues, LookupScope } from "../types";
+import type { LookupScope } from "../types";
 
-setupAppStateTestDb("lookup_fixture_");
+const h = setupAppStateTestDb("lookup_fixture_");
 
 const OWNER_A: LookupScope = {
 	projectId: "project-a",
@@ -33,7 +34,7 @@ const MISSING_TABLE_ID = lookupTableIdSchema.parse(
 );
 
 describe("getLookupFixtureData", () => {
-	it("returns definitions plus complete authored-order rows for several tables in one snapshot", async () => {
+	it("returns complete definitions and typed rows in authored order", async () => {
 		const regions = await createLookupTable(OWNER_A, {
 			name: "Regions",
 			tag: "regions",
@@ -48,7 +49,6 @@ describe("getLookupFixtureData", () => {
 			columns: [{ wireName: "code", label: "Code", dataType: "text" }],
 		});
 		const [valueColumn, popColumn] = regions.columns;
-		const codeColumn = statuses.columns[0];
 
 		const first = await createLookupRow(OWNER_A, {
 			tableId: regions.id,
@@ -57,13 +57,13 @@ describe("getLookupFixtureData", () => {
 			values: {
 				[valueColumn.id]: "north",
 				[popColumn.id]: 120,
-			} as LookupRowValues,
+			},
 		});
 		const second = await createLookupRow(OWNER_A, {
 			tableId: regions.id,
 			expectedTableRevision: first.tableRevision,
 			toIndex: 1,
-			values: { [valueColumn.id]: "south" } as LookupRowValues,
+			values: { [valueColumn.id]: "south" },
 		});
 		/* Insert at the front so authored order diverges from insertion order:
 		 * the reader must sort by `(order_key, id)`, not creation time. */
@@ -74,7 +74,7 @@ describe("getLookupFixtureData", () => {
 			values: {
 				[valueColumn.id]: "west",
 				[popColumn.id]: -5,
-			} as LookupRowValues,
+			},
 		});
 
 		const snapshot = await getLookupFixtureData(OWNER_A, [
@@ -83,10 +83,12 @@ describe("getLookupFixtureData", () => {
 		]);
 
 		expect(snapshot.projectId).toBe(OWNER_A.projectId);
-		expect(snapshot.definitions.map((table) => table.tag).sort()).toEqual([
-			"regions",
-			"statuses",
-		]);
+		expect(snapshot.definitions.map((table) => table.id)).toEqual(
+			[regions.id, statuses.id].sort(),
+		);
+		expect(
+			snapshot.definitions.find((table) => table.id === regions.id)?.columns,
+		).toEqual(regions.columns);
 		const manifest = await getLookupManifest(OWNER_A);
 		expect(snapshot.projectRevision).toBe(manifest.projectRevision);
 
@@ -107,7 +109,6 @@ describe("getLookupFixtureData", () => {
 
 		const statusRows = snapshot.rowsByTable.get(statuses.id);
 		expect(statusRows).toEqual([]);
-		expect(codeColumn.wireName).toBe("code");
 	});
 
 	it("treats missing and foreign requested ids identically: absent from both axes", async () => {
@@ -135,10 +136,86 @@ describe("getLookupFixtureData", () => {
 	});
 
 	it("reads the Project clock even for the empty request", async () => {
+		await createLookupTable(OWNER_A, {
+			name: "Existing",
+			tag: "existing",
+			columns: [{ wireName: "value", label: "Value", dataType: "text" }],
+		});
 		const snapshot = await getLookupFixtureData(OWNER_A, []);
 		expect(snapshot.definitions).toEqual([]);
 		expect(snapshot.rowsByTable.size).toBe(0);
 		const manifest = await getLookupManifest(OWNER_A);
 		expect(snapshot.projectRevision).toBe(manifest.projectRevision);
 	});
+});
+
+it("keeps definitions and rows in one generation when a writer commits between reads", async () => {
+	const table = await createLookupTable(OWNER_A, {
+		name: "Snapshot",
+		tag: "snapshot",
+		columns: [{ wireName: "value", label: "Value", dataType: "text" }],
+	});
+	const column = table.columns[0];
+	const row = await createLookupRow(OWNER_A, {
+		tableId: table.id,
+		expectedTableRevision: table.tableRevision,
+		toIndex: 0,
+		values: { [column.id]: "before" },
+	});
+	const before = await getLookupFixtureData(OWNER_A, [table.id]);
+	const nextRevision = (BigInt(before.projectRevision) + BigInt(1)).toString();
+	const writer = new Client({ connectionString: h.uri() });
+	let pending:
+		| Promise<
+				PromiseSettledResult<Awaited<ReturnType<typeof getLookupFixtureData>>>[]
+		  >
+		| undefined;
+	try {
+		await writer.connect();
+		await writer.query("BEGIN");
+		// Only the second read touches lookup_rows. Holding its table lock lets
+		// the reader finish the definition snapshot before we commit new data.
+		await writer.query("LOCK TABLE lookup_rows IN ACCESS EXCLUSIVE MODE");
+		const {
+			rows: [{ pid }],
+		} = await writer.query<{ pid: number }>("SELECT pg_backend_pid() AS pid");
+		pending = Promise.allSettled([getLookupFixtureData(OWNER_A, [table.id])]);
+		await vi.waitFor(async () => {
+			await writer.query("SELECT pg_stat_clear_snapshot()");
+			const blocked = await writer.query<{ count: number }>(
+				"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1::int = ANY(pg_blocking_pids(pid))",
+				[pid],
+			);
+			expect(blocked.rows[0].count).toBe(1);
+		});
+		await writer.query(
+			'UPDATE lookup_rows SET "values" = $1::jsonb WHERE id = $2',
+			[JSON.stringify({ [column.id]: "after!" }), row.rowId],
+		);
+		await writer.query(
+			"UPDATE lookup_columns SET label = 'After' WHERE id = $1",
+			[column.id],
+		);
+		await writer.query(
+			"UPDATE lookup_tables SET definition_revision = $1, rows_revision = $1 WHERE id = $2",
+			[nextRevision, table.id],
+		);
+		await writer.query(
+			"UPDATE lookup_project_state SET revision = $1 WHERE project_id = $2",
+			[nextRevision, OWNER_A.projectId],
+		);
+		await writer.query("COMMIT");
+		const [outcome] = await pending;
+		if (outcome.status === "rejected") throw outcome.reason;
+		expect(outcome.value).toEqual(before);
+		const after = await getLookupFixtureData(OWNER_A, [table.id]);
+		expect(after.projectRevision).toBe(nextRevision);
+		expect(after.definitions[0].columns[0].label).toBe("After");
+		expect(after.rowsByTable.get(table.id)).toEqual([
+			{ id: row.rowId, values: { [column.id]: "after!" } },
+		]);
+	} finally {
+		await writer.end();
+		await pending;
+	}
 });

@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
-import { eq, literal, matchNone, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop, sessionContext } from "@/lib/domain/predicate";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
+import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
+
+function launch(args: Parameters<typeof prepareEntryPointLaunch>[0]) {
+	assertAdmittedPreviewDoc(args.doc);
+	return prepareEntryPointLaunch(args);
+}
 
 const M = testUuid("module"),
 	F = testUuid("form"),
@@ -36,23 +42,20 @@ function fixture(multiple = false) {
 	doc.forms[F].entryPoint = { uuid: E, id: "visit" };
 	return doc;
 }
-const row = (id: string, caseType = "patient"): CaseRow =>
-	({
-		case_id: id,
-		case_type: caseType,
-		case_name: id,
-		properties: {},
-		parent_case_id: null,
-		external_id: null,
-		status: "open",
-		opened_on: null,
-		modified_on: null,
-		closed_on: null,
-		owner_id: "worker",
-		app_id: "app",
-		project_id: "project",
-		held: false,
-	}) as CaseRow;
+const row = (id: string, caseType = "patient"): CaseRow => ({
+	case_id: id,
+	case_type: caseType,
+	case_name: id,
+	properties: {},
+	parent_case_id: null,
+	external_id: null,
+	status: "open",
+	opened_on: null,
+	modified_on: null,
+	closed_on: null,
+	owner_id: "worker",
+	app_id: "app",
+});
 function args(doc = fixture()) {
 	return {
 		doc,
@@ -66,7 +69,7 @@ function args(doc = fixture()) {
 }
 describe("entry point Preview admission", () => {
 	it("binds the exact selected case without a first-case fallback or search launch", () => {
-		const result = prepareEntryPointLaunch(args());
+		const result = launch(args());
 		expect(result.kind).toBe("ready");
 		if (result.kind === "ready") {
 			// Server Actions reject null-prototype dictionaries even though JSON accepts them.
@@ -88,7 +91,7 @@ describe("entry point Preview admission", () => {
 	it("preserves ordered multiple selections", () => {
 		const input = args(fixture(true));
 		input.selections[0].caseIds = ["b", "a"];
-		const result = prepareEntryPointLaunch(input);
+		const result = launch(input);
 		expect(
 			result.kind === "ready" &&
 				result.launch.formTarget?.cases?.map((c) => c.caseId),
@@ -98,31 +101,32 @@ describe("entry point Preview admission", () => {
 		it(`refuses invalid scalar selection ${JSON.stringify(ids)}`, () => {
 			const input = args();
 			input.selections[0].caseIds = ids;
-			expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+			expect(launch(input).kind).toBe("refused");
 		});
 	it("refuses missing or extra selection bindings", () => {
-		expect(prepareEntryPointLaunch({ ...args(), selections: [] }).kind).toBe(
-			"refused",
-		);
+		expect(launch({ ...args(), selections: [] }).kind).toBe("refused");
 		const input = args();
 		input.selections.push({ moduleUuid: testUuid("foreign"), caseIds: ["a"] });
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		expect(launch(input).kind).toBe("refused");
 	});
 	it("refuses foreign case types even with an existing device case ID", () => {
 		const input = args();
 		input.database.rows = [row("b", "other")];
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		expect(launch(input).kind).toBe("refused");
 	});
 	it("enforces display conditions unless the form explicitly bypasses them", () => {
 		const input = args();
-		input.doc.modules[M].displayCondition = matchNone();
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		input.doc.modules[M].displayCondition = eq(
+			sessionContext("userid"),
+			literal("different-worker"),
+		);
+		expect(launch(input).kind).toBe("refused");
 		input.doc.forms[F].entryPoint = {
 			uuid: E,
 			id: "visit",
 			ignoreDisplayConditions: true,
 		};
-		expect(prepareEntryPointLaunch(input)).toMatchObject({
+		expect(launch(input)).toMatchObject({
 			kind: "ready",
 			launch: { ignoreDisplayConditions: true },
 		});
@@ -133,9 +137,9 @@ describe("entry point Preview admission", () => {
 			prop("patient", "case_name"),
 			literal("b"),
 		);
-		expect(prepareEntryPointLaunch(input).kind).toBe("ready");
+		expect(launch(input).kind).toBe("ready");
 		input.selections[0].caseIds = ["a"];
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		expect(launch(input).kind).toBe("refused");
 	});
 	it("does not let a visibility bypass open an unavailable case", () => {
 		const input = args();
@@ -145,19 +149,24 @@ describe("entry point Preview admission", () => {
 			ignoreDisplayConditions: true,
 		};
 		input.database.rows = [];
-		expect(prepareEntryPointLaunch(input)).toMatchObject({
+		expect(launch(input)).toMatchObject({
 			kind: "refused",
 			message: expect.stringContaining("does not claim"),
 		});
 	});
 	it("preserves a bare module menu destination", () => {
 		const input = args();
+		for (const uuid of input.doc.fieldOrder[F]) {
+			delete input.doc.fields[uuid];
+			delete input.doc.fieldParent[uuid];
+		}
+		delete input.doc.fieldOrder[F];
 		delete input.doc.forms[F];
 		input.doc.formOrder[M] = [];
 		input.doc.modules[M].caseListOnly = true;
 		input.doc.modules[M].entryPoint = { uuid: E, id: "patients" };
 		input.selections = [];
-		expect(prepareEntryPointLaunch(input)).toMatchObject({
+		expect(launch(input)).toMatchObject({
 			kind: "ready",
 			launch: {
 				location: { kind: "module", moduleUuid: M },
@@ -227,11 +236,11 @@ describe("entry point parent selection", () => {
 				depth: 1,
 			},
 		];
-		expect(prepareEntryPointLaunch(input).kind).toBe("ready");
+		expect(launch(input).kind).toBe("ready");
 		input.database.indices[0].relationship = "extension";
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		expect(launch(input).kind).toBe("refused");
 		input.database.indices[0].relationship = "child";
 		input.database.indices[0].ancestor_id = "other-house";
-		expect(prepareEntryPointLaunch(input).kind).toBe("refused");
+		expect(launch(input).kind).toBe("refused");
 	});
 });

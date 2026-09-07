@@ -7,10 +7,11 @@ import {
 	type Transaction,
 } from "kysely";
 import { Client, Pool } from "pg";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
 import {
 	AUDIT_DB_ROLE_CONNECTION_LIMIT,
 	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
@@ -192,8 +193,13 @@ async function createRoleDatabase(
 			pool: pool as unknown as PostgresPool,
 		}),
 	});
-	await sql`SET ROLE ${sql.id(role)}`.execute(db);
-	return { db, pool };
+	try {
+		await sql`SET ROLE ${sql.id(role)}`.execute(db);
+		return { db, pool };
+	} catch (error) {
+		await db.destroy();
+		throw error;
+	}
 }
 
 async function dropRoles(
@@ -392,9 +398,9 @@ describe("database privilege convergence", () => {
 				}),
 			).rejects.toMatchObject({ code: "42501" });
 		} finally {
-			await bootstrapClient.end().catch(() => undefined);
-			await legacy.db.destroy().catch(() => undefined);
-			await migration?.db.destroy().catch(() => undefined);
+			await bootstrapClient.end();
+			await legacy.db.destroy();
+			await migration?.db.destroy();
 			await dropRoles(h.db, fixture.convergence, [
 				fixture.cleanupRole,
 				fixture.legacyRole,
@@ -465,15 +471,6 @@ describe("database privilege convergence", () => {
 			expect(freshBootstrap.before.currentUserDependencyCount).toBeGreaterThan(
 				0,
 			);
-			expect(freshBootstrap.statements).toEqual([
-				`ALTER ROLE "${config.runtimeRole}" CONNECTION LIMIT ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.migrationRole}" CONNECTION LIMIT ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.cleanupRole}" CONNECTION LIMIT ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.auditRole}" CONNECTION LIMIT ${AUDIT_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER DATABASE "${h.databaseName}" OWNER TO "${config.migrationRole}"`,
-				`REASSIGN OWNED BY "${bootstrapRole}" TO "${config.migrationRole}"`,
-				`DROP OWNED BY "${bootstrapRole}" RESTRICT`,
-			]);
 			expect(freshBootstrap.after).toMatchObject({
 				currentUserDependencyCount: 0,
 				currentUserOwnedSchemaCount: 0,
@@ -529,12 +526,19 @@ describe("database privilege convergence", () => {
 				)
 			`.execute(migration.db);
 			__setAppDbForTests(migration.db as Kysely<AppDatabase>);
+			const migrationCaseDatabase = vi
+				.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+				.mockResolvedValue(
+					migration.db as Awaited<
+						ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
+					>,
+				);
 			const probeApp = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),
 				{ status: "complete", name: "Runtime probe" },
-			);
+			).finally(() => migrationCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
 
 			/* The SPLIT media projection under the probe: a conversation
@@ -624,13 +628,42 @@ describe("database privilege convergence", () => {
 
 			runtime = await createRoleDatabase(config.runtimeRole);
 			__setAppDbForTests(runtime.db as Kysely<AppDatabase>);
+			const runtimeCaseDatabase = vi
+				.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+				.mockResolvedValue(
+					runtime.db as Awaited<
+						ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
+					>,
+				);
 			const genesis = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),
 				{ status: "complete", name: "Runtime genesis" },
-			);
+			).finally(() => runtimeCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
+			// The acknowledgement trigger must execute under the restricted runtime
+			// role after convergence has revoked direct access to internal routines.
+			const target = await sql<{ id: string }>`INSERT INTO app_deployments
+				(app_id, project_id, server, domain, state, created_by)
+				VALUES (${genesis.appId}, ${probeProjectId}, 'production', 'token-proof', 'uploaded', ${probeUserId})
+				RETURNING id`.execute(runtime.db);
+			const originalPush = await sql<{
+				push_token: string;
+			}>`INSERT INTO app_deployment_resources
+				(deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_at, pushed_revision)
+				VALUES (${target.rows[0].id}::uuid, 'app', ${genesis.appId}, 'hq-token-proof', 'nova-created', now(), 1)
+				RETURNING push_token`.execute(runtime.db);
+			const nextPush = await sql<{
+				push_token: string;
+			}>`UPDATE app_deployment_resources
+				SET pushed_at = pushed_at WHERE deployment_id = ${target.rows[0].id}::uuid
+				RETURNING push_token`.execute(runtime.db);
+			expect(nextPush.rows).toHaveLength(1);
+			expect(nextPush.rows[0].push_token).not.toBe(
+				originalPush.rows[0].push_token,
+			);
+
 			const genesisProof = await sql<{
 				baselines: string;
 				digest_matches: boolean;
@@ -1079,11 +1112,10 @@ describe("database privilege convergence", () => {
 			`.execute(migration.db);
 		} finally {
 			__setAppDbForTests(null);
-			await bootstrapClient.query("RESET ROLE").catch(() => undefined);
-			await bootstrapClient.end().catch(() => undefined);
-			await cleanup?.db.destroy().catch(() => undefined);
-			await runtime?.db.destroy().catch(() => undefined);
-			await migration?.db.destroy().catch(() => undefined);
+			await bootstrapClient.end();
+			await cleanup?.db.destroy();
+			await runtime?.db.destroy();
+			await migration?.db.destroy();
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}
 	});

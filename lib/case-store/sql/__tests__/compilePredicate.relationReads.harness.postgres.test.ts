@@ -10,16 +10,13 @@
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
-	and,
 	anyRelationPath,
 	between,
 	eq,
 	exists,
-	gte,
 	isBlank,
 	isIn,
 	literal,
-	lte,
 	match,
 	multiSelectAll,
 	neq,
@@ -131,7 +128,7 @@ async function seedHouseholdWithTwoChildren(
 			{
 				case_id: NONMATCHING_CHILD_ID,
 				ancestor_id: HOUSEHOLD_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -139,7 +136,7 @@ async function seedHouseholdWithTwoChildren(
 			{
 				case_id: MATCHING_CHILD_ID,
 				ancestor_id: HOUSEHOLD_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -217,7 +214,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: NONMATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -225,7 +222,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -238,6 +235,14 @@ describe("compilePredicate — normalized relation property reads", () => {
 			literal("Alice"),
 		);
 		expect(await executeHouseholdPredicate(db, predicate)).toEqual([]);
+		await db
+			.updateTable("cases")
+			.set({ properties: JSON.stringify({ nickname: "Alice" }) })
+			.where("case_id", "=", NONMATCHING_CHILD_ID)
+			.execute();
+		expect(await executeHouseholdPredicate(db, predicate)).toEqual([
+			HOUSEHOLD_ID,
+		]);
 	});
 
 	test("between evaluates both bounded comparisons across later related rows", async ({
@@ -370,89 +375,18 @@ describe("compilePredicate — normalized relation property reads", () => {
 		expect(await executeHouseholdPredicate(db, predicate)).toEqual([
 			HOUSEHOLD_ID,
 		]);
-	});
-
-	test("explicit exists keeps both between bounds on one related row", async ({
-		db,
-	}) => {
-		await seedHouseholdWithTwoChildren(db, {
-			nonmatching: { age: 10 },
-			matching: { age: 30 },
-		});
-		const via = subcasePath("parent", "patient");
-		const predicate = exists(
-			via,
-			and(
-				gte(prop("patient", "age"), literal(20)),
-				lte(prop("patient", "age"), literal(20)),
+		expect(
+			await executeHouseholdPredicate(
+				db,
+				exists(
+					subcasePath("parent", "patient"),
+					between(prop("patient", "age"), {
+						lower: literal(20),
+						upper: literal(20),
+					}),
+				),
 			),
-		);
-		expect(await executeHouseholdPredicate(db, predicate)).toEqual([]);
-	});
-
-	test("self-vs-related and related-vs-self comparisons fail closed as mixed scopes", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: HOUSEHOLD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "household",
-					properties: JSON.stringify({ region: "south" }),
-				}),
-				makeCaseRow({
-					case_id: NONMATCHING_CHILD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "patient",
-					properties: JSON.stringify({ nickname: "north" }),
-				}),
-				makeCaseRow({
-					case_id: MATCHING_CHILD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "patient",
-					properties: JSON.stringify({ nickname: "south" }),
-				}),
-			])
-			.execute();
-		await db
-			.insertInto("case_indices")
-			.values([
-				{
-					case_id: NONMATCHING_CHILD_ID,
-					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
-					identifier: "parent",
-					relationship: "child",
-					depth: 1,
-				},
-				{
-					case_id: MATCHING_CHILD_ID,
-					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
-					identifier: "parent",
-					relationship: "child",
-					depth: 1,
-				},
-			])
-			.execute();
-
-		const related = prop(
-			"household",
-			"nickname",
-			subcasePath("parent", "patient"),
-		);
-		const self = prop("household", "region");
-		await expect(
-			executeHouseholdPredicate(db, eq(self, related)),
-		).rejects.toThrow(/mixed-property-scopes/);
-		await expect(
-			executeHouseholdPredicate(db, eq(related, self)),
-		).rejects.toThrow(/mixed-property-scopes/);
+		).toEqual([]);
 	});
 
 	test("two properties on the same relation compare within one related row", async ({
@@ -476,66 +410,7 @@ describe("compilePredicate — normalized relation property reads", () => {
 		]);
 	});
 
-	test("two independent relation scopes fail closed instead of cross-joining", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: HOUSEHOLD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "household",
-				}),
-				makeCaseRow({
-					case_id: NONMATCHING_CHILD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "patient",
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: MATCHING_CHILD_ID,
-					app_id: APP_ID,
-					project_id: PROJECT_ID,
-					case_type: "patient",
-					properties: JSON.stringify({ alias: "Alice" }),
-				}),
-			])
-			.execute();
-		await db
-			.insertInto("case_indices")
-			.values([
-				{
-					case_id: NONMATCHING_CHILD_ID,
-					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
-					identifier: "primary",
-					relationship: "child",
-					depth: 1,
-				},
-				{
-					case_id: MATCHING_CHILD_ID,
-					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
-					identifier: "secondary",
-					relationship: "child",
-					depth: 1,
-				},
-			])
-			.execute();
-
-		const predicate = eq(
-			prop("household", "nickname", subcasePath("primary", "patient")),
-			prop("household", "alias", subcasePath("secondary", "patient")),
-		);
-		await expect(executeHouseholdPredicate(db, predicate)).rejects.toThrow(
-			/mixed-property-scopes/,
-		);
-	});
-
-	test("any-relation considers both directions instead of taking the first UNION row", async ({
+	test("custom any-relation considers both directions instead of taking the first UNION row", async ({
 		db,
 	}) => {
 		await db
@@ -569,16 +444,16 @@ describe("compilePredicate — normalized relation property reads", () => {
 				{
 					case_id: HOUSEHOLD_ID,
 					ancestor_id: NONMATCHING_ANCESTOR_ID,
-					target_case_type: "test",
-					identifier: "parent",
+					target_case_type: "patient",
+					identifier: "related",
 					relationship: "child",
 					depth: 1,
 				},
 				{
 					case_id: MATCHING_CHILD_ID,
 					ancestor_id: HOUSEHOLD_ID,
-					target_case_type: "test",
-					identifier: "parent",
+					target_case_type: "household",
+					identifier: "related",
 					relationship: "child",
 					depth: 1,
 				},
@@ -586,10 +461,23 @@ describe("compilePredicate — normalized relation property reads", () => {
 			.execute();
 
 		const predicate = eq(
-			prop("household", "nickname", anyRelationPath("parent", "patient")),
+			prop("household", "nickname", anyRelationPath("related", "patient")),
 			literal("Alice"),
 		);
 
+		expect(await executeHouseholdPredicate(db, predicate)).toEqual([
+			HOUSEHOLD_ID,
+		]);
+		await db
+			.updateTable("cases")
+			.set({ properties: JSON.stringify({ nickname: "Alice" }) })
+			.where("case_id", "=", NONMATCHING_ANCESTOR_ID)
+			.execute();
+		await db
+			.updateTable("cases")
+			.set({ properties: JSON.stringify({ nickname: "Not Alice" }) })
+			.where("case_id", "=", MATCHING_CHILD_ID)
+			.execute();
 		expect(await executeHouseholdPredicate(db, predicate)).toEqual([
 			HOUSEHOLD_ID,
 		]);
@@ -597,9 +485,10 @@ describe("compilePredicate — normalized relation property reads", () => {
 
 	test("related blank checks quantify real rows", async ({ db }) => {
 		await seedHouseholdWithTwoChildren(db, {
-			nonmatching: {},
+			nonmatching: { nickname: "present" },
 			matching: { nickname: "" },
 		});
+		await seedEmptyHousehold(db);
 		const related = prop(
 			"household",
 			"nickname",

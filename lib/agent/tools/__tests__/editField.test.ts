@@ -1,5 +1,7 @@
 /**
- * Behavioral tests for `editField`'s `help` text slot.
+ * Actual schema-admitted editField calls through the canonical workspace with
+ * a controlled host receipt. Tests authored field changes and refusal, not SQL
+ * persistence or the external MCP transport.
  *
  * `help` is plain tap-to-expand guidance (distinct from its media
  * companion `help_media`, which the dedicated media tools own). It rides
@@ -13,28 +15,14 @@
  *      convention).
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc, Field } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
-import {
-	makeMcpTestContext,
-	makeToolWorkspaceHarness,
-} from "../../__tests__/fixtures";
-import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const FORM = testUuid("22222222-2222-2222-2222-222222222222");
@@ -43,33 +31,35 @@ const COLUMN = testUuid("44444444-4444-4444-8444-444444444444");
 
 /** Minimal doc with one input (`text`) field that supports `help`. */
 function makeDoc(help?: string): BlueprintDoc {
-	const mod: Module = { uuid: MOD, id: "patient", name: "Patient" };
-	const form: Form = {
-		uuid: FORM,
-		id: "enroll",
-		name: "Enroll",
-		type: "survey",
-	};
-	const field: Field = {
-		uuid: FIELD,
-		id: "patient_name",
-		kind: "text",
-		label: proseText("Patient name"),
-		...(help !== undefined && { help: proseText(help) }),
-	} as Field;
-	return {
-		appId: "test-app",
-		appName: "Clinic",
-		connectType: null,
-		caseTypes: null,
-		modules: { [MOD]: mod },
-		forms: { [FORM]: form },
-		fields: { [FIELD]: field },
-		moduleOrder: [MOD],
-		formOrder: { [MOD]: [FORM] },
-		fieldOrder: { [FORM]: [FIELD] },
-		fieldParent: { [FIELD]: FORM },
-	};
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					uuid: MOD,
+					id: "patient",
+					name: "Patient",
+					forms: [
+						{
+							uuid: FORM,
+							id: "enroll",
+							name: "Enroll",
+							type: "survey",
+							fields: [
+								f({
+									uuid: FIELD,
+									id: "patient_name",
+									kind: "text",
+									label: proseText("Patient name"),
+									...(help !== undefined && { help: proseText(help) }),
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 /** Read the `help` text off the field in a post-mutation doc. */
@@ -82,13 +72,9 @@ function helpOf(doc: BlueprintDoc): string | undefined {
 
 const ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: FIELD };
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("editField — help text", () => {
 	it("sets help text on the field", async () => {
-		const h = makeToolWorkspaceHarness(makeDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeDoc()));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: {
@@ -130,12 +116,12 @@ const AGE = testUuid("66666666-6666-6666-6666-666666666666");
  *  `patient_name` → `age` is a sibling-id conflict. */
 function makeTwoFieldDoc(): BlueprintDoc {
 	const doc = makeDoc();
-	const age = {
+	const age: Field = {
 		uuid: AGE,
 		id: "age",
 		kind: "int",
 		label: proseText("Age"),
-	} as Field;
+	};
 	return {
 		...doc,
 		fields: { ...doc.fields, [AGE]: age },
@@ -147,14 +133,14 @@ function makeTwoFieldDoc(): BlueprintDoc {
 describe("editField — rename identifier guard", () => {
 	it("rejects a rename to a sibling-conflicting id and persists nothing", async () => {
 		const doc = makeTwoFieldDoc();
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: { kind: "text", id: "age" },
 		});
 
 		expect(result.result).toHaveProperty("error");
-		expect((result.result as { error: string }).error).toContain('"age"');
+		expect("error" in result.result && result.result.error).toContain('"age"');
 		expect(result.mutations).toHaveLength(0);
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
 		// Nothing persisted — the doc the SA holds is unchanged.
@@ -162,29 +148,31 @@ describe("editField — rename identifier guard", () => {
 	});
 
 	it("rejects a rename to an XML-illegal id", async () => {
-		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeTwoFieldDoc()));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: { kind: "text", id: "patient name" },
 		});
 
-		expect((result.result as { error: string }).error).toContain(
+		expect("error" in result.result && result.result.error).toContain(
 			'"patient name"',
 		);
 	});
 
 	it("rejects a rename into the reserved __nova_ namespace", async () => {
-		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeTwoFieldDoc()));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: { kind: "text", id: "__nova_count_x" },
 		});
 
-		expect((result.result as { error: string }).error).toContain("__nova_");
+		expect("error" in result.result && result.result.error).toContain(
+			"__nova_",
+		);
 	});
 
 	it("accepts a legal rename and persists it", async () => {
-		const h = makeToolWorkspaceHarness(makeTwoFieldDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeTwoFieldDoc()));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: { kind: "text", id: "full_name" },
@@ -195,8 +183,14 @@ describe("editField — rename identifier guard", () => {
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 
-	it("emits independent id and caseWrite changes together in one post-declaration updateField patch", async () => {
-		const doc = makeDoc();
+	it("emits independent id and caseWrite changes together in one updateField patch", async () => {
+		const doc = structuredClone(makeDoc());
+		doc.caseTypes = [
+			{
+				name: "household",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		];
 		doc.modules[MOD] = {
 			...doc.modules[MOD],
 			caseType: "household",
@@ -218,7 +212,7 @@ describe("editField — rename identifier guard", () => {
 			...doc.forms[FORM],
 			type: "followup",
 		};
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const result = await h.runTool(editFieldTool, {
 			...ADDRESS,
 			updates: {
@@ -230,7 +224,6 @@ describe("editField — rename identifier guard", () => {
 
 		if ("error" in result.result) throw new Error(result.result.error);
 		expect(result.mutations).toEqual([
-			{ kind: "declareCaseType", caseType: "household" },
 			{
 				kind: "updateField",
 				uuid: FIELD,
@@ -241,40 +234,11 @@ describe("editField — rename identifier guard", () => {
 				},
 			},
 		]);
-		expect(
-			result.mutations.some(
-				(mutation) =>
-					mutation.kind === "updateField" &&
-					Object.hasOwn(mutation.patch, "id") &&
-					Object.hasOwn(mutation.patch, "caseWrite"),
-			),
-		).toBe(true);
-	});
-
-	it("rejects the same conflicting rename through an McpContext (same guard, both surfaces)", async () => {
-		const doc = makeTwoFieldDoc();
-		const { ctx } = makeMcpTestContext({ initialDoc: doc });
-		const recordSpy = vi.spyOn(ctx, "recordMutationStages");
-		// The MCP context IS the canonical host on that surface — the same tool
-		// body runs against it through the same workspace the chat surface uses.
-		const workspace = new CanonicalMutationWorkspace({
-			host: ctx,
-			initialDoc: doc,
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[FIELD]).toMatchObject({
+			id: "household_name",
+			caseWrite: { caseType: "household", property: "case_name" },
 		});
-		const result = await workspace.invoke({
-			toolName: "editField",
-			execute: (toolCtx) =>
-				editFieldTool.execute(
-					{
-						...ADDRESS,
-						updates: { kind: "text", id: "age" },
-					},
-					toolCtx,
-				),
-		});
-
-		expect((result.result as { error: string }).error).toContain('"age"');
-		expect(recordSpy).not.toHaveBeenCalled();
 	});
 });
 
@@ -287,7 +251,7 @@ const OPT_NO = testUuid("99999999-9999-9999-9999-999999999999");
 /** `makeDoc` plus a single-select whose options already carry identity. */
 function makeSelectDoc(): BlueprintDoc {
 	const doc = makeDoc();
-	const select = {
+	const select: Field = {
 		uuid: SEL,
 		id: "consent",
 		kind: "single_select",
@@ -295,11 +259,11 @@ function makeSelectDoc(): BlueprintDoc {
 		optionsSource: {
 			kind: "inline",
 			options: [
-				{ label: proseText("Yes"), value: "yes", uuid: OPT_YES, order: "a1" },
-				{ label: proseText("No"), value: "no", uuid: OPT_NO, order: "a2" },
+				{ label: proseText("Yes"), value: "yes", uuid: OPT_YES },
+				{ label: proseText("No"), value: "no", uuid: OPT_NO },
 			],
 		},
-	} as unknown as Field;
+	};
 	return {
 		...doc,
 		fields: { ...doc.fields, [SEL]: select },
@@ -310,7 +274,7 @@ function makeSelectDoc(): BlueprintDoc {
 
 describe("editField — wholesale option-source replacement keeps identity", () => {
 	it("carries surviving values' uuids forward and identifies every option", async () => {
-		const h = makeToolWorkspaceHarness(makeSelectDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeSelectDoc()));
 		// The SA replaces the whole list and explicitly preserves the UUID of
 		// "yes"; "no" is dropped and "maybe" receives a new UUID before commit.
 		const result = await h.runTool(editFieldTool, {
@@ -334,21 +298,16 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 		});
 
 		expect(result.kind).toBe("mutate");
-		const options = (
-			h.currentDoc().fields[SEL] as unknown as {
-				optionsSource: {
-					kind: "inline";
-					options: Array<{
-						label: ReturnType<typeof proseText>;
-						value: string;
-						uuid: string;
-					}>;
-				};
-			}
-		).optionsSource.options;
+		expectAdmittedDoc(h.currentDoc());
+		const field = h.currentDoc().fields[SEL];
+		if (
+			field?.kind !== "single_select" ||
+			field.optionsSource.kind !== "inline"
+		)
+			throw new Error("expected inline select");
+		const options = field.optionsSource.options;
 		expect(options).toHaveLength(2);
-		// The explicitly addressed value keeps its identity — a peer's
-		// concurrent granular edit addressed at OPT_YES stays valid.
+		// The explicitly addressed value keeps its identity.
 		expect(options[0]).toMatchObject({
 			label: proseText("Yes, agreed"),
 			value: "yes",
@@ -372,7 +331,7 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 	});
 
 	it("rejects an option UUID owned by another authored object before commit", async () => {
-		const h = makeToolWorkspaceHarness(makeSelectDoc());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(makeSelectDoc()));
 		const result = await h.runTool(editFieldTool, {
 			moduleUuid: MOD,
 			formUuid: FORM,

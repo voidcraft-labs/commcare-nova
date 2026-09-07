@@ -1,16 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import { proseText } from "@/lib/domain";
+import { blueprintDocSchema, proseText } from "@/lib/domain";
 
+const injected = vi.hoisted(() => ({ loss: false }));
+afterEach(() => {
+	injected.loss = false;
+});
+// Inject a failed codec verdict to check diagnostic routing and copy only.
+// The actual editor codec tests own representability.
 vi.mock("@/lib/tiptap/proseTemplateCodec", async (importOriginal) => {
 	const actual =
 		await importOriginal<typeof import("@/lib/tiptap/proseTemplateCodec")>();
 	return {
 		...actual,
-		proseTemplateSurvivesTiptapRoundTrip: () => false,
+		proseTemplateSurvivesTiptapRoundTrip: (
+			...args: Parameters<typeof actual.proseTemplateSurvivesTiptapRoundTrip>
+		) => !injected.loss && actual.proseTemplateSurvivesTiptapRoundTrip(...args),
 	};
 });
 
@@ -38,6 +47,11 @@ describe("prose editor round-trip finding", () => {
 			],
 		});
 
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		injected.loss = true;
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toHaveLength(1);
 		const finding = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
 			(error) => error.code === "PROSE_EDITOR_ROUND_TRIP_LOSS",
 		);

@@ -40,6 +40,23 @@ a BLOCKING preflight edge. Treating "could not ask" as "there are none" is the
 one reading that turns a permissions problem into somebody's data being
 overwritten.
 
+Lookup inventory must be a complete, well-formed list: every row needs its
+remote identity, and every page needs an explicit next-page or terminal cursor.
+A malformed row cannot be skipped, a malformed envelope cannot become an empty
+list, and pagination cannot switch project spaces or resource types. Reads do
+not follow redirects. An unknown workbook-upload verdict means data may have
+landed; only HQ's explicit format-refusal verdict proves that none did.
+
+Once an app import and its ownership mapping have landed, a media transport or
+status-read failure remains a media warning. Publishing still returns the app
+and its deployment record, with a retry step for the unconfirmed attachment.
+A polling timeout confirms only that HQ accepted the ZIP, not that its task is
+still running or will eventually attach the media. The warning preserves that
+distinction.
+Import acknowledgements must carry a literal success verdict and a routable
+remote id; an update acknowledgement must name the app requested. Malformed
+responses cannot become ownership mappings.
+
 Both location resources sit behind FOUR gates and Nova cannot tell them apart
 from the answer: the project space's `LOCATIONS` privilege (a bodyless 403 from
 `v0_5.py::BaseLocationsResource.dispatch`), its `API_ACCESS` privilege (401,
@@ -72,6 +89,18 @@ A 3xx is "could not check", never "not installable":
 `check_access_and_redirect` answers 302 for any domain carrying a
 `redirect_url`.
 
+HTTP 200 alone does not confirm readiness. The bounded resource reader must
+finish reading a valid profile whose remote suite names the exact selected
+server, project space, and released build. Empty, malformed, unrelated, or
+wrong-build content leaves the probe pending. A missing profile (404) remains a
+build verdict; a transport or body-read failure means the check was unavailable.
+
+The left-behind list describes unused remote objects, not historical ledger
+rows. It excludes every currently active `(kind, remoteId)` and reports each
+remaining object once, using its latest mapping. When current resource names
+cannot be read, the same selector returns only unused apps. Builder and MCP
+share this rule, including that fallback.
+
 ## The state machine
 
 `preflight → resources → uploaded → built → released → runnable`, plus
@@ -93,6 +122,13 @@ and part of it did not take. `_run_upload` is not one transaction either — onl
 — so a 5xx can leave tables behind too. A place push is a batch per level
 (`v0_6.py::patch_list` is `@atomic` at 100), so a tree can genuinely stop partway
 with three levels of places really sitting on somebody's project space.
+A missing or unusable acknowledgement cannot prove an atomic place batch rolled
+back. Only HQ's known 400/401/403 refusals establish that nothing in that batch
+landed. Earlier confirmed batches stay recorded; an uncertain batch creates no
+mapping, and a retry requires explicit adoption if its site codes now exist
+without recorded ownership. Lookup warnings (body code 402) report partial
+acceptance; transport and malformed-verdict failures report uncertainty. MCP
+preserves the same row-level refusal details the browser receives.
 `recordPushedResources`
 therefore takes a `ResourcePushOutcome`: a `complete` push names the kinds it
 speaks for and supersedes every live mapping of those kinds it did not name; a
@@ -255,6 +291,14 @@ undefined slug arrives as loose data — real, unvalidated, and unfilterable. Wh
 it DOES refuse is a field it marks required with no value in Nova's bag, which
 takes the whole batch down.
 
+The location reader preserves the entire remote metadata object, including
+foreign numbers, booleans, arrays and nested objects. HQ validates its modeled
+fields and then replaces this whole object; filtering unknown JSON values to
+strings would delete another editor's data. Nova overlays its applicable
+modeled values, including empty strings for cleared values. Location inventories
+require complete identities and resolvable, acyclic level parents; malformed
+parents never become roots. All inventory pages share one 30-second deadline.
+
 Project-space compatibility is derived from what the app actually uses. A
 missing or unverified required capability blocks before Nova writes any remote
 resource, because the imported app would not run as authored. The Search
@@ -289,6 +333,8 @@ name is the only way anybody will find it. `resources.ts::leftBehindResources`
 therefore tests the NAME, not the supersession: a table deleted on CommCare HQ
 and recreated by the next push supersedes its mapping and leaves nothing behind,
 and reporting it would send somebody to tidy up a table that does not exist.
+The recreated table is `nova-created`, even if its predecessor was adopted;
+the old adoption remains on the superseded object, not the newly created one.
 
 The three kinds reach it differently. A tag is mutable, so a RENAME is the
 common route for a table. A site code is create-once in Nova, so a place never
@@ -405,9 +451,11 @@ because each fold states its precondition against that fresh row:
   each record their own app and the ledger files whichever recorded
   first as superseded — the same answer two sequential creates produce.
 - `applyDeploymentObservation` folds only while the active mapping still
-  carries the remote id AND the `pushed_at` the observation read before
-  asking — the per-publish staleness token, needed because an in-place
-  republish keeps the id — so a refresh that spent five seconds asking
+  carries the remote id AND the `push_token` the observation read before
+  asking. Postgres assigns a fresh UUID on insertion and every update of
+  push fields, even when the timestamp, source revision, and remote id stay
+  equal. Observation-only updates and supersession retain that identity.
+  Thus a refresh that spent five seconds asking
   about what a publish meanwhile replaced discards its answers instead
   of overwriting the fresh record. It also records the remote revision
   in that same transaction.
@@ -417,6 +465,13 @@ because each fold states its precondition against that fresh row:
 `setupArtifact.ts` derives from the document on every read and is never
 stored. A stored copy goes stale the first time a worker property is
 renamed, and somebody following stale instructions has no way to tell.
+
+Worker fields and automations retain authored order. Organization levels and
+their place summaries share a parent-before-child projection, preserving
+authored order between available branches. Place summaries key by level UUID,
+so names remain projections through renames; only live places count toward
+current totals and adoption. This is generated guidance, not an assertion
+that a manual HQ setup step has been completed.
 
 Every section is target-aware — the project space slug is in each URL —
 and no section claims Nova installed anything. When a push driver ships
@@ -438,7 +493,11 @@ states where it found them, and writes only the ledger.
 carries it back once. Nothing writes it to Postgres, hands it to `log.*`
 or a `LogWriter`, or logs a request body that contains it — the refusal
 path in `lib/commcare/hq/workers.ts` deliberately logs the status and
-never the body for that reason. An update never sends a password at all,
+never the body for that reason. Native HTTP failures, invalid JSON and timed-out
+body reads return an uncertain write outcome; they cannot throw away a generated
+credential. Creates require HTTP 201 and a routeable ID; updates require HTTP 200
+and the exact requested ID. Both reads and writes own 30-second deadlines and
+refuse redirects. An update never sends a password at all,
 because an update is what an account somebody is already using gets.
 
 **A refusal is not proof that nothing happened.** `obj_create` wraps its
@@ -641,3 +700,18 @@ still match under the final app-row lock. This covers changed selection
 cardinality, bypass, filters, topology and endpoint removal without a second
 partial authoring fingerprint. Even unrelated committed edits require a new
 publish before another checked copy; existing URLs retain HQ's behavior.
+
+
+Worker credentials live together in `provisioningOutcomes`, keyed by server and
+project space. The per-target fold retains every distinct unconfirmed password
+for a persona/username; repeated uncertain creates cannot disprove earlier ones.
+Only a confirmed create for that exact account clears its old candidates, and
+explicit dismissal removes one candidate on one target. Hooks select that target
+before rendering. Account adoption proves existence, not a candidate password;
+`workerCredentialRows` shares the complete rows and uncertainty labels with the
+clipboard. Nothing persists these values; reset/page teardown clears them.
+
+A same-named replacement account cannot inherit a confirmed password: the held
+fold checks the remote account ID and retains the displaced password as an
+unconfirmed candidate. A lost browser response may follow a completed create;
+the panel invites checking HQ and explains that undelivered passwords need reset.

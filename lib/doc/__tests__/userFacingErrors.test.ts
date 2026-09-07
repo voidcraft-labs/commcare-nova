@@ -1,10 +1,8 @@
 /**
  * The user-facing copy renderer's two contracts:
  *
- *   1. Exhaustiveness — every code a user can actually encounter
- *      (classified shape / soundness / completeness / environment in
- *      `VALIDITY_CLASS_BY_CODE`) has a builder. A new gating code added
- *      without one is caught here, not by a user seeing the generic line.
+ *   1. Every reachable code renders useful copy with and without optional
+ *      details. Completeness of the builder table is a compile-time contract.
  *   2. No wire/platform vocabulary leaks into the rendered output — the
  *      whole point of the surface. Render every code against a populated
  *      finding and assert the banned-term sweep stays clean.
@@ -20,13 +18,13 @@ import {
 import { VALIDITY_CLASS_BY_CODE } from "@/lib/commcare/validator/gate";
 
 import {
-	USER_MESSAGE_CODES,
+	offeredChoiceRefusal,
 	userFacingError,
+	userFacingErrors,
 } from "@/lib/doc/userFacingErrors";
 
-/** A finding with every location + details slot a builder might read,
- *  so the rendered output exercises the interpolated path (not the
- *  fallback) for whichever keys the code consumes. */
+/** Common location/details for the copy checks. Reason-specific builders
+ * have their own examples below; this is not a validator fixture. */
 function richFinding(code: ValidationErrorCode): ValidationError {
 	return validationError(
 		code,
@@ -60,42 +58,22 @@ function richFinding(code: ValidationErrorCode): ValidationError {
 	);
 }
 
-const GATING_OR_ENV: ReadonlySet<ValidationErrorCode> = new Set(
-	(Object.keys(VALIDITY_CLASS_BY_CODE) as ValidationErrorCode[]).filter(
-		(code) => {
-			const cls = VALIDITY_CLASS_BY_CODE[code];
-			return (
-				cls === "shape" ||
-				cls === "soundness" ||
-				cls === "completeness" ||
-				cls === "environment"
-			);
-		},
-	),
-);
-
-describe("userFacingError — exhaustiveness", () => {
-	it("has a builder for every shape/soundness/completeness/environment code", () => {
-		const missing = [...GATING_OR_ENV].filter(
-			(code) => !USER_MESSAGE_CODES.has(code),
-		);
-		expect(missing).toEqual([]);
-	});
-
-	it("does not carry builders for codes that can't reach a user (oracle)", () => {
-		// A builder for an oracle code is dead copy — runValidation never
-		// emits it. Keeps the table honest about its reachable surface.
-		const oracleWithBuilder = [...USER_MESSAGE_CODES].filter(
-			(code) => VALIDITY_CLASS_BY_CODE[code] === "oracle",
-		);
-		expect(oracleWithBuilder).toEqual([]);
-	});
+const GATING_OR_ENV = (
+	Object.keys(VALIDITY_CLASS_BY_CODE) as ValidationErrorCode[]
+).filter((code) => {
+	const cls = VALIDITY_CLASS_BY_CODE[code];
+	return (
+		cls === "shape" ||
+		cls === "soundness" ||
+		cls === "completeness" ||
+		cls === "environment"
+	);
 });
 
 describe("userFacingError — voice", () => {
 	// The terms the builder surface must never speak. The validator's
 	// verbose `message` may use any of these; the rendered user line may
-	// not. Word-boundary matched, case-insensitive.
+	// not. This checks authored copy, not words a user might put in a label.
 	const BANNED = [
 		"xml",
 		"xform",
@@ -117,31 +95,56 @@ describe("userFacingError — voice", () => {
 		"case_preload",
 	];
 
-	it("renders every gating/environment code with no wire vocabulary", () => {
-		const offenders: Array<{ code: string; term: string; line: string }> = [];
-		for (const code of GATING_OR_ENV) {
-			const line = userFacingError(richFinding(code)).toLowerCase();
-			for (const term of BANNED) {
-				if (line.includes(term)) {
-					offenders.push({ code, term, line });
-				}
+	it.each(["populated", "missing"] as const)(
+		"renders reachable codes with %s details without internal copy or broken interpolation",
+		(kind) => {
+			for (const code of GATING_OR_ENV) {
+				const finding =
+					kind === "populated"
+						? richFinding(code)
+						: validationError(code, "app", "INTERNAL DETAIL", {});
+				const line = userFacingError(finding);
+				expect(line, code).not.toMatch(
+					/\{[a-zA-Z]|undefined|INTERNAL DETAIL|on our end/,
+				);
+				expect(line.trim().length, code).toBeGreaterThan(0);
+				for (const term of BANNED)
+					expect(line.toLowerCase(), code).not.toContain(term);
 			}
-		}
-		expect(offenders).toEqual([]);
-	});
+		},
+	);
 
-	it("never leaves an unresolved placeholder or bare undefined", () => {
-		for (const code of GATING_OR_ENV) {
-			const line = userFacingError(richFinding(code));
-			expect(line).not.toMatch(/\{[a-zA-Z]/); // no {placeholder}
-			expect(line.toLowerCase()).not.toContain("undefined");
-			expect(line.length).toBeGreaterThan(0);
+	it("keeps internal failures generic and renders ordered lists and withheld choices through the same voice", () => {
+		const internal = validationError(
+			"XFORM_PARSE_ERROR",
+			"app",
+			"INTERNAL DETAIL",
+			{},
+		);
+		const missingName = validationError(
+			"EMPTY_APP_NAME",
+			"app",
+			"INTERNAL DETAIL",
+			{},
+		);
+		const generic =
+			"Something went wrong preparing your app. This is on our end. Try again, and let us know if it keeps happening.";
+		const name = "Your app needs a name. Add one to get started.";
+		for (const [code, validity] of Object.entries(VALIDITY_CLASS_BY_CODE)) {
+			if (validity === "oracle")
+				expect(userFacingError(richFinding(code as ValidationErrorCode))).toBe(
+					generic,
+				);
 		}
-	});
-
-	it("falls back to the generic internal line for an oracle code", () => {
-		const line = userFacingError(richFinding("XFORM_PARSE_ERROR"));
-		expect(line).toContain("on our end");
+		expect(userFacingErrors([missingName, internal, missingName])).toEqual([
+			name,
+			generic,
+			name,
+		]);
+		expect(userFacingErrors([])).toEqual([]);
+		expect(offeredChoiceRefusal([missingName, internal])).toBe(name);
+		expect(offeredChoiceRefusal([internal, missingName])).toBe(generic);
+		expect(offeredChoiceRefusal([])).toBe("This choice isn't available here.");
 	});
 
 	it("names the repair for a duplicate deep link ID", () => {

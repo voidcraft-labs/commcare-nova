@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
-import { settleDraft } from "../OptionsEditor";
+import { settleDraft } from "../optionsDraftModel";
 
 function option(value: string, label: string, n: number) {
 	return { uuid: testUuid(`opt-${n}`), value, label: proseText(label) };

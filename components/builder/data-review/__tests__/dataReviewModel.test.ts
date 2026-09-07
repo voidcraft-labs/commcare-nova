@@ -86,10 +86,18 @@ describe("groupReviewByCase", () => {
 
 	it("keeps same-named cases as separate cards", () => {
 		const groups = groupReviewByCase([
-			entry({ id: "1", caseId: "c-1", caseName: "Ada Obi" }),
 			entry({ id: "2", caseId: "c-2", caseName: "Ada Obi" }),
+			entry({ id: "1", caseId: "c-1", caseName: "Ada Obi" }),
 		]);
-		expect(groups).toHaveLength(2);
+		expect(
+			groups.map((group) => ({
+				id: group.caseId,
+				entries: group.entries.map((item) => item.id),
+			})),
+		).toStrictEqual([
+			{ id: "c-1", entries: ["1"] },
+			{ id: "c-2", entries: ["2"] },
+		]);
 	});
 });
 
@@ -134,6 +142,24 @@ describe("standingPhrase", () => {
 });
 
 describe("replacementDraftToValue", () => {
+	it.each(["int", "decimal"] as const)(
+		"refuses %s text that overflows finite JSON numbers",
+		(type) => {
+			expect(replacementDraftToValue(type, "9".repeat(400))).toStrictEqual({
+				ok: false,
+			});
+		},
+	);
+
+	it("refuses scalar controls receiving a collection and keeps multi-select values distinct", () => {
+		expect(replacementDraftToValue("text", ["one"])).toStrictEqual({
+			ok: false,
+		});
+		const selected = ["two", "one"];
+		const result = replacementDraftToValue("multi_select", selected);
+		expect(result).toStrictEqual({ ok: true, value: ["two", "one"] });
+		if (result.ok) expect(result.value).not.toBe(selected);
+	});
 	it("normalizes numbers strictly", () => {
 		expect(replacementDraftToValue("int", "42")).toEqual({
 			ok: true,

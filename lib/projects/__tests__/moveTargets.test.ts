@@ -2,10 +2,7 @@
 // and placement UI.
 
 import { describe, expect, it } from "vitest";
-import {
-	CROSS_PROJECT_MOVE_DISCLOSURE,
-	canManageAppPlacement,
-} from "../moveTargets";
+import { appProjectMovePolicy, canManageAppPlacement } from "../moveTargets";
 
 describe("canManageAppPlacement", () => {
 	it("allows admin and owner — moving an app out is a governance act", () => {
@@ -24,8 +21,12 @@ describe("canManageAppPlacement", () => {
 });
 
 describe("appProjectMovePolicy", () => {
-	it("discloses what travels with the app before the move runs", () => {
-		expect(CROSS_PROJECT_MOVE_DISCLOSURE).toContain("chat history");
-		expect(CROSS_PROJECT_MOVE_DISCLOSURE).toContain("case data");
+	it("same Project is a recovery operation, while a different identity is a move", () => {
+		expect(appProjectMovePolicy("project-a", "project-a")).toEqual({
+			kind: "same_project_recovery",
+		});
+		expect(appProjectMovePolicy("project-a", "project-b")).toEqual({
+			kind: "cross_project_move",
+		});
 	});
 });

@@ -1,20 +1,10 @@
-/**
- * Behavioral tests for `attach_option_media` (batch-shaped: one call
- * attaches to one or more options, all-or-nothing).
- *
- * Coverage:
- *   1. Sets the media on the named option, leaving siblings untouched.
- *   2. A multi-attachment batch covers a whole field's options in one call.
- *   3. Clears the option's media with an empty bundle.
- *   4. Refuses a non-select field.
- *   5. Refuses an unknown option value, naming the values that exist;
- *      one bad attachment fails the whole batch with nothing written.
- *   6. Cross-surface parity.
- */
-
+/** Actual media command, preflight and canonical reducer behavior over admitted
+ * documents and controlled asset rows. JSON clear tests exercise serialization;
+ * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Media, Uuid } from "@/lib/domain";
+import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
+import type { BlueprintDoc, Media, Uuid } from "@/lib/domain";
 import { attachOptionMediaTool } from "../attachOptionMedia";
 import {
 	ASSET_AUD_1,
@@ -25,7 +15,6 @@ import {
 	FORM_A,
 	MOD_A,
 	makeMediaFixture,
-	makeMediaMcpFixture,
 	resetTestAssets,
 	SELECT_FIELD,
 	TEXT_FIELD,
@@ -34,18 +23,9 @@ import {
 const UNKNOWN_OPTION = testUuid("99999999-9999-4999-8999-999999999999");
 
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
 	loadAppProjectId: vi.fn(() =>
 		Promise.resolve({ kind: "found", projectId: "project-1" }),
 	),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
 }));
 // The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
@@ -60,13 +40,10 @@ beforeEach(() => {
 });
 
 /** Read the options off the select field in a post-mutation doc. */
-function optionsOf(doc: { fields: Record<string, unknown> }) {
-	const field = doc.fields[SELECT_FIELD] as {
-		optionsSource: {
-			kind: "inline";
-			options: { value: string; media?: unknown }[];
-		};
-	};
+function optionsOf(doc: BlueprintDoc) {
+	const field = doc.fields[SELECT_FIELD];
+	if (field?.kind !== "single_select" || field.optionsSource.kind !== "inline")
+		throw new Error("expected inline options");
 	return field.optionsSource.options;
 }
 
@@ -123,10 +100,14 @@ describe("attachOptionMedia", () => {
 			attachOptionMediaTool,
 			input(attachment(FEVER_OPTION, { image: ASSET_IMG_1 })),
 		);
+		const beforeClear = h.currentDoc();
 		const cleared = await h.runTool(
 			attachOptionMediaTool,
 			input(attachment(FEVER_OPTION, {})),
 		);
+		expect(
+			optionsOf(applyOverWire(beforeClear, cleared.mutations))[0].media,
+		).toBeUndefined();
 		const options = optionsOf(h.currentDoc());
 		expect(options[0].media).toBeUndefined();
 		const success = cleared.result as { message?: string };
@@ -175,14 +156,5 @@ describe("attachOptionMedia", () => {
 		const error = errorOf(result);
 		expect(error).toContain("attachments[1]");
 		expect(error).toContain("nothing was attached");
-	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const h = makeMediaFixture();
-		const mcp = makeMediaMcpFixture();
-		const batch = input(attachment(FEVER_OPTION, { audio: ASSET_AUD_1 }));
-		const r1 = await h.runTool(attachOptionMediaTool, batch);
-		const r2 = await mcp.runTool(attachOptionMediaTool, batch);
-		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

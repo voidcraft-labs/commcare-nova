@@ -2,7 +2,7 @@
 //
 // Pins the case-data Server Action error classifier: UNEXPECTED
 // failures (raw Postgres errors, compiler-invariant throws) must
-// reach Sentry via `log.error`, while EXPECTED typed user-domain
+// reach the logger boundary via `log.error`, while EXPECTED typed user-domain
 // errors (which the actions map to dedicated result arms) must stay
 // out of the issue stream. The `::integer`-vs-`"17.01"` insert
 // failure was a raw Postgres error that the actions' catchall arm
@@ -15,6 +15,7 @@ import {
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	CaseTypeNotInBlueprintError,
+	ParkedValueNotFoundError,
 	SchemaNotSyncedError,
 	SubmissionRejectedError,
 } from "@/lib/case-store";
@@ -57,6 +58,7 @@ describe("reportUnexpectedActionError", () => {
 		const expectedErrors = [
 			new CaptureSubmissionRejectedError("The form entry changed."),
 			new CaseNotFoundError("c1"),
+			new ParkedValueNotFoundError("kept-1"),
 			new CaseTypeNotInBlueprintError("app-1", "patient"),
 			new SchemaNotSyncedError("app-1", "patient"),
 			// The envelope's whole-rollback rejection maps to the

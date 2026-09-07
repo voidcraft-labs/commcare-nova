@@ -167,8 +167,8 @@ export const HOSTNAME_ALLOWLIST = {
 export function normalizeHost(raw: string | null): string {
 	if (!raw) return "";
 	let host = raw.toLowerCase().trim();
-	if (host.endsWith(".")) host = host.slice(0, -1);
 	host = host.replace(/:(80|443)$/, "");
+	if (host.endsWith(".")) host = host.slice(0, -1);
 	return host;
 }
 

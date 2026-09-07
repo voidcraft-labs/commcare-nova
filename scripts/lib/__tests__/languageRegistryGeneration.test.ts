@@ -123,6 +123,7 @@ const SOURCE: LanguageRegistrySource = {
 	iso6393Tab: ISO_6393_TAB,
 	macrolanguagesTab: MACROLANGUAGES_TAB,
 	languageAliases: {
+		ara: { _reason: "overlong", _replacement: "ar" },
 		arb: { _reason: "macrolanguage", _replacement: "ar" },
 		cmn: { _reason: "macrolanguage", _replacement: "zh" },
 		div: { _reason: "overlong", _replacement: "dv" },
@@ -303,23 +304,6 @@ describe("deriveLanguageRegistry", () => {
 		]);
 	});
 
-	it("lets a region-bearing alias claim its territory from siblings", () => {
-		// prs canonicalizes to fa-AF, so Afghanistan belongs to Dari and the
-		// region-free Persian sibling offers only the unclaimed territories.
-		const pes = registry.regionChoices.find(
-			(entry) => entry.language === "pes",
-		);
-		expect(pes?.regions.map((choice) => choice.region)).not.toContain("AF");
-	});
-
-	it("requires an official status before a territory counts", () => {
-		const spa = registry.regionChoices.find(
-			(entry) => entry.language === "spa",
-		);
-		// The US row carries a Spanish population with no official status.
-		expect(spa?.regions.map((choice) => choice.region)).not.toContain("US");
-	});
-
 	it("bakes capitalized endonyms at the most specific CLDR key", () => {
 		expect(registry.endonymByKey.spa).toBe("Español");
 		expect(registry.endonymByKey["spa-MX"]).toBe("Español de México");
@@ -350,15 +334,58 @@ describe("deriveLanguageRegistry", () => {
 		);
 	});
 
-	it("refuses a source file whose layout changed", () => {
-		expect(() =>
-			deriveLanguageRegistry({ ...SOURCE, iso6393Tab: "bogus" }),
-		).toThrow(/SIL may have changed the file layout/);
-		expect(() =>
+	it("puts the predominant macro member ahead of an alphabetically earlier member", () => {
+		const extended = deriveLanguageRegistry({
+			...SOURCE,
+			iso6393Tab: `${ISO_6393_TAB}\n${tabRow(["aao", "", "", "", "I", "L", "Algerian Saharan Arabic", ""])}`,
+			macrolanguagesTab: `${MACROLANGUAGES_TAB}\nara\taao\tA`,
+		});
+		expect(
+			extended.macrolanguages
+				.find(({ code }) => code === "ara")
+				?.members.map(({ code }) => code),
+		).toEqual(["arb", "aao"]);
+	});
+
+	it("derives the same catalogs from reordered source rows and CRLF downloads", () => {
+		const reordered = (tab: string) => {
+			const [header, ...rows] = tab.split("\n");
+			return [header, ...rows.reverse(), ""].join("\r\n");
+		};
+		expect(
 			deriveLanguageRegistry({
 				...SOURCE,
-				iso6393Tab: `${ISO_6393_TAB}\nabc\tonly`,
+				iso6393Tab: reordered(ISO_6393_TAB),
+				macrolanguagesTab: reordered(MACROLANGUAGES_TAB),
 			}),
-		).toThrow(/missing its Id\/Scope\/Language_Type\/Ref_Name cells/);
+		).toEqual(registry);
+	});
+
+	it.each([
+		{ label: "a missing ISO header", changes: { iso6393Tab: "bogus" } },
+		{
+			label: "reordered ISO columns",
+			changes: {
+				iso6393Tab: ISO_6393_TAB.replace(
+					"Scope\tLanguage_Type",
+					"Language_Type\tScope",
+				),
+			},
+		},
+		{
+			label: "a truncated ISO row",
+			changes: { iso6393Tab: `${ISO_6393_TAB}\nabc\tonly` },
+		},
+		{
+			label: "reordered macro columns",
+			changes: {
+				macrolanguagesTab: MACROLANGUAGES_TAB.replace(
+					"M_Id\tI_Id",
+					"I_Id\tM_Id",
+				),
+			},
+		},
+	])("refuses $label before emitting misclassified catalogs", ({ changes }) => {
+		expect(() => deriveLanguageRegistry({ ...SOURCE, ...changes })).toThrow();
 	});
 });

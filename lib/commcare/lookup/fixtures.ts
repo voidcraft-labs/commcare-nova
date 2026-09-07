@@ -19,11 +19,11 @@
  * suite serializer performs.
  */
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupFixtureRow } from "@/lib/lookup/types";
-import { el, RENDER_OPTS, text } from "../elementBuilders";
+import { el, text } from "../elementBuilders";
 import { lookupFixtureCellText } from "./cellText";
 import type { LookupTableWireNaming, LookupWireNaming } from "./naming";
 
@@ -99,7 +99,7 @@ export function buildLookupFixtures(
 				);
 			}
 			const element = buildFixtureElement(table, rows);
-			const xml = render(element, RENDER_OPTS);
+			const xml = serializeXml(element);
 			return {
 				tableId: table.tableId,
 				tag: table.tag,

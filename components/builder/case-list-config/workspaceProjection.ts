@@ -107,15 +107,3 @@ export function showColumnOnDisplay(
 		return rest as Column;
 	});
 }
-
-/**
- * Retain hidden definitions when their Default order role changes. This helper
- * remains at the historical call seam, but intentionally performs no pruning:
- * visibility is reversible and must not be coupled to sorting.
- */
-export function pruneStoppedSortOrphans(
-	_previous: readonly Column[],
-	next: readonly Column[],
-): Column[] {
-	return [...next];
-}

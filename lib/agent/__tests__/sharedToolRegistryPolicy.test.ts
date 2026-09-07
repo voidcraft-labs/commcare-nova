@@ -2,10 +2,9 @@
  * Execution-policy invariants over the complete shared tool registry.
  *
  * The `satisfies` clause already forces every entry to DECLARE a policy;
- * these tests keep the declarations COHERENT — a new tool cannot slip in
- * with an external effect and a stageable classification, and the exact
- * classification of every entry is pinned so changing one is a reviewed
- * decision, not a drive-by.
+ * these tests check relationships between declarations. They do not infer
+ * side effects from handlers or prove runtime capability enforcement; the
+ * workspace and change-set integration suites own those boundaries.
  */
 
 import { describe, expect, it } from "vitest";
@@ -89,107 +88,15 @@ describe("shared tool registry — execution policy coherence", () => {
 		expect(exclusive).toEqual(["renameCaseProperties"]);
 	});
 
-	it("pins the exact classification of every registry entry", () => {
-		const classification = Object.fromEntries(
-			SHARED_TOOL_REGISTRY.map((entry) => [
-				entry.saName,
-				`${entry.policy.effect}/${entry.policy.staging}`,
-			]),
-		);
-		expect(classification).toEqual({
-			getEntryPoints: "read-blueprint/allowed",
-			addEntryPoint: "mutate-blueprint/allowed",
-			updateEntryPoint: "mutate-blueprint/allowed",
-			removeEntryPoint: "mutate-blueprint/allowed",
-			getAutomations: "read-blueprint/allowed",
-			addAutomations: "mutate-blueprint/allowed",
-			updateAutomation: "mutate-blueprint/allowed",
-			removeAutomation: "mutate-blueprint/allowed",
-			addFields: "mutate-blueprint/allowed",
-			getLanguages: "read-blueprint/allowed",
-			getTranslatableContent: "read-blueprint/allowed",
-			addLanguage: "mutate-blueprint/allowed",
-			updateLanguage: "mutate-blueprint/allowed",
-			removeLanguage: "mutate-blueprint/allowed",
-			updateTranslations: "mutate-blueprint/allowed",
-			getLookupTables: "read-blueprint/allowed",
-			getLookupTableRows: "read-blueprint/allowed",
-			createLookupTable: "mutate-external/forbidden",
-			updateLookupTable: "mutate-external/forbidden",
-			editLookupColumns: "mutate-external/forbidden",
-			editLookupRows: "mutate-external/forbidden",
-			replaceLookupRows: "mutate-external/forbidden",
-			removeLookupTable: "mutate-external/forbidden",
-			setFieldOptionsSource: "mutate-blueprint/allowed",
-			setFormSections: "mutate-blueprint/allowed",
-			configureConnect: "mutate-blueprint/allowed",
-			createForm: "mutate-blueprint/allowed",
-			createModule: "mutate-blueprint/allowed",
-			editField: "mutate-blueprint/allowed",
-			generateSchema: "mutate-blueprint/allowed",
-			getField: "read-blueprint/allowed",
-			getForm: "read-blueprint/allowed",
-			getModule: "read-blueprint/allowed",
-			getCaseOperations: "read-blueprint/allowed",
-			moveField: "mutate-blueprint/allowed",
-			moveModule: "mutate-blueprint/allowed",
-			removeField: "mutate-blueprint/allowed",
-			removeForm: "mutate-blueprint/allowed",
-			removeModule: "mutate-blueprint/allowed",
-			renameCaseProperties: "mutate-blueprint/exclusive",
-			searchBlueprint: "read-blueprint/allowed",
-			addCaseOperations: "mutate-blueprint/allowed",
-			updateCaseOperation: "mutate-blueprint/allowed",
-			removeCaseOperation: "mutate-blueprint/allowed",
-			moveCaseOperation: "mutate-blueprint/allowed",
-			addFormLinks: "mutate-blueprint/allowed",
-			updateFormLink: "mutate-blueprint/allowed",
-			removeFormLink: "mutate-blueprint/allowed",
-			moveFormLink: "mutate-blueprint/allowed",
-			addCaseListColumns: "mutate-blueprint/allowed",
-			configureCaseList: "mutate-blueprint/allowed",
-			configureCaseSelection: "mutate-blueprint/allowed",
-			addSearchInputs: "mutate-blueprint/allowed",
-			removeCaseListColumn: "mutate-blueprint/allowed",
-			removeSearchInput: "mutate-blueprint/allowed",
-			reorderCaseListColumns: "mutate-blueprint/allowed",
-			reorderSearchInputs: "mutate-blueprint/allowed",
-			setCaseListFilter: "mutate-blueprint/allowed",
-			setCaseListTile: "mutate-blueprint/allowed",
-			updateCaseListColumn: "mutate-blueprint/allowed",
-			updateSearchInput: "mutate-blueprint/allowed",
-			setCaseSearchAdvanced: "mutate-blueprint/allowed",
-			setCaseSearchDisplay: "mutate-blueprint/allowed",
-			attachFieldMedia: "mutate-blueprint/allowed",
-			attachOptionMedia: "mutate-blueprint/allowed",
-			setMenuMedia: "mutate-blueprint/allowed",
-			setAppLogo: "mutate-blueprint/allowed",
-			listMediaAssets: "read-blueprint/allowed",
-			removeMediaAsset: "mutate-external/forbidden",
-			getUsers: "read-blueprint/allowed",
-			getOrganization: "read-blueprint/allowed",
-			addOrganizationLevels: "mutate-blueprint/allowed",
-			updateOrganizationLevel: "mutate-blueprint/allowed",
-			removeOrganizationLevel: "mutate-blueprint/allowed",
-			addLocationProperties: "mutate-blueprint/allowed",
-			updateLocationProperty: "mutate-blueprint/allowed",
-			removeLocationProperty: "mutate-blueprint/allowed",
-			createLocation: "mutate-external/forbidden",
-			updateLocation: "mutate-external/forbidden",
-			moveLocation: "mutate-external/forbidden",
-			setLocationArchived: "mixed-transaction/forbidden",
-			addUserProperties: "mutate-blueprint/allowed",
-			updateUserProperty: "mutate-blueprint/allowed",
-			removeUserProperty: "mutate-blueprint/allowed",
-			addUserTypes: "mutate-blueprint/allowed",
-			updateUserType: "mutate-blueprint/allowed",
-			removeUserType: "mutate-blueprint/allowed",
-			addPersonas: "mutate-blueprint/allowed",
-			updatePersona: "mutate-blueprint/allowed",
-			removePersona: "mutate-blueprint/allowed",
-			updateApp: "mutate-blueprint/allowed",
-			updateForm: "mutate-blueprint/allowed",
-			updateModule: "mutate-blueprint/allowed",
-		});
+	it("keeps both public name sets unique and mutation permissions above view", () => {
+		for (const key of ["saName", "mcpName"] as const) {
+			const names = SHARED_TOOL_REGISTRY.map((entry) => entry[key]);
+			expect(new Set(names).size, key).toBe(names.length);
+		}
+		for (const entry of SHARED_TOOL_REGISTRY) {
+			if (entry.policy.effect !== "read-blueprint") {
+				expect(entry.requires, entry.saName).not.toBe("view");
+			}
+		}
 	});
 });

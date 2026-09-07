@@ -4,8 +4,8 @@
 // emitters. Predicate ASTs originate in `lib/domain/predicate` and
 // compile to one of three CommCare wire dialects, each with its own
 // operator-coverage rules but a common need to escape string literals,
-// emit identifiers, and serialize numeric values. This module owns
-// those three lexical concerns; per-dialect operator dispatch lives
+// and serialize numeric values. This module owns
+// those two lexical concerns; per-dialect operator dispatch lives
 // in the per-dialect emitter modules that consume these helpers.
 //
 // Operator dispatch — the per-mode / per-quantifier branching that
@@ -117,25 +117,6 @@ export function quoteLiteral(value: string, dialect: WireDialect): string {
 		if (i < parts.length - 1) args.push(`"'"`);
 	}
 	return `concat(${args.join(", ")})`;
-}
-
-/**
- * Pass through a property name as-is for emission into a wire
- * predicate. Identifier validation happens upstream at the schema
- * layer (XML element-name vocabulary for property names; the schema's
- * regex is the source of truth for which characters are admissible).
- * The `RESERVED_CASE_ATTRIBUTES` membership check that prefixes
- * system attributes with `@` (`case_id`, `case_type`, `owner_id`,
- * `status`) is a property-emission concern that lives in the term
- * emitter, not here — `quoteIdentifier` runs after that prefix
- * decision and is responsible only for the lexical pass-through.
- *
- * Centralizing identifier emission through a single helper keeps the
- * emit rule in one place; per-dialect emitter modules call this
- * helper rather than open-coding the pass-through.
- */
-export function quoteIdentifier(name: string): string {
-	return name;
 }
 
 /**

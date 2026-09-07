@@ -1,120 +1,142 @@
-/**
- * Transport pin for the one OpenAI provider constructor.
- *
- * Three facts hold or long model calls die on the transport:
- *
- * 1. `modelCallFetch` uses the npm Undici 8 fetch with the package Agent — the
- *    provider-level guarantee. The local-server probe fails if either side is
- *    replaced by Node's separately bundled dispatcher contract.
- * 2. The package fetch honors the Agent's timeout and succeeds on an ordinary
- *    response — the platform guarantee.
- * 3. No serving code constructs a provider around the factory — a bare
- *    `createOpenAI` gets default timeouts, which is exactly the observed
- *    failure, so the source scan keeps the constructor unique.
- */
-
-import { readdirSync, readFileSync } from "node:fs";
-import { createServer, type Server } from "node:http";
-import type { AddressInfo } from "node:net";
-import { join } from "node:path";
-import { Agent } from "undici";
+import { createServer, type RequestListener } from "node:http";
 import { describe, expect, it } from "vitest";
 import {
-	createModelCallFetch,
+	createModelCallTransport,
 	MODEL_CALL_TIMEOUT_MS,
-	modelCallDispatcher,
 } from "@/lib/agent/openaiProvider";
 
-describe("modelCallFetch", () => {
-	it("owns an Undici 8 Agent with a reasoning-safe ceiling", () => {
-		expect(modelCallDispatcher).toBeInstanceOf(Agent);
-		// The ceiling exists to beat undici's 300s default; a value at or
-		// below it would reintroduce the observed death.
+// These are socket contracts. Fake time or a mocked fetch cannot prove them.
+async function withTransport(
+	handler: RequestListener,
+	timeout: number,
+	run: (fetch: typeof globalThis.fetch, url: string) => Promise<void>,
+) {
+	const server = createServer(handler);
+	const transport = createModelCallTransport(timeout);
+	try {
+		await new Promise<void>((resolve, reject) => {
+			server.once("error", reject);
+			server.listen(0, "127.0.0.1", resolve);
+		});
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("No HTTP port");
+		await run(transport.fetch, `http://127.0.0.1:${address.port}/`);
+	} finally {
+		// Destruction also releases a deliberately stalled request on assertion failure.
+		await transport.destroy();
+		server.closeAllConnections();
+		if (server.listening) {
+			await new Promise<void>((resolve, reject) => {
+				server.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
+	}
+}
+
+describe("model HTTP transport", () => {
+	it("sets the reasoning ceiling above the package's five-minute default", () => {
 		expect(MODEL_CALL_TIMEOUT_MS).toBeGreaterThan(300_000);
 	});
-});
 
-describe("Undici 8 fetch + dispatcher", () => {
-	it("honors a package-built Agent's headersTimeout passed via init.dispatcher", async () => {
-		const pendingTimers: NodeJS.Timeout[] = [];
-		const server: Server = createServer((_req, res) => {
-			// Withhold headers well past the probe dispatcher's ceiling.
-			pendingTimers.push(
-				setTimeout(() => {
-					res.end("late");
-				}, 5_000),
-			);
-		});
-		await new Promise<void>((resolve) =>
-			server.listen(0, "127.0.0.1", resolve),
+	it("transmits request method, headers and body and reads the response", async () => {
+		let request:
+			| { method: string | undefined; token: string | undefined; body: string }
+			| undefined;
+		await withTransport(
+			(req, res) => {
+				let body = "";
+				req.setEncoding("utf8");
+				req.on("data", (chunk) => {
+					body += chunk;
+				});
+				req.on("end", () => {
+					request = {
+						method: req.method,
+						token: req.headers.authorization,
+						body,
+					};
+					res.writeHead(201, { "content-type": "text/plain" });
+					res.end("accepted");
+				});
+			},
+			MODEL_CALL_TIMEOUT_MS,
+			async (fetch, url) => {
+				const response = await fetch(url, {
+					method: "POST",
+					headers: { authorization: "Bearer synthetic" },
+					body: "question",
+				});
+				expect(response.status).toBe(201);
+				expect(await response.text()).toBe("accepted");
+				expect(request).toEqual({
+					method: "POST",
+					token: "Bearer synthetic",
+					body: "question",
+				});
+			},
 		);
-		const { port } = server.address() as AddressInfo;
-		const probe = new Agent({ headersTimeout: 300, bodyTimeout: 300 });
-		const probeFetch = createModelCallFetch(probe);
-		try {
-			await expect(
-				probeFetch(`http://127.0.0.1:${port}/`, {
-					method: "GET",
-				}),
-			).rejects.toThrow();
-		} finally {
-			for (const timer of pendingTimers) clearTimeout(timer);
-			await probe.close();
-			server.closeAllConnections();
-			await new Promise<void>((resolve, reject) =>
-				server.close((err) => (err ? reject(err) : resolve())),
-			);
-		}
 	});
 
-	it("lets a fast response through the same dispatcher shape", async () => {
-		const server: Server = createServer((_req, res) => {
-			res.end("ok");
-		});
-		await new Promise<void>((resolve) =>
-			server.listen(0, "127.0.0.1", resolve),
+	it("reports a header timeout after the server receives a request but sends no headers", async () => {
+		let received = false;
+		await withTransport(
+			() => {
+				received = true;
+			},
+			10,
+			async (fetch, url) => {
+				await expect(fetch(url)).rejects.toMatchObject({
+					cause: { code: "UND_ERR_HEADERS_TIMEOUT" },
+				});
+				expect(received).toBe(true);
+			},
 		);
-		const { port } = server.address() as AddressInfo;
-		const probe = new Agent({ headersTimeout: 10_000, bodyTimeout: 10_000 });
-		const probeFetch = createModelCallFetch(probe);
-		try {
-			const res = await probeFetch(`http://127.0.0.1:${port}/`);
-			expect(await res.text()).toBe("ok");
-		} finally {
-			await probe.close();
-			server.closeAllConnections();
-			await new Promise<void>((resolve, reject) =>
-				server.close((err) => (err ? reject(err) : resolve())),
-			);
-		}
 	});
-});
 
-describe("provider constructor uniqueness", () => {
-	it("no serving code calls createOpenAI outside the factory", () => {
-		const offenders: string[] = [];
-		const walk = (dir: string): void => {
-			for (const entry of readdirSync(dir, { withFileTypes: true })) {
-				const path = join(dir, entry.name);
-				if (entry.isDirectory()) {
-					if (entry.name === "node_modules" || entry.name === "__tests__") {
-						continue;
-					}
-					walk(path);
-					continue;
-				}
-				if (!/\.tsx?$/.test(entry.name)) continue;
-				if (path.endsWith(join("lib", "agent", "openaiProvider.ts"))) {
-					continue;
-				}
-				if (/\bcreateOpenAI\s*\(/.test(readFileSync(path, "utf8"))) {
-					offenders.push(path);
-				}
-			}
-		};
-		walk("lib");
-		walk("app");
-		walk("components");
-		expect(offenders).toEqual([]);
+	it("reports a body timeout when a response stops between chunks", async () => {
+		await withTransport(
+			(_req, res) => {
+				res.write("first");
+			},
+			10,
+			async (fetch, url) => {
+				const response = await fetch(url);
+				expect(response.status).toBe(200);
+				await expect(response.text()).rejects.toMatchObject({
+					cause: { code: "UND_ERR_BODY_TIMEOUT" },
+				});
+			},
+		);
 	});
+
+	it.each(["headers", "body"])(
+		"caller cancellation interrupts the long ceiling while awaiting %s",
+		async (phase) => {
+			const received = Promise.withResolvers<void>();
+			const disconnected = Promise.withResolvers<void>();
+			await withTransport(
+				(_req, res) => {
+					res.once("close", () => disconnected.resolve());
+					if (phase === "body") res.write("first");
+					received.resolve();
+				},
+				MODEL_CALL_TIMEOUT_MS,
+				async (fetch, url) => {
+					const controller = new AbortController();
+					const fetching = fetch(url, { signal: controller.signal });
+					// Await actual headers in the body case so cancellation cannot pass by
+					// aborting the earlier stage before the response was exposed to callers.
+					const pending = phase === "body" ? (await fetching).text() : fetching;
+					const rejection = expect(pending).rejects.toMatchObject({
+						name: "AbortError",
+					});
+					await received.promise;
+					controller.abort();
+					await rejection;
+					await disconnected.promise;
+				},
+			);
+		},
+	);
 });

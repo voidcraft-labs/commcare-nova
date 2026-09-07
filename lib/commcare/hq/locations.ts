@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
 /**
@@ -42,9 +43,8 @@ import {
 	type CommCareCredentials,
 	INVALID_DOMAIN_SLUG,
 	isValidDomainSlug,
-	logAndReturnError,
-	warnAndReturnError,
 } from "./http";
+import { isHqObject, readHqCollection } from "./readCollection";
 
 /** One level, as CommCare HQ reports it. Nova reads these, never writes. */
 export interface HqLocationType {
@@ -77,7 +77,7 @@ export interface HqLocation {
 	 * merging: a push that sent only what Nova models would delete every
 	 * other field, and on a place somebody else made those are theirs.
 	 */
-	readonly values: Readonly<Record<string, string>>;
+	readonly values: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -103,7 +103,7 @@ export interface HqLocationPush {
 	/** Exact decimal strings. A coordinate is never a float on this wire. */
 	readonly latitude?: string;
 	readonly longitude?: string;
-	readonly locationData?: Readonly<Record<string, string>>;
+	readonly locationData?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -126,11 +126,15 @@ export interface HqLocationPatchResult {
  * appends it), and the four things it can say — an unrecognized field, a
  * level that cannot nest under that parent, a duplicate sibling name, a
  * site code already taken — are the ones a person can act on. Every one
- * of them rolls the whole `@atomic` batch back, so nothing in it landed.
+ * of them rolls the whole `@atomic` batch back. A lost response or an
+ * unusable acknowledgement does not establish rollback; callers must preserve
+ * that uncertainty instead of claiming no places were created.
  */
 export interface HqLocationPushRefusal extends CommCareApiError {
 	/** CommCare HQ's own words. Empty when it gave none. */
 	readonly message: string;
+	/** True when the response cannot prove the atomic batch rolled back. */
+	readonly mayHaveLanded: boolean;
 }
 
 /** The most places one atomic request may carry (`patch_limit`). */
@@ -154,74 +158,6 @@ const LOCATION_PAGE_SIZE = 1000;
  */
 const MAX_LOCATION_PAGES = 100;
 
-interface ListResponse<T> {
-	readonly meta?: { readonly next?: string | null };
-	readonly objects?: readonly T[];
-}
-
-/**
- * Follow a tastypie list to exhaustion.
- *
- * `meta.next` is a path, and resolving it against the server's own base
- * rather than trusting it whole is the same-origin guard the lookup-table
- * reader uses: a rewritten `next` would otherwise send the account's key
- * wherever it pointed.
- */
-async function readAllPages<T>(
-	creds: CommCareCredentials,
-	domain: string,
-	firstUrl: string,
-	label: string,
-): Promise<readonly T[] | CommCareApiError> {
-	const origin = new URL(baseUrl(creds)).origin;
-	const collected: T[] = [];
-	let url = firstUrl;
-	for (let page = 0; page < MAX_LOCATION_PAGES; page += 1) {
-		let res: Response;
-		try {
-			res = await fetch(url, { headers: { Authorization: authHeader(creds) } });
-		} catch (error) {
-			log.warn(`[commcare] ${label} unreachable`, {
-				domain,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return { success: false, status: 503 };
-		}
-		if (!res.ok) {
-			/* Warn rather than error on the authorization answers: a project
-			 * space without Organizations answers one of these on every
-			 * publish of a place-bearing app, and that is a state somebody
-			 * settles in CommCare HQ rather than a fault here. */
-			return res.status === 401 || res.status === 403
-				? warnAndReturnError(`${label} refused`, res)
-				: logAndReturnError(`${label} failed`, res);
-		}
-		let body: ListResponse<T>;
-		try {
-			body = (await res.json()) as ListResponse<T>;
-		} catch {
-			log.error(`[commcare] ${label} returned non-JSON`, undefined, { domain });
-			return { success: false, status: 502 };
-		}
-		collected.push(...(body.objects ?? []));
-		const next = body.meta?.next;
-		if (typeof next !== "string" || next === "") return collected;
-		const resolved = new URL(next, baseUrl(creds));
-		if (resolved.origin !== origin) {
-			log.error(`[commcare] ${label} pagination left CommCare HQ`, undefined, {
-				domain,
-			});
-			return { success: false, status: 502 };
-		}
-		url = resolved.toString();
-	}
-	log.error(`[commcare] ${label} did not terminate`, undefined, {
-		domain,
-		pages: MAX_LOCATION_PAGES,
-	});
-	return { success: false, status: 508 };
-}
-
 /**
  * The levels the project space defines.
  *
@@ -243,19 +179,11 @@ export async function listHqLocationTypes(
 	domain: string,
 ): Promise<readonly HqLocationType[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-	const raw = await readAllPages<{
-		readonly id?: unknown;
-		readonly name?: unknown;
-		readonly code?: unknown;
-		readonly parent?: unknown;
-		readonly administrative?: unknown;
-		readonly shares_cases?: unknown;
-		readonly view_descendants?: unknown;
-	}>(
+	const raw = await readHqCollection(
 		creds,
-		domain,
 		`${baseUrl(creds)}/a/${domain}/api/location_type/v1/?limit=${LOCATION_PAGE_SIZE}`,
 		"location type list",
+		MAX_LOCATION_PAGES,
 	);
 	if ("success" in raw) return raw;
 
@@ -265,38 +193,95 @@ export async function listHqLocationTypes(
 	 * Every level is in this same answer, so the URI resolves locally
 	 * rather than costing a request per level. */
 	const codeById = new Map<string, string>();
-	for (const level of raw) {
-		if (level.id !== undefined && typeof level.code === "string") {
-			codeById.set(String(level.id), level.code);
-		}
+	const codes = new Set<string>();
+	const levels: Record<string, unknown>[] = [];
+	for (const value of raw) {
+		if (
+			!isHqObject(value) ||
+			(typeof value.id !== "number" && typeof value.id !== "string") ||
+			!/^\d+$/.test(String(value.id)) ||
+			typeof value.code !== "string" ||
+			value.code.trim() === "" ||
+			typeof value.name !== "string" ||
+			typeof value.administrative !== "boolean" ||
+			typeof value.shares_cases !== "boolean" ||
+			typeof value.view_descendants !== "boolean" ||
+			codeById.has(String(value.id)) ||
+			codes.has(value.code)
+		)
+			return malformedInventory("level");
+		codeById.set(String(value.id), value.code);
+		codes.add(value.code);
+		levels.push(value);
 	}
 	const types: HqLocationType[] = [];
-	for (const level of raw) {
-		if (typeof level.code !== "string" || typeof level.name !== "string") {
-			continue;
-		}
+	for (const level of levels) {
+		const parentCode = parentLevelCode(level.parent, codeById, creds, domain);
+		if (parentCode === undefined) return malformedInventory("level parent");
 		types.push({
-			id: String(level.id ?? ""),
-			name: level.name,
-			code: level.code,
-			parentCode: parentLevelCode(level.parent, codeById),
+			id: String(level.id),
+			name: level.name as string,
+			code: level.code as string,
+			parentCode,
 			administrative: level.administrative === true,
 			sharesCases: level.shares_cases === true,
 			viewDescendants: level.view_descendants === true,
 		});
 	}
+	const parents = new Map(types.map((level) => [level.code, level.parentCode]));
+	for (const level of types) {
+		const visited = new Set<string>();
+		let code: string | null = level.code;
+		while (code !== null) {
+			if (visited.has(code)) return malformedInventory("level cycle");
+			visited.add(code);
+			code = parents.get(code) ?? null;
+		}
+	}
 	return types;
 }
 
-/** Resolve a `parent` resource URI to the level code it names. */
+function malformedInventory(part: string): CommCareApiError {
+	log.error("[commcare] organization inventory is malformed", undefined, {
+		part,
+	});
+	return { success: false, status: 502 };
+}
+
+/** ForeignKey serializes a URI. Missing/unresolvable is not a root. Both HQ
+ * API route spellings resolve locally; no request follows this reference. */
 function parentLevelCode(
 	parent: unknown,
 	codeById: ReadonlyMap<string, string>,
-): string | null {
-	if (typeof parent !== "string" || parent === "") return null;
-	const pk = parent.replace(/\/+$/, "").split("/").pop();
-	if (pk === undefined) return null;
-	return codeById.get(pk) ?? null;
+	creds: CommCareCredentials,
+	domain: string,
+): string | null | undefined {
+	if (parent === null) return null;
+	if (typeof parent !== "string" || parent === "") return undefined;
+	let url: URL;
+	try {
+		url = new URL(parent, baseUrl(creds));
+	} catch {
+		return undefined;
+	}
+	if (
+		url.origin !== new URL(baseUrl(creds)).origin ||
+		url.username ||
+		url.password ||
+		url.search ||
+		url.hash
+	)
+		return undefined;
+	const prefixes = [
+		`/a/${domain}/api/location_type/v1/`,
+		`/a/${domain}/api/v0.5/location_type/`,
+	];
+	const prefix = prefixes.find((candidate) =>
+		url.pathname.startsWith(candidate),
+	);
+	if (prefix === undefined) return undefined;
+	const id = url.pathname.slice(prefix.length).replace(/\/$/, "");
+	return /^\d+$/.test(id) ? codeById.get(id) : undefined;
 }
 
 /**
@@ -314,64 +299,49 @@ export async function listHqLocations(
 	domain: string,
 ): Promise<readonly HqLocation[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
-	const raw = await readAllPages<{
-		readonly location_id?: unknown;
-		readonly name?: unknown;
-		readonly site_code?: unknown;
-		readonly location_type_code?: unknown;
-		readonly parent_location_id?: unknown;
-		readonly location_data?: unknown;
-	}>(
+	const raw = await readHqCollection(
 		creds,
-		domain,
 		`${baseUrl(creds)}/a/${domain}/api/location/v2/?limit=${LOCATION_PAGE_SIZE}`,
 		"location list",
+		MAX_LOCATION_PAGES,
 	);
 	if ("success" in raw) return raw;
 
 	const places: HqLocation[] = [];
+	const ids = new Set<string>();
+	const codes = new Set<string>();
 	for (const place of raw) {
 		if (
+			!isHqObject(place) ||
 			typeof place.location_id !== "string" ||
-			typeof place.site_code !== "string"
-		) {
-			continue;
-		}
+			place.location_id.trim() === "" ||
+			typeof place.site_code !== "string" ||
+			place.site_code.trim() === "" ||
+			typeof place.name !== "string" ||
+			typeof place.location_type_code !== "string" ||
+			place.location_type_code.trim() === "" ||
+			(place.parent_location_id !== null &&
+				typeof place.parent_location_id !== "string") ||
+			!isHqObject(place.location_data) ||
+			ids.has(place.location_id) ||
+			codes.has(place.site_code)
+		)
+			return malformedInventory("place");
+		ids.add(place.location_id);
+		codes.add(place.site_code);
 		places.push({
 			locationId: place.location_id,
-			name: typeof place.name === "string" ? place.name : "",
+			name: place.name,
 			siteCode: place.site_code,
-			locationTypeCode:
-				typeof place.location_type_code === "string"
-					? place.location_type_code
-					: "",
-			/* `::dehydrate` writes `''` rather than null at the top of the
-			 * tree, so both spellings mean the same thing here. */
+			locationTypeCode: place.location_type_code,
 			parentLocationId:
-				typeof place.parent_location_id === "string" &&
-				place.parent_location_id !== ""
-					? place.parent_location_id
-					: null,
-			values: stringValues(place.location_data),
+				place.parent_location_id === "" ? null : place.parent_location_id,
+			// HQ validates modeled fields, then replaces the entire metadata
+			// object. Foreign JSON values must survive that replacement too.
+			values: place.location_data,
 		});
 	}
 	return places;
-}
-
-/**
- * A place's custom fields, keeping only what can be sent back.
- *
- * `metadata` is a plain JSON blob on the model, so a value that is not a
- * string is a value CommCare HQ's own bulk paths could not have written
- * and one Nova must not echo into an update.
- */
-function stringValues(raw: unknown): Readonly<Record<string, string>> {
-	if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
-	const values: Record<string, string> = {};
-	for (const [key, value] of Object.entries(raw)) {
-		if (typeof value === "string") values[key] = value;
-	}
-	return values;
 }
 
 /**
@@ -399,7 +369,7 @@ export async function patchHqLocations(
 	places: readonly HqLocationPush[],
 ): Promise<HqLocationPatchResult | HqLocationPushRefusal> {
 	if (!isValidDomainSlug(domain)) {
-		return { ...INVALID_DOMAIN_SLUG, message: "" };
+		return { ...INVALID_DOMAIN_SLUG, message: "", mayHaveLanded: false };
 	}
 	if (places.length === 0) return { ids: [] };
 	if (places.length > HQ_LOCATION_PATCH_LIMIT) {
@@ -411,7 +381,7 @@ export async function patchHqLocations(
 			count: places.length,
 			limit: HQ_LOCATION_PATCH_LIMIT,
 		});
-		return { success: false, status: 400, message: "" };
+		return { success: false, status: 400, message: "", mayHaveLanded: false };
 	}
 
 	const body = JSON.stringify({
@@ -433,52 +403,74 @@ export async function patchHqLocations(
 		})),
 	});
 
-	let res: Response;
-	try {
-		res = await fetch(`${baseUrl(creds)}/a/${domain}/api/location/v2/`, {
-			method: "PATCH",
-			headers: {
-				Authorization: authHeader(creds),
-				"Content-Type": "application/json",
-			},
-			body,
-		});
-	} catch (error) {
-		log.warn("[commcare] location push unreachable", {
-			domain,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return { success: false, status: 503, message: "" };
-	}
-
-	if (!res.ok) return refusedPush(res, domain, places.length);
-
-	let parsed: unknown;
-	try {
-		parsed = await res.json();
-	} catch {
-		log.error("[commcare] location push returned non-JSON", undefined, {
-			domain,
-		});
-		return { success: false, status: 502, message: "" };
-	}
-	if (
-		!Array.isArray(parsed) ||
-		parsed.length !== places.length ||
-		!parsed.every((id): id is string => typeof id === "string" && id !== "")
-	) {
-		log.error(
-			"[commcare] location push answered an unusable shape",
-			undefined,
-			{
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(`${baseUrl(creds)}/a/${domain}/api/location/v2/`, {
+				method: "PATCH",
+				headers: {
+					Authorization: authHeader(creds),
+					"Content-Type": "application/json",
+				},
+				body,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.warn("[commcare] location push unreachable", {
 				domain,
-				sent: places.length,
-				received: Array.isArray(parsed) ? parsed.length : null,
-			},
-		);
-		return { success: false, status: 502, message: "" };
-	}
-	return { ids: parsed };
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { success: false, status: 503, message: "", mayHaveLanded: true };
+		}
+
+		if (res.status !== 202)
+			return await refusedPush(res, domain, places.length);
+
+		let parsed: unknown;
+		try {
+			parsed = await res.json();
+		} catch {
+			log.error("[commcare] location push returned non-JSON", undefined, {
+				domain,
+			});
+			return {
+				success: false,
+				status: signal.aborted ? 503 : 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		if (
+			!Array.isArray(parsed) ||
+			parsed.length !== places.length ||
+			new Set(parsed).size !== parsed.length ||
+			!parsed.every(
+				(id, index): id is string =>
+					typeof id === "string" &&
+					/^[A-Za-z0-9_-]+$/.test(id) &&
+					(places[index].locationId === undefined ||
+						id === places[index].locationId),
+			)
+		) {
+			log.error(
+				"[commcare] location push answered an unusable shape",
+				undefined,
+				{
+					domain,
+					sent: places.length,
+					received: Array.isArray(parsed) ? parsed.length : null,
+				},
+			);
+			return {
+				success: false,
+				status: 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		return { ids: parsed };
+	}, 30_000);
 }
 
 /**
@@ -520,5 +512,10 @@ async function refusedPush(
 	} else {
 		log.error("[commcare] location push failed", undefined, refusal);
 	}
-	return { success: false, status: res.status, message };
+	return {
+		success: false,
+		status: res.status,
+		message,
+		mayHaveLanded: ![400, 401, 403].includes(res.status),
+	};
 }

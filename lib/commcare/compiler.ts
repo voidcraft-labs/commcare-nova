@@ -1,5 +1,6 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 import { buildEntryPointSuite } from "./entryPointSuite";
+import { assertXml } from "./xmlParse";
 // lib/commcare/compiler.ts
 //
 // HqApplication + BlueprintDoc → .ccz Buffer.
@@ -25,21 +26,20 @@ import { buildEntryPointSuite } from "./entryPointSuite";
 // before packaging.
 //
 // `suite.xml` and `profile.ccpr` are CONSTRUCTED as `domhandler` element
-// trees and serialized once via `dom-serializer`. There is NO
+// trees and serialized once via `serializeXml`. There is NO
 // template-literal XML in this file: every attribute value flows through
 // `setAttribute` (the `attribs` object literal); every text value flows
 // through a `Text` node; the serializer is the single, exclusive
 // escaping authority. The `<?xml version="1.0"?>` declaration is the
-// only literal — `dom-serializer` does not emit XML declarations, so
+// only literal — `serializeXml` does not emit XML declarations, so
 // the compiler prepends one before each rendered tree.
 
 import { randomUUID } from "node:crypto";
 import AdmZip from "adm-zip";
-import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { FormActions, HqApplication } from "@/lib/commcare";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
 import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
@@ -67,6 +67,7 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "@/lib/commcare/predicate/instances";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,
@@ -99,6 +100,7 @@ import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shar
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
+import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -274,6 +276,7 @@ export function compileCcz(
 		opts.compiledAtSeq,
 		derivedProfileProperties(doc),
 	);
+	assertXml(files["profile.ccpr"]);
 	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
 
 	// `appStrings` is populated as we walk modules/forms; flushed once
@@ -281,6 +284,7 @@ export function compileCcz(
 	const appStrings: Record<string, string> = {
 		"homescreen.title": appName,
 		"app.display.name": appName,
+		"cchq.case": "Case",
 	};
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
@@ -295,7 +299,7 @@ export function compileCcz(
 	};
 	// Top-level `<suite>` children accumulate as typed `Element[]`. The
 	// orchestrator splices everything into one `<suite>` Element at the
-	// end and serializes via `dom-serializer` exactly once. The spread
+	// end and serializes via `serializeXml` exactly once. The spread
 	// order into `<suite>.children` below pins the canonical wire layout
 	// (resources → locales → details → remote-requests → entries →
 	// menus) — the serializer preserves child insertion order, so the
@@ -470,14 +474,8 @@ export function compileCcz(
 		// surface skip the search-target emission;
 		// emission is purely additive.
 		//
-		// Both detail blocks resolve their `<title>` through CCHQ's
-		// built-in `cchq.case` locale (registered with
-		// `default="Case"` at
-		// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
-		// Neither emitter registers a per-module title in app_strings;
-		// the runtime falls back to "Case" until an author overrides
-		// `cchq.case` at the app-strings layer (Nova has no such
-		// authoring surface today).
+		// Both detail titles reference cchq.case. The compiler registers the
+		// value in every locale table; Core has no built-in mapping for this id.
 		// The Register action a search-first host mounts on its case list
 		// (`DetailContributor.add_register_action`): the no-matches form's
 		// command in its hidden module, the target entry's computed datums,
@@ -673,7 +671,7 @@ export function compileCcz(
 				);
 			}
 			if (xform) {
-				xform = addMetaBlock(xform);
+				xform = stripVellumAttributes(addMetaBlock(xform));
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit
@@ -1032,12 +1030,12 @@ export function compileCcz(
 		...suiteFixtures,
 		...entryPointSuite.endpoints,
 	]);
-	// `dom-serializer` does not emit XML declarations — the leading
+	// `serializeXml` does not emit XML declarations — the leading
 	// `<?xml version="1.0"?>` literal is the only template string in the
 	// suite-XML emission path. CCHQ's `Application.create_suite` adds
 	// the same declaration on the regenerated suite, so the literal
 	// stays byte-equivalent across both paths.
-	const suiteXml = `<?xml version="1.0"?>\n${render(suiteRoot, RENDER_OPTS)}`;
+	const suiteXml = `<?xml version="1.0"?>\n${serializeXml(suiteRoot)}`;
 
 	// Suite-XML oracle gate. The oracle mirrors CommCare's suite-parse +
 	// session-runtime contract — both the fatal-at-parse checks (malformed
@@ -1052,7 +1050,7 @@ export function compileCcz(
 	// in this compiler, never a fixable authoring state, so a non-empty result
 	// throws. `appStrings` is fully populated by the module loop above, so its
 	// key set is the complete locale registry the oracle resolves `<locale id>`
-	// references against. (The oracle's own strict `XMLValidator.validate`
+	// references against. (The oracle's own namespace-aware XML 1.0 gate
 	// subsumes the well-formedness parse-check this replaced.)
 	// The suite oracle's media-resolution check resolves menu-borne locales +
 	// image-map XPath literals against the bundled wire paths. Threading the
@@ -1140,7 +1138,7 @@ export function compileCcz(
  * stable identity across compiles isn't required (and would defeat
  * HQ's version deduplication).
  *
- * Constructed via `domhandler` element tree + single `dom-serializer`
+ * Constructed via `domhandler` element tree + single `serializeXml`
  * pass. The `<?xml version="1.0"?>` declaration is prepended as a
  * literal (the serializer doesn't emit declarations).
  *
@@ -1209,7 +1207,7 @@ function generateProfile(
 			]),
 		],
 	);
-	return `<?xml version="1.0"?>\n${render(profileEl, RENDER_OPTS)}`;
+	return `<?xml version="1.0"?>\n${serializeXml(profileEl)}`;
 }
 
 /**

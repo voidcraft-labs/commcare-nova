@@ -14,6 +14,13 @@ describe("distance", () => {
 			"not-positive-finite",
 		);
 
+		expect(distanceValidationIssue(Number.NaN, "kilometers")).toBe(
+			"not-positive-finite",
+		);
+		expect(
+			distanceValidationIssue(Number.NEGATIVE_INFINITY, "kilometers"),
+		).toBe("not-positive-finite");
+
 		const unitBoundary = Number.MAX_VALUE / 1200;
 		expect(distanceValidationIssue(unitBoundary, "kilometers")).toBeUndefined();
 		expect(distanceValidationIssue(unitBoundary, "miles")).toBe(

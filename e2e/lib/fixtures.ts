@@ -5,7 +5,7 @@ import { attachErrorGuard } from "./errorGuard";
  * Shared Playwright `test` with a strict error guard wired into the `page`
  * fixture: every page-driving test FAILS if the browser logs an app
  * `console.error`, throws an uncaught exception (`pageerror`), or gets a
- * same-origin 5xx — even when the test's own assertions would otherwise pass.
+ * same-origin 5xx, or sends a Nova client-error report — even when the test's own assertions would otherwise pass.
  * This catches breakage the explicit assertions don't name (a route 500ing, a
  * client crash, a React error).
  *
@@ -24,9 +24,10 @@ import { attachErrorGuard } from "./errorGuard";
  */
 export const test = base.extend({
 	page: async ({ page, baseURL }, use) => {
-		const guard = attachErrorGuard(page, baseURL);
+		const guard = await attachErrorGuard(page, baseURL);
 		await use(page);
-		guard.assertNoErrors();
+		await page.close();
+		await guard.assertNoErrors();
 	},
 });
 

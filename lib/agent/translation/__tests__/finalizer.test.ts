@@ -1,15 +1,19 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import {
+	expectAdmittedDoc,
+	surveyFixture,
+} from "@/lib/agent/__tests__/admittedFixture";
+import {
 	cloneContract,
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { applyMutations } from "@/lib/doc/mutations";
-import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	collectTranslationUnits,
 	effectiveAppLocalization,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import { buildInitialLocalizationMutations } from "../finalizer";
 
 describe("initial-build localization mutation planning", () => {
@@ -31,7 +35,7 @@ describe("initial-build localization mutation planning", () => {
 				},
 			],
 		};
-		const source = emptyBlueprintDoc("translation-copy");
+		const source = expectAdmittedDoc(surveyFixture());
 		const mutations = buildInitialLocalizationMutations({
 			sourceDoc: source,
 			contract,
@@ -40,6 +44,7 @@ describe("initial-build localization mutation planning", () => {
 		const localized = produce(source, (draft) => {
 			applyMutations(draft, mutations);
 		});
+		expectAdmittedDoc(localized);
 		const state = effectiveAppLocalization(localized.localization);
 		// Spanish seeds from the source, so it lands first; French copies from
 		// Spanish; the accepted default then moves to the front of the order.
@@ -75,17 +80,30 @@ describe("initial-build localization mutation planning", () => {
 				},
 			],
 		};
-		const source = emptyBlueprintDoc("translation-ai");
+		const source = expectAdmittedDoc(surveyFixture());
 		const unit = collectTranslationUnits(source)[0];
 		if (unit === undefined) throw new Error("app-name unit missing");
 		const mutations = buildInitialLocalizationMutations({
 			sourceDoc: source,
 			contract,
-			automaticValues: new Map([["spa", new Map([[unit.id, "Aplicación"]])]]),
+			automaticValues: new Map([
+				[
+					"spa",
+					new Map(
+						collectTranslationUnits(source).map((item) => [
+							item.id,
+							item.valueKind === "text"
+								? "Aplicación"
+								: proseText("Aplicación"),
+						]),
+					),
+				],
+			]),
 		});
 		const localized = produce(source, (draft) => {
 			applyMutations(draft, mutations);
 		});
+		expectAdmittedDoc(localized);
 		expect(
 			effectiveAppLocalization(localized.localization).translations.spa?.[
 				unit.id

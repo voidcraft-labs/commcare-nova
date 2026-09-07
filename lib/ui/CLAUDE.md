@@ -8,7 +8,11 @@ Stateless, domain-agnostic React hooks + the imperative UI singletons they subsc
 - Pure interaction models + their DOM bindings (`insertionIntent.ts` — the insertion-affordance intent state machine (EMA'd pointer speed, dwell-evidence accumulator, geometric zone containment), pure and clock-injected so gestures unit-test deterministically; `hooks/useInsertionZone.tsx` — its provider/zone binding: document-level listeners, throttled rect cache, occlusion hit-test against `[data-insertion-surface]`, and a rAF loop that runs only while a zone is arming/open/closing; `chatScroll.ts` — the chat conversation's one scroll model: pure pinned/free decisions (the near-bottom range stays pinned in either direction, moving farther up escapes, and the pinned target caps at a waiting question card's top) plus `ChatScrollController`, the ResizeObserver + programmatic-scroll-counter binding `components/ai-elements/conversation.tsx` mounts. Its `attach` is idempotent per element pair and the ref callbacks that call it must be identity-stable — a re-attach on every render resets the mode, which is how an escaped view once snapped straight back to the bottom).
 - Shared right-rail width constants (`inspector.tsx`) — chat and the docked inspector resolve to the SAME width so selecting something never reflows the canvas. The inspector itself is rendered directly from shared selection state by the chat sidebar (`components/builder/inspector/activeInspector.tsx`); there is no claim/portal coordination here. See `components/builder/CLAUDE.md` § Inspector rail.
 - DOM observers (`useIsBreakpoint`).
-- Input-interaction models (`useCommitField` — the commit/cancel/checkmark pattern).
+- Local calendar state (`localCalendarClock.ts`) owns the current-day identity and
+  one midnight timer while subscribed. `hooks/useLocalCalendarDay` binds the
+  clock to React plus browser focus/visibility resync. Construct the next local
+  midnight rather than adding 24 hours; daylight-saving days can be shorter or longer.
+- Input-interaction models (`commitField.ts` owns draft/commit/refusal/cancel state and its feedback timer; `hooks/useCommitField` only subscribes React and binds browser focus/blur/selection). Every successful commit restarts its feedback window; disposal cancels the timer. `keyboardShortcuts.ts` owns programmatic shortcut priority, decline, and editing gates; `keyboardManager` binds actual document focus, platform modifiers, and event cancellation.
 - Keyboard / focus / menu navigation primitives (`useMenuNavigation`, `useKeyboardShortcuts`, `useInlineConfirmFocus`, `useMenuArrowKeys`).
 - Thin subscribers to the imperative singletons (`useToasts` over `toastStore`).
 - Library wrappers with no domain binding (`useTiptapEditor`).
@@ -62,3 +66,17 @@ whole hazard.
 A hook that subscribes to doc state → `lib/doc/hooks/`.
 A hook that subscribes to session state → `lib/session/hooks.tsx`.
 A hook that subscribes to URL state → `lib/routing/hooks.tsx`.
+
+## Testing boundaries
+
+Exercise editing and shortcut rules through their production models without a
+DOM, React render, or synthetic keyboard event. Persistence callbacks are the
+commit model's external boundary; use accepted and refused outcomes and inspect
+the resulting draft and lifecycle. Own model disposal and subscriptions.
+
+The real Builder journey in `e2e/tests/authed.spec.ts` verifies the browser
+adapter: typing P in an input stays an edit, Escape cancels without deselection,
+P outside an input enters Preview, and a refused identifier commit preserves
+both the draft and actual focus before retry. Browser focus/selection claims
+belong there, not in spies on HTML element methods. See `docs/testing.md` for the
+same evidence-first rule across all testing methods.

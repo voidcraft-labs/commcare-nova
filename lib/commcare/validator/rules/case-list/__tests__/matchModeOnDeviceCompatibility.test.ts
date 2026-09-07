@@ -11,6 +11,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	advancedSearchInputDef,
@@ -55,14 +56,24 @@ const standardForm = {
 };
 
 const standardCaseTypes = [
+	{ name: "visit", parent_type: "patient", properties: [] },
 	{
 		name: "patient",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "dob", label: "Date of birth", data_type: "date" as const },
 		],
 	},
 ];
+
+// Isolated diagnostic assertions below may coexist with a distinct global
+// scope refusal. A zero compatibility result is only accepted when the whole
+// candidate is admitted.
+function compatibilityFindings(doc: ReturnType<typeof buildDoc>) {
+	const all = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const hits = all.filter((error) => error.code === CODE);
+	if (hits.length === 0) expectAdmittedDoc(doc);
+	return hits;
+}
 
 describe("matchModeOnDeviceCompatibility", () => {
 	it("fires for fuzzy match in caseListConfig.filter", () => {
@@ -84,9 +95,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].message).toContain("`fuzzy` match");
 		expect(hits[0].message).toContain("Cases available rule");
@@ -114,9 +123,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("phonetic");
 	});
@@ -144,9 +151,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("fuzzy-date");
 	});
@@ -170,9 +175,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -198,9 +201,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("fuzzy");
 	});
@@ -226,9 +227,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("phonetic");
 	});
@@ -262,9 +261,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("fuzzy");
 		expect(hits[0].details?.slot).toBe("caseListConfig.filter");
@@ -297,9 +294,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.mode).toBe("phonetic");
 		expect(hits[0].details?.slot).toBe(
@@ -332,9 +327,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.slot).toBe(
 			"caseSearchConfig.searchButtonDisplayCondition",
@@ -373,9 +366,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(0);
 	});
 
@@ -414,9 +405,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			inputUuid,
@@ -446,8 +435,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 								"text",
 								gt(
 									count(
-										subcasePath("parent", "patient"),
-										match(prop("patient", "case_name"), "Alice", "fuzzy"),
+										subcasePath("parent", "visit"),
+										match(prop("visit", "case_name"), "Alice", "fuzzy"),
 									),
 									literal(0),
 								),
@@ -460,11 +449,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+		expect(compatibilityFindings(doc)).toEqual([]);
 	});
 
 	it("normalizes a right-side subcase count before deciding its filter stays server-side", () => {
@@ -487,8 +472,8 @@ describe("matchModeOnDeviceCompatibility", () => {
 								eq(
 									literal(0),
 									count(
-										subcasePath("parent", "patient"),
-										match(prop("patient", "case_name"), "Alice", "phonetic"),
+										subcasePath("parent", "visit"),
+										match(prop("visit", "case_name"), "Alice", "phonetic"),
 									),
 								),
 							),
@@ -500,11 +485,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+		expect(compatibilityFindings(doc)).toEqual([]);
 	});
 
 	it("rejects a match inside a count shape that CSQL evaluates on-device", () => {
@@ -527,7 +508,11 @@ describe("matchModeOnDeviceCompatibility", () => {
 								gt(
 									count(
 										selfPath(),
-										match(prop("patient", "case_name"), "Alice", "fuzzy-date"),
+										match(
+											prop("patient", "dob"),
+											dateLiteral("2020-01-15"),
+											"fuzzy-date",
+										),
 									),
 									literal(0),
 								),
@@ -540,9 +525,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			mode: "fuzzy-date",
@@ -585,11 +568,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+		expect(compatibilityFindings(doc)).toEqual([]);
 	});
 
 	it("reports one actionable finding when multiple offenders share a slot", () => {
@@ -614,9 +593,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.surface).toBe("filter");
 	});
@@ -650,9 +627,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			columnLabel: "Name quality",
@@ -694,9 +669,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details).toMatchObject({
 			columnLabel: "Retired",
@@ -746,9 +719,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(2);
 		expect(hits.map((hit) => hit.details?.inputUuid)).toEqual([
 			simpleUuid,
@@ -788,15 +759,13 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(error) => error.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(1);
 		expect(hits[0].details?.surface).toBe("excluded-owner-ids");
 		expect(userFacingError(hits[0])).toContain("assigned cases setting");
 	});
 
-	it("ignores matches removed from filter and button conditions by wire simplification", () => {
+	it("simplifies the filter while the global scope rule still refuses a case-reading button", () => {
 		const dead = or(
 			matchAll(),
 			match(prop("patient", "case_name"), "Alice", "fuzzy"),
@@ -822,27 +791,29 @@ describe("matchModeOnDeviceCompatibility", () => {
 		});
 
 		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-				(error) => error.code === CODE,
-			),
-		).toEqual([]);
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code),
+		).toEqual(["CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE"]);
 	});
 
-	it("short-circuits when neither on-device-lowering slot is present", () => {
+	it("admits a plain case list with no expression carriers", () => {
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("plain-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
 					forms: [standardForm],
 				},
 			],
 			caseTypes: standardCaseTypes,
 		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
+		const hits = compatibilityFindings(doc);
 		expect(hits).toHaveLength(0);
 	});
 });

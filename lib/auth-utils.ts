@@ -159,7 +159,7 @@ export async function resolveOpenAIKey(req: Request): Promise<OpenAIKeyResult> {
 		};
 	}
 
-	touchUser(session.user.id);
+	await touchUser(session.user.id);
 
 	const serverKey = process.env.OPENAI_API_KEY;
 	if (!serverKey) {
@@ -182,7 +182,7 @@ export async function requireSession(req: Request): Promise<Session> {
 	if (!session) {
 		throw new ApiError("Authentication required", 401);
 	}
-	touchUser(session.user.id);
+	await touchUser(session.user.id);
 	return session;
 }
 
@@ -345,7 +345,7 @@ export const resolveActiveProjectId = cache(
 export async function requireAuth(): Promise<Session> {
 	const session = await getSession();
 	if (!session) redirect("/");
-	touchUser(session.user.id);
+	await touchUser(session.user.id);
 	return session;
 }
 
@@ -383,25 +383,23 @@ export async function requireAdminAccess(): Promise<Session> {
 // ── Activity Tracking ──────────────────────────────────────────────
 
 /**
- * Bump `lastActiveAt` on `auth_user`. Fire-and-forget on every authenticated
- * request — a failure must never block the request, consistent with
- * `requireAdminAccess()` which also reads `auth_user` directly.
+ * Bump `lastActiveAt` on `auth_user`. The request owns this write through
+ * completion; a failed activity update is logged without denying access.
  *
  * Logs at WARN (Cloud-Logging-only, NOT mirrored to Sentry) for the same reason
  * `sessionUserIsActive` does: this runs on EVERY authenticated request, so a
  * Postgres slowdown / pool-saturation window would otherwise emit one Sentry
  * event per request and bury real errors. A lost activity timestamp is benign.
  */
-function touchUser(userId: string): void {
-	void getAuthDb()
-		.then((db) =>
-			db
-				.updateTable("auth_user")
-				.set({ lastActiveAt: new Date() })
-				.where("id", "=", userId)
-				.execute(),
-		)
-		.catch((err) =>
-			log.warn("[touchUser] auth_user lastActiveAt write failed", err),
-		);
+async function touchUser(userId: string): Promise<void> {
+	try {
+		const db = await getAuthDb();
+		await db
+			.updateTable("auth_user")
+			.set({ lastActiveAt: new Date() })
+			.where("id", "=", userId)
+			.execute();
+	} catch (err) {
+		log.warn("[touchUser] auth_user lastActiveAt write failed", { err });
+	}
 }

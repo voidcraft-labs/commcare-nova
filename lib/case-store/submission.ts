@@ -25,6 +25,7 @@
 import type {
 	CaptureFieldKind,
 	CaseOperation,
+	CasePropertyDataType,
 	CaseType,
 	OrganizationLevel,
 	Uuid,
@@ -194,6 +195,7 @@ export interface CaseOperationProgram {
 	/** Schema map for expression compilation (`buildCaseTypeMap` at the
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	/** Organization hierarchy used only by owner-location-at-level terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**

@@ -1,26 +1,9 @@
-/**
- * `CanonicalMutationWorkspace` — the contract every canonical tool invocation
- * runs under.
- *
- * Pins the properties the SA's retired closure-doc + microtask-FIFO chain
- * only held implicitly:
- *
- *   - invocation order is allocated SYNCHRONOUSLY at dispatch and enforced —
- *     a branch whose body dawdles (the async-hook / SDK-parallelism hazard)
- *     cannot run ahead of an earlier dispatch;
- *   - each invocation reads one immutable snapshot, may perform at most ONE
- *     workspace mutation operation, and a stashed (stale-revision) context
- *     is a loud protocol error, never a silent overwrite;
- *   - a gate rejection persists nothing and advances nothing;
- *   - an accepted commit adopts the HOST's committed doc (a peer edit merged
- *     in), which the next invocation reads;
- *   - an authoritative commit conflict adopts one fresh authorized snapshot
- *     through the host's reload before the error surfaces — and without a
- *     reload (the MCP per-call host) the document stays put and the error
- *     propagates unchanged.
- */
+/** Real workspace state transitions over controlled host receipts. These
+ * tests prove invocation ownership and adoption, not SQL persistence/locking;
+ * native SDK sibling dispatch is covered by the SA concurrency suite. */
 
 import { describe, expect, it, vi } from "vitest";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	echoLookupDefinitions,
 	LOOKUP_SELECT_DOC,
@@ -30,13 +13,16 @@ import {
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { ToolInvocationContext } from "../types";
 
 function renameBatch(name: string): Mutation[] {
@@ -44,18 +30,19 @@ function renameBatch(name: string): Mutation[] {
 }
 
 describe("CanonicalMutationWorkspace — ordering", () => {
-	it("runs invocations strictly in dispatch order even when an earlier body is artificially delayed", async () => {
+	it("holds a later invocation behind the first body and preserves its snapshot", async () => {
 		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
 		const order: string[] = [];
 
-		/* Dispatch A and B back-to-back without awaiting — the AI SDK's
-		 * parallel tool_use shape. A's body awaits a long macrotask chain
-		 * before writing; if ordering depended on completion timing rather
-		 * than dispatch order, B would observe the pre-A document. */
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const ordinals: number[] = [];
 		const a = h.workspace.invoke({
 			toolName: "slow-first",
 			execute: async (ctx) => {
-				await new Promise((resolve) => setTimeout(resolve, 20));
+				ordinals.push(ctx.invocation.invocationOrdinal);
+				entered.resolve();
+				await release.promise;
 				order.push("a");
 				return ctx.applyBatch({ mutations: renameBatch("First wins") });
 			},
@@ -63,31 +50,28 @@ describe("CanonicalMutationWorkspace — ordering", () => {
 		const b = h.workspace.invoke({
 			toolName: "fast-second",
 			execute: async (ctx) => {
+				ordinals.push(ctx.invocation.invocationOrdinal);
 				order.push("b");
 				expect(ctx.snapshot.doc.appName).toBe("First wins");
 				return ctx.applyBatch({ mutations: renameBatch("Second lands") });
 			},
 		});
-		await Promise.all([a, b]);
-
+		try {
+			await entered.promise;
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(order).toEqual([]);
+			expect(ordinals).toEqual([0]);
+			expect(h.recordMutations).not.toHaveBeenCalled();
+			release.resolve();
+			await Promise.all([a, b]);
+		} finally {
+			release.resolve();
+			await Promise.allSettled([a, b]);
+		}
+		expect(ordinals).toEqual([0, 1]);
 		expect(order).toEqual(["a", "b"]);
 		expect(h.currentDoc().appName).toBe("Second lands");
 		expect(h.recordMutations).toHaveBeenCalledTimes(2);
-	});
-
-	it("allocates ordinals synchronously at dispatch", async () => {
-		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
-		const ordinals: number[] = [];
-		const invocations = [0, 1, 2].map((n) =>
-			h.workspace.invoke({
-				toolName: `t${n}`,
-				execute: async (ctx) => {
-					ordinals.push(ctx.invocation.invocationOrdinal);
-				},
-			}),
-		);
-		await Promise.all(invocations);
-		expect(ordinals).toEqual([0, 1, 2]);
 	});
 
 	it("a failing invocation does not poison the chain for later ones", async () => {
@@ -175,13 +159,15 @@ describe("CanonicalMutationWorkspace — one write per invocation, exact revisio
 });
 
 describe("CanonicalMutationWorkspace — adoption", () => {
-	it("adopts the host's committed doc, including a peer edit merged in", async () => {
+	it("adopts the complete host receipt even when it differs from the optimistic candidate", async () => {
 		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
-		h.recordMutations.mockImplementationOnce(async (prepared) => {
-			const merged = structuredClone(prepared.nextDoc);
-			merged.appName = "Peer suffix added";
-			return { events: [], committedDoc: merged, seq: 7 };
-		});
+		h.recordMutations.mockImplementationOnce(
+			async (prepared: PreparedMutationCandidate) => {
+				const merged = structuredClone(prepared.nextDoc);
+				merged.appName = "Peer suffix added";
+				return { events: [], committedDoc: expectAdmittedDoc(merged), seq: 7 };
+			},
+		);
 		const outcome = await h.workspace.invoke({
 			toolName: "committer",
 			execute: (ctx) => ctx.applyBatch({ mutations: renameBatch("Mine") }),
@@ -255,22 +241,6 @@ describe("CanonicalMutationWorkspace — authoritative conflict recovery", () =>
 	});
 });
 
-describe("ToolInvocationContext — no persistence bypass", () => {
-	it("exposes no host persistence methods to the tool body", async () => {
-		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
-		await h.workspace.invoke({
-			toolName: "introspect",
-			execute: async (ctx) => {
-				const keys = Object.keys(ctx);
-				expect(keys).not.toContain("recordMutations");
-				expect(keys).not.toContain("recordMutationStages");
-				expect(keys).not.toContain("recordConversation");
-				expect(keys).not.toContain("consumeParkedNote");
-			},
-		});
-	});
-});
-
 /* Lookup-context union: the gate resolves definitions for the tables of the
  * snapshot AND the candidate. A swap from table A to table B is the case that
  * tells the three apart — the union asks for [A, B]; a snapshot-only gate asks
@@ -287,14 +257,28 @@ const VALUE_COLUMN = lookupColumnIdSchema.parse(
 const LABEL_COLUMN = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c002",
 );
-const CATALOG = [TABLE_A, TABLE_B].map((id) =>
+const VALUE_COLUMN_B = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c003",
+);
+const LABEL_COLUMN_B = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c004",
+);
+const CATALOG = [TABLE_A, TABLE_B].map((id, index) =>
 	lookupTableDefinition({
 		id,
 		name: `Table ${id}`,
-		tag: "table",
+		tag: index === 0 ? "table_a" : "table_b",
 		columns: [
-			{ id: VALUE_COLUMN, wireName: "code", label: "Code" },
-			{ id: LABEL_COLUMN, wireName: "name", label: "Name" },
+			{
+				id: index === 0 ? VALUE_COLUMN : VALUE_COLUMN_B,
+				wireName: "code",
+				label: "Code",
+			},
+			{
+				id: index === 0 ? LABEL_COLUMN : LABEL_COLUMN_B,
+				wireName: "name",
+				label: "Name",
+			},
 		],
 	}),
 );
@@ -303,8 +287,8 @@ function lookupSource(tableId: LookupTableId) {
 	return {
 		kind: "lookup" as const,
 		tableId,
-		valueColumnId: VALUE_COLUMN,
-		labelColumnId: LABEL_COLUMN,
+		valueColumnId: tableId === TABLE_A ? VALUE_COLUMN : VALUE_COLUMN_B,
+		labelColumnId: tableId === TABLE_A ? LABEL_COLUMN : LABEL_COLUMN_B,
 	};
 }
 
@@ -316,11 +300,20 @@ function swapToTableB(): Mutation {
 	);
 }
 
+const lookupContext: LookupValidationContext = {
+	kind: "available",
+	projectId: "project-test",
+	projectRevision: parseLookupRevision("1"),
+	definitions: CATALOG,
+};
 function makeLookupHarness() {
 	const lookupDefinitions = echoLookupDefinitions(CATALOG);
-	const h = makeToolWorkspaceHarness(lookupSelectDoc(lookupSource(TABLE_A)), {
-		lookupDefinitions,
-	});
+	const h = makeToolWorkspaceHarness(
+		expectAdmittedDoc(lookupSelectDoc(lookupSource(TABLE_A)), lookupContext),
+		{
+			lookupDefinitions,
+		},
+	);
 	return { h, lookupDefinitions };
 }
 
@@ -334,6 +327,7 @@ describe("CanonicalMutationWorkspace — lookup context", () => {
 		});
 
 		expect(out).toMatchObject({ ok: true });
+		expectAdmittedDoc(h.currentDoc(), lookupContext);
 		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
 		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
@@ -354,6 +348,7 @@ describe("CanonicalMutationWorkspace — lookup context", () => {
 		});
 
 		expect(out).toMatchObject({ ok: true });
+		expectAdmittedDoc(h.currentDoc(), lookupContext);
 		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
 		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);

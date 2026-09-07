@@ -12,7 +12,17 @@ import {
 	type XPathWorkerResponse,
 } from "../workerProtocol";
 
-afterEach(() => vi.useRealTimers());
+const runtimes: XPathRuntime[] = [];
+function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
+	const runtime = new XPathRuntime(options);
+	runtimes.push(runtime);
+	return runtime;
+}
+afterEach(() => {
+	for (const runtime of runtimes.splice(0)) runtime.dispose();
+	if (vi.isFakeTimers()) expect(vi.getTimerCount()).toBe(0);
+	vi.useRealTimers();
+});
 
 type MessageListener = (event: { readonly data: XPathWorkerResponse }) => void;
 type OptionalBuildIdentity<T> = T extends unknown
@@ -22,10 +32,18 @@ type OptionalBuildIdentity<T> = T extends unknown
 class ControlledWorker implements XPathWorkerPort {
 	readonly requests: XPathWorkerRequest[] = [];
 	terminated = false;
+	postFailure: Error | undefined;
+	get listenerCount() {
+		return this.messageListeners.size + this.errorListeners.size;
+	}
+	fail() {
+		for (const listener of this.errorListeners) listener();
+	}
 	private readonly messageListeners = new Set<MessageListener>();
 	private readonly errorListeners = new Set<() => void>();
 
 	postMessage(message: XPathWorkerRequest): void {
+		if (this.postFailure) throw this.postFailure;
 		this.requests.push(message);
 	}
 
@@ -100,10 +118,10 @@ function evaluateRequest(worker: ControlledWorker) {
 	return message;
 }
 
-describe("XPath worker client", () => {
+describe("XPath worker host protocol", () => {
 	it("reuses a settled worker for the next revision of the same entry", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const first = runtime.request(request());
 		const worker = controlled.workers[0];
 		if (!worker) throw new Error("Expected worker");
@@ -150,7 +168,7 @@ describe("XPath worker client", () => {
 
 	it("retires the prior worker when the revision changes", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const first = runtime.request(request());
 		const second = runtime.request(request({ revision: 2 }));
 
@@ -184,7 +202,7 @@ describe("XPath worker client", () => {
 
 	it("discards a late response from a retired generation", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const first = runtime.request(request());
 		const firstWorker = controlled.workers[0];
 		if (!firstWorker) throw new Error("Expected first worker");
@@ -230,7 +248,7 @@ describe("XPath worker client", () => {
 	it("terminates the worker when a request times out", async () => {
 		vi.useFakeTimers();
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: controlled.factory,
 			requestTimeoutMilliseconds: 25,
 		});
@@ -249,7 +267,7 @@ describe("XPath worker client", () => {
 	it("pauses the CPU watchdog for a worker yield and restarts it on resume", async () => {
 		vi.useFakeTimers();
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: controlled.factory,
 			requestTimeoutMilliseconds: 25,
 		});
@@ -293,7 +311,7 @@ describe("XPath worker client", () => {
 	it("terminates the worker when cancellation may interrupt synchronous work", async () => {
 		vi.useFakeTimers();
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: controlled.factory,
 			requestTimeoutMilliseconds: 25,
 		});
@@ -337,7 +355,7 @@ describe("XPath worker client", () => {
 
 	it("suspends without permanently disabling a provider-owned runtime", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const pending = runtime.request(request());
 		const firstWorker = controlled.workers[0];
 		if (!firstWorker) throw new Error("Expected first worker");
@@ -388,7 +406,7 @@ describe("XPath worker client", () => {
 
 	it("retires the matching entry on navigation", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const result = runtime.request(request());
 		const worker = controlled.workers[0];
 		if (!worker) throw new Error("Expected worker");
@@ -406,7 +424,7 @@ describe("XPath worker client", () => {
 
 	it("rejects a response whose revision metadata does not match", async () => {
 		const controlled = controlledFactory();
-		const runtime = new XPathRuntime({ workerFactory: controlled.factory });
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
 		const result = runtime.request(request());
 		const worker = controlled.workers[0];
 		if (!worker) throw new Error("Expected worker");
@@ -432,7 +450,7 @@ describe("XPath worker client", () => {
 	it("retires the Worker and invokes recovery when it belongs to another build", async () => {
 		const controlled = controlledFactory();
 		const recover = vi.fn();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: controlled.factory,
 			onBuildMismatch: recover,
 		});
@@ -465,5 +483,93 @@ describe("XPath worker client", () => {
 		expect(worker.terminated).toBe(true);
 		expect(recover).toHaveBeenCalledTimes(1);
 		runtime.dispose();
+	});
+	it("rejects invalid requests and pre-cancellation without constructing a worker", async () => {
+		const controlled = controlledFactory();
+		const runtime = ownedRuntime({ workerFactory: controlled.factory });
+		for (const revision of [
+			-1,
+			0.5,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+			Number.MAX_SAFE_INTEGER + 1,
+		]) {
+			await expect(
+				runtime.request(request({ revision })),
+			).resolves.toMatchObject({
+				ok: false,
+				error: { code: "invalid-request" },
+			});
+		}
+		for (const timeoutMilliseconds of [
+			-1,
+			0.5,
+			Number.NaN,
+			Number.POSITIVE_INFINITY,
+		]) {
+			await expect(
+				runtime.request(request(), { timeoutMilliseconds }),
+			).resolves.toMatchObject({
+				ok: false,
+				error: { code: "invalid-request" },
+			});
+		}
+		const controller = new AbortController();
+		controller.abort();
+		await expect(
+			runtime.request(request(), { signal: controller.signal }),
+		).resolves.toMatchObject({ ok: false, error: { code: "cancelled" } });
+		expect(controlled.workers).toEqual([]);
+	});
+
+	it("settles sibling work, listeners and timers when one same-revision request is cancelled", async () => {
+		vi.useFakeTimers();
+		const controlled = controlledFactory();
+		const runtime = ownedRuntime({
+			workerFactory: controlled.factory,
+			requestTimeoutMilliseconds: 100,
+		});
+		const cancellation = new AbortController();
+		const first = runtime.request(request(), { signal: cancellation.signal });
+		const second = runtime.request(request({ source: "3 + 4" }));
+		const worker = controlled.workers[0];
+		expect(controlled.workers).toHaveLength(1);
+		expect(worker.listenerCount).toBe(2);
+		cancellation.abort();
+		await expect(first).resolves.toMatchObject({
+			ok: false,
+			error: { code: "cancelled" },
+		});
+		await expect(second).resolves.toMatchObject({
+			ok: false,
+			error: { code: "retired" },
+		});
+		expect(worker.listenerCount).toBe(0);
+		expect(worker.terminated).toBe(true);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("settles all pending work on native worker errors and postMessage failures", async () => {
+		for (const failure of ["event", "post"] as const) {
+			const controlled = controlledFactory();
+			const runtime = ownedRuntime({ workerFactory: controlled.factory });
+			const first = runtime.request(request());
+			const worker = controlled.workers[0];
+			if (failure === "post") worker.postFailure = new Error("DataCloneError");
+			const second = runtime.request(request());
+			if (failure === "event") worker.fail();
+			await expect(first).resolves.toMatchObject({
+				ok: false,
+				error: { code: "worker-failed" },
+			});
+			await expect(second).resolves.toMatchObject({
+				ok: false,
+				error: {
+					code: failure === "post" ? "protocol-mismatch" : "worker-failed",
+				},
+			});
+			expect(worker.terminated).toBe(true);
+			expect(worker.listenerCount).toBe(0);
+		}
 	});
 });

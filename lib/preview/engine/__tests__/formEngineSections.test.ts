@@ -16,6 +16,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
+import { fieldSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
@@ -29,7 +30,8 @@ type Spec = {
 	children?: Spec[];
 };
 
-/** Build a `FormEngineInput` from a nested spec; uuids are `testUuid(path)`. */
+/** Lower-level page projection: schema-shaped fields, including deliberately
+ * empty/hidden-only sections to exercise defensive page skipping. */
 function input(fields: Spec[]): FormEngineInput {
 	const formUuid = testUuid("form");
 	const form: Form = { uuid: formUuid, id: "f", name: "F", type: "survey" };
@@ -41,7 +43,7 @@ function input(fields: Spec[]): FormEngineInput {
 			const uuid = testUuid(`${prefix}.${node.id}`);
 			order.push(uuid);
 			const { children, ...rest } = node;
-			fieldMap[uuid as string] = { uuid, ...rest } as unknown as Field;
+			fieldMap[uuid as string] = fieldSchema.parse({ uuid, ...rest });
 			if (children) walk(children, uuid, `${prefix}.${node.id}`);
 		}
 		fieldOrder[parentUuid as string] = order;
@@ -98,7 +100,7 @@ function sectionedForm(): FormEngine {
 			{
 				id: "secret",
 				kind: "section",
-				children: [{ id: "calc", kind: "hidden", label: proseText("Calc") }],
+				children: [{ id: "calc", kind: "hidden" }],
 			},
 		]),
 	);

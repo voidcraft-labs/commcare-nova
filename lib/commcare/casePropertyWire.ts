@@ -6,7 +6,6 @@
  */
 
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "@/lib/domain";
-import { quoteIdentifier } from "./predicate/stringQuoting";
 
 /** Standard case values stored as attributes on CommCare's `<case>` node. The
  *  set itself is domain knowledge, because authoring surfaces withhold shapes
@@ -16,6 +15,5 @@ export const RESERVED_CASE_ATTRIBUTES: ReadonlySet<string> =
 
 /** Emit the child/attribute path used by detail XPath and CSQL. */
 export function emitCasePropertyWirePath(property: string): string {
-	const identifier = quoteIdentifier(property);
-	return RESERVED_CASE_ATTRIBUTES.has(property) ? `@${identifier}` : identifier;
+	return RESERVED_CASE_ATTRIBUTES.has(property) ? `@${property}` : property;
 }

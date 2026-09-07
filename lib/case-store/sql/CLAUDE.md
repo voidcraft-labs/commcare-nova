@@ -29,9 +29,22 @@ The stack emits ZERO raw SQL — no `sql\`...\`` templates, no `sql.raw`. Three 
 
 A new arm needing an off-surface Postgres feature follows the same shape: find the function-call form that returns the typed value directly; never reach for `sql.raw`.
 
+## Numeric expressions
+
+Bare numeric literals carry an explicit SQL numeric type, so expressions such as
+`1 + 2` work as prepared statements. Whole numbers in int4 range use `integer`;
+fractions and wider numbers use `numeric`. Explicit authored types still win.
+Every arithmetic node preserves its grouping, including a nested right operand
+with the same precedence: `10 - (5 - 2)` must return `7`.
+
 ## Blank semantics
 
 `is-blank` matches absent-or-empty, the one absence meaning Nova's Postgres runtime and every CommCare wire target can preserve identically.
+
+Computed and bound scalar operands check their text projection for null or empty.
+Comparing a numeric, boolean, or timestamp value directly to `''` makes Postgres
+cast the empty string into that type and can fail before filtering any rows.
+Property checks retain their storage-aware blank semantics.
 
 Typed temporal literals are the one intentional editor-draft exception: an optional date, time, or datetime control commits `""` while unset, and the live Results preview executes that AST immediately. `compileLiteral` must pass temporal strings through `nullif(value, '')` before the cast, so the unset draft becomes typed SQL `NULL` (and therefore no match) instead of a raw Postgres `22007` error. Non-empty malformed values still reach the cast and fail; this is not a general parse-error catch or a widening of valid temporal syntax.
 
@@ -42,3 +55,19 @@ No dispatch entry point emits the outer-query `(app_id, project_id)` filter — 
 ## Barrel-only surface
 
 External consumers import from the package barrel. Internal helpers stay package-private — their existence is the dispatch shape, not part of the public contract.
+
+## Compiler test boundaries
+
+Execute value semantics against Postgres: assert returned values and rows, and use
+`pg_typeof` when the SQL type is itself the contract. Parameter counts and SQL
+fragments cannot prove tenant filtering, relation direction, casts, or correlation.
+Keep compile-only tests for preconditions and parameter binding; the large restore
+plan test intentionally inspects the planner because it protects a measured query
+cost regression.
+
+Adversarial tenant fixtures may explicitly defer only `cases_project_app_tenant_fk`
+inside the rollback harness to test compiler filtering independently of storage
+constraints. State that the rows are intentionally invalid and never commit them.
+Ordinary fixtures retain immediate constraint checking. At each relation hop,
+make a wrong identifier, depth, type, app, or Project change the expected result;
+do not use an alternate valid path that reaches the same destination.

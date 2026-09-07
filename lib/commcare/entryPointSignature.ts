@@ -1,9 +1,8 @@
 /** Released endpoint verification follows reachable runtime definitions, not labels. */
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { tryParseXml } from "./xmlParse";
 
 const elements = (e: Element) => e.children.filter(isTag);
 function canonical(e: Element, appIds: readonly string[] = []): unknown {
@@ -54,8 +53,9 @@ export function endpointSuiteSignature(
 	options: { readonly appIds?: readonly string[] } = {},
 ): string | undefined {
 	const appIds = options.appIds ?? [];
-	if (XMLValidator.validate(xml) !== true) return undefined;
-	const doc = parseDocument(xml, { xmlMode: true, decodeEntities: true });
+	const parsed = tryParseXml(xml);
+	if ("issue" in parsed) return undefined;
+	const { doc } = parsed;
 	const top = doc.children.filter(isTag);
 	if (top.length !== 1 || top[0].name !== "suite") return undefined;
 	const suite = top[0];

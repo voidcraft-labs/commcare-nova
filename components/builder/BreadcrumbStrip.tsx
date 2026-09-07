@@ -19,11 +19,13 @@
  */
 "use client";
 import { useMemo } from "react";
+import { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
 import { CaseDataManager } from "@/components/builder/CaseDataManager";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
-import { CollapsibleBreadcrumb } from "@/components/builder/SubheaderToolbar";
-import { ScreenNavButtons } from "@/components/preview/ScreenNavButtons";
+
+export { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
+
 import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
@@ -53,34 +55,6 @@ import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 
 /** Stable no-op handler for breadcrumb items that don't navigate. */
 const noop = () => {};
-
-/** The complete page-navigation landmark shared by every builder screen. */
-export function BuilderPageNavigation({
-	hasData,
-	canGoBack,
-	onBack,
-	parts,
-	compactWorkspaceBreadcrumb = false,
-}: {
-	readonly hasData: boolean;
-	readonly canGoBack: boolean;
-	readonly onBack: () => void;
-	readonly parts: BreadcrumbPart[];
-	readonly compactWorkspaceBreadcrumb?: boolean;
-}) {
-	return (
-		<nav
-			aria-label="Page navigation"
-			className="flex min-w-0 flex-1 items-center gap-2"
-		>
-			{hasData && <ScreenNavButtons canGoBack={canGoBack} onBack={onBack} />}
-			<CollapsibleBreadcrumb
-				parts={parts}
-				compactWorkspace={compactWorkspaceBreadcrumb}
-			/>
-		</nav>
-	);
-}
 
 export function BreadcrumbStrip() {
 	const hasData = useDocHasData();

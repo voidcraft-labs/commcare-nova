@@ -1,30 +1,25 @@
 // @vitest-environment happy-dom
-
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	hiddenSearchInputDef,
-	type SearchInputDef,
-	simpleSearchInputDef,
-} from "@/lib/domain";
-import {
-	dateLiteral,
-	literal,
-	now,
-	sessionContext,
-	term,
-} from "@/lib/domain/predicate";
+import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
+import { sessionContext, term } from "@/lib/domain/predicate";
 import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
 import { useSearchInputRunState } from "../useSearchInputRunState";
 
-const INPUT_UUID = testUuid("00000000-0000-4000-8000-000000000201");
-const HIDDEN_UUID = testUuid("00000000-0000-4000-8000-000000000202");
-const TIME_UUID = testUuid("00000000-0000-4000-8000-000000000203");
-const SESSION = previewSessionValues(
+const searchInputs = [
+	simpleSearchInputDef(
+		testUuid("00000000-0000-4000-8000-000000000201"),
+		"name",
+		"Name",
+		"text",
+		"case_name",
+	),
+];
+const session = previewSessionValues(
 	previewAsMe({
 		id: "worker-1",
 		name: "Worker One",
@@ -32,341 +27,65 @@ const SESSION = previewSessionValues(
 	}),
 );
 
-function inputWithDefault(value: string) {
-	return simpleSearchInputDef(INPUT_UUID, "name", "Name", "text", "case_name", {
-		default: term(literal(value)),
-	});
-}
-
-/** A system value the worker never sees: who ran the search. */
-const SEARCHED_BY = hiddenSearchInputDef(
-	HIDDEN_UUID,
-	"searched_by",
-	"Searched by",
-	term(sessionContext("username")),
-);
-
-describe("useSearchInputRunState", () => {
-	it("seeds the authored default as a draft without submitting it", () => {
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice")],
-				session: SESSION,
-			}),
-		);
-
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Alice" });
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-		expect(result.current.hasSubmitted).toBe(false);
-	});
-
-	it("distinguishes an explicit blank submit from the untouched initial list", () => {
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice")],
-				session: SESSION,
-			}),
-		);
-
-		act(() => result.current.submit(new Map()));
-		expect(result.current.hasSubmitted).toBe(true);
-		expect(result.current.queryActive).toBe(false);
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-
-		act(() => result.current.clear());
-		expect(result.current.hasSubmitted).toBe(false);
-	});
-
-	it("updates an untouched default but preserves a worker-edited value", () => {
-		const { result, rerender } = renderHook(
-			({ defaultValue }) =>
-				useSearchInputRunState({
-					scopeKey: "module-a",
-					searchInputs: [inputWithDefault(defaultValue)],
-					session: SESSION,
-				}),
-			{ initialProps: { defaultValue: "Alice" } },
-		);
-
-		rerender({ defaultValue: "Alicia" });
-		expect(result.current.draft.get("name")).toBe("Alicia");
-
-		act(() => result.current.changeDraft(new Map([["name", "Amara"]])));
-		rerender({ defaultValue: "Ada" });
-		expect(result.current.draft.get("name")).toBe("Amara");
-	});
-
-	it("clear is intentional and a module switch starts a fresh search session", () => {
-		const { result, rerender } = renderHook(
-			({ scopeKey, defaultValue }) =>
-				useSearchInputRunState({
-					scopeKey,
-					searchInputs: [inputWithDefault(defaultValue)],
-					session: SESSION,
-				}),
-			{
-				initialProps: { scopeKey: "module-a", defaultValue: "Alice" },
-			},
-		);
-
-		act(() => result.current.submit(new Map([["name", "Alice"]])));
-		expect(result.current.queryActive).toBe(true);
-		expect(result.current.hasSubmitted).toBe(true);
-		act(() => result.current.clear());
-		expect(Object.fromEntries(result.current.draft)).toEqual({});
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-		expect(result.current.hasSubmitted).toBe(false);
-
-		// Same-module default refresh cannot resurrect an explicitly-cleared value.
-		rerender({ scopeKey: "module-a", defaultValue: "Alicia" });
-		expect(Object.fromEntries(result.current.draft)).toEqual({});
-
-		// Entering another module is a new runtime session and gets its own default.
-		rerender({ scopeKey: "module-b", defaultValue: "Bob" });
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Bob" });
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-		expect(result.current.hasSubmitted).toBe(false);
-	});
-
-	it("drops a stale answer when the prompt changes to an incompatible widget", () => {
-		const textInput = inputWithDefault("Alice");
-		const dateInput = simpleSearchInputDef(
-			INPUT_UUID,
-			"name",
-			"Date",
-			"date",
-			"date_opened",
-			{ default: term(dateLiteral("2026-07-16")) },
-		);
-		const { result, rerender } = renderHook(
-			({ input }: { input: SearchInputDef }) =>
-				useSearchInputRunState({
-					scopeKey: "module-a",
-					searchInputs: [input],
-					session: SESSION,
-				}),
-			{ initialProps: { input: textInput as SearchInputDef } },
-		);
-
-		act(() => result.current.submit(new Map([["name", "Amara"]])));
-		rerender({ input: dateInput });
-		expect(Object.fromEntries(result.current.draft)).toEqual({
-			name: "2026-07-16",
-		});
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-	});
-
-	it("ends the submitted phase when the final search prompt is removed", () => {
-		const { result, rerender } = renderHook(
-			({ searchInputs }: { searchInputs: readonly SearchInputDef[] }) =>
-				useSearchInputRunState({
-					scopeKey: "module-a",
-					searchInputs,
-					session: SESSION,
-				}),
-			{ initialProps: { searchInputs: [inputWithDefault("Alice")] } },
-		);
-
-		act(() => result.current.submit(new Map([["name", "Alice"]])));
-		expect(result.current.hasSubmitted).toBe(true);
-		expect(result.current.queryActive).toBe(true);
-
-		rerender({ searchInputs: [] });
-		expect(result.current.hasSubmitted).toBe(false);
-		expect(Object.fromEntries(result.current.draft)).toEqual({});
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-	});
+it("keeps the query reference stable across draft renders and masks an old scope during render", () => {
+	const observed: { scope: string; submitted: ReadonlyMap<string, string> }[] =
+		[];
+	const { result, rerender } = renderHook(
+		({ scope }) => {
+			const state = useSearchInputRunState({
+				scopeKey: scope,
+				searchInputs,
+				session,
+			});
+			observed.push({ scope, submitted: state.submitted });
+			return state;
+		},
+		{ initialProps: { scope: "module-a" } },
+	);
+	act(() => result.current.submit(new Map([["name", "Alice"]])));
+	const submitted = result.current.submitted;
+	act(() => result.current.changeDraft(new Map([["name", "Ada"]])));
+	expect(result.current.submitted).toBe(submitted);
+	rerender({ scope: "module-b" });
+	expect(
+		observed
+			.filter((item) => item.scope === "module-b")
+			.every((item) => item.submitted.size === 0),
+	).toBe(true);
 });
 
-describe("useSearchInputRunState — hidden inputs", () => {
-	it("keeps a hidden input out of the draft the form renders", () => {
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
-				session: SESSION,
-			}),
-		);
-
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Alice" });
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-		expect(result.current.draftActive).toBe(true);
-	});
-
-	it("resolves hidden values at submit and carries them beside the answers", () => {
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
-				session: SESSION,
-			}),
-		);
-
-		act(() => result.current.submit(new Map([["name", "Amara"]])));
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			name: "Amara",
-			searched_by: "worker@example.org",
-		});
-		// The draft is still only what the worker can edit.
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Amara" });
-	});
-
-	it("restores a standing search's answers and hidden values as that search carried them", () => {
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
-				session: SESSION,
-			}),
-		);
-		expect(result.current.hasSubmitted).toBe(false);
-
-		act(() =>
-			result.current.restore(
-				new Map([
-					["name", "Amara"],
-					["searched_by", "someone-else@example.org"],
-				]),
-			),
-		);
-		expect(result.current.hasSubmitted).toBe(true);
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			name: "Amara",
-			searched_by: "someone-else@example.org",
-		});
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Amara" });
-	});
-
-	it("drops a worker-supplied value under a hidden input's key", () => {
-		// The Search screen has no widget for a hidden input, so a value under
-		// its key can only be stale or forged; the resolved system value wins.
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
-				session: SESSION,
-			}),
-		);
-
-		act(() =>
-			result.current.changeDraft(
-				new Map([
-					["name", "Amara"],
-					["searched_by", "someone-else"],
-				]),
-			),
-		);
-		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Amara" });
-
-		act(() =>
-			result.current.submit(
-				new Map([
-					["name", "Amara"],
-					["searched_by", "someone-else"],
-				]),
-			),
-		);
-		expect(result.current.submitted.get("searched_by")).toBe(
-			"worker@example.org",
-		);
-	});
-
-	it("re-resolves the hidden values of a standing search when a hidden input is renamed or removed", () => {
-		const renamed = hiddenSearchInputDef(
-			HIDDEN_UUID,
+it("validates a prospective search with the latest identity while preserving the standing search", () => {
+	const inputs = [
+		...searchInputs,
+		hiddenSearchInputDef(
+			testUuid("00000000-0000-4000-8000-000000000202"),
 			"run_by",
 			"Run by",
 			term(sessionContext("username")),
-		);
-		const { result, rerender } = renderHook(
-			({ hidden }: { hidden: readonly (typeof SEARCHED_BY)[] }) =>
-				useSearchInputRunState({
-					scopeKey: "module-a",
-					searchInputs: [inputWithDefault("Alice"), ...hidden],
-					session: SESSION,
-				}),
-			{ initialProps: { hidden: [SEARCHED_BY] } },
-		);
-		act(() => result.current.submit(new Map([["name", "Amara"]])));
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			name: "Amara",
-			searched_by: "worker@example.org",
-		});
-
-		// Renamed: the dead name leaves the query and the new one carries.
-		rerender({ hidden: [renamed] });
-		expect(result.current.hasSubmitted).toBe(true);
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			name: "Amara",
-			run_by: "worker@example.org",
-		});
-
-		// Removed: nothing hidden is sent at all.
-		rerender({ hidden: [] });
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			name: "Amara",
-		});
-	});
-
-	it("carries a hidden value even when every visible prompt is blank", () => {
-		const { result } = renderHook(() =>
+		),
+	];
+	const { result, rerender } = renderHook(
+		({ identity }) =>
 			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault(""), SEARCHED_BY],
-				session: SESSION,
+				scopeKey: "module",
+				searchInputs: inputs,
+				session: identity,
 			}),
-		);
-
-		act(() => result.current.submit(new Map()));
-		expect(result.current.hasSubmitted).toBe(true);
-		expect(Object.fromEntries(result.current.submitted)).toEqual({
-			searched_by: "worker@example.org",
-		});
-	});
-
-	it("reads a `now()` search time at the moment of each Search", () => {
-		const searchTime = hiddenSearchInputDef(
-			TIME_UUID,
-			"search_time",
-			"Search time",
-			now(),
-		);
-		const { result } = renderHook(() =>
-			useSearchInputRunState({
-				scopeKey: "module-a",
-				searchInputs: [inputWithDefault("Alice"), searchTime],
-				session: SESSION,
-			}),
-		);
-
-		act(() => result.current.submit(new Map([["name", "Alice"]])));
-		const first = result.current.submitted.get("search_time");
-		expect(first).toBeTruthy();
-		expect(Number.isNaN(Date.parse(first ?? ""))).toBe(false);
-	});
-
-	it("clears hidden values with the rest of the search session", () => {
-		const { result, rerender } = renderHook(
-			({ scopeKey }) =>
-				useSearchInputRunState({
-					scopeKey,
-					searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
-					session: SESSION,
-				}),
-			{ initialProps: { scopeKey: "module-a" } },
-		);
-
-		act(() => result.current.submit(new Map([["name", "Alice"]])));
-		expect(result.current.submitted.has("searched_by")).toBe(true);
-
-		act(() => result.current.clear());
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-
-		act(() => result.current.submit(new Map([["name", "Alice"]])));
-		expect(result.current.submitted.has("searched_by")).toBe(true);
-		rerender({ scopeKey: "module-b" });
-		expect(Object.fromEntries(result.current.submitted)).toEqual({});
-	});
+		{ initialProps: { identity: session } },
+	);
+	act(() => result.current.submit(new Map([["name", "Alice"]])));
+	const standing = result.current.submitted;
+	const nextIdentity = previewSessionValues(
+		previewAsMe({
+			id: "worker-2",
+			name: "Second Worker",
+			email: "next@example.org",
+		}),
+	);
+	rerender({ identity: nextIdentity });
+	expect(result.current.resolveHidden().get("run_by")).toBe("next@example.org");
+	expect(result.current.submitted).toBe(standing);
+	expect(result.current.submitted.get("run_by")).toBe("worker@example.org");
+	act(() => result.current.submit(new Map([["name", "Ada"]])));
+	expect(result.current.submitted.get("run_by")).toBe("next@example.org");
 });

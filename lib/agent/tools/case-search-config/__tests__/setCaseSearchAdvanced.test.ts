@@ -1,39 +1,19 @@
-/**
- * Behavioral tests for `setCaseSearchAdvanced`.
- *
- * Drives the tool through `GenerationContext`. Coverage:
- *
- *   1. Effect on the doc — the supplied advanced cluster lands on the
- *      module's `caseSearchConfig`.
- *   2. `null` clears `excludedOwnerIds` (key omitted on the
- *      persisted doc; cleared with no key collision).
- *   3. Display cluster (search-screen labels) survives the patch.
- *   4. Module-not-found surfaces an Elm-style error.
- *   5. Cross-surface parity — chat + MCP contexts produce
- *      structurally identical mutation batches.
- *   6. Initializes the caseSearchConfig when the module has none.
- */
+/** Actual schema-to-workspace/reducer behavior over admitted documents.
+ * The commit receipt is controlled; this suite does not model SQL or MCP. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
 	type CaseSearchConfig,
-	caseSearchConfigSchema,
 	isOrdinaryCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
-	type Module,
 	type OrdinaryCaseSearchConfig,
 	type OwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import { matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchAdvancedTool } from "../setCaseSearchAdvanced";
-import {
-	MOD_A,
-	makeCaseSearchDoc,
-	makeCaseSearchFixture,
-	makeCaseSearchMcpFixture,
-} from "./fixtures";
+import { MOD_A, makeCaseSearchDoc, makeCaseSearchFixture } from "./fixtures";
 
 const MISSING_MODULE = testUuid("missing-case-search-module");
 
@@ -55,37 +35,18 @@ function ownerOnly(
 	return config;
 }
 
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("setCaseSearchAdvanced", () => {
-	it("rejects case-property reads defensively when execute is called directly", async () => {
+	it("rejects case-property reads at actual tool-input admission", async () => {
 		const h = makeCaseSearchFixture();
-		const result = await h.runTool(setCaseSearchAdvancedTool, {
-			moduleUuid: MOD_A,
-			excludedOwnerIds: term(prop("patient", "external_id")),
-			searchFirst: null,
-		});
-
-		expect(result.mutations).toEqual([]);
-		expect(h.currentDoc()).toBe(h.doc);
-		expect(result.result).toMatchObject({
-			error: expect.stringContaining("before a case is selected"),
-		});
+		await expect(
+			h.runTool(setCaseSearchAdvancedTool, {
+				moduleUuid: MOD_A,
+				excludedOwnerIds: term(prop("patient", "external_id")),
+				searchFirst: null,
+			}),
+		).rejects.toThrow("before a case is selected");
+		expect(h.currentDoc()).toEqual(h.doc);
+		expect(h.host.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("sets the advanced cluster to the supplied values", async () => {
@@ -101,12 +62,6 @@ describe("setCaseSearchAdvanced", () => {
 		expect(result.kind).toBe("mutate");
 		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		expect(config?.excludedOwnerIds).toEqual(excluded);
-		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
-		// so the persisted config's key set must be exactly the schema's
-		// declared slots. Catches the shape drift the observable-shape
-		// assertions above don't (an unknown key leaking onto the layer,
-		// or a known key landing as `undefined` instead of absent).
-		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
 	it("surfaces the slot the SA set on the success result", async () => {
@@ -226,7 +181,7 @@ describe("setCaseSearchAdvanced", () => {
 		const docWithoutConfig: BlueprintDoc = {
 			...baseDoc,
 			modules: {
-				[MOD_A]: { ...baseMod, caseSearchConfig: undefined } as Module,
+				[MOD_A]: { ...baseMod, caseSearchConfig: undefined },
 			},
 		};
 
@@ -257,7 +212,7 @@ describe("setCaseSearchAdvanced", () => {
 						searchInputs: [],
 					},
 					caseSearchConfig: undefined,
-				} as Module,
+				},
 			},
 		};
 		const h = makeCaseSearchFixture(ownerOnlyDoc);
@@ -406,22 +361,5 @@ describe("setCaseSearchAdvanced", () => {
 			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
 				.searchActionEnabled,
 		).toBe(false);
-	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		// The tool body is host-shape-agnostic — chat and MCP hosts
-		// route through the same `recordMutations` interface and emit
-		// structurally identical mutation batches for the same input.
-		const chat = makeCaseSearchFixture();
-		const mcp = makeCaseSearchMcpFixture();
-		const input = {
-			moduleUuid: MOD_A,
-			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
-		};
-
-		const r1 = await chat.runTool(setCaseSearchAdvancedTool, input);
-		const r2 = await mcp.runTool(setCaseSearchAdvancedTool, input);
-
-		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

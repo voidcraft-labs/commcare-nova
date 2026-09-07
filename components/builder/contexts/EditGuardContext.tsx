@@ -26,20 +26,15 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
-	useRef,
 } from "react";
 
-// ── Types ──────────────────────────────────────────────────────────────
+import {
+	createEditGuard,
+	type EditGuardApi,
+	type EditGuardPredicate,
+} from "./editGuard";
 
-/** A predicate evaluated on selection attempts. Return `true` if it's
- *  safe to leave the current editor, `false` to block the transition. */
-export type EditGuardPredicate = () => boolean;
-
-/** Internal API shape: exposed via context, consumed by the public hooks. */
-interface EditGuardApi {
-	register: (predicate: EditGuardPredicate) => () => void;
-	consult: () => boolean;
-}
+export type { EditGuardPredicate } from "./editGuard";
 
 // ── Context ────────────────────────────────────────────────────────────
 
@@ -55,27 +50,7 @@ const EditGuardContext = createContext<EditGuardApi | null>(null);
  * cost from registration churn.
  */
 export function EditGuardProvider({ children }: { children: ReactNode }) {
-	const predicateRef = useRef<EditGuardPredicate | null>(null);
-
-	const api = useMemo<EditGuardApi>(
-		() => ({
-			register(predicate) {
-				predicateRef.current = predicate;
-				return () => {
-					/* Only null if our predicate is still the active one.
-					 * A later registration may have already replaced it. */
-					if (predicateRef.current === predicate) {
-						predicateRef.current = null;
-					}
-				};
-			},
-			consult() {
-				const p = predicateRef.current;
-				return p ? p() : true;
-			},
-		}),
-		[],
-	);
+	const api = useMemo(createEditGuard, []);
 
 	return <EditGuardContext value={api}>{children}</EditGuardContext>;
 }

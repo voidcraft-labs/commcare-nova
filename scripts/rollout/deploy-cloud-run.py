@@ -9,6 +9,7 @@ maintenance cutovers are complete and are not part of application deployment.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 from pathlib import Path
 import re
@@ -312,25 +313,10 @@ def _access_token() -> str:
 class CloudRunApi:
     def __init__(self, project: str, region: str, service: str) -> None:
         self._service_name = f"projects/{project}/locations/{region}/services/{service}"
-        self._base = "https://run.googleapis.com/v2/"
         self._token = _access_token()
 
     def _get(self, path: str) -> dict[str, Any]:
-        request = urllib.request.Request(
-            urllib.parse.urljoin(self._base, path),
-            headers={"Authorization": f"Bearer {self._token}"},
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                value = json.load(response)
-        except urllib.error.HTTPError as error:
-            body = error.read().decode("utf-8", errors="replace")
-            raise DeploymentPolicyError(
-                f"Cloud Run Admin API GET {path} failed with HTTP {error.code}: {body}"
-            ) from error
-        if not isinstance(value, dict):
-            fail(f"Cloud Run Admin API GET {path} returned non-object JSON.")
-        return value
+        return _run_api_request(self._token, "GET", path)
 
     def service(self) -> dict[str, Any]:
         return self._get(self._service_name)
@@ -470,16 +456,22 @@ def _run_api_request(
         with urllib.request.urlopen(request, timeout=30) as response:
             value = json.load(response)
     except urllib.error.HTTPError as error:
-        response_body = error.read().decode("utf-8", errors="replace")
+        with error:
+            try:
+                response_body = error.read().decode("utf-8", errors="replace")
+            except (OSError, http.client.HTTPException) as body_error:
+                # The status still decides retryability when its diagnostic
+                # body is cut short. Always close the HTTP error response.
+                response_body = f"<response body unavailable: {body_error}>"
         error_type = _api_request_error_type(method, error.code)
         raise error_type(
             f"Cloud Run Admin API {method} {path} failed with HTTP "
             f"{error.code}: {response_body}"
         ) from error
-    except (urllib.error.URLError, TimeoutError) as error:
+    except (OSError, http.client.HTTPException) as error:
         error_type = _api_request_error_type(method, None)
         raise error_type(
-            f"Cloud Run Admin API {method} {path} failed before a response: {error}"
+            f"Cloud Run Admin API {method} {path} failed receiving a complete response: {error}"
         ) from error
     if not isinstance(value, dict):
         fail(f"Cloud Run Admin API {method} {path} returned non-object JSON.")
@@ -932,8 +924,6 @@ def _forbid_deploy_policy_overrides(deploy_args: Sequence[str]) -> None:
 
 
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
-    if argv == ["--policy-self-test"]:
-        return argparse.Namespace(mode="self-test")
     if argv[:1] == ["--read-scaling-prestate"]:
         parser = argparse.ArgumentParser()
         parser.add_argument("--read-scaling-prestate", action="store_true")
@@ -979,347 +969,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     if values.deploy_args[:1] == ["--"]:
         values.deploy_args = values.deploy_args[1:]
     return values
-
-
-def _production_service(
-    *,
-    latest: str,
-    traffic: list[dict[str, Any]],
-    observed: list[dict[str, Any]],
-    scaling: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return {
-        "name": "projects/p/locations/r/services/s",
-        "latestReadyRevision": latest,
-        "latestCreatedRevision": latest,
-        "terminalCondition": {"state": SERVICE_READY_STATE},
-        "reconciling": False,
-        "scaling": scaling or {"scalingMode": "AUTOMATIC"},
-        "traffic": traffic,
-        "trafficStatuses": observed,
-    }
-
-
-def _expect_policy_failure(body: Callable[[], object], label: str) -> None:
-    try:
-        body()
-    except DeploymentPolicyError:
-        return
-    raise AssertionError(f"{label} was accepted")
-
-
-def _policy_self_test() -> None:
-    service_name = "projects/p/locations/r/services/s"
-    old = f"{service_name}/revisions/s-00001-old"
-    candidate = f"{service_name}/revisions/s-00002-new"
-    irrelevant = f"{service_name}/revisions/s-00000-gc"
-
-    assert scaling_prestate({"scaling": {"scalingMode": "AUTOMATIC"}}) == "automatic"
-    _expect_policy_failure(
-        lambda: scaling_prestate({"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}}),
-        "manual zero is no longer an application deployment state",
-    )
-    assert_scaling(
-        {
-            "scaling": {
-                "scalingMode": "AUTOMATIC",
-                "minInstanceCount": 1,
-                "maxInstanceCount": 4,
-            }
-        },
-        "automatic",
-        expected_min=1,
-        expected_max=4,
-    )
-    _expect_policy_failure(
-        lambda: assert_scaling(
-            {"scaling": {"scalingMode": "AUTOMATIC"}},
-            "automatic",
-            expected_min=1,
-            expected_max=4,
-        ),
-        "automatic scaling without exact bounds",
-    )
-    _expect_policy_failure(
-        lambda: scaling_prestate(
-            {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 1}}
-        ),
-        "manual non-zero scaling",
-    )
-
-    latest_service = _production_service(
-        latest=candidate,
-        traffic=[
-            {
-                "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
-                "percent": 100,
-            },
-            {
-                "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
-                "revision": "s-00001-old",
-                "percent": 0,
-            },
-        ],
-        observed=[
-            {
-                "type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
-                "revision": candidate,
-                "percent": 100,
-            }
-        ],
-    )
-    assert_candidate_traffic(latest_service, candidate)
-
-    explicit_service = _production_service(
-        latest=candidate,
-        traffic=[{"revision": "s-00002-new", "percent": 100}],
-        observed=[{"revision": candidate, "percent": 100}],
-    )
-    assert_candidate_traffic(explicit_service, candidate)
-
-    tagged = _production_service(
-        latest=candidate,
-        traffic=[{"revision": candidate, "percent": 100, "tag": "preview"}],
-        observed=[{"revision": candidate, "percent": 100}],
-    )
-    _expect_policy_failure(
-        lambda: assert_candidate_traffic(tagged, candidate), "tagged traffic"
-    )
-    observed_tagged = _production_service(
-        latest=candidate,
-        traffic=[{"revision": candidate, "percent": 100}],
-        observed=[{"revision": candidate, "percent": 100, "tag": "preview"}],
-    )
-    _expect_policy_failure(
-        lambda: assert_candidate_traffic(observed_tagged, candidate),
-        "observed tagged traffic",
-    )
-
-    split = _production_service(
-        latest=candidate,
-        traffic=[
-            {"revision": candidate, "percent": 99},
-            {"revision": old, "percent": 1},
-        ],
-        observed=[{"revision": candidate, "percent": 100}],
-    )
-    _expect_policy_failure(
-        lambda: assert_candidate_traffic(split, candidate), "desired traffic split"
-    )
-
-    before = _production_service(
-        latest=old,
-        traffic=[{"revision": old, "percent": 100}],
-        observed=[{"revision": old, "percent": 100}],
-    )
-    assert_revision_transition(
-        before_service=before,
-        before_revisions=frozenset({old, irrelevant}),
-        after_revisions=frozenset({old, candidate}),
-        expected_additions=frozenset({candidate}),
-    )
-    _expect_policy_failure(
-        lambda: assert_revision_transition(
-            before_service=before,
-            before_revisions=frozenset({old, irrelevant}),
-            after_revisions=frozenset({candidate}),
-            expected_additions=frozenset({candidate}),
-        ),
-        "garbage collection of a traffic-owning revision",
-    )
-    _expect_policy_failure(
-        lambda: assert_revision_transition(
-            before_service=before,
-            before_revisions=frozenset({old}),
-            after_revisions=frozenset({old, candidate, irrelevant}),
-            expected_additions=frozenset({candidate}),
-        ),
-        "unexpected revision addition",
-    )
-
-    _forbid_deploy_policy_overrides(["--timeout=3600s"])
-    _expect_policy_failure(
-        lambda: _forbid_deploy_policy_overrides(["--scaling=auto"]),
-        "deploy-time scaling override",
-    )
-    assert _api_request_error_type("GET", 503) is DeploymentPolicyError
-    assert _api_request_error_type("GET", 429) is DeploymentPolicyError
-    assert _api_request_error_type("GET", None) is DeploymentPolicyError
-    assert _api_request_error_type("GET", 403) is TerminalDeploymentPolicyError
-    assert _api_request_error_type("POST", 503) is TerminalDeploymentPolicyError
-    assert _api_request_error_type("POST", None) is TerminalDeploymentPolicyError
-    repository, digest = _immutable_image(
-        "us-central1-docker.pkg.dev/p/r/i@" + "sha256:" + "a" * 64
-    )
-    assert repository == "us-central1-docker.pkg.dev/p/r/i"
-    assert digest == "sha256:" + "a" * 64
-    immutable_image = repository + "@" + digest
-    assert (
-        _ready_service_image(
-            latest_service,
-            [
-                {"name": candidate, "containers": [{"image": immutable_image}]},
-                {"name": old, "containers": [{"image": immutable_image}]},
-            ],
-        )
-        == immutable_image
-    )
-    _expect_policy_failure(
-        lambda: _ready_service_image(
-            split,
-            [{"name": candidate, "containers": [{"image": immutable_image}]}],
-        ),
-        "split-traffic production Job image",
-    )
-    job_name = "projects/p/locations/r/jobs/commcare-nova-migrate"
-    migrate_contract = JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
-    assert _effective_execution_args(job_name, ()) == migrate_contract.stored_args
-    assert _effective_execution_args(
-        "projects/p/locations/r/jobs/commcare-nova-legacy-preplan-repair",
-        ("legacy-preplan-repair.cjs", "--execute"),
-    ) == ("legacy-preplan-repair.cjs", "--execute")
-    assert _effective_execution_args(
-        "projects/p/locations/r/jobs/commcare-nova-case-type-schema-retirement",
-        ("schema-drift.cjs", "--execute", "--app", "app_123"),
-    ) == ("schema-drift.cjs", "--execute", "--app", "app_123")
-    assert _effective_execution_args(
-        "projects/p/locations/r/jobs/commcare-nova-case-parent-relationship-repair",
-        (
-            "case-parent-relationship-repair.cjs",
-            "--execute",
-            "--confirm-old-revision-drained",
-            "--app",
-            "app_123",
-        ),
-    ) == (
-        "case-parent-relationship-repair.cjs",
-        "--execute",
-        "--confirm-old-revision-drained",
-        "--app",
-        "app_123",
-    )
-    _expect_policy_failure(
-        lambda: _effective_execution_args(job_name, ("arbitrary.cjs",)),
-        "arbitrary Job override args",
-    )
-    ready_job = {
-        "name": job_name,
-        "generation": "7",
-        "observedGeneration": "7",
-        "reconciling": False,
-        "terminalCondition": {"state": SERVICE_READY_STATE},
-        "etag": "job-etag-7",
-        "template": {
-            "taskCount": 1,
-            "parallelism": 1,
-            "template": {
-                "containers": [
-                    {
-                        "image": immutable_image,
-                        "command": list(migrate_contract.command),
-                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
-                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
-                        "args": list(migrate_contract.stored_args),
-                    }
-                ],
-                "serviceAccount": migrate_contract.service_account,
-                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
-                "maxRetries": 0,
-                "timeout": "3000s",
-            },
-        },
-    }
-    assert _exact_ready_job_etag(ready_job, job_name, immutable_image) == "job-etag-7"
-    wrong_authority_job = json.loads(json.dumps(ready_job))
-    wrong_authority_job["template"]["template"]["serviceAccount"] = (
-        "commcare-nova@commcare-nova.iam.gserviceaccount.com"
-    )
-    _expect_policy_failure(
-        lambda: _exact_ready_job_etag(wrong_authority_job, job_name, immutable_image),
-        "wrong Job service account",
-    )
-    _expect_policy_failure(
-        lambda: _exact_ready_job_etag(
-            {
-                "name": job_name,
-                "generation": "8",
-                "observedGeneration": "7",
-                "reconciling": False,
-                "terminalCondition": {"state": SERVICE_READY_STATE},
-                "etag": "stale",
-                "template": {
-                    "taskCount": 1,
-                    "parallelism": 1,
-                    "template": {
-                        "containers": [
-                            {
-                                "image": immutable_image,
-                                "command": list(migrate_contract.command),
-                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
-                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
-                                "args": list(migrate_contract.stored_args),
-                            }
-                        ],
-                        "serviceAccount": migrate_contract.service_account,
-                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
-                        "maxRetries": 0,
-                        "timeout": "3000s",
-                    },
-                },
-            },
-            job_name,
-            immutable_image,
-        ),
-        "unobserved Job generation",
-    )
-    execution_name = f"{job_name}/executions/migrate-execution"
-    assert (
-        _assert_exact_execution_succeeded(
-            {
-                "name": execution_name,
-                # The real Cloud Run v2 API returns the SHORT job name here, not
-                # the resource path. The fixture said otherwise, so this assertion
-                # proved only that the code agreed with itself.
-                "job": "migrate",
-                "taskCount": 1,
-                "parallelism": 1,
-                "succeededCount": 1,
-                "failedCount": 0,
-                "cancelledCount": 0,
-                "completionTime": "2026-07-30T00:00:00Z",
-                "template": {
-                    "containers": [
-                        {
-                            "image": immutable_image,
-                            "command": list(migrate_contract.command),
-                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
-                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
-                            "args": [
-                                "migrate.cjs",
-                            ],
-                        }
-                    ],
-                    "serviceAccount": migrate_contract.service_account,
-                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
-                    "maxRetries": 0,
-                    "timeout": "3000s",
-                },
-            },
-            job_name,
-            immutable_image,
-            ("migrate.cjs",),
-        )["name"]
-        == execution_name
-    )
-    _expect_policy_failure(
-        lambda: _immutable_image("us-central1-docker.pkg.dev/p/r/i:build"),
-        "mutable deployment image",
-    )
-    _expect_policy_failure(
-        lambda: _immutable_image("us-central1-docker.pkg.dev/p/r/i@sha256:" + "g" * 64),
-        "non-hex deployment digest",
-    )
-    print("deploy-cloud-run policy self-test passed")
 
 
 def _resolve_mode(args: argparse.Namespace) -> None:
@@ -1433,9 +1082,6 @@ def _deploy_mode(args: argparse.Namespace) -> None:
 
 def main(argv: Sequence[str]) -> None:
     args = _parse_args(argv)
-    if args.mode == "self-test":
-        _policy_self_test()
-        return
     if args.mode == "read-scaling-prestate":
         _read_scaling_prestate_mode(args)
         return

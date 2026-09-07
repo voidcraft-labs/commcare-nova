@@ -6,13 +6,14 @@
 // user gets it from here or not at all.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
 import { type KeyboardMoveOutcome, planKeyboardMove } from "../keyboardMove";
 
-const A = "op-a" as Uuid;
-const B = "op-b" as Uuid;
-const C = "op-c" as Uuid;
+const A = testUuid("op-a");
+const B = testUuid("op-b");
+const C = testUuid("op-c");
 
 const NAMES: Record<string, string> = {
 	[A]: "create_referral",
@@ -66,7 +67,7 @@ describe("planKeyboardMove", () => {
 				nameOf,
 				dependsOn: [],
 			}),
-		).toMatchObject({ kind: "move", toIndex: 0 });
+		).toStrictEqual({ kind: "move", toIndex: 0 });
 		expect(
 			planKeyboardMove({
 				order: [A, B, C],
@@ -76,7 +77,7 @@ describe("planKeyboardMove", () => {
 				nameOf,
 				dependsOn: [],
 			}),
-		).toMatchObject({ kind: "move", toIndex: 2 });
+		).toStrictEqual({ kind: "move", toIndex: 2 });
 	});
 
 	it("says it is already at the edge instead of moving nowhere", () => {
@@ -286,7 +287,7 @@ describe("planKeyboardMove", () => {
 					ok: false,
 					reason: "dependent-reference",
 					dependencyKind: "reference",
-					blockingUuids: ["gone" as Uuid],
+					blockingUuids: [testUuid("gone")],
 				},
 			],
 			[1, { ok: true }],

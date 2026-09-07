@@ -1,6 +1,5 @@
 /** Running-preview validation that mirrors exported CommCare search prompts. */
 
-import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
 import {
 	buildRuntimeCsqlPromptValidations,
 	type ComposedXPathQuery,
@@ -8,7 +7,6 @@ import {
 } from "@/lib/commcare/suite/case-search/xpathQuery";
 import {
 	type CaseListConfig,
-	ownRecordValue,
 	searchInputRuntimeValueType,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
@@ -28,6 +26,11 @@ import {
 	searchInputConstraintErrors,
 	searchInputConstraintErrorsOnDevice,
 } from "./searchInputConstraints";
+
+import {
+	commcareSessionXPathInstance,
+	searchInputXPathInstance,
+} from "./xpathInstances";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	context: {},
@@ -182,20 +185,43 @@ function runtimeRejectionApplies(
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
 ): boolean {
-	const boundCondition = bindRuntimeRejectionCondition(
-		rejection.condition,
-		caseListConfig,
+	const expressionValues = withSearchInputExpressionValues(
+		caseListConfig.searchInputs,
 		values,
-		session,
-		rejection.kind,
-		new Set(rejection.inputNames ?? []),
 	);
+	const inputNames = new Set(rejection.inputNames ?? []);
+	const answers = new Map(
+		caseListConfig.searchInputs.flatMap((input): [string, string][] => {
+			const value = expressionValues.get(input.name) ?? "";
+			if (value === "") return [];
+			return [
+				[
+					input.name,
+					inputNames.has(input.name) &&
+					!isValidRuntimeNumericSpelling(rejection.kind, value)
+						? "NaN"
+						: value,
+				],
+			];
+		}),
+	);
+	const inputInstance = searchInputXPathInstance(
+		answers,
+		"search-input:results",
+	);
+	const sessionInstance = commcareSessionXPathInstance(session);
 	return toBoolean(
-		evaluate(boundCondition, {
+		evaluate(rejection.condition, {
 			contextPath: "",
 			position: 1,
 			getValue: () => undefined,
 			resolveHashtag: () => "",
+			resolveXPathInstance: (id) =>
+				id === "search-input:results"
+					? inputInstance
+					: id === "commcaresession"
+						? sessionInstance
+						: undefined,
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 		}),
 	);
@@ -205,14 +231,6 @@ const UNSIGNED_CSQL_NUMBER = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
 const SIGNED_CSQL_NUMBER = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/;
 const NEGATIVE_ZERO = /^-0(?:\.0*)?$/;
 
-/**
- * Preview's scalar evaluator uses JavaScript numeric coercion, which accepts
- * spellings JavaRosa deliberately rejects (`+1`, `1e3`). Check the raw prompt
- * against CCHQ's numeric-token vocabulary before using the shared XPath guard;
- * The emitter canonicalizes negative-zero spellings to the bare token `0`
- * before a raw `subcase-count` bound reaches the server parser, so that one
- * signed spelling remains valid even though other negative values do not.
- */
 /**
  * One submission gate for every search-value constraint the running app
  * enforces before a query is sent.
@@ -309,70 +327,8 @@ export async function searchInputSubmissionErrorsOnDevice(
 	return errors;
 }
 
-/**
- * Replace the two CommCare runtime instance families used by a rejection
- * condition with ordinary XPath literals before handing it to Preview's scalar
- * evaluator. Input presence is special: Core's `count(nodeset)` tests whether
- * the answer exists, while replacing the nodeset with a scalar would make the
- * lightweight evaluator treat every count as zero. Resolve those count calls
- * first, then substitute the value reads.
- */
-function bindRuntimeRejectionCondition(
-	condition: string,
-	caseListConfig: CaseListConfig,
-	values: SearchInputValues,
-	session: PreviewSearchSessionValues,
-	rejectionKind: NonNullable<
-		ComposedXPathQuery["runtimeRejections"]
-	>[number]["kind"],
-	rejectionInputNames: ReadonlySet<string>,
-): string {
-	let bound = condition;
-	const expressionValues = withSearchInputExpressionValues(
-		caseListConfig.searchInputs,
-		values,
-	);
-
-	for (const input of caseListConfig.searchInputs) {
-		const path = searchInputXPath(input.name);
-		const value = expressionValues.get(input.name) ?? "";
-		bound = bound.replaceAll(
-			`count(${path})`,
-			value === "" ? "false()" : "true()",
-		);
-		const boundValue =
-			rejectionInputNames.has(input.name) &&
-			!isValidRuntimeNumericSpelling(rejectionKind, value)
-				? "NaN"
-				: value;
-		// Function replacement: a string replacement would expand `$$`/`$&`/
-		// `` $` ``/`$'` inside the worker-typed value and garble the quoted
-		// literal before evaluation.
-		bound = bound.replaceAll(path, () =>
-			quoteLiteral(boundValue, "case-list-filter"),
-		);
-	}
-
-	bound = bound.replace(
-		/instance\('commcaresession'\)\/session\/context\/([A-Za-z_][A-Za-z0-9_.-]*)/g,
-		(_match, field: string) =>
-			quoteLiteral(
-				session.context[field as keyof PreviewSearchSessionValues["context"]] ??
-					"",
-				"case-list-filter",
-			),
-	);
-	bound = bound.replace(
-		/instance\('commcaresession'\)\/session\/user\/data\/([A-Za-z_][A-Za-z0-9_.-]*)/g,
-		(_match, field: string) =>
-			quoteLiteral(
-				ownRecordValue(session.user, field) ?? "",
-				"case-list-filter",
-			),
-	);
-	return bound;
-}
-
+/** CSQL numeric tokens are stricter than an XPath numeric value. Preserve the
+ * emitted guard's vocabulary, including canonicalized negative zero. */
 function isValidRuntimeNumericSpelling(
 	kind: NonNullable<ComposedXPathQuery["runtimeRejections"]>[number]["kind"],
 	value: string,
@@ -383,8 +339,4 @@ function isValidRuntimeNumericSpelling(
 		return UNSIGNED_CSQL_NUMBER.test(trimmed) || NEGATIVE_ZERO.test(trimmed);
 	}
 	return true;
-}
-
-function searchInputXPath(name: string): string {
-	return `instance('search-input:results')/input/field[@name='${name}']`;
 }

@@ -24,6 +24,7 @@ import {
 	type FormLink,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const M0 = testUuid("mod-0");
 const M1 = testUuid("mod-1");
@@ -35,7 +36,7 @@ const L2 = testUuid("lnk-2");
 const L3 = testUuid("lnk-3");
 
 function fixture(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Links",
 		caseTypes: [
 			{
@@ -47,11 +48,15 @@ function fixture(): BlueprintDoc {
 			{
 				uuid: "mod-0",
 				name: "Intake",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						uuid: "frm-source",
 						name: "Source",
-						type: "survey",
+						type: "followup",
 						postSubmit: "app_home",
 						formLinks: [
 							{
@@ -61,6 +66,7 @@ function fixture(): BlueprintDoc {
 							},
 							{
 								uuid: "lnk-2",
+								condition: "#user/username = 'b'",
 								target: { type: "module", moduleUuid: M1 },
 							},
 						],
@@ -92,12 +98,20 @@ function fixture(): BlueprintDoc {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 const linkOrder = (doc: BlueprintDoc) =>
@@ -105,6 +119,7 @@ const linkOrder = (doc: BlueprintDoc) =>
 
 const newLink = (): FormLink => ({
 	uuid: L3,
+	condition: xp("#user/username = 'c'"),
 	target: { type: "form", moduleUuid: M1, formUuid: TARGET_B },
 });
 
@@ -143,9 +158,9 @@ describe("reducers", () => {
 		const doc = fixture();
 		const link = newLink();
 		const once = apply(doc, [{ kind: "addFormLink", formUuid: SOURCE, link }]);
-		const twice = apply(once, [
-			{ kind: "addFormLink", formUuid: SOURCE, link },
-		]);
+		const twice = produce(once, (draft) => {
+			applyMutations(draft, [{ kind: "addFormLink", formUuid: SOURCE, link }]);
+		});
 		expect(linkOrder(twice)).toEqual([L1, L2, L3]);
 		expect(once.forms[SOURCE]?.formLinks?.[2]).not.toBe(link);
 	});
@@ -153,41 +168,32 @@ describe("reducers", () => {
 	it("addFormLink creates the formLinks slot on a form without one", () => {
 		const doc = fixture();
 		const next = apply(doc, [
-			{ kind: "addFormLink", formUuid: TARGET_A, link: newLink() },
+			{
+				kind: "addFormLink",
+				formUuid: TARGET_A,
+				link: { uuid: L3, target: newLink().target },
+			},
 		]);
 		expect(next.forms[TARGET_A]?.formLinks?.map((l) => l.uuid)).toEqual([L3]);
 	});
 
-	it("updateFormLink patches key by key and clears on null", () => {
-		const doc = fixture();
-		const patched = apply(doc, [
+	it("clears the terminal condition via JSON null while retaining its target", () => {
+		const before = fixture();
+		const next = apply(before, [
 			{
 				kind: "updateFormLink",
 				formUuid: SOURCE,
-				uuid: L1,
-				patch: {
-					condition: null,
-					datums: [{ name: "case_id", xpath: xp("'x'") }],
-				},
+				uuid: L2,
+				patch: { condition: null },
 			},
 		]);
-		const link = patched.forms[SOURCE]?.formLinks?.[0];
-		expect(link?.condition).toBeUndefined();
-		expect(link?.datums?.[0]?.name).toBe("case_id");
-		expect(link?.target).toEqual({
-			type: "form",
-			moduleUuid: M1,
-			formUuid: TARGET_A,
+		expect(next.forms[SOURCE]?.formLinks?.[1]).toEqual({
+			uuid: L2,
+			target: { type: "module", moduleUuid: M1 },
 		});
-		const cleared = apply(patched, [
-			{
-				kind: "updateFormLink",
-				formUuid: SOURCE,
-				uuid: L1,
-				patch: { datums: null },
-			},
-		]);
-		expect(cleared.forms[SOURCE]?.formLinks?.[0]?.datums).toBeUndefined();
+		expect(next.forms[SOURCE]?.formLinks?.[0]).toEqual(
+			before.forms[SOURCE]?.formLinks?.[0],
+		);
 	});
 
 	it("moveFormLink re-sequences by anchor and replays to the same order", () => {
@@ -253,7 +259,7 @@ describe("reducers", () => {
 	it("a missing form or link is a no-op, never a throw", () => {
 		const doc = fixture();
 		const ghost = testUuid("ghost");
-		const next = apply(doc, [
+		const stale: Mutation[] = [
 			{
 				kind: "updateFormLink",
 				formUuid: SOURCE,
@@ -262,7 +268,13 @@ describe("reducers", () => {
 			},
 			{ kind: "removeFormLink", formUuid: ghost, uuid: L1 },
 			{ kind: "moveFormLink", formUuid: SOURCE, uuid: ghost, after: null },
-		]);
+		];
+		expect(
+			mutationCommitVerdict(doc, stale, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(false);
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, stale);
+		});
 		expect(linkOrder(next)).toEqual([L1, L2]);
 	});
 });
@@ -417,7 +429,14 @@ describe("admission", () => {
 			).ok,
 		).toBe(true);
 		const verdict = mutationCommitVerdict(
-			doc,
+			apply(doc, [
+				{
+					kind: "updateFormLink",
+					formUuid: SOURCE,
+					uuid: L2,
+					patch: { condition: null },
+				},
+			]),
 			// After the unconditional else: unreachable.
 			[{ kind: "addFormLink", formUuid: SOURCE, link: newLink() }],
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -451,6 +470,7 @@ describe("document diff", () => {
 				second,
 			];
 		});
+		assertAdmittedDoc(next);
 		const mutations = diffDocsToMutations(prev, next);
 		expect(mutations.map((m) => m.kind)).toEqual(
 			expect.arrayContaining(["updateFormLink", "addFormLink"]),
@@ -475,15 +495,16 @@ describe("document diff", () => {
 	it("a cleared condition travels as an explicit null", () => {
 		const prev = fixture();
 		const next = produce(prev, (draft) => {
-			const link = draft.forms[SOURCE]?.formLinks?.[0];
+			const link = draft.forms[SOURCE]?.formLinks?.[1];
 			if (link === undefined) throw new Error("fixture");
 			delete link.condition;
 		});
+		assertAdmittedDoc(next);
 		expect(diffDocsToMutations(prev, next)).toEqual([
 			{
 				kind: "updateFormLink",
 				formUuid: SOURCE,
-				uuid: L1,
+				uuid: L2,
 				patch: { condition: null },
 			},
 		]);
@@ -508,7 +529,7 @@ describe("reference index", () => {
 				kind: "updateFormLink",
 				formUuid: SOURCE,
 				uuid: L1,
-				patch: { condition: null },
+				patch: { condition: xp("true()") },
 			},
 		]);
 		expect(referencingCarrierUuids(cleared, key)).not.toContain(SOURCE);

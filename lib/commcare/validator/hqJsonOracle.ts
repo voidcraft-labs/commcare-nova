@@ -1,90 +1,12 @@
 /**
- * Post-expansion HQ import-JSON ORACLE.
- *
- * Mirrors the FATAL contract CommCare HQ's CouchDB deserialization enforces
- * when it imports an app. The upload route POSTs `expandDoc`'s `HqApplication`
- * to CCHQ's `/api/import_app/`; CCHQ wraps the JSON through
- * `wrap_app(doc)` → `Application.wrap(doc)`
- * (`commcare-hq/.../app_manager/dbaccessors.py::wrap_app`,
- * `commcare-hq/.../app_manager/models.py::Application.wrap`), a recursive
- * jsonobject `DocumentSchema` wrap. Any state our emitter can reach must pass
- * this oracle: a failing app here is an `expandDoc` bug, not an authoring error
- * a user could fix. Co-developed with a property-based fuzzer
- * (`__tests__/hqJsonOracle.fuzz.test.ts`) that generates schema-valid
- * `BlueprintDoc`s, expands them, and asserts the oracle returns clean — that
- * fuzzer proves `expandDoc` total and also defines the oracle's faithfulness: a
- * check that flags a legitimately-emitted app is the ORACLE being wrong, never
- * a new reject rule.
- *
- * ## What "FATAL at import" means here
- *
- * `Application.wrap(doc)` raises and rejects the whole import on exactly four
- * shapes — nothing else:
- *
- *   1. **Enum (`choices=`) violation.** A jsonobject `StringProperty(choices=…)`
- *      raises `BadValueError` when the value isn't in its choice list.
- *   2. **Type mismatch.** `IntegerProperty` / `FloatProperty` /
- *      `BooleanProperty` / `DictProperty` / `StringListProperty` /
- *      `SchemaProperty` / `SchemaListProperty` raise when the JSON value's type
- *      doesn't match.
- *   3. **`doc_type` dispatch failure.** `Application.modules =
- *      SchemaListProperty(ModuleBase)` routes each module through
- *      `ModuleBase.wrap`, whose `cls is ModuleBase` branch raises
- *      `ValueError('Unexpected doc_type for Module', …)` for any `doc_type` not
- *      in {Module, AdvancedModule, ReportModule, ShadowModule}; `FormBase.wrap`
- *      does the same for forms.
- *   4. **Custom property validator.** A `validators=` / `_custom_validate` on a
- *      property fires during the same `wrap`. No doc_type Nova emits carries one
- *      today (they live on advanced/report types Nova never emits) — listed so a
- *      future contributor who adds a validator-bearing type extends this oracle.
- *
- * The input is the strongly-typed `HqApplication`, so the TS type system already
- * guarantees the structural TYPE slots (a `BooleanProperty` slot is a TS
- * `boolean`, a `SchemaListProperty` slot is a TS array, etc.) — and the
- * `doc_type` literals (`"Application"` / `"Module"` / `"Form"`). The remaining
- * import-fatal surface is the set of ENUM string slots TS types only as `string`.
- * Those values are not free user text: `expandDoc` fills each from a hardcoded
- * shell constant, a factory, or a closed lookup table (`requires` ternary,
- * `toHqWorkflow` map, condition factories). So this oracle is a REGRESSION GUARD
- * over emitter-derived constants — it catches the day a shell/factory/table edit
- * drifts a value out of `choices=`; the fuzzer's clean runs prove that guard
- * holds, not that variable user input is being explored. The one runtime-type
- * guard is `late_flag` / `time_ago_interval` (CCHQ `IntegerProperty` /
- * `FloatProperty`): a `NaN` / `Infinity` from a faulty interval computation
- * serializes to JSON `null` and would silently default out at import rather than
- * carry the intended value, so those two are checked as finite numbers.
- *
- * ## STEP-1 import-schema map (verified against live `models.py`)
- *
- * | JSON constraint                         | models.py symbol                                   | fatal? | notes |
- * |-----------------------------------------|----------------------------------------------------|--------|-------|
- * | `Application.doc_type == "Application"`  | `Application` / `get_correct_app_class`            | fatal  | wrong app class can't wrap |
- * | `module.doc_type` ∈ Module-kinds         | `ModuleBase.wrap` dispatch                          | fatal  | `SchemaListProperty(ModuleBase)` |
- * | `Module.case_details.{short,long}.display` ∈ {short,long} | `Detail.display = StringProperty(choices=['short','long'])` | fatal | `DetailPair.wrap` re-stamps them, but a present bad value wraps first |
- * | `DetailColumn.format` (any string)       | `DetailColumn.format = StringProperty()` — NO `choices` | NOT fatal | display behavior only; suite oracle owns it |
- * | `SortElement.{field,type,direction,blanks}` (any string) | bare `StringProperty()` — NO `choices` | NOT fatal | suite oracle's `checkSort` owns these (silently-tolerated) |
- * | `_cc_calculated_{n}` field RX            | `const.CALCULATED_SORT_FIELD_RX`                    | NOT fatal | consulted only at suite-regeneration / build-validate, never at `wrap` |
- * | `FormActionCondition.type` ∈ {if,always,never} | `FormActionCondition.type = StringProperty(choices=…)` | fatal | every action's condition |
- * | `FormActionCondition.operator` ∈ {=,selected,boolean_true} | `FormActionCondition.operator = StringProperty(choices=…)` | fatal | only when non-null |
- * | `Form.requires` ∈ {case,referral,none}   | `Form.requires = StringProperty(choices=…)`         | fatal  | |
- * | `Form.post_form_workflow` ∈ ALL_WORKFLOWS | `FormBase.post_form_workflow = StringProperty(choices=const.ALL_WORKFLOWS)` | fatal | {default,root,parent_module,module,previous_screen,form} |
- * | `Form.post_form_workflow_fallback` (any string / null) | `FormBase.post_form_workflow_fallback = StringProperty(choices=const.WORKFLOW_FALLBACK_OPTIONS)` with `WORKFLOW_FALLBACK_OPTIONS = None` | NOT fatal | read only by `_get_fallback_frame` at suite build; the emitter's table is the contract (`checkFormLinks`) |
- * | `Form.form_links[*]` ids resolve            | `FormLink.form_id` / `form_module_id` / `module_unique_id` (bare `StringProperty` / `FormIdProperty`) | NOT fatal | `workflow.py::_get_link_frame` resolves them on the first build; the oracle resolves them here (`checkFormLinks`) |
- * | `Module.case_list_form.post_form_workflow` ∈ {default,case_list} | `CaseListForm.post_form_workflow = StringProperty(choices=[WORKFLOW_DEFAULT, WORKFLOW_CASE_LIST])` | fatal | only when `form_id` is set |
- * | `Module.case_list_form.form_id` resolves | `CaseListForm.form_id = FormIdProperty(...)` | NOT fatal | `details.py::add_register_action` calls `app.get_form(form_id)` on the first build; the oracle resolves it here (`checkCaseListForm`) |
- * | `ConditionalCaseUpdate.update_mode` ∈ {always,edit} | `ConditionalCaseUpdate.update_mode = StringProperty(choices=…)` | fatal | every update/subcase property |
- * | `OpenSubCaseAction.relationship` ∈ {child,extension} | `OpenSubCaseAction.relationship = StringProperty(choices=…)` | fatal | subcases |
- * | `DetailColumn.late_flag` finite int      | `DetailColumn.late_flag = IntegerProperty(default=30)` | fatal | NaN/Inf would break number coercion |
- * | `DetailColumn.time_ago_interval` finite  | `DetailColumn.time_ago_interval = FloatProperty(default=365.25)` | fatal | same |
- *
- * Build-time validators (`commcare-hq/.../helpers/validators.py`) are a SEPARATE
- * gate the doc-layer validator already mirrors; they are NOT import-fatal and
- * are out of scope here. This oracle covers only what makes `Application.wrap`
- * reject.
+ * Test-only consistency checker for emitted HQ JSON. Checks selected native
+ * wrap constraints plus Nova identity/media conventions that may fail later or
+ * be silently ignored by HQ. Native HQ import/generation and Core execution
+ * own compatibility proof; passing this checker is not a complete HQ build.
+ * It is not part of authoring admission or an export gate.
  */
 
 import type {
-	CaseSearchConfig,
 	Detail,
 	DetailColumn,
 	FormActionCondition,
@@ -172,7 +94,7 @@ const VALID_MODULE_DOC_TYPES: ReadonlySet<string> = new Set([
 	"ShadowModule",
 ]);
 
-/** The `doc_type`s `FormBase.wrap` dispatches without raising. */
+/** Known form tags. Basic Module wraps Form directly, without this dispatch. */
 const VALID_FORM_DOC_TYPES: ReadonlySet<string> = new Set([
 	"Form",
 	"AdvancedForm",
@@ -567,15 +489,14 @@ function checkForm(
 		errors,
 	);
 
-	// `FormBase.wrap` dispatches on `doc_type` and raises for anything outside
-	// {Form, AdvancedForm, ShadowForm} — the mirror of the module dispatch
-	// guard in `checkModule`.
+	// Keep generated tags coherent. AdvancedModule uses FormBase dispatch;
+	// basic Module's SchemaListProperty(Form) accepts unknown tags at wrap.
 	if (!VALID_FORM_DOC_TYPES.has(form.doc_type)) {
 		errors.push(
 			validationError(
 				"HQJSON_BAD_FORM_DOC_TYPE",
 				"form",
-				`"${formName}" has doc_type="${form.doc_type}", but CommCare's importer dispatches on this value and only recognizes Form / AdvancedForm / ShadowForm, rejecting the whole app otherwise. This is a bug in the app generator.`,
+				`"${formName}" has unrecognized doc_type="${form.doc_type}". The generator must emit a known Form / AdvancedForm / ShadowForm tag.`,
 				loc,
 			),
 		);
@@ -668,7 +589,7 @@ function checkColumnNumbers(
 				validationError(
 					"HQJSON_BAD_TYPE",
 					"module",
-					`Module "${moduleName}" has a case-list column whose ${slot} is ${value}, but CommCare needs it to be a finite number and rejects the whole app at import otherwise. Look at how this column's interval was computed. This is a bug in the app generator.`,
+					`Module "${moduleName}" has a case-list column whose ${slot} is ${value}, which serializes to null and loses the intended numeric value. Look at how this column's interval was computed. This is a bug in the app generator.`,
 					{ moduleName },
 				),
 			);
@@ -906,12 +827,6 @@ function checkModule(
 	for (const form of module.forms) {
 		checkForm(form, ids, errors);
 	}
-
-	// Touch `search_config` so a future enum slot added to `CaseSearchConfig`
-	// surfaces here rather than silently going unchecked. No import-fatal enum
-	// exists on it today (see the function docstring), so this is a no-op guard
-	// the type-checker keeps honest.
-	noteSearchConfig(module.search_config);
 }
 
 const CASE_LIST_FORM_WORKFLOWS: ReadonlySet<string> = new Set([
@@ -963,26 +878,16 @@ function checkCaseListForm(
 	}
 }
 
-/**
- * Explicit acknowledgement that `CaseSearchConfig` has no import-fatal enum slot
- * today. Kept as a typed touch point: if `CaseSearchConfig` ever grows a
- * `choices=`-backed string slot, the missing check here is a deliberate decision
- * to revisit, not an oversight — the reference forces a compile-time read of the
- * shape when the type changes.
- */
-function noteSearchConfig(_config: CaseSearchConfig): void {
-	// Intentionally empty — see `checkModule`'s docstring.
-}
-
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
- * Validate a generated `HqApplication` against CommCare HQ's import
- * (`Application.wrap`) deserialization contract. Returns structured errors
+ * Check selected HQ deserialization constraints and generated-wire conventions.
+ * Native model wrapping and suite execution establish acceptance separately.
+ * Returns structured errors
  * (empty array on a clean app). Takes the typed object `expandDoc` returns — no
  * XML/JSON parse needed; the structure is already in hand.
  *
- * The oracle is a TEST ORACLE proving `expandDoc` total, never a user gate: a
+ * The oracle supplements native proofs and is never a user gate: a
  * finding is an `expandDoc` bug, never a fixable authoring state. It's run
  * alongside the XForm oracle from the emitter test suites
  * and exercised by the fuzzer in `__tests__/hqJsonOracle.fuzz.test.ts`.
@@ -990,15 +895,14 @@ function noteSearchConfig(_config: CaseSearchConfig): void {
 export function validateHqJson(hqApp: HqApplication): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	// `Application.doc_type` must be exactly "Application" — `get_correct_app_class`
-	// can't pick the right wrap class otherwise, and the import fails before any
-	// module is read.
+	// Nova emits Application, even though HQ dispatch also recognizes other
+	// application models such as RemoteApp.
 	if (hqApp.doc_type !== "Application") {
 		errors.push(
 			validationError(
 				"HQJSON_BAD_DOC_TYPE",
 				"app",
-				`The generated app has doc_type="${hqApp.doc_type}", but CommCare's importer needs it to be "Application" to pick the right document class, and rejects the import otherwise. This is a bug in the app generator.`,
+				`The generated app has doc_type="${hqApp.doc_type}", but Nova's app generator must emit "Application".`,
 				{},
 			),
 		);

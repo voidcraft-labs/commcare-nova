@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	actingUser,
 	ancestorPath,
@@ -27,11 +33,45 @@ import {
 	unowned,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import type { LookupTypeIndex } from "../validator/lookupTypeContext";
-import {
-	formDisplayCondition,
-	moduleDisplayCondition,
-} from "../validator/rules/displayConditions";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { runValidation } from "../validator/runner";
+
+const TABLE = lookupTableIdSchema.parse("00000000-0000-7000-8000-000000000001");
+const VALUE = lookupColumnIdSchema.parse(
+		"10000000-0000-7000-8000-000000000001",
+	),
+	WHEN = lookupColumnIdSchema.parse("10000000-0000-7000-8000-000000000002");
+const lookupContext = {
+	kind: "available" as const,
+	projectId: "p",
+	projectRevision: parseLookupRevision("1"),
+	definitions: [
+		{
+			id: TABLE,
+			name: "Regions",
+			tag: "regions",
+			definitionRevision: parseLookupRevision("1"),
+			columns: [
+				{
+					id: VALUE,
+					wireName: "value",
+					label: "Value",
+					dataType: "text" as const,
+				},
+				{
+					id: WHEN,
+					wireName: "when",
+					label: "When",
+					dataType: "datetime" as const,
+				},
+			],
+		},
+	],
+};
+function admitted(doc: Parameters<typeof runValidation>[0]) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, lookupContext)).toEqual([]);
+}
 
 function validateModule(condition: Predicate) {
 	const doc = buildDoc({
@@ -39,15 +79,20 @@ function validateModule(condition: Predicate) {
 		modules: [
 			{
 				name: "Visits",
-				displayCondition: condition,
-				forms: [{ name: "Survey", type: "survey" }],
+				forms: [
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "answer" })],
+					},
+				],
 			},
 		],
 	});
 	const moduleUuid = doc.moduleOrder[0];
-	return moduleDisplayCondition(doc.modules[moduleUuid], moduleUuid, doc).map(
-		(error) => error.code,
-	);
+	admitted(doc);
+	doc.modules[moduleUuid].displayCondition = condition;
+	return runValidation(doc, lookupContext).map((error) => error.code);
 }
 
 function validateForm(
@@ -60,7 +105,6 @@ function validateForm(
 function validateFormFindings(
 	condition: Predicate,
 	formType: "followup" | "survey" = "followup",
-	lookupTables?: LookupTypeIndex,
 ) {
 	const doc = buildDoc({
 		appName: "Display",
@@ -68,11 +112,14 @@ function validateFormFindings(
 			{
 				name: "Visits",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Visit",
 						type: formType,
-						displayCondition: condition,
+						fields: [f({ kind: "text", id: "answer" })],
 					},
 				],
 			},
@@ -80,7 +127,7 @@ function validateFormFindings(
 		caseTypes: [
 			{
 				name: "household",
-				properties: [{ name: "name", label: proseText("Name") }],
+				properties: [{ name: "family_name", label: proseText("Family name") }],
 			},
 			{
 				name: "patient",
@@ -104,7 +151,9 @@ function validateFormFindings(
 	});
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
-	return formDisplayCondition(doc, formUuid, moduleUuid, lookupTables);
+	admitted(doc);
+	doc.forms[formUuid].displayCondition = condition;
+	return runValidation(doc, lookupContext);
 }
 
 const CASE_OPERATION_ONLY_CONDITIONS: readonly (readonly [
@@ -180,7 +229,9 @@ describe("form display-condition validation", () => {
 	it("rejects related reads and counts even in a case-first module", () => {
 		const parent = ancestorPath(relationStep("parent", "household"));
 		expect(
-			validateForm(eq(prop("household", "name", parent), literal("Smith"))),
+			validateForm(
+				eq(prop("household", "family_name", parent), literal("Smith")),
+			),
 		).toContain("FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE");
 		expect(validateForm(gt(count(selfPath()), literal(0)))).toContain(
 			"FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE",
@@ -225,14 +276,13 @@ describe("form display-condition validation", () => {
 	it("accepts a table lookup as an on-device navigation condition", () => {
 		const tableId = "00000000-0000-7000-8000-000000000001" as LookupTableId;
 		const columnId = "10000000-0000-7000-8000-000000000001" as LookupColumnId;
-		const finding = validateFormFindings(
+		const findings = validateFormFindings(
 			eq(tableLookup(tableId, columnId, matchAll()), literal("North")),
-		).find((error) => error.code === "DISPLAY_CONDITION_NOT_ON_DEVICE");
+		);
 
-		/* The first-match lowering yields at most one row node, so a table
-		 * lookup is a scalar-safe on-device read; only the structural
-		 * lookup-reference findings still apply to this shape. */
-		expect(finding).toBeUndefined();
+		// The actual table/column definitions are provided to the complete gate.
+		// Native lookup proof owns scalar first-row execution behavior.
+		expect(findings).toEqual([]);
 	});
 
 	it("checks date arithmetic inside a lookup row's filter", () => {
@@ -241,15 +291,6 @@ describe("form display-condition validation", () => {
 			"10000000-0000-7000-8000-000000000001" as LookupColumnId;
 		const datetimeColumnId =
 			"10000000-0000-7000-8000-000000000002" as LookupColumnId;
-		const lookupTables: LookupTypeIndex = new Map([
-			[
-				tableId,
-				new Map([
-					[resultColumnId, "text"],
-					[datetimeColumnId, "datetime"],
-				]),
-			],
-		]);
 		const condition = eq(
 			tableLookup(
 				tableId,
@@ -267,9 +308,7 @@ describe("form display-condition validation", () => {
 		);
 
 		expect(
-			validateFormFindings(condition, "followup", lookupTables).map(
-				(error) => error.code,
-			),
+			validateFormFindings(condition, "followup").map((error) => error.code),
 		).toContain("DISPLAY_CONDITION_NOT_ON_DEVICE");
 	});
 

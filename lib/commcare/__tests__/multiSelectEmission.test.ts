@@ -1,386 +1,471 @@
 import AdmZip from "adm-zip";
-import { describe, expect, it } from "vitest";
+import { type Element, isTag } from "domhandler";
+import { findAll, textContent } from "domutils";
+import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
+import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	type FieldSpec,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type Form, proseText } from "@/lib/domain";
+import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 
-const RETYPE = testUuid("88888888-8888-4888-8888-888888888888");
-const ORDINARY_WRITE = testUuid("99999999-9999-4999-8999-999999999999");
-const ATTACHMENT_TARGET = {
-	origin: "https://www.commcarehq.org",
-	domain: "demo-project",
-};
-
-describe("multi-select HQ JSON emission", () => {
-	it("emits a selected-case update when the form has no other effects", () => {
-		const base = caseListConfig([{ field: "case_name", header: "Name" }]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						...base,
-						selection: { kind: "multiple", maximum: 10 },
-					},
-					forms: [
-						{
-							name: "Add note",
-							type: "followup",
-							fields: [
-								f({
-									kind: "text",
-									id: "note",
-									caseWrite: { caseType: "patient", property: "note" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "note", label: proseText("Note") },
-					],
-				},
-			],
-		});
-
-		const hq = expandDoc(doc);
-		const source = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
-		if (source === undefined) throw new Error("Missing emitted XForm source");
-		expect(source).toContain(
-			`<__nova_update_selected_cases vellum:role="SaveToCase" vellum:case_type="patient">`,
-		);
-		expect(validateXForm(source, "Add note", "Patients")).toEqual([]);
-	});
-
-	it("lowers shared primary answers after authored operations and before close", () => {
-		const base = caseListConfig([{ field: "case_name", header: "Name" }]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						...base,
-						selection: { kind: "multiple", maximum: 10 },
-					},
-					forms: [
-						{
-							name: "Update selected",
-							type: "close",
-							fields: [
-								f({
-									kind: "text",
-									id: "full_name",
-									caseWrite: {
-										caseType: "patient",
-										property: "case_name",
-									},
-								}),
-								f({
-									kind: "text",
-									id: "note",
-									default_value: "'Review completed'",
-									caseWrite: { caseType: "patient", property: "note" },
-								}),
-								f({
-									kind: "text",
-									id: "external_id",
-									caseWrite: {
-										caseType: "patient",
-										property: "external_id",
-									},
-								}),
-								f({
-									kind: "image",
-									id: "photo",
-									caseWrite: {
-										caseType: "patient",
-										property: "photo",
-										mode: "attachment",
-									},
-								}),
-								f({
-									kind: "image",
-									id: "photo_link",
-									caseWrite: {
-										caseType: "patient",
-										property: "photo_url",
-										mode: "url",
-									},
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "note", label: proseText("Note") },
-						{ name: "reviewed", label: proseText("Reviewed") },
-						{ name: "photo", label: proseText("Photo") },
-						{ name: "photo_url", label: proseText("Photo link") },
-					],
-				},
-			],
-		});
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+const target = { origin: "https://www.commcarehq.org", domain: "demo-project" };
+const scope = "/data/__nova_selected_cases/item/__nova_operations";
+function one(elements: Element[]): Element {
+	expect(elements).toHaveLength(1);
+	const element = elements[0];
+	if (!element) throw new Error("Missing XML element");
+	return element;
+}
+function child(parent: Element, name: string): Element {
+	return one(parent.children.filter(isTag).filter((e) => e.name === name));
+}
+function parse(xml: string) {
+	new SaxesParser({ xmlns: true }).write(xml).close();
+	return one(parseDocument(xml, { xmlMode: true }).children.filter(isTag));
+}
+function formTree(xml: string) {
+	const html = parse(xml);
+	const model = child(child(html, "h:head"), "model");
+	const data = child(
+		one(
+			model.children
+				.filter(isTag)
+				.filter((e) => e.name === "instance" && e.attribs.src === undefined),
+		),
+		"data",
+	);
+	const operations = child(
+		child(child(data, "__nova_selected_cases"), "item"),
+		"__nova_operations",
+	);
+	return {
+		model,
+		data,
+		operations,
+		bind: (path: string) =>
+			one(
+				model.children
+					.filter(isTag)
+					.filter((e) => e.name === "bind" && e.attribs.nodeset === path),
+			).attribs,
+	};
+}
+function fixture(
+	type: "followup" | "close",
+	fields: FieldSpec[],
+	operation?: NonNullable<Form["caseOperations"]>[number],
+	extraType?: "visit" | "archived_patient",
+) {
+	const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
+	const doc = buildDoc({
+		modules: [
 			{
-				uuid: ORDINARY_WRITE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...list(),
+					selection: { kind: "multiple", maximum: 15 },
+				},
+				forms: [{ name: "Review selected", type, fields }],
+			},
+			...(extraType === "visit"
+				? [
+						{
+							name: "Visits",
+							caseType: "visit",
+							caseListOnly: true,
+							caseListConfig: list(),
+							forms: [],
+						},
+					]
+				: []),
+		],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: ["case_name", "note", "reviewed", "photo", "photo_url"].map(
+					(name) => ({ name, label: proseText(name) }),
+				),
+			},
+			...(extraType
+				? [
+						{
+							name: extraType,
+							...(extraType === "visit" ? { parent_type: "patient" } : {}),
+							properties: (extraType === "archived_patient"
+								? ["case_name", "note", "reviewed", "photo", "photo_url"]
+								: ["case_name"]
+							).map((name) => ({ name, label: proseText(name) })),
+						},
+					]
+				: []),
+		],
+	});
+	if (operation)
+		(doc.forms[doc.formOrder[doc.moduleOrder[0]][0]] as Form).caseOperations = [
+			operation,
+		];
+	return doc;
+}
+function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
+	expect(blueprintDocSchema.safeParse(toPersistableDoc(doc)).success).toBe(
+		true,
+	);
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const hq = expandDoc(
+		doc,
+		published ? { attachmentTarget: target } : undefined,
+	);
+	const form = hq.modules[0].forms[0];
+	const source = hq._attachments[`${form.unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing form source");
+	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+	const suite = parse(zip.readAsText("suite.xml"));
+	const entry = one(
+		suite.children
+			.filter(isTag)
+			.filter(
+				(e) =>
+					e.name === "entry" &&
+					e.children
+						.filter(isTag)
+						.some((e) => e.name === "form" && textContent(e) === form.xmlns),
+			),
+	);
+	expect(form.actions.update_case.update).toEqual({});
+	expect(form.actions.update_case.condition.type).toBe("never");
+	expect(form.actions.case_preload.preload).toEqual({});
+	expect(form.actions.case_preload.condition.type).toBe("never");
+	return {
+		hq,
+		entry,
+		forms: [
+			formTree(source),
+			formTree(zip.readAsText("modules-0/forms-0.xml")),
+		],
+	};
+}
+function selectedIdentity(form: ReturnType<typeof formTree>, name: string) {
+	expect(form.bind(`${scope}/${name}/case/@case_id`)).toEqual({
+		nodeset: `${scope}/${name}/case/@case_id`,
+		calculate: "current()/../../../../@id",
+	});
+	expect(
+		form.data.children.filter(isTag).filter((e) => e.name === "case"),
+	).toEqual([]);
+	expect(
+		one(
+			form.model.children
+				.filter(isTag)
+				.filter(
+					(e) => e.name === "instance" && e.attribs.id === "selected_cases",
+				),
+		).attribs,
+	).toEqual({
+		src: "jr://instance/selected-entities/selected_cases",
+		id: "selected_cases",
+	});
+}
+it("emits an ordinary shared update in both artifacts and limits multiple selection to the short detail", () => {
+	const doc = fixture("followup", [
+		f({
+			kind: "text",
+			id: "note",
+			caseWrite: { caseType: "patient", property: "note" },
+		}),
+	]);
+	const output = artifacts(doc);
+	for (const form of output.forms) {
+		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
+			"__nova_update_selected_cases",
+		]);
+		const transaction = child(
+			child(form.operations, "__nova_update_selected_cases"),
+			"case",
+		);
+		expect(
+			child(transaction, "update")
+				.children.filter(isTag)
+				.map((e) => e.name),
+		).toEqual(["note"]);
+		expect(
+			form.bind(`${scope}/__nova_update_selected_cases/case/update/note`),
+		).toEqual({
+			nodeset: `${scope}/__nova_update_selected_cases/case/update/note`,
+			calculate: "/data/note",
+			relevant: "count(/data/note) > 0 and string(/data/note) != ''",
+		});
+		selectedIdentity(form, "__nova_update_selected_cases");
+	}
+	expect(output.hq.modules[0].case_details.short.multi_select).toBe(true);
+	expect(output.hq.modules[0].case_details.short.max_select_value).toBe(15);
+	expect(output.hq.modules[0].case_details.long.multi_select).toBeUndefined();
+	expect(
+		output.hq.modules[0].case_details.long.max_select_value,
+	).toBeUndefined();
+});
+for (const published of [true, false]) {
+	it(`orders authored effects, shared scalar/file writes and close with ${published ? "a target" : "no target"}`, () => {
+		const doc = fixture(
+			"close",
+			[
+				f({
+					kind: "text",
+					id: "full_name",
+					caseWrite: { caseType: "patient", property: "case_name" },
+				}),
+				f({
+					kind: "text",
+					id: "note",
+					default_value: "'Review completed'",
+					caseWrite: { caseType: "patient", property: "note" },
+				}),
+				f({
+					kind: "text",
+					id: "external_id",
+					caseWrite: { caseType: "patient", property: "external_id" },
+				}),
+				f({
+					kind: "image",
+					id: "photo",
+					caseWrite: {
+						caseType: "patient",
+						property: "photo",
+						mode: "attachment",
+					},
+				}),
+				f({
+					kind: "image",
+					id: "photo_link",
+					caseWrite: {
+						caseType: "patient",
+						property: "photo_url",
+						mode: "url",
+					},
+				}),
+			],
+			{
+				uuid: testUuid("mark"),
 				id: "mark_selected",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
-				writes: [
-					{
-						property: "reviewed",
-						value: term(literal("yes")),
-					},
-				],
+				writes: [{ property: "reviewed", value: term(literal("yes")) }],
 			},
-		];
-
-		const hq = expandDoc(doc, { attachmentTarget: ATTACHMENT_TARGET });
-		const actions = hq.modules[0].forms[0].actions;
-		expect(actions.update_case.condition.type).toBe("never");
-		expect(actions.update_case.update).toEqual({});
-		expect(actions.case_preload.condition.type).toBe("never");
-		expect(actions.case_preload.preload).toEqual({});
-
-		const source = hq._attachments[`${hq.modules[0].forms[0].unique_id}.xml`];
-		if (source === undefined) throw new Error("Missing emitted XForm source");
-		const decoded = source
-			.replaceAll("&apos;", "'")
-			.replaceAll("&gt;", ">")
-			.replaceAll("&lt;", "<");
-		const primaryStart = decoded.indexOf("<__nova_update_selected_cases");
-		expect(decoded.indexOf("<mark_selected")).toBeLessThan(primaryStart);
-		expect(primaryStart).toBeLessThan(
-			decoded.indexOf("<__nova_close_selected_cases"),
 		);
-		expect(decoded).toContain(
-			`<update><case_name/><note/><external_id/><photo_url/></update><attachment><photo src="" from="local"/></attachment>`,
-		);
-		expect(decoded).toContain(
-			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases" relevant="(count(/data/full_name) > 0 and string(replace(/data/full_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')) != '') or (count(/data/note) > 0 and string(/data/note) != '')`,
-		);
-		expect(decoded).toContain(
-			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/update/note" calculate="/data/note" relevant="count(/data/note) > 0 and string(/data/note) != ''"`,
-		);
-		expect(decoded).toContain(
-			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/attachment/photo" relevant="count(/data/photo) = 1 and string(/data/photo) != ''"`,
-		);
-		expect(decoded).toContain(
-			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_update_selected_cases/case/update/photo_url" calculate="/data/__nova_url_photo_link" relevant="count(/data/__nova_url_photo_link) > 0 and string(/data/__nova_url_photo_link) != ''"`,
-		);
-		expect(decoded).not.toContain(
-			`event="xforms-ready" ref="/data/note" value="instance('casedb')`,
-		);
-		expect(source).toContain(
-			`event="xforms-ready" vellum:ref="#form/note" ref="/data/note" value="&apos;Review completed&apos;"`,
-		);
-		expect(validateXForm(source, "Update selected", "Patients")).toEqual([]);
-
-		const compiled = new AdmZip(compileCcz(hq, doc.appName, doc)).readAsText(
-			"modules-0/forms-0.xml",
-		);
-		expect(compiled).toContain(
-			`<__nova_update_selected_cases vellum:role="SaveToCase" vellum:case_type="patient">`,
-		);
-		expect(compiled).not.toContain(`nodeset="/data/case/update/case_name"`);
-
-		const withoutTarget = expandDoc(doc);
-		const withoutTargetSource =
-			withoutTarget._attachments[
-				`${withoutTarget.modules[0].forms[0].unique_id}.xml`
-			];
-		if (withoutTargetSource === undefined) {
-			throw new Error("Missing targetless XForm source");
+		for (const form of artifacts(doc, published).forms) {
+			expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual(
+				[
+					"mark_selected",
+					"__nova_update_selected_cases",
+					"__nova_close_selected_cases",
+				],
+			);
+			for (const name of [
+				"mark_selected",
+				"__nova_update_selected_cases",
+				"__nova_close_selected_cases",
+			])
+				selectedIdentity(form, name);
+			expect(form.bind(`${scope}/mark_selected/case/update/reviewed`)).toEqual({
+				nodeset: `${scope}/mark_selected/case/update/reviewed`,
+				calculate: "'yes'",
+			});
+			const transaction = child(
+				child(form.operations, "__nova_update_selected_cases"),
+				"case",
+			);
+			expect(transaction.children.filter(isTag).map((e) => e.name)).toEqual([
+				"update",
+				"attachment",
+			]);
+			expect(
+				child(transaction, "update")
+					.children.filter(isTag)
+					.map((e) => e.name),
+			).toEqual([
+				"case_name",
+				"note",
+				"external_id",
+				...(published ? ["photo_url"] : []),
+			]);
+			expect(child(child(transaction, "attachment"), "photo").attribs).toEqual({
+				src: "",
+				from: "local",
+			});
+			const writers = [
+				[
+					"case_name",
+					"replace(/data/full_name, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+					"/data/full_name",
+					true,
+				],
+				["note", "/data/note", "/data/note", false],
+				[
+					"external_id",
+					"replace(/data/external_id, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+					"/data/external_id",
+					true,
+				],
+				...(published
+					? [
+							[
+								"photo_url",
+								"/data/__nova_url_photo_link",
+								"/data/__nova_url_photo_link",
+								false,
+							] as const,
+						]
+					: []),
+			] as const;
+			for (const [property, calculate, source, scalar] of writers)
+				expect(
+					form.bind(
+						`${scope}/__nova_update_selected_cases/case/update/${property}`,
+					),
+				).toEqual({
+					nodeset: `${scope}/__nova_update_selected_cases/case/update/${property}`,
+					calculate,
+					relevant: `count(${source}) > 0 and string(${calculate}) != ''`,
+					...(scalar ? { constraint: "string-length(.) <= 255" } : {}),
+				});
+			expect(
+				form.bind(
+					`${scope}/__nova_update_selected_cases/case/attachment/photo`,
+				),
+			).toEqual({
+				nodeset: `${scope}/__nova_update_selected_cases/case/attachment/photo`,
+				relevant: "count(/data/photo) = 1 and string(/data/photo) != ''",
+			});
+			expect(
+				form.bind(
+					`${scope}/__nova_update_selected_cases/case/attachment/photo/@src`,
+				),
+			).toEqual({
+				nodeset: `${scope}/__nova_update_selected_cases/case/attachment/photo/@src`,
+				calculate: "/data/photo",
+			});
+			const close = child(
+				child(form.operations, "__nova_close_selected_cases"),
+				"case",
+			);
+			expect(close.children.filter(isTag).map((e) => e.name)).toEqual([
+				"close",
+			]);
+			const initialNote = one(
+				form.model.children
+					.filter(isTag)
+					.filter(
+						(e) => e.name === "setvalue" && e.attribs.ref === "/data/note",
+					),
+			);
+			expect(initialNote.attribs.value).toBe("'Review completed'");
+			expect(initialNote.attribs.event).toBe("xforms-ready");
 		}
-		expect(withoutTargetSource).toContain(
-			`/__nova_update_selected_cases/case/attachment/photo`,
-		);
-		expect(withoutTargetSource).not.toContain(
-			`/__nova_update_selected_cases/case/update/photo_url`,
-		);
 	});
-
-	it("carries selected-entity execution into the uploaded XForm source", () => {
-		const base = caseListConfig([{ field: "case_name", header: "Name" }]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						...base,
-						selection: { kind: "multiple", maximum: 10 },
-					},
-					forms: [
-						{
-							name: "Add visits",
-							type: "followup",
-							fields: [
-								f({
-									kind: "text",
-									id: "visit_name",
-									caseWrite: { caseType: "visit", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
+}
+it("allocates each child inside the selected-parent iteration without consuming the scalar HQ datum", () => {
+	const output = artifacts(
+		fixture(
+			"followup",
+			[
+				f({
+					kind: "text",
+					id: "visit_name",
+					caseWrite: { caseType: "visit", property: "case_name" },
+				}),
 			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-				{
-					name: "visit",
-					parent_type: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		});
-		const hq = expandDoc(doc);
-		const source = Object.entries(hq._attachments).find(([name]) =>
-			name.endsWith(".xml"),
-		)?.[1];
-		const ccz = new AdmZip(compileCcz(hq, doc.appName, doc));
-		const compiled = ccz.readAsText("modules-0/forms-0.xml");
-		const suite = ccz.readAsText("suite.xml");
-		expect(source).toContain(
-			`<instance src="jr://instance/selected-entities/selected_cases" id="selected_cases"/>`,
-		);
-		expect(source).toContain(
-			`<__nova_subcase_0 vellum:role="SaveToCase" vellum:case_type="visit">`,
-		);
-		// HQ always allocates this scalar function datum from FormActions, even
-		// though one selected parent now creates one child apiece. Keep local
-		// suite parity, but make the orphan explicit: neither uploaded nor local
-		// XForm source consumes it as a child id.
-		expect(suite).toContain(
-			`<datum id="case_id_new_visit_0" function="uuid()"/>`,
-		);
-		expect(source).not.toContain("session/data/case_id_new_visit_0");
-		expect(compiled).not.toContain("session/data/case_id_new_visit_0");
+			undefined,
+			"visit",
+		),
+	);
+	const datum = one(
+		child(output.entry, "session")
+			.children.filter(isTag)
+			.filter(
+				(e) => e.name === "datum" && e.attribs.id === "case_id_new_visit_0",
+			),
+	);
+	expect(datum.attribs).toEqual({
+		id: "case_id_new_visit_0",
+		function: "uuid()",
 	});
-
-	it("keeps an ordinary batch close from undoing an earlier session retype", () => {
-		const base = caseListConfig([{ field: "case_name", header: "Name" }]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						...base,
-						selection: { kind: "multiple", maximum: 10 },
-					},
-					forms: [
-						{
-							name: "Archive selected",
-							type: "close",
-							fields: [f({ kind: "text", id: "note" })],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-				{
-					name: "archived_patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
+	for (const form of output.forms) {
+		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
+			"__nova_subcase_0",
+		]);
+		const transaction = child(
+			child(form.operations, "__nova_subcase_0"),
+			"case",
+		);
+		expect(child(child(transaction, "index"), "parent").attribs).toEqual({
+			case_type: "patient",
+			relationship: "child",
 		});
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		expect(form.bind(`${scope}/__nova_subcase_0/case/@case_id`)).toEqual({
+			nodeset: `${scope}/__nova_subcase_0/case/@case_id`,
+			calculate: "uuid()",
+		});
+		expect(form.bind(`${scope}/__nova_subcase_0/case/index/parent`)).toEqual({
+			nodeset: `${scope}/__nova_subcase_0/case/index/parent`,
+			calculate: "current()/../../../../../@id",
+		});
+		expect(
+			findAll(
+				(e) =>
+					Object.values(e.attribs).some((value) =>
+						value.includes("session/data/case_id_new_visit_0"),
+					),
+				form.model.children,
+			),
+		).toEqual([]);
+	}
+});
+it("leaves an earlier retype intact when the ordinary final action only closes", () => {
+	const output = artifacts(
+		fixture(
+			"close",
+			[f({ kind: "text", id: "note" })],
 			{
-				uuid: RETYPE,
+				uuid: testUuid("88888888-8888-4888-8888-888888888888"),
 				id: "archive_selected",
 				action: "update",
 				caseType: "patient",
 				target: { kind: "session" },
 				retype: "archived_patient",
 			},
-		];
-
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const xform = new AdmZip(
-			compileCcz(expandDoc(doc), doc.appName, doc),
-		).readAsText("modules-0/forms-0.xml");
-		expect(xform.indexOf("<archive_selected")).toBeLessThan(
-			xform.indexOf("<__nova_close_selected_cases"),
-		);
-		expect(xform).toContain(
-			`nodeset="/data/__nova_selected_cases/item/__nova_operations/archive_selected/case/update/case_type" calculate="&apos;archived_patient&apos;"`,
-		);
-		expect(xform).toContain(
-			`<__nova_close_selected_cases vellum:role="SaveToCase" vellum:case_type="patient"><case case_id="" date_modified="" user_id="" xmlns="http://commcarehq.org/case/transaction/v2"><close/></case></__nova_close_selected_cases>`,
-		);
-		expect(xform).not.toContain(
-			"/__nova_close_selected_cases/case/update/case_type",
-		);
-	});
-
-	it("writes cardinality only on the short case detail", () => {
-		const base = caseListConfig([{ field: "case_name", header: "Name" }]);
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						...base,
-						selection: { kind: "multiple", maximum: 15 },
-					},
-					forms: [
-						{
-							name: "Review",
-							type: "followup",
-							fields: [
-								f({ kind: "text", id: "note", label: proseText("Note") }),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
+			"archived_patient",
+		),
+	);
+	for (const form of output.forms) {
+		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
+			"archive_selected",
+			"__nova_guard_88888888_8888_4888_8888_888888888888_retype_identity",
+			"__nova_close_selected_cases",
+		]);
+		expect(
+			form.bind(`${scope}/archive_selected/case/update/case_type`),
+		).toEqual({
+			nodeset: `${scope}/archive_selected/case/update/case_type`,
+			calculate: "'archived_patient'",
 		});
-		const module = doc.modules[doc.moduleOrder[0]];
-		const { caseDetails } = projectCaseListForHq(module, doc);
-
-		expect(caseDetails.short.multi_select).toBe(true);
-		expect(caseDetails.short.max_select_value).toBe(15);
-		expect(caseDetails.long.multi_select).toBeUndefined();
-		expect(caseDetails.long.max_select_value).toBeUndefined();
-	});
+		expect(
+			child(child(form.operations, "__nova_close_selected_cases"), "case")
+				.children.filter(isTag)
+				.map((e) => e.name),
+		).toEqual(["close"]);
+		selectedIdentity(form, "archive_selected");
+		selectedIdentity(form, "__nova_close_selected_cases");
+	}
 });

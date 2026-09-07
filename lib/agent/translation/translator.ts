@@ -290,8 +290,9 @@ function estimatedTokens(unit: EncodedTranslationUnit): number {
 }
 
 /** Group by owning screen first, then split a large screen on a deterministic
- * token estimate. No item-count boundary can accidentally admit a few huge
- * help strings as one unbounded request. */
+ * token estimate. A single unit is indivisible and may exceed that target;
+ * it is isolated without truncating source content. Provider completion and
+ * the finalizer still require a complete accepted output for that unit. */
 export function planTranslationBatches(
 	units: readonly TranslationUnit[],
 ): readonly (readonly EncodedTranslationUnit[])[] {

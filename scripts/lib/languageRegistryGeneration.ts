@@ -112,10 +112,13 @@ interface Iso6393Row {
 }
 
 function parseIso6393Tab(tab: string): Iso6393Row[] {
-	const [header, ...lines] = tab.split("\n");
-	if (header === undefined || !header.startsWith("Id\t")) {
+	const [header, ...lines] = tab.split(/\r?\n/);
+	if (
+		header?.split("\t").slice(0, 7).join("\t") !==
+		"Id\tPart2b\tPart2t\tPart1\tScope\tLanguage_Type\tRef_Name"
+	) {
 		throw new Error(
-			"The iso-639-3.tab download does not start with the expected Id column header — SIL may have changed the file layout.",
+			"The iso-639-3.tab download does not have the expected column order. SIL may have changed the file layout.",
 		);
 	}
 	return lines
@@ -314,9 +317,13 @@ export function deriveLanguageRegistry(
 	};
 
 	// --- Macrolanguages ------------------------------------------------------
-	const memberRows = source.macrolanguagesTab
-		.split("\n")
-		.slice(1)
+	const [macroHeader, ...macroLines] = source.macrolanguagesTab.split(/\r?\n/);
+	if (macroHeader !== "M_Id\tI_Id\tI_Status") {
+		throw new Error(
+			"The iso-639-3-macrolanguages.tab download does not have the expected column order. SIL may have changed the file layout.",
+		);
+	}
+	const memberRows = macroLines
 		.filter((line) => line.trim() !== "")
 		.map((line) => line.split("\t"))
 		.filter((cells) => cells[2]?.trim() === "A");

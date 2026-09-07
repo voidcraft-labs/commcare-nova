@@ -58,8 +58,9 @@ import {
 	PostgresDialect,
 	type PostgresPool,
 } from "kysely";
-import type { ClientConfig, PoolConfig } from "pg";
+import type { ClientConfig, PoolClient, PoolConfig } from "pg";
 import { Pool } from "pg";
+import { log } from "@/lib/logger";
 import type { Database } from "../sql/database.js";
 
 // `Database` is the type contract every typed query in
@@ -479,6 +480,25 @@ export function buildPoolConfig(
 	};
 }
 
+/** pg emits connection errors independently of query rejection. A pool's idle
+ * listener is removed during checkout, so both channels need an owner. The
+ * driver still rejects affected queries and discards non-queryable clients.
+ * A terminal client can emit both the server refusal and socket closure;
+ * report its first failure once, including the pool's idle forwarding. */
+function ownPoolErrors(pool: Pool): Pool {
+	const observed = new WeakSet<PoolClient>();
+	const report = (error: Error, client: PoolClient) => {
+		if (observed.has(client)) return;
+		observed.add(client);
+		log.error("[case-store] database connection failed", error);
+	};
+	pool.on("error", report);
+	pool.on("connect", (client) =>
+		client.on("error", (error) => report(error, client)),
+	);
+	return pool;
+}
+
 // Process-scoped lazy singleton.
 
 interface CaseStoreHandles {
@@ -502,6 +522,8 @@ interface CaseStoreHandles {
 let handles: CaseStoreHandles | null = null;
 /** Concurrent first-call requests share one init rather than racing. */
 let initInFlight: Promise<CaseStoreHandles> | null = null;
+/** A replacement cannot overlap the old pool while its checkouts drain. */
+let closeInFlight: Promise<void> | null = null;
 
 /**
  * Build the singleton handles. The connection-budget invariant
@@ -524,12 +546,14 @@ async function initialize(): Promise<CaseStoreHandles> {
 	// fallback wasn't.
 	const localUrl = process.env.NOVA_DB_LOCAL_URL;
 	if (localUrl !== undefined && localUrl.length > 0) {
-		const pool = new Pool({
-			connectionString: localUrl,
-			options: DATABASE_CONNECTION_OPTIONS,
-			max: poolMaxForWorkload(workload),
-			connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
-		});
+		const pool = ownPoolErrors(
+			new Pool({
+				connectionString: localUrl,
+				options: DATABASE_CONNECTION_OPTIONS,
+				max: poolMaxForWorkload(workload),
+				connectionTimeoutMillis: POOL_CONNECTION_TIMEOUT_MS,
+			}),
+		);
 		const dialect = new PostgresDialect({
 			pool: pool as unknown as PostgresPool,
 		});
@@ -543,7 +567,9 @@ async function initialize(): Promise<CaseStoreHandles> {
 		ipType: readCaseStoreIpType(),
 		authType: AuthTypes.IAM,
 	});
-	const pool = new Pool(buildPoolConfig(clientOpts, env, workload));
+	const pool = ownPoolErrors(
+		new Pool(buildPoolConfig(clientOpts, env, workload)),
+	);
 	// Kysely's `PostgresPool` is a subset of pg.Pool; the cast is
 	// the standard Kysely pattern.
 	const dialect = new PostgresDialect({
@@ -561,6 +587,7 @@ async function initialize(): Promise<CaseStoreHandles> {
  * call. Concurrent first-callers share one init via `initInFlight`.
  */
 async function getHandles(): Promise<CaseStoreHandles> {
+	if (closeInFlight !== null) await closeInFlight;
 	if (handles !== null) {
 		return handles;
 	}
@@ -648,18 +675,32 @@ export async function buildDedicatedClientConfig(): Promise<ClientConfig> {
  * drains the pool via PostgresDriver) and closes the connector
  * (which stops the cert-refresh timer). Idempotent.
  *
- * Kysely owns the pool's lifecycle once wrapped in the dialect —
- * calling `pool.end()` here a second time would throw "Called end
- * on pool more than once" from pg.
+ * Concurrent closes await the same drain, including in-flight initialization.
+ * Kysely ends an initialized driver; direct pool-only use needs the explicit
+ * fallback. A replacement waits for the previous pool and connector to close.
  */
 export async function closeCaseStoreDatabase(): Promise<void> {
-	if (handles === null) {
-		return;
+	if (closeInFlight !== null) return closeInFlight;
+	const pending = handles === null ? initInFlight : Promise.resolve(handles);
+	if (pending === null) return;
+	closeInFlight = (async () => {
+		const captured = await pending;
+		handles = null;
+		try {
+			await captured.db.destroy();
+		} finally {
+			try {
+				// Better Auth may be the only consumer. Kysely's lazy driver does
+				// not end its pool until it has executed a query of its own.
+				if (!captured.pool.ended) await captured.pool.end();
+			} finally {
+				captured.connector?.close();
+			}
+		}
+	})();
+	try {
+		await closeInFlight;
+	} finally {
+		closeInFlight = null;
 	}
-	const captured = handles;
-	handles = null;
-	await captured.db.destroy();
-	// `null` on the local-dev path — only the Cloud SQL connector owns a
-	// cert-refresh timer that needs stopping.
-	captured.connector?.close();
 }

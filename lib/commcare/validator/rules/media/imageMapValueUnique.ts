@@ -16,7 +16,7 @@
  * uniqueness check to one column at a time. Visibility controls emission
  * only; every saved mapping remains subject to this invariant.
  *
- * Mirrors `idMappingValueRequired`'s shape: module scope; iterate
+ * Mirrors `columnReferences`'s shape: module scope; iterate
  * `caseListConfig.columns`; emit one error per duplicate row with
  * 1-based human-readable row index in the message.
  */

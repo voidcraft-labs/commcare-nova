@@ -35,6 +35,7 @@ export function DeploymentEntryPointLinks({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: document, destination and target changes revoke results and in-flight requests.
 	useEffect(() => {
 		generation.current += 1;
+		setFailure(undefined);
 		setResult(undefined);
 		setPending(false);
 		setCopied(false);

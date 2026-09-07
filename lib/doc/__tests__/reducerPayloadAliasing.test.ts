@@ -24,8 +24,10 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { plainColumn } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("11111111-1111-4111-8111-111111111111");
 const FORM = testUuid("22222222-2222-4222-8222-222222222222");
@@ -34,13 +36,19 @@ const COLUMN = testUuid("44444444-4444-4444-8444-444444444444");
 const FIELD = testUuid("55555555-5555-4555-8555-555555555555");
 
 function base(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Twice",
 		modules: [
 			{
 				uuid: MODULE,
 				name: "Cases",
 				caseType: "patient",
+				caseListConfig: {
+					columns: [plainColumn(testUuid("base-column"), "case_name", "Name")],
+					listColumnOrder: [testUuid("base-column")],
+					detailColumnOrder: [testUuid("base-column")],
+					searchInputs: [],
+				},
 				forms: [
 					{
 						uuid: FORM,
@@ -62,8 +70,17 @@ function base(): BlueprintDoc {
 				],
 			},
 		],
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "visit_status", label: proseText("Status") }],
+				parent_type: "household",
+			},
+			{ name: "household", properties: [] },
+		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 /**
@@ -79,12 +96,21 @@ function base(): BlueprintDoc {
  * drafts frozen base state so the later edits pass either way.)
  */
 function applyTwice(batch: Mutation[]): BlueprintDoc {
-	produce(base(), (draft) => {
-		applyMutations(draft, batch);
+	const bytes = JSON.stringify(batch);
+	const admitted = admitMutationBatch(batch);
+	const admittedBytes = JSON.stringify(admitted);
+	const first = produce(base(), (draft) => {
+		applyMutations(draft, admitted);
 	});
-	return produce(base(), (draft) => {
-		applyMutations(draft, batch);
+	const second = produce(base(), (draft) => {
+		applyMutations(draft, admitted);
 	});
+	assertAdmittedDoc(first);
+	assertAdmittedDoc(second);
+	expect(second).toEqual(first);
+	expect(JSON.stringify(batch)).toBe(bytes);
+	expect(JSON.stringify(admitted)).toBe(admittedBytes);
+	return second;
 }
 
 describe("a batch applies twice", () => {
@@ -104,9 +130,10 @@ describe("a batch applies twice", () => {
 		const next = produce(base(), (draft) => {
 			applyMutations(draft, admitted);
 		});
-		const commandField = (
-			admitted[0] as Extract<Mutation, { kind: "addField" }>
-		).field;
+		const command = admitted[0];
+		if (command.kind !== "addField") throw new Error("expected addField");
+		const commandField = command.field;
+		assertAdmittedDoc(next);
 		const candidateField = next.fields[FIELD];
 
 		expect(candidateField).toEqual(commandField);
@@ -128,7 +155,7 @@ describe("a batch applies twice", () => {
 						id: "update_patient",
 						action: "update",
 						caseType: "patient",
-						target: { kind: "session" },
+						target: { kind: "expression", expr: term(literal("patient-id")) },
 					},
 				},
 			},
@@ -141,8 +168,8 @@ describe("a batch applies twice", () => {
 					uuid: OPERATION,
 					value: {
 						identifier: "parent",
-						targetType: "patient",
-						target: null,
+						targetType: "household",
+						target: { kind: "expression", expr: term(literal("household-id")) },
 						relationship: "child",
 					},
 					after: null,
@@ -156,24 +183,27 @@ describe("a batch applies twice", () => {
 					operation: "update-link",
 					uuid: OPERATION,
 					identifier: "parent",
-					patch: { targetType: "household" },
+					patch: { target: null },
 				},
 			},
 		]);
 
 		const links = doc.forms[FORM].caseOperations?.[0]?.links;
 		expect(links).toHaveLength(1);
-		expect(links?.[0].targetType).toBe("household");
+		expect(links?.[0].target).toBeNull();
 	});
 
 	it("adds a case-operation write and then edits it", () => {
-		const write = { property: "status", value: term(literal("new")) };
+		const write = { property: "visit_status", value: term(literal("new")) };
 		const operation = {
 			uuid: OPERATION,
 			id: "update_patient",
 			action: "update" as const,
 			caseType: "patient",
-			target: { kind: "session" as const },
+			target: {
+				kind: "expression" as const,
+				expr: term(literal("patient-id")),
+			},
 		};
 		const doc = applyTwice([
 			{
@@ -200,7 +230,7 @@ describe("a batch applies twice", () => {
 				caseOperationPatch: {
 					operation: "update-write",
 					uuid: OPERATION,
-					property: "status",
+					property: "visit_status",
 					patch: { value: term(literal("filed")) },
 				},
 			},
@@ -244,8 +274,11 @@ describe("a batch applies twice", () => {
 		]);
 
 		const columns = doc.modules[MODULE].caseListConfig?.columns;
-		expect(columns).toHaveLength(1);
-		expect(columns?.[0].header).toBe("Patient name");
+		expect(columns).toHaveLength(2);
+		expect(columns?.find((column) => column.uuid === COLUMN)?.header).toBe(
+			"Patient name",
+		);
+		expect(doc.modules[MODULE].caseListConfig?.listColumnOrder[0]).toBe(COLUMN);
 	});
 
 	it("adds a worker property, a role, and a persona, then edits each", () => {

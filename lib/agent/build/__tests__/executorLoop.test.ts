@@ -1,22 +1,10 @@
-/**
- * The native slice executor protocol, fully offline.
- *
- * A scripted model supplies ordinary Nova calls. The fake workspace proves
- * call ordering, durable response/result boundaries, recovery, and the
- * server-owned finalizer without reproducing any tool implementation.
- */
+/** Pure accepted-design admission and identity projections. Native execution
+ * and durable recovery are exercised in executorLoop.postgres.test.ts. */
 
-import type { ModelMessage } from "ai";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { DesignLookupReferenceResolver } from "@/lib/agent/change-set/designLookupReferences";
-import type { ChangeSetDiagnostics } from "@/lib/agent/change-set/diagnostics";
-import {
-	ChangeSetScopeLostError,
-	ChangeSetStagingRejectedError,
-} from "@/lib/agent/change-set/errors";
-import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
-import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import {
 	cloneContract,
 	fixtureValue,
@@ -28,7 +16,8 @@ import {
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { designLookupBindingSchema } from "@/lib/agent/design/lookupMaterializationTypes";
-import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
@@ -37,25 +26,36 @@ import {
 	lookupTableIdSchema,
 	proseText,
 } from "@/lib/domain";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { acceptedInputRequirementIssues } from "../acceptedInputParity";
 import { acceptedSelectionRealizationIssues } from "../acceptedSelectionParity";
-import { budgetForSlice, type SliceExecutionBudget } from "../budgets";
 import {
 	deriveSliceExecutionBrief,
 	type SliceExecutionBrief,
 } from "../executionBrief";
 import {
 	compositionAdmissionIssue,
-	type ExecutorConversationContext,
-	type ExecutorStepFn,
-	type ExecutorToolOutcomeEvent,
 	type ExecutorWorkspace,
-	recoverCommittedExecutorToolResult,
 	renderExecutorBlueprintCheckpoint,
-	runSliceExecutor,
-	type SliceCommitResult,
 } from "../executorLoop";
 
+function caseListConfig(
+	name = "patient-name",
+): ReturnType<typeof emptyCaseListConfig> {
+	return {
+		...emptyCaseListConfig(),
+		columns: [
+			{
+				uuid: testUuid(name),
+				kind: "plain",
+				field: "case_name",
+				header: "Name",
+			},
+		],
+		listColumnOrder: [testUuid(name)],
+		detailColumnOrder: [testUuid(name)],
+	};
+}
 function brief(): SliceExecutionBrief {
 	const plan = makeBuildPlan();
 	return deriveSliceExecutionBrief({
@@ -89,46 +89,6 @@ function severalVisitBrief(): SliceExecutionBrief {
 	});
 }
 
-function diagnostics(
-	overrides: Partial<ChangeSetDiagnostics> = {},
-): ChangeSetDiagnostics {
-	return {
-		snapshotRevision: 1,
-		candidateDigest: "d".repeat(64),
-		allFindings: [],
-		finalizationFindings: [],
-		introducedSincePreviousStep: [],
-		resolvedSincePreviousStep: [],
-		readSetStatus: [],
-		canCommit: true,
-		...overrides,
-	};
-}
-
-const BLOCKING_DIAGNOSTICS = diagnostics({
-	canCommit: false,
-	allFindings: [
-		{
-			code: "MISSING_CASE_LIST_COLUMNS",
-			message: "This case module has no visible Results fields.",
-			location: { kind: "app" },
-			details: {},
-		},
-	] as unknown as ChangeSetDiagnostics["allFindings"],
-});
-
-interface DispatchCall {
-	readonly toolName: string;
-	readonly requestId: string;
-	readonly input: unknown;
-}
-
-interface FakeWorkspace extends ExecutorWorkspace {
-	readonly dispatched: DispatchCall[];
-	readonly dispatchOrder: string[];
-	inspectCalls: number;
-}
-
 function acceptedWorkspaceFixture(): {
 	readonly doc: BlueprintDoc;
 	readonly handles: ReturnType<
@@ -155,12 +115,22 @@ function acceptedWorkspaceFixture(): {
 		modules: [
 			{
 				name: composition.name,
-				...(caseType === undefined ? {} : { caseType }),
-				caseListOnly: true,
-				forms: [],
+				...(caseType === undefined
+					? {}
+					: { caseType, caseListConfig: caseListConfig() }),
+				forms: [
+					{
+						name: "Record visit",
+						type: "followup",
+						fields: [
+							f({ id: "notes", kind: "text", label: proseText("Notes") }),
+						],
+					},
+				],
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
 	const moduleUuid = fixtureValue(doc.moduleOrder[0], "accepted module");
 	return {
 		doc,
@@ -174,82 +144,35 @@ function acceptedWorkspaceFixture(): {
 	};
 }
 
-function fakeWorkspace(options?: {
-	readonly doc?: BlueprintDoc;
-	readonly inspect?: () => Promise<ChangeSetDiagnostics>;
-	readonly stage?: (args: DispatchCall) => Promise<unknown>;
-	readonly beforeDispatch?: (args: DispatchCall) => void;
-	readonly projectDesignLookupReferences?: (value: unknown) => unknown;
-}): FakeWorkspace {
-	const dispatched: DispatchCall[] = [];
-	const dispatchOrder: string[] = [];
-	let revision = 0;
-	const accepted =
-		options?.doc === undefined ? acceptedWorkspaceFixture() : null;
-	const doc =
-		options?.doc ?? fixtureValue(accepted?.doc, "accepted workspace document");
-	const workspace: FakeWorkspace = {
-		dispatched,
-		dispatchOrder,
-		inspectCalls: 0,
-		currentSnapshot(): WorkspaceSnapshot {
-			return {
-				doc,
-				revision,
-				canonicalSeq: null,
-				projectId: "project-1",
-			};
-		},
-		currentExecutionCheckpoint() {
-			return { handles: accepted?.handles ?? [] };
-		},
-		projectDesignLookupReferences(value) {
-			return options?.projectDesignLookupReferences?.(value) ?? value;
-		},
-		async stageDispatch(args) {
-			const call = {
-				toolName: args.toolName,
-				requestId: args.requestId,
-				input: args.input,
-			};
-			options?.beforeDispatch?.(call);
-			dispatched.push(call);
-			dispatchOrder.push(`tool:${args.requestId}`);
-			const custom = await options?.stage?.(call);
-			if (custom !== undefined) return custom as never;
-			const entry = CHANGE_SET_TOOL_REGISTRY.get(args.toolName);
-			if (entry?.policy.effect === "mutate-blueprint") {
-				revision += 1;
-				return {
-					replayed: false,
-					result: {
-						kind: "mutate",
-						mutations: [],
-						result: { message: `Applied ${args.toolName}.` },
-					},
-				} as never;
-			}
-			return {
-				replayed: false,
-				result: { kind: "read", data: { found: args.toolName } },
-			} as never;
+function readonlyWorkspace(options: {
+	doc: BlueprintDoc;
+	lookupContext?: LookupValidationContext;
+	projectDesignLookupReferences?: (value: unknown) => unknown;
+}): ExecutorWorkspace {
+	if (options.doc.moduleOrder.length > 0)
+		assertAdmittedDoc(options.doc, options.lookupContext);
+	return {
+		currentSnapshot: () => ({
+			doc: options.doc,
+			revision: 0,
+			canonicalSeq: null,
+			projectId: "projection-project",
+		}),
+		currentExecutionCheckpoint: () => ({ handles: [] }),
+		projectDesignLookupReferences: (value) =>
+			options.projectDesignLookupReferences?.(value) ?? value,
+		async stageDispatch() {
+			throw new Error("Pure admission must not dispatch tools");
 		},
 		async inspect() {
-			workspace.inspectCalls += 1;
-			dispatchOrder.push("inspect");
-			return (
-				options?.inspect?.() ?? diagnostics({ snapshotRevision: revision })
-			);
+			throw new Error("Pure admission must not finalize a workspace");
 		},
 	};
-	return workspace;
 }
-
 function severalSelectionWorkspace(
 	sliceBrief: SliceExecutionBrief,
 	maximum?: number,
-	stage?: (args: DispatchCall) => Promise<unknown>,
-): FakeWorkspace {
+): ExecutorWorkspace {
 	const realization = fixtureValue(
 		sliceBrief.moduleRealizations.find(
 			(entry) => entry.selectionRealization?.cases === "several",
@@ -274,20 +197,26 @@ function severalSelectionWorkspace(
 				name: composition.name,
 				caseType,
 				caseListConfig: {
-					columns: [],
-					searchInputs: [],
+					...caseListConfig(),
 					...(maximum === undefined
 						? {}
 						: { selection: { kind: "multiple" as const, maximum } }),
 				},
-				forms: [{ name: "Record visit", type: "followup", fields: [] }],
+				forms: [
+					{
+						name: "Record visit",
+						type: "followup",
+						fields: [
+							f({ id: "notes", kind: "text", label: proseText("Notes") }),
+						],
+					},
+				],
 			},
 		],
 	});
 	const moduleUuid = fixtureValue(doc.moduleOrder[0], "several-case module");
-	const workspace = fakeWorkspace({
+	const workspace = readonlyWorkspace({
 		doc,
-		...(stage === undefined ? {} : { stage }),
 	});
 	workspace.currentExecutionCheckpoint = () => ({
 		handles: [
@@ -301,166 +230,7 @@ function severalSelectionWorkspace(
 	return workspace;
 }
 
-interface ScriptedResponse {
-	readonly calls?: readonly {
-		readonly toolCallId: string;
-		readonly toolName: string;
-		readonly input?: unknown;
-	}[];
-	readonly text?: string;
-	readonly reasoningText?: string;
-}
-
-function assistantMessage(
-	calls: NonNullable<ScriptedResponse["calls"]>,
-	text = "",
-): ModelMessage {
-	return {
-		role: "assistant",
-		content: [
-			...(text === "" ? [] : [{ type: "text" as const, text }]),
-			...calls.map((call) => ({
-				type: "tool-call" as const,
-				toolCallId: call.toolCallId,
-				toolName: call.toolName,
-				input: call.input ?? {},
-			})),
-		],
-	};
-}
-
-function scriptedStep(script: readonly ScriptedResponse[]) {
-	let index = 0;
-	const seen: Array<{
-		readonly messages: ModelMessage[];
-		readonly toolNames: readonly string[] | undefined;
-		readonly mounted: readonly string[];
-	}> = [];
-	const step: ExecutorStepFn = async ({ messages, tools, allowedTools }) => {
-		const response = script[Math.min(index, script.length - 1)] ?? {};
-		index += 1;
-		const calls = response.calls ?? [];
-		seen.push({
-			messages: [...messages],
-			toolNames: allowedTools,
-			mounted: Object.keys(tools),
-		});
-		return {
-			toolCalls: calls.map((call) => ({
-				toolCallId: call.toolCallId,
-				toolName: call.toolName,
-				input: call.input ?? {},
-			})),
-			text: response.text ?? "",
-			...(response.reasoningText !== undefined && {
-				reasoningText: response.reasoningText,
-			}),
-			usage: undefined,
-			responseMessages: [assistantMessage(calls, response.text)],
-		};
-	};
-	return { step, seen };
-}
-
-function receipt(): CommittedSliceReceipt {
-	const slice = brief().slice;
-	return {
-		id: "receipt-1",
-		changeSetId: "change-set-1",
-		appId: "app-executor-test",
-		seq: 1,
-		batchId: "batch-1",
-		committedSnapshotDigest: "c".repeat(64),
-		mutationCount: 1,
-		committedAt: new Date(0),
-		designSessionId: "session-1",
-		designRevisionId: ids.revisionId,
-		designRevisionDigest: "b".repeat(64),
-		buildPlanId: brief().buildPlanId,
-		buildPlanDigest: brief().buildPlanDigest,
-		sliceId: slice.id,
-		attemptId: "attempt-1",
-	};
-}
-
-function budget(overrides: Partial<SliceExecutionBudget> = {}) {
-	return { ...budgetForSlice(brief().slice), ...overrides };
-}
-
-function toolResultValues(messages: readonly ModelMessage[]) {
-	return messages.flatMap((message) =>
-		message.role !== "tool"
-			? []
-			: message.content.flatMap((part) =>
-					part.type === "tool-result" && part.output.type === "json"
-						? [
-								{
-									toolCallId: part.toolCallId,
-									toolName: part.toolName,
-									value: part.output.value,
-								},
-							]
-						: [],
-				),
-	);
-}
-
-function toolResultMessage(
-	toolCallId: string,
-	toolName: string,
-	value: unknown,
-): ModelMessage {
-	return {
-		role: "tool",
-		content: [
-			{
-				type: "tool-result",
-				toolCallId,
-				toolName,
-				output: { type: "json", value: value as never },
-			},
-		],
-	};
-}
-
-function run(args: {
-	readonly workspace: ExecutorWorkspace;
-	readonly step: ExecutorStepFn;
-	readonly brief?: SliceExecutionBrief;
-	readonly context?: ExecutorConversationContext;
-	readonly contextScopeKey?: string;
-	readonly commit?: () => Promise<SliceCommitResult>;
-	readonly resolveBlocker?: Parameters<
-		typeof runSliceExecutor
-	>[0]["resolveBlocker"];
-	readonly onToolOutcome?: (
-		event: ExecutorToolOutcomeEvent,
-	) => void | Promise<void>;
-	readonly budget?: SliceExecutionBudget;
-}) {
-	return runSliceExecutor({
-		workspace: args.workspace,
-		brief: args.brief ?? brief(),
-		budget: args.budget ?? budget(),
-		step: args.step,
-		...(args.context !== undefined && { context: args.context }),
-		...(args.contextScopeKey !== undefined && {
-			contextScopeKey: args.contextScopeKey,
-		}),
-		commit:
-			args.commit ??
-			(async () => ({ kind: "committed", receipt: receipt() }) as const),
-		...(args.resolveBlocker !== undefined && {
-			resolveBlocker: args.resolveBlocker,
-		}),
-		...(args.onToolOutcome !== undefined && {
-			onToolOutcome: args.onToolOutcome,
-		}),
-		signal: new AbortController().signal,
-	});
-}
-
-describe("native executor surface", () => {
+describe("executor identity projection", () => {
 	it("keeps designed lookup references stable in authoritative checkpoints", () => {
 		const tableDesignId = "00000000-0000-4000-8000-000000000101";
 		const valueDesignId = "00000000-0000-4000-8000-000000000102";
@@ -517,779 +287,56 @@ describe("native executor surface", () => {
 			],
 		});
 		const checkpoint = renderExecutorBlueprintCheckpoint(
-			fakeWorkspace({
+			readonlyWorkspace({
 				doc,
+				lookupContext: {
+					kind: "available",
+					projectId: "projection-project",
+					projectRevision: parseLookupRevision("1"),
+					definitions: [
+						{
+							id: tableId,
+							name: "Risk levels",
+							tag: "risk_levels",
+							definitionRevision: parseLookupRevision("1"),
+							columns: [
+								{
+									id: valueColumnId,
+									wireName: "code",
+									label: "Code",
+									dataType: "text",
+								},
+								{
+									id: labelColumnId,
+									wireName: "name",
+									label: "Name",
+									dataType: "text",
+								},
+							],
+						},
+					],
+				},
 				projectDesignLookupReferences: (value) => resolver.projectOutput(value),
 			}),
 		);
 
-		expect(checkpoint).toContain('"kind": "designed-project-lookup"');
-		expect(checkpoint).toContain(tableDesignId);
-		expect(checkpoint).toContain(valueDesignId);
-		expect(checkpoint).toContain(labelDesignId);
-		expect(checkpoint).not.toContain(tableId);
-		expect(checkpoint).not.toContain(valueColumnId);
-		expect(checkpoint).not.toContain(labelColumnId);
-	});
-
-	it("mounts the stable full grammar while passing a slice-specific allowed set", async () => {
-		const scripted = scriptedStep([
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		await run({ workspace: fakeWorkspace(), step: scripted.step });
-		const request = fixtureValue(scripted.seen[0], "model request");
-		expect(request.mounted).toEqual(
-			expect.arrayContaining([
-				"searchBlueprint",
-				"createModule",
-				"finishWorkflow",
-				"reportExecutionBlocker",
-			]),
-		);
-		expect(request.mounted).not.toEqual(
-			expect.arrayContaining(["readBatch", "stageBatch", "stageModule"]),
-		);
-		expect(request.toolNames).toEqual([
-			...brief().toolProfile.readTools,
-			...brief().toolProfile.mutationTools,
-			"finishWorkflow",
-			"reportExecutionBlocker",
-		]);
-	});
-
-	it("persists one response, then runs native calls serially and finalizes", async () => {
-		const order: string[] = [];
-		const context: ExecutorConversationContext = {
-			messages: [],
-			async append(key) {
-				order.push(`persist:${key}`);
-			},
-		};
-		const workspace = fakeWorkspace({
-			beforeDispatch: (call) => {
-				expect(
-					context.messages.some(
-						(message) =>
-							message.role === "assistant" &&
-							JSON.stringify(message).includes(call.requestId),
-					),
-				).toBe(true);
-				order.push(`dispatch:${call.requestId}`);
-			},
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "rename",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-					{
-						toolCallId: "read",
-						toolName: "searchBlueprint",
-						input: { query: "module" },
-					},
-					{ toolCallId: "finish", toolName: "finishWorkflow" },
-				],
-			},
-		]);
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			context,
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-			commit: async () => {
-				order.push("commit");
-				return { kind: "committed", receipt: receipt() };
-			},
-		});
-		expect(result.kind).toBe("committed");
-		expect(workspace.dispatched.map((call) => call.requestId)).toEqual([
-			"rename",
-			"read",
-		]);
-		expect(
-			order.findIndex((entry) => entry.includes(":response")),
-		).toBeLessThan(order.indexOf("dispatch:rename"));
-		expect(order.indexOf("dispatch:rename")).toBeLessThan(
-			order.indexOf("dispatch:read"),
-		);
-		expect(order.indexOf("dispatch:read")).toBeLessThan(
-			order.indexOf("commit"),
-		);
-		expect(outcomes.map(({ outcome, code }) => [outcome, code])).toEqual([
-			["accepted", "PRIVATE_MUTATION_APPLIED"],
-			["accepted", "READ_COMPLETED"],
-			["committed", "WORKFLOW_COMMITTED"],
-		]);
-		expect(
-			toolResultValues(context.messages).map((item) => item.toolCallId),
-		).toEqual(["rename", "read", "finish"]);
-	});
-
-	it("halts dependent calls when case-selection coordination applied nothing", async () => {
-		const sliceBrief = severalVisitBrief();
-		const realization = fixtureValue(
-			sliceBrief.moduleRealizations.find(
-				(entry) => entry.selectionRealization?.cases === "several",
-			),
-			"several-case module realization",
-		);
-		const workspace = severalSelectionWorkspace(sliceBrief, 12, async (call) =>
-			call.toolName === "configureCaseSelection"
-				? {
-						replayed: false,
-						result: {
-							kind: "mutate",
-							mutations: [],
-							result: {
-								outcome: "needs_changes",
-								needs: "confirmation",
-								requiredConfirmedModuleUuids: [],
-								coordinatedChanges: [],
-								blockers: [],
-							},
-						},
-					}
-				: undefined,
-		);
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "selection",
-						toolName: "configureCaseSelection",
-						input: {
-							moduleUuid: { handle: realization.blueprintModuleHandle },
-							selection: { kind: "multiple", maximum: 12 },
+		const fieldUuid = fixtureValue(Object.keys(doc.fields)[0], "lookup field");
+		expect(JSON.parse(checkpoint)).toMatchObject({
+			blueprint: {
+				fields: {
+					[fieldUuid]: {
+						optionsSource: {
+							kind: "designed-project-lookup",
+							tableId: tableDesignId,
+							valueColumnId: valueDesignId,
+							labelColumnId: labelDesignId,
 						},
 					},
-					{ toolCallId: "premature-finish", toolName: "finishWorkflow" },
-				],
+				},
 			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const context: ExecutorConversationContext = { messages: [] };
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-		const result = await run({
-			brief: sliceBrief,
-			workspace,
-			step: scripted.step,
-			context,
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-		});
-
-		expect(result.kind).toBe("committed");
-		expect(outcomes.map(({ outcome, code }) => [outcome, code])).toEqual([
-			["non-applied", "CASE_SELECTION_NEEDS_CHANGES"],
-			["skipped", "DEPENDENT_CALL_SKIPPED"],
-			["committed", "WORKFLOW_COMMITTED"],
-		]);
-		expect(
-			toolResultValues(context.messages).find(
-				(entry) => entry.toolCallId === "selection",
-			)?.value,
-		).toMatchObject({
-			status: "not-applied",
-			code: "CASE_SELECTION_NEEDS_CHANGES",
-			outcome: "needs_changes",
-		});
-	});
-
-	it("retains an accepted prefix and skips the dependent suffix after failure", async () => {
-		const workspace = fakeWorkspace({
-			stage: async (call) => {
-				if (call.requestId !== "bad") return undefined;
-				return {
-					replayed: false,
-					receipt: { error: { code: "TARGET_INVALID" } },
-					result: {
-						kind: "mutate",
-						mutations: [],
-						result: { error: "The target does not exist." },
-					},
-				};
-			},
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "good",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-					{
-						toolCallId: "bad",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-					{
-						toolCallId: "dependent",
-						toolName: "searchBlueprint",
-						input: { query: "module" },
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const context: ExecutorConversationContext = { messages: [] };
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			context,
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-		});
-		expect(result.kind).toBe("committed");
-		expect(workspace.dispatched.map((call) => call.requestId)).toEqual([
-			"good",
-			"bad",
-		]);
-		expect(outcomes.map(({ outcome, code }) => [outcome, code])).toContainEqual(
-			["skipped", "DEPENDENT_CALL_SKIPPED"],
-		);
-		expect(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "dependent",
-			)?.value,
-		).toMatchObject({ status: "skipped", code: "DEPENDENT_CALL_SKIPPED" });
-	});
-
-	it("awaits each durable result before dispatching the next call", async () => {
-		const persisted: string[] = [];
-		let firstResultPersisted = false;
-		const context: ExecutorConversationContext = {
-			messages: [],
-			async append(key) {
-				persisted.push(key);
-				if (key.endsWith(":tool:first")) firstResultPersisted = true;
-			},
-		};
-		const workspace = fakeWorkspace({
-			beforeDispatch: (call) => {
-				if (call.requestId === "second")
-					expect(firstResultPersisted).toBe(true);
-			},
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "first",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-					{
-						toolCallId: "second",
-						toolName: "searchBlueprint",
-						input: { query: "form" },
-					},
-					{ toolCallId: "finish", toolName: "finishWorkflow" },
-				],
-			},
-		]);
-		await run({ workspace, step: scripted.step, context });
-		expect(persisted.some((key) => key.endsWith(":tool:first"))).toBe(true);
-		expect(persisted.some((key) => key.endsWith(":tool:second"))).toBe(true);
-	});
-});
-
-describe("native response recovery", () => {
-	function recoveringContext(
-		firstResult: unknown,
-	): ExecutorConversationContext {
-		const response = assistantMessage([
-			{
-				toolCallId: "first",
-				toolName: "updateApp",
-				input: { name: brief().charter.appName },
-			},
-			{
-				toolCallId: "second",
-				toolName: "searchBlueprint",
-				input: { query: "form" },
-			},
-		]);
-		const result = toolResultMessage("first", "updateApp", firstResult);
-		return {
-			messages: [response, result],
-			items: [{ appendKey: "step:attempt-1:1:response", message: response }],
-			appendKeys: new Set([
-				"step:attempt-1:1:response",
-				"step:attempt-1:1:tool:first",
-			]),
-		};
-	}
-
-	it("dispatches only the unanswered suffix after process replacement", async () => {
-		const workspace = fakeWorkspace();
-		const scripted = scriptedStep([
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			context: recoveringContext({ message: "Applied updateApp." }),
-			contextScopeKey: "attempt-1",
-		});
-		expect(result.kind).toBe("committed");
-		expect(workspace.dispatched.map((call) => call.requestId)).toEqual([
-			"second",
-		]);
-		expect(scripted.seen).toHaveLength(1);
-	});
-
-	it("skips an unanswered suffix when the durable prefix already failed", async () => {
-		const workspace = fakeWorkspace();
-		const context = recoveringContext({
-			status: "failed",
-			code: "TARGET_INVALID",
-			error: "The target does not exist.",
-		});
-		const scripted = scriptedStep([
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			context,
-			contextScopeKey: "attempt-1",
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-		});
-		expect(result.kind).toBe("committed");
-		expect(workspace.dispatched).toEqual([]);
-		expect(outcomes).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					toolName: "searchBlueprint",
-					outcome: "skipped",
-					code: "DEPENDENT_CALL_SKIPPED",
-				}),
-			]),
-		);
-	});
-
-	it("reconstructs a lost finalizer result only for a pending finishWorkflow", () => {
-		const response = assistantMessage([
-			{ toolCallId: "finish", toolName: "finishWorkflow" },
-		]);
-		const context: ExecutorConversationContext = {
-			messages: [response],
-			items: [{ appendKey: "step:attempt-1:1:response", message: response }],
-		};
-		const recovered = recoverCommittedExecutorToolResult({
-			context,
-			attemptId: "attempt-1",
-			receipt: receipt(),
-		});
-		expect(recovered?.appendKey).toBe("step:attempt-1:1:tool:finish");
-		expect(
-			toolResultValues(recovered ? [recovered.message] : [])[0]?.value,
-		).toMatchObject({
-			status: "committed",
-			code: "WORKFLOW_COMMITTED",
 		});
 	});
 });
-
-describe("failure and finalization policy", () => {
-	it("does not call the architect for a pure tool-input failure", async () => {
-		const resolveBlocker = vi.fn();
-		const workspace = fakeWorkspace({
-			stage: async () => {
-				throw new ChangeSetStagingRejectedError(
-					"TOOL_INPUT_INVALID",
-					"The input is malformed.",
-				);
-			},
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "invalid",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			resolveBlocker,
-		});
-		expect(result.kind).toBe("committed");
-		expect(resolveBlocker).not.toHaveBeenCalled();
-	});
-
-	it("asks the architect only after the same substantive composition failure repeats", async () => {
-		const resolveBlocker = vi.fn(async () => ({
-			kind: "continue" as const,
-			guidance: "Use the accepted module composition.",
-		}));
-		const wrongModule = {
-			moduleUuid: { handle: "@wrong" },
-			name: "Invented module",
-			case_type: null,
-			forms: [],
-		};
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "wrong-1",
-						toolName: "createModule",
-						input: wrongModule,
-					},
-				],
-			},
-			{
-				calls: [
-					{
-						toolCallId: "wrong-2",
-						toolName: "createModule",
-						input: wrongModule,
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-		const result = await run({
-			workspace: fakeWorkspace(),
-			step: scripted.step,
-			resolveBlocker,
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-		});
-		expect(result.kind).toBe("committed");
-		expect(resolveBlocker).toHaveBeenCalledTimes(1);
-		expect(
-			outcomes.filter((event) => event.code === "COMPOSITION_HOST_FORBIDDEN"),
-		).toHaveLength(2);
-	});
-
-	it("corrects the second identical deterministic rejection and stops the third locally", async () => {
-		const resolveBlocker = vi.fn();
-		const workspace = fakeWorkspace({
-			stage: async () => ({
-				replayed: false,
-				receipt: { error: { code: "TARGET_ALREADY_ABSENT" } },
-				result: {
-					kind: "mutate",
-					mutations: [],
-					result: {
-						error:
-							"The requested state is already absent; this call has no edit.",
-					},
-				},
-			}),
-		});
-		const repeatedCall = { name: brief().charter.appName };
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "no-op-1",
-						toolName: "updateApp",
-						input: repeatedCall,
-					},
-				],
-			},
-			{
-				calls: [
-					{
-						toolCallId: "no-op-2",
-						toolName: "updateApp",
-						input: repeatedCall,
-					},
-				],
-			},
-			{
-				calls: [
-					{
-						toolCallId: "no-op-3",
-						toolName: "updateApp",
-						input: repeatedCall,
-					},
-				],
-			},
-		]);
-		const context: ExecutorConversationContext = { messages: [] };
-
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			context,
-			resolveBlocker,
-		});
-
-		expect(result).toMatchObject({
-			kind: "protocol-failure",
-			code: "repeated-rejected-call",
-		});
-		expect(workspace.dispatched).toHaveLength(3);
-		expect(resolveBlocker).not.toHaveBeenCalled();
-		expect(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "no-op-2",
-			)?.value,
-		).toMatchObject({
-			repeatedFailure: {
-				occurrence: 2,
-				recoveryGuidance: expect.stringContaining("Do not retry it unchanged"),
-			},
-		});
-		expect(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "no-op-3",
-			)?.value,
-		).toMatchObject({ repeatedFailure: { occurrence: 3 } });
-	});
-
-	it("does not collapse changed rejected inputs into one no-progress sequence", async () => {
-		const workspace = fakeWorkspace({
-			stage: async () => ({
-				replayed: false,
-				receipt: { error: { code: "TARGET_INVALID" } },
-				result: {
-					kind: "mutate",
-					mutations: [],
-					result: { error: "The requested target is invalid." },
-				},
-			}),
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "bad-1",
-						toolName: "updateApp",
-						input: { name: "One" },
-					},
-				],
-			},
-			{
-				calls: [
-					{
-						toolCallId: "bad-2",
-						toolName: "updateApp",
-						input: { name: "Two" },
-					},
-				],
-			},
-			{
-				calls: [
-					{
-						toolCallId: "bad-3",
-						toolName: "updateApp",
-						input: { name: "Three" },
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-
-		await expect(
-			run({ workspace, step: scripted.step }),
-		).resolves.toMatchObject({
-			kind: "committed",
-		});
-	});
-
-	it("does not recover a rejection sequence that a later accepted call reset", async () => {
-		const input = { name: brief().charter.appName };
-		const priorFailure = toolResultMessage("old-failure", "updateApp", {
-			status: "failed",
-			code: "TARGET_INVALID",
-			error: "The requested target is invalid.",
-			repeatedFailure: {
-				fingerprint: "old-fingerprint",
-				occurrence: 2,
-				recoveryGuidance: "Do not retry it unchanged.",
-			},
-		});
-		const priorSuccess = toolResultMessage("old-success", "searchBlueprint", {
-			kind: "read",
-			data: { found: true },
-		});
-		const context: ExecutorConversationContext = {
-			messages: [priorFailure, priorSuccess],
-		};
-		const workspace = fakeWorkspace({
-			stage: async () => ({
-				replayed: false,
-				receipt: { error: { code: "TARGET_INVALID" } },
-				result: {
-					kind: "mutate",
-					mutations: [],
-					result: { error: "The requested target is invalid." },
-				},
-			}),
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "new-failure",
-						toolName: "updateApp",
-						input,
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-
-		await expect(
-			run({ workspace, step: scripted.step, context }),
-		).resolves.toMatchObject({ kind: "committed" });
-		expect(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "new-failure",
-			)?.value,
-		).toMatchObject({ repeatedFailure: { occurrence: 1 } });
-	});
-
-	it("returns validator corrections and commits only after a later clean finish", async () => {
-		let inspection = 0;
-		const workspace = fakeWorkspace({
-			inspect: async () => {
-				inspection += 1;
-				return inspection === 1 ? BLOCKING_DIAGNOSTICS : diagnostics();
-			},
-		});
-		const scripted = scriptedStep([
-			{ calls: [{ toolCallId: "finish-1", toolName: "finishWorkflow" }] },
-			{
-				calls: [
-					{
-						toolCallId: "repair",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-				],
-			},
-			{ calls: [{ toolCallId: "finish-2", toolName: "finishWorkflow" }] },
-		]);
-		const commit = vi.fn(async () => ({
-			kind: "committed" as const,
-			receipt: receipt(),
-		}));
-		const context: ExecutorConversationContext = { messages: [] };
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			commit,
-			context,
-		});
-		expect(result.kind).toBe("committed");
-		expect(commit).toHaveBeenCalledTimes(1);
-		expect(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "finish-1",
-			)?.value,
-		).toMatchObject({
-			status: "needs-correction",
-			code: "WORKFLOW_NEEDS_CORRECTION",
-		});
-		const correctionResult = JSON.stringify(
-			toolResultValues(context.messages).find(
-				(item) => item.toolCallId === "finish-1",
-			)?.value,
-		);
-		expect(correctionResult).toContain("addCaseListColumns");
-		expect(correctionResult).toContain('\\"field\\":\\"case_name\\"');
-		expect(correctionResult).toContain("never addFields");
-	});
-
-	it("reports a lost workspace as a terminal protocol fact", async () => {
-		const workspace = fakeWorkspace({
-			stage: async () => {
-				throw new ChangeSetScopeLostError("The private workspace was closed.");
-			},
-		});
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "lost",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-				],
-			},
-		]);
-		await expect(
-			run({ workspace, step: scripted.step }),
-		).resolves.toMatchObject({
-			kind: "protocol-failure",
-			code: "CHANGE_SET_SCOPE_LOST",
-		});
-	});
-
-	it("preserves the accepted mutation prefix when the native-call budget ends", async () => {
-		const workspace = fakeWorkspace();
-		const scripted = scriptedStep([
-			{
-				calls: [
-					{
-						toolCallId: "first",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-					{
-						toolCallId: "second",
-						toolName: "updateApp",
-						input: { name: brief().charter.appName },
-					},
-				],
-			},
-		]);
-		const result = await run({
-			workspace,
-			step: scripted.step,
-			budget: budget({ maxMutationCalls: 1 }),
-		});
-		expect(result).toMatchObject({
-			kind: "budget-exhausted",
-			axis: "mutation-calls",
-			spent: { mutationCalls: 1, commitAttempts: 0, blockerReports: 0 },
-		});
-		expect(workspace.dispatched.map((call) => call.requestId)).toEqual([
-			"first",
-		]);
-	});
-
-	it("stops after three prose-only responses", async () => {
-		const scripted = scriptedStep([
-			{ text: "thinking" },
-			{ text: "still thinking" },
-			{ text: "more thinking" },
-		]);
-		await expect(
-			run({ workspace: fakeWorkspace(), step: scripted.step }),
-		).resolves.toMatchObject({
-			kind: "protocol-failure",
-			code: "no-tool-call",
-		});
-	});
-});
-
 describe("accepted selection realization parity", () => {
 	it("finds several-case selection invented on an unmarked created module", () => {
 		const sliceBrief = brief();
@@ -1302,6 +349,7 @@ describe("accepted selection realization parity", () => {
 			fixture.doc.modules[moduleUuid],
 			"created module body",
 		);
+		const config = fixtureValue(module.caseListConfig, "created case list");
 		const doc: BlueprintDoc = {
 			...fixture.doc,
 			modules: {
@@ -1309,12 +357,13 @@ describe("accepted selection realization parity", () => {
 				[moduleUuid]: {
 					...module,
 					caseListConfig: {
-						...emptyCaseListConfig(),
+						...config,
 						selection: { kind: "multiple", maximum: 9 },
 					},
 				},
 			},
 		};
+		assertAdmittedDoc(doc);
 
 		expect(
 			acceptedSelectionRealizationIssues(doc, sliceBrief, fixture.handles),
@@ -1330,67 +379,7 @@ describe("accepted selection realization parity", () => {
 			},
 		]);
 	});
-
-	it("refuses finalization until the realized module has the accepted selection", async () => {
-		const sliceBrief = severalVisitBrief();
-		const workspace = severalSelectionWorkspace(sliceBrief);
-		const scripted = scriptedStep([
-			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
-		]);
-		const context: ExecutorConversationContext = { messages: [] };
-		const commit = vi.fn(async () => ({
-			kind: "committed" as const,
-			receipt: receipt(),
-		}));
-		const outcomes: ExecutorToolOutcomeEvent[] = [];
-
-		const result = await run({
-			brief: sliceBrief,
-			workspace,
-			step: scripted.step,
-			context,
-			commit,
-			budget: budget({ maxModelSteps: 1 }),
-			onToolOutcome: (event) => {
-				outcomes.push(event);
-			},
-		});
-
-		expect(result).toMatchObject({
-			kind: "budget-exhausted",
-			axis: "model-steps",
-		});
-		expect(commit).not.toHaveBeenCalled();
-		expect(workspace.inspectCalls).toBe(1);
-		expect(outcomes).toContainEqual(
-			expect.objectContaining({
-				toolName: "finishWorkflow",
-				outcome: "validator-repair",
-				code: "WORKFLOW_NEEDS_CORRECTION",
-			}),
-		);
-		expect(
-			toolResultValues(context.messages).find(
-				(entry) => entry.toolCallId === "finish",
-			)?.value,
-		).toMatchObject({
-			status: "needs-correction",
-			diagnostics: {
-				canCommit: false,
-				findings: [
-					{
-						code: "ACCEPTED_CASE_SELECTION_MISMATCH",
-						details: {
-							acceptedSelection: { kind: "multiple", maximum: 12 },
-							realizedSelection: null,
-						},
-					},
-				],
-			},
-		});
-	});
 });
-
 describe("accepted input requirement parity", () => {
 	function visitBrief(requiredWhen?: string): SliceExecutionBrief {
 		const base = makeContract();
@@ -1426,13 +415,14 @@ describe("accepted input requirement parity", () => {
 	}
 
 	function visitDoc(required: boolean): BlueprintDoc {
-		return buildDoc({
+		const doc = buildDoc({
 			appName: "Patient tracker",
 			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{
 					name: "Patient care",
 					caseType: "patient",
+					caseListConfig: caseListConfig(),
 					forms: [
 						{
 							name: "Record visit",
@@ -1455,6 +445,8 @@ describe("accepted input requirement parity", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
+		return doc;
 	}
 
 	function visitHandles(doc: BlueprintDoc, sliceBrief: SliceExecutionBrief) {
@@ -1586,7 +578,7 @@ describe("accepted composition admission", () => {
 			name: composition.name,
 			case_type: realization.hostRecord?.blueprintCaseType ?? null,
 		};
-		const workspace = fakeWorkspace({ doc: emptyBlueprintDoc("creation") });
+		const workspace = readonlyWorkspace({ doc: emptyBlueprintDoc("creation") });
 
 		expect(
 			compositionAdmissionIssue(
@@ -1663,7 +655,7 @@ describe("accepted composition admission", () => {
 			),
 			"child realization",
 		);
-		const workspace = fakeWorkspace({
+		const workspace = readonlyWorkspace({
 			doc: emptyBlueprintDoc("app-executor-test"),
 		});
 
@@ -1730,13 +722,14 @@ describe("accepted composition admission", () => {
 				{
 					name: parentComposition.name,
 					caseType: "patient",
+					caseListConfig: caseListConfig(),
 					caseListOnly: true,
 					forms: [],
 				},
 			],
 		});
 		const parentUuid = fixtureValue(doc.moduleOrder[0], "parent module");
-		const workspace = fakeWorkspace({ doc });
+		const workspace = readonlyWorkspace({ doc });
 		workspace.currentExecutionCheckpoint = () => ({
 			handles: [
 				{
@@ -1810,8 +803,20 @@ describe("accepted composition admission", () => {
 				{ name: "referral", properties: [] },
 			],
 			modules: [
-				{ name: "Beneficiaries", caseType: "beneficiary", forms: [] },
-				{ name: "Referrals", caseType: "referral", forms: [] },
+				{
+					name: "Beneficiaries",
+					caseType: "beneficiary",
+					caseListConfig: caseListConfig("beneficiary-name"),
+					caseListOnly: true,
+					forms: [],
+				},
+				{
+					name: "Referrals",
+					caseType: "referral",
+					caseListConfig: caseListConfig("referral-name"),
+					caseListOnly: true,
+					forms: [],
+				},
 			],
 		});
 		const beneficiaryModuleUuid = fixtureValue(
@@ -1828,7 +833,7 @@ describe("accepted composition admission", () => {
 			),
 			"accepted beneficiary module realization",
 		).blueprintModuleHandle;
-		const workspace = fakeWorkspace({ doc });
+		const workspace = readonlyWorkspace({ doc });
 		workspace.currentExecutionCheckpoint = () => ({
 			handles: [
 				{

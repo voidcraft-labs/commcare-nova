@@ -1,6 +1,7 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 /**
  * `mutationCommitVerdict` — the shared pre-dispatch gate every commit
  * surface (SA/MCP tool layer, builder dispatch hook) consults. These
@@ -26,7 +27,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
 function minDoc(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Test",
 		modules: [
 			{
@@ -70,6 +71,8 @@ function minDoc(): BlueprintDoc {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 /** The minDoc form's uuid (single module, single form). */
@@ -91,6 +94,7 @@ describe("mutationCommitVerdict", () => {
 			},
 		];
 
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			mutations,
@@ -149,11 +153,13 @@ describe("mutationCommitVerdict", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
 		const caseRead = xp("#patient/village");
 		expect(caseRead.parts).toEqual([
 			{ kind: "case-ref", caseType: "patient", property: "village" },
 		]);
 
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -214,6 +220,7 @@ describe("mutationCommitVerdict", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -260,6 +267,7 @@ describe("mutationCommitVerdict", () => {
 		const parsed = parseXPathForField(doc, target.uuid, "#case/age > 0");
 		expect(parsed.parts).toEqual([{ kind: "text", text: "#case/age > 0" }]);
 
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -279,9 +287,7 @@ describe("mutationCommitVerdict", () => {
 				/XPath|expression|reference/i,
 			);
 		}
-		expect(
-			(doc.fields[target.uuid] as { relevant?: unknown }).relevant,
-		).toBeUndefined();
+		expect(Reflect.get(doc.fields[target.uuid], "relevant")).toBeUndefined();
 	});
 
 	it("rejects removing the final Results field but allows empty Details", () => {
@@ -327,19 +333,20 @@ describe("mutationCommitVerdict", () => {
 	it("rejects a soundness finding, with the finding attached", () => {
 		const doc = minDoc();
 		const target = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!target) throw new Error("Missing village field");
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
-				uuid: target?.uuid as never,
+				uuid: target.uuid,
 				targetKind: "text",
 				// An unparseable XPath — XPATH_SYNTAX, soundness class.
-				// (`relevant`, not `calculate`: text fields carry no
-				// `calculate` slot, so that patch key would be dropped by the
-				// reducer's schema parse and the candidate would stay valid.)
+				// Text fields carry relevant conditions, so this reaches the
+				// expression validator after strict mutation admission.
 				patch: { relevant: xp("if(") },
-			} as Mutation,
+			},
 		];
 
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			mutations,
@@ -347,7 +354,9 @@ describe("mutationCommitVerdict", () => {
 		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
-			expect(verdict.findings.length).toBeGreaterThan(0);
+			expect(verdict.findings.map((finding) => finding.code)).toContain(
+				"XPATH_SYNTAX",
+			);
 			expect(verdict.findings.every((e) => typeof e.message === "string")).toBe(
 				true,
 			);
@@ -365,10 +374,11 @@ describe("mutationCommitVerdict", () => {
 					id: "form_new",
 					name: "Empty survey",
 					type: "survey",
-				} as never,
+				},
 			},
 		];
 
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			mutations,
@@ -382,6 +392,7 @@ describe("mutationCommitVerdict", () => {
 
 	it("rejects a missing reducer target before candidate reduction", () => {
 		const doc = minDoc();
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -409,6 +420,7 @@ describe("mutationCommitVerdict", () => {
 			(field) => field.id === "village",
 		);
 		if (target === undefined) throw new Error("fixture must have village");
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -547,7 +559,7 @@ describe("stored-reference bounce prose", () => {
 	/** minDoc plus a hidden total whose calculate references `village` by
 	 * stable identity after the fixture's authoring boundary resolves it. */
 	function docWithReference(): BlueprintDoc {
-		return buildDoc({
+		const doc = buildDoc({
 			appName: "Test",
 			modules: [
 				{
@@ -599,14 +611,18 @@ describe("stored-reference bounce prose", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
+		return doc;
 	}
 
 	it("delete bounce on an identity reference names the carrier, never the bare uuid", () => {
 		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!village) throw new Error("Missing village field");
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
-			[{ kind: "removeField", uuid: village?.uuid as never }],
+			[{ kind: "removeField", uuid: village.uuid }],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(false);
@@ -617,18 +633,20 @@ describe("stored-reference bounce prose", () => {
 		expect(message).toContain("no longer exists");
 		// The dangling leaf prints as the target's uuid — an internal id,
 		// not a path anyone can find — so it must not reach the prose.
-		expect(message).not.toContain(village?.uuid as string);
+		expect(message).not.toContain(village.uuid);
 	});
 
 	it("a same-batch field-ID update of a resolved reference still lands (identity needs no repair)", () => {
 		const doc = docWithReference();
 		const village = Object.values(doc.fields).find((fl) => fl.id === "village");
+		if (!village) throw new Error("Missing village field");
+		assertAdmittedDoc(doc);
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
 				{
 					kind: "updateField",
-					uuid: village?.uuid as never,
+					uuid: village.uuid,
 					targetKind: "text",
 					patch: { id: "town" },
 				},

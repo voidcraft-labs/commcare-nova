@@ -1,35 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { literal, prop, term } from "@/lib/domain/predicate";
-import { addCaseListColumnsInputSchema } from "../addCaseListColumns";
-import { configureCaseListInputSchema } from "../configureCaseList";
 import {
 	columnInputSchema,
 	searchInputDefInputSchema,
 	stampColumnUuid,
 	stampSearchInputUuid,
 } from "../shared";
-import { updateCaseListColumnInputSchema } from "../updateCaseListColumn";
 
 const UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
 describe("case-list tools use the exact case-property vocabulary", () => {
-	it("explains the related-case shape available to calculated Search columns", () => {
-		for (const inputSchema of [
-			configureCaseListInputSchema,
-			addCaseListColumnsInputSchema,
-			updateCaseListColumnInputSchema,
-		]) {
-			const schema = JSON.stringify(z.toJSONSchema(inputSchema));
-			expect(schema).toContain("one parent property by itself");
-			expect(schema).toContain("Do not wrap the parent property");
-		}
-	});
-
 	it("preserves an accepted column field exactly", () => {
 		const column = stampColumnUuid(
-			{ kind: "plain", field: "external_id", header: "Value" },
+			columnInputSchema.parse({
+				kind: "plain",
+				field: "external_id",
+				header: "Value",
+			}),
 			UUID,
 		);
 		if (column.kind !== "plain") throw new Error("expected plain column");
@@ -39,13 +27,17 @@ describe("case-list tools use the exact case-property vocabulary", () => {
 	it("preserves accepted expression references exactly", () => {
 		const expression = term(prop("patient", "client-code"));
 		const column = stampColumnUuid(
-			{ kind: "calculated", header: "Client code", expression },
+			columnInputSchema.parse({
+				kind: "calculated",
+				header: "Client code",
+				expression,
+			}),
 			UUID,
 		);
 		if (column.kind !== "calculated") {
 			throw new Error("expected calculated column");
 		}
-		expect(column.expression).toBe(expression);
+		expect(column.expression).toEqual(expression);
 	});
 
 	it.each(["name", "external-id", "date-opened"])(
@@ -62,43 +54,54 @@ describe("case-list tools use the exact case-property vocabulary", () => {
 	);
 
 	it.each(["name", "external-id", "date-opened"])(
-		"rejects %s in simple targets and nested expression refs",
+		"rejects alias %s specifically in simple targets and advanced case predicates",
 		(property) => {
+			const simple = {
+				kind: "simple",
+				name: "query",
+				label: "Query",
+				type: "text",
+				property: "case_name",
+			};
+			expect(searchInputDefInputSchema.safeParse(simple).success).toBe(true);
 			expect(
-				searchInputDefInputSchema.safeParse({
-					kind: "simple",
-					name: "query",
-					label: "Query",
-					type: "text",
-					property,
-				}).success,
+				searchInputDefInputSchema.safeParse({ ...simple, property }).success,
 			).toBe(false);
-			expect(
-				searchInputDefInputSchema.safeParse({
-					kind: "simple",
-					name: "query",
-					label: "Query",
-					type: "text",
-					property: "case_name",
-					default: {
+			const advanced = (caseProperty: string) => ({
+				kind: "advanced",
+				name: "query",
+				label: "Query",
+				type: "text",
+				predicate: {
+					kind: "eq",
+					left: {
 						kind: "term",
-						term: { kind: "prop", caseType: "patient", property },
+						term: { kind: "prop", caseType: "patient", property: caseProperty },
 					},
-				}).success,
+					right: term(literal("Alice")),
+				},
+			});
+			// Case reads are allowed in the predicate; a default would reject every
+			// property for scope reasons and could not witness vocabulary enforcement.
+			expect(
+				searchInputDefInputSchema.safeParse(advanced("case_name")).success,
+			).toBe(true);
+			expect(
+				searchInputDefInputSchema.safeParse(advanced(property)).success,
 			).toBe(false);
 		},
 	);
 
 	it("stamps an accepted search input without rewriting it", () => {
 		const input = stampSearchInputUuid(
-			{
+			searchInputDefInputSchema.parse({
 				kind: "simple",
 				name: "client_code",
 				label: "Client code",
 				type: "text",
 				property: "client-code",
 				default: term(literal("")),
-			},
+			}),
 			UUID,
 		);
 		if (input.kind !== "simple")

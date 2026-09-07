@@ -147,8 +147,14 @@ function expirySeconds(expiry: ExpiryOption): number {
  * can hand the validated array straight to the plugin.
  */
 function validateScopes(
-	requested: readonly string[],
+	requested: unknown,
 ): { ok: true; scopes: string[] } | { ok: false; error: string } {
+	if (
+		!Array.isArray(requested) ||
+		requested.some((scope) => typeof scope !== "string")
+	) {
+		return { ok: false, error: "Pick from the offered API key scopes." };
+	}
 	const seen = new Set<string>();
 	for (const scope of requested) {
 		if (!ALLOWED_SCOPE_SET.has(scope)) {
@@ -481,13 +487,13 @@ export async function mintApiKey(
 								postCreateCount,
 							},
 						);
+						return {
+							success: false,
+							error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
+						};
 					} catch (delErr) {
 						log.error("[settings/api-keys] mint race delete failed", delErr);
 					}
-					return {
-						success: false,
-						error: `You already have ${PER_USER_KEY_LIMIT} keys, the per-account limit. Revoke one before minting another.`,
-					};
 				}
 				/* Else: I'm a winner of the race, keep my row, fall
 				 * through to the success path below. The losers handle

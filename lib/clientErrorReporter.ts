@@ -41,7 +41,6 @@ const MAX_ERRORS_PER_SESSION = 10;
  * Fingerprints of already-reported errors. Structured failures use their
  * stable category + app id; generic reports fall back to message + source.
  */
-const reported = new Set<string>();
 
 /** Generate a dedup key from the error payload. */
 function fingerprint(payload: NormalizedClientErrorPayload): string {
@@ -162,23 +161,29 @@ function send(payload: NormalizedClientErrorPayload): void {
  * Returns true if the error was actually sent, false if deduplicated
  * or rate-limited.
  */
-export function reportClientError(
-	payload: ClientErrorPayload,
-	thrown?: unknown,
-): boolean {
-	const normalized = normalizeClientErrorPayload(payload);
-	const key = fingerprint(normalized);
+export function createClientErrorReporter() {
+	const reported = new Set<string>();
+	return function reportClientError(
+		payload: ClientErrorPayload,
+		thrown?: unknown,
+	): boolean {
+		const normalized = normalizeClientErrorPayload(payload);
+		const key = fingerprint(normalized);
 
-	/* Already reported this exact error. */
-	if (reported.has(key)) return false;
+		/* Already reported this exact error. */
+		if (reported.has(key)) return false;
 
-	/* Rate limit reached — stop sending for this page load. */
-	if (reported.size >= MAX_ERRORS_PER_SESSION) return false;
+		/* Rate limit reached — stop sending for this page load. */
+		if (reported.size >= MAX_ERRORS_PER_SESSION) return false;
 
-	reported.add(key);
-	if (!SENTRY_NATIVE_SOURCES.has(normalized.source)) {
-		captureToSentry(normalized, thrown);
-	}
-	send(normalized);
-	return true;
+		reported.add(key);
+		if (!SENTRY_NATIVE_SOURCES.has(normalized.source)) {
+			captureToSentry(normalized, thrown);
+		}
+		send(normalized);
+		return true;
+	};
 }
+
+/** One deduplication/rate-limit lifetime per document. */
+export const reportClientError = createClientErrorReporter();

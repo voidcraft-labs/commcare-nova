@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	caseOperationSchema,
 	effectiveCaseTypes,
-	type Form,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	materializableCaseTypes,
 	orderedCaseOperations,
@@ -24,7 +24,7 @@ const A = testUuid("11111111-1111-4111-8111-111111111111");
 const B = testUuid("22222222-2222-4222-8222-222222222222");
 
 describe("case-operation domain vocabulary", () => {
-	it("normalizes and bounds fixed-column case text with Java String.trim semantics", () => {
+	it("applies the shared scalar control-space trim and UTF-16 length policy", () => {
 		expect(
 			prepareCaseScalarTextValue("\u0000\u001f Alice  Smith \r\n", "reject"),
 		).toEqual({
@@ -57,6 +57,12 @@ describe("case-operation domain vocabulary", () => {
 		expect(
 			prepareCaseScalarTextValue("\u00a0name\u00a0", "reject"),
 		).toMatchObject({ ok: true, value: "\u00a0name\u00a0" });
+		expect(
+			prepareCaseScalarTextValue(`${"😀".repeat(127)}a`, "reject"),
+		).toMatchObject({ ok: true });
+		expect(
+			prepareCaseScalarTextValue("😀".repeat(128), "reject"),
+		).toMatchObject({ ok: false, reason: "too-long" });
 		expect(prepareCaseScalarTextValue("\u0000 \u001f", "allow")).toEqual({
 			ok: true,
 			value: "",
@@ -112,7 +118,11 @@ describe("case-operation domain vocabulary", () => {
 		]);
 		// A copy, so a caller sorting or splicing the result can't reach into
 		// the form it read from.
-		expect(ordered).not.toBe(stored);
+		ordered.reverse().pop();
+		expect(stored).toEqual([
+			{ ...base, uuid: A, id: "first" },
+			{ ...base, uuid: B, id: "second" },
+		]);
 	});
 
 	it("includes operation writers in effective and materialized case schemas", () => {
@@ -127,13 +137,22 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					forms: [{ name: "Edit", type: "followup" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Edit",
+							type: "followup",
+							fields: [f({ id: "note", kind: "text", label: "Note" })],
+						},
+					],
 				},
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: A,
 				id: "score_patient",
@@ -143,6 +162,7 @@ describe("case-operation domain vocabulary", () => {
 				writes: [{ property: "score", value: term(literal(7)) }],
 			},
 		];
+		expectAdmittedDoc(doc);
 
 		expect(
 			effectiveCaseTypes(doc)[0].properties.find(
@@ -174,6 +194,9 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Edit",
@@ -193,7 +216,7 @@ describe("case-operation domain vocabulary", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: A,
 				id: "create_visit",
@@ -213,6 +236,7 @@ describe("case-operation domain vocabulary", () => {
 				],
 			},
 		];
+		expectAdmittedDoc(doc);
 
 		expect(
 			effectiveCaseTypes(doc)
@@ -237,13 +261,22 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					forms: [{ name: "Edit", type: "followup" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Edit",
+							type: "followup",
+							fields: [f({ id: "note", kind: "text", label: "Note" })],
+						},
+					],
 				},
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: A,
 				id: "copy_score",
@@ -270,6 +303,7 @@ describe("case-operation domain vocabulary", () => {
 				writes: [{ property: "score", value: term(literal(7)) }],
 			},
 		];
+		expectAdmittedDoc(doc);
 
 		const properties = new Map(
 			effectiveCaseTypes(doc)[0].properties.map((property) => [
@@ -296,13 +330,22 @@ describe("case-operation domain vocabulary", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					forms: [{ name: "Edit", type: "followup" }],
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Edit",
+							type: "followup",
+							fields: [f({ id: "note", kind: "text", label: "Note" })],
+						},
+					],
 				},
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				id: "copy_right_to_left",
@@ -330,11 +373,15 @@ describe("case-operation domain vocabulary", () => {
 				],
 			},
 		];
+		expectAdmittedDoc(doc);
 
 		const properties = new Map(
 			effectiveCaseTypes(doc)
 				.find((caseType) => caseType.name === "patient")
 				?.properties.map((property) => [property.name, property.data_type]),
+		);
+		expect([...properties.keys()]).toEqual(
+			expect.arrayContaining(["left", "right"]),
 		);
 		expect(properties.get("left")).toBeUndefined();
 		expect(properties.get("right")).toBeUndefined();
@@ -400,5 +447,15 @@ describe("case retype planning", () => {
 		expect(sameSchema.retained).toEqual(["shared", "legacy"]);
 		expect(sameSchema.retained).not.toContain("case_name");
 		expect(sameSchema.wirePortable).toBe(true);
+		for (const [from, to] of [
+			["missing", "client"],
+			["lead", "missing"],
+			["missing", "missing"],
+		]) {
+			expect(planCaseRetype(doc, from, to)).toMatchObject({
+				safe: false,
+				wirePortable: false,
+			});
+		}
 	});
 });

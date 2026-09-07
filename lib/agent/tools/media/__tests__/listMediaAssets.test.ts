@@ -8,6 +8,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { listMediaAssetsTool } from "../listMediaAssets";
 import { makeMediaFixture } from "./fixtures";
@@ -39,10 +40,10 @@ beforeEach(() => {
 /** A minimal `ready` asset record for the mock to return. */
 function readyRecord(id: string): MediaAssetRecord {
 	return {
-		id,
+		id: testMediaAssetId(id),
 		owner: "user-1",
 		project_id: "project-1",
-		contentHash: "abc",
+		contentHash: "a".repeat(64),
 		mimeType: "image/png",
 		kind: "image",
 		extension: ".png",
@@ -54,7 +55,7 @@ function readyRecord(id: string): MediaAssetRecord {
 		// `created_at` is a `Date` (Postgres timestamptz); the wire projector calls
 		// `.toISOString()` on it.
 		created_at: new Date("2026-01-01T00:00:00Z"),
-	} as MediaAssetRecord;
+	};
 }
 
 describe("listMediaAssets", () => {
@@ -69,7 +70,7 @@ describe("listMediaAssets", () => {
 
 		expect(result.kind).toBe("read");
 		expect(result.data.assets).toHaveLength(2);
-		expect(result.data.assets[0].id).toBe("a1");
+		expect(result.data.assets[0].id).toBe(testMediaAssetId("a1"));
 		// Wire shape drops the server-only fields `owner` + `gcsObjectKey` (the
 		// reverse index lives in its own table now — never on the record).
 		expect(result.data.assets[0]).not.toHaveProperty("owner");
@@ -82,7 +83,7 @@ describe("listMediaAssets", () => {
 		// A document record whose extract carries the human title + summary (both
 		// wanted on the wire — the library labels the asset, the preview header
 		// shows them) alongside the internal failureReason/model (must NOT leak).
-		const record = {
+		const record: MediaAssetRecord = {
 			...readyRecord("d1"),
 			kind: "pdf",
 			mimeType: "application/pdf",
@@ -101,7 +102,7 @@ describe("listMediaAssets", () => {
 				title: "ANC Program — Data Collection Requirements",
 				summary: "A few-sentence précis the preview header shows.",
 			},
-		} as unknown as MediaAssetRecord;
+		};
 		listReadyAssetsForProject.mockResolvedValue({
 			assets: [record],
 			nextCursor: null,

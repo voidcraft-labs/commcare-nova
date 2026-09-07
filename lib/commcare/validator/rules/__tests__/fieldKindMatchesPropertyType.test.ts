@@ -1,527 +1,198 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	caseDataTypeForFieldKind,
-	type FieldKind,
-	fieldKinds,
-	WRITABLE_STANDARD_CASE_PROPERTIES,
-} from "@/lib/domain";
+import { type FieldSpec, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { blueprintDocSchema, type CasePropertyDataType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../runner";
-import { fieldKindMatchesPropertyType } from "../fieldKindMatchesPropertyType";
+import {
+	admittedCaseListDoc,
+	findings,
+} from "../case-list/__tests__/caseListRuleFixture";
 
-describe("fieldKindMatchesPropertyType", () => {
-	it("pins every implicit writable standard scalar to text for every value-writing field kind", () => {
-		const valueWritingKinds = fieldKinds.filter(
-			(kind) =>
-				caseDataTypeForFieldKind(kind) !== undefined || kind === "hidden",
-		);
-		for (const property of WRITABLE_STANDARD_CASE_PROPERTIES) {
-			for (const kind of valueWritingKinds) {
-				const doc = buildDoc({
-					appName: "Standard scalar writer",
-					modules: [
-						{
-							name: "Patients",
-							caseType: "patient",
-							forms: [
-								{
-									name: "Update",
-									type: "followup",
-									fields: [
-										f({
-											kind,
-											id: `${property}_${kind}`,
-											caseWrite: { caseType: "patient", property },
-										}),
+const mismatch = "FIELD_KIND_PROPERTY_TYPE_MISMATCH";
+const disagree = "FIELD_KIND_WRITERS_DISAGREE";
+function checked<T extends Parameters<typeof findings>[0]>(doc: T): T {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return doc;
+}
+
+describe("case writer type admission", () => {
+	it.each([
+		{ kind: "text", type: "text" },
+		{ kind: "barcode", type: "text" },
+		{ kind: "secret", type: "text" },
+		{ kind: "single_select", type: "single_select" },
+		{ kind: "multi_select", type: "multi_select" },
+		{ kind: "int", type: "int" },
+		{ kind: "decimal", type: "decimal" },
+		{ kind: "date", type: "date" },
+		{ kind: "datetime", type: "datetime" },
+		{ kind: "time", type: "time" },
+		{ kind: "geopoint", type: "geopoint" },
+	] satisfies { kind: FieldSpec["kind"]; type: CasePropertyDataType }[])(
+		"$kind writer agrees only with its concrete $type catalog type",
+		({ kind, type }) => {
+			const base = admittedCaseListDoc({
+				fields: [
+					f({
+						kind,
+						id: "value",
+						label: "Value",
+						...(kind === "single_select" || kind === "multi_select"
+							? {
+									options: [
+										{ value: "a", label: "A" },
+										{ value: "b", label: "B" },
 									],
+								}
+							: {}),
+						caseWrite: { caseType: "patient", property: "value" },
+					}),
+				],
+			});
+			for (const declared of [
+				type,
+				type === "text" ? "int" : "text",
+			] satisfies CasePropertyDataType[]) {
+				const doc = checked({
+					...base,
+					caseTypes: [
+						{
+							name: "patient",
+							properties: [
+								{
+									name: "value",
+									label: proseText("Value"),
+									data_type: declared,
 								},
 							],
 						},
 					],
-					caseTypes: [{ name: "patient", properties: [] }],
 				});
-				const mismatch = fieldKindMatchesPropertyType(doc).some(
-					(error) => error.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
+				const errors = findings(doc);
+				expect(errors.map((error) => error.code)).toEqual(
+					declared === type ? [] : [mismatch],
 				);
-				const kindType = caseDataTypeForFieldKind(kind as FieldKind);
-				expect(mismatch, `${property} <- ${kind}`).toBe(
-					kindType !== undefined && kindType !== "text",
-				);
+				if (errors.length)
+					expect(errors[0].details).toMatchObject({
+						expectedDataType: type,
+						declaredDataType: declared,
+						property: "value",
+					});
 			}
-		}
-	});
-
-	it("does not let an explicit standard-property declaration redefine the scalar column type", () => {
-		const doc = buildDoc({
-			appName: "Standard scalar declaration",
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Update",
-							type: "followup",
-							fields: [
-								f({
-									kind: "int",
-									id: "external_code",
-									caseWrite: {
-										caseType: "patient",
-										property: "external_id",
-									},
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{
-							name: "external_id",
-							label: proseText("External ID"),
-							data_type: "int",
-						},
-					],
-				},
-			],
-		});
-		expect(
-			fieldKindMatchesPropertyType(doc).map((error) => error.code),
-		).toContain("FIELD_KIND_PROPERTY_TYPE_MISMATCH");
-	});
-
-	it("fires when an int field saves to a text-typed property", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
+		},
+	);
+	it.each(["case_name", "external_id"])(
+		"keeps implicit %s text-shaped",
+		(property) => {
+			const base = admittedCaseListDoc({
+				fields:
+					property === "external_id"
+						? [
 								f({
 									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
+									id: "code",
+									label: "Code",
+									caseWrite: { caseType: "patient", property },
 								}),
-								f({
-									kind: "int",
-									id: "label",
-									label: proseText("Label"),
-									caseWrite: { caseType: "patient", property: "label" },
-								}),
-							],
-						},
-					],
+							]
+						: [],
+			});
+			const writer = Object.values(base.fields).find(
+				(field) =>
+					"caseWrite" in field && field.caseWrite?.property === property,
+			);
+			if (writer?.kind !== "text") throw new Error("Missing writer");
+			const candidate = checked({
+				...base,
+				fields: {
+					...base.fields,
+					[writer.uuid]: { ...writer, kind: "int" as const },
 				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "label", label: proseText("Label"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
-			),
-		).toBe(true);
-	});
-
-	it("does not fire on a kind-matched (text → text) writer", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
+			});
+			expect(findings(candidate).map((error) => error.code)).toEqual([
+				mismatch,
+			]);
+		},
+	);
+	it("attributes cross-form disagreement to every writer and admits agreement", () => {
+		const spec = (id: string) =>
+			f({
+				kind: "int",
+				id,
+				label: "Weight",
+				caseWrite: { caseType: "patient", property: "weight" },
+			});
+		const base = admittedCaseListDoc({
+			fields: [spec("initial")],
+			additionalForms: [
+				{ name: "Followup", type: "followup", fields: [spec("updated")] },
 			],
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
-					e.code === "FIELD_KIND_WRITERS_DISAGREE",
-			),
-		).toBe(false);
-	});
-
-	it("treats barcode and secret as text-shaped (no error)", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "barcode",
-									id: "tag",
-									label: proseText("Tag"),
-									caseWrite: { caseType: "patient", property: "tag" },
-								}),
-								f({
-									kind: "secret",
-									id: "pin",
-									label: proseText("PIN"),
-									caseWrite: { caseType: "patient", property: "pin" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "tag", label: proseText("Tag"), data_type: "text" },
-						{ name: "pin", label: proseText("PIN"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
-					e.code === "FIELD_KIND_WRITERS_DISAGREE",
-			),
-		).toBe(false);
-	});
-
-	it("skips hidden fields (calculate-driven; data_type is not pinned by kind)", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								// Hidden field with `caseWrite` — the rule must
-								// skip it regardless of the property's declared type.
-								f({
-									kind: "hidden",
-									id: "computed_age",
-									calculate: "1",
-									caseWrite: { caseType: "patient", property: "computed_age" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "computed_age", label: proseText("Age"), data_type: "int" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH" ||
-					e.code === "FIELD_KIND_WRITERS_DISAGREE",
-			),
-		).toBe(false);
-	});
-
-	it("does not fire when the property has no declared data_type (un-annotated)", () => {
-		// Un-annotated properties carry `data_type === undefined`; the
-		// rule's `(a)` branch only fires when a declared type is present
-		// AND mismatches the kind, so an un-annotated property is
-		// silently admitted.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "int",
-									id: "untyped",
-									label: proseText("Untyped"),
-									caseWrite: { caseType: "patient", property: "untyped" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "untyped", label: proseText("Untyped") },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
-			),
-		).toBe(false);
-	});
-
-	it("emits one writers-disagree error per writer when kinds conflict across forms", () => {
-		// Two forms in the same module write to `(patient, weight)` —
-		// one as `int`, one as `decimal`. The rule fires once per
-		// disagreeing writer. The property has no declared data_type, so
-		// the only error class produced is `FIELD_KIND_WRITERS_DISAGREE`.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "int",
-									id: "weight",
-									label: proseText("Weight"),
-									caseWrite: { caseType: "patient", property: "weight" },
-								}),
-							],
-						},
-						{
-							name: "Followup",
-							type: "followup",
-							fields: [
-								f({
-									kind: "decimal",
-									id: "weight",
-									label: proseText("Weight"),
-									caseWrite: { caseType: "patient", property: "weight" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "weight", label: proseText("Weight") },
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const disagreeErrors = errors.filter(
-			(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
+		const writers = Object.values(base.fields).filter(
+			(field) => "caseWrite" in field && field.caseWrite?.property === "weight",
 		);
-		expect(disagreeErrors.length).toBe(2);
+		const later = writers.find((field) => field.id === "updated");
+		if (later?.kind !== "int") throw new Error("Missing later writer");
+		const candidate = checked({
+			...base,
+			fields: {
+				...base.fields,
+				[later.uuid]: { ...later, kind: "decimal" as const },
+			},
+		});
+		expect(
+			findings(candidate).map((error) => ({
+				code: error.code,
+				uuid: error.location.fieldUuid,
+			})),
+		).toEqual(writers.map((writer) => ({ code: disagree, uuid: writer.uuid })));
 	});
-
-	it("walks fields nested inside containers (group / repeat) when collecting writers", () => {
-		// A field inside a group still participates in the writers map.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "group",
-									id: "demographics",
-									label: proseText("Demographics"),
-									children: [
-										f({
-											kind: "int",
-											id: "label",
-											label: proseText("Label"),
-											caseWrite: { caseType: "patient", property: "label" },
-										}),
-									],
-								}),
-							],
-						},
+	it("collects a nested group writer and leaves a calculate-driven hidden writer to expression typing", () => {
+		const base = admittedCaseListDoc({
+			fields: [
+				f({
+					kind: "group",
+					id: "details",
+					label: "Details",
+					children: [
+						f({
+							kind: "int",
+							id: "weight",
+							label: "Weight",
+							caseWrite: { caseType: "patient", property: "weight" },
+						}),
 					],
-				},
+				}),
+				f({
+					kind: "hidden",
+					id: "computed",
+					calculate: "1",
+					caseWrite: { caseType: "patient", property: "computed" },
+				}),
 			],
+		});
+		const doc = checked({
+			...base,
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "label", label: proseText("Label"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "FIELD_KIND_PROPERTY_TYPE_MISMATCH",
-			),
-		).toBe(true);
-	});
-});
-
-describe("tuple-key encoding is collision-free over arbitrary docs", () => {
-	it("does not fabricate a cross-writer conflict for distinct tuples whose parts contain '::'", () => {
-		// The validator is total over arbitrary docs (reducers are total;
-		// event-log replay bypasses the identifier verdicts), so identifiers
-		// containing ':' reach this rule. ('a::b', 'c') and ('a', 'b::c')
-		// must stay DISTINCT tuples — a delimiter-joined key would alias
-		// them into one writers bucket and emit a fabricated
-		// FIELD_KIND_WRITERS_DISAGREE against both fields.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
 						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "c",
-									label: proseText("C"),
-									caseWrite: { caseType: "a::b", property: "c" },
-								}),
-								f({
-									kind: "int",
-									id: "b::c",
-									label: proseText("BC"),
-									caseWrite: { caseType: "a", property: "b::c" },
-								}),
-							],
+							name: "weight",
+							label: proseText("Weight"),
+							data_type: "text" as const,
+						},
+						{
+							name: "computed",
+							label: proseText("Computed"),
+							data_type: "int" as const,
 						},
 					],
 				},
 			],
 		});
-		// Other rules legitimately flag the malformed identifiers; this
-		// rule must not invent a writer disagreement between them.
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
-			),
-		).toBe(false);
+		const errors = findings(doc);
+		expect(errors.map((error) => error.code)).toEqual([mismatch]);
+		expect(errors[0].location.fieldId).toBe("weight");
 	});
 });

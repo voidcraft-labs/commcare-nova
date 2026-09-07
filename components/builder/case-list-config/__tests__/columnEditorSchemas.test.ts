@@ -1,20 +1,3 @@
-// components/builder/case-list-config/__tests__/columnEditorSchemas.test.ts
-//
-// Registry-shape tests for the column card editor. Two
-// invariants pinned here (mirrors `editorSchemas.test.ts` /
-// `expressionEditorSchemas.test.ts`):
-//
-//   1. Exhaustivity over the ColumnKind union: every kind
-//      appears as a key in `columnCardSchemas`. The mapped-type
-//      `Record<ColumnKind, ...>` enforces this at the type
-//      layer; the runtime guard verifies the keys at the
-//      import boundary as a defense against an `as` cast
-//      bypassing the type system.
-//
-//   2. Every available `defaultValue(ctx)` produces a kind-valid
-//      AST. A field-backed kind with no compatible declared property
-//      returns unavailable instead of manufacturing an unbound field.
-
 import { describe, expect, it } from "vitest";
 import { type CaseType, type Column, columnSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -24,6 +7,7 @@ import {
 	columnCardSchemas,
 	resolveColumnPropertyDataType,
 } from "../columnEditorSchemas";
+import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -38,30 +22,25 @@ const ctx: ColumnEditContext = {
 	currentCaseType: "patient",
 };
 
-describe("columnCardSchemas — registry exhaustivity", () => {
-	it("declares an entry for every ColumnKind", () => {
-		const expected: ReadonlySet<Column["kind"]> = new Set([
-			"plain",
-			"date",
-			"phone",
-			"id-mapping",
-			"image-map",
-			"interval",
-			"link",
-			"calculated",
-		]);
-		const actual = new Set(Object.keys(columnCardSchemas));
-		expect(actual).toEqual(expected);
-	});
-});
-
 describe("columnCardSchemas — defaultValue parses through schema", () => {
 	for (const kind of Object.keys(columnCardSchemas) as Column["kind"][]) {
-		it(`${kind}: default parses`, () => {
+		it(`${kind}: the factory supplies an admitted display definition`, () => {
 			const value = columnCardSchemas[kind].defaultValue(ctx);
 			expect(value).toBeDefined();
 			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			expect(() => columnSchema.parse(value)).not.toThrow();
+			const { doc, moduleUuid } = admittedWorkspace([...ctx.caseTypes]);
+			expect(
+				commitWorkspace(doc, [
+					{
+						kind: "addColumn",
+						moduleUuid,
+						column: value,
+						afterInList: null,
+						afterInDetail: null,
+					},
+				]).modules[moduleUuid].caseListConfig?.columns,
+			).toContainEqual(value);
 		});
 	}
 
@@ -75,6 +54,7 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 			"plain",
 			"date",
 			"phone",
+			"link",
 			"id-mapping",
 			"image-map",
 			"interval",
@@ -145,6 +125,18 @@ describe("columnCardSchemas — defaultValue parses through schema", () => {
 			if (value === undefined) throw new Error(`expected ${kind} seed`);
 			expect(value.field).toBe("untyped_value");
 			expect(() => columnSchema.parse(value)).not.toThrow();
+			const { doc, moduleUuid } = admittedWorkspace([...unknownCtx.caseTypes]);
+			expect(
+				commitWorkspace(doc, [
+					{
+						kind: "addColumn",
+						moduleUuid,
+						column: value,
+						afterInList: null,
+						afterInDetail: null,
+					},
+				]).modules[moduleUuid].caseListConfig?.columns,
+			).toContainEqual(value);
 		}
 	});
 });

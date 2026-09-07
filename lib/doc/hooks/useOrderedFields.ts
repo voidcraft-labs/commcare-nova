@@ -23,7 +23,7 @@ import { useMemo } from "react";
  */
 
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
-import type { Uuid } from "@/lib/domain";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { useBlueprintDocEq, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 /** Large forms start summarized in the structure tree. Rendering hundreds of
@@ -71,24 +71,33 @@ export function useLargeFormInitialCollapsedUuids(): ReadonlySet<Uuid> {
 		forms: doc.forms,
 		fieldOrder: doc.fieldOrder,
 	}));
-	return useMemo(() => {
-		const collapsed = new Set<Uuid>();
-		for (const { uuid: formUuid } of Object.values(forms)) {
-			let count = 0;
-			const pending = [...(fieldOrder[formUuid] ?? [])];
-			const containers: Uuid[] = [formUuid];
-			while (pending.length > 0) {
-				const uuid = pending.pop();
-				if (uuid === undefined) break;
-				count += 1;
-				const children = fieldOrder[uuid] ?? [];
-				if (children.length > 0) containers.push(uuid);
-				pending.push(...children);
-			}
-			if (count >= LARGE_FORM_AUTO_COLLAPSE_THRESHOLD) {
-				for (const uuid of containers) collapsed.add(uuid);
-			}
+	return useMemo(
+		() => largeFormInitialCollapsedUuids({ forms, fieldOrder }),
+		[fieldOrder, forms],
+	);
+}
+
+/** Initial outline state for a complete authored form tree. */
+export function largeFormInitialCollapsedUuids({
+	forms,
+	fieldOrder,
+}: Pick<BlueprintDoc, "forms" | "fieldOrder">): ReadonlySet<Uuid> {
+	const collapsed = new Set<Uuid>();
+	for (const { uuid: formUuid } of Object.values(forms)) {
+		let count = 0;
+		const pending = [...(fieldOrder[formUuid] ?? [])];
+		const containers: Uuid[] = [formUuid];
+		while (pending.length > 0) {
+			const uuid = pending.pop();
+			if (uuid === undefined) break;
+			count += 1;
+			const children = fieldOrder[uuid] ?? [];
+			if (children.length > 0) containers.push(uuid);
+			pending.push(...children);
 		}
-		return collapsed;
-	}, [fieldOrder, forms]);
+		if (count >= LARGE_FORM_AUTO_COLLAPSE_THRESHOLD) {
+			for (const uuid of containers) collapsed.add(uuid);
+		}
+	}
+	return collapsed;
 }

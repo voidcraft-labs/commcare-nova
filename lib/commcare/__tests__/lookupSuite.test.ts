@@ -1,224 +1,66 @@
 import AdmZip from "adm-zip";
-import { type Document, type Element, isTag } from "domhandler";
-import { findAll, getAttributeValue, getChildren } from "domutils";
+import { isTag } from "domhandler";
+import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
-import { calculatedColumn, plainColumn } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	eq,
-	literal,
-	matchAll,
-	prop,
-	tableColumn,
-	tableLookup,
-} from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import type { LookupRevision, LookupRowId } from "@/lib/lookup/types";
+import { lookupAppFixture } from "./lookupAppFixtures";
 
-const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-const VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
-const LABEL = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
-const NAME = "018f3e8a-7b2c-7def-8abc-0000000000b3" as LookupColumnId;
-
-const naming = lookupWireNaming([
-	{
-		id: REGIONS,
-		name: "Regions",
-		tag: "regions",
-		definitionRevision: "1" as LookupRevision,
-		columns: [
-			{ id: VALUE, wireName: "value", label: "Value", dataType: "text" },
-			{ id: LABEL, wireName: "label", label: "Label", dataType: "text" },
-			{ id: NAME, wireName: "name", label: "Name", dataType: "text" },
-		],
-	},
-]);
-
-const fixtures = buildLookupFixtures(
-	naming,
-	new Map([
-		[
-			REGIONS,
-			[
-				{
-					id: "018f3e8a-7b2c-7def-8abc-0000000000d1" as LookupRowId,
-					values: { [VALUE]: "north", [LABEL]: "North", [NAME]: "Northland" },
-				},
-				{
-					id: "018f3e8a-7b2c-7def-8abc-0000000000d2" as LookupRowId,
-					values: { [VALUE]: "south", [LABEL]: "South", [NAME]: "Southland" },
-				},
-			],
-		],
-	]),
-);
-
-/** A case-managed module whose module relevance, a calc case-list column, and
- *  a form select all carry lookup wire references. */
-function lookupApp() {
-	return buildDoc({
-		appName: "Regions app",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "region", label: proseText("Region") },
-				],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				displayCondition: eq(
-					tableLookup(REGIONS, NAME, matchAll()),
-					literal("North"),
-				),
-				caseListConfig: {
-					columns: [
-						plainColumn(
-							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e1"),
-							"case_name",
-							"Name",
-						),
-						calculatedColumn(
-							testUuid("018f3e8a-7b2c-7def-8abc-0000000000e2"),
-							"Region",
-							tableLookup(
-								REGIONS,
-								NAME,
-								eq(tableColumn(REGIONS, VALUE), prop("patient", "region")),
-							),
-						),
-					],
-					searchInputs: [],
-				},
-				forms: [
-					{
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							}),
-							f({
-								kind: "single_select",
-								id: "region_select",
-								label: proseText("Region"),
-								optionsSource: {
-									kind: "lookup",
-									tableId: REGIONS,
-									valueColumnId: VALUE,
-									labelColumnId: LABEL,
-								},
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-}
-
-function compile() {
-	const doc = lookupApp();
-	const hqJson = expandDoc(doc, { lookupNaming: naming });
-	const ccz = compileCcz(hqJson, doc.appName, doc, {
-		lookup: { naming, fixtures },
-	});
-	return new AdmZip(ccz);
-}
-
-function directChildren(el: Element, name: string): Element[] {
-	return getChildren(el).filter(
-		(child): child is Element => isTag(child) && child.name === name,
+// Native LookupRuntimeTest owns installed global fixtures, replacement, menu
+// relevance, selected-case column evaluation and both paths' live itemsets.
+describe("lookup artifacts from an admitted app", () => {
+	it.each([false, true])(
+		"embeds the measured generation and declares each consumer (reversed=%s)",
+		(reversed) => {
+			const { doc, naming, fixtures } = lookupAppFixture(reversed);
+			const hq = expandDoc(doc, { lookupNaming: naming });
+			const zip = new AdmZip(
+				compileCcz(hq, doc.appName, doc, { lookup: { naming, fixtures } }),
+			);
+			const xml = zip.readAsText("suite.xml");
+			new SaxesParser({ xmlns: true }).write(xml).close();
+			const tree = parseDocument(xml, { xmlMode: true });
+			const suite = findAll((node) => node.name === "suite", tree.children);
+			expect(suite).toHaveLength(1);
+			const children = suite[0].children.filter(isTag);
+			const embedded = children.filter((node) => node.name === "fixture");
+			expect(embedded).toHaveLength(1);
+			expect(embedded[0].attribs).toEqual({ id: "item-list:regions" });
+			expect(xml).toContain(fixtures.fixtures[0].xml);
+			expect(children.indexOf(embedded[0])).toBeGreaterThan(
+				children.findLastIndex((node) => node.name === "menu"),
+			);
+			const menus = children.filter(
+				(node) => node.name === "menu" && node.attribs.id === "m0",
+			);
+			expect(menus).toHaveLength(1);
+			expect(menus[0].attribs.relevant).toBe(
+				"instance('item-list:regions')/regions_list/regions[1]/label = 'Northland'",
+			);
+			for (const consumer of [
+				menus[0],
+				...children.filter((node) => node.name === "entry"),
+			]) {
+				const declarations = consumer.children
+					.filter(isTag)
+					.filter(
+						(node) =>
+							node.name === "instance" &&
+							node.attribs.id === "item-list:regions",
+					);
+				expect(
+					declarations,
+					`${consumer.name} ${consumer.attribs.id}`,
+				).toHaveLength(1);
+				expect(declarations[0].attribs.src).toBe(
+					"jr://fixture/item-list:regions",
+				);
+			}
+		},
 	);
-}
-
-function parse(xml: string): Document {
-	return parseDocument(xml, { xmlMode: true });
-}
-
-describe("compileCcz — lookup wire embedding", () => {
-	it("embeds the fixture after the menus with the exact serialized body", () => {
-		const suiteXml = compile().readAsText("suite.xml");
-		expect(suiteXml).toContain(fixtures.fixtures[0].xml);
-
-		const suite = findAll(
-			(el) => el.name === "suite",
-			parse(suiteXml).children,
-		)[0];
-		const topLevel = getChildren(suite).filter(isTag);
-		const lastMenuIndex = topLevel.reduce(
-			(last, el, index) => (el.name === "menu" ? index : last),
-			-1,
-		);
-		const fixtureIndex = topLevel.findIndex((el) => el.name === "fixture");
-		expect(lastMenuIndex).toBeGreaterThanOrEqual(0);
-		expect(fixtureIndex).toBeGreaterThan(lastMenuIndex);
-	});
-
-	it("gives the module menu the lowered lookup relevance and its instance", () => {
-		const suiteXml = compile().readAsText("suite.xml");
-		const menu = findAll(
-			(el) => el.name === "menu" && getAttributeValue(el, "id") === "m0",
-			parse(suiteXml).children,
-		)[0];
-		expect(getAttributeValue(menu, "relevant")).toBe(
-			"instance('item-list:regions')/regions_list/regions[1]/name = 'North'",
-		);
-		const menuFixtureInstances = directChildren(menu, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "item-list:regions",
-		);
-		expect(menuFixtureInstances).toHaveLength(1);
-		expect(getAttributeValue(menuFixtureInstances[0], "src")).toBe(
-			"jr://fixture/item-list:regions",
-		);
-	});
-
-	it("declares the fixture instance on the case-loading entry", () => {
-		const suiteXml = compile().readAsText("suite.xml");
-		const entries = findAll(
-			(el) => el.name === "entry",
-			parse(suiteXml).children,
-		);
-		const declaringEntries = entries.filter((entry) =>
-			directChildren(entry, "instance").some(
-				(instance) => getAttributeValue(instance, "id") === "item-list:regions",
-			),
-		);
-		expect(declaringEntries.length).toBeGreaterThan(0);
-	});
-
-	it("emits the select itemset and its instance in the form XML", () => {
-		const formXml = compile().readAsText("modules-0/forms-0.xml");
-		const root = parse(formXml);
-		const itemsets = findAll((el) => el.name === "itemset", root.children);
-		expect(itemsets).toHaveLength(1);
-		expect(getAttributeValue(itemsets[0], "nodeset")).toBe(
-			"instance('regions')/regions_list/regions",
-		);
-		const formFixtureInstances = findAll(
-			(el) => el.name === "instance",
-			root.children,
-		).filter((instance) => getAttributeValue(instance, "id") === "regions");
-		expect(formFixtureInstances).toHaveLength(1);
-		expect(getAttributeValue(formFixtureInstances[0], "src")).toBe(
-			"jr://fixture/item-list:regions",
-		);
-	});
 });
 
 describe("validateSuite — embedded lookup fixtures", () => {

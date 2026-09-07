@@ -21,9 +21,16 @@ describe("withExclusiveCaptureCleanupWorker", () => {
 			.mockResolvedValueOnce({ rows: [{ unlocked: true }] });
 		const release = vi.fn();
 		getCaseStorePoolMock.mockResolvedValue({
-			connect: vi.fn().mockResolvedValue({ query, release }),
+			connect: vi
+				.fn()
+				.mockResolvedValueOnce({ query, release })
+				.mockResolvedValueOnce({ release: vi.fn() }),
 		});
-		const maintenance = vi.fn().mockResolvedValue("complete");
+		const maintenance = vi.fn(async () => {
+			expect(query).toHaveBeenCalledTimes(1);
+			expect(release).not.toHaveBeenCalled();
+			return "complete";
+		});
 
 		await expect(
 			withExclusiveCaptureCleanupWorker(maintenance),
@@ -107,16 +114,23 @@ describe("withExclusiveCaptureCleanupWorker", () => {
 			await maintenanceHold;
 			return "complete";
 		});
-		await maintenanceStarted;
+		try {
+			await maintenanceStarted;
 
-		await expect(withExclusiveCaptureCleanupWorker(vi.fn())).resolves.toEqual({
-			kind: "already-running",
-		});
-		await expect(withExclusiveCaptureCleanupWorker(vi.fn())).resolves.toEqual({
-			kind: "saturated",
-		});
-
-		releaseMaintenance?.();
+			await expect(withExclusiveCaptureCleanupWorker(vi.fn())).resolves.toEqual(
+				{
+					kind: "already-running",
+				},
+			);
+			await expect(withExclusiveCaptureCleanupWorker(vi.fn())).resolves.toEqual(
+				{
+					kind: "saturated",
+				},
+			);
+		} finally {
+			releaseMaintenance?.();
+			await owner;
+		}
 		await expect(owner).resolves.toEqual({ kind: "ran", value: "complete" });
 		expect(ownerRelease).toHaveBeenCalledWith();
 		expect(workRelease).toHaveBeenCalledWith();

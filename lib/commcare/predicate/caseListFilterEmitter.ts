@@ -7,11 +7,10 @@
 // evaluator; the wire-routing layer drops the same string into the
 // correct slot at emission time.
 //
-// Emission policy: this visitor produces the maximum CCHQ-supported
-// feature subset. Every wire string is well-formed XPath that
-// CommCare HQ accepts on import as defined by its query-function
-// registry — the visitor commits to that wire-syntax surface and
-// nothing narrower.
+// Domain validation owns slot/type admission. This visitor emits the supported
+// Core dialect and refuses unsupported operators defensively. Native Core
+// execution, rather than HQ's separate CSQL query-function registry, owns the
+// runtime compatibility contract.
 //
 // File ownership: this file owns operator dispatch for the on-device
 // predicate dialect. Lexical concerns (string quoting, identifier
@@ -57,22 +56,10 @@
 //     on-device implementation, so lowering them yields XPath that
 //     installs cleanly and fails when the screen opens. See
 //     `./matchModes.ts`, and `../csqlEmitter.ts` for their real home.
-//   - `within-distance`: emit
-//     `within-distance(prop, '<lat,lon>', <distance>, '<unit>')`
-//     per the CCHQ wire signature at
-//     `commcare-hq/corehq/apps/case_search/xpath_functions/query_functions.py::within_distance`.
-//   - `exists` / `missing` with `via.kind === "ancestor"`:
-//     `count(...) > 0` / `count(...) = 0` against an
-//     `instance('casedb')/casedb/case[@case_id=current()/index/<rel>]`
-//     join. Multi-hop ancestors compose nested `[@case_id=...]`
-//     joins. The hashtag-replacement pattern at
-//     `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
-//     builds the same wire shape (`#parent` / `#host` expand to
-//     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
-//   - `exists` / `missing` with `via.kind === "subcase"`: reverse-
-//     direction join — `[index/<rel>=current()/@case_id]`. The
-//     canonical CCHQ example pinning this shape is at
-//     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
+//   - `within-distance`: guarded Core `distance(a,b)` in meters. Malformed
+//     stored coordinates or centers short-circuit false before native parsing.
+//   - Relations: immediate-scope case-ID membership via selected(join(...)),
+//     recursively composed per hop. Missing negates the complete presence test.
 //   - `exists` / `missing` with `via.kind === "self"`: collapses to
 //     a no-op. `exists(self, filter)` reduces to `filter`;
 //     `exists(self)` to `true()`; `missing(self, filter)` to
@@ -81,8 +68,8 @@
 //     direction-agnostic walk. Emit both ancestor and subcase
 //     expansions OR'd together (negated via `not(...)` for the
 //     `missing` form).
-//   - `prop` term with non-self `via`: emit as an inline relational
-//     path expression (handled inside the shared term emitter).
+//   - Related scalar leaves normalize into same-row existential predicates
+//     before emission; they do not pass multi-node values to scalar operators.
 //   - `when-input-present`: `if(count(<input>), <clause>, true())` —
 //     `true()` is the AND-chain identity for the no-input branch
 //     (XPath's boolean coercion of `''` is `false`, which would
@@ -169,8 +156,8 @@ const PREC_AND = 2;
  * block (the `<detail id="m{N}_search_*">` block runs against the
  * search-result roster, not the local casedb).
  *
- * Throws only on structural-bypass shapes the schema is meant to
- * reject (`between` with both bounds absent).
+ * Refuses unsupported on-device match modes and malformed structural-bypass
+ * shapes such as a `between` with both bounds absent.
  */
 export function emitCaseListFilter(
 	predicate: Predicate,
@@ -607,20 +594,10 @@ function emitMultiSelectContains(
 /**
  * Emit the relational-quantifier predicate.
  *
- * Direction-bearing kinds (`ancestor`, `subcase`) emit as a
- * count-based presence test against an
- * `instance('casedb')/casedb/case[...]` join nodeset.
- *
- *   - **Ancestor** walks anchor on `current()/index/<rel>`. Multi-hop
- *     walks compose by using the full nodeset of the previous hop as
- *     the next hop's `@case_id` anchor. CCHQ's hashtag-replacement
- *     pattern at `commcare-hq/corehq/apps/app_manager/xpath.py::interpolate_xpath`
- *     builds the same wire shape (`#parent` / `#host` expand to
- *     `instance('casedb')/casedb/case[@case_id=<base>/index/<rel>]`).
- *   - **Subcase** walks reverse direction:
- *     `[index/<rel>=current()/@case_id]`. The canonical CCHQ example
- *     pinning this shape is at
- *     `commcare-hq/corehq/apps/app_manager/suite_xml/sections/entries.py::_update_refs`.
+ * Ancestor/subcase paths emit immediate-scope ID membership through the
+ * shared relation-presence emitter. Each candidate filter runs on one destination
+ * case, including nested relations; no nested current() context is reconstructed.
+ * Multi-hop walks recursively preserve the ID membership boundary.
  *
  * `via.kind === "self"` is degenerate — a relational walk with no
  * traversal — so the emitter reduces it to non-relational shape:

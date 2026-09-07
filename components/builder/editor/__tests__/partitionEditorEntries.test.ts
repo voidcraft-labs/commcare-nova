@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 /**
  * partitionEditorEntries: pure helper that decides which entries
  * become visible editors vs addable pills given a field value.
@@ -14,7 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { TextField } from "@/lib/domain";
+import { type TextField, uuidSchema } from "@/lib/domain";
 import type { FieldEditorEntry } from "@/lib/domain/kinds";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -27,8 +25,7 @@ const StubComponent = () => null;
 
 const baseField: TextField = {
 	kind: "text",
-	// The uuid is already branded; a hex literal satisfies the shape.
-	uuid: "q-0000-0000-0000-0000-000000000000" as TextField["uuid"],
+	uuid: uuidSchema.parse("00000000-0000-7000-8000-000000000321"),
 	id: "name",
 	label: proseText("Name"),
 };
@@ -41,10 +38,10 @@ function entry(
 ): FieldEditorEntry<TextField> {
 	return {
 		key,
-		component: StubComponent as unknown,
+		component: StubComponent,
 		label: key,
 		...overrides,
-	} as unknown as FieldEditorEntry<TextField>;
+	} as FieldEditorEntry<TextField>;
 }
 
 describe("partitionEditorEntries", () => {

@@ -28,7 +28,7 @@
  * run-liveness markers, exactly what two collaborators open.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { appendSyntheticBatch } from "@/lib/db/apps";
@@ -135,6 +135,7 @@ export const MP_SEED = {
 /** The concrete ids + names the spec reads (written to `multiplayer.json`). */
 export interface MultiplayerManifest {
 	appId: string;
+	projectId: string;
 	moduleUuid: string;
 	moduleName: string;
 	formUuid: string;
@@ -247,6 +248,7 @@ function buildSeedBlueprint(appId: string): BlueprintDoc {
  */
 export async function seedMultiplayerFixture(args: {
 	ctx: AuthContext;
+	scenarioKey?: string;
 	secret: string;
 	baseUrl: string;
 	authDir: string;
@@ -255,6 +257,22 @@ export async function seedMultiplayerFixture(args: {
 }): Promise<MultiplayerManifest> {
 	const { ctx, secret, baseUrl, authDir, writeFile, pathJoin } = args;
 	const now = new Date();
+	const suffix = args.scenarioKey
+		? `-${createHash("sha256").update(args.scenarioKey).digest("hex").slice(0, 16)}`
+		: "";
+	const users = Object.fromEntries(
+		(["userA", "userB", "userC", "userD"] as const).map((key) => [
+			key,
+			{
+				...MP_SEED[key],
+				id: `${MP_SEED[key].id}${suffix}`,
+				email: MP_SEED[key].email.replace("@", `${suffix}@`),
+			},
+		]),
+	) as Record<
+		"userA" | "userB" | "userC" | "userD",
+		{ id: string; email: string; name: string; image: string | null }
+	>;
 
 	// ── Users + sessions (Postgres, via the adapter) ──────────────────────
 	const tokens: Record<"userA" | "userB" | "userC" | "userD", string> = {
@@ -265,7 +283,7 @@ export async function seedMultiplayerFixture(args: {
 	};
 	const expiresAt = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000);
 	for (const key of ["userA", "userB", "userC", "userD"] as const) {
-		const u = MP_SEED[key];
+		const u = users[key];
 		await ctx.adapter.create({
 			model: "user",
 			forceAllowId: true,
@@ -305,7 +323,7 @@ export async function seedMultiplayerFixture(args: {
 		model: "organization",
 		data: {
 			name: MP_SEED.projectName,
-			slug: `mp-shared-${MP_SEED.userA.id}`,
+			slug: `mp-shared-${users.userA.id}`,
 			logo: null,
 			metadata: JSON.stringify({ personal: false }),
 			createdAt: now,
@@ -316,12 +334,12 @@ export async function seedMultiplayerFixture(args: {
 		model: "member",
 		data: {
 			organizationId: projectId,
-			userId: MP_SEED.userA.id,
+			userId: users.userA.id,
 			role: "owner",
 			createdAt: now,
 		},
 	});
-	for (const editor of [MP_SEED.userB, MP_SEED.userC, MP_SEED.userD]) {
+	for (const editor of [users.userB, users.userC, users.userD]) {
 		await ctx.adapter.create({
 			model: "member",
 			data: {
@@ -341,7 +359,7 @@ export async function seedMultiplayerFixture(args: {
 	// advances the stream — the at-rest `complete` shape (no run markers) two
 	// collaborators open.
 	const { appId, baseSeq } = await createExplicitBlankApp(
-		MP_SEED.userA.id,
+		users.userA.id,
 		projectId,
 		"mp-seed",
 		{
@@ -355,15 +373,15 @@ export async function seedMultiplayerFixture(args: {
 		appId,
 		expectedBaseSeq: baseSeq,
 		targetDoc: persistable,
-		authority: { kind: "user", actorUserId: MP_SEED.userA.id },
+		authority: { kind: "user", actorUserId: users.userA.id },
 	});
 
 	// ── Emit four storageStates + the manifest ────────────────────────────
 	const stateFiles = {
-		userA: pathJoin(authDir, "state-mp-a.json"),
-		userB: pathJoin(authDir, "state-mp-b.json"),
-		userC: pathJoin(authDir, "state-mp-c.json"),
-		userD: pathJoin(authDir, "state-mp-d.json"),
+		userA: pathJoin(authDir, `state-mp-a${suffix}.json`),
+		userB: pathJoin(authDir, `state-mp-b${suffix}.json`),
+		userC: pathJoin(authDir, `state-mp-c${suffix}.json`),
+		userD: pathJoin(authDir, `state-mp-d${suffix}.json`),
 	} as const;
 	for (const key of ["userA", "userB", "userC", "userD"] as const) {
 		await writeFile(
@@ -378,6 +396,7 @@ export async function seedMultiplayerFixture(args: {
 
 	return {
 		appId,
+		projectId,
 		moduleUuid: asUuid(MP_SEED.moduleUuid),
 		moduleName: MP_SEED.moduleName,
 		formUuid: asUuid(MP_SEED.formUuid),
@@ -391,10 +410,10 @@ export async function seedMultiplayerFixture(args: {
 		moduleTwoUuid: asUuid(MP_SEED.moduleTwoUuid),
 		moduleTwoName: MP_SEED.moduleTwoName,
 		fieldFourUuid: asUuid(MP_SEED.fieldFourUuid),
-		userA: MP_SEED.userA,
-		userB: MP_SEED.userB,
-		userC: MP_SEED.userC,
-		userD: MP_SEED.userD,
+		userA: users.userA,
+		userB: users.userB,
+		userC: users.userC,
+		userD: users.userD,
 		stateFileA: stateFiles.userA,
 		stateFileB: stateFiles.userB,
 		stateFileC: stateFiles.userC,

@@ -96,9 +96,8 @@ export interface RelationReadNormalizationContext {
 
 /**
  * Top-level entry point. Runs the property-via lift and returns the
- * rewritten AST. `when-input-present` predicates pass through
- * unchanged at this layer; the emitter handles them via recursive
- * CSQL emission and the canonical
+ * rewritten AST. `when-input-present` retains its trigger while its clause
+ * is recursively normalized; the emitter handles the trigger via the canonical
  * `if(count(<trigger>), <inner-csql>, 'match-all()')` wrapper.
  *
  * The input predicate is never mutated. Returned subtrees are either
@@ -1005,11 +1004,9 @@ function nativePropertyRefs(expression: ValueExpression): PropertyRef[] {
  * lift); otherwise returns the via to attach to the envelope and a
  * fresh `PropertyRef` with the via slot stripped.
  *
- * The returned `propWithoutVia` carries the same `caseType` slot as
- * the input — no downstream consumer of the lifted AST reads it
- * (the CSQL emitter resolves property names against the envelope's
- * via at runtime; the type checker has already run on the authored
- * AST upstream of the emitter).
+ * The returned `propWithoutVia` uses an explicit destination hint or a
+ * destination resolved from the supplied catalog. Without either, the
+ * originating case type remains as the structural fallback.
  */
 function readViaFromPropertyRef(
 	prop: PropertyRef,

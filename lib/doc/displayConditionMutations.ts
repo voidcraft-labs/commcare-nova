@@ -15,21 +15,9 @@
 // schemas make each `.optional()` slot null-accepting
 // (`clearablePartialPatch` in `types.ts`).
 //
-// The builder does not take that road today — `useBlueprintMutations`
-// applies the mutation locally and the reconciler persists a document
-// DIFF, and `diffDocsToMutations` independently spells an absent slot as
-// `null`. So both roads already end at `null`, and these planners are
-// what make the mutation OBJECT correct on its own: a durable emitter of
-// these events (the SA and MCP tools) inherits the right spelling
-// instead of rediscovering it.
-//
-// `displayCondition` qualifies for null-as-delete because every reader
-// treats absent and `null` identically — the validator rules
-// short-circuit on `=== undefined`, and
-// `effectiveDisplayConditionForEmission` folds absent to no wire
-// attribute. Verify that per slot rather than assuming it; a slot whose
-// readers distinguish the two (`setConnectType`, whose `null` is a
-// stored value) must not reuse this.
+// The builder records these commands for mutation-only autosave; SA and MCP
+// emit the same durable spelling. The null exists only in the command. The
+// reducer deletes the stored slot before readers and validation observe it.
 
 import type { Uuid } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";

@@ -1,3 +1,8 @@
+/** Canonical commands over admitted documents and a controlled workspace host.
+ * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 /**
  * Sections at the SA/MCP boundary: the desired-state `setFormSections` tool
  * over the shared planner, the `section` arm `addFields` gets from the
@@ -59,16 +64,18 @@ function visitsRepeat() {
 }
 
 function docOf(fields: ReturnType<typeof f>[]): BlueprintDoc {
-	return buildDoc({
-		appName: "Sections",
-		modules: [
-			{
-				uuid: "mod-visits",
-				name: "Visits",
-				forms: [{ uuid: "frm-visit", name: "Visit", type: "survey", fields }],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Sections",
+			modules: [
+				{
+					uuid: "mod-visits",
+					name: "Visits",
+					forms: [{ uuid: "frm-visit", name: "Visit", type: "survey", fields }],
+				},
+			],
+		}),
+	);
 }
 
 /** Single page: a, b, group g(inner), c. */
@@ -148,10 +155,25 @@ describe("section at the tool boundary", () => {
 
 	it("publishes the desired-state shape on the wire", async () => {
 		const wire = wireToolSchema(setFormSectionsInputSchema);
-		const json = JSON.stringify(await wire.jsonSchema);
-		for (const key of ["sections", "sectionUuid", "label", "fields"]) {
-			expect(json).toContain(`"${key}"`);
-		}
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const validate = ajv.compile(await wire.jsonSchema);
+		const valid = {
+			...address,
+			sections: [{ sectionUuid: S1, label: null, fields: [A] }],
+		};
+		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+		expect(
+			validate({
+				...valid,
+				sections: [
+					{ sectionUuid: S1, label: null, fields: ["not-an-identity"] },
+				],
+			}),
+		).toBe(false);
+		expect(
+			validate({ ...valid, sections: [{ ...valid.sections[0], typo: true }] }),
+		).toBe(false);
 		const accepted = await wire.validate?.({
 			...address,
 			sections: [{ sectionUuid: S1, label: null, fields: [A] }],
@@ -442,7 +464,7 @@ describe("moveField across pages", () => {
 		);
 	});
 
-	it("refuses to carry an add-entries repeat into a page", async () => {
+	it("refuses paging a group that contains an add-entries repeat", async () => {
 		// A user repeat nested in a group on a single page; moving the group
 		// onto a page would carry the repeat with it.
 		const h = makeToolWorkspaceHarness(

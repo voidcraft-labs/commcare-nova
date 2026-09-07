@@ -29,15 +29,14 @@ valid direct Builder or MCP edit.
   resolve before the unchanged UUID-only schemas parse, and the reserved
   `@f<N>` namespace can never enter a design reference. State and
   inspection project every bound identity back through its handle. The
-  semantic update and inspect tools ship `strict: true`, so their provider wire schemas widen
-  every design-ID slot to `uuid | { handle }` — `designIdSchema` emits its
-  admission rule as the canonical UUID `pattern` (a required slot as
-  `type: "string"`, a formerly-optional slot as the strict projection's
-  `type: ["string", "null"]`, which widens with its null arm kept), the
-  widening keys on that exact pattern, and
-  `loop/__tests__/toolWireSchemas.test.ts` audits every node carrying the
-  pattern so no slot remains pinned to raw UUIDs the server would then
-  refuse. Review findings carry the third symbol family: positional
+  semantic update and inspect tools ship `strict: true`. Their provider grammar
+  widens explicitly marked DesignId slots to `uuid | { handle }`, keeping the
+  null arm where the slot was optional. The `x-nova-design-identity` marker is
+  consumed before provider serialization; Project lookup, source and media
+  UUIDs retain their own canonical identity semantics even in same-named slots.
+  `loop/__tests__/toolWireSchemas.test.ts` admits complete payloads through an
+  independent JSON Schema validator and the actual canonical parse seam.
+  Review findings carry the third symbol family: positional
   `@f1..@fN` handles (`reviewVocabulary.ts::deriveFindingHandleBindings`),
   server projections derived on demand from the head draft's reviews — never
   ledger rows. A disposition's `findingId` takes the printed `@f` handle,
@@ -94,7 +93,11 @@ valid direct Builder or MCP edit.
   concrete inputs and outcomes, structurally empty or disabled workflow shells,
   unresolved writes or outcomes, blocking open questions tied to included
   construction, and promises that Nova creates or uploads media. The authored
-  `blocking` flag is the construction gate: a non-blocking question beside
+  `blocking` flag is the construction gate for every current-contract question,
+  including questions about app prerequisites, decisions, or assumptions. Graph
+  admission includes all declared workflows and resolves question targets;
+  removing an excluded workflow also removes or resolves its blocking questions.
+  A non-blocking question beside
   concrete design — the spelling for a decision the user delegated or a
   production-hardening note — is a recorded caveat that never forces a user
   pause, and the concreteness checks still reject design that is not actually
@@ -137,7 +140,10 @@ valid direct Builder or MCP edit.
   lookup area is also inherited through a workflow input's referenced record
   property, not only a form-local inline choice declaration. The
   model cannot choose ownership, omit accepted work, or author a separate
-  lowering graph. Plan validation proves exact workflow/group coverage, one
+  lowering graph. New-plan admission compares the complete slices and external
+  actions with the deterministic projection of the accepted contract, including
+  identities, names, goals, ordered ownership, areas, dependencies and risk.
+  Plan validation also proves one
   materialization root, an acyclic dependency graph, and supported external-
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
@@ -189,12 +195,18 @@ valid direct Builder or MCP edit.
   children (never a `section` field, which is a page: the contract carries no
   page decision); guidance and record
   summaries lower to `label` fields with UUID-backed prose references.
-  Semantic record names lower once into exact Blueprint case-type keys; schema,
+  Semantic record names lower once across the complete accepted catalog into
+  distinct, bounded Blueprint case-type keys. Collisions receive the full record
+  UUID suffix, including when another display name resembles a generated key;
+  this mapping is independent of catalog order. Schema,
   parent, module, field-write, and case-operation calls reuse those keys rather
   than treating a display name as another record identity. Every newly owned
   case module also carries one exact `requiredInitialResultsColumn`, a visible
   plain `case_name` column derived from its host record. This compiler input
   makes the module's birth call valid without turning Results into form fields.
+  External prerequisite guidance selects named capability entries: media upload
+  for media references, worker/resource provisioning for users or organization
+  shape, and person-operated HQ deployment for a linked deployment requirement.
   The executor admits module creation, reuse, forms, updates, and moves only
   through that exact handle and accepted placement, and `finishWorkflow`
   proves the committed module identity, parent, and sibling order before
@@ -212,7 +224,16 @@ valid direct Builder or MCP edit.
   checked, strict-parsed on read, and written only after locking the exact live
   session/app holder and proving current Project edit membership. An accepted
   revision requires its persisted independent review and complete blocker
-  dispositions. A plan belongs to the same session and exact accepted revision.
+  dispositions. Each disposition names a finding in its exact persisted review;
+  reads also compare its relational finding/status with the payload. Artifact
+  readers compare relational identity, predecessor and source/digest metadata
+  with the sealed body before returning a record. A plan belongs to the same
+  session, source package and exact accepted revision. The writer checks its
+  complete construction semantics against that revision inside the same
+  authority transaction, after verifying any lookup receipt. Its raw payload digest
+  is verified before historical additive fields are normalized. Private
+  workspace finalization belongs only to contract/revision authoring; the
+  deterministic planner has no workspace.
   Lookup materialization receipts retain every minted table, column, and row
   binding under their full result digest. The BuildPlan binds the exact receipt
   to execution authority, but the execution brief does not expose that mapping.
@@ -220,12 +241,26 @@ valid direct Builder or MCP edit.
   discarded, artifact orchestration releases that materialization's temporary
   lookup protections but never guesses that the accepted Project data itself is
   safe to delete.
+- The build orchestration event chain re-proves its stored payloads and
+  predecessor links under the session authority lock before each append, then
+  requires the caller's exact head identity, revision and digest. Identical
+  concurrent replays may adopt the persisted winner. Terminal app completion,
+  charge settlement and the final event commit atomically. Chain continuity
+  does not replace the design/build owners' phase-transition rules.
 - `sourcePackage.ts` is the one caller-authorized source boundary. It renders
   bounded transcript messages, Project-authorized attachment extracts, and
   digest-bound images for the model while persisting references and
-  content-free proof hashes rather than copied source bodies. Historical
-  answered-question claims remain source-package reconstruction metadata; they
+  content-free proof hashes rather than copied source bodies.
+  Answered-question claims require the actual question input shape and a
+  nonempty string answer for every question in the flat client result map.
+  Malformed or unfinished cards seed nothing; complete cards retain their
+  original UUID namespace, statement spelling and transcript coordinates.
+  These claims remain source-package reconstruction metadata; they
   are not part of the Design Contract or build coverage model.
+  Asset metadata must be ready and match the attached kind before projection.
+  Package reconstruction uses the earliest prefix containing the original
+  source coordinates, so later reattachments do not pull new text into an
+  older design. The recomputed digest still refuses changed or missing content.
 - `capabilityCatalog.ts` generates the design-time capability boundary from
   the shared tools and domain vocabularies. One session builds one app in the
   current Project. The catalog and bounded Project-data inspector expose current
@@ -245,6 +280,13 @@ valid direct Builder or MCP edit.
   conversational per-block renderers stay byte-identical because the author
   transcript is prefix-cached and tag numbering shifts when an answered round
   extends the package — tags are derived per render and never persisted.
+  Message, attachment, image-label and normalized-claim text all neutralize
+  source delimiters before projection. Rendering tests prove this formatting
+  boundary; they do not prove that a model obeys the source-data instruction.
+- `artifactResult.ts` admits an independent review or architect decision only
+  after normal provider completion and successful schema parsing. Cancellation
+  and token truncation take precedence even if complete JSON arrived earlier.
+  Provider/transport errors retain their original classification and throw.
 - Localization intent belongs to the accepted Design Contract, never inferred
   from conversation language. It names canonical source, runtime default,
   target metadata, each target's existing seed language, and `copy-only` versus
@@ -386,11 +428,23 @@ decision or assumption, removes the question or marks it non-blocking — and a
 delegating answer such as "use sensible defaults" makes the concrete choice
 the model's to bake in.
 
+Semantic tool replay retains its persisted call identity after eager forward
+references become known or declared. A changed binding batch may replay only
+when the stored operation envelope is identical and every supplied binding is
+already proven in the session ledger; replay adds no workspace steps or handles.
+
 `designAgent.ts` owns the one stable agent grammar and compaction preparation.
+A retained state packet suppresses fresh derivation only when its durable append
+key proves a server `state:` or `compaction-state:` write after the newest provider
+checkpoint. User text, including a copied state heading or an old server packet,
+cannot establish that origin. The packet commits before the next provider call.
 The ordinary history and every complete step response append to
 `design_model_context_items` atomically with its usage-bearing
 `design_model_steps` completion event; the step ledger brackets provider calls
-with payload-free request/response evidence. A durable provider-call start
+with payload-free request/response evidence. Completion verifies that its
+declared response digest binds the exact persisted messages. Recovery verifies
+every current and predecessor step event against its stored digest before using
+request counts, completion state or usage for accounting. A durable provider-call start
 consumes the design step budget even when infrastructure interrupts its
 response, and recovery derives prior spend from those starts before another
 request is allowed. Every browser user turn
@@ -436,6 +490,10 @@ non-convergence honestly rather than converting it into acceptance. Answered
 blocking questions reopen design work only before construction freezes the
 accepted revision and plan. `packageRebuild.ts` refuses continuation when the
 authorized sources cannot reproduce the bound package.
+When new source evidence reopens an accepted design, its old blocking questions
+remain context, while the server's next-action message directs authoring to
+incorporate the new evidence. It must not demand the same answer again merely
+because the historical accepted artifact still contains the question.
 
 Tool lifecycle diagnostics contain only opaque call identity, tool name,
 duration, character count, outcome code, validation stage, and issue count.
@@ -473,3 +531,8 @@ author/review/revision protocol and performs no database writes.
 inspector. It reconstructs open workspace readiness and usage even before an
 immutable revision exists; `--reasoning` includes model reasoning summaries and
 payload-free tool outcomes from the run event log.
+
+Progress narration recognizes completed top-level JSON keys across streamed
+deltas, including split escapes. Nested keys and source prose do not announce
+submission steps. It retains only a bounded candidate key; submission schemas
+still own validation, and progress labels never imply artifact acceptance.

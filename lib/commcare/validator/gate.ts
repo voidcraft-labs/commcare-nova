@@ -109,13 +109,12 @@ export type ValidityClass =
  *     LOOKUP_HQ_PUSH_TOO_LARGE, whose budget is CommCare HQ's and nobody
  *     else's.
  */
-export const VALIDITY_CLASS_BY_CODE: Readonly<
-	Record<ValidationErrorCode, ValidityClass>
-> = {
+export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	ENTRY_POINT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
+	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
@@ -208,7 +207,6 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: "soundness",
 	CASE_LIST_BARE_SEARCH_INPUT_REF: "soundness",
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: "soundness",
-	CASE_LIST_ID_MAPPING_EMPTY_VALUE: "soundness",
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: "soundness",
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: "soundness",
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: "soundness",
@@ -275,13 +273,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: "soundness",
-	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: "soundness",
 	FORM_LINK_CIRCULAR: "soundness",
 	FORM_LINK_NO_FALLBACK: "soundness",
 	FORM_LINK_SELF_REFERENCE: "soundness",
 	FORM_LINK_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
+	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: "soundness",
 	FORM_LINK_SELECTION_CARDINALITY: "soundness",
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: "soundness",
 	MULTI_SELECT_FANOUT_CHILD_DATUM: "soundness",
@@ -474,17 +472,23 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	// context is therefore a whole-candidate soundness failure.
 	LOOKUP_CONTEXT_UNAVAILABLE: "soundness",
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
+	LOOKUP_TAG_RESERVED_BY_RUNTIME: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
+	LOOKUP_CELL_TEXT_UNREPRESENTABLE: "environment",
+	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",
+	// HQ regeneration cannot preserve these proven nested selection shapes.
+	// Local package export remains supported; this is target-specific.
+	HQ_NESTED_SELECTION_UNREPRESENTABLE: "environment",
 	LOOKUP_TAG_TOO_LONG_FOR_HQ: "environment",
 	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────
@@ -508,7 +512,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	PROSE_EDITOR_ROUND_TRIP_LOSS: "soundness",
 	CYCLE: "soundness",
 	TYPE_ERROR: "soundness",
-};
+} as const satisfies Readonly<Record<ValidationErrorCode, ValidityClass>>;
+
+export type UserFacingValidationCode = {
+	[Code in ValidationErrorCode]: (typeof VALIDITY_CLASS_BY_CODE)[Code] extends "oracle"
+		? never
+		: Code;
+}[ValidationErrorCode];
 
 /** Classify a validation code through the typed-total current table. */
 export function classifyError(code: ValidationErrorCode): ValidityClass {

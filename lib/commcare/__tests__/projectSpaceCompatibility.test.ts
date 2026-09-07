@@ -3,7 +3,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type Automation,
 	automationMessageText,
-	type BlueprintDoc,
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
@@ -18,19 +17,18 @@ import {
 	requiredProjectSpaceCapabilities,
 } from "../projectSpaceCompatibility";
 
-function doc(overrides: Partial<BlueprintDoc> = {}): BlueprintDoc {
+// The requirement detector explicitly accepts this partial document boundary.
+// These tests project authored feature facts; target support is supplied by probes.
+type CompatibilityInput = Parameters<
+	typeof projectSpaceCompatibilityProbePlan
+>[0];
+function doc(overrides: Partial<CompatibilityInput> = {}): CompatibilityInput {
 	return {
-		appId: "app-1",
-		appName: "Compatibility",
 		connectType: null,
-		caseTypes: null,
 		modules: {},
 		forms: {},
 		fields: {},
-		moduleOrder: [],
 		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
 		...overrides,
 	};
 }
@@ -474,5 +472,92 @@ describe("Deep links capability", () => {
 				(c) => c.id === "deep-links",
 			),
 		).toBe(false);
+	});
+});
+
+describe("public report state and decoding boundaries", () => {
+	const states = ["available", "missing", "unverified"] as const;
+	for (const required of states)
+		for (const advisory of states)
+			it(`required ${required}, advisory ${advisory}`, () => {
+				const patient = module({ caseSearchConfig: {} });
+				const plan = projectSpaceCompatibilityProbePlan(
+					doc({ modules: { [patient.uuid]: patient } }),
+				);
+				const report = projectSpaceCompatibilityForTarget(
+					"clinic",
+					[{ capability: plan.capabilities[0].capability, state: required }],
+					[{ advisory: plan.advisories[0].advisory, state: advisory }],
+				);
+				expect(report.status).toBe(
+					required === "available" ? "ready" : "blocked",
+				);
+				expect(report.blockers.map((b) => [b.id, b.state])).toEqual(
+					required === "available" ? [] : [["case-search", required]],
+				);
+				expect(report.advisories.map((a) => a.state)).toEqual([advisory]);
+				// Independent URI+JSON decoding owns the transport bytes, including Unicode.
+				expect(
+					JSON.parse(
+						decodeURIComponent(
+							encodeProjectSpaceCompatibilityReport({
+								...report,
+								message: "Café 雪 😀",
+							}),
+						),
+					),
+				).toEqual({ ...report, message: "Café 雪 😀" });
+			});
+	it.each([
+		null,
+		"",
+		"%",
+		"%E0%A4%A",
+		"not-json",
+		encodeURIComponent("null"),
+		encodeURIComponent("[]"),
+	])("ignores malformed header %s", (value) => {
+		expect(decodeProjectSpaceCompatibilityReport(value)).toBeUndefined();
+	});
+	it("refuses inconsistent states, malformed nested checks and stale public definitions", () => {
+		const patient = module({ caseSearchConfig: {} });
+		const plan = projectSpaceCompatibilityProbePlan(
+			doc({ modules: { [patient.uuid]: patient } }),
+		);
+		const ready = projectSpaceCompatibilityForTarget(
+			"clinic",
+			[{ capability: plan.capabilities[0].capability, state: "available" }],
+			[{ advisory: plan.advisories[0].advisory, state: "missing" }],
+		);
+		const capability = ready.required_capabilities[0];
+		const bad = [
+			{ ...ready, status: "blocked" },
+			{ ...ready, status: "not_needed" },
+			{ ...ready, status: "not_checked" },
+			{ ...ready, target_domain: null },
+			{
+				...ready,
+				required_capabilities: [{ ...capability, state: "missing" }],
+			},
+			{ ...ready, required_capabilities: [{ ...capability, id: "unknown" }] },
+			{
+				...ready,
+				required_capabilities: [{ ...capability, label: "Outdated label" }],
+			},
+			{ ...ready, required_capabilities: [{ ...capability, reasons: [1] }] },
+			{
+				...ready,
+				required_capabilities: [{ ...capability, issue: "arbitrary" }],
+			},
+			{ ...ready, advisories: [{ ...ready.advisories[0], state: "unknown" }] },
+			{ ...ready, blockers: [capability] },
+			{ ...ready, docs_url: "https://other.example" },
+		];
+		for (const value of bad)
+			expect(
+				decodeProjectSpaceCompatibilityReport(
+					encodeURIComponent(JSON.stringify(value)),
+				),
+			).toBeUndefined();
 	});
 });

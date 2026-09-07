@@ -23,7 +23,6 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	caseOperationSchema,
-	emptyCaseListConfig,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
@@ -182,8 +181,8 @@ describe("mutationTargetsInvalid — entity kinds", () => {
 				kind: "renameModule",
 				uuid: moduleUuid,
 				newId: "patients2",
-			} as Mutation,
-			{ kind: "renameForm", uuid: formUuid, newId: "intake2" } as Mutation,
+			},
+			{ kind: "renameForm", uuid: formUuid, newId: "intake2" },
 			{
 				kind: "updateField",
 				uuid: fieldUuid,
@@ -198,27 +197,23 @@ describe("mutationTargetsInvalid — entity kinds", () => {
 		const { doc } = fixture();
 		expect(
 			mutationTargetsInvalid(doc, [
-				{ kind: "renameModule", uuid: MISSING, newId: "x" } as Mutation,
+				{ kind: "renameModule", uuid: MISSING, newId: "x" },
 			]),
 		).toBe(true);
 		expect(
-			mutationTargetsInvalid(doc, [
-				{ kind: "removeForm", uuid: MISSING } as Mutation,
-			]),
+			mutationTargetsInvalid(doc, [{ kind: "removeForm", uuid: MISSING }]),
 		).toBe(true);
 		expect(
-			mutationTargetsInvalid(doc, [
-				{ kind: "removeField", uuid: MISSING } as Mutation,
-			]),
+			mutationTargetsInvalid(doc, [{ kind: "removeField", uuid: MISSING }]),
 		).toBe(true);
 		expect(
 			mutationTargetsInvalid(doc, [
 				{
 					kind: "updateModule",
 					uuid: MISSING,
-					patch: { caseListConfig: emptyCaseListConfig() },
+					patch: {},
 					ensureCaseListConfig: true,
-				} as unknown as Mutation,
+				},
 			]),
 		).toBe(true);
 	});
@@ -236,8 +231,8 @@ describe("mutationTargetsInvalid — entity kinds", () => {
 					name: "Extra",
 					type: "survey",
 				},
-			} as unknown as Mutation,
-			{ kind: "renameForm", uuid: newFormUuid, newId: "extra2" } as Mutation,
+			},
+			{ kind: "renameForm", uuid: newFormUuid, newId: "extra2" },
 		];
 		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 	});
@@ -407,13 +402,13 @@ describe("mutationTargetsInvalid — granular catalog kinds", () => {
 				kind: "removeCaseProperty",
 				caseType: "patient",
 				property: "age",
-			} as Mutation,
+			},
 			{
 				kind: "setCaseProperty",
 				caseType: "patient",
 				property: { name: "age", label: proseText("Age") },
 			},
-			{ kind: "setCaseTypeMeta", caseType: "patient" } as Mutation,
+			{ kind: "setCaseTypeMeta", caseType: "patient" },
 		];
 		expect(mutationTargetsInvalid(doc, live)).toBe(false);
 	});
@@ -426,12 +421,12 @@ describe("mutationTargetsInvalid — granular catalog kinds", () => {
 					kind: "addCaseProperty",
 					caseType: "household",
 					property: { name: "x", label: proseText("X") },
-				} as unknown as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
 			mutationTargetsInvalid(doc, [
-				{ kind: "retireCaseType", caseType: "household" } as Mutation,
+				{ kind: "retireCaseType", caseType: "household" },
 			]),
 		).toBe(true);
 	});
@@ -439,7 +434,7 @@ describe("mutationTargetsInvalid — granular catalog kinds", () => {
 	it("seeds an intra-batch declareCaseType before its property writes", () => {
 		const { doc } = fixture();
 		const batch: Mutation[] = [
-			{ kind: "declareCaseType", caseType: "household" } as Mutation,
+			{ kind: "declareCaseType", caseType: "household" },
 			{
 				kind: "addCaseProperty",
 				caseType: "household",
@@ -491,39 +486,40 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 				uuid: columnUuid,
 				surface: "list",
 				after: null,
-			} as Mutation,
+			},
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
 				surface: "list",
 				after: null,
-			} as Mutation,
+			},
 			{
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: columnUuid,
 				surface: "detail",
 				after: null,
-			} as Mutation,
+			},
 			{
 				kind: "updateColumn",
 				moduleUuid,
 				uuid: columnUuid,
 				column: columnContentSnapshot(column),
 				visibilityPatch: { surface: "detail", visible: false },
-			} as Mutation,
+			},
 			{
 				kind: "removeSearchInput",
 				moduleUuid,
 				uuid: searchInputUuid,
-			} as Mutation,
-			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {} } as Mutation,
+			},
+			{ kind: "setCaseListMeta", uuid: moduleUuid, patch: {} },
 			{
+				after: null,
 				kind: "moveOption",
 				fieldUuid: selectUuid,
 				uuid: optionUuid,
-			} as Mutation,
+			},
 		];
 		expect(mutationTargetsInvalid(doc, live)).toBe(false);
 	});
@@ -532,7 +528,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 		const { doc, moduleUuid, selectUuid } = fixture();
 		expect(
 			mutationTargetsInvalid(doc, [
-				{ kind: "removeColumn", moduleUuid, uuid: MISSING } as Mutation,
+				{ kind: "removeColumn", moduleUuid, uuid: MISSING },
 			]),
 		).toBe(true);
 		expect(
@@ -547,7 +543,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 						header: "X",
 					},
 					visibilityPatch: { surface: "list", visible: false },
-				} as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
@@ -558,7 +554,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					uuid: MISSING,
 					surface: "list",
 					after: null,
-				} as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
@@ -569,25 +565,33 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					uuid: MISSING,
 					surface: "detail",
 					after: null,
-				} as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
 			mutationTargetsInvalid(doc, [
 				{
+					searchInput: {
+						kind: "simple",
+						name: "name",
+						label: "Name",
+						type: "text",
+						property: "case_name",
+					},
 					kind: "updateSearchInput",
 					moduleUuid,
 					uuid: MISSING,
-				} as unknown as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
 			mutationTargetsInvalid(doc, [
 				{
+					after: null,
 					kind: "moveOption",
 					fieldUuid: selectUuid,
 					uuid: MISSING,
-				} as Mutation,
+				},
 			]),
 		).toBe(true);
 	});
@@ -627,6 +631,8 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 		expect(
 			mutationTargetsInvalid(doc, [
 				{
+					afterInList: null,
+					afterInDetail: null,
 					kind: "addColumn",
 					moduleUuid: MISSING,
 					column: {
@@ -635,7 +641,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 						field: "x",
 						header: "X",
 					},
-				} as unknown as Mutation,
+				},
 			]),
 		).toBe(true);
 		expect(
@@ -648,7 +654,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 						label: proseText("V"),
 						uuid: testUuid("o-new"),
 					},
-				} as unknown as Mutation,
+				},
 			]),
 		).toBe(true);
 	});
@@ -662,7 +668,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,
 					patch: { filter: { kind: "match-all" } },
-				} as Mutation,
+				},
 			]),
 		).toBe(false);
 
@@ -685,7 +691,7 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,
 					patch: { filter: { kind: "match-all" } },
-				} as Mutation,
+				},
 			]),
 		).toBe(true);
 	});
@@ -709,20 +715,22 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 				{
 					kind: "updateModule",
 					uuid: moduleUuid,
-					patch: { caseListConfig: emptyCaseListConfig() },
+					patch: {},
 					ensureCaseListConfig: true,
-				} as unknown as Mutation,
+				},
 				{
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,
 					patch: { filter: { kind: "match-all" } },
-				} as Mutation,
+				},
 			]),
 		).toBe(false);
 		// An addColumn also births a config, so a follow-up setCaseListMeta resolves.
 		expect(
 			mutationTargetsInvalid(cleared, [
 				{
+					afterInList: null,
+					afterInDetail: null,
 					kind: "addColumn",
 					moduleUuid,
 					column: {
@@ -731,12 +739,12 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 						field: "case_name",
 						header: "N",
 					},
-				} as unknown as Mutation,
+				},
 				{
 					kind: "setCaseListMeta",
 					uuid: moduleUuid,
 					patch: { filter: { kind: "match-all" } },
-				} as Mutation,
+				},
 			]),
 		).toBe(false);
 	});
@@ -747,6 +755,8 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 		const newOptUuid = testUuid("opt-new");
 		const batch: Mutation[] = [
 			{
+				afterInList: null,
+				afterInDetail: null,
 				kind: "addColumn",
 				moduleUuid,
 				column: {
@@ -755,12 +765,14 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					field: "case_name",
 					header: "N",
 				},
-			} as unknown as Mutation,
+			},
 			{
+				surface: "list",
+				after: null,
 				kind: "moveColumn",
 				moduleUuid,
 				uuid: newColUuid,
-			} as Mutation,
+			},
 			{
 				kind: "addOption",
 				fieldUuid: selectUuid,
@@ -769,12 +781,12 @@ describe("mutationTargetsInvalid — granular collection kinds (item uuid)", () 
 					label: proseText("Blue"),
 					uuid: newOptUuid,
 				},
-			} as unknown as Mutation,
+			},
 			{
 				kind: "removeOption",
 				fieldUuid: selectUuid,
 				uuid: newOptUuid,
-			} as Mutation,
+			},
 		];
 		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 	});
@@ -789,7 +801,6 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 
 	function granular(
 		formUuid: string,
-		_fallback: CaseOperation,
 		caseOperationPatch: NonNullable<
 			Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"]
 		>,
@@ -804,21 +815,16 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 
 	it("rejects a scalar/move/write/link edit after a peer removed its target", () => {
 		const { doc, formUuid } = fixture();
-		const operation = operationIn(doc, formUuid);
 		const withoutOperation = structuredClone(doc);
 		delete withoutOperation.forms[formUuid].caseOperations;
 		const operationEdits: Mutation[] = [
-			granular(
-				formUuid,
-				{ ...operation, id: "renamed" },
-				{
-					operation: "update",
-					uuid: OPERATION,
-					targetAction: "create",
-					patch: { id: "renamed" },
-				},
-			),
-			granular(formUuid, operation, {
+			granular(formUuid, {
+				operation: "update",
+				uuid: OPERATION,
+				targetAction: "create",
+				patch: { id: "renamed" },
+			}),
+			granular(formUuid, {
 				operation: "move",
 				uuid: OPERATION,
 				after: null,
@@ -832,19 +838,12 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 		delete withoutWrite.forms[formUuid].caseOperations?.[0]?.writes;
 		expect(
 			mutationTargetsInvalid(withoutWrite, [
-				granular(
-					formUuid,
-					{
-						...operation,
-						writes: [{ property: "status", value: value("closed") }],
-					},
-					{
-						operation: "update-write",
-						uuid: OPERATION,
-						property: "status",
-						patch: { value: value("closed") },
-					},
-				),
+				granular(formUuid, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "status",
+					patch: { value: value("closed") },
+				}),
 			]),
 		).toBe(true);
 
@@ -852,26 +851,12 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 		delete withoutLink.forms[formUuid].caseOperations?.[0]?.links;
 		expect(
 			mutationTargetsInvalid(withoutLink, [
-				granular(
-					formUuid,
-					{
-						...operation,
-						links: [
-							{
-								identifier: "parent",
-								targetType: "household",
-								target: null,
-								relationship: "extension",
-							},
-						],
-					},
-					{
-						operation: "update-link",
-						uuid: OPERATION,
-						identifier: "parent",
-						patch: { relationship: "extension" },
-					},
-				),
+				granular(formUuid, {
+					operation: "update-link",
+					uuid: OPERATION,
+					identifier: "parent",
+					patch: { relationship: "extension" },
+				}),
 			]),
 		).toBe(true);
 	});
@@ -898,18 +883,11 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 		withPeerWrite.forms[formUuid].caseOperations?.[0]?.writes?.push(peerWrite);
 		expect(
 			mutationTargetsInvalid(withPeerWrite, [
-				granular(
-					formUuid,
-					{
-						...operation,
-						writes: [...(operation.writes ?? []), peerWrite],
-					},
-					{
-						operation: "add-write",
-						uuid: OPERATION,
-						value: peerWrite,
-					},
-				),
+				granular(formUuid, {
+					operation: "add-write",
+					uuid: OPERATION,
+					value: peerWrite,
+				}),
 			]),
 		).toBe(true);
 
@@ -923,18 +901,11 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 		withPeerLink.forms[formUuid].caseOperations?.[0]?.links?.push(peerLink);
 		expect(
 			mutationTargetsInvalid(withPeerLink, [
-				granular(
-					formUuid,
-					{
-						...operation,
-						links: [...(operation.links ?? []), peerLink],
-					},
-					{
-						operation: "add-link",
-						uuid: OPERATION,
-						value: peerLink,
-					},
-				),
+				granular(formUuid, {
+					operation: "add-link",
+					uuid: OPERATION,
+					value: peerLink,
+				}),
 			]),
 		).toBe(true);
 	});
@@ -973,13 +944,13 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 						value: strictOperation(born),
 					},
 				},
-				granular(formUuid, born, {
+				granular(formUuid, {
 					operation: "add-write",
 					uuid: born.uuid,
 					value: { property: "note", value: value("hello") },
 					after: null,
 				}),
-				granular(formUuid, born, {
+				granular(formUuid, {
 					operation: "add-link",
 					uuid: born.uuid,
 					value: born.links?.[0] as NonNullable<CaseOperation["links"]>[number],
@@ -1062,59 +1033,48 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 						value: strictOperation(born),
 					},
 				},
-				granular(
-					formUuid,
-					{ ...born, id: "born_renamed" },
-					{
-						operation: "update",
-						uuid: OTHER_OPERATION,
-						targetAction: "create",
-						patch: { id: "born_renamed" },
-					},
-				),
+				granular(formUuid, {
+					operation: "update",
+					uuid: OTHER_OPERATION,
+					targetAction: "create",
+					patch: { id: "born_renamed" },
+				}),
 			]),
 		).toBe(false);
 
 		expect(
 			mutationTargetsInvalid(doc, [
-				granular(formUuid, operation, {
+				granular(formUuid, {
 					operation: "remove-write",
 					uuid: OPERATION,
 					property: "status",
 				}),
-				granular(formUuid, operation, {
+				granular(formUuid, {
 					operation: "add-write",
 					uuid: OPERATION,
 					value: { property: "note", value: value("replacement") },
 				}),
-				granular(
-					formUuid,
-					{
-						...operation,
-						writes: [{ property: "note", value: value("next") }],
-					},
-					{
-						operation: "update-write",
-						uuid: OPERATION,
-						property: "note",
-						patch: { value: value("next") },
-					},
-				),
+				granular(formUuid, {
+					operation: "update-write",
+					uuid: OPERATION,
+					property: "note",
+					patch: { value: value("next") },
+				}),
 			]),
 		).toBe(false);
 		expect(
 			mutationTargetsInvalid(doc, [
-				granular(formUuid, operation, {
+				granular(formUuid, {
 					operation: "remove-write",
 					uuid: OPERATION,
 					property: "status",
 				}),
-				granular(formUuid, operation, {
+				granular(formUuid, {
 					operation: "add-write",
 					uuid: OPERATION,
 					value: { property: "note", value: value("replacement") },
 				}),
-				granular(formUuid, operation, {
+				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
 					property: "status",
@@ -1125,16 +1085,12 @@ describe("mutationTargetsInvalid — case-operation logical identities", () => {
 
 		expect(
 			mutationTargetsInvalid(doc, [
-				granular(
-					formUuid,
-					{ ...operation, writes: undefined },
-					{
-						operation: "remove-write",
-						uuid: OPERATION,
-						property: "status",
-					},
-				),
-				granular(formUuid, operation, {
+				granular(formUuid, {
+					operation: "remove-write",
+					uuid: OPERATION,
+					property: "status",
+				}),
+				granular(formUuid, {
 					operation: "update-write",
 					uuid: OPERATION,
 					property: "status",
@@ -1149,23 +1105,10 @@ describe("mutationTargetsInvalid — app-level scalars", () => {
 	it("app-level scalar kinds are always safe (no entity target)", () => {
 		const { doc } = fixture();
 		const scalars: Mutation[] = [
-			{ kind: "setAppName", name: "New" } as Mutation,
-			{ kind: "setConnectType", connectType: null } as Mutation,
-			{ kind: "setAppLogo", logo: null } as Mutation,
+			{ kind: "setAppName", name: "New" },
+			{ kind: "setConnectType", connectType: null },
+			{ kind: "setAppLogo", logo: null },
 		];
 		expect(mutationTargetsInvalid(doc, scalars)).toBe(false);
-	});
-
-	it("a declaration seeds the simulated catalog for later catalog edits", () => {
-		const { doc } = fixture();
-		const batch: Mutation[] = [
-			{ kind: "declareCaseType", caseType: "household" },
-			{
-				kind: "addCaseProperty",
-				caseType: "household",
-				property: { name: "size", label: proseText("Size") },
-			},
-		];
-		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
 	});
 });

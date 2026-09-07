@@ -1,21 +1,6 @@
-/**
- * Cross-surface behavior tests for the extracted shared tool modules.
- *
- * Phase D's thesis is that every shared tool under `lib/agent/tools/`
- * produces identical mutation batches when driven through either
- * surface's `CanonicalMutationHost` implementation — `GenerationContext`
- * for the chat route, `McpContext` for the MCP adapter. If the two
- * hosts ever diverged on how the tool's mutations are computed,
- * replay + downstream persistence would drift. This file locks that
- * invariant in against one representative tool (`addFieldsTool`); Phase
- * E will add per-adapter coverage.
- *
- * Also covers the `updateForm` partial-connect-config regression: a
- * partial update must leave sibling sub-configs untouched. The fix in
- * `buildConnectConfig` is what this test guards — a regression would
- * silently wipe `learn_module` when the SA patches only `assessment`,
- * and vice versa.
- */
+/** Shared addFields and updateForm schema/handler behavior over an actual
+ * canonical workspace. Persistence receipts are controlled; native SQL and
+ * CommCare compatibility belong to their respective boundary suites. */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -32,7 +17,6 @@ import type {
 	ConnectConfig,
 	ConnectDeliverConfig,
 	ConnectLearnConfig,
-	Form,
 	Uuid,
 } from "@/lib/domain";
 import { formExpressionSource, isConnectLearnConfig } from "@/lib/domain";
@@ -40,7 +24,16 @@ import { proseText } from "@/lib/domain/prose";
 import { type AddFieldsInput, addFieldsTool } from "../../tools/addFields";
 import { type UpdateFormInput, updateFormTool } from "../../tools/updateForm";
 import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
-import { makeMcpTestContext, makeToolWorkspaceHarness } from "../fixtures";
+import { expectAdmittedDoc } from "../admittedFixture";
+import {
+	makeToolWorkspaceHarness as createToolHarness,
+	makeMcpTestContext,
+} from "../fixtures";
+
+function makeToolWorkspaceHarness(doc: BlueprintDoc) {
+	const harness = createToolHarness(expectAdmittedDoc(doc));
+	return harness;
+}
 
 /* Mock the apps module so importing it doesn't reach Postgres.
  * `completeApp` is stubbed for the SA's success-path status flip; the chat
@@ -102,7 +95,7 @@ function makeFixtureDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Full name") }],
+				properties: [],
 			},
 		],
 		modules: [
@@ -171,7 +164,7 @@ function makeDocWithFullConnect(): BlueprintDoc {
 		...doc,
 		connectType: "learn",
 		forms: {
-			[FORM_A]: { ...doc.forms[FORM_A], connect } as Form,
+			[FORM_A]: { ...doc.forms[FORM_A], connect },
 		},
 	};
 }
@@ -185,6 +178,7 @@ const ADD_FIELDS_INPUT = {
 	fields: [
 		{
 			id: "dob",
+			fieldUuid: testUuid("receipt-date-of-birth"),
 			kind: "date" as const,
 			label: proseText("Date of birth"),
 		},
@@ -197,14 +191,10 @@ beforeEach(() => {
 
 // ── Cross-surface shared-tool smoke test ────────────────────────────────
 
-describe("shared tool modules drive uniform behavior across surfaces", () => {
-	it("addFieldsTool produces identical mutations on chat and MCP contexts", async () => {
-		/* Driving the same input through both contexts should produce
-		 * byte-identical mutation batches — the mutations are pure output
-		 * of the shared tool module, independent of the surface's
-		 * persistence semantics (SSE fire-and-forget vs. MCP awaited).
-		 * Any divergence here means a shared tool accidentally grew a
-		 * surface-specific code path. */
+describe("shared tool execution with controlled canonical host receipts", () => {
+	it("a predeclared field keeps its exact identity through stub-host and McpContext commits", async () => {
+		// Both paths run the actual workspace/tool, but persistence is controlled.
+		// This proves receipt adoption, not HTTP adapter or database parity.
 		const doc = makeFixtureDoc();
 
 		const chat = makeToolWorkspaceHarness(doc);
@@ -217,25 +207,22 @@ describe("shared tool modules drive uniform behavior across surfaces", () => {
 		});
 		const mcpResult = await mcpWorkspace.invoke({
 			toolName: "addFields",
-			execute: (ctx) => addFieldsTool.execute(ADD_FIELDS_INPUT, ctx),
+			execute: (ctx) =>
+				addFieldsTool.execute(
+					addFieldsTool.inputSchema.parse(ADD_FIELDS_INPUT),
+					ctx,
+				),
 		});
 
-		/* Strip the minted field uuid — it's a fresh `crypto.randomUUID()`
-		 * per call, so two sequential calls won't match byte-for-byte on
-		 * the uuid field. The rest of the addField mutation (parent, id,
-		 * kind, label) is deterministic and must be identical. */
-		function stripFieldUuid(muts: readonly Mutation[]): unknown[] {
-			return muts.map((m) => {
-				if (m.kind === "addField") {
-					const { uuid: _uuid, ...fieldSansUuid } = m.field;
-					return { ...m, field: fieldSansUuid };
-				}
-				return m;
-			});
-		}
-
-		expect(stripFieldUuid(chatResult.mutations)).toEqual(
-			stripFieldUuid(mcpResult.mutations),
+		expect(chatResult.mutations).toEqual(mcpResult.mutations);
+		const uuid = ADD_FIELDS_INPUT.fields[0].fieldUuid;
+		expect(chat.currentDoc().fields[uuid]).toMatchObject({
+			id: "dob",
+			kind: "date",
+			label: proseText("Date of birth"),
+		});
+		expect(mcpWorkspace.currentSnapshot().doc.fields[uuid]).toEqual(
+			chat.currentDoc().fields[uuid],
 		);
 		expect(chatResult.mutations).toHaveLength(1);
 		expect(chatResult.mutations[0]?.kind).toBe("addField");
@@ -488,7 +475,7 @@ describe("updateFormTool partial connect-config updates", () => {
 			formUuid: FORM_A,
 			connect: {
 				// Touch only `assessment` — `learn_module` must survive.
-				assessment: { user_score: xp("100") },
+				assessment: { user_score: xp("80") },
 			},
 		} satisfies UpdateFormInput);
 
@@ -514,7 +501,7 @@ describe("updateFormTool partial connect-config updates", () => {
 		expect(
 			patchedForm &&
 				formExpressionSource(patchedForm, "assessment_user_score", patchedDoc),
-		).toBe("100");
+		).toBe("80");
 	});
 
 	it("patching only `learn_module` preserves the existing `assessment`", async () => {
@@ -630,17 +617,39 @@ describe("updateFormTool connect-id validity", () => {
 
 	it("refuses to add a new participant through the single-form edit tool", async () => {
 		const base = makeDeliverParticipantDoc();
+		const auxiliary = testUuid("auxiliary-form");
+		const note = testUuid("auxiliary-note");
 		const doc: BlueprintDoc = {
 			...base,
 			forms: {
 				...base.forms,
-				[FORM_A]: { ...base.forms[FORM_A], connect: undefined } as Form,
+				[auxiliary]: {
+					uuid: auxiliary,
+					id: "reference",
+					name: "Reference",
+					type: "survey",
+				},
 			},
+			fields: {
+				...base.fields,
+				[note]: {
+					uuid: note,
+					id: "note",
+					kind: "text",
+					label: proseText("Note"),
+				},
+			},
+			formOrder: {
+				...base.formOrder,
+				[MOD_A]: [...base.formOrder[MOD_A], auxiliary],
+			},
+			fieldOrder: { ...base.fieldOrder, [auxiliary]: [note] },
+			fieldParent: { ...base.fieldParent, [note]: auxiliary },
 		};
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(updateFormTool, {
 			moduleUuid: MOD_A,
-			formUuid: FORM_A,
+			formUuid: auxiliary,
 			connect: { deliver_unit: { name: "Vendor visit" } },
 		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
@@ -670,7 +679,7 @@ function makeDeliverParticipantDoc(): BlueprintDoc {
 				connect: {
 					deliver_unit: { id: "patient", name: "Initial delivery" },
 				},
-			} as Form,
+			},
 		},
 	};
 }
@@ -724,7 +733,7 @@ describe("updateFormTool deliver_unit", () => {
 							entity_name: xp("'Vendor'"),
 						},
 					},
-				} as Form,
+				},
 			},
 		};
 		const h = makeToolWorkspaceHarness(seeded);
@@ -772,7 +781,7 @@ describe("updateFormTool deliver_unit", () => {
 				[FORM_A]: {
 					...registrationDoc.forms[FORM_A],
 					type: "followup",
-				} as Form,
+				},
 			},
 		};
 		const h = makeToolWorkspaceHarness(doc);

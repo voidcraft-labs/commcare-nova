@@ -56,7 +56,18 @@ describe("native-call executor cleanup migration", () => {
 			)
 		`.execute(db);
 
+		await sql`UPDATE design_slice_attempts SET staged_requests_used = 3, stage_rejected_count = 2
+   WHERE id = ${lineage.attemptId}::uuid`.execute(db);
 		await up(db as unknown as Kysely<unknown>);
+		const counters = await db
+			.selectFrom("design_slice_attempts")
+			.select(["mutation_calls_used", "private_mutation_rejected_count"])
+			.where("id", "=", lineage.attemptId)
+			.executeTakeFirstOrThrow();
+		expect(counters).toEqual({
+			mutation_calls_used: 3,
+			private_mutation_rejected_count: 2,
+		});
 
 		const columns = await sql<{ column_name: string }>`
 			SELECT column_name
@@ -98,6 +109,9 @@ describe("native-call executor cleanup migration", () => {
 					${lineage.attemptId}::uuid, 'call:2', 'stagedRequests'
 				)
 			`.execute(db),
-		).rejects.toThrow();
+		).rejects.toMatchObject({
+			code: "23514",
+			constraint: "design_slice_attempt_budget_claims_counter_check",
+		});
 	});
 });

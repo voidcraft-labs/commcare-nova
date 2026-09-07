@@ -1,6 +1,8 @@
 // Client-side projection and typed-result contracts.
 // Synthetic rows exercise coercion directly; database behavior belongs to the Postgres suite.
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
@@ -10,10 +12,10 @@ import {
 	CaseTypeNotInBlueprintError,
 	type JsonObject,
 	SchemaNotSyncedError,
+	SubmissionRejectedError,
 } from "@/lib/case-store";
-import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
-import type { CaseType } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import { createBlueprintDocStore } from "@/lib/doc/store";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import {
 	caseDatabaseToFormPreloads,
 	caseRowDisplayValue,
@@ -30,34 +32,6 @@ const APP_ID = "app-binding";
 const OWNER_A = "owner-a";
 
 const ALICE_CASE_ID = "40000000-0000-0000-0000-000000000001";
-
-const PATIENT_CASE_TYPE: CaseType = {
-	name: "patient",
-	properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
-};
-
-const _VISIT_CASE_TYPE: CaseType = {
-	name: "visit",
-	parent_type: "patient",
-	properties: [{ name: "notes", label: proseText("Notes"), data_type: "text" }],
-};
-
-const _HOUSEHOLD_CASE_TYPE: CaseType = {
-	name: "household",
-	properties: [{ name: "head_name", label: proseText("Head of household") }],
-};
-
-const _FORMATTED_PROPS_CASE_TYPE: CaseType = {
-	name: "patient",
-	properties: [
-		{ name: "age", label: proseText("Age"), data_type: "int" },
-		{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
-		{ name: "dob", label: proseText("DOB"), data_type: "date" },
-		{ name: "wake_time", label: proseText("Wake time"), data_type: "time" },
-		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
-		{ name: "home_location", label: proseText("Home"), data_type: "geopoint" },
-	],
-};
 
 function buildSyntheticRow(properties: JsonObject): CaseRow {
 	return {
@@ -330,40 +304,43 @@ describe("caseRowDisplayValue", () => {
 });
 
 describe("pickBlueprintDoc", () => {
-	it("strips function-typed extras off a doc-store-shaped state", () => {
-		// `BlueprintDocState` (the doc store's shape) carries action
-		// methods alongside the data fields. Server Actions reject
-		// function values during RSC serialization, so the
-		// projection has to drop them. Verify by extending a
-		// `BlueprintDoc` with a function-typed key and checking it's
-		// absent from the result.
-		const blueprint = buildSimpleBlueprint([PATIENT_CASE_TYPE], APP_ID);
-		const stateShaped = {
-			...blueprint,
-			// Synthetic action method the projection must strip.
-			applyMany: () => {
-				/* no-op */
-			},
-		};
-		const projected = pickBlueprintDoc(stateShaped) as Record<string, unknown>;
-		expect(projected.applyMany).toBeUndefined();
-	});
-
-	it("preserves every BlueprintDoc data field including fieldParent", () => {
-		// `BlueprintDoc` extends `PersistableDoc` (the schema-defined
-		// shape) with `fieldParent` (in-memory only, derived from
-		// `fieldOrder`). The projection re-attaches `fieldParent` from
-		// the source state so the running-app `loadCasesAction` (which
-		// never parses) can read it; the parsing preview actions strip
-		// it back off before their `.strict()` parse via
-		// `toPersistableDoc`. Verify the reverse-index round-trips here.
-		const blueprint = buildSimpleBlueprint([PATIENT_CASE_TYPE], APP_ID);
-		const withFieldParent = {
-			...blueprint,
-			fieldParent: { "child-uuid": "parent-uuid" },
-		};
-		const projected = pickBlueprintDoc(withFieldParent);
-		expect(projected).toEqual(withFieldParent);
+	it("projects a real store state into serializable app data with the actual parent index", () => {
+		const form = testUuid("projection-form"),
+			group = testUuid("projection-group"),
+			field = testUuid("projection-field");
+		const doc = buildDoc({
+			appName: "Projection",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							uuid: form,
+							name: "Record",
+							type: "survey",
+							fields: [
+								f({
+									uuid: group,
+									id: "page",
+									kind: "group",
+									children: [f({ uuid: field, id: "answer", kind: "text" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedPreviewDoc(doc);
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		const projected = pickBlueprintDoc(store.getState());
+		expect(projected.appName).toBe("Projection");
+		expect(projected.fieldParent).toEqual({ [group]: form, [field]: group });
+		expect(projected.fields).toEqual(doc.fields);
+		expect(projected).not.toHaveProperty("applyMany");
+		expect(projected).not.toHaveProperty("startTracking");
+		expect(() => structuredClone(projected)).not.toThrow();
 	});
 });
 
@@ -386,12 +363,14 @@ describe("mapFilterPreviewError", () => {
 		});
 	});
 
-	it("falls through to the generic error arm for an unrelated Error", () => {
-		const err = new Error("connection refused");
+	it("redacts internal details from an unrelated Error", () => {
+		const err = new Error(
+			"postgres://private-user:private-password@internal-db connection refused",
+		);
 		const result = mapFilterPreviewError(err);
 		expect(result.kind).toBe("error");
 		if (result.kind !== "error") return;
-		expect(result.message).toBe("connection refused");
+		expect(result.message).toBe("We couldn't load the preview. Try again.");
 	});
 
 	it("falls through to the generic error arm with a default message for non-Error throws", () => {
@@ -406,9 +385,8 @@ describe("mapPopulateSampleCasesError", () => {
 	// The Server Action's catch block delegates to this helper so
 	// the typed-error → typed-result-arm mapping is testable
 	// without driving `getSession` + `withProjectContext`. The
-	// integration tests above already exercise the round-trip
-	// through `seedSampleCases`; these tests pin the discriminator
-	// shape one more layer down.
+	// Postgres integration tests separately exercise storage; these tests
+	// only prove the typed-result projection and safe public copy.
 
 	it("maps CaseTypeNotInBlueprintError to the missing-case-type arm carrying the case type", () => {
 		const err = new CaseTypeNotInBlueprintError("app-1", "patient");
@@ -442,12 +420,14 @@ describe("mapPopulateSampleCasesError", () => {
 		});
 	});
 
-	it("falls through to the generic error arm for an unrelated Error instance", () => {
-		const err = new Error("connection refused");
+	it("redacts internal details from an unrelated Error instance", () => {
+		const err = new Error(
+			"postgres://private-user:private-password@internal-db connection refused",
+		);
 		const result = mapPopulateSampleCasesError(err);
 		expect(result.kind).toBe("error");
 		if (result.kind !== "error") return;
-		expect(result.message).toBe("connection refused");
+		expect(result.message).toBe("We couldn't add sample data. Try again.");
 	});
 
 	it("falls through to the generic error arm with a default message for non-Error throws", () => {
@@ -469,6 +449,17 @@ describe("mapPopulateSampleCasesError", () => {
 });
 
 describe("mapSubmitFormError", () => {
+	it("preserves a structured selection refusal without exposing the internal exception", () => {
+		const rejection = {
+			kind: "selection",
+			reason: "too-many",
+			maximum: 3,
+		} as const;
+		expect(mapSubmitFormError(new SubmissionRejectedError(rejection))).toEqual({
+			kind: "submission-rejected",
+			rejection,
+		});
+	});
 	// Synthetic-error mapping — same shape as the
 	// `mapPopulateSampleCasesError` block above. The Server Action's
 	// catch block delegates to this helper so the typed-error →
@@ -521,11 +512,15 @@ describe("mapSubmitFormError", () => {
 		});
 	});
 
-	it("falls through to the generic error arm for an unrelated Error instance", () => {
-		const result = mapSubmitFormError(new Error("connection refused"));
+	it("redacts internal details from an unrelated Error instance", () => {
+		const result = mapSubmitFormError(
+			new Error(
+				"postgres://private-user:private-password@internal-db connection refused",
+			),
+		);
 		expect(result).toEqual({
 			kind: "error",
-			message: "connection refused",
+			message: "We couldn't submit this form. Try again.",
 		});
 	});
 

@@ -22,6 +22,9 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { enableCaseSearchMutation } from "@/lib/doc/caseSearchConfigMutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	advancedSearchInputDef,
 	plainColumn,
@@ -66,21 +69,17 @@ const caseTypesWithChain = [
 		name: "patient",
 		parent_type: "household",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "tags", label: "Tags", data_type: "multi_select" as const },
 		],
 	},
 	{
 		name: "household",
-		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
-		],
+		properties: [],
 	},
 	{
 		name: "child",
 		parent_type: "patient",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "tags", label: "Tags", data_type: "multi_select" as const },
 			{ name: "value", label: "Value", data_type: "text" as const },
 		],
@@ -320,7 +319,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expectAdmittedDoc(doc);
 	});
 
 	it("fires when a `subcase-count` sits inside the ancestor envelope's filter", () => {
@@ -417,11 +416,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("admits sibling top-level walks (ancestor and subcase as separate top-level predicates)", () => {
@@ -450,11 +445,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("admits ancestor-on-ancestor nesting (no cross-direction walk)", () => {
@@ -484,11 +475,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("fires on an advanced-arm searchInput predicate", () => {
@@ -557,11 +544,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("admits a `multi-select-contains` via subcase at top level (no outer ancestor envelope)", () => {
@@ -589,11 +572,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("admits `match-all` filter (no envelopes to flag)", () => {
@@ -616,11 +595,7 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
 	it("admits absent filter and absent searchInputs", () => {
@@ -643,14 +618,10 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
 	});
 
-	it("walks `not(exists(ancestor, ...))` and `match(prop(via=ancestor))` envelopes too", () => {
+	it("also diagnoses a missing-ancestor envelope with a nested child walk", () => {
 		// `missing(ancestor, where: exists(subcase))` lifts to the
 		// `missing` arm — still an ancestor envelope; the filter
 		// content still rejects subcase walks. The rule walks every
@@ -705,10 +676,17 @@ describe("ancestorExistsCannotNestSubcase", () => {
 			],
 			caseTypes: caseTypesWithChain,
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(error) => error.code === CODE,
-			),
-		).toBe(false);
+		expectAdmittedDoc(doc);
+		const before = structuredClone(doc);
+		const refused = mutationCommitVerdict(
+			doc,
+			[enableCaseSearchMutation(doc.moduleOrder[0], undefined)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(refused.ok).toBe(false);
+		if (refused.ok)
+			throw new Error("Expected the search-backed candidate to refuse");
+		expect(refused.findings.map((finding) => finding.code)).toEqual([CODE]);
+		expect(doc).toEqual(before);
 	});
 });

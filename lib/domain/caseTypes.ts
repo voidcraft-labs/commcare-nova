@@ -73,11 +73,8 @@ export function caseDataTypeForFieldKind(
 		case "video":
 		case "signature":
 		case "file":
-			// `hidden` skipped: see the function doc. The remaining kinds
-			// carry no `caseWrite` slot in their schema and are
-			// structurally unreachable; listing them keeps the switch
-			// exhaustive against `FieldKind` — adding a new kind without
-			// a parallel arm here breaks the build.
+			// Hidden and capture values do not pin a scalar data type here;
+			// structural/display kinds have no case-write destination.
 			return undefined;
 		default: {
 			// Exhaustiveness assertion — adding a new `FieldKind` without
@@ -97,7 +94,7 @@ export function caseDataTypeForFieldKind(
 /**
  * Read a field's explicit case-storage destination in a kind-agnostic way, or
  * `undefined` when the field is not case-bound. `caseWrite` lives on the
- * input-field mixin plus hidden fields, but not on structural/capture kinds,
+ * input-field mixin plus hidden and capture fields, but not structural kinds,
  * so this one structural read avoids a union-wide narrowing cascade at every
  * consumer. Parsed `Field` values always carry the complete strict pair; the
  * runtime checks keep untyped/corrupted boundaries from manufacturing a

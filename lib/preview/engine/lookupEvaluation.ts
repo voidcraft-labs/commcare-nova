@@ -39,6 +39,7 @@ import {
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { OnDeviceTermEmissionContext } from "@/lib/commcare/predicate/termEmitter";
 import type {
+	CasePropertyDataType,
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
@@ -49,6 +50,7 @@ import {
 	literal,
 	mapExpressionAst,
 	mapPredicateAst,
+	qualifiedLiteral,
 	typeCheckerBypassMessage,
 } from "@/lib/domain/predicate";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
@@ -109,6 +111,7 @@ export type { LookupChoice } from "./types";
 export interface LookupEvaluationBindings {
 	readonly outer: EvalContext;
 	readonly formFields?: ReadonlyMap<Uuid, string>;
+	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	readonly emitSelfProperty?: (property: {
 		readonly property: string;
@@ -245,7 +248,7 @@ function matchingRows(
 	const emitted = emitCaseListFilter(
 		folded,
 		"casedb",
-		{},
+		{ formFields: bindings.formFieldTypes },
 		{ kind: "unaddressable" },
 		emissionContext(data, tableId, bindings),
 	);
@@ -325,13 +328,23 @@ function foldHooks(
 	bindings: LookupEvaluationBindings,
 ) {
 	return {
-		mapExpression: (expr: ValueExpression) =>
-			expr.kind === "table-lookup"
-				? {
-						kind: "term" as const,
-						term: literal(evaluateTableLookup(expr, data, bindings)),
-					}
-				: undefined,
+		mapExpression: (expr: ValueExpression) => {
+			if (expr.kind !== "table-lookup") return undefined;
+			const { table } = requireTable(data, expr.tableId, "foldHooks");
+			const { dataType } = requireColumn(
+				table,
+				expr.resultColumnId,
+				"foldHooks",
+			);
+			const value = evaluateTableLookup(expr, data, bindings);
+			return {
+				kind: "term" as const,
+				term:
+					dataType === "int" || dataType === "decimal"
+						? qualifiedLiteral(value, dataType)
+						: literal(value),
+			};
+		},
 	};
 }
 

@@ -87,24 +87,58 @@ describe("media-suite oracle — Category 1 parse-fatal", () => {
 		);
 	});
 
-	it("flags a <media> block missing the path attribute", () => {
-		const xml = `<?xml version="1.0"?>
-<suite version="1">
-  <media>
-    <resource id="r" version="1">
-      <location authority="local">./commcare/${HASH_A}.png</location>
-    </resource>
-  </media>
-</suite>`;
-		expect(codes(validateMediaSuite(xml))).toContain("MEDIA_NO_PATH");
+	it("accepts native-legal media blocks without a path or resources", () => {
+		expect(validateMediaSuite('<suite version="1"><media/></suite>')).toEqual(
+			[],
+		);
+		expect(
+			validateMediaSuite(
+				CLEAN_MEDIA_SUITE.replace(' path="../../commcare"', ""),
+			),
+		).toEqual([]);
 	});
-
-	it("flags a <media> block with no <resource> children", () => {
-		const xml = `<?xml version="1.0"?>
-<suite version="1">
-  <media path="../../commcare"></media>
-</suite>`;
-		expect(codes(validateMediaSuite(xml))).toContain("MEDIA_NO_RESOURCE");
+	it("rejects a suite nested beneath another root", () => {
+		expect(
+			codes(validateMediaSuite('<wrapper><suite version="1"/></wrapper>')),
+		).toEqual(["MEDIA_SUITE_NO_SUITE_ELEMENT"]);
+	});
+	it.each(["+1", "-2147483648", "2147483647"])(
+		"accepts Java integer version %s",
+		(version) => {
+			expect(
+				validateMediaSuite(
+					CLEAN_MEDIA_SUITE.replaceAll('version="1"', `version="${version}"`),
+				),
+			).toEqual([]);
+		},
+	);
+	it.each(["2147483648", "-2147483649"])(
+		"refuses Java integer overflow %s at both readers",
+		(version) => {
+			expect(
+				codes(
+					validateMediaSuite(
+						CLEAN_MEDIA_SUITE.replaceAll('version="1"', `version="${version}"`),
+					),
+				),
+			).toEqual([
+				"MEDIA_SUITE_VERSION_NOT_INTEGER",
+				"MEDIA_RESOURCE_VERSION_NOT_INTEGER",
+			]);
+		},
+	);
+	it("does not trim a location into a different bundled path", () => {
+		expect(
+			codes(
+				validateMediaSuite(
+					CLEAN_MEDIA_SUITE.replace(
+						`./commcare/${HASH_A}.png`,
+						` ./commcare/${HASH_A}.png `,
+					),
+					CLEAN_BUNDLE,
+				),
+			),
+		).toEqual(["MEDIA_LOCATION_PATH_NOT_BUNDLED"]);
 	});
 
 	it("flags a <resource> missing its id", () => {
@@ -224,8 +258,7 @@ describe("media-suite oracle — Category 2 install-fatal", () => {
 
 	it("flags duplicate <resource id> siblings", () => {
 		// CommCare keys resources by id in a Hashtable; a duplicate id
-		// silently last-writer-wins, leaving the first definition's bytes
-		// unreachable.
+		// retains the first definition; later definitions are ignored.
 		const xml = `<?xml version="1.0"?>
 <suite version="1">
   <media path="../../commcare">

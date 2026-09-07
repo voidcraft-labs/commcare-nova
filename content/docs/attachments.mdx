@@ -38,6 +38,12 @@ empty, and so does a file downloaded before the app has been published,
 because there is no address to point at yet. The download says so when it
 happens.
 
+Each new form starts with empty attachment questions. A file from an earlier
+submission does not fill the question again. In the published app, a hidden
+attachment question preserves the existing case link. Submitting a visible
+attachment question without a file clears that link when updating one case.
+When updating several selected cases, blank answers preserve their values.
+
 An attachment cannot save to the case's name or its external ID. Those are
 the case's own identity, and a link is not a name.
 

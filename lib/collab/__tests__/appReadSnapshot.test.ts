@@ -10,7 +10,22 @@ const SNAPSHOT = {
 	projectId: "project-1",
 	role: "editor",
 	canEdit: true,
-	blueprint: toPersistableDoc(buildDoc({ modules: [] })),
+	blueprint: toPersistableDoc(
+		buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Interview",
+							type: "survey",
+							fields: [{ kind: "text", id: "name" }],
+						},
+					],
+				},
+			],
+		}),
+	),
 	baseSeq: 7,
 };
 
@@ -36,9 +51,21 @@ describe("current app-read snapshot", () => {
 		},
 	);
 
-	it("rejects an incomplete or malformed cursor snapshot as a whole", () => {
+	it.each([-1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity])(
+		"rejects invalid cursor %s",
+		(baseSeq) => {
+			expect(() => parseAppReadSnapshot({ ...SNAPSHOT, baseSeq })).toThrow();
+		},
+	);
+
+	it("rejects an incomplete or malformed snapshot as a whole", () => {
 		const { role: _role, ...withoutRole } = SNAPSHOT;
 		expect(() => parseAppReadSnapshot(withoutRole)).toThrow();
-		expect(() => parseAppReadSnapshot({ ...SNAPSHOT, baseSeq: 1.5 })).toThrow();
+		expect(() =>
+			parseAppReadSnapshot({ ...SNAPSHOT, blueprint: {} }),
+		).toThrow();
+		expect(() =>
+			parseAppReadSnapshot({ ...SNAPSHOT, canEdit: "true" }),
+		).toThrow();
 	});
 });

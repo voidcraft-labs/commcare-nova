@@ -1,62 +1,113 @@
 /**
- * The strict browser-error guard, shared by the `page`-fixture (`fixtures.ts`)
- * and any test that opens its OWN pages via `browser.newContext()` (the
- * two-user `multiplayer.spec.ts`, which the single-`page` fixture can't cover).
- *
- * Attaches to a `Page` and collects every app `console.error`, uncaught
- * `pageerror`, and same-origin 5xx into an array; `assertNoErrors()` fails the
- * test if any were seen. No benign-error allowlist by design — the one
- * structural exclusion (Chromium's "Failed to load resource" network noise) is
- * not app JS, and a same-origin server 5xx is caught separately by the response
- * handler.
+ * Strict browser-error evidence for one page, including its departing document.
+ * Browser events cover live documents. Chromium can deliver an unload beacon
+ * to the server without emitting any Playwright request/console event, so a
+ * forwarding transport observer also records report attempts in localStorage.
+ * That synchronous record survives reload and page close; the context owns it.
  */
-
+import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { urlOrigin } from "./url";
 
-/** Chromium's prefix for a failed resource load — a network failure, not app JS. */
-function isResourceLoadFailure(text: string): boolean {
-	return text.startsWith("Failed to load resource");
-}
-
-/** A live error collector for one page + the assertion that fails on any entry. */
 export interface ErrorGuard {
-	/** The accumulated errors (read for a scoped assertion or debugging). */
+	/** Live browser events; persisted transport evidence is added on assertion. */
 	readonly errors: string[];
-	/** Fail the test if any error / 5xx was seen. Call at the end of the test. */
-	assertNoErrors(): void;
+	/** Call after page close when possible, and before closing its context. */
+	assertNoErrors(): Promise<void>;
 }
 
-/**
- * Wire the strict guard onto `page`. `baseURL` scopes the 5xx check to the
- * app's own origin (a third-party 5xx is out of scope, same as the fixture).
- */
-export function attachErrorGuard(
+export async function attachErrorGuard(
 	page: Page,
 	baseURL: string | undefined,
-): ErrorGuard {
+): Promise<ErrorGuard> {
 	const errors: string[] = [];
 	const baseOrigin = baseURL ? urlOrigin(baseURL) : undefined;
-
-	page.on("pageerror", (err) => {
-		errors.push(`pageerror: ${err.message}`);
-	});
+	const evidenceKey = `__nova_e2e_error_guard_${randomUUID()}`;
+	page.on("pageerror", (err) => errors.push(`pageerror: ${err.message}`));
 	page.on("console", (msg) => {
 		if (msg.type() !== "error") return;
 		const text = msg.text();
-		if (isResourceLoadFailure(text)) return;
-		errors.push(`console.error: ${text}`);
+		// Chromium resource noise is covered by the independent HTTP observer.
+		if (!text.startsWith("Failed to load resource")) {
+			errors.push(`console.error: ${text}`);
+		}
 	});
 	page.on("response", (res) => {
-		if (res.status() < 500) return;
-		if (baseOrigin && urlOrigin(res.url()) === baseOrigin) {
+		if (res.status() >= 500 && urlOrigin(res.url()) === baseOrigin) {
 			errors.push(`HTTP ${res.status()} ${new URL(res.url()).pathname}`);
 		}
 	});
+	page.on("request", (request) => {
+		const url = new URL(request.url());
+		if (
+			request.method() === "POST" &&
+			url.origin === baseOrigin &&
+			url.pathname === "/api/log/error"
+		) {
+			errors.push(`client report: ${request.postData() ?? "empty payload"}`);
+		}
+	});
+
+	function observeReportTransport({
+		origin,
+		key,
+	}: {
+		origin: string | undefined;
+		key: string;
+	}): void {
+		// Installing in the current document and before every later app script
+		// must not wrap the same transport twice.
+		const installed = Symbol.for(key);
+		if (Reflect.get(window, installed)) return;
+		Reflect.set(window, installed, true);
+		function record(urlValue: string | URL, method: string): void {
+			let url: URL;
+			try {
+				url = new URL(urlValue, location.href);
+			} catch {
+				// Let the native transport retain its own invalid-URL behavior.
+				return;
+			}
+			if (
+				method.toUpperCase() === "POST" &&
+				url.origin === origin &&
+				url.pathname === "/api/log/error"
+			) {
+				// Do not await Blob.text() or a Node binding: the document can die
+				// before either runs. One marker is sufficient to fail the guard.
+				localStorage.setItem(key, `client report attempted: ${url.pathname}`);
+			}
+		}
+		const sendBeacon = navigator.sendBeacon;
+		navigator.sendBeacon = function (url, data) {
+			record(url, "POST");
+			return Reflect.apply(sendBeacon, this, [url, data]);
+		};
+		const fetch = window.fetch;
+		window.fetch = function (input, init) {
+			record(
+				input instanceof Request ? input.url : input,
+				init?.method ?? (input instanceof Request ? input.method : "GET"),
+			);
+			return Reflect.apply(fetch, this, [input, init]);
+		};
+	}
+	const observer = { origin: baseOrigin, key: evidenceKey };
+	await page.addInitScript(observeReportTransport, observer);
+	await page.evaluate(observeReportTransport, observer);
 
 	return {
 		errors,
-		assertNoErrors() {
+		async assertNoErrors() {
+			const storage = await page.context().storageState();
+			for (const origin of storage.origins) {
+				const evidence = origin.localStorage.find(
+					(entry) => entry.name === evidenceKey,
+				);
+				if (evidence && !errors.includes(evidence.value)) {
+					errors.push(evidence.value);
+				}
+			}
 			expect(
 				errors,
 				`Unexpected browser errors / 5xx during this test:\n  ${errors.join("\n  ")}`,

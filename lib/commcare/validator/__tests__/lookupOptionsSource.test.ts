@@ -28,7 +28,7 @@ import {
 	matchAll,
 	type Predicate,
 	prop,
-	sessionUser,
+	sessionContext,
 	tableColumn,
 	tableLookup,
 	term,
@@ -201,10 +201,7 @@ describe("lookup-backed select filter semantics", () => {
 				and(
 					eq(tableColumn(TABLE_A, TEXT_A), literal("North")),
 					eq(
-						concat(
-							term(formField(FIELD_1)),
-							term(sessionUser("assigned_region")),
-						),
+						concat(term(formField(FIELD_1)), term(sessionContext("username"))),
 						literal("northNorth"),
 					),
 					eq(tableColumn(TABLE_A, DATE_A), today()),
@@ -213,6 +210,7 @@ describe("lookup-backed select filter semantics", () => {
 		]);
 
 		expect(semanticFindings(doc)).toEqual([]);
+		expect(runValidation(doc, LOOKUP_CONTEXT)).toEqual([]);
 	});
 
 	it("rejects date arithmetic that would discard a lookup column's time", () => {
@@ -276,6 +274,7 @@ describe("lookup-backed select filter semantics", () => {
 			),
 		]);
 		expect(semanticFindings(fixed)).toEqual([]);
+		expect(runValidation(fixed, LOOKUP_CONTEXT)).toEqual([]);
 	});
 
 	it("reports only the read that sits BELOW the select in the form", () => {
@@ -363,6 +362,7 @@ describe("lookup-backed select filter semantics", () => {
 			),
 		]);
 		expect(semanticFindings(compatible)).toEqual([]);
+		expect(runValidation(compatible, LOOKUP_CONTEXT)).toEqual([]);
 
 		const incompatible = surveyDoc([
 			multiSelect,
@@ -430,6 +430,7 @@ describe("lookup-backed select filter semantics", () => {
 			}),
 		]);
 		expect(semanticFindings(valid)).toEqual([]);
+		expect(runValidation(valid, LOOKUP_CONTEXT)).toEqual([]);
 
 		const invalid = surveyDoc([
 			f({
@@ -749,10 +750,10 @@ describe("lookup type-context integration", () => {
 								"advanced_query",
 								"Advanced",
 								"text",
-								eq(lookupText, literal("North")),
+								eq(prop("patient", "case_name"), lookupText),
 							),
 						],
-						filter: eq(lookupText, literal("North")),
+						filter: eq(prop("patient", "case_name"), lookupText),
 					},
 					caseSearchConfig: {
 						searchButtonDisplayCondition: eq(lookupText, literal("North")),
@@ -807,29 +808,17 @@ describe("lookup type-context integration", () => {
 					{
 						identifier: "related_patient",
 						targetType: "patient",
-						target: { kind: "expression", expr: lookupText },
+						target: {
+							kind: "expression",
+							expr: concat(lookupText, term(literal("-related"))),
+						},
 						relationship: "child",
 					},
 				],
 			},
 		];
 
-		const findings = runValidation(doc, LOOKUP_CONTEXT);
-		expect(
-			findings.some(
-				(finding) =>
-					finding.code === "MODULE_DISPLAY_CONDITION_TYPE_ERROR" ||
-					finding.code === "FORM_DISPLAY_CONDITION_TYPE_ERROR" ||
-					finding.code === "CASE_LIST_FILTER_TYPE_ERROR" ||
-					finding.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR" ||
-					finding.code === "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR" ||
-					finding.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR" ||
-					finding.code === "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR" ||
-					finding.code === "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR" ||
-					(finding.code === "CASE_OPERATION_EXPRESSION_TYPE" &&
-						finding.message.includes("is not valid here")),
-			),
-		).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT)).toEqual([]);
 	});
 
 	it("observes resolved lookup result types at every module and form carrier", () => {

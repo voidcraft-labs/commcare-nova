@@ -1,22 +1,6 @@
-/**
- * Behavioral tests for `attach_field_media` (batch-shaped: one call
- * attaches to one or more field message slots, all-or-nothing).
- *
- * Coverage:
- *   1. Sets a slot's media bundle on the field.
- *   2. A multi-attachment batch lands on several fields in one call.
- *   3. Clears the slot when handed an empty bundle.
- *   4. CLEAR survives the SSE JSON wire (the blocker regression guard) —
- *      a clear encoded as `{ key: undefined }` would be dropped by
- *      `JSON.stringify` and silently no-op on the client.
- *   5. Refuses a slot the field's kind doesn't carry (validate_msg on a
- *      hidden field) with an Elm-style error naming the available slots.
- *   6. Field-not-found surfaces an Elm-style error; one bad attachment
- *      fails the whole batch with nothing written.
- *   7. Cross-surface parity — chat + MCP contexts produce identical
- *      mutation batches.
- */
-
+/** Actual media command, preflight and canonical reducer behavior over admitted
+ * documents and controlled asset rows. JSON clear tests exercise serialization;
+ * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
@@ -29,9 +13,9 @@ import {
 	errorOf,
 	FORM_A,
 	HIDDEN_FIELD,
+	loadAssetsByIdsMock,
 	MOD_A,
 	makeMediaFixture,
-	makeMediaMcpFixture,
 	resetTestAssets,
 	SELECT_FIELD,
 	seedTestAsset,
@@ -44,18 +28,9 @@ const ASSET_PENDING = testMediaAssetId("asset-pending");
 const UNKNOWN_FIELD = testUuid("88888888-8888-4888-8888-888888888888");
 
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
 	loadAppProjectId: vi.fn(() =>
 		Promise.resolve({ kind: "found", projectId: "project-1" }),
 	),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
 }));
 // The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
@@ -160,7 +135,7 @@ describe("attachFieldMedia", () => {
 		expect(messageOf(cleared)).toContain("Cleared");
 	});
 
-	it("clears the slot AFTER a JSON wire round-trip (blocker guard)", async () => {
+	it("clears the slot after JSON serialization and reducer application", async () => {
 		// Build a doc that already has label_media set, then take the CLEAR
 		// tool's mutations and apply them through `applyOverWire` (JSON
 		// serialize/parse) against that doc — exactly what the client does
@@ -249,7 +224,7 @@ describe("attachFieldMedia", () => {
 		).toBeUndefined();
 	});
 
-	it("refuses a foreign-Project asset with the same message as a missing one", async () => {
+	it("refuses a foreign Project row even when the controlled reader returns it", async () => {
 		seedTestAsset(ASSET_FOREIGN, "image", { project_id: "project-2" });
 		const h = makeMediaFixture();
 		const result = await h.runTool(
@@ -307,8 +282,8 @@ describe("attachFieldMedia", () => {
 			attachFieldMediaTool,
 			input(attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 })),
 		);
-		// Even with EVERY row gone, the clear commits — a clear carries no
-		// expectations, so the asset table is never consulted.
+		// A clear has no asset expectations, even if the old row moved Projects.
+		loadAssetsByIdsMock.mockClear();
 		resetTestAssets();
 		seedTestAsset(ASSET_IMG_1, "image", { project_id: "project-2" });
 		const cleared = await h.runTool(
@@ -316,16 +291,22 @@ describe("attachFieldMedia", () => {
 			input(attachment(TEXT_FIELD, "label", {})),
 		);
 		expect(messageOf(cleared)).toContain("Cleared");
+		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 	});
 
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
+	it("applies repeated slot replacements in input order as one workspace write", async () => {
 		const h = makeMediaFixture();
-		const mcp = makeMediaMcpFixture();
-		const batch = input(
-			attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 }),
+		await h.runTool(
+			attachFieldMediaTool,
+			input(
+				attachment(TEXT_FIELD, "label", { image: ASSET_IMG_1 }),
+				attachment(TEXT_FIELD, "label", { audio: ASSET_AUD_1 }),
+			),
 		);
-		const r1 = await h.runTool(attachFieldMediaTool, batch);
-		const r2 = await mcp.runTool(attachFieldMediaTool, batch);
-		expect(r1.mutations).toEqual(r2.mutations);
+		const field = h.currentDoc().fields[TEXT_FIELD];
+		expect(
+			field && "label_media" in field ? field.label_media : undefined,
+		).toEqual({ audio: ASSET_AUD_1 });
+		expect(h.recordMutations).toHaveBeenCalledOnce();
 	});
 });

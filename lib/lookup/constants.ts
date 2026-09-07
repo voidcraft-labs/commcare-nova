@@ -52,11 +52,15 @@ export const LOOKUP_XML_PREFIX_PATTERN = /^xml/i;
  *              — formplayer `InstanceAutocompletableItem` (`SESSION_INSTANCE`,
  *                `LOCATION_INSTANCE`)
  *
+ * Nova also emits selected-case virtual instances: selected_cases, optionally
+ * followed by a case type and prefixed by parent_ for each ancestor, plus
+ * search_selected_cases. Table tags share their instance namespace.
+ *
  * `CaseInstanceTreeElement` compares its own name case-insensitively, so the
- * check below is case-insensitive too. Nova's emitter vocabulary is the other
- * half of this set; `lib/commcare/__tests__` pins that every id
- * `instanceSourceFor` can emit is either reserved here or unrepresentable as a
- * tag, so the two cannot drift apart.
+ * check below is case-insensitive too. The reserved-instance corpus covers
+ * fixed names and the dynamic selected-case family. Native Core proof shows
+ * that a colliding lookup instance is silently replaced during form setup;
+ * shared reference validation refuses historical collisions before emission.
  */
 export const RESERVED_INSTANCE_TAGS = [
 	"casedb",
@@ -69,5 +73,9 @@ export const RESERVED_INSTANCE_TAGS = [
 
 export function isReservedInstanceTag(tag: string): boolean {
 	const lowered = tag.toLowerCase();
-	return RESERVED_INSTANCE_TAGS.some((reserved) => reserved === lowered);
+	return (
+		RESERVED_INSTANCE_TAGS.some((reserved) => reserved === lowered) ||
+		lowered === "search_selected_cases" ||
+		/^(?:parent_)*selected_cases(?:_[a-z][a-z0-9_-]*)?$/.test(lowered)
+	);
 }

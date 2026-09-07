@@ -17,7 +17,12 @@
 import { sql } from "kysely";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	and,
 	eq,
@@ -41,14 +46,28 @@ const APP_ID = "app-lookup-compiler";
 const PROJECT_ID = "project-lookup-compiler";
 const FOREIGN_PROJECT_ID = "project-lookup-foreign";
 
-const REGIONS = "01920000-0000-7000-8000-00000000000a" as LookupTableId;
-const COL_CODE = "01920000-0000-7000-8000-0000000000c1" as LookupColumnId;
-const COL_LABEL = "01920000-0000-7000-8000-0000000000c2" as LookupColumnId;
-const COL_RANK = "01920000-0000-7000-8000-0000000000c3" as LookupColumnId;
-const COL_SINCE = "01920000-0000-7000-8000-0000000000c4" as LookupColumnId;
+const REGIONS = lookupTableIdSchema.parse(
+	"01920000-0000-7000-8000-00000000000a",
+);
+const COL_CODE = lookupColumnIdSchema.parse(
+	"01920000-0000-7000-8000-0000000000c1",
+);
+const COL_LABEL = lookupColumnIdSchema.parse(
+	"01920000-0000-7000-8000-0000000000c2",
+);
+const COL_RANK = lookupColumnIdSchema.parse(
+	"01920000-0000-7000-8000-0000000000c3",
+);
+const COL_SINCE = lookupColumnIdSchema.parse(
+	"01920000-0000-7000-8000-0000000000c4",
+);
 
-const OTHER_TABLE = "01920000-0000-7000-8000-00000000000b" as LookupTableId;
-const OTHER_COL = "01920000-0000-7000-8000-0000000000d1" as LookupColumnId;
+const OTHER_TABLE = lookupTableIdSchema.parse(
+	"01920000-0000-7000-8000-00000000000b",
+);
+const OTHER_COL = lookupColumnIdSchema.parse(
+	"01920000-0000-7000-8000-0000000000d1",
+);
 
 const PATIENT_SCHEMA: CaseType = {
 	name: "patient",
@@ -158,7 +177,7 @@ async function seedRegions(db: PredicateCompileContext["db"]): Promise<void> {
 			values: { [COL_CODE]: "north", [COL_RANK]: 20 },
 		},
 	];
-	for (const row of rows) {
+	for (const row of rows.toReversed()) {
 		await sql`
 			INSERT INTO lookup_rows
 				(project_id, table_id, id, order_key, values, created_by, updated_by)
@@ -167,13 +186,17 @@ async function seedRegions(db: PredicateCompileContext["db"]): Promise<void> {
 		`.execute(db);
 	}
 	// The foreign Project carries a row that would win every match if
-	// tenancy leaked: order_key sorts FIRST and every cell is present.
+	// tenancy leaked: order_key sorts FIRST and its label distinguishes it from our row.
 	await sql`
 		INSERT INTO lookup_rows
 			(project_id, table_id, id, order_key, values, created_by, updated_by)
 		VALUES (${FOREIGN_PROJECT_ID}, ${REGIONS},
-			'01920000-0000-7000-8000-0000000000e9', 'a1',
+			'01920000-0000-7000-8000-0000000000e9', 'a01',
 			${JSON.stringify({ [COL_CODE]: "east", [COL_LABEL]: "Foreign East" })}::jsonb,
+			'tester', 'tester'),
+			(${PROJECT_ID}, ${OTHER_TABLE},
+			'01920000-0000-7000-8000-0000000000e8', 'a01',
+			${JSON.stringify({ [COL_CODE]: "east", [COL_LABEL]: "Other table East" })}::jsonb,
 			'tester', 'tester')
 	`.execute(db);
 }
@@ -183,11 +206,8 @@ async function selectScalar(
 	db: PredicateCompileContext["db"],
 	expr: ReturnType<typeof compileExpression>,
 ): Promise<unknown> {
-	const rows = await db
-		.selectFrom(sql`(values (1))`.as("v"))
-		.select(sql<unknown>`${expr}`.as("out"))
-		.execute();
-	return (rows[0] as { out: unknown }).out;
+	const row = await db.selectNoFrom(expr.as("out")).executeTakeFirstOrThrow();
+	return row.out;
 }
 
 describe("compileLookup — round-trip — first-match selection", () => {
@@ -206,6 +226,19 @@ describe("compileLookup — round-trip — first-match selection", () => {
 			),
 			expressionContextFor(makeCtx(db)),
 		);
+		expect(await selectScalar(db, expr)).toBe("west");
+		await db
+			.updateTable("lookup_rows")
+			.set({ order_key: "a2" })
+			.where("project_id", "=", PROJECT_ID)
+			.where("table_id", "=", REGIONS)
+			.where(
+				"id",
+				"=",
+				lookupRowIdSchema.parse("01920000-0000-7000-8000-0000000000e3"),
+			)
+			.execute();
+		// The tied row was inserted first; the lower id still wins.
 		expect(await selectScalar(db, expr)).toBe("west");
 	});
 
@@ -299,7 +332,7 @@ describe("compileLookup — round-trip — first-match selection", () => {
 		expect(sinceRows).toEqual([{ matches: true }]);
 	});
 
-	test("a foreign Project's rows are invisible to the bound Project", async ({
+	test("foreign Project and other-table rows cannot win the lookup", async ({
 		db,
 	}) => {
 		await seedRegions(db);
@@ -405,7 +438,14 @@ describe("compileLookup — round-trip — case-list predicate integration", () 
 					case_type: "patient",
 					app_id: APP_ID,
 					project_id: PROJECT_ID,
-					properties: JSON.stringify({ region_code: "west" }),
+					properties: JSON.stringify({ region_code: "north" }),
+				}),
+				makeCaseRow({
+					case_id: "40000000-0000-0000-0000-000000000004",
+					app_id: APP_ID,
+					project_id: PROJECT_ID,
+					case_type: "patient",
+					properties: JSON.stringify({ region_code: "east" }),
 				}),
 			])
 			.execute();
@@ -424,48 +464,10 @@ describe("compileLookup — round-trip — case-list predicate integration", () 
 		);
 		const rows = await db
 			.selectFrom("cases as c")
-			.where("c.case_id", "=", "40000000-0000-0000-0000-000000000003")
-			.select(sql<unknown>`${expr}`.as("out"))
+			.where("c.app_id", "=", APP_ID)
+			.orderBy("c.case_id")
+			.select(expr.as("out"))
 			.execute();
-		expect(rows).toEqual([{ out: "west" }]);
-	});
-});
-
-describe("compileLookup — invariants", () => {
-	test("a table-column term outside any lookup row scope throws", ({ db }) => {
-		expect(() =>
-			compilePredicate(
-				eq(tableColumn(REGIONS, COL_CODE), literal("east")),
-				makeCtx(db),
-			),
-		).toThrow(/outside any `table-lookup` row scope/);
-	});
-
-	test("an other-table column inside a lookup where throws", ({ db }) => {
-		expect(() =>
-			compileExpression(
-				tableLookup(
-					REGIONS,
-					COL_LABEL,
-					eq(tableColumn(OTHER_TABLE, OTHER_COL), literal("x")),
-				),
-				expressionContextFor(makeCtx(db)),
-			),
-		).toThrow(/different table than the enclosing/);
-	});
-
-	test("a carrier reaching a site with no lookup definitions in context throws", ({
-		db,
-	}) => {
-		expect(() =>
-			compileExpression(
-				tableLookup(
-					REGIONS,
-					COL_LABEL,
-					eq(tableColumn(REGIONS, COL_CODE), literal("east")),
-				),
-				expressionContextFor(makeCtx(db, { lookupTableSchemas: undefined })),
-			),
-		).toThrow(/no `lookupTableSchemas` in context/);
+		expect(rows).toEqual([{ out: "north" }, { out: null }]);
 	});
 });

@@ -4,19 +4,22 @@ import {
 	downloadRuntimeTarget,
 } from "@/lib/deployment/runtimeTarget";
 /**
- * `nova.compile_app` — produce the CommCare HQ wire format for an owned app.
+ * `nova.compile_app` — produce CommCare artifacts for an app the caller can view.
  *
  * Scope: `nova.read`. Read-only.
  *
  * Two output formats:
  *   - `"json"` — the `HqApplication` JSON as compact text for a media-free
- *     app. When the app HAS media, the bytes ship with the references (HQ has
+ *     app with no lookup data. When the app has media, the bytes ship with
+ *     the references (HQ has
  *     no single "json + media" import): the result is instead the same
  *     `<app>.zip` bundle the HTTP export ships — MEDIA-ON JSON + HQ bulk-upload
  *     `multimedia.zip` + README — base64-encoded inside a
  *     `{ format: "zip", encoding, data }` wrapper. So a media-free app stays
  *     byte-identical to the pre-media output; a media-bearing app round-trips
  *     intact instead of emitting references to bytes the client never gets.
+ *     Referenced Project lookup tables also select this ZIP form and travel
+ *     as `lookup-tables.xlsx`, whether or not the app has media.
  *   - `"ccz"` — the `.ccz` archive HQ mobile pulls down, base64-encoded
  *     inside a `{ format: "ccz", encoding, data }` wrapper so the client
  *     knows to decode the `data` field.
@@ -82,7 +85,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 		"compile_app",
 		{
 			description:
-				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media or Project data, a base64-encoded zip bundle so every companion artifact travels with it. `format: "ccz"` returns the binary archive base64-encoded. A download has no selected CommCare HQ project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile. When the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact so a large base64 result cannot hide it. Check one actual destination later with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
+				'Compile an app you can view to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media or Project data, a base64-encoded zip bundle so every companion artifact travels with it. `format: "ccz"` returns the binary archive base64-encoded. A download has no selected CommCare HQ project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile. When the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact so a large base64 result cannot hide it. Check one actual destination later with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
 				server: z
 					.enum(COMMCARE_SERVER_IDS)
@@ -92,13 +95,11 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					),
 				app_id: z
 					.string()
-					.describe(
-						"App id to compile. Must be an app the authenticated user owns.",
-					),
+					.describe("App id to compile. Requires view access to its Project."),
 				format: z
 					.enum(["json", "ccz"])
 					.describe(
-						'"json" for the HQ wire JSON (a base64 zip bundle if the app has media), "ccz" for the binary archive (base64-encoded).',
+						'"json" for the HQ wire JSON (a base64 zip bundle if the app has media or Project data), "ccz" for the binary archive (base64-encoded).',
 					),
 			}),
 		},

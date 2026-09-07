@@ -61,9 +61,9 @@ type GetHqConnectionBody =
  * Register the zero-argument `get_hq_connection` tool on an `McpServer`.
  *
  * Thin adapter over `getCommCareSettings`, which already returns a
- * client-safe public shape (`CommCareSettingsPublic`) with the username and
- * key material dropped; this tool renames `availableDomains` to the wire's
- * snake_case `available_domains` and passes the rest through.
+ * client-safe public shape (`CommCareSettingsPublic`) without key material.
+ * This tool also omits the username, renames `availableDomains` to the wire's
+ * snake_case `available_domains`, and resolves the server URL.
  */
 export function registerGetHqConnection(
 	server: McpServer,

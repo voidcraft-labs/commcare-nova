@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { proseText } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { evaluate } from "../../xpath/evaluator";
 import type { XPathInstance } from "../../xpath/runtimeValues";
 import { XPathDate } from "../../xpath/types";
@@ -34,7 +40,8 @@ function row(overrides: Partial<CaseRow> = {}): CaseRow {
 }
 
 function context(instances: ReadonlyMap<string, XPathInstance>) {
-	const mainInstance = instances.values().next().value as XPathInstance;
+	const mainInstance = instances.values().next().value;
+	if (!mainInstance) throw new Error("Fixture requires an XPath instance");
 	return {
 		contextPath: "/data",
 		position: undefined,
@@ -46,7 +53,7 @@ function context(instances: ReadonlyMap<string, XPathInstance>) {
 }
 
 describe("Preview structural XPath instances", () => {
-	it("keeps an authorized empty casedb as valid empty nodesets", () => {
+	it("keeps an empty casedb snapshot as valid empty nodesets", () => {
 		const instance = caseDatabaseXPathInstance({ rows: [], indices: [] });
 		const ctx = context(new Map([["casedb", instance]]));
 		expect(evaluate("count(instance('casedb')/casedb/case)", ctx)).toBe(0);
@@ -441,9 +448,15 @@ describe("Preview structural XPath instances", () => {
 	});
 
 	it("projects lookup fixtures under their XForm-local table tag", () => {
-		const tableId = "11111111-1111-4111-8111-111111111111" as never;
-		const valueId = "22222222-2222-4222-8222-222222222222" as never;
-		const nameId = "33333333-3333-4333-8333-333333333333" as never;
+		const tableId = lookupTableIdSchema.parse(
+			"11111111-1111-7111-8111-111111111111",
+		);
+		const valueId = lookupColumnIdSchema.parse(
+			"22222222-2222-7222-8222-222222222222",
+		);
+		const nameId = lookupColumnIdSchema.parse(
+			"33333333-3333-7333-8333-333333333333",
+		);
 		const data = previewLookupData({
 			projectRevision: "1",
 			definitions: [
@@ -451,7 +464,7 @@ describe("Preview structural XPath instances", () => {
 					id: tableId,
 					name: "Regions",
 					tag: "regions",
-					definitionRevision: "1" as never,
+					definitionRevision: parseLookupRevision("1"),
 					columns: [
 						{
 							id: valueId,
@@ -468,7 +481,9 @@ describe("Preview structural XPath instances", () => {
 					tableId,
 					[
 						{
-							id: "44444444-4444-4444-8444-444444444444" as never,
+							id: lookupRowIdSchema.parse(
+								"44444444-4444-7444-8444-444444444444",
+							),
 							values: { [valueId]: "north", [nameId]: "Northern" },
 						},
 					],
@@ -486,8 +501,12 @@ describe("Preview structural XPath instances", () => {
 	});
 
 	it("keeps an empty lookup table row path valid", () => {
-		const tableId = "11111111-1111-4111-8111-111111111111" as never;
-		const valueId = "22222222-2222-4222-8222-222222222222" as never;
+		const tableId = lookupTableIdSchema.parse(
+			"11111111-1111-7111-8111-111111111111",
+		);
+		const valueId = lookupColumnIdSchema.parse(
+			"22222222-2222-7222-8222-222222222222",
+		);
 		const data = previewLookupData({
 			projectRevision: "1",
 			definitions: [
@@ -495,7 +514,7 @@ describe("Preview structural XPath instances", () => {
 					id: tableId,
 					name: "Regions",
 					tag: "regions",
-					definitionRevision: "1" as never,
+					definitionRevision: parseLookupRevision("1"),
 					columns: [
 						{
 							id: valueId,

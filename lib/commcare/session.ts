@@ -25,16 +25,10 @@
  * Hand-escaping is intentionally absent — double-encoding (`&` →
  * `&amp;` → `&amp;amp;`) is the failure mode it would introduce.
  *
- * `renderEntryXml` / `renderStackXml` exist alongside the Element
- * builders as one-line serialization adapters for callers that consume
- * the rendered string (the surrounding test surface; `compileCcz`
- * itself calls `buildEntryElement` directly and splices the Element
- * into the suite tree).
  */
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
 import type {
 	CaseTileGrouping,
 	FormType,
@@ -58,6 +52,7 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "./predicate/instances";
+import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
@@ -90,7 +85,7 @@ import { collectInstanceRefs } from "./xform/instanceRefs";
  *     create. No nodeset, no value, no instance dependency.
  *
  * Mutually exclusive on the wire: a datum is one shape or the other.
- * The renderer (`renderEntryXml`) branches on whether `function` is set.
+ * The renderer (`buildDatumElement`) branches on whether `function` is set.
  */
 export interface SessionDatum {
 	id: string;
@@ -441,7 +436,7 @@ export function deriveCaseSelectionDatum(args: {
 				? ""
 				: parentSelection.maxSelectValue === undefined
 					? `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentSelection.id}]`
-					: `[index/*[not(@relationship='extension')]=instance('${parentSelection.id}')/results/value]`;
+					: `[count(index/*[not(@relationship='extension')][selected(join(' ', instance('${parentSelection.id}')/results/value), .)]) > 0]`;
 		return `${base}${parentFilter}`;
 	};
 	return {
@@ -613,7 +608,7 @@ function accumulateCaseLoadingInstances(
  *   2. A `case_id_new_<casetype>_0` function datum for case-create
  *      forms (registration). CommCare evaluates `uuid()` once at entry
  *      to mint a fresh id for the case the form will create.
- *   3. One `case_id_new_<subcasetype>_<idx>` function datum per active
+ *   3. One `case_id_new_<subcasetype>_<idx>` function datum per
  *      subcase action with no `repeat_context` (subcases in a repeat
  *      get their id minted per-iteration via a calculate bind rather
  *      than a session datum — handled by the XForm emitter).
@@ -736,7 +731,6 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		const opensCase =
 			actions.open_case.condition.type === "always" ||
 			actions.open_case.condition.type === "if";
-		const opensSubcaseIndexOffset = opensCase ? 1 : 0;
 		if (opensCase && caseType) {
 			datums.push({
 				id: `case_id_new_${validateCaseType(caseType)}_0`,
@@ -745,13 +739,10 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			});
 		}
 
-		// (3) Per-subcase datums. Skip subcases whose action is inactive or
-		// that live in a repeat — CCHQ also skips repeat-context subcases
-		// for session emission and uses a per-iteration calculate bind on
-		// the form side. The wire-layer datum index counts ALL active
-		// subcases (including any repeat-context ones), then this function
-		// only EMITS for the non-repeat-context ones — matching the
-		// `Form.session_var_for_action` numbering at the CCHQ side.
+		// (3) HQ's get_new_case_id_datums_meta includes every non-repeat
+		// subcase, even condition=never. Extension actions use that metadata
+		// while their active transactions live in the source XForm. Filtering
+		// inactive actions here would strand source ID seeds and form links.
 		//
 		// HQ also emits this scalar `uuid()` datum on a multi-select form even
 		// though Nova's authored XForm creates one child per selected parent with
@@ -760,12 +751,9 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		// refuses a direct form link that would mistake it for one created child.
 		for (let i = 0; i < actions.subcases.length; i++) {
 			const sc = actions.subcases[i];
-			if (sc.condition.type !== "always" && sc.condition.type !== "if") {
-				continue;
-			}
 			if (sc.repeat_context) continue;
 			datums.push({
-				id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
+				id: subcaseSessionDatumId(sc, i, opensCase),
 				function: "uuid()",
 				caseType: sc.case_type,
 			});
@@ -1031,8 +1019,9 @@ export function deriveEntryDefinition(
 		for (const d of datums) {
 			// A nodeset datum reads exactly one instance and names it in
 			// `instanceId`. A function datum reads none (case-create's `uuid()`)
-			// or several, and says so in `instanceIds`. A query reads what its
-			// data and prompts reach.
+			// or several. Resolve those dependencies from its final expression,
+			// including companion datums introduced by grouping projections.
+			// A query reads what its data and prompts reach.
 			if (d.instanceId && !seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
@@ -1049,7 +1038,10 @@ export function deriveEntryDefinition(
 					src: instanceSourceFor(d.id, lookupNaming),
 				});
 			}
-			for (const id of d.instanceIds ?? []) {
+			for (const id of [
+				...(d.instanceIds ?? []),
+				...collectInstanceRefs(d.function ?? ""),
+			]) {
 				if (seen.has(id)) continue;
 				seen.add(id);
 				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
@@ -1161,13 +1153,15 @@ export function deriveEntryDefinition(
 						]),
 			];
 	for (const operation of operations) {
-		for (const child of operation.children) {
-			for (const expression of stackChildExpressions(child)) {
-				for (const id of collectInstanceRefs(expression)) {
-					if (seen.has(id)) continue;
-					seen.add(id);
-					instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-				}
+		const expressions = [
+			...(operation.ifClause === undefined ? [] : [operation.ifClause]),
+			...operation.children.flatMap(stackChildExpressions),
+		];
+		for (const expression of expressions) {
+			for (const id of collectInstanceRefs(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 		}
 	}
@@ -1287,7 +1281,10 @@ export function deriveCaseListEntryDefinition(
 				src: instanceSourceFor(datum.id, lookupNaming),
 			});
 		}
-		for (const id of datum.instanceIds ?? []) {
+		for (const id of [
+			...(datum.instanceIds ?? []),
+			...collectInstanceRefs(datum.function ?? ""),
+		]) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
@@ -1441,7 +1438,7 @@ export function buildStackElement(
 /**
  * Build an `<entry>` Element from a derived entry definition. The orchestrator
  * (`compiler.ts`) splices the returned Element into the suite.xml tree and
- * serializes the entire suite once via `dom-serializer`.
+ * serializes the entire suite once via `serializeXml`.
  *
  * Element order inside `<entry>` matches CCHQ's canonical fixture order:
  * optional `<form>`, `<command>` (with nested `<text><locale/></text>`),
@@ -1458,7 +1455,7 @@ export function buildStackElement(
  * `commandDisplay` is the command's display child. The compiler passes the
  * form's nav node — a bare `<text><locale/></text>` when the form has no
  * menu media, or a `<display>` wrapping the text + `<text form="image|audio">`
- * media locales when it does. When omitted (the string-render test surface),
+ * media locales when it does. When omitted,
  * the command falls back to a bare `<text><locale/></text>` synthesized
  * from `entry.localeId`.
  */
@@ -1529,14 +1526,6 @@ export function buildEntryElement(
 	return el("entry", {}, children);
 }
 
-// ── String Adapters ─────────────────────────────────────────────────────
-//
-// `renderEntryXml` / `renderStackXml` serialize the constructed Element
-// trees so callers that consume the rendered XML as a string (the test
-// surface) see the same bytes `compileCcz` splices into the assembled
-// suite tree. The compiler itself calls `buildEntryElement` /
-// `buildStackElement` directly.
-
 /** Python's plain string sort: by code unit, never locale-aware. */
 function sortInstancesById(
 	instances: readonly EntryInstance[],
@@ -1544,17 +1533,6 @@ function sortInstancesById(
 	return [...instances].sort((left, right) =>
 		left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
 	);
-}
-
-/** Render an EntryDefinition to a suite.xml `<entry>` string. */
-export function renderEntryXml(entry: EntryDefinition): string {
-	return render(buildEntryElement(entry), RENDER_OPTS);
-}
-
-/** Render stack operations to a suite.xml `<stack>` string. */
-export function renderStackXml(operations: StackOperation[]): string {
-	const stackEl = buildStackElement(operations);
-	return stackEl === null ? "" : render(stackEl, RENDER_OPTS);
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────

@@ -9,8 +9,9 @@ vi.mock("@/lib/clientErrorReporter", () => ({
 	reportClientError: vi.fn(),
 }));
 
+const renderError = new Error("broken child");
 function Broken(): never {
-	throw new Error("broken child");
+	throw renderError;
 }
 
 describe("ErrorBoundary", () => {
@@ -22,7 +23,19 @@ describe("ErrorBoundary", () => {
 		);
 
 		expect(screen.getByText("Something went wrong.")).toBeDefined();
-		expect(reportClientError).toHaveBeenCalledTimes(1);
+		expect(reportClientError).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				message: "broken child",
+				source: "error-boundary",
+			}),
+			renderError,
+		);
+		rerender(
+			<ErrorBoundary resetKey="form-a">
+				<p>Same screen would retry</p>
+			</ErrorBoundary>,
+		);
+		expect(screen.queryByText("Same screen would retry")).toBeNull();
 
 		rerender(
 			<ErrorBoundary resetKey="form-b">

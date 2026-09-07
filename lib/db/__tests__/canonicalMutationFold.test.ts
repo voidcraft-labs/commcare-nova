@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { MutationWireCanonicalityError } from "@/lib/doc/mutationAdmission";
 import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision } from "@/lib/lookup/types";
 import { replayCanonicalAppChangeSuffix } from "../canonicalMutationFold";
@@ -139,16 +140,17 @@ describe("replayCanonicalAppChangeSuffix", () => {
 		expect(result.snapshot.appName).toBe("Recovered");
 	});
 
-	it("admits the complete suffix before reducing its first batch", () => {
+	it("admits a malformed later envelope before replaying an invalid Project move", () => {
+		const invalidMove = move("5", "different-source", DESTINATION_PROJECT);
+		expect(() =>
+			replay({ expectedHeadSeq: "5", suffix: [invalidMove] }),
+		).toThrow(/does not start in the folded Project/);
 		expect(() =>
 			replay({
 				expectedHeadSeq: "6",
-				suffix: [
-					row("5", [{ kind: "setAppName", name: "" }]),
-					row("6", [{ kind: "not-a-mutation" }]),
-				],
+				suffix: [invalidMove, row("6", [{ kind: "not-a-mutation" }])],
 			}),
-		).toThrow();
+		).toThrow(MutationWireCanonicalityError);
 	});
 
 	it("rejects a final document that fails the absolute gate", () => {

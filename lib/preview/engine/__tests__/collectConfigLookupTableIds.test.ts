@@ -4,11 +4,11 @@
 // (scalar fold) per request.
 
 import { describe, expect, it } from "vitest";
-import type {
-	CaseListConfig,
-	LookupColumnId,
-	LookupTableId,
-} from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain";
+import {
+	caseListConfigSchema,
+	emptyCaseListConfig,
+} from "@/lib/domain/modules";
 import {
 	eq,
 	literal,
@@ -17,7 +17,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
-import { collectConfigLookupTableIds } from "../caseDataBindingHelpers";
+import { collectConfigLookupTableIds } from "../lookupTableReferences";
 
 const TABLE_A = "018f0000-0000-7000-8000-00000000000a" as LookupTableId;
 const TABLE_B = "018f0000-0000-7000-8000-00000000000b" as LookupTableId;
@@ -29,14 +29,14 @@ const lookupOf = (table: LookupTableId) =>
 
 describe("collectConfigLookupTableIds", () => {
 	it("collects from filter, calculated columns, advanced predicates, and extras", () => {
-		const config = {
+		const config = caseListConfigSchema.parse({
+			...emptyCaseListConfig(),
 			columns: [
 				{
 					uuid: "018f0000-0000-7000-8000-00000000d001",
 					kind: "calculated",
-					label: "Calc",
+					header: "Calc",
 					expression: lookupOf(TABLE_B),
-					order: 1,
 				},
 			],
 			listColumnOrder: ["018f0000-0000-7000-8000-00000000d001"],
@@ -49,11 +49,10 @@ describe("collectConfigLookupTableIds", () => {
 					name: "q",
 					label: "Q",
 					type: "text",
-					order: 1,
 					predicate: eq(lookupOf(TABLE_C), literal("w")),
 				},
 			],
-		} as unknown as CaseListConfig;
+		});
 
 		expect(collectConfigLookupTableIds(config, [lookupOf(TABLE_A)])).toEqual([
 			TABLE_A,
@@ -63,11 +62,12 @@ describe("collectConfigLookupTableIds", () => {
 	});
 
 	it("returns empty for a carrier-free payload", () => {
-		const config = {
+		const config = caseListConfigSchema.parse({
+			...emptyCaseListConfig(),
 			columns: [],
 			filter: eq(prop("patient", "status"), literal("open")),
 			searchInputs: [],
-		} as unknown as CaseListConfig;
+		});
 		expect(collectConfigLookupTableIds(config)).toEqual([]);
 		expect(collectConfigLookupTableIds(undefined)).toEqual([]);
 	});
@@ -78,11 +78,12 @@ describe("collectConfigLookupTableIds", () => {
 			COL,
 			eq(term(tableColumn(TABLE_A, COL)), lookupOf(TABLE_B)),
 		);
-		const config = {
+		const config = caseListConfigSchema.parse({
+			...emptyCaseListConfig(),
 			columns: [],
 			filter: eq(nested, literal("v")),
 			searchInputs: [],
-		} as unknown as CaseListConfig;
+		});
 		expect(collectConfigLookupTableIds(config)).toEqual([TABLE_A, TABLE_B]);
 	});
 });

@@ -1,3 +1,4 @@
+import { javaTrim } from "./javaString";
 import { openJdk17DoubleToString } from "./openJdk17DoubleString";
 import {
 	isXPathNodeSet,
@@ -33,7 +34,7 @@ export function toNumber(input: XPathRuntimeValue): number {
 	if (typeof v === "number") return v;
 	if (typeof v === "boolean") return v ? 1 : 0;
 	if (isXPathDate(v)) return v.days;
-	const trimmed = (v as string).trim();
+	const trimmed = javaTrim(v as string);
 	if (trimmed === "") return NaN;
 	if (/[^0-9.-]/.test(trimmed)) return NaN;
 	const parsed = Number(trimmed);

@@ -29,63 +29,38 @@
  *     a thread with nothing in flight answers a bare `finish`; a foreign
  *     thread is 404.
  *
- * Auth (`requireSession` / `getSessionSafe` / `resolveAppScope` /
- * `isUserActive`) is mocked exactly like the app relay's suite, the chunk
- * log, the LISTEN path, and the route's own replay/tail/fallback logic are
- * the code under test.
+ * Only session extraction is controlled. Project membership, active-user
+ * checks, scope resolution, migrated tables, and LISTEN/NOTIFY are real.
  */
 
 import type { UIMessageStreamWriter } from "ai";
 import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import {
-	createPerTestAppDb,
-	type PerTestAppDb,
-} from "@/lib/db/__tests__/perTestAppDb";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import * as targetScope from "@/lib/db/generationTargetScope";
+import type { AppDatabase } from "@/lib/db/pg";
+import * as streamListener from "@/lib/db/streamListener";
 
-const {
-	requireSessionMock,
-	getSessionSafeMock,
-	resolveAppScopeMock,
-	isUserActiveMock,
-} = vi.hoisted(() => ({
+const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	getSessionSafeMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
-	isUserActiveMock: vi.fn(),
 }));
-
-/* A real `AppAccessError` shape: the route revokes only on this class. */
-class MockAppAccessError extends Error {
-	readonly name = "AppAccessError";
-	constructor(readonly reason: string) {
-		super(reason);
-	}
-}
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	getSessionSafe: getSessionSafeMock,
 }));
-vi.mock("@/lib/db/appAccess", () => ({
-	resolveAppScope: resolveAppScopeMock,
-	AppAccessError: MockAppAccessError,
-}));
-vi.mock("@/lib/db/api-keys", () => ({
-	isUserActive: isUserActiveMock,
-}));
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: vi.fn(async () => "editor"),
-	projectRoleForInTransaction: vi.fn(async () => "editor"),
-}));
-
-/* Module-load cadence: set BEFORE the dynamic import so the fallback and
- * revocation tests observe their close in milliseconds, not the prod ~10 s. */
+const previousCadence = process.env.NOVA_CHAT_STREAM_CADENCE_MS;
 process.env.NOVA_CHAT_STREAM_CADENCE_MS = "150";
-
-const { GET } = await import("../route");
+const { GET } = await (async () => {
+	try {
+		return await import("../route");
+	} finally {
+		if (previousCadence === undefined)
+			delete process.env.NOVA_CHAT_STREAM_CADENCE_MS;
+		else process.env.NOVA_CHAT_STREAM_CADENCE_MS = previousCadence;
+	}
+})();
 const { appendStreamChunks, pruneChatStreamChunks } = await import(
 	"@/lib/db/streamChunks"
 );
@@ -106,13 +81,11 @@ const PEER = "user-2";
 const PROJECT = "project-1";
 const SUCCESSOR_NONCE = "00000000-0000-4000-8000-000000000099";
 
-const dbHandle = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "chat_stream_",
+const h = setupAppStateTestDb("chat_stream_", {
+	authSchema: "migrated",
+	poolMax: 4,
 });
-
 let appDb: Kysely<AppDatabase>;
-let harness: PerTestAppDb;
 
 async function holderNonceFor(appId: string): Promise<string> {
 	const row = await appDb
@@ -125,7 +98,7 @@ async function holderNonceFor(appId: string): Promise<string> {
 }
 
 function sessionFor(userId: string) {
-	return { user: { id: userId } } as never;
+	return { user: { id: userId } };
 }
 
 /** Seed one chunk-log row directly (bypassing the writer, no poke). */
@@ -149,7 +122,11 @@ async function seedRow(
 		.execute();
 }
 
-const delta = (i: number) => ({ type: "text-delta", id: "0", delta: `c${i}` });
+const delta = (i: number) => ({
+	type: "text-delta" as const,
+	id: "0",
+	delta: `c${i}`,
+});
 
 /** One parsed frame: a chunk object, or the literal "[DONE]" sentinel. */
 type Frame = unknown | "[DONE]";
@@ -211,18 +188,29 @@ async function collectUntil(
 		controller.abort();
 	}, timeoutMs);
 
-	const opened = Promise.resolve(opts.onOpen?.());
+	let opened: Promise<{ ok: true } | { ok: false; error: unknown }> | undefined;
+	const startProducer = () => {
+		if (opened || !opts.onOpen) return;
+		opened = Promise.resolve()
+			.then(opts.onOpen)
+			.then(
+				() => ({ ok: true as const }),
+				(error) => {
+					controller.abort();
+					return { ok: false as const, error };
+				},
+			);
+	};
 
+	let producerOutcome: Awaited<typeof opened>;
 	try {
 		while (true) {
-			const chunk = await reader.read().catch(() => ({
-				done: true as const,
-				value: undefined,
-			}));
+			const chunk = await reader.read();
 			if (chunk.value) {
 				raw += decoder.decode(chunk.value, { stream: true });
 				frames.length = 0;
 				frames.push(...parseFrames(raw));
+				if (frames.length > 0) startProducer();
 			}
 			if (chunk.done) {
 				ended = !timedOut;
@@ -232,37 +220,45 @@ async function collectUntil(
 	} finally {
 		clearTimeout(deadline);
 		controller.abort();
-		await reader.cancel().catch(() => {});
-		await opened;
+		try {
+			await reader.cancel();
+		} finally {
+			reader.releaseLock();
+			producerOutcome = await opened;
+		}
 	}
+	if (producerOutcome && !producerOutcome.ok) throw producerOutcome.error;
 	return { frames, response, ended };
 }
 
 beforeEach(async () => {
-	harness = createPerTestAppDb(dbHandle.uri);
-	appDb = harness.appDb;
-	__setAppDbForTests(appDb);
-	__setListenerConfigForTests(dbHandle.uri);
-
+	appDb = h.db();
+	__setListenerConfigForTests(h.uri());
+	await h.seedProjectMember(USER, PROJECT, "editor");
+	await h.seedProjectMember(PEER, PROJECT, "editor");
+	await h.seedApp({
+		id: "app-1",
+		owner: USER,
+		project_id: PROJECT,
+		status: "complete",
+	});
 	requireSessionMock.mockReset();
 	getSessionSafeMock.mockReset();
-	resolveAppScopeMock.mockReset();
-	isUserActiveMock.mockReset();
 	getSessionSafeMock.mockResolvedValue(sessionFor(USER));
-	isUserActiveMock.mockResolvedValue(true);
-	resolveAppScopeMock.mockResolvedValue({
-		projectId: PROJECT,
-		role: "editor",
-		actorUserId: USER,
-	});
 });
-
 afterEach(async () => {
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
-	__setAppDbForTests(null);
-	await harness.destroy();
+	vi.restoreAllMocks();
 });
+async function removeMembership() {
+	await h
+		.pool()
+		.query(
+			'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+			[USER, PROJECT],
+		);
+}
 
 describe("replay", () => {
 	it("replays seeded chunks in order and closes on the terminal row", async () => {
@@ -328,6 +324,24 @@ describe("replay", () => {
 describe("live tail", () => {
 	it("delivers chunks appended after connect via the NOTIFY poke", async () => {
 		await seedRow("s4", 0, [delta(0)]);
+		let listenerReady = false;
+		const stopProbe = streamListener.subscribeChatStream("probe", () => {
+			listenerReady = true;
+		});
+		try {
+			await expect.poll(() => listenerReady).toBe(true);
+		} finally {
+			stopProbe();
+		}
+		let notificationPokes = 0;
+		const subscribe = streamListener.subscribeChatStream;
+		vi.spyOn(streamListener, "subscribeChatStream").mockImplementation(
+			(id, poke) =>
+				subscribe(id, () => {
+					notificationPokes++;
+					poke();
+				}),
+		);
 
 		const { frames, ended } = await collectUntil("s4", {
 			onOpen: async () => {
@@ -344,6 +358,7 @@ describe("live tail", () => {
 		});
 		expect(frames).toEqual([delta(0), delta(1), { type: "finish" }, "[DONE]"]);
 		expect(ended).toBe(true);
+		expect(notificationPokes).toBeGreaterThan(0);
 	});
 
 	it("round-trips the DurableStreamWriter's log, synthetic finish included", async () => {
@@ -359,14 +374,17 @@ describe("live tail", () => {
 			threadId: "thread-1",
 			inner,
 		});
-		writer.write({
-			type: "data-run-id",
-			data: { runId: "run-1" },
-			transient: true,
-		});
-		writer.write(delta(0) as never);
-		// No explicit finish: an error-terminated POST; close() synthesizes it.
-		await writer.close();
+		try {
+			writer.write({
+				type: "data-run-id",
+				data: { runId: "run-1" },
+				transient: true,
+			});
+			writer.write(delta(0));
+			// No explicit finish: an error-terminated POST; close() synthesizes it.
+		} finally {
+			await writer.close();
+		}
 
 		const { frames } = await collectUntil("s5", {});
 		expect(frames).toEqual([
@@ -415,8 +433,11 @@ describe("live tail", () => {
 			threadId: "thread-private",
 			inner,
 		});
-		writer.writePrivateHolderNonce(holderNonce);
-		await writer.close();
+		try {
+			writer.writePrivateHolderNonce(holderNonce);
+		} finally {
+			await writer.close();
+		}
 		/* Paused finalization clears the live stream marker but deliberately
 		 * retains the nonce for the answer POST. A direct hot reconnect to the
 		 * completed stream must still rehydrate this exact generation. */
@@ -505,8 +526,8 @@ describe("live tail", () => {
 
 describe("dead-run fallback", () => {
 	it("closes a terminal-less tail with one synthetic finish once nothing holds the app live", async () => {
-		// No apps row at all → `appHeldLive` is false on every tick.
-		await seedRow("s6", 0, [delta(0)], { appId: "app-gone" });
+		// An authorized, completed app has no live run holder.
+		await seedRow("s6", 0, [delta(0)]);
 
 		const { frames, ended } = await collectUntil("s6", {
 			timeoutMs: 3_000,
@@ -521,12 +542,23 @@ describe("dead-run fallback", () => {
 			status: "generating",
 		});
 		await seedRow("s7", 0, [delta(0)], { appId });
+		let liveTicks = 0;
+		const realHeldLive = targetScope.generationTargetHeldLive;
+		vi.spyOn(targetScope, "generationTargetHeldLive").mockImplementation(
+			async (...args) => {
+				const live = await realHeldLive(...args);
+				if (live) liveTicks++;
+				return live;
+			},
+		);
 
 		const { frames } = await collectUntil("s7", {
 			// Several cadence ticks pass before the terminal lands; the fallback
 			// must not fire in between (deadTicks resets while live).
 			onOpen: async () => {
-				await new Promise((r) => setTimeout(r, 600));
+				await expect
+					.poll(() => liveTicks, { timeout: 3000 })
+					.toBeGreaterThanOrEqual(3);
 				await appendStreamChunks({
 					streamId: "s7",
 					target: { kind: "app", appId },
@@ -558,7 +590,7 @@ describe("auth posture", () => {
 
 	it("404s a scope denial identically to a missing stream", async () => {
 		await seedRow("s8", 0, [delta(0)]);
-		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not-member"));
+		await removeMembership();
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const res = await GET(new Request("http://localhost/api/chat/s8/stream"), {
 			params: Promise.resolve({ streamId: "s8" }),
@@ -576,15 +608,16 @@ describe("auth posture", () => {
 		);
 		await seedRow("s9", 0, [delta(0)], { appId });
 
-		// Transient scope throws (pool blip) must NOT close the stream.
-		resolveAppScopeMock
-			.mockResolvedValueOnce({
-				projectId: PROJECT,
-				role: "editor",
-				actorUserId: USER,
-			}) // connect-time gate
-			.mockRejectedValueOnce(new Error("pool exhausted")) // tick 1: transient
-			.mockRejectedValue(new MockAppAccessError("removed")); // then: confirmed
+		const realScope = targetScope.resolveGenerationTargetScope;
+		let cadenceCalls = 0;
+		vi.spyOn(targetScope, "resolveGenerationTargetScope").mockImplementation(
+			async (...args) => {
+				cadenceCalls++;
+				if (cadenceCalls === 2) throw new Error("pool exhausted");
+				if (cadenceCalls === 3) await removeMembership();
+				return realScope(...args);
+			},
+		);
 
 		const { frames, ended } = await collectUntil("s9", {
 			timeoutMs: 3_000,
@@ -592,7 +625,27 @@ describe("auth posture", () => {
 		// Closed WITHOUT [DONE]: a revoked tail is not a completed stream.
 		expect(ended).toBe(true);
 		expect(frames).toEqual([delta(0)]);
+		expect(cadenceCalls).toBe(3);
 	});
+	it.each(["ban", "identity change"] as const)(
+		"closes an active tail on confirmed %s without claiming completion",
+		async (reason) => {
+			await seedRow("revoked", 0, [delta(0)]);
+			const { frames, ended } = await collectUntil("revoked", {
+				onOpen: async () => {
+					if (reason === "ban")
+						await h
+							.pool()
+							.query("UPDATE auth_user SET banned = true WHERE id = $1", [
+								USER,
+							]);
+					else getSessionSafeMock.mockResolvedValue(sessionFor(PEER));
+				},
+			});
+			expect(ended).toBe(true);
+			expect(frames).toEqual([delta(0)]);
+		},
+	);
 });
 
 describe("append idempotency", () => {
@@ -692,7 +745,7 @@ describe("thread resolution", () => {
 			messages: [{ id: "m1", role: "user", parts: [] }],
 			expectedProjectId: PROJECT,
 		});
-		resolveAppScopeMock.mockRejectedValue(new MockAppAccessError("not-member"));
+		await removeMembership();
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const res = await GET(
 			new Request("http://localhost/api/chat/thread-foreign/stream"),

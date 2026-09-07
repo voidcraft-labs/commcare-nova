@@ -1,10 +1,11 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { applyMutations } from "@/lib/doc/mutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { proseText } from "@/lib/domain/prose";
 import { planConnectTargetState } from "../connectTargetState";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture() {
 	const doc = buildDoc({
@@ -31,6 +32,7 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
 	const moduleUuid = doc.moduleOrder[0];
 	if (!moduleUuid) throw new Error("fixture module missing");
 	const first = doc.formOrder[moduleUuid]?.[0];
@@ -56,10 +58,20 @@ const deliver = (id: string) => ({
 	deliver_unit: { id, name: "Delivery" },
 });
 
-const apply = (doc: BlueprintDoc, mutations: readonly Mutation[]) =>
-	produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
+function apply(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok).toBe(true);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	assertAdmittedDoc(verdict.nextDoc);
+	return verdict.nextDoc;
+}
 
 describe("planConnectTargetState", () => {
 	it("enables a mode and its complete participant set in one batch", () => {
@@ -136,6 +148,39 @@ describe("planConnectTargetState", () => {
 		expect(Object.values(next.forms).every((form) => !form?.connect)).toBe(
 			true,
 		);
+	});
+
+	it("emits no work for the same complete target, even with reordered object keys", () => {
+		const { doc, first } = fixture();
+		const target = {
+			mode: "learn" as const,
+			participants: [{ formUuid: first, connect: learn("intro") }],
+		};
+		const enabled = planConnectTargetState(doc, target);
+		if (!enabled.ok) throw new Error(enabled.messages.join("\n"));
+		const current = apply(doc, enabled.mutations);
+		expect(
+			planConnectTargetState(current, {
+				mode: "learn",
+				participants: [
+					{
+						formUuid: first,
+						connect: {
+							learn_module: {
+								time_estimate: 5,
+								description: "Learning",
+								name: "Learn",
+								id: "intro",
+							},
+						},
+					},
+				],
+			}),
+		).toEqual({ ok: true, mutations: [] });
+		expect(planConnectTargetState(doc, { mode: null })).toEqual({
+			ok: true,
+			mutations: [],
+		});
 	});
 
 	it.each([

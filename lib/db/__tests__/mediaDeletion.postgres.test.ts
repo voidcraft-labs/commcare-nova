@@ -170,6 +170,15 @@ function attachLogo(assetId: MediaAssetId): Mutation[] {
 	return [{ kind: "setAppLogo", logo: assetId }];
 }
 
+// Own each started task immediately, including failures before the next fence.
+function trackWork<T>(
+	task: Promise<T>,
+	pending: Promise<unknown>[],
+): Promise<T> {
+	pending.push(Promise.allSettled([task]));
+	return task;
+}
+
 async function waitForBlockedLocks(
 	observer: Client,
 	minimum: number,
@@ -197,61 +206,58 @@ describe("transactional media deletion", () => {
 		const gateKey = 8_273_639;
 		const gate = new Client({ connectionString: h.uri() });
 		const publisherDb = createPerTestAppDb(h.uri());
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-			CREATE FUNCTION test_pause_pending_publication() RETURNS trigger
-			LANGUAGE plpgsql AS $$
-			BEGIN
-				PERFORM pg_advisory_xact_lock(${gateKey});
-				RETURN NEW;
-			END
-			$$;
-			CREATE TRIGGER test_pause_pending_publication_trigger
-				AFTER UPDATE OF status ON media_assets
-				FOR EACH ROW
-				WHEN (OLD.status = 'pending' AND NEW.status = 'ready')
-				EXECUTE FUNCTION test_pause_pending_publication();
-		`);
-
-		const publication = publishPendingAssetForActor(
-			{
-				assetId: asMediaAssetId(assetId),
-				actorUserId: ACTOR,
-				expectedProjectId: PROJECT,
-				gcsObjectKey: finalKey,
-				mimeType: "image/png",
-				extension: ".png",
-				dimensions: { width: 16, height: 16 },
-			},
-			publisherDb.appDb,
-		);
-		let gateHeld = true;
+		const pending: Promise<unknown>[] = [];
+		let publication: Promise<unknown> | undefined;
 		let rejection: Promise<unknown> | undefined;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+				CREATE FUNCTION test_pause_pending_publication() RETURNS trigger
+				LANGUAGE plpgsql AS $$
+				BEGIN
+					PERFORM pg_advisory_xact_lock(${gateKey});
+					RETURN NEW;
+				END
+				$$;
+				CREATE TRIGGER test_pause_pending_publication_trigger
+					AFTER UPDATE OF status ON media_assets
+					FOR EACH ROW
+					WHEN (OLD.status = 'pending' AND NEW.status = 'ready')
+					EXECUTE FUNCTION test_pause_pending_publication();
+			`);
+			publication = trackWork(
+				publishPendingAssetForActor(
+					{
+						assetId: asMediaAssetId(assetId),
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+						gcsObjectKey: finalKey,
+						mimeType: "image/png",
+						extension: ".png",
+						dimensions: { width: 16, height: 16 },
+					},
+					publisherDb.appDb,
+				),
+				pending,
+			);
 			await waitForBlockedLocks(gate, 1);
-			rejection = deletePendingAssetForActor({
-				assetId: asMediaAssetId(assetId),
-				actorUserId: ACTOR,
-				expectedProjectId: PROJECT,
-			});
+			rejection = trackWork(
+				deletePendingAssetForActor({
+					assetId: asMediaAssetId(assetId),
+					actorUserId: ACTOR,
+					expectedProjectId: PROJECT,
+				}),
+				pending,
+			);
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
 			await expect(publication).resolves.toMatchObject({ kind: "published" });
 			await expect(rejection).resolves.toMatchObject({ kind: "already_ready" });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([
-				publication,
-				...(rejection !== undefined ? [rejection] : []),
-			]);
-			await gate.end().catch(() => {});
+			await gate.end();
+			await Promise.all(pending);
 			await publisherDb.destroy();
 		}
 
@@ -365,7 +371,6 @@ describe("transactional media deletion", () => {
 		const publisherDb = createPerTestAppDb(h.uri());
 		const deleterDb = createPerTestAppDb(h.uri());
 		const observer = new Client({ connectionString: h.uri() });
-		await observer.connect();
 		let enteredPublication!: () => void;
 		const publicationEntered = new Promise<void>((resolve) => {
 			enteredPublication = resolve;
@@ -376,34 +381,48 @@ describe("transactional media deletion", () => {
 		});
 		let objectPublished = false;
 
-		const publication = publishClaimedAssetExtract(
-			{
-				assetId: asMediaAssetId(asset.id),
-				claim: asset.claim,
-				extract: {
-					status: "ready",
-					version: asset.claim.version,
-					model: asset.claim.model,
-					truncated: false,
-					charCount: 12,
-				},
-				publishReadyObject: async () => {
-					enteredPublication();
-					await publicationAllowed;
-					objectPublished = true;
-				},
-			},
-			publisherDb.appDb,
-		);
+		const pending: Promise<unknown>[] = [];
+		let publication: Promise<unknown> | undefined;
 		let deletion: Promise<unknown> | undefined;
 		try {
-			await publicationEntered;
-			deletion = deleterDb.appDb.transaction().execute((tx) =>
-				deleteMediaAssetMetadataInTransaction(tx, {
-					assetId: asset.id,
-					actorUserId: ACTOR,
-					expectedProjectId: PROJECT,
+			await observer.connect();
+			publication = trackWork(
+				publishClaimedAssetExtract(
+					{
+						assetId: asMediaAssetId(asset.id),
+						claim: asset.claim,
+						extract: {
+							status: "ready",
+							version: asset.claim.version,
+							model: asset.claim.model,
+							truncated: false,
+							charCount: 12,
+						},
+						publishReadyObject: async () => {
+							enteredPublication();
+							await publicationAllowed;
+							objectPublished = true;
+						},
+					},
+					publisherDb.appDb,
+				),
+				pending,
+			);
+			await Promise.race([
+				publicationEntered,
+				publication.then(() => {
+					throw new Error("Writer ended before its transaction gate");
 				}),
+			]);
+			deletion = trackWork(
+				deleterDb.appDb.transaction().execute((tx) =>
+					deleteMediaAssetMetadataInTransaction(tx, {
+						assetId: asset.id,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					}),
+				),
+				pending,
 			);
 			await waitForBlockedLocks(observer, 1);
 			allowPublication();
@@ -412,11 +431,8 @@ describe("transactional media deletion", () => {
 			await expect(deletion).resolves.toMatchObject({ kind: "deleted" });
 		} finally {
 			allowPublication();
-			await Promise.allSettled([
-				publication,
-				...(deletion !== undefined ? [deletion] : []),
-			]);
-			await observer.end().catch(() => {});
+			await Promise.all(pending);
+			await observer.end();
 			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
 		}
 
@@ -437,7 +453,6 @@ describe("transactional media deletion", () => {
 		const publisherDb = createPerTestAppDb(h.uri());
 		const deleterDb = createPerTestAppDb(h.uri());
 		const observer = new Client({ connectionString: h.uri() });
-		await observer.connect();
 		let deletedInsideTransaction!: () => void;
 		const deletionExecuted = new Promise<void>((resolve) => {
 			deletedInsideTransaction = resolve;
@@ -448,35 +463,49 @@ describe("transactional media deletion", () => {
 		});
 		let publishCallbackRan = false;
 
-		const deletion = deleterDb.appDb.transaction().execute(async (tx) => {
-			const result = await deleteMediaAssetMetadataInTransaction(tx, {
-				assetId: asset.id,
-				actorUserId: ACTOR,
-				expectedProjectId: PROJECT,
-			});
-			deletedInsideTransaction();
-			await deleteCommitAllowed;
-			return result;
-		});
+		const pending: Promise<unknown>[] = [];
+		let deletion: Promise<unknown> | undefined;
 		let publication: Promise<unknown> | undefined;
 		try {
-			await deletionExecuted;
-			publication = publishClaimedAssetExtract(
-				{
-					assetId: asMediaAssetId(asset.id),
-					claim: asset.claim,
-					extract: {
-						status: "ready",
-						version: asset.claim.version,
-						model: asset.claim.model,
-						truncated: false,
-						charCount: 12,
+			await observer.connect();
+			deletion = trackWork(
+				deleterDb.appDb.transaction().execute(async (tx) => {
+					const result = await deleteMediaAssetMetadataInTransaction(tx, {
+						assetId: asset.id,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					});
+					deletedInsideTransaction();
+					await deleteCommitAllowed;
+					return result;
+				}),
+				pending,
+			);
+			await Promise.race([
+				deletionExecuted,
+				deletion.then(() => {
+					throw new Error("Writer ended before its transaction gate");
+				}),
+			]);
+			publication = trackWork(
+				publishClaimedAssetExtract(
+					{
+						assetId: asMediaAssetId(asset.id),
+						claim: asset.claim,
+						extract: {
+							status: "ready",
+							version: asset.claim.version,
+							model: asset.claim.model,
+							truncated: false,
+							charCount: 12,
+						},
+						publishReadyObject: async () => {
+							publishCallbackRan = true;
+						},
 					},
-					publishReadyObject: async () => {
-						publishCallbackRan = true;
-					},
-				},
-				publisherDb.appDb,
+					publisherDb.appDb,
+				),
+				pending,
 			);
 			await waitForBlockedLocks(observer, 1);
 			allowDeleteCommit();
@@ -485,11 +514,8 @@ describe("transactional media deletion", () => {
 			await expect(publication).resolves.toMatchObject({ kind: "not_found" });
 		} finally {
 			allowDeleteCommit();
-			await Promise.allSettled([
-				deletion,
-				...(publication !== undefined ? [publication] : []),
-			]);
-			await observer.end().catch(() => {});
+			await Promise.all(pending);
+			await observer.end();
 			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
 		}
 
@@ -535,70 +561,67 @@ describe("transactional media deletion", () => {
 		const gateKey = 8_273_641;
 		const gate = new Client({ connectionString: h.uri() });
 		const contender = createPerTestAppDb(h.uri());
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-			CREATE FUNCTION test_pause_carrier_relocation() RETURNS trigger
-			LANGUAGE plpgsql AS $$
-			BEGIN
-				LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
-				PERFORM pg_advisory_xact_lock(${gateKey});
-				RETURN NEW;
-			END
-			$$;
-			CREATE TRIGGER test_pause_carrier_relocation_trigger
-				BEFORE INSERT ON app_changes
-				FOR EACH ROW EXECUTE FUNCTION test_pause_carrier_relocation();
-		`);
-
-		const relocation = commitGuardedBatch({
-			appId,
-			expectedProjectId: PROJECT,
-			batchId: crypto.randomUUID(),
-			mutations: [
-				{
-					kind: "setModuleMedia",
-					uuid: moduleUuid,
-					icon: null,
-					audioLabel: null,
-				},
-				{ kind: "setAppLogo", logo: asMediaAssetId(assetId) },
-			],
-			actorUserId: ACTOR,
-			kind: "autosave",
-		});
-		let gateHeld = true;
+		const pending: Promise<unknown>[] = [];
+		let relocation: Promise<unknown> | undefined;
 		let deletion: Promise<unknown> | undefined;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+				CREATE FUNCTION test_pause_carrier_relocation() RETURNS trigger
+				LANGUAGE plpgsql AS $$
+				BEGIN
+					LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
+					PERFORM pg_advisory_xact_lock(${gateKey});
+					RETURN NEW;
+				END
+				$$;
+				CREATE TRIGGER test_pause_carrier_relocation_trigger
+					BEFORE INSERT ON app_changes
+					FOR EACH ROW EXECUTE FUNCTION test_pause_carrier_relocation();
+			`);
+			relocation = trackWork(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations: [
+						{
+							kind: "setModuleMedia",
+							uuid: moduleUuid,
+							icon: null,
+							audioLabel: null,
+						},
+						{ kind: "setAppLogo", logo: asMediaAssetId(assetId) },
+					],
+					actorUserId: ACTOR,
+					kind: "autosave",
+				}),
+				pending,
+			);
 			// The writer has changed BOTH carriers and holds an exclusive relation
 			// lock before commit. A legacy split scan can read the old root, then
 			// wake after commit and read the new entity — missing both. The coherent
 			// query blocks as one statement and sees one side of the relocation.
 			await waitForBlockedLocks(gate, 1);
-			deletion = contender.appDb.transaction().execute((tx) =>
-				deleteMediaAssetMetadataInTransaction(tx, {
-					assetId,
-					actorUserId: ACTOR,
-					expectedProjectId: PROJECT,
-				}),
+			deletion = trackWork(
+				contender.appDb.transaction().execute((tx) =>
+					deleteMediaAssetMetadataInTransaction(tx, {
+						assetId,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					}),
+				),
+				pending,
 			);
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
 			await expect(relocation).resolves.toMatchObject({ seq: 1 });
 			await expect(deletion).resolves.toMatchObject({ kind: "referenced" });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([
-				relocation,
-				...(deletion !== undefined ? [deletion] : []),
-			]);
-			await gate.end().catch(() => {});
+			await gate.end();
+			await Promise.all(pending);
 			await contender.destroy();
 		}
 
@@ -646,57 +669,62 @@ describe("transactional media deletion", () => {
 		const gateKey = 8_273_642;
 		const gate = new Client({ connectionString: h.uri() });
 		const contender = createPerTestAppDb(h.uri());
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-			CREATE FUNCTION test_pause_last_carrier_removal() RETURNS trigger
-			LANGUAGE plpgsql AS $$
-			BEGIN
-				LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
-				PERFORM pg_advisory_xact_lock(${gateKey});
-				RETURN NEW;
-			END
-			$$;
-			CREATE TRIGGER test_pause_last_carrier_removal_trigger
-				BEFORE INSERT ON app_changes
-				FOR EACH ROW EXECUTE FUNCTION test_pause_last_carrier_removal();
-		`);
-
-		const removal = commitGuardedBatch({
-			appId,
-			expectedProjectId: PROJECT,
-			batchId: crypto.randomUUID(),
-			mutations: [
-				{
-					kind: "setModuleMedia",
-					uuid: moduleUuid,
-					icon: null,
-					audioLabel: null,
-				},
-			],
-			actorUserId: ACTOR,
-			kind: "autosave",
-		});
-		let gateHeld = true;
+		const pending: Promise<unknown>[] = [];
+		let removal: Promise<unknown> | undefined;
 		let deletion: Promise<
 			Awaited<ReturnType<typeof deleteMediaAssetMetadataInTransaction>>
 		> | null = null;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+				CREATE FUNCTION test_pause_last_carrier_removal() RETURNS trigger
+				LANGUAGE plpgsql AS $$
+				BEGIN
+					LOCK TABLE blueprint_entities IN ACCESS EXCLUSIVE MODE;
+					PERFORM pg_advisory_xact_lock(${gateKey});
+					RETURN NEW;
+				END
+				$$;
+				CREATE TRIGGER test_pause_last_carrier_removal_trigger
+					BEFORE INSERT ON app_changes
+					FOR EACH ROW EXECUTE FUNCTION test_pause_last_carrier_removal();
+			`);
+			removal = trackWork(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations: [
+						{
+							kind: "setModuleMedia",
+							uuid: moduleUuid,
+							icon: null,
+							audioLabel: null,
+						},
+					],
+					actorUserId: ACTOR,
+					kind: "autosave",
+				}),
+				pending,
+			);
 			// The writer has removed its edge in its uncommitted transaction and
 			// holds the carrier relation. A split delete scan can read the old edge,
 			// wake after commit, then read the new carrier-free state and report a
 			// false invariant failure. One edge-rooted statement sees one snapshot.
 			await waitForBlockedLocks(gate, 1);
-			deletion = contender.appDb.transaction().execute((tx) =>
-				deleteMediaAssetMetadataInTransaction(tx, {
-					assetId,
-					actorUserId: ACTOR,
-					expectedProjectId: PROJECT,
-				}),
+			deletion = trackWork(
+				contender.appDb.transaction().execute((tx) =>
+					deleteMediaAssetMetadataInTransaction(tx, {
+						assetId,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					}),
+				),
+				pending,
 			);
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
 			await expect(removal).resolves.toMatchObject({ seq: 1 });
 			const firstDelete = await deletion;
@@ -711,16 +739,8 @@ describe("transactional media deletion", () => {
 				).resolves.toMatchObject({ kind: "deleted" });
 			}
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([
-				removal,
-				...(deletion !== undefined ? [deletion] : []),
-			]);
-			await gate.end().catch(() => {});
+			await gate.end();
+			await Promise.all(pending);
 			await contender.destroy();
 		}
 	}, 15_000);
@@ -731,59 +751,56 @@ describe("transactional media deletion", () => {
 		const gateKey = 8_273_640;
 		const gate = new Client({ connectionString: h.uri() });
 		const contender = createPerTestAppDb(h.uri());
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-				CREATE FUNCTION test_pause_media_attach() RETURNS trigger
-				LANGUAGE plpgsql AS $$
-				BEGIN
-					PERFORM pg_advisory_xact_lock(${gateKey});
-					RETURN NEW;
-				END
-				$$;
-				CREATE TRIGGER test_pause_media_attach_trigger
-				BEFORE INSERT ON app_changes
-				FOR EACH ROW EXECUTE FUNCTION test_pause_media_attach();
-			`);
-
-		const attach = commitGuardedBatch({
-			appId,
-			expectedProjectId: PROJECT,
-			batchId: crypto.randomUUID(),
-			mutations: attachLogo(assetId),
-			actorUserId: ACTOR,
-			kind: "autosave",
-		});
-		let gateHeld = true;
+		const pending: Promise<unknown>[] = [];
+		let attach: Promise<unknown> | undefined;
 		let deletion: Promise<unknown> | undefined;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+					CREATE FUNCTION test_pause_media_attach() RETURNS trigger
+					LANGUAGE plpgsql AS $$
+					BEGIN
+						PERFORM pg_advisory_xact_lock(${gateKey});
+						RETURN NEW;
+					END
+					$$;
+					CREATE TRIGGER test_pause_media_attach_trigger
+					BEFORE INSERT ON app_changes
+					FOR EACH ROW EXECUTE FUNCTION test_pause_media_attach();
+				`);
+			attach = trackWork(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations: attachLogo(assetId),
+					actorUserId: ACTOR,
+					kind: "autosave",
+				}),
+				pending,
+			);
 			// The writer has already taken the asset share lock when its final
 			// mutation-log insert reaches this test-only gate.
 			await waitForBlockedLocks(gate, 1);
-			deletion = contender.appDb.transaction().execute((tx) =>
-				deleteMediaAssetMetadataInTransaction(tx, {
-					assetId,
-					actorUserId: ACTOR,
-					expectedProjectId: PROJECT,
-				}),
+			deletion = trackWork(
+				contender.appDb.transaction().execute((tx) =>
+					deleteMediaAssetMetadataInTransaction(tx, {
+						assetId,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					}),
+				),
+				pending,
 			);
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
 			await expect(attach).resolves.toMatchObject({ seq: 1 });
 			await expect(deletion).resolves.toMatchObject({ kind: "referenced" });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([
-				attach,
-				...(deletion !== undefined ? [deletion] : []),
-			]);
-			await gate.end().catch(() => {});
+			await gate.end();
+			await Promise.all(pending);
 			await contender.destroy();
 		}
 
@@ -806,6 +823,7 @@ describe("transactional media deletion", () => {
 		const { appId } = await seedApp();
 		const assetId = await seedReadyAsset();
 		const contender = createPerTestAppDb(h.uri());
+		const observer = new Client({ connectionString: h.uri() });
 		let markDeleted!: () => void;
 		const deletedInsideTransaction = new Promise<void>((resolve) => {
 			markDeleted = resolve;
@@ -815,41 +833,52 @@ describe("transactional media deletion", () => {
 			allowCommit = resolve;
 		});
 
-		const deletion = contender.appDb.transaction().execute(async (tx) => {
-			const result = await deleteMediaAssetMetadataInTransaction(tx, {
-				assetId,
-				actorUserId: ACTOR,
-				expectedProjectId: PROJECT,
-			});
-			markDeleted();
-			await commitAllowed;
-			return result;
-		});
+		const pending: Promise<unknown>[] = [];
+		let deletion: Promise<unknown> | undefined;
 		let attach: Promise<unknown> | undefined;
 		try {
-			await deletedInsideTransaction;
-			attach = commitGuardedBatch({
-				appId,
-				expectedProjectId: PROJECT,
-				batchId: crypto.randomUUID(),
-				mutations: attachLogo(assetId),
-				actorUserId: ACTOR,
-				kind: "autosave",
-			});
-			// The delete has executed inside its open transaction. The attach
-			// either waits for that row version or starts after commit; both paths
-			// must observe the delete winner and reject.
+			await observer.connect();
+			deletion = trackWork(
+				contender.appDb.transaction().execute(async (tx) => {
+					const result = await deleteMediaAssetMetadataInTransaction(tx, {
+						assetId,
+						actorUserId: ACTOR,
+						expectedProjectId: PROJECT,
+					});
+					markDeleted();
+					await commitAllowed;
+					return result;
+				}),
+				pending,
+			);
+			await Promise.race([
+				deletedInsideTransaction,
+				deletion.then(() => {
+					throw new Error("Writer ended before its transaction gate");
+				}),
+			]);
+			attach = trackWork(
+				commitGuardedBatch({
+					appId,
+					expectedProjectId: PROJECT,
+					batchId: crypto.randomUUID(),
+					mutations: attachLogo(assetId),
+					actorUserId: ACTOR,
+					kind: "autosave",
+				}),
+				pending,
+			);
+			// Prove the attach is waiting on the uncommitted deletion.
+			await waitForBlockedLocks(observer, 1);
 			allowCommit();
 
 			await expect(deletion).resolves.toMatchObject({ kind: "deleted" });
 			await expect(attach).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		} finally {
 			allowCommit();
-			await Promise.allSettled([
-				deletion,
-				...(attach !== undefined ? [attach] : []),
-			]);
+			await Promise.all(pending);
 			await contender.destroy();
+			await observer.end();
 		}
 		expect((await loadApp(appId))?.blueprint.logo).toBeUndefined();
 		expect(

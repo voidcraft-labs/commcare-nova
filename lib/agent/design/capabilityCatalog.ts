@@ -16,13 +16,10 @@
  * The catalog may EXPLAIN capability to a reviewer or planner; it cannot
  * emit mutations, and nothing here executes.
  *
- * `catalogDigest` is the drift tripwire: the source test
- * (`__tests__/capabilityCatalog.test.ts`) pins it in a checked-in snapshot,
- * so a shared tool, field kind, data shape, or platform constraint changing
- * without a reviewed catalog update fails CI. Gap constraints additionally
- * pin against the complex-app unit FILES: a gap code must name a unit file
- * that still exists, and a remaining unit file must have a gap code —
- * shipping a unit forces this vocabulary to shed its code.
+ * `catalogDigest` binds the complete generated body to durable design evidence.
+ * It changes with its registries and constraints; a checked-in copy cannot prove
+ * those capabilities. Tests cover the actual reviewer projection, while owning
+ * domain and native consumer suites prove the facts represented here.
  */
 
 import {
@@ -35,6 +32,13 @@ import { fieldKinds } from "@/lib/domain/fields";
 import { AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
+export const EXTERNAL_PREREQUISITES = {
+	media: "uploading or recording media before Nova can attach it",
+	provisioning: "provisioning workers and shared resources",
+	deployment:
+		"CommCare HQ feature, build, release, and deployment steps that require a person",
+} as const;
+
 export interface CatalogToolEntry {
 	readonly saName: string;
 	readonly mcpName: string;
@@ -44,7 +48,7 @@ export interface CatalogToolEntry {
 
 export interface CapabilityCatalog {
 	readonly catalogVersion: 2;
-	/** Canonical digest over everything below — the drift tripwire. */
+	/** Canonical digest over everything below — the durable capability identity. */
 	readonly catalogDigest: string;
 	readonly toolSurface: readonly CatalogToolEntry[];
 	readonly fieldKinds: readonly string[];
@@ -95,11 +99,7 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"ready media assets already uploaded to the current Project",
 			"existing organization levels, places, workers, roles, and user properties",
 		],
-		externalPrerequisites: [
-			"uploading or recording media before Nova can attach it",
-			"provisioning workers and shared resources",
-			"CommCare HQ feature, build, release, and deployment steps that require a person",
-		],
+		externalPrerequisites: Object.values(EXTERNAL_PREREQUISITES),
 		unsupported: [
 			"creating more than one app in one design session",
 			"creating or choosing Projects or CommCare HQ project spaces",

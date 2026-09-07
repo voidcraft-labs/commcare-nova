@@ -16,12 +16,12 @@
  *     Not part of `MEDIA_ASSET_RULES` because it has the same
  *     `(mod, moduleUuid, doc)` shape as every other module rule.
  *
- * Cross-owner refs aren't a dedicated rule: `loadAssetsByIds` filters
- * by owner at the load layer (closes the cross-tenant enumeration
- * vector), so a foreign-owned ref reads as a manifest miss and
+ * Cross-Project refs aren't a dedicated rule: `loadAssetsByIds` filters
+ * by Project at the load layer (closes the cross-tenant enumeration
+ * vector), so a foreign-Project ref reads as a manifest miss and
  * surfaces as `mediaAssetExists`'s `MEDIA_ASSET_NOT_FOUND` — the same
  * message the user sees for a deleted asset, which is the right UX
- * (the foreign-owner distinction stays below the privacy line).
+ * (the foreign-Project distinction stays below the privacy line).
  */
 
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";

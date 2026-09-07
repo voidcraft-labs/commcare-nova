@@ -94,4 +94,73 @@ describe("createDesignPulseEmitter", () => {
 			orchestrationRevision: 3,
 		});
 	});
+	it("announces step changes immediately, retains the step for volume, and reads the latest head", () => {
+		const writer = makeWriter();
+		let revision = 1;
+		const emit = createDesignPulseEmitter(writer, SESSION, () => ({
+			revision,
+			eventId: `event-${revision}`,
+			digest: "d".repeat(64),
+			state: {
+				kind: "designing",
+				designSessionId: SESSION,
+				sourcePackageDigest: "a".repeat(64),
+			},
+		}));
+		emit("design", 3, "First step");
+		vi.advanceTimersByTime(DESIGN_PULSE_INTERVAL_MS - 1);
+		emit("design", 5);
+		expect(writer.chunks).toHaveLength(1);
+		revision = 2;
+		emit("design", 7, "Second step");
+		emit("design", 11, "Second step");
+		vi.advanceTimersByTime(DESIGN_PULSE_INTERVAL_MS);
+		emit("design", 13);
+		expect(writer.chunks).toEqual([
+			{
+				type: "data-design-pulse",
+				transient: true,
+				data: {
+					eventVersion: 1,
+					designSessionId: SESSION,
+					orchestrationEventId: "event-1",
+					orchestrationRevision: 1,
+					data: { phase: "design", chars: 3, step: "First step" },
+				},
+			},
+			{
+				type: "data-design-pulse",
+				transient: true,
+				data: {
+					eventVersion: 1,
+					designSessionId: SESSION,
+					orchestrationEventId: "event-2",
+					orchestrationRevision: 2,
+					data: { phase: "design", chars: 15, step: "Second step" },
+				},
+			},
+			{
+				type: "data-design-pulse",
+				transient: true,
+				data: {
+					eventVersion: 1,
+					designSessionId: SESSION,
+					orchestrationEventId: "event-2",
+					orchestrationRevision: 2,
+					data: { phase: "design", chars: 39, step: "Second step" },
+				},
+			},
+		]);
+		emit("review", 0);
+		expect(writer.chunks.at(-1)?.data).toEqual({
+			eventVersion: 1,
+			designSessionId: SESSION,
+			orchestrationEventId: "event-2",
+			orchestrationRevision: 2,
+			data: { phase: "review", chars: 0 },
+		});
+		vi.advanceTimersByTime(60_000);
+		expect(writer.chunks).toHaveLength(4);
+		expect(vi.getTimerCount()).toBe(0);
+	});
 });

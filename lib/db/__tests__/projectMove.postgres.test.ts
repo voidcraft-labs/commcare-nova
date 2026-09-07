@@ -3,7 +3,7 @@
 import type { UIMessage } from "ai";
 import type { Kysely } from "kysely";
 import { Client } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
@@ -225,6 +225,15 @@ async function seedCase(appId: string, projectId: string): Promise<void> {
 	);
 }
 
+// Attach both handlers before waiting on a database fence so an early failure
+// remains observable without becoming an unhandled rejection during polling.
+function outcome<T>(promise: Promise<T>) {
+	return promise.then(
+		(value) => ({ value }),
+		(error: unknown) => ({ error }),
+	);
+}
+
 function makeSystemSchemaStore(
 	observedProjects: string[],
 	db: Kysely<Database> = h.db() as unknown as Kysely<Database>,
@@ -312,42 +321,36 @@ describe("atomic Project move", () => {
 		);
 		const gateKey = 9_081_201;
 		const gate = new Client({ connectionString: h.uri() });
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-			CREATE FUNCTION test_pause_schema_first() RETURNS trigger
-			LANGUAGE plpgsql AS $$
-			BEGIN
-				PERFORM pg_advisory_xact_lock(${gateKey});
-				RETURN NEW;
-			END
-			$$;
-			CREATE TRIGGER test_pause_schema_first_trigger
-				BEFORE INSERT OR UPDATE ON case_type_schemas
-				FOR EACH ROW EXECUTE FUNCTION test_pause_schema_first();
-		`);
-
-		const schema = applyHouseholdSchema(store, appId);
-		let gateHeld = true;
+		let schema: Promise<unknown> | undefined;
 		let move: Promise<unknown> | undefined;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+				CREATE FUNCTION test_pause_schema_first() RETURNS trigger
+				LANGUAGE plpgsql AS $$
+				BEGIN
+					PERFORM pg_advisory_xact_lock(${gateKey});
+					RETURN NEW;
+				END
+				$$;
+				CREATE TRIGGER test_pause_schema_first_trigger
+					BEFORE INSERT OR UPDATE ON case_type_schemas
+					FOR EACH ROW EXECUTE FUNCTION test_pause_schema_first();
+			`);
+			schema = outcome(applyHouseholdSchema(store, appId));
 			await waitForBlockedLocks(gate, 1);
-			move = commitMove(appId);
+			move = outcome(commitMove(appId));
 			// The schema transaction waits on the advisory test gate while holding
 			// `apps FOR SHARE`; the move must queue behind that app-row fence.
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
-			await expect(schema).resolves.toMatchObject({ migrated: 0 });
-			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(schema).resolves.toMatchObject({ value: { migrated: 0 } });
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([schema, ...(move !== undefined ? [move] : [])]);
-			await gate.end().catch(() => {});
+			// Closing the session releases its advisory lock even after setup fails.
+			await gate.end();
+			await Promise.allSettled([schema, move]);
 			await schemaDb.destroy();
 		}
 
@@ -376,29 +379,39 @@ describe("atomic Project move", () => {
 			allowMoveCommit = resolve;
 		});
 		const observer = new Client({ connectionString: h.uri() });
-		await observer.connect();
 
-		const move = commitMove(appId, {
-			insideTransaction: async () => {
-				markMoveInside();
-				await moveCommitAllowed;
-			},
-		});
+		let move: Promise<unknown> | undefined;
 		let schema: Promise<unknown> | undefined;
 		try {
-			await moveInside;
-			schema = applyHouseholdSchema(store, appId);
+			await observer.connect();
+			move = outcome(
+				commitMove(appId, {
+					insideTransaction: async () => {
+						markMoveInside();
+						await moveCommitAllowed;
+					},
+				}),
+			);
+			await Promise.race([
+				moveInside,
+				move.then((result) => {
+					throw new Error("Move ended before its transaction hook", {
+						cause: result,
+					});
+				}),
+			]);
+			schema = outcome(applyHouseholdSchema(store, appId));
 			await waitForBlockedLocks(observer, 1);
 			allowMoveCommit();
-			await expect(move).resolves.toEqual({ kind: "moved" });
-			await expect(schema).resolves.toMatchObject({ migrated: 0 });
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
+			await expect(schema).resolves.toMatchObject({ value: { migrated: 0 } });
 		} finally {
 			allowMoveCommit();
 			await Promise.allSettled([
 				move,
 				...(schema !== undefined ? [schema] : []),
 			]);
-			await observer.end().catch(() => {});
+			await observer.end();
 			await schemaDb.destroy();
 		}
 
@@ -419,45 +432,39 @@ describe("atomic Project move", () => {
 		);
 		const gateKey = 9_081_203;
 		const gate = new Client({ connectionString: h.uri() });
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
-			CREATE FUNCTION test_pause_case_writer_first() RETURNS trigger
-			LANGUAGE plpgsql AS $$
-			BEGIN
-				PERFORM pg_advisory_xact_lock(${gateKey});
-				RETURN NEW;
-			END
-			$$;
-			CREATE TRIGGER test_pause_case_writer_first_trigger
-				BEFORE INSERT ON cases
-				FOR EACH ROW EXECUTE FUNCTION test_pause_case_writer_first();
-		`);
-
-		const write = insertHousehold(store, appId, "Writer first");
-		let gateHeld = true;
+		let write: Promise<unknown> | undefined;
 		let move: Promise<unknown> | undefined;
 		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
+				CREATE FUNCTION test_pause_case_writer_first() RETURNS trigger
+				LANGUAGE plpgsql AS $$
+				BEGIN
+					PERFORM pg_advisory_xact_lock(${gateKey});
+					RETURN NEW;
+				END
+				$$;
+				CREATE TRIGGER test_pause_case_writer_first_trigger
+					BEFORE INSERT ON cases
+					FOR EACH ROW EXECUTE FUNCTION test_pause_case_writer_first();
+			`);
+			write = outcome(insertHousehold(store, appId, "Writer first"));
 			await waitForBlockedLocks(gate, 1);
-			move = commitMove(appId);
+			move = outcome(commitMove(appId));
 			// The writer already reauthorized and holds `apps FOR SHARE`; the move
 			// must wait for that source-bound transaction to commit.
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
 			await expect(write).resolves.toMatchObject({
-				caseId: expect.any(String),
+				value: { caseId: expect.any(String) },
 			});
-			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([write, ...(move !== undefined ? [move] : [])]);
-			await gate.end().catch(() => {});
+			// Closing the session releases its advisory lock even after setup fails.
+			await gate.end();
+			await Promise.allSettled([write, move]);
 			await writerDb.destroy();
 		}
 
@@ -483,7 +490,6 @@ describe("atomic Project move", () => {
 			writerDb.appDb as unknown as Kysely<Database>,
 		);
 		const observer = new Client({ connectionString: h.uri() });
-		await observer.connect();
 		let markMoveInside!: () => void;
 		const moveInside = new Promise<void>((resolve) => {
 			markMoveInside = resolve;
@@ -493,28 +499,38 @@ describe("atomic Project move", () => {
 			allowMoveCommit = resolve;
 		});
 
-		const move = commitMove(appId, {
-			insideTransaction: async () => {
-				markMoveInside();
-				await moveCommitAllowed;
-			},
-		});
+		let move: Promise<unknown> | undefined;
 		let write: Promise<unknown> | undefined;
 		try {
-			await moveInside;
-			write = insertHousehold(store, appId, "Too late");
+			await observer.connect();
+			move = outcome(
+				commitMove(appId, {
+					insideTransaction: async () => {
+						markMoveInside();
+						await moveCommitAllowed;
+					},
+				}),
+			);
+			await Promise.race([
+				moveInside,
+				move.then((result) => {
+					throw new Error("Move ended before its transaction hook", {
+						cause: result,
+					});
+				}),
+			]);
+			write = outcome(insertHousehold(store, appId, "Too late"));
 			await waitForBlockedLocks(observer, 1);
 			allowMoveCommit();
 
-			await expect(move).resolves.toEqual({ kind: "moved" });
-			await expect(write).rejects.toMatchObject({
-				name: "AppAccessError",
-				reason: "not_found",
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
+			await expect(write).resolves.toMatchObject({
+				error: { name: "AppAccessError", reason: "not_found" },
 			});
 		} finally {
 			allowMoveCommit();
 			await Promise.allSettled([move, ...(write !== undefined ? [write] : [])]);
-			await observer.end().catch(() => {});
+			await observer.end();
 			await writerDb.destroy();
 		}
 
@@ -707,9 +723,9 @@ describe("atomic Project move", () => {
 		const onNotification = (message: { channel: string }) => {
 			channels.push(message.channel);
 		};
-		await listener.connect();
-		listener.on("notification", onNotification);
 		try {
+			await listener.connect();
+			listener.on("notification", onNotification);
 			await listener.query("LISTEN nova_app_stream");
 			await listener.query("LISTEN nova_presence");
 			const result = await commitMove(appId, {
@@ -728,12 +744,11 @@ describe("atomic Project move", () => {
 				},
 			});
 			expect(result).toEqual({ kind: "moved" });
-			for (let attempt = 0; attempt < 100 && channels.length < 2; attempt++) {
-				await new Promise((resolve) => setTimeout(resolve, 5));
-			}
-			expect(new Set(channels)).toEqual(
-				new Set(["nova_app_stream", "nova_presence"]),
-			);
+			await vi.waitFor(() => {
+				expect(new Set(channels)).toEqual(
+					new Set(["nova_app_stream", "nova_presence"]),
+				);
+			});
 		} finally {
 			listener.off("notification", onNotification);
 			await listener.end();
@@ -784,18 +799,11 @@ describe("atomic Project move", () => {
 		const destinationEdges = await h
 			.db()
 			.selectFrom("media_asset_refs")
-			.select("asset_id")
+			.select(["asset_id", "project_id"])
 			.where("app_id", "=", appId)
-			.where("asset_id", "in", [
-				destinationLogo,
-				destinationImage,
-				destinationDocument,
-				destinationHistorical,
-			])
-			.orderBy("asset_id")
 			.execute();
-		expect(destinationEdges.map((edge) => edge.asset_id)).toEqual([
-			destinationLogo,
+		expect(destinationEdges).toEqual([
+			{ asset_id: destinationLogo, project_id: DESTINATION },
 		]);
 		const destinationThreadRefs = await h
 			.db()
@@ -893,6 +901,7 @@ describe("atomic Project move", () => {
 			state: {
 				status: "generating",
 				run_id: "run-live",
+				run_holder_nonce: "00000000-0000-4000-8000-000000000002",
 				updated_at: new Date(),
 			},
 		});
@@ -947,6 +956,10 @@ describe("atomic Project move", () => {
 			id: "app-capture-move-block",
 		});
 		await h.seedProjectMember(ACTOR, DESTINATION, "owner");
+		await expect(prepareMove(appId)).resolves.toEqual({
+			kind: "ready",
+			assetIds: [],
+		});
 		const attachmentId = crypto.randomUUID();
 		await h
 			.db()

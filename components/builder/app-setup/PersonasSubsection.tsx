@@ -21,12 +21,14 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	usePersonas,
 	useUserProperties,
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { asUuid } from "@/lib/doc/types";
 import type { Persona, UserProperty, UserType } from "@/lib/domain";
 import { hasOwnRecordKey, ownRecordValue } from "@/lib/domain";
@@ -44,6 +46,8 @@ export function PersonasSubsection() {
 	const roles = useUserTypes();
 	const properties = useUserProperties();
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const appId = useAppId();
 	const organization = useOrganization(appId ?? "");
@@ -72,6 +76,7 @@ export function PersonasSubsection() {
 			addLabel="Add persona"
 			onAdd={add}
 			canEdit={canEdit}
+			addDisabled={!canWrite}
 			addButtonRef={addButtonRef}
 		>
 			{personas.length === 0 ? (
@@ -147,6 +152,8 @@ function PersonaRow({
 	onReloadLocations: () => void;
 }) {
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const nameId = useId();
@@ -202,7 +209,7 @@ function PersonaRow({
 						inputRef={nameRef}
 						id={nameId}
 						value={persona.name}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						validate={(value) =>
 							value === "" ? "Enter a name for this persona." : undefined
 						}
@@ -224,7 +231,7 @@ function PersonaRow({
 					<FieldLabel htmlFor={roleId}>Role</FieldLabel>
 					<Select
 						value={selectedRoleIndex + 1}
-						disabled={!canEdit || roles.length === 0}
+						disabled={!canWrite || roles.length === 0}
 						onValueChange={(next) => {
 							const index = Number(next);
 							const selectedRole = roles[index - 1];
@@ -274,7 +281,7 @@ function PersonaRow({
 								property={property}
 								persona={persona}
 								role={role}
-								disabled={!canEdit}
+								disabled={!canWrite}
 								onChange={(next) => setOverride(property.uuid, next)}
 							/>
 						))
@@ -295,6 +302,7 @@ function PersonaRow({
 
 				{canEdit && (
 					<PersonaRemoveConfirm
+						disabled={!canWrite}
 						persona={persona}
 						returnFocusRef={returnFocusRef}
 					/>

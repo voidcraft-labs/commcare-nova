@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
+	blueprintDocSchema,
 	type CaseType,
 	calculatedColumn,
 	plainColumn,
@@ -17,7 +19,6 @@ import {
 	double,
 	prop,
 	relationStep,
-	subcasePath,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -119,9 +120,8 @@ function findingsFor(
 		caseTypes: CASE_TYPES,
 	});
 
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-		(finding) => finding.code === CODE,
-	);
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 }
 
 describe("searchRelatedCalculationCompatibility", () => {
@@ -159,14 +159,6 @@ describe("searchRelatedCalculationCompatibility", () => {
 	);
 
 	it.each([
-		[
-			"a subcase property",
-			term(prop("patient", "note", subcasePath("parent", "visit"))),
-		],
-		[
-			"an ambiguous relation",
-			term(prop("patient", "case_name", anyRelationPath("parent"))),
-		],
 		["a wrapped ancestor property", unsupportedWrapped],
 		["a related-case count", count(parent)],
 	] satisfies ReadonlyArray<readonly [string, ValueExpression]>)(

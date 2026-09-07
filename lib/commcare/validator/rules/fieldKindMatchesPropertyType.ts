@@ -23,10 +23,9 @@
  * kind alone — a hidden field's calculate output does, and a capture's
  * destination mode does, and both are separate concerns.
  *
- * Container kinds (group, repeat) and media kinds (image, audio, video,
- * signature) carry no `caseWrite` slot in their schema and never reach this
- * rule. The walker's `caseWrite` filter is the structural gate; the per-kind
- * switch below handles every remaining input kind.
+ * Container kinds carry no case-write slot. Capture writers do reach the
+ * inventory, but their storage mode, not their field kind, determines the
+ * value shape, so this rule skips their kind-only comparison.
  */
 
 import {
@@ -45,8 +44,7 @@ import { type ValidationError, validationError } from "../errors";
  * the locked domain table (`caseDataTypeForFieldKind`) named for this
  * rule's reading: the data type a writer of this kind is EXPECTED to
  * agree with. `undefined` means the kind is skipped at this rule layer
- * (`hidden` — calculate-driven; container / media kinds — no `caseWrite`
- * slot).
+ * (`hidden` is calculate-driven and captures are mode-dependent).
  */
 const expectedDataType = caseDataTypeForFieldKind;
 
@@ -194,9 +192,7 @@ export function fieldKindMatchesPropertyType(
  * Encode `(caseType, propertyName)` as a single string key for the
  * writers map. JSON-encoding the pair is collision-free over ALL
  * strings, which matters because this rule runs inside `runValidation`
- * — total over arbitrary docs (reducers are total; event-log replay
- * bypasses the identifier verdicts), so identifiers containing any
- * would-be delimiter can reach it. A delimiter-joined key would alias
+ * without depending on identifier admission or a reserved delimiter. A delimiter-joined key would alias
  * distinct tuples (`('a::b','c')` vs `('a','b::c')`) into one writers
  * bucket and fabricate a cross-writer conflict.
  */

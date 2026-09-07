@@ -1,12 +1,6 @@
-/**
- * Carrier-shape coverage for the multimedia slots added to field /
- * option / module / form / blueprint schemas. Confirms:
- *
- *   - Docs without any media slots still parse (additive change).
- *   - Each new optional slot round-trips when populated.
- *   - The kind-discriminator narrowing still picks the right per-
- *     kind shape after the extension.
- */
+/** Individual carrier schema admission, including shapes before contextual
+ * document validation. Asset existence/kind and wire compatibility belong to
+ * the media admission and native emission suites. */
 
 import { describe, expect, it } from "vitest";
 import {
@@ -45,7 +39,7 @@ describe("field schema — media slots", () => {
 		}
 	});
 
-	it("text field parses with the new help text + media slot", () => {
+	it("text field parses with help text and its media slot", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
@@ -66,7 +60,7 @@ describe("field schema — media slots", () => {
 		}
 	});
 
-	it("text field still parses without ANY media slots (additive change)", () => {
+	it("text field still parses without authored media", () => {
 		const parsed = fieldSchema.parse({
 			kind: "text",
 			uuid: "10000000-0000-4000-8000-000000000001",
@@ -90,7 +84,31 @@ describe("field schema — media slots", () => {
 			label: proseText("Screening section"),
 			label_media: { image: "00000000-0000-4000-8000-000000000001" },
 		});
-		expect(parsed.kind).toBe("group");
+		expect(parsed).toMatchObject({
+			kind: "group",
+			label_media: { image: NEUTRAL_MEDIA.image },
+		});
+	});
+
+	it("refuses input-only media on a group and a nonexistent required-message slot", () => {
+		const group = {
+			kind: "group",
+			uuid: "10000000-0000-4000-8000-000000000004",
+			id: "screening",
+			label: proseText("Screening"),
+			label_media: NEUTRAL_MEDIA,
+		};
+		expect(fieldSchema.safeParse(group).success).toBe(true);
+		for (const slot of [
+			"hint_media",
+			"help_media",
+			"validate_msg_media",
+			"required_msg_media",
+		]) {
+			expect(
+				fieldSchema.safeParse({ ...group, [slot]: NEUTRAL_MEDIA }).success,
+			).toBe(false);
+		}
 	});
 
 	it("validate_msg_media parses alongside existing validate_msg", () => {
@@ -128,7 +146,7 @@ describe("selectOption schema — media slot", () => {
 			selectOptionSchema.parse({
 				uuid: "90000000-0000-4000-8000-000000000002",
 				value: "fever",
-				label: "Fever",
+				label: proseText("Fever"),
 				icon: "00000000-0000-4000-8000-000000000001",
 			}),
 		).toThrow();
@@ -148,7 +166,7 @@ describe("module schema — icon + audioLabel", () => {
 		expect(parsed.audioLabel).toBe("00000000-0000-4000-8000-000000000002");
 	});
 
-	it("module still parses without icon/audioLabel (additive)", () => {
+	it("module still parses without menu media", () => {
 		const parsed = moduleSchema.parse({
 			uuid: "20000000-0000-4000-8000-000000000001",
 			id: "patient_registration",
@@ -213,7 +231,7 @@ describe("blueprint schema — logo", () => {
 		expect(parsed.logo).toBe("00000000-0000-4000-8000-000000000010");
 	});
 
-	it("blueprint still parses without a logo (additive)", () => {
+	it("blueprint still parses without a logo", () => {
 		const parsed = blueprintDocSchema.parse({
 			appId: "app-1",
 			appName: "Test app",

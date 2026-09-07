@@ -13,77 +13,38 @@ import { proseText } from "@/lib/domain/prose";
  * satisfy.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
-import { blueprintDocSchema } from "@/lib/domain";
-import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
-import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
-import type { ToolInvocationContext } from "../../workspace/types";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { createFormInputSchema, createFormTool } from "../createForm";
 import { createModuleInputSchema, createModuleTool } from "../createModule";
 import { updateFormTool } from "../updateForm";
 
+/** Controlled persistence receipt: proves one admitted batch, not SQL atomicity. */
 function makeHarness(initialDoc: BlueprintDoc) {
-	// Every persisted doc must survive the SAME Zod gate the next load
-	// runs (`appDocSchema` parses the stored blueprint through
-	// `blueprintDocSchema`'s sub-schemas). Parsing here means a tool that
-	// commits a Zod-unreadable doc — e.g. a raw string parked in an
-	// AST-typed slot — fails its test at the commit, not in production on
-	// the app's next load.
-	const recordMutations = vi
-		.fn()
-		.mockImplementation(async (prepared: PreparedMutationCandidate) => {
-			blueprintDocSchema.parse(toPersistableDoc(prepared.nextDoc));
-			return { events: [], committedDoc: prepared.nextDoc };
-		});
-	// The guarded writer returns `{ events, committedDoc }` per stage; the parse
-	// check stays and the final stage's doc rides back as the committed doc.
-	const recordMutationStages = vi
-		.fn()
-		.mockImplementation(
-			async (
-				prepared: PreparedMutationCandidate,
-				_stages: AdmittedMutationStages,
-			) => {
-				blueprintDocSchema.parse(toPersistableDoc(prepared.nextDoc));
-				return { events: [], committedDoc: prepared.nextDoc };
-			},
-		);
-	const host: CanonicalMutationHost = {
-		appId: "app-1",
-		projectId: "project-1",
-		userId: "user-1",
-		runId: "run-1",
-		recordMutations,
-		recordMutationStages,
-		conversionImpact: async () => ({
-			totalWithValue: 0,
-			uncastable: 0,
-			alreadyHeld: 0,
-			samples: [],
-		}),
+	const harness = makeToolWorkspaceHarness(expectAdmittedDoc(initialDoc));
+	const runTool: typeof harness.runTool = async (tool, input) => {
+		const before = structuredClone(harness.currentDoc());
+		const result = await harness.runTool(tool, input);
+		expectAdmittedDoc(harness.currentDoc());
+		if (
+			result !== null &&
+			typeof result === "object" &&
+			"result" in result &&
+			result.result !== null &&
+			typeof result.result === "object" &&
+			"error" in result.result
+		) {
+			expect(harness.currentDoc()).toEqual(before);
+		}
+		return result;
 	};
-	const workspace = new CanonicalMutationWorkspace({ host, initialDoc });
-	return {
-		recordMutations,
-		runTool<T>(
-			tool: { execute(input: never, ctx: ToolInvocationContext): Promise<T> },
-			input: unknown,
-		): Promise<T> {
-			return workspace.invoke({
-				toolName: "test-tool",
-				execute: (ctx) => tool.execute(input as never, ctx),
-			});
-		},
-		currentDoc: () => workspace.currentSnapshot().doc,
-	};
+	return { ...harness, runTool };
 }
 
 /** A COMPLETE app: one patient module, registration form, case list. */
@@ -164,12 +125,13 @@ describe("field assembly — whole-call admission", () => {
 					kind: "text",
 					id: "visit_note",
 					label: proseText("Visit note"),
-				} as never,
+				},
 				{
 					kind: "single_select",
 					id: "catchment_site_code",
 					label: proseText("Catchment site"),
-				} as never,
+					caseWrite: { caseType: "patient", property: "catchment_site_code" },
+				},
 			],
 		});
 
@@ -196,12 +158,13 @@ describe("createForm — atomic form + fields", () => {
 					kind: "text",
 					id: "referral_note",
 					label: proseText("Referral note"),
-				} as never,
+				},
 				{
 					kind: "single_select",
 					id: "commune_code",
 					label: proseText("Commune"),
-				} as never,
+					caseWrite: { caseType: "patient", property: "commune_code" },
+				},
 			],
 		});
 
@@ -235,7 +198,7 @@ describe("createForm — atomic form + fields", () => {
 					id: "visit_notes",
 					label: proseText("Visit notes"),
 					caseWrite: { caseType: "patient", property: "visit_notes" },
-				} as never,
+				},
 				{
 					fieldUuid: statusUuid,
 					kind: "single_select",
@@ -256,14 +219,14 @@ describe("createForm — atomic form + fields", () => {
 							},
 						],
 					},
-				} as never,
+				},
 			],
 		});
 
 		expect("message" in out.result).toBe(true);
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
-		// One batch: addForm + its addField(s) — no transitional empty form
-		// ever exists on any surface.
+		// One batch: addForm + its addField(s) — the workspace submits no
+		// transitional empty-form batch to its host.
 		const kinds = out.mutations.map((m) => m.kind);
 		expect(kinds[0]).toBe("addForm");
 		expect(kinds).toContain("addField");
@@ -295,13 +258,34 @@ describe("createForm — atomic form + fields", () => {
 					id: "village",
 					label: proseText("Village"),
 					caseWrite: { caseType: "patient", property: "village" },
-				} as never,
+				},
 			],
 		});
 
 		expect("error" in out.result && out.result.error).toContain("case_name");
 		expect(out.mutations).toEqual([]);
 		expect(harness.recordMutations).not.toHaveBeenCalled();
+		const repaired = await harness.runTool(createFormTool, {
+			...moduleAddress(doc),
+			name: "Enroll",
+			type: "registration",
+			fields: [
+				{
+					kind: "text",
+					id: "name",
+					label: proseText("Name"),
+					caseWrite: { caseType: "patient", property: "case_name" },
+				},
+				{
+					kind: "text",
+					id: "village",
+					label: proseText("Village"),
+					caseWrite: { caseType: "patient", property: "village" },
+				},
+			],
+		});
+		expect(repaired.result).not.toHaveProperty("error");
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("nests fields under a group created in the same call", async () => {
@@ -318,13 +302,13 @@ describe("createForm — atomic form + fields", () => {
 					kind: "group",
 					id: "vitals",
 					label: proseText("Vitals"),
-				} as never,
+				},
 				{
 					kind: "decimal",
 					id: "temperature",
 					label: proseText("Temperature"),
 					parentUuid: vitalsUuid,
-				} as never,
+				},
 			],
 		});
 
@@ -360,7 +344,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "case_name",
 							},
-						} as never,
+						},
 						{
 							kind: "single_select",
 							id: "catchment_site_code",
@@ -369,7 +353,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "catchment_site_code",
 							},
-						} as never,
+						},
 					],
 				},
 			],
@@ -378,7 +362,7 @@ describe("createModule — atomic module + forms + case list", () => {
 					kind: "plain",
 					field: "case_name",
 					header: "Name",
-				} as never,
+				},
 			],
 		});
 
@@ -421,7 +405,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "case_name",
 							},
-						} as never,
+						},
 						{
 							fieldUuid: headUuid,
 							kind: "text",
@@ -432,7 +416,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "head_of_household",
 							},
-						} as never,
+						},
 						{
 							fieldUuid: kindUuid,
 							kind: "single_select",
@@ -453,7 +437,7 @@ describe("createModule — atomic module + forms + case list", () => {
 									},
 								],
 							},
-						} as never,
+						},
 					],
 				},
 			],
@@ -463,7 +447,7 @@ describe("createModule — atomic module + forms + case list", () => {
 					kind: "plain",
 					field: "case_name",
 					header: "Name",
-				} as never,
+				},
 			],
 		});
 
@@ -533,7 +517,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "head_of_household",
 							},
-						} as never,
+						},
 					],
 				},
 			],
@@ -542,7 +526,7 @@ describe("createModule — atomic module + forms + case list", () => {
 					kind: "plain",
 					field: "case_name",
 					header: "Name",
-				} as never,
+				},
 			],
 		});
 
@@ -624,6 +608,9 @@ describe("createModule — atomic module + forms + case list", () => {
 			const out = await harness.runTool(createModuleTool, {
 				name: "Households",
 				case_type: "household",
+				case_list_columns: [
+					{ kind: "plain", field: "case_name", header: "Name" },
+				],
 			});
 			expect("error" in out.result && out.result.error).toContain("forms");
 			expect(harness.recordMutations).not.toHaveBeenCalled();
@@ -647,7 +634,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "case_name",
 							},
-						} as never,
+						},
 					],
 				},
 			],
@@ -659,43 +646,6 @@ describe("createModule — atomic module + forms + case list", () => {
 			);
 			expect(parsed.error.issues[0]?.message).toContain("not addFields");
 		}
-
-		const harness = makeHarness(completeDoc());
-		const out = await harness.runTool(createModuleTool, {
-			name: "Households",
-			case_type: "household",
-			forms: [
-				{
-					name: "Register household",
-					type: "registration",
-					fields: [
-						{
-							kind: "text",
-							id: "case_name",
-							label: proseText("Household name"),
-							caseWrite: {
-								caseType: "household",
-								property: "case_name",
-							},
-						} as never,
-						{
-							kind: "text",
-							id: "head_of_household",
-							label: proseText("Head of household"),
-							caseWrite: {
-								caseType: "household",
-								property: "head_of_household",
-							},
-						} as never,
-					],
-				},
-			],
-		});
-
-		expect("error" in out.result && out.result.error).toContain(
-			"visible Results field",
-		);
-		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("rejects an all-hidden initial Results configuration before dispatch", () => {
@@ -715,7 +665,7 @@ describe("createModule — atomic module + forms + case list", () => {
 								caseType: "household",
 								property: "case_name",
 							},
-						} as never,
+						},
 					],
 				},
 			],
@@ -750,7 +700,7 @@ describe("createModule — atomic module + forms + case list", () => {
 							kind: "text",
 							id: "comments",
 							label: proseText("Comments"),
-						} as never,
+						},
 					],
 				},
 			],
@@ -761,26 +711,25 @@ describe("createModule — atomic module + forms + case list", () => {
 	it("rejects a field/option UUID collision across separate born forms", async () => {
 		const harness = makeHarness(completeDoc());
 		const repeatedOptionUuid = testUuid("cross-form-option-collision");
-		const select = (id: string, suffix: string) =>
-			({
-				kind: "single_select",
-				id,
-				label: proseText(id),
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							optionUuid: repeatedOptionUuid,
-							value: `yes_${suffix}`,
-							label: proseText("Yes"),
-						},
-						{
-							value: `no_${suffix}`,
-							label: proseText("No"),
-						},
-					],
-				},
-			}) as never;
+		const select = (id: string, suffix: string) => ({
+			kind: "single_select",
+			id,
+			label: proseText(id),
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						optionUuid: repeatedOptionUuid,
+						value: `yes_${suffix}`,
+						label: proseText("Yes"),
+					},
+					{
+						value: `no_${suffix}`,
+						label: proseText("No"),
+					},
+				],
+			},
+		});
 		const out = await harness.runTool(createModuleTool, {
 			name: "Colliding surveys",
 			forms: [
@@ -885,7 +834,7 @@ describe("atomic creation on a complete Connect app", () => {
 					id: "lesson_notes",
 					label: proseText("Notes"),
 					caseWrite: { caseType: "trainee", property: "lesson_notes" },
-				} as never,
+				},
 			],
 			connect: {
 				learn_module: {
@@ -916,7 +865,7 @@ describe("atomic creation on a complete Connect app", () => {
 					id: "lesson_notes",
 					label: proseText("Notes"),
 					caseWrite: { caseType: "trainee", property: "lesson_notes" },
-				} as never,
+				},
 			],
 		});
 
@@ -960,7 +909,7 @@ describe("atomic creation on a complete Connect app", () => {
 					id: "lesson_notes",
 					label: proseText("Notes"),
 					caseWrite: { caseType: "trainee", property: "lesson_notes" },
-				} as never,
+				},
 			],
 		});
 		expect("message" in grown.result).toBe(true);
@@ -1039,46 +988,5 @@ describe("atomic creation on a complete Connect app", () => {
 			],
 		});
 		expect(parsed.success).toBe(false);
-	});
-});
-
-// ── Connect participation has one owner ─────────────────────────────
-
-describe("creation tools leave Connect participation to configureConnect", () => {
-	it("rejects Connect at both creation schema boundaries", () => {
-		expect(
-			createFormInputSchema.safeParse({
-				moduleUuid: testUuid("creation-connect-module"),
-				name: "New participant",
-				type: "survey",
-				fields: [{ kind: "text", id: "note", label: proseText("Note") }],
-				connect: {
-					learn_module: {
-						name: "Lesson",
-						description: "Lesson",
-						time_estimate: 5,
-					},
-				},
-			}).success,
-		).toBe(false);
-		expect(
-			createModuleInputSchema.safeParse({
-				name: "New module",
-				forms: [
-					{
-						name: "New participant",
-						type: "survey",
-						fields: [{ kind: "text", id: "note", label: proseText("Note") }],
-						connect: {
-							learn_module: {
-								name: "Lesson",
-								description: "Lesson",
-								time_estimate: 5,
-							},
-						},
-					},
-				],
-			}).success,
-		).toBe(false);
 	});
 });

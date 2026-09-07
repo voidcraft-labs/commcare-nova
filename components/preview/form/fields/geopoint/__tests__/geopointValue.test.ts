@@ -1,4 +1,6 @@
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
+import { schemaForDataType } from "@/lib/domain/predicate/jsonSchema";
 import {
 	formatGeopoint,
 	type GeoPoint,
@@ -7,11 +9,8 @@ import {
 	parseGeopoint,
 } from "../geopointValue";
 
-// Mirrors `GEOPOINT_PATTERN` in lib/domain/predicate/jsonSchema.ts, four
-// space-separated decimals. Every `formatGeopoint` output must satisfy it,
-// or the case-store write-side AJV validator would reject the submission.
-const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
-const WIRE_PATTERN = new RegExp(`^${DECIMAL}(?: ${DECIMAL}){3}$`);
+// Exercise the actual storage schema rather than a copied regex.
+const acceptsStoredGeopoint = new Ajv().compile(schemaForDataType("geopoint"));
 
 describe("parseGeopoint", () => {
 	it("decodes a full four-token wire value", () => {
@@ -55,10 +54,10 @@ describe("parseGeopoint", () => {
 });
 
 describe("formatGeopoint", () => {
-	it("always emits four tokens matching the wire pattern", () => {
+	it("emits four tokens accepted by the actual case-property storage schema", () => {
 		const out = formatGeopoint({ lat: 12.34, lon: 56.78, alt: 0, accuracy: 0 });
 		expect(out).toBe("12.34 56.78 0 0");
-		expect(out).toMatch(WIRE_PATTERN);
+		expect(acceptsStoredGeopoint(out)).toBe(true);
 	});
 
 	it("drops float noise and trailing zeros from lat/lon", () => {
@@ -69,7 +68,7 @@ describe("formatGeopoint", () => {
 			accuracy: 0,
 		});
 		expect(out).toBe("12.34 -0.1278 0 0");
-		expect(out).toMatch(WIRE_PATTERN);
+		expect(acceptsStoredGeopoint(out)).toBe(true);
 	});
 
 	it("round-trips through parse for a map-picked point", () => {

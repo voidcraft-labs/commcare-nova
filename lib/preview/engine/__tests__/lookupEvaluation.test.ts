@@ -1,35 +1,39 @@
-// Device-parity semantics for client lookup-carrier evaluation: the
-// filter prints through the SAME on-device emitter the wire uses and
-// evaluates per fixture row, so these tests pin authored-order
-// first-match, fixture blank semantics, and the binding seams
-// (form-answer paths, session paths) — not emitter internals.
+// Preview evaluator semantics over a finite fixture corpus. Native Core carrier
+// acceptance is established separately by the CommCare wire fixtures.
 
 import { describe, expect, it } from "vitest";
+import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type {
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
+import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import {
 	and,
+	arith,
 	eq,
 	formField,
 	gt,
 	isBlank,
 	literal,
+	qualifiedLiteral,
 	tableColumn,
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
 	evaluateLookupChoices,
 	evaluateTableLookup,
+	foldTableLookupsInExpression,
 	foldTableLookupsInPredicate,
 	type PreviewLookupData,
 	previewLookupData,
@@ -46,7 +50,7 @@ const DEFINITION: LookupTableDefinition = {
 	id: TABLE,
 	name: "Clinics",
 	tag: "clinics",
-	definitionRevision: "1" as LookupTableDefinition["definitionRevision"],
+	definitionRevision: parseLookupRevision("1"),
 	columns: [
 		{ id: COL_CODE, wireName: "code", label: "Code", dataType: "text" },
 		{ id: COL_NAME, wireName: "clinic_name", label: "Name", dataType: "text" },
@@ -66,24 +70,24 @@ function row(
 	if (values.clinic_name !== undefined) byColumn[COL_NAME] = values.clinic_name;
 	if (values.stock !== undefined) byColumn[COL_STOCK] = values.stock;
 	if (values.region !== undefined) byColumn[COL_REGION] = values.region;
-	return { id: id as LookupFixtureRow["id"], values: byColumn };
+	return { id: lookupRowIdSchema.parse(id), values: byColumn };
 }
 
 const ROWS: readonly LookupFixtureRow[] = [
-	row("018f0000-0000-7000-8000-0000000000r1", {
+	row("018f0000-0000-7000-8000-0000000000a1", {
 		code: "a1",
 		clinic_name: "Arua Clinic",
 		stock: 4,
 		region: "north",
 	}),
-	row("018f0000-0000-7000-8000-0000000000r2", {
+	row("018f0000-0000-7000-8000-0000000000a2", {
 		code: "b2",
 		clinic_name: "Bario Health Post",
 		stock: 0,
 		region: "south",
 	}),
 	// Missing clinic_name cell + stored-empty region: both read blank.
-	row("018f0000-0000-7000-8000-0000000000r3", {
+	row("018f0000-0000-7000-8000-0000000000a3", {
 		code: "c3",
 		stock: 9,
 		region: "",
@@ -92,7 +96,7 @@ const ROWS: readonly LookupFixtureRow[] = [
 
 function data(): PreviewLookupData {
 	return previewLookupData({
-		projectRevision: "7",
+		projectRevision: parseLookupRevision("7"),
 		definitions: [DEFINITION],
 		rowsByTable: new Map([[TABLE, ROWS]]),
 	});
@@ -124,16 +128,16 @@ describe("evaluateLookupChoices", () => {
 		});
 		expect(choices).toEqual([
 			{
-				key: "018f0000-0000-7000-8000-0000000000r1",
+				key: "018f0000-0000-7000-8000-0000000000a1",
 				value: "a1",
 				label: "Arua Clinic",
 			},
 			{
-				key: "018f0000-0000-7000-8000-0000000000r2",
+				key: "018f0000-0000-7000-8000-0000000000a2",
 				value: "b2",
 				label: "Bario Health Post",
 			},
-			{ key: "018f0000-0000-7000-8000-0000000000r3", value: "c3", label: "" },
+			{ key: "018f0000-0000-7000-8000-0000000000a3", value: "c3", label: "" },
 		]);
 	});
 
@@ -145,7 +149,7 @@ describe("evaluateLookupChoices", () => {
 		);
 		expect(choices).toEqual([
 			{
-				key: "018f0000-0000-7000-8000-0000000000r1",
+				key: "018f0000-0000-7000-8000-0000000000a1",
 				value: "a1",
 				label: "Arua Clinic",
 			},
@@ -174,7 +178,7 @@ describe("evaluateLookupChoices", () => {
 		expect(choices.map((c) => c.value)).toEqual(["b2"]);
 	});
 
-	it("an unanswered form answer matches only blank cells (device raw semantics)", () => {
+	it("an unanswered form answer matches only blank cells", () => {
 		const filter = eq(
 			term(tableColumn(TABLE, COL_REGION)),
 			term(formField(FIELD_UUID)),
@@ -218,6 +222,32 @@ describe("evaluateLookupChoices", () => {
 });
 
 describe("evaluateTableLookup", () => {
+	it("uses declared row-column and form-answer types in integer division filters", () => {
+		const lookup = tableLookup(
+			TABLE,
+			COL_CODE,
+			eq(
+				arith(
+					"div",
+					term(tableColumn(TABLE, COL_STOCK)),
+					term(formField(FIELD_UUID)),
+				),
+				literal(1),
+			),
+		);
+		for (const [type, expected] of [
+			["int", "a1"],
+			["decimal", ""],
+		] as const) {
+			expect(
+				evaluateTableLookup(lookup, data(), {
+					outer: outerContext({ "/data/divisor": "3" }),
+					formFields: new Map([[FIELD_UUID, "/data/divisor"]]),
+					formFieldTypes: new Map([[FIELD_UUID, type]]),
+				}),
+			).toBe(expected);
+		}
+	});
 	it("returns the FIRST matching row's result cell in authored order", () => {
 		const lookup = tableLookup(
 			TABLE,
@@ -229,7 +259,7 @@ describe("evaluateTableLookup", () => {
 		);
 	});
 
-	it("no match folds to the empty string (Core's empty node-set unpack)", () => {
+	it("no match folds to the empty string", () => {
 		const lookup = tableLookup(
 			TABLE,
 			COL_CODE,
@@ -264,6 +294,21 @@ describe("evaluateTableLookup", () => {
 });
 
 describe("foldTableLookupsInPredicate", () => {
+	it("retains the declared numeric result type after replacing a lookup with its current value", () => {
+		const lookup = tableLookup(
+			TABLE,
+			COL_STOCK,
+			eq(term(tableColumn(TABLE, COL_CODE)), literal("a1")),
+		);
+		const expression = arith("div", lookup, term(literal(3)));
+		const folded = foldTableLookupsInExpression(expression, data(), {
+			outer: outerContext(),
+		});
+		expect(folded).toEqual(
+			arith("div", term(qualifiedLiteral("4", "int")), term(literal(3))),
+		);
+		expect(evaluate(emitOnDeviceExpression(folded), outerContext())).toBe(1);
+	});
 	it("replaces a nested table-lookup with its literal result", () => {
 		const predicate = and(
 			eq(
@@ -279,9 +324,12 @@ describe("foldTableLookupsInPredicate", () => {
 		const folded = foldTableLookupsInPredicate(predicate, data(), {
 			outer: outerContext(),
 		});
-		const printed = JSON.stringify(folded);
-		expect(printed).not.toContain("table-lookup");
-		expect(printed).toContain("Bario Health Post");
+		expect(folded).toEqual(
+			and(
+				eq(literal("Bario Health Post"), literal("Bario Health Post")),
+				eq(literal("x"), literal("x")),
+			),
+		);
 	});
 
 	it("shares the predicate by reference when no lookup is present", () => {

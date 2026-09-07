@@ -17,7 +17,10 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -1345,7 +1348,7 @@ export interface SetArchivedResult {
 	/** Present when the archive also committed persona mutations. Shared tools
 	 * adopt this exact fresh-store result instead of continuing on a stale doc. */
 	readonly blueprintChange?: {
-		readonly mutations: readonly Mutation[];
+		readonly mutations: AdmittedMutationBatch;
 		readonly committedDoc: BlueprintDoc;
 	};
 }

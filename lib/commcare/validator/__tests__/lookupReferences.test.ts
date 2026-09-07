@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
 import {
 	type ExtractedLookupReference,
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
+	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -98,7 +100,7 @@ function lookupFindings(
 }
 
 describe("lookup reference validation", () => {
-	it("keeps ordinary documents clean under unavailable context with the empty production registry", () => {
+	it("finds no lookup references in documents without lookup carriers", () => {
 		const doc = buildDoc({ appName: "Existing app" });
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter((finding) =>
@@ -327,10 +329,6 @@ describe("lookup reference validation", () => {
 });
 
 describe("lookup-aware absolute commit gate", () => {
-	const conditionalRegistry = registry((doc) =>
-		doc.appName.startsWith("Lookup") ? [BASE_OCCURRENCE] : [],
-	);
-
 	function operationCarrierDoc(): BlueprintDoc {
 		const formUuid = testUuid("form-operation-member-identity");
 		const doc = buildDoc({
@@ -394,36 +392,32 @@ describe("lookup-aware absolute commit gate", () => {
 		return doc;
 	}
 
-	it("rejects unrelated edits while the complete candidate has a lookup finding", () => {
-		const prevDoc = buildDoc({ appName: "Lookup app" });
-		const nextDoc = { ...prevDoc, appName: "Lookup app renamed" };
-		const context = LOOKUP_CONTEXT_UNAVAILABLE;
-
+	it("admits an app with its live lookup context and refuses the same renamed app when that context is unavailable", () => {
+		const { doc, context } = lookupAppFixture();
+		expect(
+			evaluateCommit({ nextDoc: doc, lookupContext: context }),
+		).toMatchObject({ ok: true });
+		const nextDoc = { ...doc, appName: "Renamed lookup app" };
 		const verdict = evaluateCommit({
 			nextDoc,
-			lookupContext: context,
-			lookupReferenceExtractors: conditionalRegistry,
+			lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 		});
 		expect(verdict.ok).toBe(false);
-	});
-
-	it("returns every gating finding on the complete candidate", () => {
-		const prevDoc = buildDoc({ appName: "Ordinary app" });
-		const nextDoc = { ...prevDoc, appName: "Lookup app" };
-		const context = LOOKUP_CONTEXT_UNAVAILABLE;
-
-		const verdict = evaluateCommit({
-			nextDoc,
-			lookupContext: context,
-			lookupReferenceExtractors: conditionalRegistry,
-		});
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((finding) => finding.code)).toEqual([
-				"NO_MODULES",
-				"LOOKUP_CONTEXT_UNAVAILABLE",
-			]);
-		}
+		if (verdict.ok) throw new Error("Expected lookup context refusal");
+		expect(verdict.findings.length).toBeGreaterThan(0);
+		expect(new Set(verdict.findings.map((finding) => finding.code))).toEqual(
+			new Set(["LOOKUP_CONTEXT_UNAVAILABLE"]),
+		);
+		expect(
+			new Set(verdict.findings.map((finding) => finding.details?.registrySlot)),
+		).toEqual(
+			new Set([
+				"lookup_options_source",
+				"module_display_condition",
+				"case_list_column_expression",
+				"case_operation_write_value",
+			]),
+		);
 	});
 
 	it("anchors operation-member lookup identities to property and identifier, not sibling position", () => {
@@ -436,30 +430,38 @@ describe("lookup-aware absolute commit gate", () => {
 		reordered.writes.reverse();
 		reordered.links.reverse();
 
-		expect(
-			evaluateCommit({
-				nextDoc,
-				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
-			}),
-		).toMatchObject({ ok: false });
+		// This test owns extractor member identities on a deliberately incomplete
+		// document. It does not use rejection of an otherwise invalid app as proof.
+		const before = validateLookupReferences(
+			prevDoc,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		);
+		const after = validateLookupReferences(
+			nextDoc,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		);
+		expect(before).toHaveLength(2);
+		expect(after).toEqual(before);
 
 		const assertCandidateLookup = (
 			next: BlueprintDoc,
 			expectedSubpath: string,
 		) => {
-			const verdict = evaluateCommit({
-				nextDoc: next,
-				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
-			});
-			expect(verdict.ok).toBe(false);
-			if (verdict.ok) throw new Error("expected a rejected lookup addition");
+			const findings = validateLookupReferences(
+				next,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			);
+			expect(findings).toHaveLength(3);
 			expect(
-				verdict.findings.some(
-					(finding) =>
-						finding.code === "LOOKUP_CONTEXT_UNAVAILABLE" &&
-						finding.details?.subpath === expectedSubpath,
+				findings.filter(
+					(finding) => finding.details?.subpath === expectedSubpath,
 				),
-			).toBe(true);
+			).toEqual([
+				expect.objectContaining({ code: "LOOKUP_CONTEXT_UNAVAILABLE" }),
+			]);
 		};
 
 		const withWrite = structuredClone(prevDoc);

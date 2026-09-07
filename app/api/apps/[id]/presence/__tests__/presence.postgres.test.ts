@@ -33,7 +33,7 @@ vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 }));
 
-const { POST, DELETE } = await import("../route");
+const { GET, POST, DELETE } = await import("../route");
 const { commitAppProjectMoveInTransaction } = await import("@/lib/db/apps");
 
 /** Per-tab session ids are shape-pinned to UUIDs. */
@@ -44,12 +44,12 @@ const USER = "user-1";
 const PROJECT = "project-1";
 const DESTINATION = "project-2";
 
-const h = setupAppStateTestDb("presence_route_");
+const h = setupAppStateTestDb("presence_route_", { authSchema: "migrated" });
 
 let appDb: Kysely<AppDatabase>;
 
 function sessionFor(userId: string) {
-	return { user: { id: userId } } as never;
+	return { user: { id: userId } };
 }
 
 async function freshAppId(): Promise<string> {
@@ -114,19 +114,7 @@ function deleteReq(appId: string, body: unknown): Request {
 	});
 }
 
-/**
- * Invoke a presence route handler and ALWAYS drain both body streams, returning
- * the status.
- *
- * Draining is load-bearing under the async-leak gate, not a convenience:
- * `postReq`/`deleteReq` build real `Request`s with a JSON body, and the route
- * returns a bodied `Response` on every path. An unconsumed body stream, request
- * OR response: leaves its pull promise pending, which `--detect-async-leaks`
- * flags. The RESPONSE is drained here so a status-only assertion still settles
- * it; the REQUEST is drained on paths that short-circuit before the route's own
- * `readJsonBody` (the scope-denial 404 rejects at `resolveAppScope` first),
- * guarded on `bodyUsed` so a body the route already consumed is never re-read.
- */
+/** Consume the native response and own any request body left by early refusal. */
 async function call(
 	handler: (
 		req: Request,
@@ -135,10 +123,13 @@ async function call(
 	req: Request,
 	appId: string,
 ): Promise<number> {
-	const res = await handler(req, { params: Promise.resolve({ id: appId }) });
-	await res.text();
-	if (!req.bodyUsed) await req.text();
-	return res.status;
+	try {
+		const res = await handler(req, { params: Promise.resolve({ id: appId }) });
+		await res.text();
+		return res.status;
+	} finally {
+		if (!req.bodyUsed) await req.body?.cancel();
+	}
 }
 
 /** Read one presence row back. */
@@ -150,6 +141,15 @@ async function readPresence(appId: string, userId: string, sessionId: string) {
 		.where("user_id", "=", userId)
 		.where("session_id", "=", sessionId)
 		.executeTakeFirst();
+}
+
+function outcome<T>(
+	promise: Promise<T>,
+): Promise<{ value: T } | { error: unknown }> {
+	return promise.then(
+		(value) => ({ value }),
+		(error: unknown) => ({ error }),
+	);
 }
 
 async function waitForBlockedLocks(
@@ -198,7 +198,9 @@ describe("/presence route (Postgres)", () => {
 		expect(row?.session_id).toBe(SESS_A);
 		expect(row?.name).toBe("Ada");
 		expect(row?.location).toEqual({ kind: "home" });
-		expect(row?.expire_at).toBeDefined();
+		expect(
+			(row?.expire_at.getTime() ?? 0) - (row?.updated_at.getTime() ?? 0),
+		).toBe(60_000);
 		// No image on the session → stored as an explicit null.
 		expect(row?.image).toBeNull();
 	});
@@ -211,7 +213,7 @@ describe("/presence route (Postgres)", () => {
 				image: "https://lh3.googleusercontent.com/a/ada",
 				email: "ada@dimagi.com",
 			},
-		} as never);
+		});
 		// A body-supplied `image`/`email` isn't even accepted: the strict body
 		// schema 400s an unknown key (pinned by the malformed-body test below), so
 		// the session is structurally the ONLY identity source.
@@ -309,9 +311,12 @@ describe("/presence route (Postgres)", () => {
 		const moverDb = createPerTestAppDb(h.uri());
 		const gateKey = 7_311_201;
 		const gate = new Client({ connectionString: h.uri() });
-		await gate.connect();
-		await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
-		await gate.query(`
+		let post: Promise<{ value: number } | { error: unknown }> | undefined;
+		let move: Promise<{ value: unknown } | { error: unknown }> | undefined;
+		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock($1)", [gateKey]);
+			await gate.query(`
 			CREATE FUNCTION test_pause_presence_writer_first() RETURNS trigger
 			LANGUAGE plpgsql AS $$
 			BEGIN
@@ -324,37 +329,30 @@ describe("/presence route (Postgres)", () => {
 				FOR EACH ROW EXECUTE FUNCTION test_pause_presence_writer_first();
 		`);
 
-		const post = call(
-			POST,
-			postReq(appId, {
-				sessionId: SESS_A,
-				name: "Ada",
-				color: "#abcdef",
-				location: { kind: "home" },
-			}),
-			appId,
-		);
-		let gateHeld = true;
-		let move: Promise<unknown> | undefined;
-		try {
+			post = outcome(
+				call(
+					POST,
+					postReq(appId, {
+						sessionId: SESS_A,
+						name: "Ada",
+						color: "#abcdef",
+						location: { kind: "home" },
+					}),
+					appId,
+				),
+			);
 			await waitForBlockedLocks(gate, 1);
-			move = commitMove(moverDb.appDb, appId);
+			move = outcome(commitMove(moverDb.appDb, appId));
 			// Presence already holds `apps FOR SHARE`; the move queues behind it,
 			// then removes that now-stale source-placement row in its own commit.
 			await waitForBlockedLocks(gate, 2);
 			await gate.query("SELECT pg_advisory_unlock($1)", [gateKey]);
-			gateHeld = false;
 
-			await expect(post).resolves.toBe(200);
-			await expect(move).resolves.toEqual({ kind: "moved" });
+			await expect(post).resolves.toEqual({ value: 200 });
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
 		} finally {
-			if (gateHeld) {
-				await gate
-					.query("SELECT pg_advisory_unlock($1)", [gateKey])
-					.catch(() => {});
-			}
-			await Promise.allSettled([post, ...(move !== undefined ? [move] : [])]);
-			await gate.end().catch(() => {});
+			await gate.end();
+			await Promise.allSettled([post, move]);
 			await moverDb.destroy();
 		}
 
@@ -368,7 +366,6 @@ describe("/presence route (Postgres)", () => {
 		await h.seedProjectMember(USER, DESTINATION, "owner");
 		const moverDb = createPerTestAppDb(h.uri());
 		const observer = new Client({ connectionString: h.uri() });
-		await observer.connect();
 		let markMoveInside!: () => void;
 		const moveInside = new Promise<void>((resolve) => {
 			markMoveInside = resolve;
@@ -378,38 +375,163 @@ describe("/presence route (Postgres)", () => {
 			allowMoveCommit = resolve;
 		});
 
-		const move = commitMove(moverDb.appDb, appId, async () => {
-			markMoveInside();
-			await moveCommitAllowed;
-		});
-		let post: Promise<number> | undefined;
+		let move: Promise<{ value: unknown } | { error: unknown }> | undefined;
+		let post: Promise<{ value: number } | { error: unknown }> | undefined;
 		try {
-			await moveInside;
-			post = call(
-				POST,
-				postReq(appId, {
-					sessionId: SESS_A,
-					name: "Ada",
-					color: "#abcdef",
-					location: { kind: "home" },
+			await observer.connect();
+			move = outcome(
+				commitMove(moverDb.appDb, appId, async () => {
+					markMoveInside();
+					await moveCommitAllowed;
 				}),
-				appId,
+			);
+			await Promise.race([
+				moveInside,
+				move.then((result) => {
+					throw new Error(`Move ended before gate: ${JSON.stringify(result)}`);
+				}),
+			]);
+			post = outcome(
+				call(
+					POST,
+					postReq(appId, {
+						sessionId: SESS_A,
+						name: "Ada",
+						color: "#abcdef",
+						location: { kind: "home" },
+					}),
+					appId,
+				),
 			);
 			await waitForBlockedLocks(observer, 1);
 			allowMoveCommit();
 
-			await expect(move).resolves.toEqual({ kind: "moved" });
-			await expect(post).resolves.toBe(200);
+			await expect(move).resolves.toEqual({ value: { kind: "moved" } });
+			await expect(post).resolves.toEqual({ value: 200 });
 		} finally {
 			allowMoveCommit();
+			markMoveInside();
 			await Promise.allSettled([move, ...(post !== undefined ? [post] : [])]);
-			await observer.end().catch(() => {});
+			await observer.end();
 			await moverDb.destroy();
 		}
 
 		expect((await h.readAppRow(appId))?.project_id).toBe(DESTINATION);
 		expect(await readPresence(appId, USER, SESS_A)).toBeDefined();
 	}, 15_000);
+
+	it("GET returns only live current-app rows with private caching, then refuses lost membership", async () => {
+		const appId = await freshAppId();
+		await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_B,
+				name: "Expired",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		await appDb
+			.updateTable("presence")
+			.set({ expire_at: new Date(0) })
+			.where("session_id", "=", SESS_B)
+			.execute();
+		const otherAppId = await freshAppId();
+		await call(
+			POST,
+			postReq(otherAppId, {
+				sessionId: SESS_A,
+				name: "Other app",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			otherAppId,
+		);
+		const response = await GET(
+			new Request(`http://localhost/api/apps/${appId}/presence`),
+			{ params: Promise.resolve({ id: appId }) },
+		);
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("private, no-store");
+		const stored = await readPresence(appId, USER, SESS_A);
+		expect(await response.json()).toEqual([
+			{
+				userId: USER,
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+				image: null,
+				email: "",
+				updatedAt: stored?.updated_at.getTime(),
+			},
+		]);
+		await h
+			.pool()
+			.query(
+				'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+				[USER, PROJECT],
+			);
+		const denied = await GET(
+			new Request(`http://localhost/api/apps/${appId}/presence`),
+			{ params: Promise.resolve({ id: appId }) },
+		);
+		expect(denied.status).toBe(404);
+		expect(denied.headers.get("cache-control")).toBe("private, no-store");
+		await denied.json();
+	});
+
+	it.each(["userId", "image", "email"])(
+		"rejects client-supplied identity %s before writing",
+		async (key) => {
+			const appId = await freshAppId();
+			expect(
+				await call(
+					POST,
+					postReq(appId, {
+						sessionId: SESS_A,
+						name: "Ada",
+						color: "#abcdef",
+						location: { kind: "home" },
+						[key]: "someone-else",
+					}),
+					appId,
+				),
+			).toBe(400);
+			expect(await readPresence(appId, USER, SESS_A)).toBeUndefined();
+		},
+	);
+
+	it("DELETE cannot remove another user's row with the same browser-session id", async () => {
+		const appId = await freshAppId();
+		await call(
+			POST,
+			postReq(appId, {
+				sessionId: SESS_A,
+				name: "Ada",
+				color: "#abcdef",
+				location: { kind: "home" },
+			}),
+			appId,
+		);
+		await h.seedProjectMember("other-user", PROJECT, "viewer");
+		requireSessionMock.mockResolvedValue(sessionFor("other-user"));
+		expect(
+			await call(DELETE, deleteReq(appId, { sessionId: SESS_A }), appId),
+		).toBe(200);
+		expect(await readPresence(appId, USER, SESS_A)).toBeDefined();
+	});
 
 	it("POST 404s when scope resolution denies (IDOR-safe)", async () => {
 		const appId = await freshAppId();

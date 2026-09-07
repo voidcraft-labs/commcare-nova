@@ -41,6 +41,9 @@ describe("no-matches registration destinations", () => {
 			hasMenuForms: true,
 		});
 		expect(model.destination).toBe("App home");
-		expect(model.options).toHaveLength(2);
+		expect(model.options).toStrictEqual([
+			{ value: "return", label: "Results showing the registered case" },
+			{ value: "app_home", label: "App home" },
+		]);
 	});
 });

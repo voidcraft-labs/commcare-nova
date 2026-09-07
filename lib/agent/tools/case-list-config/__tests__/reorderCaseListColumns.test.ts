@@ -1,42 +1,10 @@
-/**
- * Behavioral tests for `reorderCaseListColumns`.
- *
- * Coverage:
- *
- *   1. Effect on the doc — the columns array is reordered to match
- *      the supplied uuid sequence; the entries themselves carry
- *      through unchanged.
- *   2. Length mismatch surfaces an Elm-style error naming both
- *      counts.
- *   3. Duplicate uuid in the request surfaces an Elm-style error
- *      naming the duplicate.
- *   4. Unknown uuid in the request surfaces an Elm-style error
- *      naming the unknown uuid.
- *   5. Module-not-found surfaces an Elm-style error.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Admitted shared-tool state transitions with controlled host receipts;
+ * the schema, planner, workspace gate, and reducer remain real. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -79,6 +47,9 @@ describe("reorderCaseListColumns", () => {
 
 		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config?.listColumnOrder).toEqual([C, A, B]);
+		expect(config?.columns).toEqual(
+			doc.modules[MOD_A]?.caseListConfig?.columns,
+		);
 		expect(config?.detailColumnOrder).toEqual(detailsBefore);
 		// The plan is the moves the new arrangement actually needs, not one per
 		// row: [A, B, C] becomes [C, A, B] by moving C alone.
@@ -104,6 +75,29 @@ describe("reorderCaseListColumns", () => {
 		const config = h.currentDoc().modules[MOD_A]?.caseListConfig;
 		expect(config?.detailColumnOrder).toEqual([B, C, A]);
 		expect(config?.listColumnOrder).toEqual(resultsBefore);
+	});
+
+	it("reorders visible Results while a hidden column keeps its sequence position", async () => {
+		const doc = fixtureWithThreeColumns();
+		const hidden = doc.modules[MOD_A]?.caseListConfig?.columns[1];
+		if (!hidden) throw new Error("Missing hidden column");
+		hidden.visibleInList = false;
+		const h = makeCaseListFixture(doc);
+		await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [C, A],
+		});
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig).toEqual({
+			...doc.modules[MOD_A]?.caseListConfig,
+			listColumnOrder: [C, B, A],
+		});
+		const refused = await h.runTool(reorderCaseListColumnsTool, {
+			moduleUuid: MOD_A,
+			surface: "results",
+			columnUuids: [A, B, C],
+		});
+		expect(refused.result).toHaveProperty("error");
 	});
 
 	it("returns the new order in the structured result and the message", async () => {

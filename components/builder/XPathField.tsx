@@ -693,7 +693,13 @@ function InlineXPathEditor({
 						// alert BEHIND the panel that hosts the field.
 						className={FLOATING_LAYER_CLS}
 					>
-						<Popover.Popup className={POPOVER_POPUP_CLS}>
+						<Popover.Popup
+							className={POPOVER_POPUP_CLS}
+							// This is a notice about the active editor, not a new focus
+							// destination. Opening or retiring it must preserve selection.
+							initialFocus={false}
+							finalFocus={false}
+						>
 							<div
 								role="alert"
 								className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}

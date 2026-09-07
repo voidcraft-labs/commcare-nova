@@ -8,6 +8,7 @@
  */
 
 import { produce } from "immer";
+import { DatabaseError } from "pg";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -15,7 +16,10 @@ import {
 	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -123,8 +127,8 @@ export function requireInvocationAppId(ctx: ToolInvocationContext): string {
  * collisions in their inner payload.
  *
  * - `kind`: the discriminator — always `"mutate"`.
- * - `mutations`: the computed batch. The tool has already persisted it
- *   through the workspace before returning when it is nonempty.
+ * - `mutations`: the admitted batch (or an empty no-op). The tool has
+ *   already persisted it through the workspace before returning when nonempty.
  * - `result`: the value the LLM sees as the tool's return. Per-tool
  *   typed via the `R` parameter.
  *
@@ -135,7 +139,9 @@ export function requireInvocationAppId(ctx: ToolInvocationContext): string {
  */
 export interface MutatingToolResult<R> {
 	kind: "mutate";
-	mutations: readonly Mutation[];
+	mutations:
+		| AdmittedMutationBatch
+		| (readonly Mutation[] & { readonly length: 0 });
 	result: R;
 }
 
@@ -176,8 +182,10 @@ export interface ReadToolResult<R> {
  *   RE-THROWN so neither a stale doc commit nor a read-shaped external side
  *   effect can be reported as successful after a successor took over.
  *
- * Every other throw (a genuine tool-body fault) becomes the standard
- * `{ error }` envelope — nothing committed. A pre-commit gate finding never
+ * PostgreSQL `DatabaseError` also escapes: private database diagnostics
+ * belong to operational logging and the surface's safe error classifier.
+ * Other tool-body throws become the standard `{ error }` envelope. This
+ * projection alone makes no statement about whether a prior write committed. A pre-commit gate finding never
  * reaches here: `guardedMutate`/`guardedMutateStages` RETURN
  * `{ ok: false, error }` rather than throwing, so the tool returns its own
  * `{ error }` and nothing reloads.
@@ -195,7 +203,10 @@ export function toToolErrorResult(
 		// the ordinary `{ error }` envelope would hand it a message it reads as
 		// retryable and invite it to remint the id and call again — turning one
 		// broken write into a loop. Re-thrown so the run aborts instead.
-		err instanceof MutationBatchIdCollisionError
+		err instanceof MutationBatchIdCollisionError ||
+		// PostgreSQL failures contain private storage detail, not a tool-input
+		// repair the model can make. Let the surface classify and log them.
+		err instanceof DatabaseError
 	) {
 		throw err;
 	}

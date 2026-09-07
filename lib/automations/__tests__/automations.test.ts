@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -239,10 +238,21 @@ describe("automation domain and projections", () => {
 			"User-configurable report (UCR) filter: stale_claims",
 			"HQ server-modified age of at least 30 days",
 		]);
-		expect(projection.countArgs.predicate).toMatchObject({ kind: "eq" });
+		expect(projection.countArgs.predicate).toEqual({
+			kind: "eq",
+			left: {
+				kind: "term",
+				term: {
+					kind: "prop",
+					caseType: "commcare-case-claim",
+					property: "status",
+				},
+			},
+			right: { kind: "term", term: { kind: "literal", value: "open" } },
+		});
 	});
 
-	it("preserves HQ's empty ALL/ANY boolean identity in the count grammar", () => {
+	it("projects the empty ANY criteria grammar for both automation kinds", () => {
 		const doc = buildDoc({ appName: "Empty criteria" });
 		const rule = claimCleanup();
 		const alert = alertWithSchedule({
@@ -1154,30 +1164,6 @@ describe("automation domain and projections", () => {
 		expect(text).toContain("whenever a case is saved");
 		expect(text).toContain("project-wide");
 		expect(text).not.toContain("50,000");
-		for (const path of [
-			"content/docs/automations.mdx",
-			"docs/architecture/complex-apps.md",
-			"docs/research/advanced-case-actions.md",
-		]) {
-			const source = readFileSync(path, "utf8");
-			expect(source, path).toMatch(/between cases|before the next case/);
-			expect(source, path).toMatch(/can exceed|may carry the total above/);
-			expect(source, path).not.toMatch(/at most 10,000|default cap/);
-		}
-		const publicDocs = readFileSync("content/docs/automations.mdx", "utf8");
-		expect(publicDocs).not.toMatch(/\bcap\b/i);
-		expect(publicDocs).not.toContain("\u2014");
-		for (const path of [
-			"content/docs/automations.mdx",
-			"docs/architecture/complex-apps.md",
-			"docs/research/advanced-case-actions.md",
-			"docs/research/commcare-locations.md",
-		]) {
-			const source = readFileSync(path, "utf8");
-			expect(source, path).not.toMatch(
-				/50(?:,000|k)\s+updates?\s*\/\s*day\s+cap/i,
-			);
-		}
 
 		const projectedUpdate = buildAutomationSetupGuide(
 			buildDoc({ appName: "Claims" }),

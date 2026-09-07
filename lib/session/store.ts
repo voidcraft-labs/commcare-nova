@@ -35,7 +35,6 @@ import type {
 import {
 	foldProvisioningOutcome,
 	provisioningOutcomeKey,
-	retainUnconfirmedWorkers,
 } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
@@ -338,30 +337,9 @@ export interface BuilderSessionState {
 	 *  or the user dismissed an error). Drops the abort handle. */
 	clearStagedUpload: (slotKey: string) => void;
 
-	/** Mobile-worker passwords for accounts CommCare HQ neither confirmed
-	 *  nor ruled out, keyed by `<personaUuid>:<completeUsername>`.
-	 *
-	 *  It lives HERE rather than in the Publish dialog because of what the
-	 *  refusal that produces one asks a person to do: go and look for that
-	 *  username on their project space. Doing that means closing the
-	 *  dialog, which unmounts its whole subtree — so dialog-local state
-	 *  would be destroyed by the very action Nova just told them to take,
-	 *  and CommCare HQ stores the password hashed, so it is gone for good.
-	 *
-	 *  It is transient like everything else in this store: nothing writes
-	 *  it to Postgres, to a log, or to storage, and a page load clears it.
-	 *  That is the deliberate ceiling — a credential Nova cannot show
-	 *  twice must not be one Nova keeps. */
-	unconfirmedWorkers: Record<string, UnconfirmedWorker>;
-
-	/** Each target's held provisioning outcome — the confirmed accounts a
-	 *  call made (their passwords included) and the latest call's refusal —
-	 *  keyed by `provisioningOutcomeKey(server, domain)`.
-	 *
-	 *  Here for the same reason `unconfirmedWorkers` is: the Workers panel
-	 *  unmounts on an ordinary App setup section switch, and a new
-	 *  account's password exists nowhere but on screen. Same transient
-	 *  ceiling too — nothing persists it, and a page load clears it. */
+	/** Each deployment target owns its confirmed and uncertain credentials.
+	 * All live only in this mounted page, survive panel navigation, and clear
+	 * on reset. A same-named project space on another server is a different target. */
 	provisioningOutcomes: Record<string, HeldProvisioningOutcome>;
 
 	/** Fold one provisioning answer into the held credentials and the
@@ -377,7 +355,11 @@ export interface BuilderSessionState {
 
 	/** Forget one held credential, once a person says they have it. The
 	 *  only way one leaves short of a page load. */
-	dismissUnconfirmedWorker: (key: string) => void;
+	dismissUnconfirmedWorker: (
+		server: string,
+		domain: string,
+		key: string,
+	) => void;
 
 	/** Bumped whenever a surface writes a deployment record — a publish
 	 *  that landed or was refused with a record, or a Check status answer
@@ -830,7 +812,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
-				unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 				provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 				assetMeta: {} as Record<string, ExportBudgetRowView>,
 				publishDialogRequest: null as { readonly domain: string } | null,
@@ -1455,10 +1436,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				recordProvisioningOutcome(answer) {
 					const key = provisioningOutcomeKey(answer.server, answer.domain);
 					set((s) => ({
-						unconfirmedWorkers: retainUnconfirmedWorkers(
-							s.unconfirmedWorkers,
-							answer,
-						),
 						provisioningOutcomes: {
 							...s.provisioningOutcomes,
 							[key]: foldProvisioningOutcome(
@@ -1475,12 +1452,17 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					}));
 				},
 
-				dismissUnconfirmedWorker(key: string) {
-					if (get().unconfirmedWorkers[key] === undefined) return;
-					set((s) => {
-						const { [key]: _dropped, ...rest } = s.unconfirmedWorkers;
-						return { unconfirmedWorkers: rest };
-					});
+				dismissUnconfirmedWorker(server, domain, key) {
+					const target = provisioningOutcomeKey(server, domain);
+					const held = get().provisioningOutcomes[target];
+					if (held?.unconfirmed[key] === undefined) return;
+					const { [key]: _dropped, ...unconfirmed } = held.unconfirmed;
+					set((s) => ({
+						provisioningOutcomes: {
+							...s.provisioningOutcomes,
+							[target]: { ...held, unconfirmed },
+						},
+					}));
 				},
 
 				requestPublishDialog(request: { readonly domain: string }) {
@@ -1622,7 +1604,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					/* Abort any in-flight staged uploads — their drivers hold
 					 * closures into a session that's being torn down, so letting
 					 * them run would attach into a dead store. */
-					for (const abort of stagedUploadAborts.values()) abort();
+					const failures: unknown[] = [];
+					for (const abort of stagedUploadAborts.values()) {
+						try {
+							abort();
+						} catch (error) {
+							failures.push(error);
+						}
+					}
 					stagedUploadAborts.clear();
 					set({
 						/* Generation lifecycle. `buildUnfinished` is deliberately NOT
@@ -1673,7 +1662,6 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,
-						unconfirmedWorkers: {} as Record<string, UnconfirmedWorker>,
 						provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
 						assetMeta: {} as Record<string, ExportBudgetRowView>,
 						publishDialogRequest: null as { readonly domain: string } | null,
@@ -1685,6 +1673,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						editScrollByForm: {} as Record<string, EditScrollMemory>,
 						activeSectionByForm: {} as Record<string, string>,
 					});
+					if (failures.length > 0) {
+						throw new AggregateError(
+							failures,
+							"One or more session uploads failed to abort",
+						);
+					}
 				},
 			})),
 			{

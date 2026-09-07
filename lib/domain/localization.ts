@@ -218,6 +218,19 @@ const ENGLISH_ONLY_LOCALIZATION: EffectiveAppLocalization = {
 	translations: {},
 };
 
+/** Whether the effective English-only state must use the absent stored root. */
+export function isEnglishOnlyLocalization(
+	localization: AppLocalization | undefined,
+): boolean {
+	return (
+		localization?.sourceLanguage === "eng" &&
+		localization.defaultLanguage === "eng" &&
+		localization.languageOrder.length === 1 &&
+		localization.languageOrder[0] === "eng" &&
+		Object.keys(localization.translations).length === 0
+	);
+}
+
 export function effectiveAppLocalization(
 	localization: AppLocalization | undefined,
 ): EffectiveAppLocalization {

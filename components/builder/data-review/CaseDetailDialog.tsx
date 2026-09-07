@@ -19,40 +19,13 @@ import {
 	DialogTitle,
 } from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import {
-	type ProseProjector,
-	useProseProjection,
-} from "@/lib/doc/hooks/useProseProjection";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty, CaseType } from "@/lib/domain";
-import { caseRowDisplaySourceValue } from "@/lib/preview/engine/caseDataBindingClient";
-import type { JsonValue } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useAccessPhase } from "@/lib/session/hooks";
+import { caseDetailRows } from "./caseDetailRows";
 import { DATA_TYPE_LABELS } from "./dataReviewModel";
 import { DATA_TYPE_ICONS, NameChip } from "./NameChip";
-
-/**
- * A stored value as the person who typed it knows it: select values
- * resolve to their option labels, multi-select arrays read as their
- * comma-separated selections.
- */
-function displayCaseValue(
-	decl: CaseProperty | undefined,
-	raw: JsonValue | Date | undefined,
-	projectProse: ProseProjector,
-): string {
-	if (raw === undefined || raw === null || raw === "") return "";
-	if (raw instanceof Date) return raw.toISOString();
-	const optionLabel = (value: string): string => {
-		const option = decl?.options?.find(
-			(candidate) => candidate.value === value,
-		);
-		return option ? projectProse(option.label) : value;
-	};
-	if (Array.isArray(raw))
-		return raw.map((v) => optionLabel(String(v))).join(", ");
-	return optionLabel(String(raw));
-}
 
 /** The property chip for one table row: declared properties carry
  * their current type as the icon; a saved key the schema no longer
@@ -122,55 +95,7 @@ export function CaseDetailDialog({
 
 	const row = state.kind === "row" ? state.row : null;
 
-	// Declared properties in catalog order, then any saved keys the
-	// schema no longer declares (renamed/retired properties keep their
-	// data): the table shows everything the case holds, not just what
-	// the current schema names.
-	const rows: Array<{
-		key: string;
-		decl: CaseProperty | undefined;
-		value: string;
-	}> = [];
-	if (row !== null) {
-		const seen = new Set<string>(["case_name"]);
-		const caseNameDecl = caseType.properties.find(
-			(property) => property.name === "case_name",
-		);
-		rows.push({
-			key: "case_name",
-			decl: caseNameDecl,
-			value: displayCaseValue(
-				caseNameDecl,
-				caseRowDisplaySourceValue(row, "case_name"),
-				projectProse,
-			),
-		});
-		for (const decl of caseType.properties) {
-			if (seen.has(decl.name)) continue;
-			seen.add(decl.name);
-			rows.push({
-				key: decl.name,
-				decl,
-				value: displayCaseValue(
-					decl,
-					caseRowDisplaySourceValue(row, decl.name),
-					projectProse,
-				),
-			});
-		}
-		for (const key of Object.keys(row.properties)) {
-			if (seen.has(key)) continue;
-			rows.push({
-				key,
-				decl: undefined,
-				value: displayCaseValue(
-					undefined,
-					caseRowDisplaySourceValue(row, key),
-					projectProse,
-				),
-			});
-		}
-	}
+	const rows = row === null ? [] : caseDetailRows(caseType, row, projectProse);
 
 	return (
 		<Dialog

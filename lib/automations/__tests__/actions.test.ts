@@ -93,7 +93,7 @@ beforeEach(() => {
 });
 
 describe("previewAutomationAction", () => {
-	it("counts through the tenant-bound store and returns explicit non-execution and omissions", async () => {
+	it("dispatches the exact count query under the authorized Project and reports omissions", async () => {
 		const { doc, automation } = fixture();
 		mocks.readSnapshot.mockResolvedValue({
 			blueprint: doc,
@@ -129,8 +129,31 @@ describe("previewAutomationAction", () => {
 			expect.objectContaining({
 				appId: doc.appId,
 				caseType: "claim",
-				predicate: expect.any(Object),
-				automationCriteria: expect.objectContaining({ operator: "all" }),
+				predicate: {
+					kind: "eq",
+					left: {
+						kind: "term",
+						term: { kind: "prop", caseType: "claim", property: "status" },
+					},
+					right: { kind: "term", term: { kind: "literal", value: "open" } },
+				},
+				automationCriteria: {
+					requiresUnambiguousHost: false,
+					operator: "all",
+					dates: [],
+					comparisons: [
+						{
+							property: "state",
+							value: "abandoned",
+							equal: true,
+							scope: "case",
+						},
+					],
+					regexes: [],
+					blankness: [],
+					closedParents: [],
+					locationOwnerSets: [],
+				},
 			}),
 		);
 	});

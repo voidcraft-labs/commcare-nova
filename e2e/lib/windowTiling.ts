@@ -40,41 +40,44 @@ export async function tileWindow(
 ): Promise<{ width: number; height: number } | undefined> {
 	try {
 		const cdp = await page.context().newCDPSession(page);
-		const { windowId } = (await cdp.send("Browser.getWindowForTarget")) as {
-			windowId: number;
-		};
+		try {
+			const { windowId } = (await cdp.send("Browser.getWindowForTarget")) as {
+				windowId: number;
+			};
 
-		// Measure the real work area: maximize, then read the bounds back.
-		// Maximizing animates, so poll briefly until the state lands.
-		await cdp.send("Browser.setWindowBounds", {
-			windowId,
-			bounds: { windowState: "maximized" },
-		});
-		const work = await pollWindowBounds(cdp, page, windowId, "maximized");
+			// Measure the real work area: maximize, then read the bounds back.
+			// Maximizing animates, so poll briefly until the state lands.
+			await cdp.send("Browser.setWindowBounds", {
+				windowId,
+				bounds: { windowState: "maximized" },
+			});
+			const work = await pollWindowBounds(cdp, page, windowId, "maximized");
 
-		const halfW = Math.floor(work.width / 2);
-		const halfH = Math.floor(work.height / 2);
-		const onRight = slot === "right" || slot.endsWith("-right");
-		const isQuadrant = slot !== "left" && slot !== "right";
-		const onBottom = slot.startsWith("bottom");
-		const bounds = {
-			left: onRight ? work.left + halfW : work.left,
-			top: onBottom ? work.top + halfH : work.top,
-			width: halfW,
-			height: isQuadrant ? halfH : work.height,
-		};
-		await cdp.send("Browser.setWindowBounds", {
-			windowId,
-			bounds: { windowState: "normal" },
-		});
-		await cdp.send("Browser.setWindowBounds", {
-			windowId,
-			bounds: { ...bounds, windowState: "normal" },
-		});
-		await cdp.detach().catch(() => undefined);
+			const halfW = Math.floor(work.width / 2);
+			const halfH = Math.floor(work.height / 2);
+			const onRight = slot === "right" || slot.endsWith("-right");
+			const isQuadrant = slot !== "left" && slot !== "right";
+			const onBottom = slot.startsWith("bottom");
+			const bounds = {
+				left: onRight ? work.left + halfW : work.left,
+				top: onBottom ? work.top + halfH : work.top,
+				width: halfW,
+				height: isQuadrant ? halfH : work.height,
+			};
+			await cdp.send("Browser.setWindowBounds", {
+				windowId,
+				bounds: { windowState: "normal" },
+			});
+			await cdp.send("Browser.setWindowBounds", {
+				windowId,
+				bounds: { ...bounds, windowState: "normal" },
+			});
 
-		// Approximate browser chrome (tab strip + toolbar) eats ~96px of height.
-		return { width: bounds.width, height: Math.max(200, bounds.height - 96) };
+			// Approximate browser chrome (tab strip + toolbar) eats ~96px of height.
+			return { width: bounds.width, height: Math.max(200, bounds.height - 96) };
+		} finally {
+			await cdp.detach();
+		}
 	} catch (err) {
 		console.warn(
 			`[windowTiling] could not tile the ${slot} window (headless, or a non-Chromium browser?): ${err instanceof Error ? err.message : String(err)}`,

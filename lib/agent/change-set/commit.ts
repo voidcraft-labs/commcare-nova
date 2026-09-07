@@ -22,7 +22,12 @@
  * genesis kernel's separate unit, and this module refuses them loudly.
  */
 
+import type { Transaction } from "kysely";
 import type { DesignId } from "@/lib/agent/design/ids";
+import {
+	AppAccessError,
+	resolveAppScopeInTransaction,
+} from "@/lib/db/appAccess";
 import {
 	applyBlueprintChange,
 	type MigrationOutcome,
@@ -36,7 +41,7 @@ import {
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
-import { getAppDb } from "@/lib/db/pg";
+import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
 import {
 	evaluatePreparedMutationCandidate,
@@ -134,24 +139,24 @@ export async function commitDesignChangeSet(
 			"A genesis change set materializes through the prepared genesis kernel, not the app-edit commit.",
 		);
 	}
-	if (changeSet.status === "committed") {
-		return {
-			kind: "committed",
-			receipt: await requireStoredReceipt(changeSet),
-			replayed: true,
-		};
-	}
-	if (changeSet.status !== "open") {
-		throw new ChangeSetScopeLostError(
-			`This change set is ${changeSet.status} and can no longer commit.`,
-		);
-	}
 	if (
 		changeSet.ownerUserId !== args.actorUserId ||
 		changeSet.ownerRunId !== args.runId
 	) {
 		throw new ChangeSetScopeLostError(
 			"This change set belongs to a different run.",
+		);
+	}
+	if (changeSet.status === "committed") {
+		return {
+			kind: "committed",
+			receipt: await requireAuthorizedCommittedReceipt(changeSet, args),
+			replayed: true,
+		};
+	}
+	if (changeSet.status !== "open") {
+		throw new ChangeSetScopeLostError(
+			`This change set is ${changeSet.status} and can no longer commit.`,
 		);
 	}
 	if (changeSet.revision !== args.expectedRevision) {
@@ -219,7 +224,7 @@ export async function commitDesignChangeSet(
 		return deadlineRejection(changeSet.baseSeq ?? 0);
 	}
 	if (preflight !== undefined) {
-		const committed = await committedReplayIfWon(changeSet);
+		const committed = await committedReplayIfWon(changeSet, args);
 		return committed ?? preflight;
 	}
 
@@ -284,7 +289,7 @@ export async function commitDesignChangeSet(
 			if (fresh.status === "committed") {
 				return {
 					kind: "committed",
-					receipt: await requireStoredReceipt(fresh),
+					receipt: await requireAuthorizedCommittedReceipt(fresh, args),
 					replayed: true,
 				};
 			}
@@ -314,7 +319,7 @@ export async function commitDesignChangeSet(
 		/* The kernel rejected a batch the preflight passed — a narrow race.
 		 * Reclassify on fresh state for the structured report; the gate
 		 * message is the fallback when the fresh state has since healed. */
-		const committed = await committedReplayIfWon(changeSet);
+		const committed = await committedReplayIfWon(changeSet, args);
 		if (committed !== undefined) return committed;
 		const reclassified = await classifyAgainstFreshState({
 			changeSet,
@@ -347,6 +352,7 @@ function deadlineRejection(currentSeq: number): CommitDesignChangeSetOutcome {
  *  outcome — never a conflict report against its own committed work. */
 async function committedReplayIfWon(
 	changeSet: DesignChangeSet,
+	args: CommitDesignChangeSetArgs,
 ): Promise<
 	Extract<CommitDesignChangeSetOutcome, { kind: "committed" }> | undefined
 > {
@@ -354,17 +360,57 @@ async function committedReplayIfWon(
 	if (fresh === undefined || fresh.status !== "committed") return undefined;
 	return {
 		kind: "committed",
-		receipt: await requireStoredReceipt(fresh),
+		receipt: await requireAuthorizedCommittedReceipt(fresh, args),
 		replayed: true,
 	};
+}
+
+/** A lost response still belongs to its exact owner/run and current Project
+ * access. The app and membership locks bind the receipt read to one scope. */
+async function requireAuthorizedCommittedReceipt(
+	changeSet: DesignChangeSet,
+	args: CommitDesignChangeSetArgs,
+): Promise<CommittedSliceReceipt> {
+	const appId = changeSet.appId;
+	if (
+		appId === null ||
+		changeSet.ownerUserId !== args.actorUserId ||
+		changeSet.ownerRunId !== args.runId
+	) {
+		throw new ChangeSetScopeLostError(
+			"This change set belongs to a different run.",
+		);
+	}
+	return withAppTx(async (tx) => {
+		try {
+			const scope = await resolveAppScopeInTransaction(
+				tx,
+				appId,
+				args.actorUserId,
+				"view",
+			);
+			if (scope.projectId !== changeSet.baseProjectId) {
+				throw new ChangeSetScopeLostError(
+					"This app moved to a different Project, so this change set's receipt is no longer available in its original scope.",
+				);
+			}
+		} catch (error) {
+			if (!(error instanceof AppAccessError)) throw error;
+			throw new ChangeSetScopeLostError(
+				"This change set's app is no longer available in your Project scope.",
+			);
+		}
+		return requireStoredReceipt(changeSet, tx);
+	});
 }
 
 // ── Internals ──────────────────────────────────────────────────────
 
 async function requireStoredReceipt(
 	changeSet: DesignChangeSet,
+	dbHandle?: Awaited<ReturnType<typeof getAppDb>> | Transaction<AppDatabase>,
 ): Promise<CommittedSliceReceipt> {
-	const db = await getAppDb();
+	const db = dbHandle ?? (await getAppDb());
 	const row = await db
 		.selectFrom("design_committed_slices")
 		.select([

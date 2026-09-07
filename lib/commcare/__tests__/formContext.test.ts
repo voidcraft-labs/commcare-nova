@@ -14,11 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	expandCaseToWire,
-	expandFlatHashtags,
-	hqLoadReference,
-} from "@/lib/commcare/hashtags";
+import { expandCaseToWire, hqLoadReference } from "@/lib/commcare/hashtags";
 import {
 	expandHashtagsForSessionStack,
 	expandHashtagsInContext,
@@ -46,10 +42,10 @@ describe("expandHashtagsInContext", () => {
 
 	it("expands #form/ and #user/ through the flat authored resolver", () => {
 		expect(expandHashtagsInContext("#form/x + 1", ctx("registration"))).toBe(
-			expandFlatHashtags("#form/x + 1"),
+			"/data/x + 1",
 		);
 		expect(expandHashtagsInContext("#user/username", ctx("registration"))).toBe(
-			expandFlatHashtags("#user/username"),
+			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
 		);
 	});
 
@@ -61,19 +57,23 @@ describe("expandHashtagsInContext", () => {
 			["mother", 1],
 		]);
 
-		it("resolves #<own_type>/<prop> byte-identical to #case/<prop>", () => {
+		it("resolves #<own_type>/<prop> to the selected own-case property path", () => {
 			expect(
 				expandHashtagsInContext("#pregnancy/ga_weeks", ctx("followup", depths)),
-			).toBe(expandCaseToWire(0, "ga_weeks"));
+			).toBe(
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/ga_weeks",
+			);
 		});
 
-		it("resolves #<parent_type>/<prop> byte-identical to #case/parent/<prop>", () => {
+		it("resolves #<parent_type>/<prop> to a parent-index property path", () => {
 			expect(
 				expandHashtagsInContext(
 					"#mother/household_code",
 					ctx("followup", depths),
 				),
-			).toBe(expandCaseToWire(1, "household_code"));
+			).toBe(
+				"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/household_code",
+			);
 		});
 
 		it("rewrites #<own_type>/case_id to /data/case/@case_id on a registration form", () => {
@@ -97,7 +97,9 @@ describe("expandHashtagsInContext", () => {
 					"#form/age > #mother/min_age",
 					ctx("followup", depths),
 				),
-			).toBe(`/data/age > ${expandCaseToWire(1, "min_age")}`);
+			).toBe(
+				`/data/age > instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/min_age`,
+			);
 		});
 	});
 
@@ -228,8 +230,14 @@ describe("vellumShorthandInContext", () => {
 			(ref, expanded) => seen.push([ref, expanded]),
 		);
 		expect(seen).toEqual([
-			["#case/ga", expandCaseToWire(0, "ga")],
-			["#case/risk", expandCaseToWire(0, "risk")],
+			[
+				"#case/ga",
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/ga",
+			],
+			[
+				"#case/risk",
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/risk",
+			],
 		]);
 
 		// A suppressed expression reports nothing — its refs must not leak into
@@ -323,5 +331,62 @@ describe("expandCaseToWire case_id leaf", () => {
 		expect(expandCaseToWire(1, "case_id")).toBe(
 			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent]/@case_id",
 		);
+	});
+});
+
+describe("context boundaries remain lexical and identity-scoped", () => {
+	it("uses the caller's renamed selection for own and parent paths", () => {
+		const c = {
+			...ctx(
+				"followup",
+				new Map([
+					["patient", 0],
+					["household", 1],
+				]),
+			),
+			currentCaseIdRef:
+				"instance('commcaresession')/session/data/case_id_patient",
+		};
+		expect(expandHashtagsInContext("#patient/case_id", c)).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_patient]/@case_id",
+		);
+		expect(expandHashtagsInContext("#household/name", c)).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_patient]/index/parent]/name",
+		);
+	});
+	it("expands only available one-segment search answers and refuses session reuse", () => {
+		const c = {
+			...ctx("registration"),
+			searchAnswers: {
+				instanceId: "search-input:care",
+				names: new Set(["name"]),
+			},
+		};
+		expect(
+			expandHashtagsInContext(
+				"concat(#search/name, '#search/name', #search/missing)",
+				c,
+			),
+		).toBe(
+			"concat(instance('search-input:care')/input/field[@name='name'], '#search/name', #search/missing)",
+		);
+		expect(expandHashtagsInContext("#search/name/path", c)).toBe(
+			"#search/name/path",
+		);
+		expect(expandHashtagsInContext("#search/name", ctx("survey"))).toBe(
+			"#search/name",
+		);
+		expect(() =>
+			expandHashtagsForSessionStack("#search/name", new Map()),
+		).toThrow(/closed/);
+		expect(() => hqLoadReference("#search/name", new Map())).toThrow(
+			/no HQ load/,
+		);
+	});
+	it("leaves hashtag-looking string literals untouched in form and session scopes", () => {
+		const text = "concat('#case/forbidden', \"#form/closed\", '雪')";
+		expect(expandHashtagsInContext(text, ctx("survey"))).toBe(text);
+		expect(expandHashtagsForSessionStack(text, new Map())).toBe(text);
+		expect(vellumShorthandInContext(text, ctx("followup"))).toBeUndefined();
 	});
 });

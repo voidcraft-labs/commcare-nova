@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { timedEventTimingSchema } from "../automations";
 import {
 	isPersistableJsonNumber,
 	persistableJsonIntegerSchema,
@@ -9,84 +8,93 @@ import {
 	persistableJsonPositiveIntegerSchema,
 	persistableJsonPositiveNumberSchema,
 } from "../jsonNumber";
+import { columnSortSchema, tileCellSchema } from "../modules";
+import { literalSchema } from "../predicate/types";
+
+const schemas = [
+	persistableJsonNumberSchema,
+	persistableJsonIntegerSchema,
+	persistableJsonNonnegativeIntegerSchema,
+	persistableJsonPositiveIntegerSchema,
+	persistableJsonPositiveNumberSchema,
+];
 
 describe("persistable JSON numbers", () => {
-	it.each([0, 0.1, 1.5, Number.MIN_VALUE, Number.MAX_SAFE_INTEGER])(
-		"admits %s",
-		(value) => {
+	it.each([
+		[0, [true, true, true, false, false]],
+		[-1, [true, true, false, false, false]],
+		[1, [true, true, true, true, true]],
+		[0.1, [true, false, false, false, true]],
+		[-1.5, [true, false, false, false, false]],
+		[Number.MIN_VALUE, [true, false, false, false, true]],
+		[-Number.MIN_VALUE, [true, false, false, false, false]],
+		[Number.MAX_SAFE_INTEGER, [true, true, true, true, true]],
+		[Number.MIN_SAFE_INTEGER, [true, true, false, false, false]],
+	] as const)(
+		"preserves %s through the admitted ranges and a real JSON round trip",
+		(value, admitted) => {
 			expect(isPersistableJsonNumber(value)).toBe(true);
-			expect(persistableJsonNumberSchema.parse(value)).toBe(value);
+			for (const [index, schema] of schemas.entries()) {
+				const result = schema.safeParse(value);
+				expect(result.success).toBe(admitted[index]);
+				if (result.success) {
+					expect(result.data).toBe(value);
+					expect(JSON.parse(JSON.stringify({ value: result.data })).value).toBe(
+						value,
+					);
+				}
+			}
 		},
 	);
 
 	it.each([
-		Number.NaN,
-		Number.POSITIVE_INFINITY,
-		Number.NEGATIVE_INFINITY,
+		NaN,
+		Infinity,
+		-Infinity,
 		-0,
 		Number.MAX_SAFE_INTEGER + 1,
 		Number.MIN_SAFE_INTEGER - 1,
-	])("rejects %s before persistence", (value) => {
+		Number.MAX_VALUE,
+	])("rejects lossy or unsafe %s in every range", (value) => {
 		expect(isPersistableJsonNumber(value)).toBe(false);
-		expect(persistableJsonNumberSchema.safeParse(value).success).toBe(false);
+		for (const schema of schemas)
+			expect(schema.safeParse(value).success).toBe(false);
 	});
 
-	it("preserves each slot's independent range and integer constraints", () => {
-		expect(persistableJsonIntegerSchema.safeParse(-1).success).toBe(true);
-		expect(persistableJsonIntegerSchema.safeParse(-0).success).toBe(false);
-		expect(persistableJsonNonnegativeIntegerSchema.safeParse(0).success).toBe(
-			true,
-		);
-		expect(persistableJsonNonnegativeIntegerSchema.safeParse(-1).success).toBe(
-			false,
-		);
-		expect(persistableJsonPositiveIntegerSchema.safeParse(1.5).success).toBe(
-			false,
-		);
-		expect(persistableJsonPositiveNumberSchema.safeParse(0).success).toBe(
-			false,
-		);
-		expect(persistableJsonPositiveNumberSchema.safeParse(0.1).success).toBe(
-			true,
-		);
+	it.each([undefined, null, "1", false, {}, [], BigInt(1)])(
+		"does not coerce %s into a stored number",
+		(value) => {
+			for (const schema of schemas)
+				expect(schema.safeParse(value).success).toBe(false);
+		},
+	);
+
+	it("retains number admission when schemas add narrower bounds", () => {
+		const schema = persistableJsonNumberSchema.min(-2).max(2);
+		for (const value of [-2, -0.5, 0, 0.5, 2])
+			expect(schema.parse(value)).toBe(value);
+		for (const value of [-2.1, 2.1, -0, NaN, Infinity])
+			expect(schema.safeParse(value).success).toBe(false);
 	});
 
-	it("owns every persisted Blueprint numeric slot", () => {
-		const root = process.cwd();
-		const modules = readFileSync(
-			path.join(root, "lib/domain/modules.ts"),
-			"utf8",
-		);
-		const forms = readFileSync(path.join(root, "lib/domain/forms.ts"), "utf8");
-		const predicates = readFileSync(
-			path.join(root, "lib/domain/predicate/types.ts"),
-			"utf8",
-		);
-		const automations = readFileSync(
-			path.join(root, "lib/domain/automations.ts"),
-			"utf8",
-		);
-		for (const obsolete of [
-			"priority: z.number().int().min(0)",
-			"x: z.number().int().min(0)",
-			"y: z.number().int().min(0)",
-			"width: z.number().int().min(1)",
-			"height: z.number().int().min(1)",
-			"threshold: z.number().int().positive()",
-		]) {
-			expect(modules).not.toContain(obsolete);
+	it("executes numeric admission through nested literal, sort, tile and automation schemas", () => {
+		const consumers = [
+			(value: number) => literalSchema.safeParse({ kind: "literal", value }),
+			(value: number) =>
+				columnSortSchema.safeParse({ direction: "asc", priority: value }),
+			(value: number) =>
+				tileCellSchema.safeParse({ x: 0, y: 0, width: value, height: 1 }),
+			(value: number) =>
+				timedEventTimingSchema.safeParse({
+					kind: "random-window",
+					time: "08:00",
+					windowMinutes: value,
+				}),
+		];
+		for (const parse of consumers) {
+			expect(parse(1).success).toBe(true);
+			for (const value of [-0, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])
+				expect(parse(value).success).toBe(false);
 		}
-		expect(forms).not.toContain("time_estimate: z.number().int().positive()");
-		expect(predicates).not.toContain(
-			"value: z.union([z.string(), z.number(), z.boolean(), z.null()])",
-		);
-		expect(predicates).not.toContain("distance: z.number().positive()");
-		expect(modules).toContain("persistableJsonNonnegativeIntegerSchema");
-		expect(modules).toContain("persistableJsonPositiveIntegerSchema");
-		expect(forms).toContain("persistableJsonPositiveIntegerSchema");
-		expect(predicates).toContain("persistableJsonNumberSchema");
-		expect(predicates).toContain("persistableJsonPositiveNumberSchema");
-		expect(automations).not.toContain("z.number()");
-		expect(automations).toContain("persistableJsonIntegerSchema");
 	});
 });

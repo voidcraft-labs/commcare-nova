@@ -50,3 +50,23 @@ export function firstConditionSeed(
 export function hasConditionSeed(ctx: PredicateEditContext): boolean {
 	return firstConditionSeed(ctx) !== undefined;
 }
+
+/** A relation predicate runs for each destination row, while the mounting
+ * surface's form, worker and runtime vocabulary remains available. */
+export function relatedConditionSeed(
+	ctx: PredicateEditContext,
+	destinationCaseType: string | undefined,
+): Predicate | undefined {
+	return destinationCaseType === undefined
+		? undefined
+		: firstConditionSeed({
+				caseTypes: ctx.caseTypes,
+				currentCaseType: destinationCaseType,
+				knownInputs: ctx.knownInputs,
+				userProperties: ctx.userProperties,
+				formFields: ctx.formFields,
+				operationScope: ctx.operationScope,
+				evaluationTarget: ctx.evaluationTarget,
+				caseDataScope: "per-case",
+			});
+}

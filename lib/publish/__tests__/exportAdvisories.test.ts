@@ -1,13 +1,9 @@
 /**
  * What a download says about itself.
  *
- * The line these tests hold is that an advisory is never a refusal and never
- * a fabrication: an export with no CommCare HQ project space behind it still
- * succeeds, still carries every question, and says plainly which case
- * properties it left unfilled. The inverse matters just as much — an app with
- * no attachment links, or one published to exactly one project space, must
- * say nothing at all, because a notice that fires on every download is a
- * notice nobody reads.
+ * These tests cover advisory selection, actionable property names, and the
+ * HTTP metadata codec. Export acceptance and emitted questions are verified
+ * by the export and wire suites.
  */
 
 import { describe, expect, it } from "vitest";
@@ -15,6 +11,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import {
 	decodeExportAdvisories,
+	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
 	exportAdvisories,
 } from "../exportAdvisories";
@@ -116,7 +113,10 @@ describe("exportAdvisories", () => {
 
 	it("says nothing about an app with no attachment links", () => {
 		// A capture that saves nowhere loses nothing by being downloaded.
-		const doc = docWithCaptures([]);
+		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
+		for (const field of Object.values(doc.fields)) {
+			if (field.kind === "image") delete field.caseWrite;
+		}
 		expect(exportAdvisories(doc, "none")).toEqual([]);
 		expect(exportAdvisories(doc, "ambiguous")).toEqual([]);
 	});
@@ -125,8 +125,15 @@ describe("exportAdvisories", () => {
 describe("the export header", () => {
 	it("survives the trip through a response header", () => {
 		const doc = docWithCaptures([{ id: "photo", property: "photo_url" }]);
-		const advisories = exportAdvisories(doc, "none");
-		expect(decodeExportAdvisories(encodeExportAdvisories(advisories))).toEqual(
+		const advisories = exportAdvisories(doc, "none").map((advisory) => ({
+			...advisory,
+			title: "Résumé 调查表",
+			message: `${advisory.message}\n100% complete`,
+		}));
+		const headers = new Headers({
+			[EXPORT_ADVISORY_HEADER]: encodeExportAdvisories(advisories),
+		});
+		expect(decodeExportAdvisories(headers.get(EXPORT_ADVISORY_HEADER))).toEqual(
 			advisories,
 		);
 	});

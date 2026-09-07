@@ -20,7 +20,8 @@ Nova creates the approved table and its rows before it starts constructing the
 app. If the design would change a table that other apps can already use, Nova
 explains that Project-wide effect and asks for approval first.
 
-The live status immediately above the chat box names the current phase. Nova
+The live status immediately above the chat box names the current phase. Any
+sub-step label follows the design section currently being submitted. Nova
 also gives a conservative rough estimate based on the design's assigned effort
 level: about 30 minutes for compact designs, an hour for standard designs,
 and 90 minutes for extended designs. Internal design submissions and technical
@@ -33,6 +34,30 @@ remaining parts as valid updates, so you never edit underneath the initial
 build. Direct editing and Preview become available when the whole build is
 finished; unfinished private work never appears in the app.
 
+## Share a document with Nova
+
+Nova prepares documents before using them in chat. In the file library,
+**Reading** shows that work in progress and **Ready** means the document can be
+used. If reading fails or the status cannot
+be confirmed after several minutes, **Retry** lets you try again. Your uploaded
+file stays in the Project's library. Opening a document that previously failed
+does not start another read automatically.
+
+Reattaching the same file later keeps the original design's sources intact.
+If a source is removed or its content changes, Nova pauses work that depends on
+the original version rather than continuing with different evidence.
+
+The account menu's **Files** opens that library. While an app is open, it shows
+files from the app's Project. Elsewhere, it follows your selected Project.
+Project viewers can preview files; editors can also upload and delete them.
+A ready document's information button explains what Nova reads; opening the
+document lets you inspect the summary itself.
+
+A document is ready only after its read finishes. An interrupted response stays
+unavailable even if part of it looks complete. Nova preserves literal paths and
+text examples in the returned summary. For large spreadsheets, the summary
+names any sheets or formulas left unread because an extraction limit was reached.
+
 ## Resume an unfinished design
 
 An app design that has not produced its first workflow appears under **Designs
@@ -44,7 +69,8 @@ Nova saves completed parts of a large design as it works. If the connection,
 server process, or model context is interrupted, it resumes from that exact
 saved work instead of rewriting completed sections. Only a complete, checked
 design advances to review or construction. Nova derives construction work from
-the accepted workflows, so it can't silently omit part of the design.
+the accepted workflows and checks that the saved construction plan preserves
+that work, including its required setup actions.
 
 If the final check reveals that an included workflow still needs a decision
 from you, Nova returns to the question card and keeps the design in progress.
@@ -89,7 +115,25 @@ As the app grows, [submenus](./nested-menus.mdx) can group related modules under
 one top-level menu. Nova supports one child level and keeps menu placement
 separate from parent-case relationships.
 
+## Text in your app
+
+Nova checks app names, question text, translations and formula values before
+saving. If pasted text contains a character CommCare cannot preserve, Nova names
+the affected text so you can remove that character and try again. Accents,
+non-Latin scripts and emoji are supported.
+
+If Nova cannot save a wording change, your text stays open beside the reason so
+you can correct it and try again. Rich-text tables keep images when you save
+and reopen them, including cells that contain only an image.
+
+Adding **Required** makes a question required immediately. Its condition is a
+separate choice. A new blank hint closes when you press Escape, and changing
+questions closes any optional editor you had just opened.
+
 ## XPath that will run in CommCare
+
+When a formula needs correction, your draft and keyboard focus stay in the
+editor so you can keep typing while its explanation is visible.
 
 Nova checks formulas against the functions CommCare's device runtime actually
 implements and the same formulas run in Preview. A function being part of
@@ -129,3 +173,15 @@ prerequisites and never claims that it completed them.
 Preview does not pretend to run external automations. One design session builds
 one app in your current Project; if a request describes several apps, Nova asks
 which one to build first.
+
+## Return to an app screen
+
+The Builder's address follows the screen and selected field, so a shared link
+can reopen that location. Back and Forward return to screens without stepping
+through every field selection. Your worker-language choice travels with the
+link. An older link that names a form and a field from another form opens the
+named form with no field selected.
+
+Deleting a field selects the next visible field, or the previous one when it
+was last. Deleting a group skips the questions removed with it. Undo and Redo
+let you take back or restore those changes.

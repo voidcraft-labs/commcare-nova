@@ -51,3 +51,20 @@ duplicated is equally broken however the table reached the device. All are
 `environment`-class: rows change outside the document, so they never gate a
 commit. Export therefore needs its own selected-target verdict over those
 current external rows in addition to the absolute document commit gate.
+
+All referenced lookup cells must be representable as XML 1.0 text, because both
+carriers ultimately supply XML fixtures to CommCare. Preparation scans the exact
+snapshot before serialization; `LOOKUP_CELL_TEXT_UNREPRESENTABLE` aggregates by
+column with bounded row examples. A refusal builds neither carrier and does not
+change stored rows. Legal XML whitespace and Unicode remain unchanged.
+
+After whole-document validation, the two HQ modes also run
+`lib/commcare/hqNestedSelection.ts` over the actual entry projection. Native HQ
+cannot preserve a related-case selection from several parent cases, or a root
+selection reused by a same-case child whose maximum is smaller. Both receive
+`HQ_NESTED_SELECTION_UNREPRESENTABLE` before media bytes resolve. The check
+follows actual selection datums, including case-list-only entries and catalog
+ancestor chains; registration or survey forms without those selections are
+unaffected. These are target limitations, never document admission rules. Local
+CCZ emits the set-membership parent filter and distinct child selection and is
+covered by native Core runtime proof.

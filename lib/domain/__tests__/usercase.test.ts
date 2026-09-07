@@ -1,19 +1,12 @@
-// The worker's own case: its shape, its contents, and what a re-sync writes.
-//
-// Three things, and the seam between them is the point. `usercaseCaseType` is
-// the SCHEMA the case store materializes, derived from the worker-property
-// catalog rather than declared beside it. `usercaseRecord` is the CONTENTS,
-// and it is one derivation with two consumers — Preview answers `#user/<prop>`
-// from it and the materializer writes it into the row — because `#user/`
-// resolves from `casedb` on the wire, so the two disagreeing would make
-// Preview answer differently from a device for any worker saved once.
-// `usercaseChangedFields` is the DIFF, and it is the never-clobber contract
-// that decides whether a form-written value survives the next persona edit.
+// Pure worker-case schema, record and synchronization-diff projections.
+// These witnesses do not exercise materialization or a CommCare runtime.
 
 import { describe, expect, it } from "vitest";
-import type { PersistableDoc } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import type { PersistableDoc, Uuid } from "@/lib/domain";
 import {
-	USERCASE_CASE_TYPE,
 	usercaseCaseType,
 	usercaseChangedFields,
 	usercaseName,
@@ -21,35 +14,38 @@ import {
 	usercaseValuesBySlug,
 } from "@/lib/domain";
 
+const U1 = testUuid("worker-property-one");
+const U2 = testUuid("worker-property-two");
+const GONE = testUuid("worker-property-gone");
 function doc(
-	properties: ReadonlyArray<{ uuid: string; slug: string; label: string }>,
+	properties: ReadonlyArray<{ uuid: Uuid; slug: string; label: string }>,
 ): PersistableDoc {
-	return {
-		appId: "app-usercase",
-		appName: "Usercase",
-		connectType: null,
-		caseTypes: [],
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		userProperties: Object.fromEntries(
-			properties.map((property) => [property.uuid, property]),
-		),
-	} as unknown as PersistableDoc;
+	const value = buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Intake",
+						type: "survey",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+				],
+			},
+		],
+	});
+	value.userProperties = Object.fromEntries(
+		properties.map((property) => [property.uuid, property]),
+	);
+	value.userPropertyOrder = properties.map((property) => property.uuid);
+	expectAdmittedDoc(value);
+	return value;
 }
 
 const names = (d: PersistableDoc): string[] =>
 	usercaseCaseType(d).properties.map((property) => property.name);
 
 describe("usercaseCaseType", () => {
-	it("is named for CommCare's own case type", () => {
-		expect(usercaseCaseType(doc([])).name).toBe(USERCASE_CASE_TYPE);
-		expect(USERCASE_CASE_TYPE).toBe("commcare-user");
-	});
-
 	it("carries the built-ins HQ writes on every worker's case", () => {
 		// `_get_user_case_fields` writes these whatever the app declared, so
 		// they are on the case type even for an app with no worker properties.
@@ -85,31 +81,31 @@ describe("usercaseCaseType", () => {
 
 	it("derives a slot per declared worker property", () => {
 		const withProperties = doc([
-			{ uuid: "u-1", slug: "clinic_code", label: "Clinic code" },
-			{ uuid: "u-2", slug: "cadre", label: "Cadre" },
+			{ uuid: U1, slug: "clinic_code", label: "Clinic code" },
+			{ uuid: U2, slug: "cadre", label: "Cadre" },
 		]);
 		expect(names(withProperties)).toEqual(
 			expect.arrayContaining(["clinic_code", "cadre"]),
 		);
 	});
 
-	it("gives every slot the text type, because HQ stores user data as strings", () => {
+	it("derives text slots for this worker-property catalog", () => {
 		const withProperties = doc([
-			{ uuid: "u-1", slug: "clinic_code", label: "Clinic code" },
+			{ uuid: U1, slug: "clinic_code", label: "Clinic code" },
 		]);
 		for (const property of usercaseCaseType(withProperties).properties) {
 			expect(property.data_type).toBe("text");
 		}
 	});
 
-	it("is a SUPERSET of every record any worker could produce", () => {
+	it("covers the authored records both with and without a deployment target", () => {
 		// The bug this pins: the key list was derived by calling
 		// `usercaseBuiltInValues` with a null project space, so the conditional
 		// `commcare_project` key vanished from the case type while a
 		// project-bearing sync still wrote it — and the insert was rejected by
 		// its own schema with `additionalProperties`. The schema must admit
 		// every key any record can carry, whatever this worker's facts are.
-		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
+		const d = doc([{ uuid: U1, slug: "cadre", label: "Cadre" }]);
 		const declared = new Set(names(d));
 		for (const projectSpace of [null, "my-domain"]) {
 			const record = usercaseRecord(
@@ -120,7 +116,7 @@ describe("usercaseCaseType", () => {
 					email: "",
 					locationIds: [],
 				},
-				{ "u-1": "nurse" },
+				{ [U1]: "nurse" },
 				d,
 				projectSpace,
 			);
@@ -140,7 +136,7 @@ describe("usercaseCaseType", () => {
 		// can declare `language`. One property per name or the schema carries a
 		// duplicate JSONB key.
 		const shadowing = doc([
-			{ uuid: "u-1", slug: "language", label: "Preferred language" },
+			{ uuid: U1, slug: "language", label: "Preferred language" },
 		]);
 		const emitted = names(shadowing);
 		expect(emitted.filter((name) => name === "language")).toHaveLength(1);
@@ -149,8 +145,8 @@ describe("usercaseCaseType", () => {
 
 describe("usercaseValuesBySlug", () => {
 	it("re-keys authored values from property uuid to current slug", () => {
-		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
-		expect(usercaseValuesBySlug({ "u-1": "nurse" }, d)).toEqual({
+		const d = doc([{ uuid: U1, slug: "cadre", label: "Cadre" }]);
+		expect(usercaseValuesBySlug({ [U1]: "nurse" }, d)).toEqual({
 			cadre: "nurse",
 		});
 	});
@@ -159,8 +155,8 @@ describe("usercaseValuesBySlug", () => {
 		// A removed property leaves its stored value behind. Emitting it under
 		// a stale key would put a property on the worker's case that the app no
 		// longer declares.
-		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
-		expect(usercaseValuesBySlug({ "u-gone": "orphan" }, d)).toEqual({});
+		const d = doc([{ uuid: U1, slug: "cadre", label: "Cadre" }]);
+		expect(usercaseValuesBySlug({ [GONE]: "orphan" }, d)).toEqual({});
 	});
 });
 
@@ -173,13 +169,13 @@ describe("usercaseRecord", () => {
 		locationIds: [],
 	};
 
-	it("layers built-ins over authored values, the way HQ does", () => {
+	it("gives system usercase facts precedence over a colliding custom slug", () => {
 		// `_get_user_case_fields` layers its own keys over `UserData.to_dict()`,
 		// and nothing reserves the built-in names against the slug grammar, so
 		// an author CAN declare `language`. HQ's answer, and ours, is that the
 		// built-in wins.
-		const d = doc([{ uuid: "u-1", slug: "language", label: "Language" }]);
-		const record = usercaseRecord(worker, { "u-1": "Wolof" }, d, "my-domain");
+		const d = doc([{ uuid: U1, slug: "language", label: "Language" }]);
+		const record = usercaseRecord(worker, { [U1]: "Wolof" }, d, "my-domain");
 		expect(record.language).toBe("");
 	});
 
@@ -187,7 +183,7 @@ describe("usercaseRecord", () => {
 		// `UserData.to_dict()` seeds every schema field blank before applying
 		// anything, so declared-but-empty and undeclared are different states
 		// and a `= ''` comparison can tell them apart.
-		const d = doc([{ uuid: "u-1", slug: "cadre", label: "Cadre" }]);
+		const d = doc([{ uuid: U1, slug: "cadre", label: "Cadre" }]);
 		const record = usercaseRecord(worker, {}, d, "my-domain");
 		expect(record.cadre).toBe("");
 		expect(Object.hasOwn(record, "undeclared")).toBe(false);
@@ -299,8 +295,8 @@ describe("usercaseName", () => {
 
 	it("falls back to the login when the display name is blank", () => {
 		// HQ's own fallback, `user.name or user.raw_username`. Nova needs it for
-		// a second reason it cannot decline: `cases.case_name` is NOT NULL, so a
-		// blank name is a failed INSERT rather than an ugly row.
+		// a second reason it cannot decline: `cases.case_name` has a separate nonblank
+		// storage contract. This test checks only the name projection.
 		expect(
 			usercaseName({
 				id: "p-1",
@@ -337,5 +333,21 @@ describe("usercaseName", () => {
 				personName: "\u200bAmara",
 			}),
 		).toBe("\u200bAmara");
+	});
+	it("uses a legal fallback when a display name exceeds the scalar limit", () => {
+		expect(
+			usercaseName({
+				id: "worker-id",
+				username: "amara",
+				personName: "x".repeat(256),
+			}),
+		).toBe("amara");
+		expect(
+			usercaseName({
+				id: "worker-id",
+				username: "x".repeat(256),
+				personName: "x".repeat(256),
+			}),
+		).toBe("worker-id");
 	});
 });

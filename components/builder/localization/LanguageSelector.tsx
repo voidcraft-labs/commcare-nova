@@ -16,31 +16,14 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
-import type { AppLanguageIdentity, LanguageTag } from "@/lib/domain";
 import {
-	languageDirection,
 	languageDisplayLabel,
 	languageEnglishName,
-	languageQualifierLabels,
 } from "@/lib/domain/languageRegistry";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useBuilderLanguage } from "./BuilderLocalizationProvider";
+import { languageSelectorRows } from "./languageSelectorRows";
 import { useLanguageRegistrySearch } from "./useLanguageRegistrySearch";
-
-interface SelectorRow {
-	readonly tag: LanguageTag;
-	readonly identity: AppLanguageIdentity;
-	/** Endonym-first label; undefined while the full registry chunk loads. */
-	readonly label: string | undefined;
-	/** Full English qualified name, for the tooltip and accessible name. */
-	readonly englishName: string | undefined;
-	readonly direction: "ltr" | "rtl";
-	/**
-	 * The muted disambiguator, present only when the identity carries
-	 * qualifiers or shares its language axis with another app language.
-	 */
-	readonly qualifier: string | undefined;
-}
 
 export function LanguageSelector() {
 	const state = useBuilderLanguage();
@@ -55,34 +38,7 @@ export function LanguageSelector() {
 	);
 	const resolver = useLanguageRegistrySearch(needsResolver).data;
 
-	const axisCounts = new Map<string, number>();
-	for (const { identity } of state.languages) {
-		axisCounts.set(
-			identity.language,
-			(axisCounts.get(identity.language) ?? 0) + 1,
-		);
-	}
-	const rows: SelectorRow[] = state.languages.map(({ tag, identity }) => {
-		const qualifiers = languageQualifierLabels(identity);
-		const sharesAxis = (axisCounts.get(identity.language) ?? 0) > 1;
-		return {
-			tag,
-			identity,
-			label:
-				languageDisplayLabel(identity) ??
-				resolver?.resolvedLanguageDisplayLabel(identity),
-			englishName:
-				languageEnglishName(identity) ??
-				resolver?.resolvedLanguageEnglishName(identity),
-			direction: languageDirection(identity),
-			qualifier:
-				qualifiers.length > 0
-					? qualifiers.join(", ")
-					: sharesAxis
-						? "General"
-						: undefined,
-		};
-	});
+	const rows = languageSelectorRows(state.languages, resolver);
 	const selected = rows.find((row) => row.tag === state.language) ?? rows[0];
 	const selectedAccessibleName =
 		selected?.englishName ?? selected?.label ?? "current language";

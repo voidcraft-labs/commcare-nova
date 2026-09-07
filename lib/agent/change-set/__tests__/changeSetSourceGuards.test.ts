@@ -1,49 +1,68 @@
-/**
- * Structural isolation guards for the change-set runtime.
- *
- * A private change set is a CANDIDATE: it holds staged intent that no one
- * outside its owner may observe and that touches no external system until the
- * one all-or-nothing commit. Everything that could leak it — the run event
- * log, the chat SSE host, the multiplayer frames, the realtime notify
- * channel — or that could give it a second write path — the canonical commit
- * kernel, object storage, HQ deployment, the lookup writers — is banned at
- * source level here, where a stray import fails loudly instead of quietly
- * publishing a draft.
- *
- * The one deliberate exception is the commit itself: `commit.ts` is where a
- * change set stops being private, so it alone reaches the canonical writer.
- */
-
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+/** Direct-import architecture for private staging. The compiler owns module
+ * syntax and path normalization. This is not a transitive capability proof:
+ * native change-set tests own isolation, atomic commit and holder behavior. */
+import path from "node:path";
+import {
+	isCallExpression,
+	isExportDeclaration,
+	isExternalModuleReference,
+	isIdentifier,
+	isImportDeclaration,
+	isNoSubstitutionTemplateLiteral,
+	isStringLiteral,
+	type Node,
+	SyntaxKind,
+} from "typescript/unstable/ast";
 import { describe, expect, it } from "vitest";
+import {
+	readTypeScriptSources,
+	visitTypeScript,
+	withTypeScriptSources,
+} from "@/__tests__/helpers/typescriptSources";
 
-const CHANGE_SET_ROOT = join(__dirname, "..");
+const CHANGE_SET_ROOT = "lib/agent/change-set";
 
-/** Every non-test .ts file under lib/agent/change-set/. */
-function changeSetSourceFiles(dir = CHANGE_SET_ROOT): string[] {
-	const out: string[] = [];
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		if (entry.name === "__tests__") continue;
-		const full = join(dir, entry.name);
-		if (entry.isDirectory()) out.push(...changeSetSourceFiles(full));
-		else if (entry.name.endsWith(".ts")) out.push(full);
-	}
-	return out;
+/** Direct literal imports and re-exports only. The compiler owns JavaScript
+ * syntax, including quotes and escapes; runtime capability tests own invocation. */
+function importedSpecifier(node: Node): string | undefined {
+	const value =
+		isImportDeclaration(node) || isExportDeclaration(node)
+			? node.moduleSpecifier
+			: isExternalModuleReference(node)
+				? node.expression
+				: isCallExpression(node) &&
+						(node.expression.kind === SyntaxKind.ImportKeyword ||
+							(isIdentifier(node.expression) &&
+								node.expression.text === "require"))
+					? node.arguments[0]
+					: undefined;
+	return value &&
+		(isStringLiteral(value) || isNoSubstitutionTemplateLiteral(value))
+		? value.text
+		: undefined;
 }
 
-/** Every module specifier a source reaches — static `import`/`export from`,
- *  dynamic `import("...")`, and `require("...")`, so a runtime-loaded writer
- *  cannot slip past the ban. */
-function importedSpecifiers(source: string): string[] {
-	const specifiers: string[] = [];
-	const pattern =
-		/from\s+"([^"]+)"|\bimport\(\s*"([^"]+)"\s*\)|\brequire\(\s*"([^"]+)"\s*\)/g;
-	for (const match of source.matchAll(pattern)) {
-		const specifier = match[1] ?? match[2] ?? match[3];
-		if (specifier !== undefined) specifiers.push(specifier);
-	}
-	return specifiers;
+function directImports(sources: Record<string, string>): Map<string, string[]> {
+	return withTypeScriptSources(sources, (parsed) => {
+		const imports = new Map<string, string[]>();
+		for (const [file, source] of parsed) {
+			const names: string[] = [];
+			visitTypeScript(source, (node) => {
+				const specifier = importedSpecifier(node);
+				if (specifier === undefined) return;
+				const resolved = specifier.startsWith("@/")
+					? specifier.slice(2)
+					: specifier.startsWith(".")
+						? path.posix.normalize(
+								path.posix.join(path.posix.dirname(file), specifier),
+							)
+						: specifier;
+				names.push(resolved.replace(/\.[cm]?[jt]sx?$/, ""));
+			});
+			imports.set(file, names);
+		}
+		return imports;
+	});
 }
 
 interface ForbiddenImportRule {
@@ -147,45 +166,52 @@ const RULES: readonly ForbiddenImportRule[] = [
 	},
 ];
 
-/** Realtime pokes that need no import — a raw channel name or a hand-rolled
- *  `pg_notify` would bypass every rule above. */
-const FORBIDDEN_TOKENS = ["notifyAppStream", "pg_notify"];
-
-describe("change-set source guards", () => {
-	const files = changeSetSourceFiles();
-
-	it("finds the change-set sources", () => {
-		expect(files.length).toBeGreaterThan(10);
-	});
-
-	for (const rule of RULES) {
-		it(`no undeclared change-set module imports ${rule.what}`, () => {
-			const offenders: string[] = [];
-			for (const file of files) {
-				const rel = relative(CHANGE_SET_ROOT, file).replaceAll("\\", "/");
-				if (rule.allowedFiles.includes(rel)) continue;
-				const source = readFileSync(file, "utf8");
-				if (importedSpecifiers(source).some(rule.matches)) offenders.push(rel);
+function violations(sources: Record<string, string>): string[] {
+	const failures: string[] = [];
+	for (const [file, imports] of directImports(sources)) {
+		const relative = path.posix.relative(CHANGE_SET_ROOT, file);
+		for (const rule of RULES) {
+			if (!rule.allowedFiles.includes(relative) && imports.some(rule.matches)) {
+				failures.push(`${relative}: ${rule.what}`);
 			}
-			expect(offenders).toEqual([]);
-		});
+		}
 	}
+	return failures;
+}
 
-	it("commit.ts really does hold the one authorized canonical-writer import", () => {
-		const source = readFileSync(join(CHANGE_SET_ROOT, "commit.ts"), "utf8");
-		expect(
-			importedSpecifiers(source).some((s) =>
-				s.includes("db/applyBlueprintChange"),
-			),
-		).toBe(true);
+describe("change-set direct-import architecture", () => {
+	it("has no undeclared direct imports of canonical writers or external effects", () => {
+		const sources = readTypeScriptSources([CHANGE_SET_ROOT]);
+		expect(Object.keys(sources)).toContain("lib/agent/change-set/workspace.ts");
+		expect(violations(sources)).toEqual([]);
 	});
-
-	for (const token of FORBIDDEN_TOKENS) {
-		it(`no change-set source mentions ${token}`, () => {
-			const offenders = files
-				.filter((file) => readFileSync(file, "utf8").includes(token))
-				.map((file) => relative(CHANGE_SET_ROOT, file).replaceAll("\\", "/"));
-			expect(offenders).toEqual([]);
-		});
-	}
+	it("detects literal imports and reexports across quotes, escapes and relative paths", () => {
+		expect(
+			violations({
+				"lib/agent/change-set/probe.ts": `
+   import '@\\x2flib/log/writer';
+   export { write } from '../../db/applyBlueprintChange.ts';
+   const a = import(\`../../deployment/publish\`);
+   const b = require('../../storage');
+   // import '@/lib/collab';
+   const prose = "import '@/lib/collab'";
+  `,
+			}),
+		).toEqual([
+			"probe.ts: the event-log writer",
+			"probe.ts: the object store",
+			"probe.ts: the HQ deployment writers",
+			"probe.ts: applyBlueprintChange (the canonical writer)",
+		]);
+	});
+	it("keeps the app-edit canonical writer crossing specific to commit.ts", () => {
+		const source =
+			"import { applyBlueprintChange } from '../../db/applyBlueprintChange';";
+		expect(violations({ "lib/agent/change-set/commit.ts": source })).toEqual(
+			[],
+		);
+		expect(violations({ "lib/agent/change-set/workspace.ts": source })).toEqual(
+			["workspace.ts: applyBlueprintChange (the canonical writer)"],
+		);
+	});
 });

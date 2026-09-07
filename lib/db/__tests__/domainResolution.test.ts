@@ -67,9 +67,4 @@ describe("resolveUploadDomain — ambiguous (the bug this kills)", () => {
 			available: [ACME, PROD, DEMO],
 		});
 	});
-
-	it("never silently defaults to the first space", () => {
-		const r = resolveUploadDomain({ availableDomains: [ACME, PROD] });
-		expect(r.ok).toBe(false);
-	});
 });

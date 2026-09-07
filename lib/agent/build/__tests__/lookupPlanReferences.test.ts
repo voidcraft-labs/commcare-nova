@@ -9,6 +9,7 @@ import {
 	makeLookupContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
 	type BuildPlanLookupMaterialization,
 	type DesignLookupBinding,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/agent/design/lookupMaterializationTypes";
 import {
 	lookupColumnIdSchema,
+	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
@@ -59,7 +61,7 @@ function materialization(): BuildPlanLookupMaterialization {
 	};
 }
 
-describe("accepted lookup references", () => {
+describe("accepted lookup reference projection (pure; persisted receipts have native tests)", () => {
 	it("refuses to plan lookup intent before its durable receipt exists", () => {
 		expect(() =>
 			deriveBuildPlan({ contract: makeLookupContract(), revision: REVISION }),
@@ -70,7 +72,7 @@ describe("accepted lookup references", () => {
 		const contract = makeLookupContract();
 		const lookupMaterialization = materialization();
 		const plan = deriveBuildPlan({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			lookupMaterialization,
 		});
@@ -82,7 +84,7 @@ describe("accepted lookup references", () => {
 		);
 		if (root === undefined) throw new Error("Expected a root build slice.");
 		const brief = deriveSliceExecutionBrief({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			plan,
 			sliceId: root.id,
@@ -91,25 +93,27 @@ describe("accepted lookup references", () => {
 		const risk = brief.records
 			.flatMap((record) => record.properties)
 			.find((property) => property.id === ids.factRisk);
-		expect(risk?.choiceSource).toEqual(
-			contract.records
-				.flatMap((record) => record.properties)
-				.find((property) => property.id === ids.factRisk)?.choiceSource,
-		);
+		expect(risk?.choiceSource).toEqual({
+			kind: "designed-project-lookup",
+			tableId: ids.lookupRisk,
+			valueColumnId: ids.lookupRiskValue,
+			labelColumnId: ids.lookupRiskLabel,
+		});
 		const rendered = renderBriefMessage(brief);
 		expect(rendered).toContain(ids.lookupRisk);
 		expect(rendered).not.toContain(TABLE_ID);
 		expect(rendered).not.toContain(lookupMaterialization.resultDigest);
 	});
 
-	it("keeps receipt bindings out of the execution brief", () => {
+	it("projects large row receipts to only table and column identities before planning", () => {
 		const fullReceiptBindings: DesignLookupBinding[] = [
 			...materialization().bindings,
 			...Array.from({ length: 5_000 }, (_, index) => ({
 				kind: "lookup-row" as const,
 				designId: did(1_000 + index),
-				lookupId:
-					`018f0000-0000-7000-8000-${index.toString(16).padStart(12, "0")}` as never,
+				lookupId: lookupRowIdSchema.parse(
+					`018f0000-0000-7000-8000-${index.toString(16).padStart(12, "0")}`,
+				),
 			})),
 		];
 		const lookupMaterialization = {
@@ -118,7 +122,7 @@ describe("accepted lookup references", () => {
 		};
 		const contract = makeLookupContract();
 		const plan = deriveBuildPlan({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			lookupMaterialization,
 		});
@@ -127,13 +131,15 @@ describe("accepted lookup references", () => {
 		);
 		if (root === undefined) throw new Error("Expected a root build slice.");
 		const brief = deriveSliceExecutionBrief({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			plan,
 			sliceId: root.id,
 		});
 		expect(plan.lookupMaterialization?.bindings).toHaveLength(3);
-		expect(JSON.stringify(plan.lookupMaterialization).length).toBeLessThan(800);
+		expect(plan.lookupMaterialization?.bindings).toEqual(
+			materialization().bindings,
+		);
 		expect(JSON.stringify(brief)).not.toContain(TABLE_ID);
 		expect(JSON.stringify(brief)).not.toContain(
 			lookupMaterialization.resultDigest,
@@ -168,7 +174,7 @@ describe("accepted lookup references", () => {
 		};
 		const lookupMaterialization = { ...materialization(), bindings: [] };
 		const plan = deriveBuildPlan({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			lookupMaterialization,
 		});
@@ -177,7 +183,7 @@ describe("accepted lookup references", () => {
 		);
 		if (root === undefined) throw new Error("Expected a root build slice.");
 		const brief = deriveSliceExecutionBrief({
-			contract,
+			contract: appDesignContractSchema.parse(contract),
 			revision: REVISION,
 			plan,
 			sliceId: root.id,
@@ -211,4 +217,38 @@ describe("accepted lookup references", () => {
 			`missing the lookup-column binding for accepted Design ID ${ids.lookupRiskLabel}`,
 		);
 	});
+	it.each(["duplicate", "wrong-kind", "unaccepted"] as const)(
+		"refuses %s receipt bindings at accepted-contract plan admission",
+		(corruption) => {
+			const contract = appDesignContractSchema.parse(makeLookupContract());
+			const receipt = materialization();
+			if (corruption === "duplicate")
+				receipt.bindings.push({ ...receipt.bindings[0] });
+			else if (corruption === "wrong-kind")
+				receipt.bindings[0] = {
+					kind: "lookup-column",
+					designId: ids.lookupRisk,
+					lookupId: VALUE_COLUMN_ID,
+				};
+			else
+				receipt.bindings.push({
+					kind: "lookup-table",
+					designId: did(9000),
+					lookupId: TABLE_ID,
+				});
+			expect(() =>
+				deriveBuildPlan({
+					contract,
+					revision: REVISION,
+					lookupMaterialization: receipt,
+				}),
+			).toThrow(
+				corruption === "duplicate"
+					? "exactly once"
+					: corruption === "wrong-kind"
+						? "requires a lookup-table"
+						: "does not materialize",
+			);
+		},
+	);
 });

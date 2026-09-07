@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { CaseOperation, Form } from "@/lib/domain";
+import type { CaseOperation } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
@@ -31,6 +32,7 @@ function directCollectionLinkDoc(
 		caseTypes: [
 			{ name: "patient", properties: [] },
 			{ name: "visit", properties: [] },
+			{ name: "client", properties: [] },
 		],
 		modules: [
 			{
@@ -72,7 +74,8 @@ function directCollectionLinkDoc(
 			},
 		],
 	});
-	(doc.forms[SOURCE_FORM] as Form).caseOperations = [...caseOperations];
+	expectAdmittedDoc({ ...doc });
+	doc.forms[SOURCE_FORM].caseOperations = [...caseOperations];
 	return doc;
 }
 
@@ -128,7 +131,7 @@ function restorePossiblySelectedExpression(): CaseOperation {
 }
 
 function codes(doc: ReturnType<typeof buildDoc>): string[] {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+	return runValidation({ ...doc }, LOOKUP_CONTEXT_UNAVAILABLE).map(
 		(error) => error.code,
 	);
 }
@@ -139,20 +142,20 @@ function fanoutExpressionDoc(options: {
 	condition?: string;
 	datumXpath?: string;
 }) {
-	return buildDoc({
+	const doc = buildDoc({
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
+				properties: [],
 			},
 			{
 				name: "visit",
 				parent_type: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
+				properties: [],
 			},
 			{
 				name: "next_case",
-				properties: [{ name: "case_name", label: proseText("Name") }],
+				properties: [],
 			},
 		],
 		modules: [
@@ -166,6 +169,7 @@ function fanoutExpressionDoc(options: {
 						uuid: SOURCE_FORM,
 						name: "Create visits",
 						type: "followup",
+						postSubmit: "app_home",
 						fields: [
 							f({
 								kind: "text",
@@ -203,6 +207,9 @@ function fanoutExpressionDoc(options: {
 				uuid: TARGET_MODULE,
 				name: "Next cases",
 				caseType: "next_case",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						uuid: TARGET_FORM,
@@ -223,6 +230,28 @@ function fanoutExpressionDoc(options: {
 			},
 		],
 	});
+	const child = buildDoc({
+		caseTypes: [{ name: "visit", properties: [] }],
+		modules: [
+			{
+				name: "Visits",
+				caseType: "visit",
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			},
+		],
+	});
+	const childUuid = child.moduleOrder[0];
+	doc.moduleOrder.push(childUuid);
+	doc.modules[childUuid] = child.modules[childUuid];
+	doc.formOrder[childUuid] = [];
+	const baseline = structuredClone(doc);
+	delete baseline.forms[SOURCE_FORM].formLinks;
+	expectAdmittedDoc(baseline);
+	return doc;
 }
 
 describe("multi-select absolute validation", () => {
@@ -231,7 +260,7 @@ describe("multi-select absolute validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [],
 				},
 			],
 			modules: [
@@ -261,6 +290,11 @@ describe("multi-select absolute validation", () => {
 				},
 			],
 		});
+		const scalar = structuredClone(doc);
+		delete scalar.modules[scalar.moduleOrder[0]].caseListConfig?.selection;
+		delete scalar.modules[scalar.moduleOrder[0]].caseListConfig?.tile;
+		expectAdmittedDoc(scalar);
+
 		expect(codes(doc)).toEqual(
 			expect.arrayContaining([
 				"MULTI_SELECT_NO_BATCH_CONSUMER",
@@ -297,7 +331,7 @@ describe("multi-select absolute validation", () => {
 		const [parentUuid, childUuid] = doc.moduleOrder;
 		doc.modules[childUuid].parentModuleUuid = parentUuid;
 
-		expect(codes(doc)).not.toContain("MULTI_SELECT_NO_BATCH_CONSUMER");
+		expectAdmittedDoc({ ...doc });
 
 		doc.modules[childUuid].caseListConfig = multipleConfig(4);
 		expect(codes(doc)).toContain("MULTI_SELECT_NO_BATCH_CONSUMER");
@@ -308,10 +342,7 @@ describe("multi-select absolute validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "note", label: proseText("Note") },
-					],
+					properties: [{ name: "note", label: proseText("Note") }],
 				},
 			],
 			modules: [
@@ -336,9 +367,14 @@ describe("multi-select absolute validation", () => {
 				},
 			],
 		});
-		expect(
-			codes(doc).filter((code) => code.startsWith("MULTI_SELECT")),
-		).toEqual(["MULTI_SELECT_SHARED_CASE_EXPRESSION"]);
+		expect(codes(doc)).toEqual([
+			"MULTI_SELECT_SHARED_CASE_EXPRESSION",
+			"INVALID_CASE_REF",
+		]);
+		const field = Object.values(doc.fields)[0];
+		if (field.kind !== "text") throw new Error("Fixture requires a text field");
+		delete field.default_value;
+		expectAdmittedDoc({ ...doc });
 	});
 
 	it("rejects authored-key creates, session links, and scope-order reversals", () => {
@@ -346,7 +382,7 @@ describe("multi-select absolute validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [],
 				},
 				{ name: "visit", properties: [] },
 			],
@@ -367,7 +403,8 @@ describe("multi-select absolute validation", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		expectAdmittedDoc({ ...doc });
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: SESSION_UPDATE,
 				id: "update_selected",
@@ -407,7 +444,7 @@ describe("multi-select absolute validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [],
 				},
 			],
 			modules: [
@@ -450,7 +487,9 @@ describe("multi-select absolute validation", () => {
 				},
 			],
 		});
-		expect(codes(doc)).toContain("FORM_LINK_SELECTION_CARDINALITY");
+		expect(codes(doc)).toEqual(["FORM_LINK_SELECTION_CARDINALITY"]);
+		doc.modules[TARGET_MODULE].caseListConfig = multipleConfig(10);
+		expectAdmittedDoc({ ...doc });
 	});
 
 	it("refuses to carry selected cases after a session operation can change their type", () => {
@@ -476,7 +515,7 @@ describe("multi-select absolute validation", () => {
 			restoreSelected(),
 		]);
 
-		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+		expectAdmittedDoc({ ...doc });
 	});
 
 	it("refuses the carry when an expression-target retype may address a selected case", () => {
@@ -499,7 +538,7 @@ describe("multi-select absolute validation", () => {
 			restorePossiblySelectedExpression(),
 		]);
 
-		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+		expectAdmittedDoc({ ...doc });
 	});
 
 	it("ignores a retype of a generated case that cannot alias the selection", () => {
@@ -522,10 +561,10 @@ describe("multi-select absolute validation", () => {
 			},
 		]);
 
-		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+		expectAdmittedDoc({ ...doc });
 	});
 
-	it("keeps provably distinct retypes out of the branch-overflow fallback", () => {
+	it("the conservative type analysis excludes generated identities when alias branches overflow", () => {
 		const generated = testUuid("overflow-generated");
 		const operations: CaseOperation[] = [
 			{
@@ -571,12 +610,12 @@ describe("multi-select absolute validation", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [],
 				},
 				{
 					name: "visit",
 					parent_type: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [],
 				},
 			],
 			modules: [
@@ -616,7 +655,9 @@ describe("multi-select absolute validation", () => {
 					uuid: TARGET_MODULE,
 					name: "Visits",
 					caseType: "visit",
-					caseListConfig: caseListConfig([]),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: TARGET_FORM,
@@ -629,6 +670,9 @@ describe("multi-select absolute validation", () => {
 			],
 		});
 
+		const baseline = structuredClone(doc);
+		delete baseline.forms[SOURCE_FORM].formLinks;
+		expectAdmittedDoc(baseline);
 		expect(codes(doc)).toContain("MULTI_SELECT_FANOUT_CHILD_DATUM");
 		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CARDINALITY");
 	});
@@ -763,11 +807,11 @@ describe("multi-select absolute validation", () => {
 
 	it("allows plain unrelated exact session reads without filters", () => {
 		const doc = fanoutExpressionDoc({
-			condition: "instance('commcaresession')/session/data/unrelated = 'yes'",
+			condition: "instance('commcaresession')/session/context/userid != ''",
 			datumXpath: "instance('commcaresession')/session/context/userid",
 		});
 
-		expect(codes(doc)).not.toContain("MULTI_SELECT_FANOUT_CHILD_DATUM");
+		expectAdmittedDoc({ ...doc });
 	});
 
 	it("preserves ordinary one-case links between different case types", () => {
@@ -781,7 +825,9 @@ describe("multi-select absolute validation", () => {
 					uuid: SOURCE_MODULE,
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: caseListConfig([]),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: SOURCE_FORM,
@@ -790,6 +836,7 @@ describe("multi-select absolute validation", () => {
 							fields: [f({ kind: "text", id: "note" })],
 							formLinks: [
 								{
+									datums: [{ name: "case_id", xpath: "'household-id'" }],
 									target: {
 										type: "form",
 										moduleUuid: TARGET_MODULE,
@@ -804,7 +851,9 @@ describe("multi-select absolute validation", () => {
 					uuid: TARGET_MODULE,
 					name: "Households",
 					caseType: "household",
-					caseListConfig: caseListConfig([]),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: TARGET_FORM,
@@ -817,6 +866,6 @@ describe("multi-select absolute validation", () => {
 			],
 		});
 
-		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CARDINALITY");
+		expectAdmittedDoc({ ...doc });
 	});
 });

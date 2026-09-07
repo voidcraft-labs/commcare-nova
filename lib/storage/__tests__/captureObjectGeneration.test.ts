@@ -29,8 +29,7 @@ vi.mock("@google-cloud/storage", () => ({
 }));
 
 beforeEach(() => {
-	vi.resetModules();
-	vi.clearAllMocks();
+	vi.resetAllMocks();
 	vi.stubEnv("NODE_ENV", "production");
 	vi.stubEnv("NOVA_MEDIA_BUCKET", "capture-test");
 	getSignedUrlMock.mockResolvedValue(["https://storage.test/upload"]);
@@ -58,10 +57,12 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 });
 
 describe("capture object generation fencing", () => {
 	it("signs an exact-size, create-only PUT and returns every required header", async () => {
+		vi.spyOn(Date, "now").mockReturnValue(1_000_000);
 		const { createSignedUploadUrl } = await import("../media");
 		const result = await createSignedUploadUrl({
 			gcsObjectKey: "captures-staged/project/attachment.png",
@@ -73,12 +74,21 @@ describe("capture object generation fencing", () => {
 		expect(getSignedUrlMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				action: "write",
+				version: "v4",
+				expires: 1_300_000,
 				contentType: "image/png",
 				extensionHeaders: {
 					"x-goog-content-length-range": "17,17",
 					"x-goog-if-generation-match": "0",
 				},
 			}),
+		);
+		expect(result).toMatchObject({
+			url: "https://storage.test/upload",
+			expiresAtMs: 1_300_000,
+		});
+		expect(fileMock).toHaveBeenCalledWith(
+			"captures-staged/project/attachment.png",
 		);
 		expect(result.requiredHeaders).toEqual({
 			"x-goog-content-length-range": "17,17",
@@ -96,7 +106,7 @@ describe("capture object generation fencing", () => {
 		});
 
 		expect(saveMock).toHaveBeenCalledWith(
-			expect.any(Buffer),
+			Buffer.from("capture"),
 			expect.objectContaining({
 				preconditionOpts: { ifGenerationMatch: 0 },
 			}),
@@ -131,99 +141,91 @@ describe("capture object generation fencing", () => {
 		);
 	});
 
-	it("accepts 412 only when the existing destination metadata is identical", async () => {
-		copyMock.mockRejectedValue({ code: 412 });
-		const { copyAssetObjectIfAbsent } = await import("../media");
-		const args = {
-			sourceGcsObjectKey: "captures-staged/project/attachment.png",
-			sourceGeneration: "source-generation",
-			destinationGcsObjectKey: "projects/project/captures/attachment.png",
-			expectedSize: 17,
-			expectedChecksum: "checksum",
-			expectedContentType: "image/png",
-		};
-		await expect(copyAssetObjectIfAbsent(args)).resolves.toEqual({
-			destinationGeneration: "destination-generation",
-			replay: true,
-		});
+	it.each([404, "404", 412, "412"])(
+		"accepts %s only after verifying the existing destination",
+		async (code) => {
+			copyMock.mockRejectedValue({ code });
+			const { copyAssetObjectIfAbsent } = await import("../media");
+			await expect(
+				copyAssetObjectIfAbsent({
+					sourceGcsObjectKey: "captures-staged/project/attachment.png",
+					sourceGeneration: "source-generation",
+					destinationGcsObjectKey: "projects/project/captures/attachment.png",
+					expectedSize: 17,
+					expectedChecksum: "checksum",
+					expectedContentType: "image/png",
+				}),
+			).resolves.toEqual({
+				destinationGeneration: "destination-generation",
+				replay: true,
+			});
+			expect(getMetadataMock).toHaveBeenCalledOnce();
+		},
+	);
 
-		getMetadataMock.mockResolvedValueOnce([
-			{
-				size: "18",
-				generation: "other-generation",
-				crc32c: "other-checksum",
-				contentType: "image/png",
-			},
-		]);
-		await expect(copyAssetObjectIfAbsent(args)).rejects.toThrow(
-			/does not match the staged source generation/,
-		);
-	});
-
-	it("recovers a missing source when the durable destination independently matches", async () => {
-		copyMock.mockRejectedValue({ code: 404 });
-		const { copyAssetObjectIfAbsent } = await import("../media");
-
-		await expect(
-			copyAssetObjectIfAbsent({
+	it.each([404, 412, "copy succeeded"])(
+		"refuses mismatched destination metadata after %s",
+		async (code) => {
+			if (code !== "copy succeeded") copyMock.mockRejectedValue({ code });
+			const { copyAssetObjectIfAbsent } = await import("../media");
+			const args = {
 				sourceGcsObjectKey: "captures-staged/project/attachment.png",
 				sourceGeneration: "source-generation",
 				destinationGcsObjectKey: "projects/project/captures/attachment.png",
 				expectedSize: 17,
 				expectedChecksum: "checksum",
 				expectedContentType: "image/png",
-			}),
-		).resolves.toEqual({
-			destinationGeneration: "destination-generation",
-			replay: true,
-		});
+			};
+			const mismatches = [
+				{
+					size: "18",
+					generation: "other-generation",
+					crc32c: "checksum",
+					contentType: "image/png",
+				},
+				{
+					size: "17",
+					generation: "other-generation",
+					crc32c: "other-checksum",
+					contentType: "image/png",
+				},
+				{
+					size: "17",
+					generation: "other-generation",
+					crc32c: "checksum",
+					contentType: "application/octet-stream",
+				},
+				{
+					size: "17",
+					generation: undefined,
+					crc32c: "checksum",
+					contentType: "image/png",
+				},
+			];
+			for (const metadata of mismatches) {
+				getMetadataMock.mockResolvedValueOnce([metadata]);
+				await expect(copyAssetObjectIfAbsent(args)).rejects.toThrow(
+					/does not match the staged source generation/,
+				);
+			}
+		},
+	);
 
-		expect(getMetadataMock).toHaveBeenCalledOnce();
-	});
-
-	it("refuses a missing source when the durable destination does not match", async () => {
-		copyMock.mockRejectedValue({ code: 404 });
+	it("propagates unrelated copy failures without adopting an existing object", async () => {
+		const failure = Object.assign(new Error("access denied"), { code: 403 });
+		copyMock.mockRejectedValue(failure);
 		const { copyAssetObjectIfAbsent } = await import("../media");
-		const args = {
-			sourceGcsObjectKey: "captures-staged/project/attachment.png",
-			sourceGeneration: "source-generation",
-			destinationGcsObjectKey: "projects/project/captures/attachment.png",
-			expectedSize: 17,
-			expectedChecksum: "checksum",
-			expectedContentType: "image/png",
-		};
-		const mismatches = [
-			{
-				size: "18",
-				generation: "other-generation",
-				crc32c: "checksum",
-				contentType: "image/png",
-			},
-			{
-				size: "17",
-				generation: "other-generation",
-				crc32c: "other-checksum",
-				contentType: "image/png",
-			},
-			{
-				size: "17",
-				generation: "other-generation",
-				crc32c: "checksum",
-				contentType: "application/octet-stream",
-			},
-			{
-				size: "17",
-				generation: undefined,
-				crc32c: "checksum",
-				contentType: "image/png",
-			},
-		];
-		for (const metadata of mismatches) {
-			getMetadataMock.mockResolvedValueOnce([metadata]);
-			await expect(copyAssetObjectIfAbsent(args)).rejects.toThrow(
-				/does not match the staged source generation/,
-			);
-		}
+		await expect(
+			copyAssetObjectIfAbsent({
+				sourceGcsObjectKey: "staged",
+				sourceGeneration: "12",
+				destinationGcsObjectKey: "durable",
+				expectedSize: 17,
+				expectedChecksum: "checksum",
+				expectedContentType: "image/png",
+			}),
+		).rejects.toBe(failure);
+		expect(getMetadataMock).not.toHaveBeenCalled();
 	});
 
 	it("deletes only the confirmed source generation", async () => {

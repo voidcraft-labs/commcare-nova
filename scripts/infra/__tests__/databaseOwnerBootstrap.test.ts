@@ -2,10 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
 	assertDatabaseBootstrapPreconditions,
 	assertDatabaseBootstrapResult,
+	DATABASE_OWNER_BOOTSTRAP_CONFIG,
 	type DatabaseBootstrapFacts,
-	databaseOwnerBootstrapStatements,
-	LEGACY_DATABASE_ROLE,
-	quoteIdentifier,
 } from "../databaseOwnerBootstrap";
 
 const safeFacts: DatabaseBootstrapFacts = {
@@ -45,22 +43,7 @@ const safeFacts: DatabaseBootstrapFacts = {
 	currentUserCanSetLegacy: true,
 	migrationIsRuntimeMember: true,
 	migrationCanSetRuntime: true,
-	migrationIsCleanupMember: false,
-	migrationCanSetCleanup: false,
-	migrationIsLegacyMember: false,
-	migrationCanSetLegacy: false,
-	cleanupIsRuntimeMember: false,
-	cleanupCanSetRuntime: false,
-	cleanupIsMigrationMember: false,
-	cleanupCanSetMigration: false,
-	cleanupIsLegacyMember: false,
-	cleanupCanSetLegacy: false,
-	runtimeIsMigrationMember: false,
-	runtimeCanSetMigration: false,
-	runtimeIsCleanupMember: false,
-	runtimeCanSetCleanup: false,
-	runtimeIsLegacyMember: false,
-	runtimeCanSetLegacy: false,
+	unexpectedApplicationParents: [],
 	runtimeCanCreateDatabase: false,
 	runtimeCanCreatePublicSchema: false,
 	legacyCanCreateDatabase: false,
@@ -96,46 +79,20 @@ const safeFacts: DatabaseBootstrapFacts = {
 };
 
 describe("deployment database owner bootstrap", () => {
-	test("quotes identifiers and emits the legacy ownership transfer without SQL membership changes", () => {
-		expect(quoteIdentifier('role"name')).toBe('"role""name"');
-		expect(databaseOwnerBootstrapStatements(safeFacts)).toEqual([
-			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
-			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
-			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
-			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
-			'ALTER ROLE "nova-audit@commcare-nova.iam" CONNECTION LIMIT 1',
-			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
-			`REASSIGN OWNED BY "${LEGACY_DATABASE_ROLE}" TO "nova-migrate@commcare-nova.iam"`,
-			`DROP OWNED BY "${LEGACY_DATABASE_ROLE}" RESTRICT`,
-			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
-			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
-		]);
-		expect(
-			databaseOwnerBootstrapStatements({
-				...safeFacts,
-				legacyRoleExists: false,
-			}),
-		).toEqual([
-			'CREATE EXTENSION IF NOT EXISTS "pg_trgm" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "fuzzystrmatch" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "postgis" WITH SCHEMA public',
-			'CREATE EXTENSION IF NOT EXISTS "pgaudit" WITH SCHEMA public',
-			'ALTER ROLE "commcare-nova@commcare-nova.iam" CONNECTION LIMIT 16',
-			'ALTER ROLE "nova-migrate@commcare-nova.iam" CONNECTION LIMIT 1',
-			'ALTER ROLE "nova-capture-cleanup@commcare-nova.iam" CONNECTION LIMIT 3',
-			'ALTER ROLE "nova-audit@commcare-nova.iam" CONNECTION LIMIT 1',
-			'ALTER DATABASE "nova_cases" OWNER TO "nova-migrate@commcare-nova.iam"',
-			'REASSIGN OWNED BY "nova-deployment-bootstrap" TO "nova-migrate@commcare-nova.iam"',
-			'DROP OWNED BY "nova-deployment-bootstrap" RESTRICT',
-		]);
-		expect(
-			databaseOwnerBootstrapStatements(safeFacts).some((statement) =>
-				statement.includes('REASSIGN OWNED BY "postgres"'),
-			),
-		).toBe(false);
+	test("declares the production database identity, role caps, and required extensions", () => {
+		expect(DATABASE_OWNER_BOOTSTRAP_CONFIG).toEqual({
+			database: "nova_cases",
+			migrationRole: "nova-migrate@commcare-nova.iam",
+			runtimeRole: "commcare-nova@commcare-nova.iam",
+			cleanupRole: "nova-capture-cleanup@commcare-nova.iam",
+			auditRole: "nova-audit@commcare-nova.iam",
+			legacyRole: "51003905459-compute@developer",
+			migrationConnectionLimit: 1,
+			runtimeConnectionLimit: 16,
+			cleanupConnectionLimit: 3,
+			auditConnectionLimit: 1,
+			requiredExtensions: ["pg_trgm", "fuzzystrmatch", "postgis", "pgaudit"],
+		});
 	});
 
 	test("requires API-prepared role memberships and a bounded legacy dependency set", () => {
@@ -185,7 +142,7 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
-				cleanupIsRuntimeMember: true,
+				unexpectedApplicationParents: ["cleanup -> runtime"],
 			}),
 		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
@@ -221,7 +178,7 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapPreconditions({
 				...safeFacts,
-				cleanupIsMigrationMember: true,
+				unexpectedApplicationParents: ["cleanup -> migration"],
 			}),
 		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>
@@ -298,7 +255,7 @@ describe("deployment database owner bootstrap", () => {
 		expect(() =>
 			assertDatabaseBootstrapResult({
 				...safeFacts,
-				runtimeIsMigrationMember: true,
+				unexpectedApplicationParents: ["runtime -> migration"],
 			}),
 		).toThrow("wider than the one-way migration-to-runtime grant");
 		expect(() =>

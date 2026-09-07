@@ -41,8 +41,8 @@ export default defineConfig({
 		// loop, `npm run test:changed`) to re-run the WHOLE suite: they sit
 		// OUTSIDE every test's import graph yet change how all tests execute
 		// (installed deps — including a lockfile-only bump that leaves
-		// package.json untouched — this config, the global logger/motion
-		// stubs, and shared database preparation). Vitest exposes this option
+		// package.json untouched — this config, the global boundary substitutes
+		// and Motion configuration, and shared database preparation). Vitest exposes this option
 		// only at the root, so migration/template changes conservatively force
 		// the whole selected run. CI never scopes: its test
 		// jobs run every test file, sharded.

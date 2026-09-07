@@ -50,17 +50,16 @@ import {
 } from "@/components/shadcn/select";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import type { CaseWriteVerdictCandidate } from "@/lib/doc/caseWriteVerdictWorkerProtocol";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
 	type ProseProjector,
 	useProseProjection,
 } from "@/lib/doc/hooks/useProseProjection";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import {
 	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
-	CASE_LOADING_FORM_TYPES,
 	type CaptureCaseWrite,
 	type CaptureCaseWriteMode,
 	type CaseProperty,
@@ -70,7 +69,6 @@ import {
 	getModuleCaseTypes,
 	humanizeId,
 	isCaptureField,
-	orderedUserProperties,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 
@@ -84,6 +82,7 @@ type AuthoredCaseWrite = CaseWrite | CaptureCaseWrite;
 
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
+import { caseWriteGuidance, destinationRef } from "./caseWritePresentation";
 
 interface CaseWriteChoice {
 	readonly id: string;
@@ -124,22 +123,6 @@ const CHECK_UNAVAILABLE =
 
 function destinationId(caseType: string, property: string): string {
 	return JSON.stringify([caseType, property]);
-}
-
-/**
- * The hashtag an author would write for one destination.
- *
- * The worker's own record is `#user/`, NOT `#commcare-user/`: `#user/` is the
- * namespace `lib/commcare/hashtags.ts` resolves, and `commcare-user` is a case
- * type nothing ever asks an author to name. Every other destination is its own
- * case type. One function because the chooser row and the chosen-state summary
- * both print this, and printing the same destination two ways reads as two
- * different places to save.
- */
-export function destinationRef(caseType: string, property: string): string {
-	return caseType === USERCASE_CASE_TYPE
-		? `#user/${property}`
-		: `#${caseType}/${property}`;
 }
 
 function typeLabel(caseType: string): string {
@@ -190,14 +173,8 @@ export function CaseWriteEditor<F extends Field>(
 	const context = useSelectedFormContext();
 	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
-	// Selected as the two raw slices and ordered here, so the subscription
-	// compares stable store references rather than a fresh array every render.
-	const userProperties = useBlueprintDoc((state) => state.userProperties);
-	const userPropertyOrder = useBlueprintDoc((state) => state.userPropertyOrder);
-	const workerProperties = useMemo(
-		() => orderedUserProperties({ userProperties, userPropertyOrder }),
-		[userProperties, userPropertyOrder],
-	);
+	const workerProperties = useUserProperties();
+
 	const triggerId = useId();
 	const newNameId = useId();
 	const newTypeId = useId();
@@ -248,26 +225,11 @@ export function CaseWriteEditor<F extends Field>(
 		current !== undefined && "mode" in current
 			? (current as CaptureCaseWrite).mode
 			: "url";
-	const writesEverySelectedCase =
-		context !== null &&
-		CASE_LOADING_FORM_TYPES.has(context.form.type) &&
-		context.module.caseListConfig?.selection?.kind === "multiple" &&
-		current !== undefined &&
-		current.caseType === context.module.caseType;
-	const hasStartingAnswer =
-		("default_value" in field && field.default_value !== undefined) ||
-		("calculate" in field && field.calculate !== undefined);
-	const severalCaseHelp = !writesEverySelectedCase
-		? undefined
-		: savesAttachment
-			? currentMode === "url"
-				? "This attachment starts blank. When someone submits a file, its stored link updates this information on every selected case. Preview leaves each case's current value because it does not create that stored link."
-				: "This attachment starts blank. When someone submits a file, it updates this information on every selected case. Preview leaves each case's current attachment because it does not create case attachments."
-			: hasStartingAnswer
-				? "This question has a starting value or calculation. When it produces an answer, that answer updates this information on every selected case, even if no one changes it."
-				: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.";
-	const severalCaseHelpIsWarning =
-		severalCaseHelp !== undefined && (savesAttachment || hasStartingAnswer);
+	const {
+		writesEverySelectedCase,
+		help: severalCaseHelp,
+		warning: severalCaseHelpIsWarning,
+	} = caseWriteGuidance(field, context, current);
 	const destinationFor = useCallback(
 		(
 			caseType: string,

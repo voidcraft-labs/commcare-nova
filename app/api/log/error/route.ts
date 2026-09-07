@@ -11,10 +11,13 @@
  * grouping, and filterable `source: client` labels alongside server errors.
  */
 import { z } from "zod/v4";
-import { CLIENT_ERROR_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
+import {
+	ApiError,
+	CLIENT_ERROR_MAX_BYTES,
+	readBodyBytes,
+} from "@/lib/apiError";
 import {
 	CLIENT_ERROR_LIMITS,
-	clientErrorUtf8Bytes,
 	normalizeClientErrorPayload,
 } from "@/lib/clientErrorContract";
 import { log } from "@/lib/logger";
@@ -97,22 +100,16 @@ const clientErrorSchema = z
 // ── Route Handler ─────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
-	// Reject a declared-oversized body before parsing. Producer + route
-	// normalization keep emitted records under 28 KB; the 32 KB input ceiling
-	// leaves JSON overhead without letting a stale client emit an unbounded log.
-	// (Aggregate request-rate flood control is enforced at the edge by Cloud Armor.)
-	if (declaredBodyTooLarge(req, CLIENT_ERROR_MAX_BYTES)) {
-		return new Response(null, { status: 413 });
-	}
-
+	// Bound native stream reads before buffering, including headerless callers.
 	let bodyText: string;
 	try {
-		bodyText = await req.text();
-	} catch {
-		return new Response(null, { status: 400 });
-	}
-	if (clientErrorUtf8Bytes(bodyText) > CLIENT_ERROR_MAX_BYTES) {
-		return new Response(null, { status: 413 });
+		bodyText = new TextDecoder().decode(
+			await readBodyBytes(req, CLIENT_ERROR_MAX_BYTES),
+		);
+	} catch (error) {
+		return new Response(null, {
+			status: error instanceof ApiError && error.status === 413 ? 413 : 400,
+		});
 	}
 
 	let body: unknown;

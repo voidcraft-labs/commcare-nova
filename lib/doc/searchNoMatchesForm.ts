@@ -211,8 +211,8 @@ function searchAnswerExpression(input: SearchInputDef) {
  * The builder's one-step answer to "register a new case when nothing
  * matches": a registration form born as the module's no-matches form, its
  * `case_name` writer seeded from a text Search prompt on the name when the
- * module has one (a choice prompt on the name is carried as its own choice
- * field instead, since its answer is an option token), one field per
+ * module has one (a choice token cannot seed the name writer, and a second
+ * writer of that property is skipped), one field per
  * remaining prompt seeded from its answer (`searchAnswerFields`), and
  * Search first turned on in the same batch. A module with no menu forms
  * stays the case list it is (`caseListOnly`): the new form is not a menu

@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-
 /**
  * Network-wiring tests for the React-free reconciler runtime.
  *
@@ -10,11 +8,18 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { lookupManifestFrameSchema } from "@/lib/collab/lookupManifestFrame";
 import type { PresenceFrame } from "@/lib/collab/presenceTypes";
-import { createReconcilerRuntime } from "@/lib/collab/ReconcilerProvider";
+import { presenceFrameSchema } from "@/lib/collab/presenceTypes";
+import {
+	createReconcilerRuntime as createRuntime,
+	type ReconcilerBrowserEffects,
+} from "@/lib/collab/ReconcilerProvider";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
@@ -23,7 +28,7 @@ vi.mock("@/lib/clientErrorReporter", () => ({ reportClientError }));
 const getLookupManifestAction = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/lookup/actions", () => ({ getLookupManifestAction }));
 
-const SOURCE_MANIFEST = {
+const SOURCE_MANIFEST = lookupManifestFrameSchema.parse({
 	projectId: "project-source",
 	projectRevision: "17",
 	tables: [
@@ -39,15 +44,15 @@ const SOURCE_MANIFEST = {
 			tableRevision: "17",
 		},
 	],
-} as LookupManifest;
+});
 
-const DESTINATION_MANIFEST = {
+const DESTINATION_MANIFEST = lookupManifestFrameSchema.parse({
 	projectId: "project-destination",
 	projectRevision: "1",
 	tables: [],
-} as unknown as LookupManifest;
+});
 
-const SOURCE_PRESENCE = [
+const SOURCE_PRESENCE = presenceFrameSchema.parse([
 	{
 		userId: "source-user",
 		sessionId: "source-session",
@@ -58,9 +63,9 @@ const SOURCE_PRESENCE = [
 		location: { kind: "home" },
 		updatedAt: 1,
 	},
-] as PresenceFrame;
+]);
 
-const DESTINATION_PRESENCE = [
+const DESTINATION_PRESENCE = presenceFrameSchema.parse([
 	{
 		...SOURCE_PRESENCE[0],
 		userId: "destination-user",
@@ -68,22 +73,43 @@ const DESTINATION_PRESENCE = [
 		name: "Destination collaborator",
 		email: "destination@dimagi.com",
 	},
-] as PresenceFrame;
+]);
 
 function emptyDoc(): BlueprintDoc {
 	return {
-		appId: "app-1",
-		appName: "App",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
+		...blueprintDocSchema.parse({
+			appId: "app-1",
+			appName: "App",
+			connectType: null,
+			caseTypes: null,
+			modules: {},
+			forms: {},
+			fields: {},
+			moduleOrder: [],
+			formOrder: {},
+			fieldOrder: {},
+		}),
 		fieldParent: {},
 	};
+}
+
+const effects: ReconcilerBrowserEffects = {
+	pageUrl: () => "https://nova.invalid/build/app-1",
+	activateHistory: () => {},
+	deactivateHistory: () => {},
+	navigateToReview: () => {},
+};
+const runtimes: ReturnType<typeof createRuntime>[] = [];
+function createReconcilerRuntime(...args: Parameters<typeof createRuntime>) {
+	const runtime = createRuntime(
+		args[0],
+		args[1],
+		args[2],
+		args[3],
+		args[4] ?? effects,
+	);
+	runtimes.push(runtime);
+	return runtime;
 }
 
 type FakeListener = (event: { data?: string; lastEventId?: string }) => void;
@@ -117,8 +143,8 @@ class FakeEventSource {
 }
 
 afterEach(() => {
+	for (const runtime of runtimes.splice(0)) runtime.suspend();
 	FakeEventSource.instances.length = 0;
-	window.sessionStorage.clear();
 	reportClientError.mockReset();
 	getLookupManifestAction.mockReset();
 	vi.useRealTimers();
@@ -299,13 +325,8 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				canEdit: true,
 			});
 
-			let resolveReload: ((response: unknown) => void) | undefined;
-			const reloadFetch = vi.fn(
-				() =>
-					new Promise((resolve) => {
-						resolveReload = resolve;
-					}),
-			);
+			const reloadResponse = Promise.withResolvers<Response>();
+			const reloadFetch = vi.fn(() => reloadResponse.promise);
 			vi.stubGlobal("fetch", reloadFetch);
 
 			const runtime = createReconcilerRuntime(
@@ -348,22 +369,87 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				expect(reportClientError).not.toHaveBeenCalled();
 			}
 
-			resolveReload?.({
-				ok: true,
-				status: 200,
-				json: async () => ({
+			reloadResponse.resolve(
+				Response.json({
 					projectId: "project-source",
 					role: "editor",
 					canEdit: true,
 					blueprint: persistedDoc,
 					baseSeq: 0,
 				}),
-			});
+			);
 			await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
 			expect(FakeEventSource.instances[1]?.url).toBe(
 				"/api/apps/app-1/stream?since=0",
 			);
 
+			runtime.suspend();
+		},
+	);
+
+	it.each(["mutation", "reload"] as const)(
+		"reports malformed %s JSON without retaining the native parser payload",
+		async (boundary) => {
+			vi.stubGlobal("EventSource", FakeEventSource);
+			const persistedDoc = toPersistableDoc(emptyDoc());
+			const docStore = createBlueprintDocStore();
+			docStore.getState().load(persistedDoc);
+			const sessionStore = createBuilderSessionStore({
+				appId: "app-1",
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+			const privateValue = "secretPII";
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					boundary === "reload"
+						? new Response(privateValue)
+						: Response.json({
+								projectId: "project-source",
+								role: "editor",
+								canEdit: true,
+								blueprint: persistedDoc,
+								baseSeq: 0,
+							}),
+				),
+			);
+			const reported = Promise.withResolvers<void>();
+			reportClientError.mockImplementationOnce(() => reported.resolve());
+			const runtime = createReconcilerRuntime(
+				docStore,
+				sessionStore,
+				{ appId: "app-1", baseSeq: 0, userId: "self" },
+				() => {},
+			);
+			runtime.start();
+			const source = FakeEventSource.instances[0];
+			source.emit(
+				boundary === "mutation" ? "mutation" : "reload",
+				privateValue,
+			);
+			await reported.promise;
+			const [payload, error] = reportClientError.mock.calls[0];
+			expect(payload.diagnostics).toMatchObject({
+				operation: boundary === "mutation" ? "mutation-frame" : "reload-get",
+				failureKind: boundary === "mutation" ? "json" : "invalid-json",
+			});
+			expect(error).toBeInstanceOf(Error);
+			expect(String(error)).not.toContain(privateValue);
+			expect(error.stack).not.toContain(privateValue);
+			expect(error.cause).toBeUndefined();
+			expect(error.originalError).toBeUndefined();
+			expect(payload.stack).not.toContain(privateValue);
+			expect(source.readyState).toBe(FakeEventSource.CLOSED);
+			expect(runtime.reconciler.getSnapshot().baseSeq).toBe(0);
+			if (boundary === "mutation") {
+				await vi.waitFor(() =>
+					expect(FakeEventSource.instances).toHaveLength(2),
+				);
+			} else {
+				expect(sessionStore.getState().accessPhase).toBe("reconnecting");
+			}
 			runtime.suspend();
 		},
 	);
@@ -576,11 +662,11 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 	it("clears and authoritatively refetches lookup state after a malformed frame", async () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
-		const refreshed = {
+		const refreshed = lookupManifestFrameSchema.parse({
 			projectId: "project-source",
 			projectRevision: "18",
 			tables: [],
-		} as unknown as LookupManifest;
+		});
 		getLookupManifestAction.mockResolvedValue({
 			success: true,
 			value: refreshed,
@@ -800,9 +886,8 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		runtime.suspend();
 	});
 
-	it("shows a distinct refresh-required state after the one-shot upgrade latch", () => {
+	it("shows a distinct refresh-required state for the server upgrade terminal", () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
-		window.sessionStorage.setItem("nova:stream-upgrade:app-1:receiver-3", "1");
 		const persistedDoc = toPersistableDoc(emptyDoc());
 		const docStore = createBlueprintDocStore();
 		docStore.getState().load(persistedDoc);
@@ -985,5 +1070,280 @@ describe("preview-project-space frame → subscriber fan-out", () => {
 		expect(seen).toEqual(["acme", null, "beta"]);
 
 		runtime.suspend();
+	});
+});
+
+describe("native fetch cancellation and resumable state", () => {
+	it.each(["headers", "body"] as const)(
+		"suspending during %s preserves edits through an interrupted read and viewer reauthorization",
+		async (stage) => {
+			const nativeFetch = globalThis.fetch;
+			const requests: string[] = [];
+			const signals: AbortSignal[] = [];
+			const persistedDoc = toPersistableDoc(emptyDoc());
+			await withSocketHttpPeer(
+				"nova-runtime.invalid",
+				(request, response) => {
+					requests.push(`${request.method} ${request.url}`);
+					if (requests.length === 1) {
+						if (stage === "body") {
+							response.writeHead(200, { "Content-Type": "application/json" });
+							response.write('{"projectId":');
+						}
+						return;
+					}
+					response.writeHead(200, { "Content-Type": "application/json" });
+					response.end(
+						JSON.stringify({
+							projectId: "project-source",
+							role: "viewer",
+							canEdit: false,
+							blueprint: { ...persistedDoc, appName: "Peer" },
+							baseSeq: 22,
+						}),
+					);
+				},
+				async () => {
+					let headersReceived = false;
+					vi.stubGlobal("fetch", async (input: string, init?: RequestInit) => {
+						if (init?.signal) signals.push(init.signal);
+						const response = await nativeFetch(
+							new URL(input, "http://nova-runtime.invalid"),
+							init,
+						);
+						headersReceived = true;
+						return response;
+					});
+					vi.stubGlobal("EventSource", FakeEventSource);
+					const docStore = createBlueprintDocStore();
+					docStore.getState().load(persistedDoc);
+					docStore.getState().startTracking();
+					const sessionStore = createBuilderSessionStore({
+						appId: "app-1",
+						projectId: "project-source",
+						role: "editor",
+						canEdit: true,
+					});
+					const runtime = createReconcilerRuntime(
+						docStore,
+						sessionStore,
+						{ appId: "app-1", baseSeq: 21, userId: "self" },
+						() => {},
+					);
+					try {
+						runtime.start();
+						docStore
+							.getState()
+							.applyMany([{ kind: "setAppName", name: "My retained edit" }]);
+						runtime.reconciler.onReloadEvent();
+						await vi.waitFor(() =>
+							expect(requests).toEqual(["GET /api/apps/app-1"]),
+						);
+						if (stage === "body")
+							await vi.waitFor(() => expect(headersReceived).toBe(true));
+						runtime.suspend();
+						expect(signals).toHaveLength(1);
+						expect(signals[0].aborted).toBe(true);
+						// Exercise both orderings: React replay can restart before the
+						// cancelled fetch rejects; a cached document resumes much later.
+						if (stage === "headers") runtime.start();
+						await vi.waitFor(() =>
+							expect(runtime.reconciler.getSnapshot()).toMatchObject({
+								reloadInFlight: false,
+								reloadPending: true,
+								baseSeq: 21,
+							}),
+						);
+						expect(docStore.getState().appName).toBe("My retained edit");
+						expect(reportClientError).not.toHaveBeenCalled();
+						expect(sessionStore.getState().canEdit).toBe(false);
+						if (stage === "body") runtime.start();
+						expect(FakeEventSource.instances).toHaveLength(1);
+						await vi.waitFor(
+							() =>
+								expect(runtime.reconciler.getSnapshot()).toMatchObject({
+									reloadInFlight: false,
+									reloadPending: false,
+									baseSeq: 22,
+								}),
+							{ timeout: 3000 },
+						);
+						await vi.waitFor(() =>
+							expect(requests).toEqual([
+								"GET /api/apps/app-1",
+								"GET /api/apps/app-1",
+							]),
+						);
+						expect(docStore.getState().appName).toBe("My retained edit");
+						expect(sessionStore.getState()).toMatchObject({
+							role: "viewer",
+							canEdit: false,
+							accessPhase: "authorized",
+						});
+						expect(docStore.getState().peekCommandBatches()).toEqual([
+							[{ kind: "setAppName", name: "My retained edit" }],
+						]);
+						expect(FakeEventSource.instances).toHaveLength(2);
+						expect(FakeEventSource.instances[1].url).toBe(
+							"/api/apps/app-1/stream?since=22",
+						);
+						expect(reportClientError).not.toHaveBeenCalled();
+					} finally {
+						runtime.suspend();
+					}
+				},
+			);
+		},
+	);
+});
+
+describe("HTTP outcomes cannot retire unrelated state", () => {
+	it.each([-1, 0, 1.5, Number.MAX_SAFE_INTEGER + 1, "23", null, undefined])(
+		"keeps the admitted human batch when a 200 carries invalid seq %s",
+		async (seq) => {
+			vi.useFakeTimers();
+			vi.stubGlobal("EventSource", FakeEventSource);
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () => Response.json({ ok: true, seq })),
+			);
+			const docStore = createBlueprintDocStore();
+			docStore.getState().load(toPersistableDoc(emptyDoc()));
+			docStore.getState().startTracking();
+			const sessionStore = createBuilderSessionStore({
+				appId: "app-1",
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+			const runtime = createReconcilerRuntime(
+				docStore,
+				sessionStore,
+				{ appId: "app-1", baseSeq: 21, userId: "self" },
+				() => {},
+			);
+			runtime.start();
+			docStore
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Must survive" }]);
+			const outcomes: string[] = [];
+			runtime.reconciler.dispatchHumanBatch((signal) =>
+				outcomes.push(signal.kind),
+			);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(outcomes).toEqual(["saving", "error"]);
+			expect(docStore.getState().appName).toBe("Must survive");
+			expect(runtime.reconciler.getSnapshot().sentPending).toHaveLength(1);
+			expect(
+				runtime.reconciler.getSnapshot().sentPending[0].ackedSeq,
+			).toBeUndefined();
+		},
+	);
+
+	it("a retired presence refetch's 404 cannot restart recovery in the new Project", async () => {
+		vi.useFakeTimers();
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const oldPresence = Promise.withResolvers<Response>();
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		const fetcher = vi.fn((url: string) =>
+			url.endsWith("/presence")
+				? oldPresence.promise
+				: Promise.resolve(
+						Response.json({
+							projectId: "project-destination",
+							role: "editor",
+							canEdit: true,
+							blueprint: persistedDoc,
+							baseSeq: 22,
+						}),
+					),
+		);
+		vi.stubGlobal("fetch", fetcher);
+		const docStore = createBlueprintDocStore();
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{ appId: "app-1", baseSeq: 21, userId: "self" },
+			() => {},
+		);
+		runtime.start();
+		FakeEventSource.instances[0].emit("presence", "invalid-json");
+		runtime.reconciler.onReloadEvent();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(sessionStore.getState()).toMatchObject({
+			projectId: "project-destination",
+			canEdit: true,
+		});
+		const destinationEpoch = sessionStore.getState().scopeEpoch;
+		const destinationStream = FakeEventSource.instances[1];
+		oldPresence.resolve(new Response(null, { status: 404 }));
+		await vi.advanceTimersByTimeAsync(0);
+		expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+			"/api/apps/app-1/presence",
+			"/api/apps/app-1",
+		]);
+		expect(sessionStore.getState()).toMatchObject({
+			projectId: "project-destination",
+			scopeEpoch: destinationEpoch,
+			canEdit: true,
+		});
+		expect(FakeEventSource.instances).toHaveLength(2);
+		expect(destinationStream.readyState).toBe(1);
+	});
+});
+
+it("reports an active request failure even when its exception is named AbortError", async () => {
+	vi.useFakeTimers();
+	vi.stubGlobal("EventSource", FakeEventSource);
+	const failure = new DOMException(
+		"Transport interrupted independently",
+		"AbortError",
+	);
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => {
+			throw failure;
+		}),
+	);
+	const docStore = createBlueprintDocStore();
+	docStore.getState().load(toPersistableDoc(emptyDoc()));
+	const sessionStore = createBuilderSessionStore({
+		appId: "app-1",
+		projectId: "project-source",
+		role: "editor",
+		canEdit: true,
+	});
+	const runtime = createReconcilerRuntime(
+		docStore,
+		sessionStore,
+		{ appId: "app-1", baseSeq: 21, userId: "self" },
+		() => {},
+	);
+	runtime.start();
+	runtime.reconciler.onReloadEvent();
+	await vi.advanceTimersByTimeAsync(0);
+	expect(reportClientError).toHaveBeenCalledExactlyOnceWith(
+		expect.objectContaining({
+			message: "Reconciler reload request failed",
+			diagnostics: expect.objectContaining({
+				operation: "reload-get",
+				failureKind: "network",
+				baseSeq: 21,
+			}),
+		}),
+		failure,
+	);
+	expect(runtime.reconciler.getSnapshot()).toMatchObject({
+		reloadPending: true,
+		reloadInFlight: false,
+		baseSeq: 21,
 	});
 });

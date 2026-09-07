@@ -22,9 +22,10 @@ import {
 	planSetFallback,
 } from "@/lib/doc/formLinkMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { applyMutations } from "@/lib/doc/mutations";
+import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
@@ -55,7 +56,7 @@ function fixture(
 	links: Spec[],
 	opts: { postSubmit?: "app_home" | "module" | "previous" } = {},
 ): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Links",
 		caseTypes: [
 			{
@@ -122,6 +123,8 @@ function fixture(
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 const cond = (
@@ -146,7 +149,9 @@ function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
 	if (!plan.ok) throw new Error(`refused: ${JSON.stringify(plan.reason)}`);
 	const verdict = mutationCommitVerdict(
 		doc,
-		[...plan.mutations],
+		plan.mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (!verdict.ok) {
@@ -154,9 +159,7 @@ function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
 			`gate refused: ${verdict.findings.map((e) => e.code).join(", ")}`,
 		);
 	}
-	return produce(doc, (draft) => {
-		applyMutations(draft, [...plan.mutations]);
-	});
+	return verdict.nextDoc;
 }
 
 const order = (doc: BlueprintDoc) =>
@@ -171,7 +174,7 @@ const newLink = (uuid: string, condition?: string): FormLink => ({
 /** Two compatible patient collections. Direct form links work only while
  * CommCare may carry the collection automatically (no explicit datum map). */
 function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
-	return produce(fixture(links, { postSubmit: "app_home" }), (draft) => {
+	const doc = produce(fixture(links, { postSubmit: "app_home" }), (draft) => {
 		const source = draft.modules[INTAKE]?.caseListConfig;
 		const target = draft.modules[CARE]?.caseListConfig;
 		if (source === undefined || target === undefined)
@@ -187,6 +190,8 @@ function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
 			}
 		}
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function expectSelectionCardinalityRefusal(
@@ -233,7 +238,14 @@ describe("afterSubmitPlan", () => {
 	});
 
 	it("requires an explicit destination under conditional-only links", () => {
-		const unset = afterSubmitPlan(fixture([cond("lnk-1", "1 = 1")]), SOURCE);
+		// Deliberately invalid candidate: the projector explains a gate refusal.
+		const malformed = produce(
+			fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" }),
+			(draft) => {
+				delete draft.forms[SOURCE].postSubmit;
+			},
+		);
+		const unset = afterSubmitPlan(malformed, SOURCE);
 		expect(unset?.fallbackMustBeExplicit).toBe(true);
 		expect(unset?.fallback).toMatchObject({ explicit: false });
 		const set = afterSubmitPlan(
@@ -301,6 +313,7 @@ describe("planFormLinkAdd", () => {
 		);
 		expect(stored).toMatchObject({ ok: true });
 		expect(stored.ok && stored.pinsFallback).toBeUndefined();
+		commit(fixture([], { postSubmit: "module" }), stored);
 		const withElse = fixture([otherwise()]);
 		const plan = planFormLinkAdd(withElse, SOURCE, newLink("lnk-1", "1 = 1"));
 		expect(plan.ok && plan.pinsFallback).toBeUndefined();
@@ -359,6 +372,7 @@ describe("planFormLinkAdd", () => {
 		).toEqual({ ok: false, reason: { kind: "self-target" } });
 		// Note links back to Source; Source → Note would loop.
 		const looped = produce(doc, (draft) => {
+			delete draft.forms[SOURCE].formLinks;
 			const note = draft.forms[NOTE];
 			if (note === undefined) throw new Error("fixture");
 			note.formLinks = [
@@ -368,6 +382,7 @@ describe("planFormLinkAdd", () => {
 				},
 			];
 		});
+		assertAdmittedDoc(looped);
 		expect(planFormLinkAdd(looped, SOURCE, newLink("lnk-2", "2 = 2"))).toEqual({
 			ok: false,
 			reason: { kind: "cycle", chain: [NOTE, SOURCE] },
@@ -462,10 +477,7 @@ describe("planFormLinkUpdate", () => {
 				},
 			},
 		]);
-		const next = commit(doc, {
-			...plan,
-			mutations: [plan.mutations[0] as never],
-		});
+		const next = commit(doc, plan);
 		const cleared = planFormLinkUpdate(
 			next,
 			SOURCE,
@@ -536,6 +548,7 @@ describe("planFormLinkUpdate", () => {
 			current,
 		);
 		expect(explicit.ok && explicit.droppedDatums).toBeUndefined();
+		commit(doc, explicit);
 	});
 
 	it("is a no-op plan when nothing changed, whatever the key order", () => {
@@ -584,8 +597,14 @@ describe("planFormLinkUpdate", () => {
 			},
 			opened,
 		);
+		assertAdmittedDoc(peerEdited);
 		expect(retarget.ok && retarget.mutations[0]).toMatchObject({
 			patch: { target: toVisit },
+		});
+		const rebased = commit(peerEdited, retarget);
+		expect(rebased.forms[SOURCE].formLinks?.[0]).toMatchObject({
+			condition: xp("9 = 9"),
+			target: toVisit,
 		});
 		expect(
 			planFormLinkUpdate(
@@ -735,7 +754,7 @@ describe("planSetFallback", () => {
 	});
 
 	it("refuses an otherwise link whose predeclared uuid is already a link", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
 		expect(
 			planSetFallback(doc, SOURCE, {
 				kind: "else-link",
@@ -746,7 +765,7 @@ describe("planSetFallback", () => {
 	});
 
 	it("appends an otherwise link, and refuses a second one", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
 		const plan = planSetFallback(doc, SOURCE, {
 			kind: "else-link",
 			target: toCare,
@@ -779,6 +798,8 @@ describe("planSetFallback", () => {
 		const added = plan.mutations[0];
 		expect(added?.kind).toBe("addFormLink");
 		if (added?.kind !== "addFormLink") return;
-		expect(added.link.uuid).toMatch(/^[0-9a-f-]{36}$/);
+		expect(commit(fixture([]), plan).forms[SOURCE].formLinks?.[0].uuid).toBe(
+			added.link.uuid,
+		);
 	});
 });

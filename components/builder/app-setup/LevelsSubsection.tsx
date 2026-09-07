@@ -35,13 +35,13 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Textarea } from "@/components/shadcn/textarea";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	useLocationProperties,
+	useOrganizationLevelRemovalPlan,
 	useOrganizationLevels,
+	useOrganizationRuleInputs,
 } from "@/lib/doc/hooks/useOrganizationCollections";
-import { removeOrganizationLevelPlan } from "@/lib/doc/organizationMutations";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	ancestorLevels,
@@ -330,7 +330,7 @@ function LevelRow({
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
-	const doc = useBlueprintDoc((state) => state);
+	const doc = useOrganizationRuleInputs();
 	const [levelIssue, setLevelIssue] = useState<string | undefined>();
 	const properties = useLocationProperties();
 	const nameId = useId();
@@ -1217,15 +1217,10 @@ function RemoveLevel({
 	onRemove: () => void;
 }) {
 	const mutations = useBlueprintMutations();
-	const doc = useBlueprintDoc((state) => state);
 	const [confirming, setConfirming] = useState(false);
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
-	const plan = removeOrganizationLevelPlan(
-		doc,
-		level.uuid,
-		occupied ? new Set([level.uuid]) : undefined,
-	);
+	const plan = useOrganizationLevelRemovalPlan(level.uuid, occupied);
 
 	if (!confirming) {
 		return (

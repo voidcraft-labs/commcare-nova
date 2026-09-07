@@ -44,9 +44,8 @@ import type { ComparisonKind, MatchMode, ValueExpression } from "./types";
  *   - `nonEmpty` — a literal placed here may not be the empty string
  *     (`match.value`: every match mode collapses an empty value to a
  *     non-match).
- *   - `termOnly` — only a `term`-arm value is admissible, no computed
- *     expression kind (`match.value`: the wire match emitter consumes
- *     terms only).
+ *   - `termOnly` — an explicitly restricted slot admits only a `term`
+ *     arm. Match values may contain composed expressions.
  *   - `forbidDirectLiteral` — the slot may contain every otherwise-
  *     admissible expression except a literal directly at this node.
  *     Descendants of a calculated expression remain unrestricted. This
@@ -206,12 +205,11 @@ export function inValueConstraint(
 	return { accepts: compatibleTypesFor(subjectType) };
 }
 
-/** A `match` value: a non-empty term whose type the mode admits. */
+/** A `match` value: an expression whose result type the mode admits. */
 export function matchValueConstraint(mode: MatchMode): SlotConstraint {
 	return {
 		accepts: MATCH_PROPERTY_TYPES_BY_MODE[mode],
 		nonEmpty: true,
-		termOnly: true,
 	};
 }
 

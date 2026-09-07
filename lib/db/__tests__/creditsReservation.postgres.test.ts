@@ -1,7 +1,7 @@
 /**
  * Integration tests for the credit ledger's transactional reservation against a
- * real Postgres (the per-test-database harness). The unit-flavored suite
- * (`credits.postgres.test.ts`) drives the debit against a seeded row; this file exercises
+ * real Postgres (the per-test-database harness). The companion suite
+ * (`credits.postgres.test.ts`) covers seeded balances; this file exercises
  * the genuine `SELECT … FOR UPDATE` round-trip through `reserveForNewBuild` and
  * the admin writers, proving the read-check-write commits and reads back as a
  * complete, correctly-defaulted `credit_months` / `credit_grants` row.

@@ -1,23 +1,40 @@
+import { SaxesParser } from "saxes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	admitNestedDoc,
+	followupNestedDoc,
+	nestedMenuScenarios,
+	nestedMenuWireFixture,
+	registrationNestedDoc,
+	setSharedFormAnswers,
+} from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { LookupOptionsSource, OrganizationLevel } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	fixedLocation,
 	ownerLocationAtLevel,
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	getLookupDefinitions,
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
-import type { LookupRowId } from "@/lib/lookup/types";
+import type {
+	LookupDefinitionsSnapshot,
+	LookupFixtureDataSnapshot,
+} from "@/lib/lookup/types";
 import { resolveMediaManifest } from "@/lib/media/manifest";
 import {
 	prepareExportBoundary,
@@ -36,6 +53,104 @@ const ACCESS = {
 	role: "owner",
 	actorUserId: "user-1",
 } as const;
+
+describe("HQ nested-selection target compatibility", () => {
+	it.each(nestedMenuScenarios)(
+		"preserves admission and local export for %s while refusing only proven HQ losses",
+		async (scenario) => {
+			const doc = nestedMenuWireFixture(scenario);
+			const reason =
+				scenario === "parent-multiple"
+					? "multiple-parent-relation"
+					: scenario === "same-smaller"
+						? "smaller-child-maximum"
+						: undefined;
+			for (const mode of ["ccz", "hq-json", "hq-upload"] as const) {
+				vi.mocked(resolveMediaManifest).mockClear();
+				const result = await prepareExportBoundary({
+					mode,
+					access: ACCESS,
+					doc,
+					compiledAtSeq: 4,
+					attachmentTarget: null,
+				});
+				if (mode === "ccz" || reason === undefined) {
+					expect(result.ok).toBe(true);
+					expect(resolveMediaManifest).toHaveBeenCalledOnce();
+				} else {
+					expect(result.ok).toBe(false);
+					if (result.ok) throw new Error("HQ would change nested selection");
+					expect(result.violations).toHaveLength(1);
+					expect(result.violations[0]).toMatchObject({
+						code: "HQ_NESTED_SELECTION_UNREPRESENTABLE",
+						scope: "module",
+						location: { moduleUuid: doc.moduleOrder[1] },
+						details: {
+							exportMode: mode,
+							reason,
+							sourceModuleUuid: doc.moduleOrder[0],
+							targetModuleUuid: doc.moduleOrder[1],
+							sourceMaximum: "5",
+							...(reason === "smaller-child-maximum" && { targetMaximum: "4" }),
+						},
+					});
+					expect(resolveMediaManifest).not.toHaveBeenCalled();
+					expect(userFacingErrors(result.violations)[0]).toContain("HQ");
+				}
+			}
+		},
+	);
+	it.each([
+		"larger-child",
+		"survey-first-root",
+		"registration",
+		"case-list-only",
+	] as const)("checks actual selection entries for %s", async (scenario) => {
+		const doc =
+			scenario === "registration"
+				? registrationNestedDoc()
+				: followupNestedDoc({
+						sameCaseType: scenario !== "case-list-only",
+						parentFirstSurvey: scenario === "survey-first-root",
+						parentSelect: scenario === "case-list-only",
+						caseListOnly: scenario === "case-list-only",
+					});
+		const [root, child] = doc.moduleOrder;
+		const rootConfig = doc.modules[root].caseListConfig;
+		const childConfig = doc.modules[child].caseListConfig;
+		if (!rootConfig || !childConfig) throw new Error("Missing case lists");
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		if (scenario !== "case-list-only" && scenario !== "registration") {
+			childConfig.selection = {
+				kind: "multiple",
+				maximum: scenario === "larger-child" ? 6 : 4,
+			};
+		}
+		setSharedFormAnswers(doc, root);
+		if (scenario !== "registration") setSharedFormAnswers(doc, child);
+		admitNestedDoc(doc);
+		for (const mode of ["hq-json", "hq-upload"] as const) {
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc,
+				compiledAtSeq: 4,
+				attachmentTarget: null,
+			});
+			expect(result.ok).toBe(scenario !== "case-list-only");
+			if (!result.ok)
+				expect(result.violations).toEqual([
+					expect.objectContaining({
+						code: "HQ_NESTED_SELECTION_UNREPRESENTABLE",
+						location: { moduleUuid: child },
+						details: expect.objectContaining({
+							reason: "multiple-parent-relation",
+						}),
+					}),
+				]);
+		}
+	});
+});
 
 function validDoc() {
 	return buildDoc({
@@ -82,21 +197,25 @@ function validDoc() {
 }
 
 const EMPTY_DEFINITIONS: readonly [] = [];
-const EMPTY_SNAPSHOT = {
+const EMPTY_SNAPSHOT: LookupDefinitionsSnapshot = {
 	projectId: ACCESS.projectId,
-	projectRevision: "7",
+	projectRevision: parseLookupRevision("7"),
 	definitions: EMPTY_DEFINITIONS,
 } as const;
-const EMPTY_FIXTURE_SNAPSHOT = {
+const EMPTY_FIXTURE_SNAPSHOT: LookupFixtureDataSnapshot = {
 	...EMPTY_SNAPSHOT,
 	rowsByTable: new Map(),
 } as const;
 
-const CARRIER_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-const CARRIER_VALUE_COLUMN =
-	"018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const CARRIER_LABEL_COLUMN =
-	"018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+const CARRIER_TABLE = lookupTableIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ab",
+);
+const CARRIER_VALUE_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ad",
+);
+const CARRIER_LABEL_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ae",
+);
 const CARRIER_SOURCE: LookupOptionsSource = {
 	kind: "lookup",
 	tableId: CARRIER_TABLE,
@@ -105,13 +224,13 @@ const CARRIER_SOURCE: LookupOptionsSource = {
 };
 const CARRIER_SNAPSHOT = {
 	projectId: ACCESS.projectId,
-	projectRevision: "8",
+	projectRevision: parseLookupRevision("8"),
 	definitions: [
 		{
 			id: CARRIER_TABLE,
 			name: "Statuses",
 			tag: "statuses",
-			definitionRevision: "6",
+			definitionRevision: parseLookupRevision("6"),
 			columns: [
 				{
 					id: CARRIER_VALUE_COLUMN,
@@ -157,7 +276,7 @@ function lookupCarrierDoc() {
 
 /** The carrier table with two clean rows: the generation every carrier test
  * that expects a SUCCESSFUL preparation reads. */
-function carrierFixtureSnapshot() {
+function carrierFixtureSnapshot(): LookupFixtureDataSnapshot {
 	return {
 		...CARRIER_SNAPSHOT,
 		rowsByTable: new Map([
@@ -165,14 +284,14 @@ function carrierFixtureSnapshot() {
 				CARRIER_TABLE,
 				[
 					{
-						id: "018f3e8a-7b2c-7def-8abc-123456789100" as LookupRowId,
+						id: lookupRowIdSchema.parse("018f3e8a-7b2c-7def-8abc-123456789100"),
 						values: {
 							[CARRIER_VALUE_COLUMN]: "active",
 							[CARRIER_LABEL_COLUMN]: "Active",
 						},
 					},
 					{
-						id: "018f3e8a-7b2c-7def-8abc-123456789101" as LookupRowId,
+						id: lookupRowIdSchema.parse("018f3e8a-7b2c-7def-8abc-123456789101"),
 						values: {
 							[CARRIER_VALUE_COLUMN]: "closed",
 							[CARRIER_LABEL_COLUMN]: "Closed",
@@ -262,7 +381,7 @@ function reverseOwnerDoc() {
 			code: "clinic",
 			name: "Clinic",
 			parentLevelUuid: DISTRICT,
-			caseFlow: { workers: "none" as const, ownsCases: false },
+			caseFlow: { workers: "none" as const, ownsCases: true },
 			addressBook: { reach: "own-branch" as const },
 		},
 	};
@@ -276,37 +395,13 @@ beforeEach(() => {
 	vi.mocked(getLookupFixtureData).mockReset();
 	vi.mocked(loadAssetsByIds).mockReset();
 	vi.mocked(resolveMediaManifest).mockReset();
-	vi.mocked(getLookupDefinitions).mockResolvedValue(EMPTY_SNAPSHOT as never);
-	vi.mocked(getLookupFixtureData).mockResolvedValue(
-		EMPTY_FIXTURE_SNAPSHOT as never,
-	);
+	vi.mocked(getLookupDefinitions).mockResolvedValue(EMPTY_SNAPSHOT);
+	vi.mocked(getLookupFixtureData).mockResolvedValue(EMPTY_FIXTURE_SNAPSHOT);
 	vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
 });
 
 describe("prepareExportBoundary", () => {
-	it.each([
-		["ccz", "ccz"],
-		["hq-json", "hq-json"],
-		["hq-upload", "hq-upload"],
-	] as const)(
-		"maps %s intent without collapsing it",
-		async (mode, expected) => {
-			const result = await prepareExportBoundary({
-				mode,
-				access: ACCESS,
-				doc: validDoc(),
-				compiledAtSeq: 12,
-				attachmentTarget: null,
-			});
-
-			expect(result.ok).toBe(true);
-			if (!result.ok) throw new Error("expected prepared export");
-			expect(result.prepared.mode).toBe(expected);
-			expect(result.prepared.compiledAtSeq).toBe(12);
-		},
-	);
-
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
 		"loads the definitions-plus-rows snapshot on %s, even for the empty target set",
 		async (mode) => {
@@ -333,6 +428,8 @@ describe("prepareExportBoundary", () => {
 			);
 			expect(getLookupDefinitions).not.toHaveBeenCalled();
 			/* No referenced table — nothing to carry, so neither carrier. */
+			expect(result.prepared.mode).toBe(mode);
+			expect(result.prepared.compiledAtSeq).toBe(4);
 			expect(result.prepared.lookupWire).toBeUndefined();
 			expect(result.prepared.lookupWorkbook).toBeUndefined();
 		},
@@ -364,7 +461,6 @@ describe("prepareExportBoundary", () => {
 
 	it("propagates an operational definition-read failure before media byte resolution", async () => {
 		const operational = new Error("lookup database unavailable");
-		vi.mocked(getLookupDefinitions).mockRejectedValueOnce(operational);
 		vi.mocked(getLookupFixtureData).mockRejectedValueOnce(operational);
 
 		await expect(
@@ -393,11 +489,11 @@ describe("prepareExportBoundary", () => {
 				[],
 			),
 		).toThrow("must be frozen");
-		expect(getLookupDefinitions).not.toHaveBeenCalled();
+		expect(getLookupFixtureData).not.toHaveBeenCalled();
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 
-	it("gives missing and foreign table ids the same not-available violation shape", async () => {
+	it("rejects a table absent from the Project-scoped snapshot", async () => {
 		const tableId = lookupTableIdSchema.parse(
 			"00000000-0000-7000-8000-000000000001",
 		);
@@ -406,7 +502,7 @@ describe("prepareExportBoundary", () => {
 				registrySlot: "synthetic.lookup",
 				extract: () => [
 					{
-						carrierUuid: "00000000-0000-7000-8000-000000000002" as never,
+						carrierUuid: testUuid("00000000-0000-7000-8000-000000000002"),
 						subpath: ["table"],
 						tableId,
 						location: { scope: "app" as const, field: "lookup" },
@@ -415,9 +511,6 @@ describe("prepareExportBoundary", () => {
 			}),
 		]);
 
-		/* The Project-scoped reader deliberately returns no definition for both
-		 * a nonexistent id and an id that belongs to a different Project. The
-		 * boundary and validator receive exactly the same observable snapshot. */
 		const missing = await prepareExportBoundaryWithRegistry(
 			{
 				mode: "ccz",
@@ -428,24 +521,37 @@ describe("prepareExportBoundary", () => {
 			},
 			registry,
 		);
-		const foreign = await prepareExportBoundaryWithRegistry(
+		expect(missing.ok).toBe(false);
+		if (missing.ok) throw new Error("expected lookup rejection");
+		expect(getLookupFixtureData).toHaveBeenCalledExactlyOnceWith(
 			{
+				projectId: ACCESS.projectId,
+				actorId: ACCESS.actorUserId,
+				role: ACCESS.role,
+			},
+			[tableId],
+		);
+		expect(missing.violations.map((finding) => finding.code)).toContain(
+			"LOOKUP_TABLE_NOT_AVAILABLE",
+		);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	});
+
+	it("rejects a snapshot from another Project before reading media", async () => {
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...EMPTY_FIXTURE_SNAPSHOT,
+			projectId: "another-project",
+		});
+		await expect(
+			prepareExportBoundary({
 				mode: "ccz",
 				access: ACCESS,
 				doc: validDoc(),
 				compiledAtSeq: 1,
 				attachmentTarget: null,
-			},
-			registry,
-		);
-
-		expect(missing.ok).toBe(false);
-		expect(foreign.ok).toBe(false);
-		if (missing.ok || foreign.ok) throw new Error("expected lookup rejection");
-		expect(missing.violations).toEqual(foreign.violations);
-		expect(missing.violations.map((finding) => finding.code)).toContain(
-			"LOOKUP_TABLE_NOT_AVAILABLE",
-		);
+			}),
+		).rejects.toThrow("wrong Project");
+		expect(loadAssetsByIds).not.toHaveBeenCalled();
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 
@@ -453,7 +559,7 @@ describe("prepareExportBoundary", () => {
 		"prepares the CommCare HQ fixture workbook for %s exports",
 		async (mode) => {
 			vi.mocked(getLookupFixtureData).mockResolvedValue(
-				carrierFixtureSnapshot() as never,
+				carrierFixtureSnapshot(),
 			);
 
 			const result = await prepareExportBoundary({
@@ -496,7 +602,7 @@ describe("prepareExportBoundary", () => {
 			 * without naming would put the tables on the project space and
 			 * then fail with the app never sent. Every mode, therefore. */
 			vi.mocked(getLookupFixtureData).mockResolvedValue(
-				carrierFixtureSnapshot() as never,
+				carrierFixtureSnapshot(),
 			);
 
 			const result = await prepareExportBoundary({
@@ -540,7 +646,7 @@ describe("prepareExportBoundary", () => {
 			vi.mocked(getLookupFixtureData).mockResolvedValue({
 				...carrierFixtureSnapshot(),
 				definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
-			} as never);
+			});
 
 			const result = await prepareExportBoundary({
 				mode,
@@ -575,7 +681,7 @@ describe("prepareExportBoundary", () => {
 			vi.mocked(getLookupFixtureData).mockResolvedValue({
 				...carrierFixtureSnapshot(),
 				definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
-			} as never);
+			});
 
 			const result = await prepareExportBoundary({
 				mode: "hq-upload",
@@ -599,7 +705,7 @@ describe("prepareExportBoundary", () => {
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
 			...carrierFixtureSnapshot(),
 			definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag: "types" }],
-		} as never);
+		});
 
 		const result = await prepareExportBoundary({
 			mode: "ccz",
@@ -621,7 +727,7 @@ describe("prepareExportBoundary", () => {
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
 			...carrierFixtureSnapshot(),
 			definitions: [{ ...CARRIER_SNAPSHOT.definitions[0], tag }],
-		} as never);
+		});
 
 		const result = await prepareExportBoundary({
 			mode: "ccz",
@@ -687,23 +793,6 @@ describe("prepareExportBoundary", () => {
 		},
 	);
 
-	/**
-	 * The app settles whether CommCare HQ puts the locations fixture in a
-	 * worker's restore, rather than hoping the project space does.
-	 *
-	 * `locations/fixtures.py::should_sync_flat_fixture` otherwise falls
-	 * through to `LocationFixtureConfiguration.for_domain(...)`, a row an
-	 * administrator can switch off — and an app that declares
-	 * `jr://fixture/locations` without getting one fails to resolve the
-	 * instance on the device. It returns True for
-	 * `app.location_fixture_restore in const.py::SYNC_FLAT_FIXTURES`
-	 * before it ever reads that row.
-	 */
-	it("declares the flat locations fixture when a rule reads it", () => {
-		const app = expandDoc(reverseOwnerDoc());
-		expect(app.location_fixture_restore).toBe("both_fixtures");
-	});
-
 	it("says nothing about fixtures for an app with no rule that reads one", () => {
 		/* Same rule `logo_refs` follows: CommCare HQ's in-place update is an
 		 * overlay merge, so emitting a value here would overwrite a choice
@@ -730,20 +819,16 @@ describe("prepareExportBoundary", () => {
 				attachmentTarget: null,
 			});
 
-			const locationFindings = result.ok
-				? []
-				: result.violations.filter(
-						(candidate) =>
-							candidate.code === "LOCATION_OWNER_EXPORT_NOT_ACTIVE",
-					);
-			expect(locationFindings).toEqual([]);
+			if (!result.ok) throw new Error(JSON.stringify(result.violations));
+			const app = expandDoc(result.prepared.doc, {
+				assets: result.prepared.assets,
+			});
+			expect(app.location_fixture_restore).toBe("both_fixtures");
 		},
 	);
 
 	it("prepares carrier-bearing ccz exports with the budget-checked lookup wire", async () => {
-		vi.mocked(getLookupFixtureData).mockResolvedValue(
-			carrierFixtureSnapshot() as never,
-		);
+		vi.mocked(getLookupFixtureData).mockResolvedValue(carrierFixtureSnapshot());
 
 		const result = await prepareExportBoundary({
 			mode: "ccz",
@@ -767,70 +852,353 @@ describe("prepareExportBoundary", () => {
 		expect(wire?.fixtures.totalCells).toBe(4);
 	});
 
-	it("rejects a ccz export whose select-source rows are invalid", async () => {
+	it.each(["ccz", "hq-json", "hq-upload"] as const)(
+		"rejects %s select-source rows with both invalid values and labels",
+		async (mode) => {
+			vi.mocked(getLookupFixtureData).mockResolvedValue({
+				...CARRIER_SNAPSHOT,
+				rowsByTable: new Map([
+					[
+						CARRIER_TABLE,
+						[
+							{
+								id: lookupRowIdSchema.parse(
+									"018f3e8a-7b2c-7def-8abc-123456789200",
+								),
+								values: {
+									[CARRIER_VALUE_COLUMN]: "has space",
+									[CARRIER_LABEL_COLUMN]: "   ",
+								},
+							},
+						],
+					],
+				]),
+			});
+
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc: lookupCarrierDoc(),
+				compiledAtSeq: 16,
+				attachmentTarget: null,
+			});
+
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("expected ccz row-validity rejection");
+			const codes = result.violations.map((violation) => violation.code);
+			expect(codes).toContain("LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE");
+			expect(codes).toContain("LOOKUP_SELECT_SOURCE_LABEL_BLANK");
+			expect(resolveMediaManifest).not.toHaveBeenCalled();
+		},
+	);
+
+	it("enforces the aggregate fixture row budget across individually valid tables", async () => {
+		const definitions = [0, 1, 2].map((index) => ({
+			...CARRIER_SNAPSHOT.definitions[0],
+			id: lookupTableIdSchema.parse(
+				`018f3e8a-7b2c-7def-8abc-00000000000${index}`,
+			),
+			tag: `table_${index}`,
+			columns: CARRIER_SNAPSHOT.definitions[0].columns.map(
+				(column, columnIndex) => ({
+					...column,
+					id: lookupColumnIdSchema.parse(
+						`018f3e8a-7b2c-7def-8abc-0000000001${index}${columnIndex}`,
+					),
+				}),
+			),
+		}));
+		const rowsByTable = new Map(
+			definitions.map((definition, tableIndex) => [
+				definition.id,
+				Array.from({ length: tableIndex < 2 ? 5_000 : 0 }, (_, index) => ({
+					id: lookupRowIdSchema.parse(
+						`018f3e8a-7b2c-7def-8abc-${String(tableIndex * 5_000 + index).padStart(12, "0")}`,
+					),
+					values: {
+						[definition.columns[0].id]: `v${index}`,
+						[definition.columns[1].id]: `Label ${index}`,
+					},
+				})),
+			]),
+		);
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
 			...CARRIER_SNAPSHOT,
-			rowsByTable: new Map([
-				[
-					CARRIER_TABLE,
-					[
+			definitions,
+			rowsByTable,
+		});
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
 						{
-							id: "018f3e8a-7b2c-7def-8abc-123456789200" as LookupRowId,
-							values: {
-								[CARRIER_VALUE_COLUMN]: "has space",
-								[CARRIER_LABEL_COLUMN]: "   ",
-							},
+							name: "Visit",
+							type: "survey",
+							fields: definitions.map((definition, index) =>
+								f({
+									kind: "single_select",
+									id: `choice_${index}`,
+									label: proseText(`Choice ${index}`),
+									optionsSource: {
+										kind: "lookup",
+										tableId: definition.id,
+										valueColumnId: definition.columns[0].id,
+										labelColumnId: definition.columns[1].id,
+									},
+								}),
+							),
 						},
 					],
-				],
-			]),
-		} as never);
-
-		const result = await prepareExportBoundary({
+				},
+			],
+		});
+		const input = {
 			mode: "ccz",
 			access: ACCESS,
-			doc: lookupCarrierDoc(),
-			compiledAtSeq: 16,
+			doc,
+			compiledAtSeq: 17,
 			attachmentTarget: null,
-		});
-
+		} as const;
+		const accepted = await prepareExportBoundary(input);
+		expect(accepted.ok).toBe(true);
+		if (!accepted.ok) throw new Error("expected the exact row limit to export");
+		expect(accepted.prepared.lookupWire?.fixtures.totalRows).toBe(10_000);
+		const last = definitions[2];
+		rowsByTable.set(last.id, [
+			{
+				id: lookupRowIdSchema.parse("018f3e8a-7b2c-7def-8abc-000000010000"),
+				values: { [last.columns[0].id]: "last", [last.columns[1].id]: "Last" },
+			},
+		]);
+		vi.mocked(resolveMediaManifest).mockClear();
+		const result = await prepareExportBoundary(input);
 		expect(result.ok).toBe(false);
-		if (result.ok) throw new Error("expected ccz row-validity rejection");
-		const codes = result.violations.map((violation) => violation.code);
-		expect(codes).toContain("LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE");
-		expect(codes).toContain("LOOKUP_SELECT_SOURCE_LABEL_BLANK");
+		if (result.ok) throw new Error("expected aggregate row budget rejection");
+		expect(
+			result.violations.find(
+				(finding) => finding.code === "LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
+			)?.details,
+		).toMatchObject({ rowsActual: "10001", rowsAllowed: "10000" });
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
+});
 
-	it("rejects a ccz export whose embedded fixtures exceed the aggregate row budget", async () => {
-		const rows = Array.from({ length: 10_001 }, (_, index) => ({
-			id: `018f3e8a-7b2c-7def-8abc-${String(index).padStart(12, "0")}` as LookupRowId,
+// This is an export-orchestration check: the snapshot read is the IO seam;
+// character scanning, app validation and both carrier builders are real.
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"refuses unsupported lookup text before building the %s carrier",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const extraColumn = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-1234567890af",
+		);
+		const definitions = snapshot.definitions.map((table) => ({
+			...table,
+			columns: [
+				...table.columns,
+				{
+					id: extraColumn,
+					wireName: "note",
+					label: "Note",
+					dataType: "text" as const,
+				},
+			],
+		}));
+		const rows = Array.from({ length: 6 }, (_, index) => ({
+			id: lookupRowIdSchema.parse(
+				`018f3e8a-7b2c-7def-8abc-12345678930${index}`,
+			),
 			values: {
-				[CARRIER_VALUE_COLUMN]: `v${index}`,
-				[CARRIER_LABEL_COLUMN]: `Label ${index}`,
+				[CARRIER_VALUE_COLUMN]: `value${index}`,
+				[CARRIER_LABEL_COLUMN]: "Label",
+				[extraColumn]: `Note \u0001`,
 			},
 		}));
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
-			...CARRIER_SNAPSHOT,
+			...snapshot,
+			definitions,
 			rowsByTable: new Map([[CARRIER_TABLE, rows]]),
-		} as never);
-
+		});
 		const result = await prepareExportBoundary({
-			mode: "ccz",
+			mode,
 			access: ACCESS,
 			doc: lookupCarrierDoc(),
 			compiledAtSeq: 17,
 			attachmentTarget: null,
 		});
-
 		expect(result.ok).toBe(false);
-		if (result.ok) throw new Error("expected ccz budget rejection");
-		const finding = result.violations.find(
-			(violation) => violation.code === "LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
-		);
-		expect(finding?.details).toMatchObject({
-			rowsActual: "10001",
-			rowsAllowed: "10000",
+		if (result.ok) throw new Error("Unsupported text exported");
+		expect(userFacingErrors(result.violations)).toEqual([
+			'The "Note" column in "Statuses" contains characters Nova can\'t preserve. You can remove them or retype the affected values in Project data.',
+		]);
+		expect(
+			result.violations.map((finding) => ({
+				code: finding.code,
+				details: finding.details,
+			})),
+		).toEqual([
+			{
+				code: "LOOKUP_CELL_TEXT_UNREPRESENTABLE",
+				details: {
+					tableId: CARRIER_TABLE,
+					tableName: "Statuses",
+					columnId: extraColumn,
+					columnLabel: "Note",
+					offendingRowCount: "6",
+					offendingRowPositions: "1,2,3,4,5",
+					offendingRowIds: rows
+						.slice(0, 5)
+						.map((row) => row.id)
+						.join(","),
+					characters: "U+0001,U+0001,U+0001,U+0001,U+0001",
+				},
+			},
+		]);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"%s preserves stored lookup padding or refuses the lossy HQ carrier before resolving bytes",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const table = snapshot.definitions[0];
+		const noteColumn = {
+			id: lookupColumnIdSchema.parse("018f3e8a-7b2c-7def-8abc-1234567890af"),
+			wireName: "note",
+			label: "Note",
+			dataType: "text",
+		} as const;
+		const values = [
+			" padded",
+			"padded\t",
+			"\u0085value",
+			"value\u00a0",
+			"\u2003value",
+			"value\u3000",
+			"\ufeffvalue\ufeff",
+			"line one\nline two",
+		];
+		const rows = values.map((note, index) => ({
+			id: lookupRowIdSchema.parse(
+				`018f3e8a-7b2c-7def-8abc-${String(1000 + index).padStart(12, "0")}`,
+			),
+			values: {
+				[CARRIER_VALUE_COLUMN]: `v${index}`,
+				[CARRIER_LABEL_COLUMN]: `Label ${index}`,
+				[noteColumn.id]: note,
+			},
+		}));
+		const fixtureData: LookupFixtureDataSnapshot = {
+			...snapshot,
+			definitions: [{ ...table, columns: [...table.columns, noteColumn] }],
+			rowsByTable: new Map([[table.id, rows]]),
+		};
+		const before = structuredClone(fixtureData);
+		vi.mocked(getLookupFixtureData).mockResolvedValue(fixtureData);
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 19,
+			attachmentTarget: null,
 		});
-	});
-});
+		expect(fixtureData).toEqual(before);
+		if (mode === "ccz") {
+			if (!result.ok) throw new Error(JSON.stringify(result.violations));
+			const xml = result.prepared.lookupWire?.fixtures.fixtures[0].xml;
+			if (!xml) throw new Error("Missing prepared fixture");
+			const notes: string[] = [];
+			let active = false;
+			const parser = new SaxesParser({ xmlns: true });
+			parser.on("opentag", (tag) => {
+				if (tag.local === "note") {
+					active = true;
+					notes.push("");
+				}
+			});
+			parser.on("text", (value) => {
+				if (active) notes[notes.length - 1] += value;
+			});
+			parser.on("closetag", (tag) => {
+				if (tag.local === "note") active = false;
+			});
+			parser.write(xml).close();
+			expect(notes).toEqual(values);
+		} else {
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("HQ would change these values");
+			expect(result.violations).toHaveLength(1);
+			expect(result.violations[0]).toMatchObject({
+				code: "LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
+				scope: "app",
+				details: {
+					tableId: table.id,
+					columnId: noteColumn.id,
+					offendingRowCount: "6",
+					offendingRowPositions: "1,2,3,4,5",
+					offendingRowIds: rows
+						.slice(0, 5)
+						.map((row) => row.id)
+						.join(","),
+				},
+			});
+			expect(resolveMediaManifest).not.toHaveBeenCalled();
+		}
+	},
+);
+
+it.each(["hq-json", "hq-upload"] as const)(
+	"%s preserves BOM and interior whitespace that HQ leaves intact",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const rows = snapshot.rowsByTable.get(CARRIER_TABLE);
+		if (!rows) throw new Error("Missing fixture rows");
+		rows[0].values[CARRIER_LABEL_COLUMN] = "\ufeffActive\ufeff";
+		rows[1].values[CARRIER_LABEL_COLUMN] = "Line one\nline two";
+		vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot);
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 20,
+			attachmentTarget: null,
+		});
+		if (!result.ok) throw new Error(JSON.stringify(result.violations));
+		expect(result.prepared.lookupWorkbook?.tables).toEqual([
+			{ tableId: CARRIER_TABLE, tag: "statuses", columnCount: 2, rowCount: 2 },
+		]);
+	},
+);
+
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"refuses historical runtime-reserved lookup tags before releasing a %s artifact",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...snapshot,
+			definitions: snapshot.definitions.map((table) => ({
+				...table,
+				tag: "selected_cases",
+			})),
+		});
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("Expected reserved runtime tag refusal");
+		expect(result.violations.length).toBeGreaterThan(0);
+		expect(new Set(result.violations.map((f) => f.code))).toEqual(
+			new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
+		);
+		expect(
+			result.violations.every((f) => f.details?.tag === "selected_cases"),
+		).toBe(true);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	},
+);

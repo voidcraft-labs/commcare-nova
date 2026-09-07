@@ -1,5 +1,7 @@
 /**
- * `editField` kind-conversion behavior — the select/text family.
+ * Actual admitted workspace conversions with controlled host receipts.
+ * This exercises candidate construction, gate decisions, and resulting domain
+ * shapes. Native case-store tests own stored-value conversion and transactions.
  *
  * The conversion contract these tests pin:
  *
@@ -17,7 +19,7 @@
  *     survivable slots and drop the rest.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc as buildFixtureDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
@@ -27,20 +29,9 @@ import {
 	type SelectOption,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
-import { editFieldTool } from "../editField";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
+import { editFieldInputSchema, editFieldTool } from "../editField";
 
 /**
  * Every case-carrying module in these conversion fixtures starts valid at the
@@ -67,7 +58,7 @@ function buildDoc(spec: Parameters<typeof buildFixtureDoc>[0]): BlueprintDoc {
 			searchInputs: [],
 		};
 	}
-	return doc;
+	return expectAdmittedDoc(doc);
 }
 
 function makeDoc(field: Parameters<typeof f>[0]): BlueprintDoc {
@@ -141,10 +132,6 @@ function inlineOptions(field: ReturnType<typeof soleField>): SelectOption[] {
 	return field.optionsSource.options;
 }
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("editField — convert to single_select", () => {
 	it("lands the conversion with same-call options riding the convertField mutation", async () => {
 		const doc = makeDoc({
@@ -164,6 +151,7 @@ describe("editField — convert to single_select", () => {
 			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 
 		const after = h.currentDoc().fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
@@ -171,7 +159,7 @@ describe("editField — convert to single_select", () => {
 		const options = inlineOptions(after);
 		expect(options.map((o) => o.value)).toEqual(["clinic_a", "clinic_b"]);
 		// Identity minted at the batch-building layer — every landed option
-		// carries a uuid + order key, so the per-uuid option diff and a
+		// carries a uuid, so the per-uuid option diff and a
 		// peer's granular option edits address them immediately.
 		for (const opt of options) {
 			expect(opt.uuid).toBeTruthy();
@@ -220,25 +208,35 @@ describe("editField — convert to single_select", () => {
 		expect(result.result.error).toContain("options");
 		expect(result.result.error).toContain("same call");
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
 	});
 
-	it("refuses a one-option seed (the select schemas need at least 2)", async () => {
+	it("rejects a one-option source at the tool input schema", () => {
 		const doc = makeDoc({
 			id: "facility",
 			kind: "text",
 			label: proseText("Facility"),
 		});
-		const h = makeToolWorkspaceHarness(doc);
-		const result = await h.runTool(editFieldTool, {
+		const base = {
 			...address(doc, "facility"),
 			updates: {
 				kind: "single_select",
 				optionsSource: toolInlineOptions(["only", "Only"]),
 			},
-		});
-		if (!("error" in result.result)) throw new Error("expected error");
-		expect(result.result.error).toContain("mutation data was not canonical");
-		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		};
+		expect(editFieldInputSchema.safeParse(base).success).toBe(false);
+		expect(
+			editFieldInputSchema.safeParse({
+				...base,
+				updates: {
+					...base.updates,
+					optionsSource: toolInlineOptions(
+						["only", "Only"],
+						["other", "Other"],
+					),
+				},
+			}).success,
+		).toBe(true);
 	});
 });
 
@@ -256,11 +254,12 @@ describe("editField — convert to hidden", () => {
 			updates: { kind: "hidden", calculate: xp('concat("a", " ", "b")') },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "full_name").uuid];
 		expect(after?.kind).toBe("hidden");
-		expect((after as { calculate?: unknown }).calculate).toBeDefined();
-		expect((after as { label?: unknown }).label).toBeUndefined();
-		expect((after as { hint?: unknown }).hint).toBeUndefined();
+		expect(after && "calculate" in after && after.calculate).toBeDefined();
+		expect(after).not.toHaveProperty("label");
+		expect(after).not.toHaveProperty("hint");
 	});
 
 	it("gate-rejects text → hidden with neither calculate nor default_value, persisting nothing", async () => {
@@ -278,7 +277,8 @@ describe("editField — convert to hidden", () => {
 		// The commit gate's HIDDEN_NO_VALUE finding carries the fix.
 		expect(result.result.error).toMatch(/calculate|default_value/);
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
+		expect(h.currentDoc()).toEqual(doc);
 	});
 
 	it("lands text → hidden on a source default_value alone", async () => {
@@ -294,9 +294,12 @@ describe("editField — convert to hidden", () => {
 			updates: { kind: "hidden" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "visit_stage").uuid];
 		expect(after?.kind).toBe("hidden");
-		expect((after as { default_value?: unknown }).default_value).toBeDefined();
+		expect(
+			after && "default_value" in after && after.default_value,
+		).toBeDefined();
 	});
 });
 
@@ -314,6 +317,7 @@ describe("editField — demotions", () => {
 			updates: { kind: "text" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "sample_id").uuid];
 		expect(after?.kind).toBe("text");
 		expect(
@@ -321,6 +325,15 @@ describe("editField — demotions", () => {
 				? proseTemplateText(after.hint)
 				: undefined,
 		).toBe("scan the vial");
+		const back = await h.runTool(editFieldTool, {
+			...address(doc, "sample_id"),
+			updates: { kind: "barcode" },
+		});
+		expect(back.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[soleField(doc, "sample_id").uuid]).toEqual(
+			soleField(doc, "sample_id"),
+		);
 	});
 
 	it("single_select → text drops the options and keeps the rest", async () => {
@@ -339,6 +352,7 @@ describe("editField — demotions", () => {
 			updates: { kind: "text" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "status").uuid];
 		expect(after?.kind).toBe("text");
 		expect("optionsSource" in (after ?? {})).toBe(false);
@@ -413,6 +427,7 @@ describe("editField — demotions", () => {
 			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(result.result.message).toContain('data_type is now "single_select"');
 
 		const after = h.currentDoc().fields[soleField(doc, "facility").uuid];
@@ -507,6 +522,7 @@ describe("editField — demotions", () => {
 			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(result.result.message).toContain('"Follow up"');
 
 		// Both writers flipped; each converted select carries its OWN
@@ -522,7 +538,7 @@ describe("editField — demotions", () => {
 			expect(options.map((o) => o.value)).toEqual(["open", "closed"]);
 			for (const o of options) {
 				expect(o.uuid).toBeTruthy();
-				optionUuids.add(o.uuid as string);
+				optionUuids.add(o.uuid);
 			}
 		}
 		expect(optionUuids.size).toBe(4);
@@ -604,6 +620,7 @@ describe("editField — demotions", () => {
 		expect(result.result.error).toContain('"Lab intake"');
 		expect(result.result.error).toContain('kind="text"');
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
 	});
 
 	it("a same-call caseWrite clear converts only the addressed field — no cascade for a destination it leaves", async () => {
@@ -672,6 +689,7 @@ describe("editField — demotions", () => {
 				fld.label !== undefined &&
 				proseTemplateText(fld.label) === "Status",
 		);
+		if (!registerStatus) throw new Error("missing registration status");
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(editFieldTool, {
 			...address(doc, "status"),
@@ -686,24 +704,24 @@ describe("editField — demotions", () => {
 			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 
 		// The addressed field converted and unbound; the follow-up form's
 		// writer is untouched — the call decoupled the field from the
 		// property, so there was nothing to keep in agreement.
-		const addressed =
-			h.currentDoc().fields[registerStatus?.uuid ?? ("" as never)];
+		const addressed = h.currentDoc().fields[registerStatus.uuid];
 		expect(addressed?.kind).toBe("single_select");
 		expect(addressed?.id).toBe("local_status");
 		expect(addressed && fieldCaseWrite(addressed)).toBeUndefined();
 		expect(result.mutations).toEqual([
 			expect.objectContaining({
 				kind: "convertField",
-				uuid: registerStatus?.uuid,
+				uuid: registerStatus.uuid,
 				toKind: "single_select",
 			}),
 			expect.objectContaining({
 				kind: "updateField",
-				uuid: registerStatus?.uuid,
+				uuid: registerStatus.uuid,
 				targetKind: "single_select",
 				patch: expect.objectContaining({
 					id: "local_status",
@@ -712,7 +730,7 @@ describe("editField — demotions", () => {
 			}),
 		]);
 		const peer = Object.values(h.currentDoc().fields).find(
-			(fld) => fld.id === "status" && fld.uuid !== registerStatus?.uuid,
+			(fld) => fld.id === "status" && fld.uuid !== registerStatus.uuid,
 		);
 		expect(peer?.kind).toBe("text");
 	});
@@ -811,6 +829,7 @@ describe("editField — demotions", () => {
 			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 
 		expect(h.currentDoc().fields[addressed.uuid]).toMatchObject({
 			id: "risk_score",
@@ -821,8 +840,8 @@ describe("editField — demotions", () => {
 			},
 		});
 		// Planning against the call's final pair carries the existing
-		// household writer across too; planning against the abandoned
-		// patient/score pair would leave this peer as text.
+		// patient/risk_score writer across too; planning against the unbound
+		// field would leave this peer as text.
 		expect(h.currentDoc().fields[targetPeer.uuid]?.kind).toBe("single_select");
 		expect(
 			result.mutations.some(
@@ -913,6 +932,7 @@ describe("editField — demotions", () => {
 			updates: { kind: "multi_select" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 
 		const converted = Object.values(h.currentDoc().fields).find(
@@ -990,6 +1010,7 @@ describe("editField — demotions", () => {
 			updates: { kind: "hidden", calculate: xp("today()") },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 
 		const after = h.currentDoc().fields[soleField(doc, "visit_note").uuid];
 		expect(after?.kind).toBe("hidden");
@@ -1020,6 +1041,7 @@ describe("editField — demotions", () => {
 			updates: { kind: "multi_select" },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "symptoms").uuid];
 		expect(after?.kind).toBe("multi_select");
 		const convertMut = result.mutations.find((m) => m.kind === "convertField");
@@ -1033,5 +1055,14 @@ describe("editField — demotions", () => {
 			"fever",
 			"cough",
 		]);
+		const back = await h.runTool(editFieldTool, {
+			...address(doc, "symptoms"),
+			updates: { kind: "single_select" },
+		});
+		expect(back.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[soleField(doc, "symptoms").uuid]).toEqual(
+			soleField(doc, "symptoms"),
+		);
 	});
 });

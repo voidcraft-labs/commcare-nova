@@ -9,8 +9,12 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc as buildFixtureDoc,
+	caseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import type { FormLink } from "@/lib/domain";
+import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import type {
 	AfterSubmitChoice,
 	TargetCaseSelection,
@@ -18,6 +22,7 @@ import type {
 import type { PreviewMenuSource } from "@/lib/preview/menuProjection";
 import {
 	afterSubmitRoute,
+	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../screens/afterSubmitRouting";
@@ -33,6 +38,22 @@ const MISSING_FORM = testUuid("frm-missing");
 const SAME_TYPE_ROOT = testUuid("mod-same-type-root");
 const SAME_TYPE_CHILD = testUuid("mod-same-type-child");
 
+const buildDoc = (input: Parameters<typeof buildFixtureDoc>[0] = {}) =>
+	assertAdmittedPreviewDoc(
+		buildFixtureDoc({
+			...input,
+			modules: input.modules?.map((module) => ({
+				...module,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: module.forms?.map((form) => ({
+					...form,
+					fields: [{ kind: "text", id: "note", label: "Note" }],
+				})),
+			})),
+		}),
+	);
 const doc = buildDoc({
 	caseTypes: [{ name: "patient", properties: [] }],
 	modules: [
@@ -54,7 +75,7 @@ const doc = buildDoc({
 			caseType: "patient",
 			forms: [
 				{ uuid: "frm-note", name: "Note", type: "survey" },
-				{ uuid: "frm-register", name: "Register", type: "registration" },
+				{ uuid: "frm-register", name: "Other survey", type: "survey" },
 			],
 		},
 	],
@@ -223,14 +244,14 @@ describe("afterSubmitRoute", () => {
 		expect(carriedCase).toHaveBeenCalledTimes(1);
 	});
 
-	it("carries every projected target selection alongside a nested form route", () => {
+	it("forwards supplied target selections alongside a form route", () => {
 		const caseSelections = [
 			{
 				datumId: "case_id",
 				moduleUuid: MENU,
-				caseType: "household",
-				caseId: "h1",
-				caseName: "Household one",
+				caseType: "patient",
+				caseId: "p2",
+				caseName: "Patient two",
 			},
 			{
 				datumId: "case_id_patient",
@@ -337,6 +358,7 @@ describe("prospective after-submit menu selections", () => {
 			],
 		});
 		nested.modules[SAME_TYPE_CHILD].parentModuleUuid = SAME_TYPE_ROOT;
+		assertAdmittedPreviewDoc(nested);
 		return { ...nested, caseTypes: nested.caseTypes ?? [] };
 	}
 
@@ -456,6 +478,48 @@ describe("prospective after-submit menu selections", () => {
 		});
 	});
 
+	it("preserves current metadata when read-back belongs to another case and leaves its source snapshot intact", () => {
+		const menuSource = sameTypeNestedDoc();
+		const current = {
+			[SAME_TYPE_ROOT]: {
+				caseType: "patient",
+				cases: [
+					{
+						caseId: "p-current",
+						caseName: "Current patient",
+						caseProperties: { case_id: "p-current", risk: "low" },
+					},
+				],
+			},
+		};
+		const before = structuredClone(current);
+		const next = previewMenuSelectionsAfterTargetCases(
+			menuSource,
+			current,
+			[
+				{
+					datumId: "case_id",
+					moduleUuid: SAME_TYPE_ROOT,
+					caseType: "patient",
+					caseId: "p-current",
+				},
+			],
+			new Map([
+				[
+					"patient",
+					new Map([
+						["case_id", "p-other"],
+						["case_name", "Other patient"],
+						["risk", "high"],
+					]),
+				],
+			]),
+		);
+		expect(next[SAME_TYPE_ROOT]).toEqual(current[SAME_TYPE_ROOT]);
+		expect(current).toEqual(before);
+		expect(next).not.toBe(current);
+	});
+
 	it("installs an exact ordered carried collection after scalar frame projection", () => {
 		const menuSource = sameTypeNestedDoc();
 		const carriedCases = [
@@ -539,4 +603,92 @@ describe("moduleLanding", () => {
 		expect(navigate.openCaseList).toHaveBeenCalledWith(CARE);
 		expect(navigate.openModule).toHaveBeenCalledWith(MENU);
 	});
+});
+
+describe("created-child receipt projection", () => {
+	it("joins every two-child x two-parent receipt record to its authored after-submit metadata", () => {
+		const childCases = carriedChildCasesFromReceipt({
+			authoredChildren: [
+				{ caseType: "encounter", caseName: "Encounter" },
+				{ caseType: "referral", caseName: "Referral" },
+			],
+			parentCaseIds: ["parent-second", "parent-first"],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "parent-second",
+					caseId: "encounter-second",
+				},
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "parent-first",
+					caseId: "encounter-first",
+				},
+				{
+					authoredChildIndex: 1,
+					parentCaseId: "parent-second",
+					caseId: "referral-second",
+				},
+				{
+					authoredChildIndex: 1,
+					parentCaseId: "parent-first",
+					caseId: "referral-first",
+				},
+			],
+		});
+
+		expect(childCases).toEqual([
+			{
+				caseType: "encounter",
+				caseName: "Encounter",
+				caseId: "encounter-second",
+			},
+			{
+				caseType: "encounter",
+				caseName: "Encounter",
+				caseId: "encounter-first",
+			},
+			{
+				caseType: "referral",
+				caseName: "Referral",
+				caseId: "referral-second",
+			},
+			{
+				caseType: "referral",
+				caseName: "Referral",
+				caseId: "referral-first",
+			},
+		]);
+		expect(
+			carriedChildCasesFromReceipt({
+				createdChildren: undefined,
+				authoredChildren: [{ caseType: "encounter", caseName: "Encounter" }],
+				parentCaseIds: ["parent"],
+			}),
+		).toEqual([]);
+	});
+});
+
+it("rejects incomplete and duplicate created-child receipts before routing", () => {
+	const authoredChildren = [{ caseType: "visit" }];
+	const parentCaseIds = ["first", "second"];
+	expect(() =>
+		carriedChildCasesFromReceipt({
+			authoredChildren,
+			parentCaseIds,
+			createdChildren: [
+				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-1" },
+			],
+		}),
+	).toThrow(/incomplete/);
+	expect(() =>
+		carriedChildCasesFromReceipt({
+			authoredChildren,
+			parentCaseIds,
+			createdChildren: [
+				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-1" },
+				{ authoredChildIndex: 0, parentCaseId: "first", caseId: "visit-2" },
+			],
+		}),
+	).toThrow(/invalid/);
 });

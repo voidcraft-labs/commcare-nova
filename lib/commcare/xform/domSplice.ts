@@ -16,24 +16,15 @@
  *
  * The single invariant every helper upholds: every structural edit keeps the
  * `children` array AND the `prev`/`next` linked-list pointers in lockstep.
- * `dom-serializer` walks both in parallel, so a stale pointer on either side
- * corrupts the serialized bytes. `relinkSiblings` re-seats the pointers after
+ * DOM traversal utilities use both representations. `relinkSiblings` re-seats the pointers after
  * each edit; no caller touches `prev`/`next` directly.
  */
 
-import render from "dom-serializer";
 import { type ChildNode, Element } from "domhandler";
 import { findOne, getChildren } from "domutils";
-import { parseDocument } from "htmlparser2";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
-
-/**
- * Parse contract for the round-trip. Mirrors `validator/xformDataModel.ts`'s
- * parse options — the post-injection XForm oracle re-parses what these
- * post-processors emit under the same options, so the byte-level round-trip is
- * the contract on both sides.
- */
-export const PARSE_OPTS = { xmlMode: true } as const;
+import { el } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
+import { parseXml } from "../xmlParse";
 
 /**
  * The XForm declaration `buildXForm` prepends. Held out of the parse→serialize
@@ -41,25 +32,15 @@ export const PARSE_OPTS = { xmlMode: true } as const;
  */
 const XML_DECLARATION = '<?xml version="1.0"?>';
 
-/**
- * Re-parse a serialized XForm into a mutable DOM the splice helpers operate on.
- *
- * The leading `<?xml ...?>` declaration is stripped before parsing rather than
- * round-tripped through the DOM: htmlparser2 stores the declaration as a
- * directive node whose `data` drops the trailing `?`, so `dom-serializer`
- * re-emits a malformed `<?xml ...>` (no `?>`) that the next re-parse can't read
- * — it swallows the whole document, and `findDataElement` then can't find the
- * primary instance. The declaration is a constant CCHQ artifact, so holding it
- * out of the round-trip is both correct and robust; `serializeXForm` re-prepends
- * it. (Mirrors how `buildXForm` builds the tree without the PI and prepends on
- * the way out.)
- */
+/** Parse once with XML namespace, character, and attribute-normalization rules.
+ * XML declarations stay outside the DOM; serializeXForm emits Nova's fixed
+ * declaration after the structural case/meta edits. */
 export function parseXForm(xform: string) {
-	return parseDocument(xform.replace(/^<\?xml[^>]*\?>\n?/, ""), PARSE_OPTS);
+	return parseXml(xform);
 }
 
 /**
- * Serialize a spliced DOM back to XForm bytes. `dom-serializer` is the single
+ * Serialize a spliced DOM back to XForm bytes. `serializeXml` is the single
  * XML-escaping authority, so every interpolated XPath body / identifier flows
  * through one structural pass with no hand-escaping.
  *
@@ -67,7 +48,7 @@ export function parseXForm(xform: string) {
  * build-without-PI-then-prepend shape `buildXForm` uses.
  */
 export function serializeXForm(doc: ReturnType<typeof parseXForm>): string {
-	return `${XML_DECLARATION}\n${render(doc, RENDER_OPTS)}`;
+	return `${XML_DECLARATION}\n${serializeXml(doc)}`;
 }
 
 /**
@@ -215,8 +196,7 @@ export function ensureInstance(model: Element, id: string, src: string): void {
 /**
  * Walk an ordered children list and re-seat every `prev` / `next` pointer to
  * match the array's index order. Cheaper than tracking adjacency at every splice
- * site, and `dom-serializer` walks both the array and the linked-list pointers,
- * so leaving the pointers stale would corrupt the serialized output.
+ * site. DOM traversal must see the same order as the serialized children.
  */
 export function relinkSiblings(children: ChildNode[]): void {
 	for (let i = 0; i < children.length; i++) {

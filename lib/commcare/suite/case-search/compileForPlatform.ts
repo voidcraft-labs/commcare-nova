@@ -24,7 +24,7 @@ import type { PlatformContext, WireShape } from "./types";
  * Search first comes before the platform split (below); then three
  * branches:
  *
- *   1. **Android** — always list-first. All three flags emit as
+ *   1. **Android, when Search first is off** — list-first. All three flags emit as
  *      `false`. The list-first shape is structurally identical to
  *      CCHQ's standard `<remote-request>` emission and matches
  *      Nova's "always emits as a normal case-list module with
@@ -36,9 +36,9 @@ import type { PlatformContext, WireShape } from "./types";
  *      search form before they see whether they have any local
  *      cases is worse UX than letting them see the list first.
  *
- * `caseSearchConfig` is part of the uniform call shape but doesn't
- * feed the flags — every flag derives from `caseListConfig.filter`,
- * `caseListConfig.searchInputs`, and the platform.
+ * `caseSearchConfig.searchFirst` selects inline Search before the platform
+ * split. The remaining flags derive from the effective filter, visible
+ * Search inputs and platform.
  */
 export function compileForPlatform(
 	caseListConfig: CaseListConfig,

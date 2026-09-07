@@ -1,10 +1,6 @@
-// components/builder/shared/__tests__/relationDestination.test.ts
-//
-// Coverage for the shared destination-case-type resolver. Pins the
-// per-arm walk semantics against the type checker's
-// `checkRelationPath` shape so any future divergence between the
-// editor's destination resolution and the validation pass shows up
-// here.
+// Editor repair projection. Ambiguous canonical relations intentionally use
+// their first candidate to keep the nested editor usable; this is not an
+// admission verdict or proof that an imported relation is valid.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -149,4 +145,25 @@ describe("resolveRelationDestination", () => {
 			),
 		).toBe("household");
 	});
+});
+
+it("does not infer custom destinations from the canonical graph", () => {
+	for (const via of [
+		subcasePath("host"),
+		anyRelationPath("host"),
+		ancestorPath(relationStep("host", "missing")),
+		subcasePath("host", "missing"),
+		anyRelationPath("host", "missing"),
+	]) {
+		expect(
+			resolveRelationDestination(via, "patient", CASE_TYPES),
+		).toBeUndefined();
+	}
+	expect(
+		resolveRelationDestination(
+			subcasePath("host", "household"),
+			"visit",
+			CASE_TYPES,
+		),
+	).toBe("household");
 });

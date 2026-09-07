@@ -1,20 +1,13 @@
-/**
- * Behavioral tests for `remove_media_asset`.
- *
- * Coverage:
- *   1. Deletes the asset row and unshared GCS object when no live reference
- *      exists.
- *   2. Refuses (and deletes nothing) when the current doc still
- *      references the asset, naming the carrier.
- *   3. Refuses when another live app references the asset.
- *   4. Maps a missing/foreign-Project asset to a "not found" message.
- */
+/** Deletion tool orchestration over controlled metadata and GCS boundaries.
+ * Real carrier preflight and purge sequencing run; mocked lock callbacks make
+ * no concurrency/SQL/GCS durability claim. */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListAppsResult } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { BlueprintDoc } from "@/lib/domain";
+import { mediaAssetIdSchema } from "@/lib/domain";
 import {
 	removeMediaAssetInputSchema,
 	removeMediaAssetTool,
@@ -105,28 +98,33 @@ beforeEach(() => {
 /** Minimal owned asset row for the load mock. */
 function ownedAsset(id: string): MediaAssetRecord {
 	return {
-		id,
+		id: mediaAssetIdSchema.parse(id),
 		owner: "user-1",
 		project_id: "project-1",
 		gcsObjectKey: `projects/project-1/${id}.png`,
 		originalFilename: `${id}.png`,
-		contentHash: "abc",
+		contentHash: "a".repeat(64),
 		mimeType: "image/png",
 		kind: "image",
 		extension: ".png",
 		sizeBytes: 100,
 		status: "ready",
-	} as unknown as MediaAssetRecord;
+		created_at: new Date("2026-01-01T00:00:00Z"),
+	};
 }
 
 /** Attach an asset to the text field's label_media so the doc references it. */
 function docReferencing(assetId: string, base: BlueprintDoc): BlueprintDoc {
 	const field = base.fields[TEXT_FIELD];
+	if (field?.kind !== "text") throw new Error("expected text fixture");
 	return {
 		...base,
 		fields: {
 			...base.fields,
-			[TEXT_FIELD]: { ...field, label_media: { image: assetId } } as never,
+			[TEXT_FIELD]: {
+				...field,
+				label_media: { image: mediaAssetIdSchema.parse(assetId) },
+			},
 		},
 	};
 }
@@ -136,7 +134,7 @@ function removeInput(assetId: string) {
 }
 
 describe("removeMediaAsset", () => {
-	it("deletes the GCS object and the row when unreferenced", async () => {
+	it("purges the authoritative deleted row's storage key after metadata deletion", async () => {
 		const h = makeMediaFixture();
 		const assetId = "40000000-0000-4000-8000-000000000001";
 		loadAssetById.mockResolvedValue(ownedAsset(assetId));
@@ -171,7 +169,35 @@ describe("removeMediaAsset", () => {
 		expect(deleteAssetRow).not.toHaveBeenCalled();
 	});
 
-	it("deletes only the row when another asset shares the same GCS object", async () => {
+	it("keeps the tool pending until the storage cleanup finishes", async () => {
+		const h = makeMediaFixture();
+		const assetId = "40000000-0000-4000-8000-000000000010";
+		loadAssetById.mockResolvedValue(ownedAsset(assetId));
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		deleteGcsObject.mockImplementationOnce(async () => {
+			entered.resolve();
+			await release.promise;
+		});
+		let settled = false;
+		const work = h
+			.runTool(removeMediaAssetTool, removeInput(assetId))
+			.then((result) => {
+				settled = true;
+				return result;
+			});
+		try {
+			await entered.promise;
+			expect(deleteMediaAssetForActor).toHaveBeenCalledOnce();
+			expect(settled).toBe(false);
+		} finally {
+			release.resolve();
+			await work;
+		}
+		expect((await work).data).toMatchObject({ removed: true });
+	});
+
+	it("retains GCS bytes when the post-delete probe reports another reference", async () => {
 		const h = makeMediaFixture();
 		loadAssetById.mockResolvedValue(
 			ownedAsset("40000000-0000-4000-8000-000000000002"),
@@ -310,12 +336,12 @@ describe("removeMediaAsset", () => {
 		expect(deleteAssetRow).not.toHaveBeenCalled();
 	});
 
-	it("refuses when the authoritative delete re-walk catches a late attach", async () => {
+	it("projects an authoritative referenced refusal and skips GCS cleanup", async () => {
 		const h = makeMediaFixture();
 		loadAssetById.mockResolvedValue(
 			ownedAsset("40000000-0000-4000-8000-000000000007"),
 		);
-		deleteMediaAssetForActor.mockResolvedValue({
+		deleteMediaAssetForActor.mockResolvedValueOnce({
 			kind: "referenced",
 			references: ['"Racing App" (app-2) on the app logo'],
 		});

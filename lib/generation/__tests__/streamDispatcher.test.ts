@@ -10,21 +10,24 @@
  * `streamDispatcher-mutations.test.ts`.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	createReconciler,
 	type Reconciler,
 	type ReconcilerDeps,
 } from "@/lib/collab/reconciler";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDocStoreApi } from "@/lib/doc/store";
-import type { PersistableDoc } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import { blueprintDocSchema } from "@/lib/domain";
 import type { ConversationEvent } from "@/lib/log/types";
 import type { BuilderSessionStoreApi } from "@/lib/session/store";
 import { READ_ENERGY_PER_CHAR, signalGrid } from "@/lib/signalGrid/store";
+import { toastStore } from "@/lib/ui/toastStore";
 import { applyStreamEvent, conversationEventError } from "../streamDispatcher";
-import { createWiredStores } from "./testHelpers";
+import { createWiredStores, hydrateDoc } from "./testHelpers";
 
 /** Inert deps — this suite drives the dispatcher, not the reconciler's
  *  network, so the PUT/reload/retry side effects are no-ops. */
@@ -46,7 +49,7 @@ const INERT_DEPS: ReconcilerDeps = {
 /** Build a reconciler seeded on the store's current doc, mirroring an active
  *  builder session so a `data-done` reseeds via `onDataDone` (not `load()`). */
 function makeReconciler(docStore: BlueprintDocStoreApi): Reconciler {
-	return createReconciler(
+	const reconciler = createReconciler(
 		docStore,
 		{
 			appId: "test-app-id",
@@ -56,6 +59,8 @@ function makeReconciler(docStore: BlueprintDocStoreApi): Reconciler {
 		},
 		INERT_DEPS,
 	);
+	ownedReconciler.push(reconciler);
+	return reconciler;
 }
 
 // ── Fixture docs (normalized domain shape) ─────────────────────────────
@@ -65,45 +70,33 @@ function makeReconciler(docStore: BlueprintDocStoreApi): Reconciler {
 // them directly rather than round-tripping through the wire format so
 // the tests can't accidentally depend on any wire-side conversion.
 
-/** Minimal doc with one module, one form, one field. */
-const MINIMAL_DOC: PersistableDoc = {
-	appId: "test-app-id",
-	appName: "Test App",
-	connectType: null,
-	caseTypes: [
-		{
-			name: "patient",
-			properties: [{ name: "case_name", label: proseText("Name") }],
-		},
-	],
-	modules: {
-		[testUuid("mod-uuid-1")]: {
-			uuid: testUuid("mod-uuid-1"),
-			id: "registration",
-			name: "Registration",
-			caseType: "patient",
-		},
-	},
-	forms: {
-		[testUuid("form-uuid-1")]: {
-			uuid: testUuid("form-uuid-1"),
-			id: "register_patient",
-			name: "Register Patient",
-			type: "registration",
-		},
-	},
-	fields: {
-		[testUuid("q-uuid-1")]: {
-			uuid: testUuid("q-uuid-1"),
-			id: "case_name",
-			kind: "text",
-			label: proseText("Patient Name"),
-		},
-	},
-	moduleOrder: [testUuid("mod-uuid-1")],
-	formOrder: { [testUuid("mod-uuid-1")]: [testUuid("form-uuid-1")] },
-	fieldOrder: { [testUuid("form-uuid-1")]: [testUuid("q-uuid-1")] },
-};
+const MINIMAL_DOC = toPersistableDoc(
+	buildDoc({
+		appId: "test-app-id",
+		appName: "Test App",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [f({ kind: "text", id: "name" })],
+					},
+				],
+			},
+		],
+	}),
+);
+blueprintDocSchema.parse(MINIMAL_DOC);
+const ownedReconciler: Reconciler[] = [];
+const ownedRuns: BuilderSessionStoreApi[] = [];
+afterEach(() => {
+	for (const session of ownedRuns.splice(0)) session.getState().endRun();
+	for (const reconciler of ownedReconciler.splice(0)) reconciler.dispose();
+	toastStore.clear();
+	signalGrid.reset();
+});
 
 // Test helpers live in ./testHelpers — shared with other generation tests.
 
@@ -132,6 +125,11 @@ describe("applyStreamEvent", () => {
 		const stores = createWiredStores();
 		docStore = stores.docStore;
 		sessionStore = stores.sessionStore;
+		hydrateDoc(docStore, { ...MINIMAL_DOC, appName: "Before" });
+		expect(
+			mutationCommitVerdict(docStore.getState(), [], LOOKUP_CONTEXT_UNAVAILABLE)
+				.ok,
+		).toBe(true);
 		signalGrid.reset();
 	});
 
@@ -145,12 +143,13 @@ describe("applyStreamEvent", () => {
 			 * (not `load()`, which asserts inside an open bracket). */
 			const reconciler = makeReconciler(docStore);
 			sessionStore.getState().beginRun();
+			ownedRuns.push(sessionStore);
 			expect(sessionStore.getState().runCompletedAt).toBeUndefined();
 
 			applyStreamEvent(
 				"data-done",
 				{
-					doc: MINIMAL_DOC as unknown as Record<string, unknown>,
+					doc: MINIMAL_DOC,
 					seq: 3,
 				},
 				docStore,
@@ -186,11 +185,13 @@ describe("applyStreamEvent", () => {
 				},
 				INERT_DEPS,
 			);
-			sessionStore.getState().beginRun(); // opens the agent bracket
+			ownedReconciler.push(reconciler);
+			sessionStore.getState().beginRun();
+			ownedRuns.push(sessionStore); // opens the agent bracket
 			expect(() => {
 				applyStreamEvent(
 					"data-done",
-					{ doc: MINIMAL_DOC as unknown as Record<string, unknown>, seq: 2 },
+					{ doc: MINIMAL_DOC, seq: 2 },
 					docStore,
 					sessionStore,
 					reconciler,
@@ -219,7 +220,7 @@ describe("applyStreamEvent", () => {
 			expect(sessionStore.getState().events).toEqual([event]);
 		});
 
-		it("pushes an error event onto the buffer (and toast is UI-only)", () => {
+		it("pushes an error event and emits its error-severity notification", () => {
 			const event = convEvent(
 				{
 					type: "error",
@@ -239,6 +240,9 @@ describe("applyStreamEvent", () => {
 
 			expect(sessionStore.getState().events).toHaveLength(1);
 			expect(sessionStore.getState().events[0]).toEqual(event);
+			expect(toastStore.toasts).toMatchObject([
+				{ severity: "error", title: "Generation error", message: "boom" },
+			]);
 		});
 
 		it("distinguishes an in-flight retry warning from a terminal stop", () => {

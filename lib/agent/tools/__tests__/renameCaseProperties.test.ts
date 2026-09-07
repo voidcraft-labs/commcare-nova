@@ -1,11 +1,15 @@
+/** Canonical commands over admitted documents and a controlled workspace host.
+ * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
-import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {
 	renameCasePropertiesInputSchema,
 	renameCasePropertiesTool,
@@ -95,7 +99,7 @@ function fixture(): BlueprintDoc {
 describe("renameCaseProperties shared SA/MCP tool", () => {
 	it("commits one exclusive semantic command and reports exact grouped document impact", async () => {
 		const doc = fixture();
-		const harness = makeToolWorkspaceHarness(doc);
+		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const input = {
 			renames: [
 				{
@@ -159,7 +163,7 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 
 	it("refuses an occupied destination without persisting a partial edit", async () => {
 		const doc = fixture();
-		const harness = makeToolWorkspaceHarness(doc);
+		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 
 		const outcome = await harness.runTool(renameCasePropertiesTool, {
 			renames: [{ caseType: "patient", from: "phone", to: "email" }],
@@ -201,26 +205,19 @@ describe("renameCaseProperties shared SA/MCP tool", () => {
 		).toBe(false);
 	});
 
-	it("registers one edit-capable tool with the exact SA and MCP names and schema", () => {
-		const entry = SHARED_TOOL_REGISTRY.find(
-			(candidate) => candidate.saName === "renameCaseProperties",
+	it("emits a closed rename relation that an independent JSON-schema consumer accepts", async () => {
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const validate = ajv.compile(
+			await wireToolSchema(renameCasePropertiesInputSchema).jsonSchema,
 		);
-		expect(entry).toEqual({
-			saName: "renameCaseProperties",
-			mcpName: "rename_case_properties",
-			tool: renameCasePropertiesTool,
-			requires: "edit",
-			// The entry's exact execution policy is pinned once, for every tool,
-			// in `sharedToolRegistryPolicy.test.ts`; this assertion stays about
-			// the registration itself while remaining exhaustive over the keys.
-			policy: expect.anything(),
-		});
-
-		const wire = wireToolSchema(renameCasePropertiesInputSchema);
-		expect(wire.jsonSchema).toMatchObject({
-			type: "object",
-			required: ["renames"],
-			additionalProperties: false,
-		});
+		const valid = {
+			renames: [{ caseType: "patient", from: "phone", to: "primary_phone" }],
+		};
+		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+		expect(
+			validate({ renames: [{ ...valid.renames[0], field: "contact_number" }] }),
+		).toBe(false);
+		expect(validate({ renames: [] })).toBe(false);
 	});
 });

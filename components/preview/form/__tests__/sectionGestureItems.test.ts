@@ -13,8 +13,10 @@ import {
 } from "@/components/preview/form/sectionGestureItems";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 const FORM = testUuid("frm-visit");
@@ -65,15 +67,17 @@ const paged = () =>
 
 /** Every enabled gesture must plan a batch the gate commits. */
 function expectCommits(doc: BlueprintDoc, item: SectionGestureItem) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const plan = item.plan(doc);
 	expect(plan.ok).toBe(true);
-	if (!plan.ok) return;
+	if (!plan.ok) throw new Error(plan.reason);
 	const verdict = mutationCommitVerdict(
 		doc,
 		plan.mutations,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	expect(verdict.ok).toBe(true);
+	return verdict.nextDoc;
 }
 
 describe("insertionContext", () => {
@@ -93,7 +97,11 @@ describe("sectionGestureItems", () => {
 		expect(gestures.offersKinds).toBe(false);
 		expect(gestures.insertLabel).toBe("Add a section");
 		expect(gestures.items.map((i) => i.key)).toEqual(["add-section"]);
-		expectCommits(doc, gestures.items[0] as SectionGestureItem);
+		const next = expectCommits(doc, gestures.items[0] as SectionGestureItem);
+		expect(next.fieldOrder[FORM]).toHaveLength(3);
+		expect(next.fieldOrder[FORM][0]).toBe(S1);
+		expect(next.fieldOrder[FORM][2]).toBe(S2);
+		expect(next.fieldOrder[next.fieldOrder[FORM][1]]).toEqual([]);
 	});
 
 	it("offers the kinds plus a split on a sectionless root", () => {
@@ -104,11 +112,18 @@ describe("sectionGestureItems", () => {
 		expect(middle.items.map((i) => i.label)).toEqual([
 			"Split into sections here",
 		]);
-		expectCommits(doc, middle.items[0] as SectionGestureItem);
+		const split = expectCommits(doc, middle.items[0] as SectionGestureItem);
+		expect(
+			split.fieldOrder[FORM].map((uuid) => split.fieldOrder[uuid]),
+		).toEqual([[A], [G]]);
+		expect(split.fieldOrder[G]).toEqual([B]);
 
 		const edge = sectionGestureItems(doc, FORM, 0);
 		expect(edge.items.map((i) => i.label)).toEqual(["Split into sections"]);
-		expectCommits(doc, edge.items[0] as SectionGestureItem);
+		const wrapped = expectCommits(doc, edge.items[0] as SectionGestureItem);
+		expect(
+			wrapped.fieldOrder[FORM].map((uuid) => wrapped.fieldOrder[uuid]),
+		).toEqual([[A, G]]);
 	});
 
 	it("inside a page: split here, or a new page after the last question", () => {
@@ -125,14 +140,21 @@ describe("sectionGestureItems", () => {
 			label: "Split section here",
 		});
 		expect(between.items[0]?.disabledReason).toBeUndefined();
-		expectCommits(doc, between.items[0] as SectionGestureItem);
+		const split = expectCommits(doc, between.items[0] as SectionGestureItem);
+		expect(
+			split.fieldOrder[FORM].map((uuid) => split.fieldOrder[uuid]),
+		).toEqual([[A], [B], []]);
 
 		const end = sectionGestureItems(doc, S1, 2);
 		expect(end.items[0]).toMatchObject({
 			key: "add-section",
 			label: "New section after this one",
 		});
-		expectCommits(doc, end.items[0] as SectionGestureItem);
+		const added = expectCommits(doc, end.items[0] as SectionGestureItem);
+		expect(
+			added.fieldOrder[FORM].map((uuid) => added.fieldOrder[uuid]),
+		).toEqual([[A, B], [], []]);
+		expect(added.fieldOrder[FORM].at(-1)).toBe(S2);
 	});
 
 	it("offers no page gesture inside a group", () => {

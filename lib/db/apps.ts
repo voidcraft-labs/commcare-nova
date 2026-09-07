@@ -93,6 +93,11 @@ import {
 	scanActorGenerationTargets,
 } from "./actorGenerationGate";
 import {
+	type AppsSortOrder,
+	decodeAppsCursor,
+	encodeAppsCursor,
+} from "./appPagination";
+import {
 	admitExactMediaReferences,
 	assertAppCapabilityInTransaction,
 	assertExpectedAppProject,
@@ -228,26 +233,7 @@ export interface DeletedAppSummary extends AppSummary {
 /** Closed run-lifecycle filter vocabulary for list/search surfaces. */
 export type AppStatus = AppDoc["status"];
 
-/** Sort orders supported by `listApps`. `searchApps` takes none — Fuse ranks
- *  by relevance, the only sensible ordering for a search. */
-export type AppsSortOrder =
-	| "updated_desc"
-	| "updated_asc"
-	| "name_asc"
-	| "name_desc";
-
-/**
- * Structured cursor used to resume enumeration in `listApps`. Discriminated
- * by `kind`, which MUST equal the `sort` the caller is running with; the
- * server enforces the match and throws rather than silently coerce. The `id`
- * component makes `(sort_field, id)` a stable composite sort key. Wire form:
- * base64url JSON via `encodeAppsCursor`/`decodeAppsCursor`.
- */
-export type ListAppsCursor =
-	| { kind: "updated_desc"; updated_at: string; id: string }
-	| { kind: "updated_asc"; updated_at: string; id: string }
-	| { kind: "name_asc"; name_lower: string; id: string }
-	| { kind: "name_desc"; name_lower: string; id: string };
+export type { AppsSortOrder, ListAppsCursor } from "./appPagination";
 
 /** Options consumed by `listApps`. Callers declare — no implicit defaults. */
 export interface ListAppsOptions {
@@ -329,10 +315,10 @@ export async function deleteMediaAssetForChatRun(args: {
  * target — the cross-target "one build at a time per user" guard, across
  * apps AND design sessions (the scan body lives in
  * `actorGenerationGate.ts::scanActorGenerationTargets`; the claim
- * transactions run the same scan in-txn under the actor gate and fire the
+ * transactions run the same scan in-txn under the actor gate and await the
  * collected reaps after commit).
  *
- * Standalone callers get the fire-and-forget stale-reap side effect.
+ * Standalone callers also await their stale reaps before returning.
  */
 export async function hasActiveGeneration(
 	actorUserId: string,
@@ -342,19 +328,21 @@ export async function hasActiveGeneration(
 	const { live, reapable } = await scanActorGenerationTargets(db, actorUserId, {
 		appId: excludeAppId,
 	});
-	fireScanReaps(reapable);
+	await reapScannedTargets(reapable);
 	return live;
 }
 
-/** Fire the reapers an admission scan surfaced — post-commit, per target
+/** Await the reapers an admission scan surfaced — post-commit, per target
  * kind. The design-session reap body lives in `credits.ts` (this module
  * cannot import `designSessions.ts`, which imports the errors below). */
-function fireScanReaps(reapable: readonly ReapableGenerationTarget[]): void {
+async function reapScannedTargets(
+	reapable: readonly ReapableGenerationTarget[],
+): Promise<void> {
 	for (const target of reapable) {
 		if (target.kind === "app") {
-			void reapStaleGenerating(target.appId, target.identity);
+			await reapStaleGenerating(target.appId, target.identity);
 		} else {
-			void refundStaleDesignSessionRun(
+			await refundStaleDesignSessionRun(
 				target.designSessionId,
 				target.identity,
 			).catch((err) => {
@@ -534,6 +522,30 @@ function syntheticActorId(authority: SyntheticBatchAuthority): string {
 export async function appendSyntheticBatch(
 	args: AppendSyntheticBatchArgs,
 ): Promise<AppendSyntheticBatchResult> {
+	const prepared = prepareSyntheticBatch(args);
+	return withAppTx((tx) => commitPreparedSyntheticBatch(tx, args, prepared));
+}
+
+/** Compose a guarded document repair with its related data writes. The caller
+ * owns the transaction; every authorization, sequence, replay and commit gate
+ * is identical to appendSyntheticBatch. Throwing after this call rolls back
+ * both the document/history and the caller's data changes. */
+export async function appendSyntheticBatchInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: AppendSyntheticBatchArgs,
+): Promise<AppendSyntheticBatchResult> {
+	return commitPreparedSyntheticBatch(tx, args, prepareSyntheticBatch(args));
+}
+
+interface PreparedSyntheticBatch {
+	readonly batchId: string;
+	readonly actorUserId: string;
+	readonly requestedTarget: BlueprintDoc;
+}
+
+function prepareSyntheticBatch(
+	args: AppendSyntheticBatchArgs,
+): PreparedSyntheticBatch {
 	if (!Number.isSafeInteger(args.expectedBaseSeq) || args.expectedBaseSeq < 0) {
 		throw new Error("Synthetic batch base sequence must be nonnegative.");
 	}
@@ -548,148 +560,150 @@ export async function appendSyntheticBatch(
 	}
 	const actorUserId = syntheticActorId(args.authority);
 	// Hydration rebuilds derived in-memory state without changing canonical
-	// identities and is independent of the locked basis. Keep it outside the
-	// retryable transaction closure.
+	// identities and is independent of the locked basis. The standalone writer
+	// prepares once before its retry loop; the composable writer uses the
+	// caller's existing transaction.
 	const requestedTarget = hydratePersistedBlueprint(args.targetDoc);
 
-	type InternalResult = AppendSyntheticBatchResult & {
-		persistable?: PersistedBlueprint;
-	};
-	const result = await withAppTx(async (tx): Promise<InternalResult> => {
-		const fresh = await lockAppRow(tx, args.appId);
-		if (!fresh) {
-			throw new Error("[appendSyntheticBatch] app row is unavailable");
-		}
-		const latch = await tx
-			.selectFrom("app_changes")
-			.select("seq")
-			.where("app_id", "=", args.appId)
-			.where("batch_id", "=", batchId)
-			.executeTakeFirst();
-		if (args.authority.kind === "user") {
-			await assertProjectCapabilityInTransaction(
-				tx,
-				args.authority.actorUserId,
-				fresh.project_id,
-				"edit",
-				"You no longer have edit access to this app's Project.",
-			);
-		}
-		if (latch) {
-			return {
-				kind: "deduped",
-				seq: safePersistedSequence(
-					latch.seq,
-					`app_changes.seq for app ${args.appId}`,
-				),
-			};
-		}
-		if (
-			safePersistedSequence(
-				fresh.mutation_seq,
-				`apps.mutation_seq for app ${args.appId}`,
-			) !== args.expectedBaseSeq
-		) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
-			);
-		}
+	return { batchId, actorUserId, requestedTarget };
+}
 
-		// A named system repair may be needed precisely because a strengthened
-		// absolute gate exposed historical state. It receives a strictly parsed,
-		// schema-admitted source and still has to land a fully gate-clean target.
-		// User-attributed synthetic writes retain the ordinary strict read gate.
-		const previousSnapshot =
-			args.authority.kind === "system"
-				? await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, fresh)
-				: await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
-		const previousPersistable = previousSnapshot.app.blueprint;
-		const previousDoc = previousSnapshot.doc;
-		let syntheticMutations: Mutation[];
-		try {
-			syntheticMutations = diffDocsToMutations(previousDoc, requestedTarget);
-		} catch (error) {
-			if (error instanceof CasePropertySemanticProvenanceRequiredError) {
-				throw new BlueprintCommitRejectedError(
-					"The requested repair changes case-property identities without the original explicit rename command. Whole-document repair cannot decide whether saved case rows should move.",
-				);
-			}
-			throw error;
-		}
-		const mutations = admitMutationBatch(syntheticMutations);
-		const prepared = prepareMutationCandidate(previousDoc, mutations);
-		const replayed = toPersistableDoc(prepared.nextDoc);
-		const requested = toPersistableDoc(requestedTarget);
-		if (!deepEqual(replayed, requested)) {
-			throw new BlueprintCommitRejectedError(
-				"The requested repair cannot be represented as a deterministic mutation batch.",
-			);
-		}
-		if (mutations.length === 0) {
-			return {
-				kind: "noop",
-				seq: safePersistedSequence(
-					fresh.mutation_seq,
-					`apps.mutation_seq for app ${args.appId}`,
-				),
-			};
-		}
-		if (mutationTargetsInvalid(previousDoc, mutations)) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
-			);
-		}
-		const previousTargets = extractLookupReferenceTargets(previousDoc);
-		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-		const lookupTargets = unionLookupReferenceTargetSets(
-			previousTargets,
-			candidateTargets,
-		);
-		const lookupContext = await lookupContextForAuthoritativeWrite(
+async function commitPreparedSyntheticBatch(
+	tx: Transaction<AppDatabase>,
+	args: AppendSyntheticBatchArgs,
+	{ batchId, actorUserId, requestedTarget }: PreparedSyntheticBatch,
+): Promise<AppendSyntheticBatchResult> {
+	const fresh = await lockAppRow(tx, args.appId);
+	if (!fresh) {
+		throw new Error("[appendSyntheticBatch] app row is unavailable");
+	}
+	const latch = await tx
+		.selectFrom("app_changes")
+		.select("seq")
+		.where("app_id", "=", args.appId)
+		.where("batch_id", "=", batchId)
+		.executeTakeFirst();
+	if (args.authority.kind === "user") {
+		await assertProjectCapabilityInTransaction(
 			tx,
+			args.authority.actorUserId,
 			fresh.project_id,
-			lookupTargets,
+			"edit",
+			"You no longer have edit access to this app's Project.",
 		);
-		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
-		if (!verdict.ok) {
-			throw new BlueprintCommitRejectedError(
-				describeCommitFindings(verdict.findings),
-			);
-		}
-		const persistable = toPersistableDoc(verdict.nextDoc);
-		const seq = nextPersistedSequence(
+	}
+	if (latch) {
+		return {
+			kind: "deduped",
+			seq: safePersistedSequence(
+				latch.seq,
+				`app_changes.seq for app ${args.appId}`,
+			),
+		};
+	}
+	if (
+		safePersistedSequence(
 			fresh.mutation_seq,
 			`apps.mutation_seq for app ${args.appId}`,
+		) !== args.expectedBaseSeq
+	) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
 		);
-		await admitExactMediaReferences(tx, {
-			appId: args.appId,
-			projectId: fresh.project_id,
-			candidateDoc: verdict.nextDoc,
-		});
-		await applyOrganizationCommitIntegrity(tx, {
-			appId: args.appId,
-			previousDoc,
-			candidateDoc: verdict.nextDoc,
-		});
-		await replaceLookupReferenceEdges(tx, {
-			appId: args.appId,
-			projectId: fresh.project_id,
-			targets: candidateTargets,
-		});
-		await writeCommittedBatch(tx, {
-			appId: args.appId,
-			seq,
-			batchId,
-			prevDoc: previousPersistable,
-			committedDoc: persistable,
-			mutations,
-			actorUserId,
-			kind: "blueprint-migration",
-		});
-		return { kind: "committed", seq, persistable };
+	}
+
+	// A named system repair may be needed precisely because a strengthened
+	// absolute gate exposed historical state. It receives a strictly parsed,
+	// schema-admitted source and still has to land a fully gate-clean target.
+	// User-attributed synthetic writes retain the ordinary strict read gate.
+	const previousSnapshot =
+		args.authority.kind === "system"
+			? await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, fresh)
+			: await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
+	const previousPersistable = previousSnapshot.app.blueprint;
+	const previousDoc = previousSnapshot.doc;
+	let syntheticMutations: Mutation[];
+	try {
+		syntheticMutations = diffDocsToMutations(previousDoc, requestedTarget);
+	} catch (error) {
+		if (error instanceof CasePropertySemanticProvenanceRequiredError) {
+			throw new BlueprintCommitRejectedError(
+				"The requested repair changes case-property identities without the original explicit rename command. Whole-document repair cannot decide whether saved case rows should move.",
+			);
+		}
+		throw error;
+	}
+	const mutations = admitMutationBatch(syntheticMutations);
+	const prepared = prepareMutationCandidate(previousDoc, mutations);
+	const replayed = toPersistableDoc(prepared.nextDoc);
+	const requested = toPersistableDoc(requestedTarget);
+	if (!deepEqual(replayed, requested)) {
+		throw new BlueprintCommitRejectedError(
+			"The requested repair cannot be represented as a deterministic mutation batch.",
+		);
+	}
+	if (mutations.length === 0) {
+		return {
+			kind: "noop",
+			seq: safePersistedSequence(
+				fresh.mutation_seq,
+				`apps.mutation_seq for app ${args.appId}`,
+			),
+		};
+	}
+	if (mutationTargetsInvalid(previousDoc, mutations)) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
+		);
+	}
+	const previousTargets = extractLookupReferenceTargets(previousDoc);
+	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+	const lookupTargets = unionLookupReferenceTargetSets(
+		previousTargets,
+		candidateTargets,
+	);
+	const lookupContext = await lookupContextForAuthoritativeWrite(
+		tx,
+		fresh.project_id,
+		lookupTargets,
+	);
+	const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
+	if (!verdict.ok) {
+		throw new BlueprintCommitRejectedError(
+			describeCommitFindings(verdict.findings),
+		);
+	}
+	const persistable = toPersistableDoc(verdict.nextDoc);
+	const seq = nextPersistedSequence(
+		fresh.mutation_seq,
+		`apps.mutation_seq for app ${args.appId}`,
+	);
+	await admitExactMediaReferences(tx, {
+		appId: args.appId,
+		projectId: fresh.project_id,
+		candidateDoc: verdict.nextDoc,
 	});
-	const { persistable: _persistable, ...publicResult } = result;
-	return publicResult;
+	await applyOrganizationCommitIntegrity(tx, {
+		appId: args.appId,
+		previousDoc,
+		candidateDoc: verdict.nextDoc,
+	});
+	await replaceLookupReferenceEdges(tx, {
+		appId: args.appId,
+		projectId: fresh.project_id,
+		targets: candidateTargets,
+	});
+	await writeCommittedBatch(tx, {
+		appId: args.appId,
+		seq,
+		batchId,
+		prevDoc: previousPersistable,
+		committedDoc: persistable,
+		mutations,
+		actorUserId,
+		kind: "blueprint-migration",
+	});
+	return { kind: "committed", seq };
 }
 
 interface ProjectMoveThreadSnapshot {
@@ -1528,7 +1542,7 @@ export async function claimAndReserveRun(
 			}
 			return { mode, reservation: { period, reserved: cost }, holderNonce };
 		});
-		fireScanReaps(reapable);
+		await reapScannedTargets(reapable);
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -1610,7 +1624,7 @@ export async function reserveForNewBuild(
 		});
 		return { period, reserved: cost };
 	});
-	fireScanReaps(reapable);
+	await reapScannedTargets(reapable);
 	return reservation;
 }
 
@@ -2177,7 +2191,7 @@ export async function setAwaitingInput(
  * flip it to `error` in one transaction with the staleness RE-VALIDATED
  * inside it (`refundStaleGeneration`) — so a fresh build that re-claimed
  * between the scan and the reap reads live and the reap no-ops. Idempotent;
- * fire-and-forget at the scan call sites and AWAITED from the claim's
+ * awaited at the scan call sites and from the claim's
  * conflict nudge.
  */
 export async function reapStaleGenerating(
@@ -2418,7 +2432,8 @@ export type AppProjectLookup =
 	| { readonly kind: "not-found" };
 
 /**
- * Load just the owning Project id — the lightweight authorization read.
+ * Load the active app's Project id for lightweight authorization.
+ * A soft-deleted app is unavailable until explicitly restored.
  *
  * Missing-app state is explicit rather than overloaded onto a nullable Project:
  * every persisted app has exactly one Project.
@@ -2431,6 +2446,7 @@ export async function loadAppProjectId(
 		.selectFrom("apps")
 		.select("project_id")
 		.where("id", "=", appId)
+		.where("deleted_at", "is", null)
 		.executeTakeFirst();
 	return row === undefined
 		? { kind: "not-found" }
@@ -2441,43 +2457,6 @@ export async function loadAppProjectId(
 
 const SEARCH_FETCH_BUFFER = 90;
 const FUSE_THRESHOLD = 0.4;
-
-function encodeAppsCursor(cursor: ListAppsCursor): string {
-	return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-function decodeAppsCursor(encoded: string): ListAppsCursor {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-	} catch {
-		throw new Error("Invalid pagination cursor (malformed encoding).");
-	}
-	if (typeof parsed !== "object" || parsed === null) {
-		throw new Error("Invalid pagination cursor (not an object).");
-	}
-	const obj = parsed as Record<string, unknown>;
-	const kind = obj.kind;
-	const id = obj.id;
-	if (typeof id !== "string") {
-		throw new Error("Invalid pagination cursor (missing id).");
-	}
-	if (kind === "updated_desc" || kind === "updated_asc") {
-		const updatedAt = obj.updated_at;
-		if (typeof updatedAt !== "string") {
-			throw new Error(`Invalid pagination cursor (${kind} payload).`);
-		}
-		return { kind, updated_at: updatedAt, id };
-	}
-	if (kind === "name_asc" || kind === "name_desc") {
-		const nameLower = obj.name_lower;
-		if (typeof nameLower !== "string") {
-			throw new Error(`Invalid pagination cursor (${kind} payload).`);
-		}
-		return { kind, name_lower: nameLower, id };
-	}
-	throw new Error(`Invalid pagination cursor (unknown kind: ${String(kind)}).`);
-}
 
 function cursorFor(
 	summary: AppSummary,
@@ -2502,18 +2481,20 @@ function cursorFor(
 	}
 }
 
-/** The summary projection + the scan-side reapers: a stale build reads as
- *  `error` immediately (the reap settles asynchronously), and a stranded edit
- *  hold fires the refund-only reaper without changing the row shown. */
-function projectAppSummary(row: AppSummaryRow, now: number): AppSummary {
+/** Project the scan snapshot after awaiting its best-effort reaps. Keep the
+ * original timestamps and order so cleanup does not move the page cursor. */
+async function projectAppSummary(
+	row: AppSummaryRow,
+	now: number,
+): Promise<AppSummary> {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
 	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
 	if (isStale && exactIdentity?.mode === "build") {
-		void reapStaleGenerating(row.id, exactIdentity);
+		await reapStaleGenerating(row.id, exactIdentity);
 	}
 	if (lease.reapableStrandedEdit && exactIdentity?.mode === "edit") {
-		void reapStaleReservation(row.id, exactIdentity);
+		await reapStaleReservation(row.id, exactIdentity);
 	}
 	return {
 		id: row.id,
@@ -2569,12 +2550,7 @@ async function queryAppsByScope(
 			break;
 	}
 	if (cursor) {
-		const decoded = decodeAppsCursor(cursor);
-		if (decoded.kind !== sort) {
-			throw new Error(
-				`Cursor was minted for sort="${decoded.kind}" but this call uses sort="${sort}".`,
-			);
-		}
+		const decoded = decodeAppsCursor(cursor, sort);
 		/* Resume strictly AFTER `(sort_field, id)` in the composite order. The
 		 * id tiebreak is ascending on every sort, so "after" is: primary field
 		 * past the boundary, OR equal primary and id greater. */
@@ -2618,7 +2594,8 @@ async function queryAppsByScope(
 	}
 	const rows = (await query.limit(limit).execute()) as AppSummaryRow[];
 	const now = Date.now();
-	const apps = rows.map((row) => projectAppSummary(row, now));
+	const apps: AppSummary[] = [];
+	for (const row of rows) apps.push(await projectAppSummary(row, now));
 	const last = rows[rows.length - 1];
 	const nextCursor =
 		rows.length === limit && last

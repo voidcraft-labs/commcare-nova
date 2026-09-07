@@ -13,7 +13,8 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
-import type { LookupRevision } from "@/lib/lookup/types";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const fieldUuid = asUuid("44444444-4444-4444-8444-444444444444");
 
@@ -43,8 +44,10 @@ const inlineSource = {
 	],
 };
 
-function inlineSelectDoc() {
-	return buildDoc({
+function inlineSelectDoc(
+	kind: "single_select" | "multi_select" = "single_select",
+) {
+	const doc = buildDoc({
 		appName: "Lookup source gate",
 		modules: [
 			{
@@ -56,7 +59,7 @@ function inlineSelectDoc() {
 						fields: [
 							f({
 								uuid: fieldUuid,
-								kind: "single_select",
+								kind,
 								id: "facility",
 								label: proseText("Facility"),
 								optionsSource: inlineSource,
@@ -67,18 +70,20 @@ function inlineSelectDoc() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 const availableContext: LookupValidationContext = {
 	kind: "available",
 	projectId: "project-a",
-	projectRevision: "7" as LookupRevision,
+	projectRevision: parseLookupRevision("7"),
 	definitions: [
 		{
 			id: source.tableId,
 			name: "Facilities",
 			tag: "facilities",
-			definitionRevision: "6" as LookupRevision,
+			definitionRevision: parseLookupRevision("6"),
 			columns: [
 				{
 					id: source.valueColumnId,
@@ -98,57 +103,45 @@ const availableContext: LookupValidationContext = {
 };
 
 describe("replaceFieldOptionsSourceMutation", () => {
-	it("replaces the complete source with a lookup arm", () => {
-		const mutation = replaceFieldOptionsSourceMutation(
-			fieldUuid,
-			"single_select",
-			source,
-		);
-		expect(mutation).toEqual({
-			kind: "updateField",
-			uuid: fieldUuid,
-			targetKind: "single_select",
-			patch: { optionsSource: source },
-		});
-	});
-
-	it("replaces lookup choices with a complete inline arm", () => {
-		const mutation = replaceFieldOptionsSourceMutation(
-			fieldUuid,
-			"multi_select",
-			inlineSource,
-		);
-		const wire = JSON.parse(JSON.stringify(mutation)) as Record<
-			string,
-			unknown
-		>;
-		expect(wire).toHaveProperty("patch.optionsSource", inlineSource);
-	});
-
-	it("carries a set source through the same round trip", () => {
-		const mutation = replaceFieldOptionsSourceMutation(
-			fieldUuid,
-			"single_select",
-			source,
-		);
-		const wire = JSON.parse(JSON.stringify(mutation));
-		expect(wire).toEqual(mutation);
-	});
-
-	it("produces mutations the canonical external envelope accepts", () => {
-		// Both directions are ordinary canonical `updateField` events with the
-		// complete nested field patch shape.
-		for (const next of [source, inlineSource]) {
-			const parsed = mutationSchema.safeParse(
+	it.each(["single_select", "multi_select"] as const)(
+		"commits %s inline-to-lookup and lookup-to-inline through JSON",
+		(kind) => {
+			const before = inlineSelectDoc(kind);
+			const lookupMutation = mutationSchema.parse(
 				JSON.parse(
 					JSON.stringify(
-						replaceFieldOptionsSourceMutation(fieldUuid, "single_select", next),
+						replaceFieldOptionsSourceMutation(fieldUuid, kind, source),
 					),
 				),
 			);
-			expect(parsed.success).toBe(true);
-		}
-	});
+			const bound = mutationCommitVerdict(
+				before,
+				[lookupMutation],
+				availableContext,
+			);
+			expect(bound.ok ? [] : bound.findings).toEqual([]);
+			expect(bound.nextDoc.fields[fieldUuid]).toMatchObject({
+				kind,
+				optionsSource: source,
+			});
+			const inlineMutation = mutationSchema.parse(
+				JSON.parse(
+					JSON.stringify(
+						replaceFieldOptionsSourceMutation(fieldUuid, kind, inlineSource),
+					),
+				),
+			);
+			const restored = mutationCommitVerdict(
+				bound.nextDoc,
+				[inlineMutation],
+				availableContext,
+			);
+			expect(restored.ok ? [] : restored.findings).toEqual([]);
+			expect(restored.nextDoc.fields[fieldUuid]).toEqual(
+				before.fields[fieldUuid],
+			);
+		},
+	);
 
 	it("requires the loaded table definition before the client gate can bind it", () => {
 		const doc = inlineSelectDoc();

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import {
 	collectThreadAttachmentAssetIds,
+	preserveStoredThreadAttachments,
 	remapThreadAttachmentAssetIds,
 } from "../threadAttachments";
 
@@ -111,4 +112,46 @@ describe("thread attachment identity", () => {
 			},
 		]);
 	});
+});
+
+it("stored attachment identity wins while a stale client may enrich text and other metadata", () => {
+	const current = {
+		assetId: testMediaAssetId("current-project"),
+		kind: "image",
+		filename: "current.png",
+		mimeType: "image/png",
+	};
+	const stale = { ...current, assetId: testMediaAssetId("previous-project") };
+	const candidate = {
+		id: "same-message",
+		parts: [{ type: "text", text: "richer answer" }],
+		metadata: { model: "new-model", attachments: [stale] },
+	};
+	const before = structuredClone(candidate);
+	expect(
+		preserveStoredThreadAttachments(
+			{ metadata: { attachments: [current] } },
+			candidate,
+		),
+	).toEqual({
+		...candidate,
+		metadata: { model: "new-model", attachments: [current] },
+	});
+	expect(
+		preserveStoredThreadAttachments(
+			{ metadata: { attachments: [] } },
+			candidate,
+		),
+	).toEqual({
+		...candidate,
+		metadata: { model: "new-model", attachments: [] },
+	});
+	expect(preserveStoredThreadAttachments({}, candidate)).toEqual({
+		...candidate,
+		metadata: { model: "new-model" },
+	});
+	expect(
+		preserveStoredThreadAttachments({}, { metadata: { attachments: [stale] } }),
+	).toEqual({});
+	expect(candidate).toEqual(before);
 });

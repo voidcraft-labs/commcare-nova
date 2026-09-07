@@ -9,7 +9,7 @@
  * stale-reference shapes that would otherwise make media-ON `expandDoc`
  * throw `requireAssetRef`:
  *
- *   - deleted / foreign-owned asset (absent row) → MEDIA_ASSET_NOT_FOUND
+ *   - deleted / foreign-Project asset (absent row) → MEDIA_ASSET_NOT_FOUND
  *   - still-uploading asset (pending row returned) → MEDIA_ASSET_NOT_READY
  *     (the reason the load goes through `loadAssetsByIds`, which returns
  *     pending rows, NOT the ready-only manifest)
@@ -21,7 +21,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
@@ -120,7 +120,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		expect(errors).toHaveLength(0);
 	});
 
-	it("flags a deleted / foreign-owned asset as MEDIA_ASSET_NOT_FOUND", async () => {
+	it("flags a deleted / foreign-Project asset as MEDIA_ASSET_NOT_FOUND", async () => {
 		// The loader returns no row (deleted, or filtered out by project) — the
 		// reference can't resolve, so a media-ON expand would throw.
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
@@ -193,7 +193,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 						columns: [
 							{
 								kind: "image-map",
-								uuid: "col-img" as never,
+								uuid: testUuid("col-img"),
 								field: "region",
 								header: "Region",
 								mapping: [
@@ -204,8 +204,8 @@ describe("collectExportBoundaryViolations media arm", () => {
 								],
 							},
 						],
-						listColumnOrder: ["col-img" as never],
-						detailColumnOrder: ["col-img" as never],
+						listColumnOrder: [testUuid("col-img")],
+						detailColumnOrder: [testUuid("col-img")],
 						searchInputs: [],
 					},
 					forms: [{ name: "Empty", type: "survey", fields: [] }],
@@ -249,7 +249,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
 	});
 
-	it("passes the owner through to the loader", async () => {
+	it("passes the explicit Project through to the loader", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([]);
 		const assetId = testMediaAssetId("some-asset");
 		await collectBoundaryViolations(validDoc(assetId), PROJECT);
@@ -272,48 +272,7 @@ describe("collectExportBoundaryViolations media arm", () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([
 			makeAssetRecord("real-asset"),
 		]);
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name") },
-						{ name: "village", label: proseText("Village") },
-					],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-									label_media: { image: realAssetId },
-								}),
-								f({
-									kind: "text",
-									id: "village",
-									label: proseText("Village"),
-									caseWrite: { caseType: "patient", property: "village" },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
+		const doc = validDoc(realAssetId);
 		doc.modules[doc.moduleOrder[0]].icon = builtinIconRef("household");
 
 		const errors = await collectBoundaryViolations(doc, PROJECT);

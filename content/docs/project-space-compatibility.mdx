@@ -28,7 +28,8 @@ The result is one of four clear states:
   Nova names what prevented the check. Usually the next step is to check the
   CommCare HQ connection. Case search may instead need **Mobile App Access** on
   the CommCare HQ account connected to Nova; a project-space administrator can
-  add that permission.
+  add that permission. A sign-in page or a network error cannot confirm support;
+  Nova waits for a successful check before sending anything.
 
 Nova checks again as part of every direct publish. A result from an earlier
 check is useful guidance, but it cannot become stale permission to write to a
@@ -48,6 +49,8 @@ claiming they were checked there.
 
 Before importing the file, choose the destination and check that project space
 in Nova or with `check_project_space_compatibility` through the MCP server.
+If the app needs no additional support, the MCP check confirms there is nothing
+to check without contacting CommCare HQ.
 The manual CommCare HQ app file describes a new app. It is not a safe update for
 an app that is already on CommCare HQ.
 

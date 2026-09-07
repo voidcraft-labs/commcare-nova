@@ -31,10 +31,9 @@
  *     unusable location assignment answers 201 and silently drops it.
  *     A refusal a person can act on has to come from here.
  *
- * Everything in this module is pure, and none of it ever sees a password.
- * A credential is generated at the moment of the write, handed back once,
- * and stored nowhere — a planner that held one would be a planner whose
- * result could be logged.
+ * Planning is pure and never receives passwords. The separate session folds
+ * at the end retain once-shown credentials only in the mounted page; none
+ * of their inputs or results may be logged or persisted.
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
@@ -672,8 +671,8 @@ export function unconfirmedWorkerKey(
  *
  * An ADOPTED account is never dropped either. That is the account that
  * was in doubt, now proven real and claimed in the ledger, and the
- * generated password held here is the one it was made with — CommCare HQ
- * never told Nova a second one.
+ * generated passwords held here remain candidates; adoption proves neither
+ * which attempt created it nor which password it accepts.
  */
 export function retainUnconfirmedWorkers(
 	held: Readonly<Record<string, UnconfirmedWorker>>,
@@ -689,14 +688,35 @@ export function retainUnconfirmedWorkers(
 	const next = { ...held };
 	for (const worker of answer.workers) {
 		if (!worker.created) continue;
-		delete next[unconfirmedWorkerKey(worker.personaUuid, worker.username)];
+		for (const [key, candidate] of Object.entries(next)) {
+			if (
+				candidate.personaUuid === worker.personaUuid &&
+				candidate.username === worker.username
+			)
+				delete next[key];
+		}
 	}
 	/* Optional because a client loaded against one revision can reach a
 	 * server running another: Server Action ids are pinned stable across
 	 * builds so open tabs survive a deploy, which is exactly the window
 	 * where an older answer carries no `unconfirmed` at all. */
 	for (const worker of answer.unconfirmed ?? []) {
-		next[unconfirmedWorkerKey(worker.personaUuid, worker.username)] = worker;
+		// A second uncertain create cannot disprove the first. Retain every
+		// distinct password; a repeated identical answer needs no duplicate row.
+		if (
+			Object.values(next).some(
+				(candidate) =>
+					candidate.personaUuid === worker.personaUuid &&
+					candidate.username === worker.username &&
+					candidate.password === worker.password,
+			)
+		)
+			continue;
+		const base = unconfirmedWorkerKey(worker.personaUuid, worker.username);
+		let key = base,
+			suffix = 0;
+		while (Object.hasOwn(next, key)) key = `${base}:${++suffix}`;
+		next[key] = worker;
 	}
 	return next;
 }
@@ -714,6 +734,7 @@ export function retainUnconfirmedWorkers(
  * to hold them.
  */
 export interface HeldProvisioningOutcome {
+	readonly unconfirmed: Readonly<Record<string, UnconfirmedWorker>>;
 	readonly workers: readonly ProvisionedWorker[];
 	readonly refusal: WorkerProvisionRefusal | null;
 }
@@ -732,8 +753,9 @@ export function provisioningOutcomeKey(server: string, domain: string): string {
  * then two more, is handing out five passwords, and an answer that simply
  * replaced the last one would destroy the first three's only copies. A
  * later answer for the same account wins except for its password — an
- * update carries none (`password: null`), and the password the account
- * was MADE with is still the one it signs in with.
+ * update carries none (`password: null`). A retained password is confirmed
+ * only while the remote account ID agrees; a different account under the
+ * same username keeps the old credential as an unconfirmed candidate.
  *
  * The refusal is the latest call's, verbatim, including null: it describes
  * one attempt, and the newest attempt's answer is the standing one.
@@ -743,9 +765,11 @@ export function foldProvisioningOutcome(
 	answer: {
 		readonly workers: readonly ProvisionedWorker[];
 		readonly refusal: WorkerProvisionRefusal | null;
+		readonly unconfirmed?: readonly UnconfirmedWorker[];
 	},
 ): HeldProvisioningOutcome {
 	const merged = [...(held?.workers ?? [])];
+	const displaced: UnconfirmedWorker[] = [];
 	for (const worker of answer.workers) {
 		const key = unconfirmedWorkerKey(worker.personaUuid, worker.username);
 		const at = merged.findIndex(
@@ -756,10 +780,31 @@ export function foldProvisioningOutcome(
 			merged.push(worker);
 			continue;
 		}
+		const previous = merged[at];
+		const sameIdentity = previous.userId === worker.userId;
+		if (
+			!sameIdentity &&
+			previous.password !== null &&
+			worker.password === null
+		) {
+			displaced.push({
+				personaUuid: previous.personaUuid,
+				personaName: previous.personaName,
+				username: previous.username,
+				password: previous.password,
+			});
+		}
 		merged[at] = {
 			...worker,
-			password: worker.password ?? merged[at].password,
+			password: worker.password ?? (sameIdentity ? previous.password : null),
 		};
 	}
-	return { workers: merged, refusal: answer.refusal };
+	return {
+		workers: merged,
+		refusal: answer.refusal,
+		unconfirmed: retainUnconfirmedWorkers(held?.unconfirmed ?? {}, {
+			...answer,
+			unconfirmed: [...displaced, ...(answer.unconfirmed ?? [])],
+		}),
+	};
 }

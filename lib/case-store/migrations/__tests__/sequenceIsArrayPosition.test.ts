@@ -35,6 +35,31 @@ const modules = (rows: StoredEntityRow[]): readonly string[] | undefined =>
 	sequencesFromStoredRows(rows, { sorted: true }).get("modules");
 
 describe("sequencesFromStoredRows", () => {
+	it.each([
+		{ kind: "module", slot: "searchInputs" },
+		{ kind: "form", slot: "caseOperations" },
+		{ kind: "field", slot: "options" },
+	])(
+		"sorts $slot before stripping legacy keys and leaves the result stable on replay",
+		({ kind, slot }) => {
+			const members = [
+				{ uuid: "b", order: "z", value: "preserved-b" },
+				{ uuid: "a", order: "a", value: "preserved-a" },
+			];
+			const container: Record<string, unknown> = { [slot]: members };
+			const data: Record<string, unknown> =
+				kind === "module" ? { caseListConfig: container } : container;
+			expect(migrateNested(kind, data)).toBe(true);
+			expect(container[slot]).toEqual([
+				{ uuid: "a", value: "preserved-a" },
+				{ uuid: "b", value: "preserved-b" },
+			]);
+			const migrated = structuredClone(data);
+			expect(migrateNested(kind, data)).toBe(false);
+			expect(data).toEqual(migrated);
+		},
+	);
+
 	it("orders modules by key, not by stored ordinal", () => {
 		// The defect the migration exists for: a reorder wrote only the key, so
 		// the ordinal is stale and disagrees with what the app renders.

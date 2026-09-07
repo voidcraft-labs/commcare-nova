@@ -1,31 +1,32 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-
-import type { LookupColumnId, LookupTableId } from "@/lib/domain";
+import { csqlStaticQuoteFixture } from "@/lib/commcare/__tests__/csqlStaticQuoteFixture";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	actingUser,
 	ancestorPath,
 	and,
-	arith,
 	between,
 	coalesce,
 	concat,
 	count,
 	dateAdd,
-	dateCoerce,
-	datetimeCoerce,
 	double,
 	eq,
 	exists,
 	formatDate,
 	formField,
 	gt,
+	gte,
 	idOf,
 	ifExpr,
 	input,
 	isBlank,
 	isIn,
 	literal,
+	lt,
+	lte,
 	match,
 	matchAll,
 	matchesPattern,
@@ -34,20 +35,18 @@ import {
 	multiSelectAny,
 	neq,
 	not,
-	now,
 	or,
+	type Predicate,
 	prop,
 	relationStep,
 	selfPath,
-	sessionContext,
 	subcasePath,
 	switchCase,
 	switchExpr,
-	tableColumn,
-	tableLookup,
 	term,
 	today,
 	unowned,
+	type ValueExpression,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
@@ -56,453 +55,397 @@ import {
 	normalizeCsqlPredicate,
 } from "../csqlRepresentability";
 
-const PATIENT = "patient";
-const field = (name: string) => prop(PATIENT, name);
-const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const FILTER_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+const field = (name: string) => prop("patient", name);
+const query = input(testUuid("query"));
+const badLiteral = literal(`it's "quoted"`);
+const bad = term(badLiteral);
+const safe = term(literal("safe"));
+const dynamic = eq(query, literal("yes"));
+// This private analysis has no document/type context. Its output proves only
+// diagnostics and normalization; admitted export/runtime evidence lives below
+// and in the native function, quote and search corpora.
+const issues = (predicate: Predicate) =>
+	checkCsqlRepresentability(predicate).map(({ reason, path }) => ({
+		reason,
+		path,
+	}));
 
-describe("checkCsqlRepresentability", () => {
-	it("accepts a table lookup without treating its row filter as a case query", () => {
-		expect(
-			checkCsqlRepresentability(
-				eq(
-					field("status"),
-					tableLookup(
-						TABLE,
-						VALUE_COLUMN,
-						eq(tableColumn(TABLE, FILTER_COLUMN), literal("enabled")),
-					),
-				),
-			),
-		).toEqual([]);
-	});
+it("rejects all four unsafe native branches and admits their safe counterparts through the full gate", () => {
+	const unsafe = csqlStaticQuoteFixture("unsafe");
+	const findings = runValidation(unsafe, LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(findings.map(({ code, details }) => ({ code, details }))).toEqual(
+		[0, 1, 2, 3].map((index) => ({
+			code: "CASE_LIST_CSQL_NOT_REPRESENTABLE",
+			details: {
+				reason: "csql-string-not-quotable",
+				path: `and.[${index}].right`,
+				slot: "caseListConfig.filter",
+				surface: "filter",
+			},
+		})),
+	);
+	expect(
+		runValidation(csqlStaticQuoteFixture("safe"), LOOKUP_CONTEXT_UNAVAILABLE),
+	).toEqual([]);
+});
 
-	it("rejects form-submission identity leaves from remote case search", () => {
-		const uuid = testUuid("11111111-1111-4111-8111-111111111111");
-		for (const value of [
-			term(formField(uuid)),
-			idOf(uuid),
-			actingUser(),
-			unowned(),
-		]) {
-			expect(checkCsqlRepresentability(eq(field("name"), value))).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ reason: "form-context-value-not-csql" }),
-				]),
-			);
-		}
-	});
-
+describe("private CSQL boundary diagnostics", () => {
 	it.each([
-		["literal term", term(literal("x"))],
-		["search input term", term(input(testUuid("query")))],
-		["session term", term(sessionContext("userid"))],
-		["today", today()],
-		["now", now()],
-		["date-add", dateAdd(today(), "days", term(literal(1)))],
-		["date-coerce", dateCoerce(term(literal("2026-01-02")))],
-		["datetime-coerce", datetimeCoerce(term(literal("2026-01-02T03:04:05Z")))],
-		["double", double(term(literal("2")))],
-		["arith", arith("+", term(literal(1)), term(literal(2)))],
-		["concat", concat(term(literal("a")), term(literal("b")))],
 		[
-			"coalesce",
-			coalesce(term(input(testUuid("q"))), term(literal("fallback"))),
+			"two properties",
+			eq(field("name"), field("nickname")),
+			"case-property-on-value-side",
+			["right"],
 		],
-		["if", ifExpr(matchAll(), term(literal("yes")), term(literal("no")))],
 		[
-			"switch",
-			switchExpr(
-				term(input(testUuid("q"))),
-				[switchCase(literal("a"), term(literal("A")))],
-				term(literal("other")),
+			"no anchor",
+			eq(literal("a"), literal("b")),
+			"comparison-needs-case-property",
+			["left"],
+		],
+		[
+			"calculated anchor",
+			eq(concat(term(field("name")), safe), safe),
+			"comparison-needs-case-property",
+			["left"],
+		],
+		[
+			"nested property",
+			eq(field("name"), concat(term(field("nickname")), safe)),
+			"case-property-on-value-side",
+			["right", "parts", 0],
+		],
+		[
+			"parent count",
+			gt(count(ancestorPath(relationStep("parent"))), literal(0)),
+			"unsupported-related-count",
+			["left"],
+		],
+		[
+			"count as value",
+			eq(field("name"), count(subcasePath("child"))),
+			"related-count-on-value-side",
+			["right"],
+		],
+		["blank input", isBlank(query), "comparison-needs-case-property", ["left"]],
+		[
+			"case condition in value",
+			eq(
+				field("name"),
+				ifExpr(eq(field("status"), literal("active")), safe, safe),
 			),
+			"case-property-on-value-side",
+			["right", "if", "cond", "left"],
 		],
-		["format-date", formatDate(today(), "iso")],
+		[
+			"relation in value",
+			eq(field("name"), ifExpr(exists(subcasePath("child")), safe, safe)),
+			"case-query-in-runtime-value",
+			["right", "if", "cond"],
+		],
+		[
+			"property match value",
+			match(field("name"), field("nickname"), "starts-with"),
+			"case-property-on-value-side",
+			["value"],
+		],
+		[
+			"property distance center",
+			within(field("location"), field("other_location"), 5, "miles"),
+			"case-property-on-value-side",
+			["center"],
+		],
+		[
+			"self relation",
+			exists(selfPath()),
+			"self-relation-not-queryable",
+			["exists", "via"],
+		],
+		[
+			"server regex",
+			matchesPattern(field("name"), "^[A-Z]"),
+			"pattern-match-not-csql",
+			[],
+		],
+		[
+			"form field",
+			eq(field("name"), formField(testUuid("field"))),
+			"form-context-value-not-csql",
+			["right"],
+		],
+		[
+			"operation ID",
+			eq(field("name"), idOf(testUuid("operation"))),
+			"form-context-value-not-csql",
+			["right"],
+		],
+		[
+			"acting user",
+			eq(field("name"), actingUser()),
+			"form-context-value-not-csql",
+			["right"],
+		],
+		[
+			"unowned",
+			eq(field("name"), unowned()),
+			"form-context-value-not-csql",
+			["right"],
+		],
 	] as const)(
-		"accepts a pure %s expression on the value side",
-		(_name, value) => {
-			expect(checkCsqlRepresentability(eq(field("target"), value))).toEqual([]);
+		"reports the complete violation for %s",
+		(_name, predicate, reason, path) => {
+			expect(issues(predicate)).toEqual([{ reason, path }]);
 		},
 	);
 
-	it("accepts every query-predicate envelope when its value slots are portable", () => {
-		const portable = and(
-			eq(field("name"), literal("Alice")),
-			neq(field("status"), literal("closed")),
-			isIn(field("status"), literal("open"), literal("pending")),
-			between(field("age"), { lower: literal(18), upper: literal(65) }),
-			isBlank(field("nickname")),
-			match(field("name"), input(testUuid("query")), "fuzzy"),
-			multiSelectAny(field("tags"), literal("vip")),
-			within(field("location"), input(testUuid("center")), 5, "miles"),
-			or(matchAll(), not(matchNone())),
+	it("reports independent violations in authored traversal order without mutating the AST", () => {
+		const authored = and(
+			not(eq(field("name"), bad)),
 			whenInput(
-				input(testUuid("query")),
-				eq(field("name"), input(testUuid("query"))),
-			),
-			exists(
-				ancestorPath(relationStep("parent")),
-				eq(field("status"), literal("active")),
-			),
-			missing(subcasePath("child")),
-		);
-
-		expect(checkCsqlRepresentability(portable)).toEqual([]);
-	});
-
-	it("accepts and canonicalizes a sole property authored on the right", () => {
-		const authored = gt(literal(18), field("age"));
-		expect(checkCsqlRepresentability(authored)).toEqual([]);
-		expect(normalizeCsqlPredicate(authored)).toEqual({
-			kind: "lt",
-			left: term(field("age")),
-			right: term(literal(18)),
-		});
-	});
-
-	it("accepts a direct child count on either authored side", () => {
-		const children = count(subcasePath("child"));
-		expect(checkCsqlRepresentability(gt(children, literal(2)))).toEqual([]);
-		expect(checkCsqlRepresentability(gt(literal(2), children))).toEqual([]);
-	});
-
-	it("requires calendar month/year quantities to be fixed or prompted whole numbers", () => {
-		expect(
-			checkCsqlRepresentability(
-				eq(field("due_date"), dateAdd(today(), "months", term(literal(1.5)))),
-			),
-		).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "calendar-date-add-needs-whole-number",
-					path: ["right", "quantity"],
-				}),
-			]),
-		);
-		expect(
-			checkCsqlRepresentability(
-				eq(
-					field("due_date"),
-					dateAdd(today(), "years", double(term(input(testUuid("years"))))),
+				query,
+				or(
+					isIn(field("status"), literal("ok"), badLiteral),
+					missing(selfPath(), multiSelectAny(field("tags"), badLiteral)),
 				),
 			),
-		).toEqual([]);
-		// Calendar shifts may move in either direction; the constraint is
-		// integrality, not nonnegativity.
-		expect(
-			checkCsqlRepresentability(
-				eq(field("due_date"), dateAdd(today(), "months", term(literal(-2)))),
-			),
-		).toEqual([]);
-		expect(
-			checkCsqlRepresentability(
-				eq(field("due_date"), dateAdd(today(), "years", term(literal(0)))),
-			),
-		).toEqual([]);
+			between(count(subcasePath("child")), {
+				lower: literal(-1),
+				upper: literal(1.5),
+			}),
+		);
+		const before = structuredClone(authored);
+		expect(issues(authored)).toEqual([
+			{
+				reason: "csql-string-not-quotable",
+				path: ["and", 0, "not", "clause", "right"],
+			},
+			{
+				reason: "csql-string-not-quotable",
+				path: ["and", 1, "when-input-present", "clause", "or", 0, "values", 1],
+			},
+			{
+				reason: "self-relation-not-queryable",
+				path: [
+					"and",
+					1,
+					"when-input-present",
+					"clause",
+					"or",
+					1,
+					"missing",
+					"via",
+				],
+			},
+			{
+				reason: "csql-string-not-quotable",
+				path: [
+					"and",
+					1,
+					"when-input-present",
+					"clause",
+					"or",
+					1,
+					"missing",
+					"where",
+					"values",
+					0,
+				],
+			},
+			{
+				reason: "subcase-count-needs-nonnegative-whole-number",
+				path: ["and", 2, "lower"],
+			},
+			{
+				reason: "subcase-count-needs-nonnegative-whole-number",
+				path: ["and", 2, "upper"],
+			},
+		]);
+		expect(authored).toEqual(before);
 	});
 
-	it("requires child-count bounds to be nonnegative whole numbers", () => {
-		const children = count(subcasePath("child"));
-		for (const value of [-1, 1.5]) {
-			expect(checkCsqlRepresentability(gt(children, literal(value)))).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						reason: "subcase-count-needs-nonnegative-whole-number",
-						path: ["right"],
-					}),
-				]),
-			);
-		}
-		expect(
-			checkCsqlRepresentability(
-				gt(children, double(term(input(testUuid("minimum_children"))))),
-			),
-		).toEqual([]);
-		expect(checkCsqlRepresentability(gt(children, literal(-0)))).toEqual([]);
-	});
-
-	it("reports comparisons that cross independent case-row scopes", () => {
-		const parent = ancestorPath(relationStep("parent"));
-		const household = ancestorPath(relationStep("household"));
-		const selfVsParent = checkCsqlRepresentability(
-			eq(field("status"), prop(PATIENT, "status", parent)),
+	it("stops at conflicting row scopes, including range bounds", () => {
+		const parent = prop(
+			"patient",
+			"status",
+			ancestorPath(relationStep("parent")),
 		);
-		const parentVsHousehold = checkCsqlRepresentability(
-			eq(prop(PATIENT, "status", parent), prop(PATIENT, "status", household)),
+		const household = prop(
+			"patient",
+			"status",
+			ancestorPath(relationStep("household")),
 		);
-
-		for (const issues of [selfVsParent, parentVsHousehold]) {
-			expect(issues).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						reason: "multiple-property-scopes",
-						path: [],
-					}),
-				]),
-			);
-		}
-		expect(
-			checkCsqlRepresentability(
-				eq(prop(PATIENT, "status", parent), input(testUuid("status"))),
-			),
-		).toEqual([]);
-	});
-
-	it("rejects a direct fixed CSQL value containing both quote delimiters", () => {
-		const issues = checkCsqlRepresentability(
-			eq(field("name"), literal(`it's "quoted"`)),
-		);
-
-		expect(issues).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "csql-string-not-quotable",
-					path: ["right"],
-				}),
-			]),
-		);
-	});
-
-	it("rejects unquotable values in CSQL literal-list operators", () => {
-		const inIssues = checkCsqlRepresentability(
-			isIn(field("status"), literal("open"), literal(`it's "closed"`)),
-		);
-		const multiSelectIssues = checkCsqlRepresentability(
-			multiSelectAny(field("tags"), literal(`team's "priority"`)),
-		);
-
-		expect(inIssues).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "csql-string-not-quotable",
-					path: ["values", 1],
-				}),
-			]),
-		);
-		expect(multiSelectIssues).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "csql-string-not-quotable",
-					path: ["values", 0],
-				}),
-			]),
-		);
-	});
-
-	it("rejects a provably unquotable pure on-device output", () => {
-		const issues = checkCsqlRepresentability(
-			eq(field("name"), concat(term(literal("'")), term(literal('"')))),
-		);
-
-		expect(issues).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "csql-string-not-quotable",
-					path: ["right"],
-				}),
-			]),
-		);
-	});
-
-	it("rejects a reachable fixed bad branch while ignoring a statically dead one", () => {
-		const dynamicCondition = eq(input(testUuid("flag")), literal("yes"));
-		const bad = term(literal(`it's "quoted"`));
-		const safe = term(literal("safe"));
-		const reachable = checkCsqlRepresentability(
-			eq(field("name"), ifExpr(dynamicCondition, bad, safe)),
-		);
-		const dead = checkCsqlRepresentability(
-			eq(field("name"), ifExpr(matchNone(), bad, safe)),
-		);
-
-		expect(reachable).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-		expect(dead).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-	});
-
-	it("does not inspect an unreachable coalesce fallback after a guaranteed non-empty value", () => {
-		const value = coalesce(
-			concat(term(literal("prefix:")), term(input(testUuid("query")))),
-			term(literal(`it's "quoted"`)),
-		);
-
-		expect(checkCsqlRepresentability(eq(field("name"), value))).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-	});
-
-	it("allows dynamic branches whose individual outputs each use only one quote style", () => {
-		const value = ifExpr(
-			eq(input(testUuid("flag")), literal("yes")),
-			term(literal("'")),
-			term(literal('"')),
-		);
-
-		expect(checkCsqlRepresentability(eq(field("name"), value))).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-	});
-
-	it("rejects quote kinds guaranteed across different dynamic branches plus a fixed suffix", () => {
-		const value = concat(
-			ifExpr(
-				eq(input(testUuid("flag")), literal("yes")),
-				term(literal("'a")),
-				term(literal("'b")),
-			),
-			term(literal('"')),
-		);
-
-		expect(checkCsqlRepresentability(eq(field("label"), value))).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-	});
-
-	it("ignores bad branches proven unreachable by fixed predicates and switch discriminators", () => {
-		const bad = term(literal(`it's "quoted"`));
-		const safe = term(literal("safe"));
-		const fixedIf = ifExpr(eq(literal("x"), literal("x")), safe, bad);
-		const fixedSwitch = switchExpr(
-			term(literal("selected")),
-			[switchCase(literal("selected"), safe)],
-			bad,
-		);
-
-		for (const value of [fixedIf, fixedSwitch]) {
-			expect(checkCsqlRepresentability(eq(field("label"), value))).not.toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({ reason: "csql-string-not-quotable" }),
-				]),
-			);
+		for (const predicate of [
+			eq(field("status"), parent),
+			eq(parent, household),
+			between(parent, { lower: household }),
+		]) {
+			expect(issues(predicate)).toEqual([
+				{ reason: "multiple-property-scopes", path: [] },
+			]);
 		}
 	});
 
-	it("stops coalesce reachability after a guaranteed non-empty formatted date", () => {
-		const value = coalesce(
-			formatDate(today(), "%Y"),
-			term(literal(`it's "quoted"`)),
-		);
-
-		expect(checkCsqlRepresentability(eq(field("label"), value))).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ reason: "csql-string-not-quotable" }),
-			]),
-		);
-	});
-
-	it("rejects a format-date pattern whose fixed output includes both quote kinds", () => {
-		const value = formatDate(today(), `yyyy ' "`);
-		const issues = checkCsqlRepresentability(eq(field("name"), value));
-
-		expect(issues).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					reason: "csql-string-not-quotable",
-					path: ["right"],
-				}),
-			]),
-		);
-	});
-
-	it.each([
-		{
-			name: "property against property",
-			predicate: eq(field("name"), field("nickname")),
-			reason: "case-property-on-value-side",
-		},
-		{
-			name: "comparison with no case-property anchor",
-			predicate: eq(literal("a"), literal("b")),
-			reason: "comparison-needs-case-property",
-		},
-		{
-			name: "property hidden inside a left calculation",
-			predicate: eq(
-				concat(term(field("name")), term(literal("!"))),
-				literal("Alice!"),
-			),
-			reason: "comparison-needs-case-property",
-		},
-		{
-			name: "property hidden inside a right calculation",
-			predicate: eq(
-				field("name"),
-				concat(term(field("nickname")), term(literal("!"))),
-			),
-			reason: "case-property-on-value-side",
-		},
-		{
-			name: "parent count",
-			predicate: gt(count(ancestorPath(relationStep("parent"))), literal(0)),
-			reason: "unsupported-related-count",
-		},
-		{
-			name: "child count on the value side of a property comparison",
-			predicate: eq(field("expected_children"), count(subcasePath("child"))),
-			reason: "related-count-on-value-side",
-		},
-		{
-			name: "blank test without a property subject",
-			predicate: isBlank(input(testUuid("query"))),
-			reason: "comparison-needs-case-property",
-		},
-		{
-			name: "case query inside a runtime if value",
-			predicate: eq(
-				field("label"),
-				ifExpr(
-					eq(field("status"), literal("active")),
-					term(literal("yes")),
-					term(literal("no")),
+	it("distinguishes integral calendar shifts from nonnegative child counts", () => {
+		for (const value of [-2, 0, 2]) {
+			expect(
+				issues(
+					eq(field("date"), dateAdd(today(), "months", term(literal(value)))),
 				),
-			),
-			reason: "case-property-on-value-side",
-		},
-		{
-			name: "related count inside a runtime value",
-			predicate: eq(field("count_text"), count(subcasePath("child"))),
-			reason: "related-count-on-value-side",
-		},
-		{
-			name: "case property as match value",
-			predicate: match(field("name"), field("nickname"), "starts-with"),
-			reason: "case-property-on-value-side",
-		},
-		{
-			name: "case property as distance center",
-			predicate: within(field("location"), field("other_location"), 5, "miles"),
-			reason: "case-property-on-value-side",
-		},
-		{
-			name: "self related-case envelope",
-			predicate: exists(selfPath(), eq(field("status"), literal("active"))),
-			reason: "self-relation-not-queryable",
-		},
-		{
-			// CommCare's server-side search language registers no regex
-			// function (`case_search/xpath_functions/__init__.py`).
-			name: "pattern match, which only the device's Pattern engine runs",
-			predicate: matchesPattern(field("name"), "^[A-Z]"),
-			reason: "pattern-match-not-csql",
-		},
-	] as const)("rejects $name", ({ predicate, reason }) => {
-		expect(checkCsqlRepresentability(predicate)).toEqual(
-			expect.arrayContaining([expect.objectContaining({ reason })]),
-		);
+			).toEqual([]);
+		}
+		expect(
+			issues(eq(field("date"), dateAdd(today(), "years", term(literal(1.5))))),
+		).toEqual([
+			{
+				reason: "calendar-date-add-needs-whole-number",
+				path: ["right", "quantity"],
+			},
+		]);
+		for (const value of [
+			term(literal(0)),
+			term(literal(2)),
+			double(term(query)),
+		]) {
+			expect(issues(gt(count(subcasePath("child")), value))).toEqual([]);
+		}
 	});
 });
+
+describe("static branch reachability", () => {
+	it.each([
+		["reachable conditional", ifExpr(dynamic, bad, safe), true],
+		["dead conditional", ifExpr(matchNone(), bad, safe), false],
+		[
+			"fixed conjunction",
+			ifExpr(and(matchAll(), not(matchNone())), safe, bad),
+			false,
+		],
+		[
+			"fixed disjunction",
+			ifExpr(or(matchNone(), matchAll()), safe, bad),
+			false,
+		],
+		[
+			"single styles in separate branches",
+			ifExpr(dynamic, term(literal("'")), term(literal('"'))),
+			false,
+		],
+		["fixed concat", concat(term(literal("'")), term(literal('"'))), true],
+		[
+			"common quote plus suffix",
+			concat(
+				ifExpr(dynamic, term(literal("'a")), term(literal("'b"))),
+				term(literal('"')),
+			),
+			true,
+		],
+		[
+			"nonempty prefix",
+			coalesce(concat(term(literal("prefix:")), term(query)), bad),
+			false,
+		],
+		["unknown coalesce", coalesce(term(query), bad), true],
+		["empty coalesce", coalesce(term(literal("")), bad), true],
+		["formatted date", coalesce(formatDate(today(), "%Y"), bad), false],
+		["quoted date pattern", formatDate(today(), `yyyy ' "`), true],
+		[
+			"null is empty text",
+			ifExpr(eq(literal(null), literal("")), safe, bad),
+			false,
+		],
+		[
+			"boolean literal is text",
+			ifExpr(eq(literal(false), literal("false")), safe, bad),
+			false,
+		],
+		[
+			"numeric tolerance",
+			ifExpr(eq(literal(0), literal(1e-13)), safe, bad),
+			false,
+		],
+		[
+			"numeric tolerance boundary",
+			ifExpr(eq(literal(0), literal(1e-12)), bad, safe),
+			false,
+		],
+		[
+			"unknown mixed equality",
+			ifExpr(eq(literal(1), literal("1")), bad, safe),
+			true,
+		],
+		[
+			"unknown mixed inequality",
+			ifExpr(neq(literal(1), literal("1")), safe, bad),
+			true,
+		],
+		[
+			"switch first match",
+			switchExpr(
+				term(literal(null)),
+				[switchCase(literal(""), safe), switchCase(literal(null), bad)],
+				bad,
+			),
+			false,
+		],
+		[
+			"switch uncertain earlier match",
+			switchExpr(
+				term(literal(1)),
+				[switchCase(literal("1"), bad), switchCase(literal(1), safe)],
+				safe,
+			),
+			true,
+		],
+	] satisfies readonly (readonly [string, ValueExpression, boolean])[])(
+		"handles %s",
+		(_name, value, rejected) => {
+			expect(issues(eq(field("name"), value))).toEqual(
+				rejected
+					? [{ reason: "csql-string-not-quotable", path: ["right"] }]
+					: [],
+			);
+		},
+	);
+});
+
+it.each([
+	[eq, eq],
+	[neq, neq],
+	[gt, lt],
+	[gte, lte],
+	[lt, gt],
+	[lte, gte],
+])(
+	"canonicalizes each comparison direction recursively without rewriting runtime conditionals (%#)",
+	(authoredComparison, normalizedComparison) => {
+		for (const anchor of [term(field("age")), count(subcasePath("child"))]) {
+			const runtime = ifExpr(
+				gt(literal(2), literal(1)),
+				term(literal(3)),
+				term(literal(4)),
+			);
+			const authored = whenInput(
+				query,
+				not(
+					exists(
+						ancestorPath(relationStep("parent")),
+						authoredComparison(runtime, anchor),
+					),
+				),
+			);
+			const before = structuredClone(authored);
+			expect(normalizeCsqlPredicate(authored)).toEqual(
+				whenInput(
+					query,
+					not(
+						exists(
+							ancestorPath(relationStep("parent")),
+							normalizedComparison(anchor, runtime),
+						),
+					),
+				),
+			);
+			expect(authored).toEqual(before);
+		}
+	},
+);

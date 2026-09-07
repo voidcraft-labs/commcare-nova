@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
+import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	adoptTranscriptKeepingRicherLocal,
 	authoritativeThreadActivationOptions,
@@ -27,7 +29,7 @@ import {
 	threadResumeHealTarget,
 	trailingDesignWaitsForInput,
 	trailingTypedDesignWaitContinuation,
-} from "./ChatContainer";
+} from "./chatLifecycle";
 
 describe("design wait terminal", () => {
 	it("recognizes only a successful wait in the trailing assistant step", () => {
@@ -603,6 +605,87 @@ describe("post-resume transcript healing", () => {
 });
 
 describe("adoptTranscriptKeepingRicherLocal", () => {
+	it("keeps a delivered text suffix within the same streamed part when the stored barrier lags", () => {
+		const stored = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [{ type: "text", text: "Your app" }],
+			},
+		] satisfies NovaUIMessage[];
+		const local = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [{ type: "text", text: "Your app is ready to preview." }],
+			},
+		] satisfies NovaUIMessage[];
+		expect(adoptTranscriptKeepingRicherLocal(stored, local)[0]?.parts).toEqual(
+			local[0].parts,
+		);
+	});
+
+	it("retains completed reasoning text while honoring changed non-text parts", () => {
+		const stored = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [
+					{ type: "reasoning", text: "Check", state: "streaming" },
+					{ type: "text", text: "Stored answer" },
+				],
+			},
+		] satisfies NovaUIMessage[];
+		const local = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [
+					{ type: "reasoning", text: "Check the workflow", state: "done" },
+					{ type: "text", text: "Stored answer" },
+				],
+			},
+		] satisfies NovaUIMessage[];
+		expect(adoptTranscriptKeepingRicherLocal(stored, local)[0]).toBe(local[0]);
+		const authoritative = [
+			{
+				...stored[0],
+				parts: [
+					{ type: "reasoning", text: "Check", state: "streaming" },
+					{ type: "text", text: "A corrected answer" },
+				],
+			},
+		] satisfies NovaUIMessage[];
+		expect(adoptTranscriptKeepingRicherLocal(authoritative, local)[0]).toBe(
+			authoritative[0],
+		);
+	});
+
+	it("keeps authoritative rewritten text even when the local copy is longer", () => {
+		const stored = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [{ type: "text", text: "The corrected answer." }],
+			},
+		] satisfies NovaUIMessage[];
+		const local = [
+			{
+				id: "answer",
+				role: "assistant",
+				parts: [
+					{
+						type: "text",
+						text: "An older answer with different and much longer text.",
+					},
+				],
+			},
+		] satisfies NovaUIMessage[];
+		expect(adoptTranscriptKeepingRicherLocal(stored, local)[0]?.parts).toEqual(
+			stored[0].parts,
+		);
+	});
+
 	it("keeps the richer LOCAL assistant copy, drops local-only messages, and leaves user messages stored", () => {
 		const stored = [
 			{
@@ -615,7 +698,7 @@ describe("adoptTranscriptKeepingRicherLocal", () => {
 				role: "assistant" as const,
 				parts: [{ type: "text" as const, text: "partial" }],
 			},
-		] as NovaUIMessage[];
+		] satisfies NovaUIMessage[];
 		const local = [
 			{
 				id: "u1",
@@ -638,17 +721,16 @@ describe("adoptTranscriptKeepingRicherLocal", () => {
 				role: "assistant" as const,
 				parts: [{ type: "text" as const, text: "a clawed-back partial" }],
 			},
-		] as NovaUIMessage[];
+		] satisfies NovaUIMessage[];
 
 		const adopted = adoptTranscriptKeepingRicherLocal(stored, local);
 		expect(adopted.map((m) => m.id)).toEqual(["u1", "a1"]);
 		// Stored stays authoritative for user messages…
 		expect(adopted[0]?.parts).toHaveLength(1);
 		// …while a delivered answer the stored row lags is not truncated.
-		expect(adopted[1]?.parts.map((p) => (p as { text: string }).text)).toEqual([
-			"partial",
-			" plus the delivered tail",
-		]);
+		expect(
+			adopted[1]?.parts.map((p) => (p.type === "text" ? p.text : undefined)),
+		).toEqual(["partial", " plus the delivered tail"]);
 	});
 });
 
@@ -662,7 +744,7 @@ describe("retireProjectAttachmentRefs", () => {
 				metadata: {
 					attachments: [
 						{
-							assetId: "source-asset",
+							assetId: asMediaAssetId(testUuid("source-asset")),
 							kind: "pdf",
 							filename: "source-client.pdf",
 							mimeType: "application/pdf",
@@ -678,7 +760,7 @@ describe("retireProjectAttachmentRefs", () => {
 				parts: [{ type: "text", text: "I can help." }],
 				metadata: { model: "model-1" },
 			},
-		] as NovaUIMessage[];
+		] satisfies NovaUIMessage[];
 
 		const retired = retireProjectAttachmentRefs(messages);
 
@@ -687,7 +769,7 @@ describe("retireProjectAttachmentRefs", () => {
 		});
 		expect(retired[0].metadata).toBeUndefined();
 		expect(retired[1].metadata).toEqual({ model: "model-1" });
-		expect(JSON.stringify(retired)).not.toContain("source-asset");
+		expect(JSON.stringify(retired)).not.toContain(testUuid("source-asset"));
 		expect(JSON.stringify(retired)).not.toContain("source-client.pdf");
 	});
 });
@@ -698,7 +780,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 			id: "shared-user",
 			role: "user",
 			parts: [{ type: "text", text: "Existing turn" }],
-		} as NovaUIMessage;
+		} satisfies NovaUIMessage;
 		const authoritative = [
 			shared,
 			{
@@ -706,7 +788,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 				role: "assistant",
 				parts: [{ type: "text", text: "Stored answer" }],
 			},
-		] as NovaUIMessage[];
+		] satisfies NovaUIMessage[];
 		const retainedLocal = [
 			{
 				id: "older-unshared-user",
@@ -721,7 +803,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 				metadata: {
 					attachments: [
 						{
-							assetId: "source-asset",
+							assetId: asMediaAssetId(testUuid("source-asset")),
 							kind: "pdf",
 							filename: "source-only.pdf",
 							mimeType: "application/pdf",
@@ -729,7 +811,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 					],
 				},
 			},
-		] as NovaUIMessage[];
+		] satisfies NovaUIMessage[];
 
 		const merged = mergeRetainedUserTextSuffix(authoritative, retainedLocal);
 
@@ -743,7 +825,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 			role: "user",
 			parts: [{ type: "text", text: "Keep this unsaved request" }],
 		});
-		expect(JSON.stringify(merged)).not.toContain("source-asset");
+		expect(JSON.stringify(merged)).not.toContain(testUuid("source-asset"));
 		expect(JSON.stringify(merged)).not.toContain("source-only.pdf");
 		expect(JSON.stringify(merged)).not.toContain(
 			"Do not resurrect old history",
@@ -755,7 +837,7 @@ describe("mergeRetainedUserTextSuffix", () => {
 			id: "persisted-user",
 			role: "user",
 			parts: [{ type: "text", text: "Already saved" }],
-		} as NovaUIMessage;
+		} satisfies NovaUIMessage;
 
 		expect(mergeRetainedUserTextSuffix([turn], [turn])).toEqual([turn]);
 	});

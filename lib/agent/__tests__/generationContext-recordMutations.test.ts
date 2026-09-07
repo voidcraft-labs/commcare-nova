@@ -14,9 +14,9 @@
 // writer's hydrated `nextDoc` — and the SA continues against it.
 
 import type { LanguageModelUsage } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { ClassifiedError } from "@/lib/agent/errorClassifier";
 import type { RecordMutationsOptions } from "@/lib/agent/toolExecutionContext";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
@@ -26,19 +26,89 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
-import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import {
+	evaluatePreparedMutationCandidate,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	admitMutationBatch,
 	admitMutationStages,
 } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-
 import { conversationPayloadSchema } from "@/lib/log/types";
 import { log } from "@/lib/logger";
 import { MODEL_ROLES } from "@/lib/models";
 import type { GenerationContext } from "../generationContext";
-import { makeMinimalDoc, makeTestContext } from "./fixtures";
+import { makeTestContext as createTestContext } from "./fixtures";
+
+const contexts: GenerationContext[] = [];
+function makeTestContext(opts?: Parameters<typeof createTestContext>[0]) {
+	const handles = createTestContext(opts);
+	contexts.push(handles.ctx);
+	return handles;
+}
+afterEach(async () => {
+	await Promise.all(
+		contexts.splice(0).map((context) => context.stopRunLeaseHeartbeat()),
+	);
+});
+
+// These tests own context fan-out and state after a controlled persistence
+// receipt. They do not establish Postgres atomicity, authority or concurrency;
+// the actual guarded-writer suites own those contracts. Every proposal here
+// starts and ends in a schema-admitted, validator-admitted document.
+function fixtureDoc() {
+	return buildDoc({
+		appId: "test-app",
+		appName: "Context fixture",
+		modules: [
+			{
+				uuid: testUuid("module-uuid"),
+				id: "survey",
+				name: "Survey",
+				forms: [
+					{
+						uuid: testUuid("form-uuid"),
+						id: "intake",
+						name: "Intake",
+						type: "survey",
+						fields: [
+							f({
+								uuid: testUuid("seed-field"),
+								kind: "text",
+								id: "seed",
+								label: "Seed",
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+function preparedProposal(
+	doc: ReturnType<typeof fixtureDoc>,
+	mutations: unknown,
+) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	const before = evaluatePreparedMutationCandidate(
+		prepareMutationCandidate(doc, admitMutationBatch([])),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(before.ok, JSON.stringify(before)).toBe(true);
+	const prepared = prepareMutationCandidate(doc, admitMutationBatch(mutations));
+	const verdict = evaluatePreparedMutationCandidate(
+		prepared,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok, JSON.stringify(verdict)).toBe(true);
+	blueprintDocSchema.parse(toPersistableDoc(prepared.nextDoc));
+	return prepared;
+}
 
 /* Both record methods await `commitGuardedBatch` (kind:'chat'). Mock the
  * unified writer at module scope so no Postgres transaction is touched;
@@ -87,7 +157,11 @@ const SECOND_MUTATION: Mutation = {
 /** Build a distinct committed doc the writer "returns" so tests can assert
  *  the SA adopts the writer's hydrated `nextDoc`, not its own candidate. */
 function committedDocFor(appName: string) {
-	return { ...makeMinimalDoc(), appName };
+	return {
+		...preparedProposal(fixtureDoc(), [TEXT_FIELD_MUTATION, SECOND_MUTATION])
+			.nextDoc,
+		appName,
+	};
 }
 
 function renameableDoc() {
@@ -104,6 +178,7 @@ function renameableDoc() {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([{ field: "age", header: "Age" }]),
 				forms: [
 					{
 						name: "Update",
@@ -127,25 +202,21 @@ function renameableDoc() {
 function recordProposal(
 	ctx: GenerationContext,
 	mutations: unknown,
-	doc: ReturnType<typeof makeMinimalDoc>,
+	doc: ReturnType<typeof fixtureDoc>,
 	stage?: string,
 	options?: RecordMutationsOptions,
 ) {
-	return ctx.recordMutations(
-		prepareMutationCandidate(doc, admitMutationBatch(mutations)),
-		stage,
-		options,
-	);
+	return ctx.recordMutations(preparedProposal(doc, mutations), stage, options);
 }
 
 function recordStageProposals(
 	ctx: GenerationContext,
-	doc: ReturnType<typeof makeMinimalDoc>,
+	doc: ReturnType<typeof fixtureDoc>,
 	stages: unknown,
 ) {
 	const admitted = admitMutationStages(stages);
 	return ctx.recordMutationStages(
-		prepareMutationCandidate(doc, admitted.batch),
+		preparedProposal(doc, admitted.batch),
 		admitted,
 	);
 }
@@ -155,7 +226,7 @@ describe("GenerationContext.recordMutations", () => {
 	let writer: ReturnType<typeof makeTestContext>["writer"];
 	let logWriter: ReturnType<typeof makeTestContext>["logWriter"];
 
-	const DOC = makeMinimalDoc();
+	const DOC = fixtureDoc();
 
 	beforeEach(() => {
 		vi.mocked(commitGuardedBatch).mockReset();
@@ -267,11 +338,10 @@ describe("GenerationContext.recordMutations", () => {
 		};
 		const companion: Mutation = { kind: "setAppName", name: "After retire" };
 
-		const result = await recordProposal(
-			ctx,
-			[companion, retirement],
-			renameableDoc(),
-		);
+		const result = await recordProposal(ctx, [companion, retirement], {
+			...fixtureDoc(),
+			caseTypes: [{ name: "patient", properties: [] }],
+		});
 
 		expect(vi.mocked(commitGuardedBatch)).not.toHaveBeenCalled();
 		expect(vi.mocked(applyBlueprintChange)).toHaveBeenCalledTimes(1);
@@ -338,7 +408,11 @@ describe("GenerationContext.recordMutations", () => {
 			} as Mutation,
 		},
 	])("does not infer a rename from a generic $label", async ({ mutation }) => {
-		await recordProposal(ctx, [mutation], DOC);
+		await recordProposal(
+			ctx,
+			[mutation],
+			preparedProposal(DOC, [TEXT_FIELD_MUTATION]).nextDoc,
+		);
 
 		expect(vi.mocked(commitGuardedBatch)).toHaveBeenCalledTimes(1);
 		expect(vi.mocked(applyBlueprintChange)).not.toHaveBeenCalled();
@@ -390,17 +464,18 @@ describe("GenerationContext.recordMutations", () => {
 		);
 
 		const pending = recordProposal(ctx, [TEXT_FIELD_MUTATION], DOC);
-		// The commit is in flight — nothing is on the wire yet.
-		await Promise.resolve();
-		expect(writer.write).not.toHaveBeenCalled();
-		expect(logWriter.logEvent).not.toHaveBeenCalled();
-
-		resolveCommit({
-			seq: 3,
-			committedDoc: committedDocFor("late"),
-			deduped: false,
-		});
-		await pending;
+		try {
+			await Promise.resolve();
+			expect(writer.write).not.toHaveBeenCalled();
+			expect(logWriter.logEvent).not.toHaveBeenCalled();
+		} finally {
+			resolveCommit({
+				seq: 3,
+				committedDoc: committedDocFor("late"),
+				deduped: false,
+			});
+			await pending;
+		}
 		// Only now does the frame + log fan-out fire.
 		expect(writer.write).toHaveBeenCalledTimes(1);
 		expect(logWriter.logEvent).toHaveBeenCalledTimes(1);
@@ -594,7 +669,7 @@ describe("GenerationContext.recordMutationStages", () => {
 
 		const { events, committedDoc } = await recordStageProposals(
 			ctx,
-			makeMinimalDoc(),
+			fixtureDoc(),
 			[
 				{ mutations: [TEXT_FIELD_MUTATION], stage: "convert:0-0" },
 				{ mutations: [SECOND_MUTATION], stage: "edit:0-0" },
@@ -628,7 +703,7 @@ describe("GenerationContext.recordMutationStages", () => {
 	});
 
 	it("no-ops when every stage is empty — the last stage's doc is the current state", async () => {
-		const currentDoc = { ...makeMinimalDoc(), appName: "unchanged" };
+		const currentDoc = { ...fixtureDoc(), appName: "unchanged" };
 		const { events, committedDoc } = await recordStageProposals(
 			ctx,
 			currentDoc,
@@ -649,7 +724,7 @@ describe("GenerationContext.recordMutationStages", () => {
 			new BlueprintCommitRejectedError("rejected"),
 		);
 		await expect(
-			recordStageProposals(ctx, makeMinimalDoc(), [
+			recordStageProposals(ctx, fixtureDoc(), [
 				{ mutations: [TEXT_FIELD_MUTATION], stage: "convert:0-0" },
 			]),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
@@ -841,14 +916,14 @@ describe("GenerationContext.handleAgentStep", () => {
 		inputTokens: 100,
 		outputTokens: 50,
 		totalTokens: 150,
-		reasoningTokens: undefined,
-		cachedInputTokens: undefined,
+
 		inputTokenDetails: {
 			noCacheTokens: 100,
 			cacheReadTokens: 0,
 			cacheWriteTokens: 0,
 		},
-	} as unknown as LanguageModelUsage;
+		outputTokenDetails: { textTokens: 50, reasoningTokens: 0 },
+	};
 
 	it("flags pausedOnInput when a step emits an askQuestions tool-call", () => {
 		const { ctx } = makeTestContext();
@@ -950,7 +1025,16 @@ describe("GenerationContext.handleAgentStep", () => {
 					inputTokens: 10,
 					outputTokens: 5,
 					totalTokens: 15,
-				} as unknown as LanguageModelUsage,
+					inputTokenDetails: {
+						noCacheTokens: undefined,
+						cacheReadTokens: undefined,
+						cacheWriteTokens: undefined,
+					},
+					outputTokenDetails: {
+						textTokens: undefined,
+						reasoningTokens: undefined,
+					},
+				},
 			},
 			"Solutions Architect",
 			TEST_MODEL,

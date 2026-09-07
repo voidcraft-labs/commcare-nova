@@ -76,3 +76,24 @@ App setup's **Deep links** section owns `/setup/deep-links/{entryPointUuid}`.
 The optional entry-point UUID selects its detail; it is not ephemeral local
 state. Removing the point or its owner recovers to the overview, and renaming
 its external link ID leaves its authoring URL unchanged.
+
+## Testing the routing boundary
+
+`navigation.ts` owns event-time navigation and guarded selection decisions;
+`builderLocation.ts` owns the shared document/path cache and subscriptions;
+`breadcrumbs.ts` derives the trail from already projected names;
+`locationRecovery.ts` advances recovery and prior topology together;
+`historyPolicy.ts` decides query retention and Project-generation scrubbing;
+`historyStep.ts` admits and applies actual undo/redo batches. Their
+programmatic tests use typed documents and real store mutations. React hooks
+bind those decisions to the browser. Back/Forward, replace-only selection,
+language query retention, and visible destinations are exercised in Playwright.
+Do not replace the URL reader or History writer in a mounted hook test.
+
+A legacy two-identity form URL may select only a field owned by that form. A
+foreign or orphaned field segment leaves the named form open without selection;
+the canonical single-field URL resolves that field's actual owner.
+
+After a field deletion, `deletionSelection.ts` uses the old visual order and the
+new document to select the next surviving row, then the previous row, then none.
+Children removed with a group or repeat cannot become the new selection.

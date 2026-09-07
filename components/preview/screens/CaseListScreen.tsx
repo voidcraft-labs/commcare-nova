@@ -802,6 +802,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		selectionScopeRef.current = selectionScopeKey;
 		selectionValidationTokenRef.current = undefined;
 		setValidatingSelection(false);
+		return () => {
+			selectionValidationTokenRef.current = undefined;
+		};
 	}, [selectionScopeKey]);
 	useEffect(() => {
 		const activeToken = selectionValidationTokenRef.current;
@@ -1630,6 +1633,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			setSelectionAnnouncement(
 				"The selected cases could not be checked. Try again.",
 			);
+		} catch {
+			if (
+				selectionValidationTokenRef.current === validationToken &&
+				selectionScopeRef.current === validationToken.scopeKey &&
+				selectionRevisionRef.current === validationToken.revision &&
+				selectionConfigurationRef.current === validationToken.configuration
+			) {
+				setSelectionAnnouncement(
+					"The selected cases could not be checked. Try again.",
+				);
+			}
 		} finally {
 			if (selectionValidationTokenRef.current === validationToken) {
 				selectionValidationTokenRef.current = undefined;

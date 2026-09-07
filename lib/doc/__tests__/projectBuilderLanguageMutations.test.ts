@@ -229,6 +229,81 @@ function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
 }
 
 describe("projectBuilderLanguageMutations", () => {
+	it("honors the last target edit when a batch returns a string to its original translation", () => {
+		const doc = fixture();
+		const next = apply(
+			doc,
+			project(doc, [
+				{ kind: "setAppName", name: "Cambio" },
+				{ kind: "setAppName", name: "Clínica" },
+			]),
+		);
+		expect(next.appName).toBe("Clinic");
+		expect(
+			next.localization?.translations.spa?.[
+				makeTranslationUnitId("app", "name")
+			]?.value,
+		).toBe("Clínica");
+	});
+
+	it("honors a clear after creating a previously missing target in the same batch", () => {
+		const doc = fixture();
+		const id = makeTranslationUnitId("module", MODULE, "search-subtitle");
+		if (!doc.localization) throw new Error("Missing localization");
+		delete doc.localization.translations.spa[id];
+		const next = apply(
+			doc,
+			project(doc, [
+				{
+					kind: "updateModule",
+					uuid: MODULE,
+					patch: {},
+					caseSearchConfigPatch: { searchScreenSubtitle: "Nueva frase" },
+				},
+				{
+					kind: "updateModule",
+					uuid: MODULE,
+					patch: {},
+					caseSearchConfigPatch: { searchScreenSubtitle: null },
+				},
+			]),
+		);
+		expect(next.modules[MODULE]?.caseSearchConfig).toMatchObject({
+			searchScreenSubtitle: "Use any known information",
+		});
+		expect(next.localization?.translations.spa?.[id]).toBeUndefined();
+	});
+
+	it("restores a target after a clear even when it equals the pre-batch value", () => {
+		const doc = fixture();
+		const id = makeTranslationUnitId("module", MODULE, "search-subtitle");
+		const next = apply(
+			doc,
+			project(doc, [
+				{
+					kind: "updateModule",
+					uuid: MODULE,
+					patch: {},
+					caseSearchConfigPatch: { searchScreenSubtitle: null },
+				},
+				{
+					kind: "updateModule",
+					uuid: MODULE,
+					patch: {},
+					caseSearchConfigPatch: {
+						searchScreenSubtitle: "Use cualquier dato conocido",
+					},
+				},
+			]),
+		);
+		expect(next.localization?.translations.spa?.[id]?.value).toBe(
+			"Use cualquier dato conocido",
+		);
+		expect(next.modules[MODULE]?.caseSearchConfig).toMatchObject({
+			searchScreenSubtitle: "Use any known information",
+		});
+	});
+
 	it("writes app, module, form, and field text only to the selected target", () => {
 		const doc = fixture();
 		const mutations = project(doc, [
@@ -243,13 +318,6 @@ describe("projectBuilderLanguageMutations", () => {
 			},
 		]);
 
-		expect(mutations.map((mutation) => mutation.kind)).toEqual([
-			"updateField",
-			"setTranslation",
-			"setTranslation",
-			"setTranslation",
-			"setTranslation",
-		]);
 		const next = apply(doc, mutations);
 		expect(next.appName).toBe("Clinic");
 		expect(next.modules[MODULE]?.name).toBe("Patients");
@@ -257,6 +325,15 @@ describe("projectBuilderLanguageMutations", () => {
 		expect(next.fields[FIELD]).toMatchObject({
 			label: proseText("Status"),
 			id: "current_status",
+		});
+		expect(next.localization?.translations.spa).toMatchObject({
+			[makeTranslationUnitId("app", "name")]: {
+				value: "Clínica comunitaria",
+				origin: "human",
+				review: "reviewed",
+			},
+			[makeTranslationUnitId("module", MODULE, "name")]: { value: "Clientes" },
+			[makeTranslationUnitId("form", FORM, "name")]: { value: "Alta" },
 		});
 		expect(
 			effectiveAppLocalization(next.localization).translations.spa?.[

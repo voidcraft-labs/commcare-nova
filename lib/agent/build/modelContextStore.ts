@@ -5,6 +5,7 @@ import type { LanguageModelUsage, ModelMessage } from "ai";
 import { sql, type Transaction } from "kysely";
 import { z } from "zod";
 import {
+	durableModelValueDigest,
 	persistModelMessage,
 	rehydrateModelMessage,
 } from "@/lib/agent/modelMessagePersistence";
@@ -207,51 +208,6 @@ async function readLatestPredecessorItems(
 	return predecessor === undefined ? [] : readItems(tx, predecessor.id);
 }
 
-/** Both step-key sets in one query — the open path needs started AND
- * completed, and two separate reads over the same rows would double the
- * round trips. */
-async function readStepKeysByEvent(
-	tx: Transaction<AppDatabase>,
-	contextId: string,
-): Promise<{ started: Set<string>; completed: Set<string> }> {
-	const rows = await tx
-		.selectFrom("design_model_steps")
-		.select(["step_key", "event_kind"])
-		.where("context_id", "=", contextId)
-		.where("event_kind", "in", ["started", "completed"])
-		.execute();
-	const started = new Set<string>();
-	const completed = new Set<string>();
-	for (const row of rows) {
-		(row.event_kind === "started" ? started : completed).add(row.step_key);
-	}
-	return { started, completed };
-}
-
-async function countStartedStepsThroughGeneration(
-	tx: Transaction<AppDatabase>,
-	context: {
-		readonly design_session_id: string;
-		readonly context_kind: string;
-		readonly generation: number;
-	},
-): Promise<number> {
-	const row = await tx
-		.selectFrom("design_model_steps as step")
-		.innerJoin(
-			"design_model_contexts as context",
-			"context.id",
-			"step.context_id",
-		)
-		.select(({ fn }) => fn.countAll<string>().as("n"))
-		.where("context.design_session_id", "=", context.design_session_id)
-		.where("context.context_kind", "=", context.context_kind)
-		.where("context.generation", "<=", context.generation)
-		.where("step.event_kind", "=", "started")
-		.executeTakeFirst();
-	return Number(row?.n ?? 0);
-}
-
 const optionalTokenCount = z.number().int().nonnegative().optional();
 const persistedModelUsageSchema = z.object({
 	inputTokens: optionalTokenCount,
@@ -272,10 +228,8 @@ const persistedModelUsageSchema = z.object({
 	totalTokens: optionalTokenCount,
 });
 
-function parseModelUsage(source: string, context: string): LanguageModelUsage {
-	const parsed = persistedModelUsageSchema.safeParse(
-		parsePersistedJsonText(source, context),
-	);
+function parseModelUsage(value: unknown, context: string): LanguageModelUsage {
+	const parsed = persistedModelUsageSchema.safeParse(value);
 	if (!parsed.success) {
 		throw new DesignModelContextError(
 			`${context} is not a valid persisted model usage report.`,
@@ -297,14 +251,21 @@ function parseModelUsage(source: string, context: string): LanguageModelUsage {
 	};
 }
 
-async function readCompletedStepsThroughGeneration(
+/** Verify persisted event evidence before using it for recovery or accounting. */
+async function readStepsThroughGeneration(
 	tx: Transaction<AppDatabase>,
 	context: {
 		readonly design_session_id: string;
 		readonly context_kind: string;
 		readonly generation: number;
+		readonly id: string;
 	},
-): Promise<DesignModelCompletedStep[]> {
+): Promise<{
+	started: Set<string>;
+	completed: Set<string>;
+	completedSteps: DesignModelCompletedStep[];
+	totalStartedStepCount: number;
+}> {
 	const rows = await tx
 		.selectFrom("design_model_steps as step")
 		.innerJoin(
@@ -315,6 +276,10 @@ async function readCompletedStepsThroughGeneration(
 		.select([
 			"step.context_id",
 			"step.step_key",
+			"step.event_kind",
+			"step.event_digest",
+			"step.request_digest",
+			"step.response_digest",
 			"step.created_by_run_id",
 			"step.created_at",
 			sql<string | null>`${sql.ref("step.usage")}::text`.as("usage_text"),
@@ -322,23 +287,55 @@ async function readCompletedStepsThroughGeneration(
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
 		.where("context.generation", "<=", context.generation)
-		.where("step.event_kind", "=", "completed")
 		.orderBy("context.generation", "asc")
 		.orderBy("step.created_at", "asc")
 		.execute();
-	return rows.map((row) => ({
-		contextId: row.context_id,
-		stepKey: row.step_key,
-		createdByRunId: row.created_by_run_id,
-		createdAt: row.created_at,
-		usage:
+	const started = new Set<string>();
+	const completed = new Set<string>();
+	const completedSteps: DesignModelCompletedStep[] = [];
+	let totalStartedStepCount = 0;
+	for (const row of rows) {
+		const label = `design_model_steps for ${row.context_id}/${row.step_key}`;
+		const usage =
 			row.usage_text === null
 				? undefined
-				: parseModelUsage(
-						row.usage_text,
-						`design_model_steps.usage for ${row.context_id}/${row.step_key}`,
-					),
-	}));
+				: parsePersistedJsonText(row.usage_text, `${label}.usage`);
+		const event =
+			row.event_kind === "started"
+				? {
+						stepKey: row.step_key,
+						eventKind: row.event_kind,
+						requestDigest: row.request_digest,
+					}
+				: {
+						stepKey: row.step_key,
+						eventKind: row.event_kind,
+						responseDigest: row.response_digest,
+						...(usage !== undefined && { usage }),
+					};
+		if (canonicalJsonDigest(event) !== row.event_digest) {
+			throw new DesignModelContextError(
+				`${label} no longer matches its digest.`,
+			);
+		}
+		if (row.event_kind === "started") {
+			totalStartedStepCount += 1;
+			if (row.context_id === context.id) started.add(row.step_key);
+		} else {
+			if (row.context_id === context.id) completed.add(row.step_key);
+			completedSteps.push({
+				contextId: row.context_id,
+				stepKey: row.step_key,
+				createdByRunId: row.created_by_run_id,
+				createdAt: row.created_at,
+				usage:
+					usage === undefined
+						? undefined
+						: parseModelUsage(usage, `${label}.usage`),
+			});
+		}
+	}
+	return { started, completed, completedSteps, totalStartedStepCount };
 }
 
 function providerContractMatches(
@@ -493,7 +490,7 @@ export async function openDesignModelContext(
 				.executeTakeFirstOrThrow();
 		}
 		const items = await readItems(tx, row.id);
-		const completedSteps = await readCompletedStepsThroughGeneration(tx, row);
+		const steps = await readStepsThroughGeneration(tx, row);
 		const generation = safePersistedSequence(
 			row.generation,
 			`design_model_contexts.generation for ${row.id}`,
@@ -507,7 +504,6 @@ export async function openDesignModelContext(
 			generation === 0
 				? new Set(appendKeys)
 				: await readAppendKeysThroughGeneration(tx, row);
-		const stepKeys = await readStepKeysByEvent(tx, row.id);
 		const predecessorItems =
 			spec.kind === "design" && generation > 0
 				? await readLatestPredecessorItems(tx, row)
@@ -525,10 +521,10 @@ export async function openDesignModelContext(
 			predecessorItems,
 			appendKeys,
 			lineageAppendKeys,
-			startedStepKeys: stepKeys.started,
-			completedStepKeys: stepKeys.completed,
-			completedSteps,
-			totalStartedStepCount: await countStartedStepsThroughGeneration(tx, row),
+			startedStepKeys: steps.started,
+			completedStepKeys: steps.completed,
+			completedSteps: steps.completedSteps,
+			totalStartedStepCount: steps.totalStartedStepCount,
 		};
 	});
 }
@@ -626,6 +622,11 @@ export async function completeDesignModelStep(args: {
 	if (args.messages.length === 0) {
 		throw new DesignModelContextError(
 			"A completed model step must persist its response messages.",
+		);
+	}
+	if (durableModelValueDigest(args.messages) !== args.responseDigest) {
+		throw new DesignModelContextError(
+			"The completed response messages do not match their digest.",
 		);
 	}
 	const durableMessages = args.messages.map(persistModelMessage);

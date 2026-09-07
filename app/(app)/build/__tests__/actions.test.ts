@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { parseAppMaterializationReceipt } from "@/components/chat/ChatContainer";
+import { parseAppMaterializationReceipt } from "@/components/chat/chatLifecycle";
+import { AppAccessError } from "@/lib/db/appAccess";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -8,9 +9,7 @@ import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
 
 const mocks = vi.hoisted(() => {
-	class MockAppAccessError extends Error {}
 	return {
-		AppAccessError: MockAppAccessError,
 		createExplicitBlankApp: vi.fn(),
 		getSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
@@ -20,8 +19,8 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/auth-utils", () => ({ getSession: mocks.getSession }));
-vi.mock("@/lib/db/appAccess", () => ({
-	AppAccessError: mocks.AppAccessError,
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
 vi.mock("@/lib/db/appGenesis", () => ({
@@ -117,7 +116,7 @@ describe("createStarterApp Project binding", () => {
 
 	it("fails closed when the actor cannot edit the captured Project", async () => {
 		mocks.resolveProjectAccess.mockRejectedValue(
-			new mocks.AppAccessError("not a member"),
+			new AppAccessError("not_member"),
 		);
 
 		await expect(

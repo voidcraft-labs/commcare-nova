@@ -17,6 +17,7 @@ import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResour
 import {
 	formLaunch,
 	moduleScreenLanding,
+	previewParentCaseResumeLocation,
 } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
@@ -29,7 +30,6 @@ import {
 	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { Uuid } from "@/lib/doc/types";
 import { makeTranslationUnitId, moduleParent } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
@@ -45,7 +45,6 @@ import {
 	previewModuleVisibility,
 } from "@/lib/preview/menuProjection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import type { Location } from "@/lib/routing/types";
 import {
 	useBuilderIsReady,
 	useEditMode,
@@ -61,26 +60,6 @@ interface ModuleScreenProps {
 	/** This screen's identity, which module is being displayed. Passed from
 	 *  PreviewShell so the component remains valid while Activity hides it. */
 	screen: Extract<PreviewScreen, { type: "module" }>;
-}
-
-/** A configuration URL runs its owning Form/Results surface in Preview, so
- * it is as resumable as the canonical running URL. Module and module-condition
- * locations are already menu checkpoints and need no leaf restoration. */
-export function previewParentCaseResumeLocation(
-	loc: Location,
-	moduleUuid: Uuid,
-): Location | undefined {
-	if (
-		loc.kind === "home" ||
-		loc.kind === "app-setup" ||
-		loc.kind === "project-data" ||
-		loc.kind === "module" ||
-		loc.kind === "module-condition" ||
-		loc.moduleUuid !== moduleUuid
-	) {
-		return undefined;
-	}
-	return loc;
 }
 
 export function ModuleScreen({ screen }: ModuleScreenProps) {

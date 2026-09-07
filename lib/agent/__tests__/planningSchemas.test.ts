@@ -1,19 +1,11 @@
-/**
- * The planning-schema surface is built so a wrong input can't parse,
- * under the shared input contract: the model omits what doesn't apply
- * (SA tools run `strict: false`), and every optional slot is ALSO
- * nullable with null as absence, so arbitrary MCP callers and stray
- * nulls stay harmless. These tests pin that contract from both sides:
- * null is accepted as absence on every optional slot, while blanks and
- * cross-field contradictions (filler shapes a live build actually
- * produced under strict-normalized decoding) still reject with messages
- * that teach passing null. `cleanCaseTypeRecord` then collapses the
- * nulls before a record leaves the boundary.
- */
+/** Pure SA/MCP input parsing and normalization. These checks establish the
+ * boundary shape, not full document validity or Connect wire acceptance; the
+ * guarded-tool and native consumer suites own those stronger contracts. */
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { xp } from "@/lib/__tests__/docHelpers";
+import { caseTypeSchema } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseTypeRecordSchema,
@@ -24,7 +16,7 @@ import {
 
 const validRecord = {
 	name: "patient",
-	properties: [{ name: "case_name", label: proseText("Full name") }],
+	properties: [{ name: "display_name", label: proseText("Full name") }],
 };
 
 describe("caseTypeRecordSchema", () => {
@@ -47,7 +39,7 @@ describe("caseTypeRecordSchema", () => {
 			relationship: null,
 			properties: [
 				{
-					name: "case_name",
+					name: "display_name",
 					label: proseText("Client name"),
 					data_type: null,
 					hint: null,
@@ -86,7 +78,7 @@ describe("caseTypeRecordSchema", () => {
 		).toBe(false);
 	});
 
-	it("rejects blank-string property slots (label, hint, validation)", () => {
+	it("rejects raw strings in typed prose and XPath slots", () => {
 		for (const overrides of [
 			{ label: "" },
 			{ hint: "" },
@@ -200,7 +192,10 @@ describe("cleanCaseTypeRecord", () => {
 				},
 			],
 		});
+		const before = structuredClone(parsed);
 		const clean = cleanCaseTypeRecord(parsed);
+		expect(caseTypeSchema.parse(clean)).toEqual(clean);
+		expect(parsed).toEqual(before);
 		expect(clean).toEqual({
 			name: "client",
 			properties: [
@@ -231,20 +226,20 @@ describe("cleanCaseTypeRecord", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			name: "client",
 			properties: [
-				{ name: "case_name", label: proseText("Case name") },
-				{ name: "case_name", label: proseText("Name") },
+				{ name: "display_name", label: proseText("Case name") },
+				{ name: "display_name", label: proseText("Name") },
 			],
 		});
 		expect(result.success).toBe(false);
 		if (result.success) throw new Error("expected duplicate rejection");
 		expect(result.error.issues[0]?.message).toContain(
-			'property "case_name" more than once',
+			'property "display_name" more than once',
 		);
 	});
 });
 
 describe("connectFormConfigSchema", () => {
-	it("accepts a real learn block and a real deliver block", () => {
+	it("accepts unassigned-ID learn and deliver input shapes", () => {
 		expect(
 			connectFormConfigSchema.safeParse({
 				learn_module: {
@@ -339,7 +334,7 @@ describe("connectFormConfigSchema", () => {
 });
 
 describe("connectFormPatchSchema", () => {
-	it("accepts a partial-null patch — remove one sub-config, keep the rest", () => {
+	it("parses an explicit null patch for one sub-config", () => {
 		// The updateForm surface: `{ assessment: null }` means "drop the
 		// quiz, keep everything else as it is" — the shape the creation
 		// refinement rejects (there, null ≡ omitted, so the block would be
@@ -349,7 +344,7 @@ describe("connectFormPatchSchema", () => {
 		);
 	});
 
-	it("accepts an all-null patch — equivalent to whole-block removal", () => {
+	it("parses an all-null patch", () => {
 		expect(
 			connectFormPatchSchema.safeParse({
 				learn_module: null,

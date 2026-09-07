@@ -33,12 +33,7 @@
  * frames all agree by construction.
  */
 "use client";
-import {
-	animate,
-	motion,
-	useMotionValue,
-	useReducedMotion,
-} from "motion/react";
+import { animate, motion, useMotionValue } from "motion/react";
 import {
 	createContext,
 	type ReactNode,
@@ -51,6 +46,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
+import { useReducedMotionPreference } from "@/components/builder/useReducedMotionPreference";
 
 /** The one transition driving mode-flip choreography AND manual sidebar
  *  toggles: sidebar slides, the chat panel, and frame glides all share
@@ -176,7 +172,7 @@ export function ContentFrame({
 }: ContentFrameProps) {
 	const { seq, deltaFor } = useContext(ModeFlipGlideContext);
 	const x = useMotionValue(0);
-	const reduceMotion = useReducedMotion();
+	const reduceMotion = useReducedMotionPreference();
 	const elRef = useRef<HTMLDivElement | null>(null);
 	const lastSeqRef = useRef(seq);
 	const animationRef = useRef<ReturnType<typeof animate> | null>(null);

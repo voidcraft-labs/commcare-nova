@@ -113,6 +113,9 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 	function runSearch(input: string) {
 		if (!ownsContinuationRef.current) return;
 		if (debounceRef.current) clearTimeout(debounceRef.current);
+		// Invalidate the previous response as soon as input changes, including
+		// an empty query and the new query's debounce window.
+		const reqId = ++reqRef.current;
 		const trimmed = input.trim();
 		if (trimmed.length < MIN_QUERY) {
 			setResults([]);
@@ -121,7 +124,6 @@ export function AddressSearch({ value, onSelect }: AddressSearchProps) {
 		}
 		setLoading(true);
 		debounceRef.current = setTimeout(async () => {
-			const reqId = ++reqRef.current;
 			try {
 				const { AutocompleteSuggestion, AutocompleteSessionToken } =
 					await loadPlaces();

@@ -1,229 +1,268 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { applyMutation } from "@/lib/doc/mutations";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
+import {
+	type BlueprintDoc,
+	type Mutation,
+	mutationSchema,
+} from "@/lib/doc/types";
+import { proseText } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-import type { Form, Module } from "@/lib/domain";
-
-const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
-
-function form_(uuid: Uuid, name = "Form"): Form {
-	return { uuid, name, type: "survey" } as Form;
+const M = (key: string) => testUuid(`forms-module-${key}`);
+const F = (key: string) => testUuid(`forms-form-${key}`);
+const Q = (key: string) => testUuid(`forms-question-${key}`);
+function fixture(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: ["a", "b"].map((module) => ({
+			uuid: M(module),
+			name: `Module ${module}`,
+			forms: ["1", "2"].map((number) => {
+				const key = module + number;
+				return {
+					uuid: F(key),
+					name: `Form ${key}`,
+					type: "survey",
+					fields: [
+						f({
+							uuid: Q(key),
+							kind: "group",
+							id: "group",
+							children: [
+								f({
+									uuid: Q(`${key}-child`),
+									kind: "text",
+									id: "notes",
+									label: proseText("Notes"),
+								}),
+							],
+						}),
+					],
+				};
+			}),
+		})),
+	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
-
-function docWithModule(modUuid: Uuid): BlueprintDoc {
-	return {
-		appId: "test",
-		appName: "App",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[modUuid]: { uuid: modUuid, name: "M" } as Module,
-		},
-		forms: {},
-		fields: {},
-		moduleOrder: [modUuid],
-		formOrder: { [modUuid]: [] },
-		fieldOrder: {},
-		fieldParent: {},
-	};
+function commit(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	const parsed = mutations.map((mutation) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+	);
+	const verdict = mutationCommitVerdict(
+		doc,
+		parsed,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
-
-describe("addForm", () => {
-	it("inserts into the module's formOrder and creates an entity", () => {
-		const next = produce(docWithModule(M("A")), (d) => {
-			applyMutation(d, {
+describe("form membership and content edits", () => {
+	it("births a complete form at its authored anchor and leaves the prior document unchanged", () => {
+		const before = fixture();
+		const next = commit(before, [
+			{
 				kind: "addForm",
-				moduleUuid: M("A"),
-				form: form_(F("1"), "Reg"),
-			});
-		});
-		expect(next.formOrder[M("A")]).toEqual([F("1")]);
-		expect(next.forms[F("1")]?.name).toBe("Reg");
-	});
-
-	it("initializes an empty fieldOrder slot for the new form", () => {
-		const next = produce(docWithModule(M("A")), (d) => {
-			applyMutation(d, {
-				kind: "addForm",
-				moduleUuid: M("A"),
-				form: form_(F("1")),
-			});
-		});
-		expect(next.fieldOrder[F("1")]).toEqual([]);
-	});
-
-	it("respects index when provided", () => {
-		const start = produce(docWithModule(M("A")), (d) => {
-			applyMutation(d, {
-				kind: "addForm",
-				moduleUuid: M("A"),
-				form: form_(F("1"), "A"),
-			});
-			applyMutation(d, {
-				kind: "addForm",
-				moduleUuid: M("A"),
-				form: form_(F("3"), "C"),
-			});
-		});
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "addForm",
-				moduleUuid: M("A"),
-				form: form_(F("2"), "B"),
-				after: F("1"),
-			});
-		});
-		expect(next.formOrder[M("A")]).toEqual([F("1"), F("2"), F("3")]);
-	});
-
-	it("is a no-op when the moduleUuid doesn't exist", () => {
-		const next = produce(docWithModule(M("A")), (d) => {
-			applyMutation(d, {
-				kind: "addForm",
-				moduleUuid: M("missing"),
-				form: form_(F("1")),
-			});
-		});
-		expect(next.forms[F("1")]).toBeUndefined();
-	});
-});
-
-describe("removeForm", () => {
-	it("removes the form, its fieldOrder slot, and entry from module's formOrder", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: { [F("1")]: form_(F("1")) },
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "removeForm", uuid: F("1") });
-		});
-		expect(next.forms[F("1")]).toBeUndefined();
-		expect(next.fieldOrder[F("1")]).toBeUndefined();
-		expect(next.formOrder[M("A")]).toEqual([]);
-	});
-
-	it("cascades to fields", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: { [F("1")]: form_(F("1")) },
-			fields: { [Q("a")]: { uuid: Q("a"), id: "a", kind: "text" } as never },
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [Q("a")] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "removeForm", uuid: F("1") });
-		});
-		expect(next.fields[Q("a")]).toBeUndefined();
-	});
-});
-
-describe("moveForm", () => {
-	it("moves a form within the same module", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: {
-				[F("1")]: form_(F("1"), "Alpha"),
-				[F("2")]: form_(F("2"), "Beta"),
+				moduleUuid: M("a"),
+				after: F("a1"),
+				form: { uuid: F("born"), id: "born", name: "Born", type: "survey" },
 			},
-			formOrder: { [M("A")]: [F("1"), F("2")] },
-			fieldOrder: { [F("1")]: [], [F("2")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveForm",
-				uuid: F("1"),
-				toModuleUuid: M("A"),
-				after: F("2"),
-			});
-		});
-		expect(next.formOrder[M("A")]).toEqual([F("2"), F("1")]);
-	});
-
-	it("moves a form across modules", () => {
-		const start: BlueprintDoc = {
-			appId: "test",
-			appName: "A",
-			connectType: null,
-			caseTypes: null,
-			modules: {
-				[M("X")]: { uuid: M("X"), name: "X" } as Module,
-				[M("Y")]: { uuid: M("Y"), name: "Y" } as Module,
+			{
+				kind: "addField",
+				parentUuid: F("born"),
+				field: {
+					uuid: Q("born"),
+					id: "notes",
+					kind: "text",
+					label: proseText("Notes"),
+				},
 			},
-			forms: { [F("1")]: form_(F("1")) },
-			fields: {},
-			moduleOrder: [M("X"), M("Y")],
-			formOrder: { [M("X")]: [F("1")], [M("Y")]: [] },
-			fieldOrder: { [F("1")]: [] },
-			fieldParent: {},
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveForm",
-				uuid: F("1"),
-				toModuleUuid: M("Y"),
-				after: null,
-			});
-		});
-		expect(next.formOrder[M("X")]).toEqual([]);
-		expect(next.formOrder[M("Y")]).toEqual([F("1")]);
+		]);
+		expect(next.formOrder[M("a")]).toEqual([F("a1"), F("born"), F("a2")]);
+		expect(next.fieldOrder[F("born")]).toEqual([Q("born")]);
+		expect(next.forms[F("born")]).toMatchObject({ id: "born", name: "Born" });
+		expect(before.forms[F("born")]).toBeUndefined();
 	});
-
-	it("is a no-op when destination module doesn't exist", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: { [F("1")]: form_(F("1")) },
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveForm",
-				uuid: F("1"),
-				toModuleUuid: M("missing"),
-				after: null,
-			});
-		});
-		expect(next.formOrder[M("A")]).toEqual([F("1")]);
+	it("removes a form and its complete nested field topology while retaining its sibling", () => {
+		const next = commit(fixture(), [{ kind: "removeForm", uuid: F("a1") }]);
+		expect(next.formOrder[M("a")]).toEqual([F("a2")]);
+		expect(next.forms[F("a1")]).toBeUndefined();
+		expect(next.fieldOrder[F("a1")]).toBeUndefined();
+		for (const uuid of [Q("a1"), Q("a1-child")]) {
+			expect(next.fields[uuid]).toBeUndefined();
+			expect(next.fieldParent[uuid]).toBeUndefined();
+			expect(next.fieldOrder[uuid]).toBeUndefined();
+		}
+		expect(next.fields[Q("a2-child")]).toBeDefined();
 	});
-});
-
-describe("renameForm", () => {
-	it("updates the form's name", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: { [F("1")]: form_(F("1"), "Old") },
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "renameForm", uuid: F("1"), newId: "New" });
-		});
-		// Form "rename" maps to the user-visible name.
-		expect(next.forms[F("1")]?.name).toBe("New");
+	it("reorders within a module and moves across modules without losing the field tree", () => {
+		const before = fixture();
+		const reordered = commit(before, [
+			{ kind: "moveForm", uuid: F("a1"), toModuleUuid: M("a"), after: F("a2") },
+		]);
+		expect(reordered.formOrder[M("a")]).toEqual([F("a2"), F("a1")]);
+		const moved = commit(reordered, [
+			{ kind: "moveForm", uuid: F("a1"), toModuleUuid: M("b"), after: null },
+		]);
+		expect(moved.formOrder[M("a")]).toEqual([F("a2")]);
+		expect(moved.formOrder[M("b")]).toEqual([F("a1"), F("b1"), F("b2")]);
+		expect(moved.fields[Q("a1-child")]).toEqual(before.fields[Q("a1-child")]);
+		expect(moved.fieldParent[Q("a1-child")]).toBe(Q("a1"));
 	});
-});
-
-describe("updateForm", () => {
-	it("applies a partial patch", () => {
-		const start: BlueprintDoc = {
-			...docWithModule(M("A")),
-			forms: { [F("1")]: form_(F("1")) },
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
+	it("keeps semantic form id and field contents when display name and purpose change", () => {
+		const before = fixture();
+		const next = commit(before, [
+			{ kind: "renameForm", uuid: F("a1"), newId: "Renamed" },
+			{
 				kind: "updateForm",
-				uuid: F("1"),
-				patch: { type: "registration" },
-			});
+				uuid: F("a1"),
+				patch: { purpose: "Collect follow-up notes" },
+			},
+		]);
+		expect(next.forms[F("a1")]).toEqual({
+			...before.forms[F("a1")],
+			name: "Renamed",
+			purpose: "Collect follow-up notes",
 		});
-		expect(next.forms[F("1")]?.type).toBe("registration");
+		expect(next.fields).toEqual(before.fields);
+	});
+	it.each(["missing-destination", "missing-form", "missing-anchor"] as const)(
+		"refuses %s and leaves unguarded stale replay intact",
+		(scenario) => {
+			const before = fixture();
+			const mutation: Mutation = {
+				kind: "moveForm",
+				uuid: scenario === "missing-form" ? F("gone") : F("a1"),
+				toModuleUuid: scenario === "missing-destination" ? M("gone") : M("b"),
+				after: scenario === "missing-anchor" ? F("gone") : null,
+			};
+			expect(
+				mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE)
+					.ok,
+			).toBe(false);
+			const replayed = produce(before, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+			expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(before));
+		},
+	);
+	it.each(["deleted-module", "deleted-anchor"] as const)(
+		"refuses stale form birth against %s without materializing an orphan",
+		(scenario) => {
+			const before = fixture();
+			const mutation: Mutation = {
+				kind: "addForm",
+				moduleUuid: scenario === "deleted-module" ? M("gone") : M("a"),
+				after: F("gone"),
+				form: { uuid: F("born"), id: "born", name: "Born", type: "survey" },
+			};
+			expect(
+				mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE)
+					.ok,
+			).toBe(false);
+			expect(
+				toPersistableDoc(
+					produce(before, (draft) => {
+						applyMutations(draft, [mutation]);
+					}),
+				),
+			).toEqual(toPersistableDoc(before));
+		},
+	);
+});
+
+describe("first case-operation collection member", () => {
+	it("appends the first write and link when the optional anchor is omitted", () => {
+		const operationUuid = testUuid("first-operation-members");
+		const before = commit(fixture(), [
+			{ kind: "declareCaseType", caseType: "patient" },
+			{ kind: "declareCaseType", caseType: "household" },
+			{
+				kind: "setCaseTypeMeta",
+				caseType: "patient",
+				parent_type: "household",
+				relationship: "child",
+			},
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "note", label: proseText("Note"), data_type: "text" },
+			},
+			{
+				kind: "updateForm",
+				uuid: F("a1"),
+				patch: {},
+				caseOperationChange: {
+					operation: "add",
+					value: {
+						uuid: operationUuid,
+						id: "update_patient",
+						action: "update",
+						caseType: "patient",
+						target: {
+							kind: "expression",
+							expr: {
+								kind: "term",
+								term: { kind: "literal", value: "patient-id" },
+							},
+						},
+						owner: {
+							kind: "term",
+							term: { kind: "literal", value: "owner-id" },
+						},
+					},
+				},
+			},
+		]);
+		const value = {
+			kind: "term" as const,
+			term: { kind: "literal" as const, value: "Edited" },
+		};
+		const link = {
+			identifier: "parent",
+			targetType: "household",
+			relationship: "child" as const,
+			target: {
+				kind: "expression" as const,
+				expr: {
+					kind: "term" as const,
+					term: { kind: "literal" as const, value: "household-id" },
+				},
+			},
+		};
+		const next = commit(before, [
+			{
+				kind: "updateForm",
+				uuid: F("a1"),
+				patch: {},
+				caseOperationPatch: {
+					operation: "add-write",
+					uuid: operationUuid,
+					value: { property: "note", value },
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: F("a1"),
+				patch: {},
+				caseOperationPatch: {
+					operation: "add-link",
+					uuid: operationUuid,
+					value: link,
+				},
+			},
+		]);
+		expect(next.forms[F("a1")].caseOperations?.[0].writes).toEqual([
+			{ property: "note", value },
+		]);
+		expect(next.forms[F("a1")].caseOperations?.[0].links).toEqual([link]);
 	});
 });

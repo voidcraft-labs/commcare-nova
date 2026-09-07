@@ -4,7 +4,7 @@
 // normalizer the wire-emission filter surfaces apply. The contract:
 // drop `match-all` from `and` (absorb `match-none`), drop `match-none`
 // from `or` (absorb `match-all`), flatten same-kind nesting, fold
-// `not`, recurse through every nested Predicate slot (including the
+// `not`, recurse through the tested nested Predicate slots (including the
 // ones reached through a ValueExpression operand), and return a
 // structurally-equal tree when no identity is present.
 
@@ -25,6 +25,7 @@ import {
 	matchNone,
 	not,
 	or,
+	predicateSchema,
 	prop,
 	simplifyForEmission,
 	subcasePath,
@@ -111,12 +112,29 @@ describe("simplifyForEmission — nesting", () => {
 	});
 });
 
-describe("simplifyForEmission — not folds via the builder", () => {
+describe("simplifyForEmission — stored negation shapes", () => {
 	it("not(match-all) → match-none", () => {
-		expect(simplifyForEmission(not(matchAll()))).toEqual(matchNone());
+		expect(
+			simplifyForEmission(
+				predicateSchema.parse({ kind: "not", clause: { kind: "match-all" } }),
+			),
+		).toEqual(matchNone());
 	});
 	it("not(match-none) → match-all", () => {
-		expect(simplifyForEmission(not(matchNone()))).toEqual(matchAll());
+		expect(
+			simplifyForEmission(
+				predicateSchema.parse({ kind: "not", clause: { kind: "match-none" } }),
+			),
+		).toEqual(matchAll());
+	});
+	it("collapses stored double negation without changing the authored tree", () => {
+		const original = predicateSchema.parse({
+			kind: "not",
+			clause: { kind: "not", clause: a },
+		});
+		const before = structuredClone(original);
+		expect(simplifyForEmission(original)).toEqual(a);
+		expect(original).toEqual(before);
 	});
 	it("simplifies inside not before folding", () => {
 		// not(and(match-all, a)) → not(a)

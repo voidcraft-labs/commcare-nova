@@ -126,6 +126,10 @@ once. Cloud Run omits VPC fields from the Execution response, so the Job
 check and etag fence establish that part of the execution contract; any VPC
 fields returned on an Execution must still match. It then proves the immutable Execution and every task succeeded. A
 concurrent template change fails the fence instead of running unverified code.
+Read polling retries transient HTTP failures, disconnects, and truncated
+responses within its existing deadline. Write failures remain terminal and
+never resubmit a Job. Authentication failures remain terminal even when their
+diagnostic response body is incomplete.
 
 Cleanup remains scheduled every five minutes. After winning its exclusive
 advisory lock and prewarming its work connection, each execution proves its

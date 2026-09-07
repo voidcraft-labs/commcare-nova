@@ -21,8 +21,13 @@ import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Predicate } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import {
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
+import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 
 const GLOBAL_CTX: PredicateEditContext = {
 	caseTypes: [
@@ -43,39 +48,17 @@ const HOLD_FALSE_CTX: PredicateEditContext = {
 	globalPlaceholderHolds: false,
 };
 
-// Deliberately partial evaluator: it understands exactly the shapes the
-// global seed factories may produce (session values, literals, equality
-// comparisons, and the logical wrappers) and THROWS on anything else, so
-// a new global seed shape fails here until this suite learns its truth.
-function evalValue(value: ValueExpression): string {
-	if (value.kind !== "term") {
-		throw new Error(`unexpected seed value kind: ${value.kind}`);
-	}
-	const t = value.term;
-	if (t.kind === "session-context") return "smoke-username";
-	if (t.kind === "literal") return String(t.value ?? "");
-	throw new Error(`unexpected seed term kind: ${t.kind}`);
-}
-
-function evalSeed(p: Predicate): boolean {
-	switch (p.kind) {
-		case "eq":
-			return evalValue(p.left) === evalValue(p.right);
-		case "neq":
-			return evalValue(p.left) !== evalValue(p.right);
-		case "and":
-			return p.clauses.every(evalSeed);
-		case "or":
-			return p.clauses.some(evalSeed);
-		case "not":
-			return !evalSeed(p.clause);
-		case "match-all":
-			return true;
-		case "match-none":
-			return false;
-		default:
-			throw new Error(`unexpected seed predicate kind: ${p.kind}`);
-	}
+// Execute the production Preview evaluator. This proves Preview placeholder
+// semantics; native CommCare acceptance is owned by the separate wire corpus.
+const SESSION = previewSessionValues(
+	previewAsMe({
+		id: "worker-neutrality",
+		name: "Amina Diallo",
+		email: "amina@example.org",
+	}),
+);
+function evalSeed(predicate: Predicate): boolean {
+	return evaluatePreviewSearchPredicate(predicate, [], SESSION);
 }
 
 describe("global placeholders hold the truth value their destination needs", () => {

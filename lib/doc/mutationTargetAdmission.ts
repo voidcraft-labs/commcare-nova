@@ -724,6 +724,14 @@ export function mutationTargetsInvalid(
 				) {
 					return true;
 				}
+				// A select birth needs a complete authored source. Without it the
+				// reducer cannot convert, so accepting would acknowledge a no-op.
+				if (
+					fieldKindDeclaresKey(m.toKind, "optionsSource") &&
+					!fieldKindDeclaresKey(currentKind, "optionsSource") &&
+					m.optionsSource === undefined
+				)
+					return true;
 				fieldKinds.set(m.uuid, m.toKind);
 				if (!fieldKindDeclaresKey(m.toKind, "optionsSource")) {
 					inlineOptionFields.delete(m.uuid);

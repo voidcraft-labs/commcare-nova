@@ -4,16 +4,23 @@ import {
 	asUuid,
 	type CaseOperation,
 	calculatedColumn,
-	type LookupColumnId,
 	type LookupOptionsSource,
-	type LookupTableId,
 	plainColumn,
 } from "@/lib/domain";
-import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
-import type {
-	LookupDefinitionsSnapshot,
-	LookupRevision,
-} from "@/lib/lookup/types";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
+	eq,
+	literal,
+	prop,
+	tableColumn,
+	tableLookup,
+} from "@/lib/domain/predicate";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import type { LookupDefinitionsSnapshot } from "@/lib/lookup/types";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { getCaseOperationsTool } from "../case-operations/getCaseOperations";
 import { getFieldTool } from "../getField";
@@ -27,10 +34,14 @@ const SELECT = asUuid("40000000-0000-4000-8000-000000000000");
 const SAFE_COLUMN = asUuid("50000000-0000-4000-8000-000000000000");
 const LOOKUP_COLUMN = asUuid("60000000-0000-4000-8000-000000000000");
 
-const TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-const VALUE_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const LABEL_COLUMN = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
-const REVISION = "1" as LookupRevision;
+const TABLE = lookupTableIdSchema.parse("018f3e8a-7b2c-7def-8abc-1234567890ab");
+const VALUE_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ad",
+);
+const LABEL_COLUMN = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ae",
+);
+const REVISION = parseLookupRevision("1");
 
 const LOOKUP_CATALOG: LookupDefinitionsSnapshot = {
 	projectId: "project-test",
@@ -93,7 +104,7 @@ function lookupDoc() {
 						plainColumn(SAFE_COLUMN, "case_name", "Name"),
 						calculatedColumn(LOOKUP_COLUMN, "Region label", lookupExpression),
 					],
-					filter: lookupPredicate,
+					filter: eq(prop("person", "case_name"), lookupExpression),
 					searchInputs: [],
 				},
 				caseSearchConfig: {
@@ -136,13 +147,13 @@ function lookupDoc() {
 		condition: lookupPredicate,
 	};
 	doc.forms[FORM].caseOperations = [operation];
-	return doc;
+	return expectAdmittedDoc(doc, { kind: "available", ...LOOKUP_CATALOG });
 }
 
 describe("shared read tools — canonical lookup identity", () => {
 	it("returns every immutable lookup UUID without mutating the doc", async () => {
 		const doc = lookupDoc();
-		const before = JSON.stringify(doc);
+		const before = structuredClone(doc);
 		const h = makeToolWorkspaceHarness(doc, {
 			lookupCatalog: async () => LOOKUP_CATALOG,
 		});
@@ -170,64 +181,29 @@ describe("shared read tools — canonical lookup identity", () => {
 			throw new Error(operationRead.data.error);
 		}
 
-		const reads = {
-			field: fieldRead.data,
-			form: formRead.data,
-			module: moduleRead.data,
-			operations: operationRead.data,
-		};
-		const serialized = JSON.stringify(reads);
-		expect(serialized).toContain(`"tableId":"${TABLE}"`);
-		expect(serialized).toContain(`"columnId":"${VALUE_COLUMN}"`);
-		expect(serialized).toContain(`"resultColumnId":"${LABEL_COLUMN}"`);
-		expect(serialized).not.toContain('"tableTag"');
-		expect(serialized).not.toContain('"resultColumn":');
-
 		const field = fieldRead.data.field;
 		if (!("children" in field) || field.children === undefined) {
 			throw new Error("expected group children");
 		}
-		expect(field.children[0]).toMatchObject({
-			uuid: SELECT,
-			optionsSource: {
-				kind: "lookup",
-				tableId: TABLE,
-				valueColumnId: VALUE_COLUMN,
-				labelColumnId: LABEL_COLUMN,
-				filter: {
-					kind: "eq",
-					left: {
-						kind: "term",
-						term: {
-							kind: "table-column",
-							tableId: TABLE,
-							columnId: VALUE_COLUMN,
-						},
-					},
-				},
-			},
+		expect(field.children[0]).toMatchObject({ uuid: SELECT, optionsSource });
+		expect(moduleRead.data.display_condition).toEqual(lookupPredicate);
+		expect(moduleRead.data.case_list_config).toEqual(
+			doc.modules[MODULE].caseListConfig,
+		);
+		expect(moduleRead.data.case_search_config).toEqual(
+			doc.modules[MODULE].caseSearchConfig,
+		);
+		expect(formRead.data.form.displayCondition).toEqual(lookupPredicate);
+		expect(formRead.data.form.fields[0]).toMatchObject({
+			children: [{ uuid: SELECT, optionsSource }],
 		});
-		expect(moduleRead.data.display_condition).toEqual(
-			expect.objectContaining({ kind: "eq" }),
-		);
-		expect(moduleRead.data.case_list_config?.columns).toHaveLength(2);
-		expect(formRead.data.form.displayCondition).toEqual(
-			expect.objectContaining({ kind: "eq" }),
-		);
 		expect(formRead.data.form.caseOperations).toEqual(
-			operationRead.data.operations,
+			doc.forms[FORM].caseOperations,
 		);
-		expect(operationRead.data.operations[0]).toMatchObject({
-			id: "lookup_parent",
-			target: {
-				kind: "expression",
-				expr: {
-					kind: "table-lookup",
-					tableId: TABLE,
-					resultColumnId: LABEL_COLUMN,
-				},
-			},
-		});
-		expect(JSON.stringify(doc)).toBe(before);
+		expect(operationRead.data.operations).toEqual(
+			doc.forms[FORM].caseOperations,
+		);
+		expect(doc).toEqual(before);
+		expect(h.host.recordMutations).not.toHaveBeenCalled();
 	});
 });

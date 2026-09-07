@@ -1,21 +1,6 @@
-// components/builder/shared/__tests__/editorSchemas.test.ts
-//
-// Registry-shape tests for the predicate card editor. Two
-// invariants pinned here:
-//
-//   1. Exhaustivity over the Predicate union: every Predicate
-//      kind appears as a key in `predicateCardSchemas`. The
-//      mapped-type `Record<Predicate["kind"], ...>` enforces this
-//      at the type layer; the runtime guard verifies the keys at
-//      the import boundary as a defense against an `as` cast
-//      bypassing the type system.
-//
-//   2. Every entry's `defaultValue(ctx)` factory produces a kind-
-//      valid AST. The schema's parse pass is the structural
-//      contract; ill-typed defaults that fail the type checker's
-//      semantic rules are still kind-valid (e.g. an empty property
-//      name is rejected by the type checker but accepted by the
-//      schema).
+// Production predicate-menu availability and context-specific seeds. Registry
+// exhaustiveness is a TypeScript obligation; the finite seed/transition corpus
+// covers schema and type admission separately in verbMenuBuildFuzz.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -23,8 +8,6 @@ import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	checkPredicate,
-	type Predicate,
-	predicateSchema,
 	relationStep,
 	type SearchInputDecl,
 	subcasePath,
@@ -85,100 +68,6 @@ const ctx: PredicateEditContext = {
 	knownInputs: KNOWN_INPUTS,
 	caseDataScope: "per-case",
 };
-
-describe("predicateCardSchemas — registry exhaustivity", () => {
-	it("declares an entry for every Predicate kind", () => {
-		// The mapped-type `Record<Predicate["kind"], ...>` enforces
-		// this at compile time, but the runtime guard catches an
-		// `as` cast bypassing the type system. The check reads
-		// each entry's `kind` field and confirms the key matches:
-		// drift between key + entry would be an authoring bug.
-		for (const kind of Object.keys(
-			predicateCardSchemas,
-		) as Predicate["kind"][]) {
-			const entry = predicateCardSchemas[kind];
-			expect(entry.kind).toBe(kind);
-			expect(entry.label).toBeTruthy();
-			expect(entry.icon).toBeTruthy();
-			expect(typeof entry.component).toBe("function");
-			expect(typeof entry.defaultValue).toBe("function");
-			expect(typeof entry.applicable).toBe("function");
-		}
-	});
-
-	it("contains exactly the stored Predicate vocabulary", () => {
-		expect(Object.keys(predicateCardSchemas).sort()).toEqual(
-			[
-				"and",
-				"between",
-				"eq",
-				"exists",
-				"gt",
-				"gte",
-				"in",
-				"is-blank",
-				"lt",
-				"lte",
-				"match",
-				"match-all",
-				"match-none",
-				"matches-pattern",
-				"missing",
-				"multi-select-contains",
-				"neq",
-				"not",
-				"or",
-				"when-input-present",
-				"within-distance",
-			].sort(),
-		);
-		expect(
-			predicateSchema.safeParse({
-				kind: "is-null",
-				left: { kind: "term", term: { kind: "literal", value: null } },
-			}).success,
-		).toBe(false);
-	});
-});
-
-describe("predicateCardSchemas — defaultValue parses through the schema", () => {
-	// Iterate every kind; assert the factory's output round-trips
-	// through `predicateSchema.parse`. This is the smoke test for
-	// "the registry's defaults are kind-valid AST": semantic
-	// validity (does a property name resolve, are types
-	// compatible?) is the type checker's job and has its own tests.
-	for (const kind of Object.keys(predicateCardSchemas) as Predicate["kind"][]) {
-		it(`${kind}: default value parses through predicateSchema`, () => {
-			const entry = predicateCardSchemas[kind];
-			const value = entry.defaultValue(ctx);
-			// Parse round-trip: the schema's tuple-with-rest /
-			// non-empty / refinement guards all run here.
-			expect(() => predicateSchema.parse(value)).not.toThrow();
-			// The constructed kind matches the registry's key
-			// (modulo reductions: `notDefault` etc. can route through
-			// reductions that change the outer kind, but each
-			// production registry default should produce its own kind).
-			expect(value.kind).toBe(kind);
-		});
-	}
-
-	it("seeds only admitted canonical property names", () => {
-		for (const kind of Object.keys(
-			predicateCardSchemas,
-		) as Predicate["kind"][]) {
-			const refs: string[] = [];
-			walkTerms(predicateCardSchemas[kind].defaultValue(ctx), (term) => {
-				if (term.kind === "prop") refs.push(term.property);
-			});
-			expect(refs, `${kind} property refs`).not.toContain("name");
-			for (const property of refs) {
-				expect(
-					PATIENT.properties.some((entry) => entry.name === property),
-				).toBe(true);
-			}
-		}
-	});
-});
 
 describe("predicateCardSchemas — applicable predicates", () => {
 	it("multi-select-contains is applicable when a multi_select property exists", () => {

@@ -40,7 +40,7 @@ import {
 } from "@/lib/domain/predicate";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
-	firstConditionSeed,
+	relatedConditionSeed,
 } from "../../conditionSeed";
 import {
 	useEditorErrorsAt,
@@ -51,6 +51,10 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
 import { RelationPathBuilder } from "../../primitives/RelationPathBuilder";
+import {
+	relatedPathEditAdmission,
+	replaceRelatedPath,
+} from "../../relatedPathEdit";
 import { resolveRelationDestination } from "../../relationDestination";
 import { PredicateFocusBoundary } from "../ChildPredicateEditor";
 
@@ -105,13 +109,15 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 	const viaErrors = useEditorErrorsAt(appendKindSlot(path, "count", "via"));
 	const unavailableReasonId = useId();
 
+	const admitVia = (next: RelationPath) => {
+		const local = relatedPathEditAdmission(value, next, ctx);
+		return local.admitted
+			? (ctx.admitExpressionChange?.(path, replaceRelatedPath(value, next)) ??
+					local)
+			: local;
+	};
 	const setVia = (next: RelationPath) => {
-		// Preserve the complete filter tree when the connection changes.
-		// A newly incompatible destination is a visible repair state, not
-		// permission to silently replace the condition with match-all.
-		onChange(
-			value.where === undefined ? count(next) : count(next, value.where),
-		);
+		if (admitVia(next).admitted) onChange(replaceRelatedPath(value, next));
 	};
 
 	const setWhere = (next: Predicate | undefined) => {
@@ -132,36 +138,8 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 	const whereSeed = useMemo(
-		() =>
-			destinationCaseType === undefined
-				? undefined
-				: firstConditionSeed({
-						caseTypes: ctx.caseTypes,
-						currentCaseType: destinationCaseType,
-						knownInputs: ctx.knownInputs,
-						// Only the CASE TYPE and the scope change inside a
-						// relation walk. The other axes still describe what this
-						// surface offers, and a narrowed context resolves a form
-						// answer to nothing, which widens the dependent slot's
-						// accept-set, skips the reseed, and commits the
-						// type-incorrect pair the gate then refuses.
-						userProperties: ctx.userProperties,
-						formFields: ctx.formFields,
-						operationScope: ctx.operationScope,
-						evaluationTarget: ctx.evaluationTarget,
-						// A count's `where` runs against each counted related
-						// case row: per-case even under a global outer slot.
-						caseDataScope: "per-case",
-					}),
-		[
-			destinationCaseType,
-			ctx.caseTypes,
-			ctx.knownInputs,
-			ctx.userProperties,
-			ctx.formFields,
-			ctx.operationScope,
-			ctx.evaluationTarget,
-		],
+		() => relatedConditionSeed(ctx, destinationCaseType),
+		[ctx, destinationCaseType],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;
@@ -176,6 +154,7 @@ export function CountCard({ value, onChange, path }: CountCardProps) {
 				<RelationPathBuilder
 					value={value.via}
 					onChange={setVia}
+					admitChange={admitVia}
 					invalid={operatorErrors.length > 0 || viaErrors.length > 0}
 					allowSelf
 				/>

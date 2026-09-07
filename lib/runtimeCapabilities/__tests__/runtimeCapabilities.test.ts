@@ -1,6 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
+import { build } from "esbuild";
 import { describe, expect, it } from "vitest";
 import rawManifest from "../../../config/runtime-capabilities.json";
 import {
@@ -65,13 +67,52 @@ describe("runtime capability manifest", () => {
 		);
 	});
 
+	it.each([
+		{
+			cloudRunRequestSeconds: 1,
+			editRunLeaseSeconds: 60,
+			buildStalenessSeconds: 86_400,
+		},
+		{
+			cloudRunRequestSeconds: 3_600,
+			editRunLeaseSeconds: 86_400,
+			buildStalenessSeconds: 60,
+		},
+	])(
+		"accepts independent timing boundaries $cloudRunRequestSeconds/$editRunLeaseSeconds/$buildStalenessSeconds",
+		(timings) => {
+			const parsed = requireRuntimeCapabilityManifest({
+				schemaVersion: 1,
+				...timings,
+			});
+			expect(parsed).toEqual({ schemaVersion: 1, ...timings });
+			expect(Object.isFrozen(parsed)).toBe(true);
+		},
+	);
+
 	it("canonicalizes in schema order and hashes exact canonical bytes", () => {
-		const canonical = canonicalRuntimeCapabilityManifest(manifest);
+		const canonical = canonicalRuntimeCapabilityManifest({
+			buildStalenessSeconds: 120,
+			editRunLeaseSeconds: 60,
+			cloudRunRequestSeconds: 300,
+			schemaVersion: 1,
+		});
 		expect(canonical).toBe(
-			'{"schemaVersion":1,"cloudRunRequestSeconds":3600,"editRunLeaseSeconds":900,"buildStalenessSeconds":600}',
+			'{"schemaVersion":1,"cloudRunRequestSeconds":300,"editRunLeaseSeconds":60,"buildStalenessSeconds":120}',
 		);
-		expect(manifestHash).toMatch(/^[a-f0-9]{64}$/);
-		expect(hashRuntimeCapabilityManifest(manifest)).toBe(manifestHash);
+		expect(manifestHash).toBe(
+			createHash("sha256")
+				.update(canonicalRuntimeCapabilityManifest(manifest))
+				.digest("hex"),
+		);
+		expect(
+			hashRuntimeCapabilityManifest({
+				buildStalenessSeconds: 120,
+				editRunLeaseSeconds: 60,
+				cloudRunRequestSeconds: 300,
+				schemaVersion: 1,
+			}),
+		).toBe(createHash("sha256").update(canonical).digest("hex"));
 	});
 
 	it("renders immutable image declarations with timing environment variables", () => {
@@ -92,28 +133,23 @@ describe("runtime capability manifest", () => {
 		);
 	});
 
-	it("keeps validated browser access free of Node hashing", () => {
-		const repoRoot = path.resolve(import.meta.dirname, "../../..");
-		const clientSafeSources = [
-			readFileSync(path.join(repoRoot, "lib/runtimeCapabilities.ts"), "utf8"),
-			readFileSync(
-				path.join(repoRoot, "lib/runtimeCapabilities/core.mts"),
-				"utf8",
-			),
-		];
-		expect(clientSafeSources.join("\n")).not.toContain('from "node:crypto"');
+	it("bundles and executes browser capability access without Node globals", async () => {
+		const result = await build({
+			entryPoints: [
+				path.resolve(import.meta.dirname, "../../runtimeCapabilities.ts"),
+			],
+			bundle: true,
+			platform: "browser",
+			format: "iife",
+			globalName: "NovaRuntime",
+			write: false,
+			logLevel: "silent",
+		});
+		const output = result.outputFiles[0];
+		if (output === undefined) throw new Error("expected a browser bundle");
 		expect(
-			readFileSync(
-				path.join(repoRoot, "lib/runtimeCapabilities/serverHash.mts"),
-				"utf8",
-			),
-		).toContain('from "node:crypto"');
-		expect(
-			readFileSync(
-				path.join(repoRoot, "lib/runtimeCapabilities/server.ts"),
-				"utf8",
-			),
-		).toContain('import "server-only"');
+			runInNewContext(`${output.text}\nNovaRuntime.RUNTIME_CAPABILITIES`, {}),
+		).toEqual(rawManifest);
 	});
 
 	it("renders a deterministic shell-safe build identity", () => {

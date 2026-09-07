@@ -390,12 +390,14 @@ describe("frozen persisted-Blueprint validator artifact", () => {
 						kind: "autosave",
 						from_project_id: null,
 						to_project_id: null,
-						mutationsText: "[]",
+						mutationsText: JSON.stringify([
+							{ kind: "setAppName", name: "After gap" },
+						]),
 					},
 				],
 				finalLookupContext: lookupContext(),
 			}),
-		).toThrow(/autosave must carry mutations/);
+		).toThrow(/suffix is not contiguous/);
 	});
 
 	it("retains Project scope through empty project-move app changes", () => {

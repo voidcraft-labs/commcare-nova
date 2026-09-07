@@ -2,17 +2,9 @@
  * fast-check arbitrary that generates schema-valid `BlueprintDoc`s for the
  * XForm oracle fuzzer.
  *
- * The totality claim the fuzzer proves is scoped to SCHEMA-VALID docs — a doc
- * the domain validator (`runValidation`) accepts. So this arbitrary is
- * CONSTRUCTIVE, not filtered: rather than generate arbitrary shapes and
- * `fc.pre` away the invalid ones (which starves the run), it builds docs that
- * are valid by construction — globally-unique ids from a single minter (which
- * makes the sibling-uniqueness CommCare requires trivially hold),
- * registration forms that always carry a `case_name` field, selects with ≥2
- * options, XPath drawn from a verified-valid palette, etc. The fuzz test still
- * asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` at the top of every property body:
- * if this arbitrary ever slips and emits an invalid doc, that assertion fails
- * LOUD as a generator bug, not a silent skip.
+ * Constructive generation keeps shrinking useful: no rejected samples or
+ * parse-and-strip repairs. The property checks both the persisted strict schema
+ * and domain validation before compiling each generated document.
  *
  * It exercises the surfaces the oracle's invariants touch: all field kinds,
  * nested groups + repeats (all three repeat modes, incl. query_bound's
@@ -88,16 +80,25 @@ export class IdMinter {
  * distinct pool tokens (the caller passes a monotonic per-parent index, capped
  * to the children count which never exceeds the pool size), so sibling
  * uniqueness holds; cousins under different parents reuse the same tokens at
- * the same index, so they collide. The pool tokens are legal XML element names.
+ * the same index, so they collide. The pool uses legal names that also name XForm markup, so data must never
+ * be mistaken for control or model declarations. Exhausting the pool fails
+ * explicitly instead of wrapping and silently duplicating a sibling.
  */
-const SIBLING_ID_POOL = ["a", "b", "c", "d", "e", "f", "g"] as const;
+const SIBLING_ID_POOL = [
+	"input",
+	"model",
+	"instance",
+	"secret",
+	"translation",
+	"text",
+	"bind",
+] as const;
 
 export function pickSiblingId(index: number): string {
-	// The child-count bounds in the arbitrary (≤3 random children, +2 injected
-	// case fields at the form root → ≤5 siblings) stay under the pool size, so a
-	// modulo is never reached in practice; it's a defensive belt so a future
-	// bound bump can't silently produce a duplicate sibling id.
-	return SIBLING_ID_POOL[index % SIBLING_ID_POOL.length];
+	const id = SIBLING_ID_POOL[index];
+	if (id === undefined)
+		throw new Error(`Sibling generator exhausted at ${index}`);
+	return id;
 }
 
 // ── Palettes ───────────────────────────────────────────────────────
@@ -141,6 +142,8 @@ const VALIDATABLE_KINDS = new Set<string>([
 	"datetime",
 	"single_select",
 	"multi_select",
+	"barcode",
+	"secret",
 ]);
 
 /**
@@ -180,6 +183,7 @@ const SAFE_COUNT_XPATH = ["3", "1 + 2", "count(/data)"] as const;
  */
 const DEFAULT_VALUE_BY_KIND: Record<string, string> = {
 	text: "'hello'",
+	secret: "'example'",
 	int: "42",
 	decimal: "3.14",
 	date: "today()",
@@ -196,8 +200,8 @@ const DEFAULT_VALUE_BY_KIND: Record<string, string> = {
 
 /**
  * Label fragments that stress the itext-escaping path: XML metacharacters that
- * MUST be escaped (`<`, `&`, `>`), markdown syntax, and a hashtag reference
- * (which lowers to an `<output>` — exercising the output value-parse invariant).
+ * MUST be escaped (`<`, `&`, `>`), markdown syntax, and literal hashtag-looking text
+ * (proseText deliberately does not create a typed reference).
  */
 const SPICY_LABELS = [
 	"Plain label",
@@ -246,9 +250,8 @@ export function buildField(
 	if (spec.kind === "select") {
 		const kind = spec.single ? "single_select" : "multi_select";
 		const labelMedia = buildMediaSlot(ctx.minter, spec.media?.label);
-		// Selects don't carry the input-specific media slots (hint/help/
-		// validate_msg media live on the input-field base); only label_media.
-		// Per-option media is layered onto each option below.
+		// This select population varies defaults, label media, and option media.
+		// Input logic and other message slots are varied on scalar inputs below.
 		const options = spec.options.map((opt, idx) => {
 			const optMedia = buildMediaSlot(ctx.minter, spec.optionMedia?.[idx]);
 			return {
@@ -270,7 +273,7 @@ export function buildField(
 				? { default_value: opaqueXPathExpression(DEFAULT_VALUE_BY_KIND[kind]) }
 				: {}),
 			...(labelMedia ? { label_media: labelMedia } : {}),
-		} as Field;
+		};
 		return;
 	}
 
@@ -283,7 +286,7 @@ export function buildField(
 			// Opaque AST — prints byte-identically, so emission over the
 			// generated text is unchanged.
 			calculate: opaqueXPathExpression(spec.calculate),
-		} as Field;
+		};
 		return;
 	}
 
@@ -293,7 +296,7 @@ export function buildField(
 			kind: "group",
 			id,
 			label: proseText(spec.label),
-		} as Field;
+		};
 		ctx.fieldOrder[uuid] = [];
 		spec.children.forEach((childSpec, i) => {
 			buildField(ctx, uuid, pickSiblingId(i), childSpec);
@@ -307,7 +310,7 @@ export function buildField(
 			kind: "section",
 			id,
 			...(spec.label === undefined ? {} : { label: proseText(spec.label) }),
-		} as Field;
+		};
 		ctx.fieldOrder[uuid] = [];
 		spec.children.forEach((childSpec, i) => {
 			buildField(ctx, uuid, pickSiblingId(i), childSpec);
@@ -324,25 +327,66 @@ export function buildField(
 		};
 		let field: Field;
 		if (spec.mode === "user_controlled") {
-			field = { ...base, repeat_mode: "user_controlled" } as Field;
+			field = { ...base, repeat_mode: "user_controlled" };
 		} else if (spec.mode === "count_bound") {
 			field = {
 				...base,
 				repeat_mode: "count_bound",
 				repeat_count: opaqueXPathExpression(spec.count),
-			} as Field;
+			};
 		} else {
 			field = {
 				...base,
 				repeat_mode: "query_bound",
 				data_source: { ids_query: opaqueXPathExpression(spec.idsQuery) },
-			} as Field;
+			};
 		}
 		ctx.fields[uuid] = field;
 		ctx.fieldOrder[uuid] = [];
 		spec.children.forEach((childSpec, i) => {
 			buildField(ctx, uuid, pickSiblingId(i), childSpec);
 		});
+		return;
+	}
+
+	// Display labels carry visibility and label media only, never input slots.
+	if (spec.kind === "label") {
+		const media = buildMediaSlot(ctx.minter, spec.media?.label);
+		ctx.fields[uuid] = {
+			uuid,
+			kind: "label",
+			id,
+			label: proseText(spec.label),
+			...(spec.relevant
+				? { relevant: opaqueXPathExpression(spec.relevant) }
+				: {}),
+			...(media ? { label_media: media } : {}),
+		};
+		return;
+	}
+
+	if (
+		spec.kind === "image" ||
+		spec.kind === "audio" ||
+		spec.kind === "video" ||
+		spec.kind === "file" ||
+		spec.kind === "signature"
+	) {
+		const media = buildMediaSlot(ctx.minter, spec.media?.label);
+		ctx.fields[uuid] = {
+			uuid,
+			kind: spec.kind,
+			id,
+			label: proseText(spec.label),
+			...(spec.relevant
+				? { relevant: opaqueXPathExpression(spec.relevant) }
+				: {}),
+			...(spec.required
+				? { required: opaqueXPathExpression(spec.required) }
+				: {}),
+			...(spec.hint ? { hint: proseText(spec.hint) } : {}),
+			...(media ? { label_media: media } : {}),
+		};
 		return;
 	}
 
@@ -409,7 +453,7 @@ export function buildField(
 		...(hintMedia ? { hint_media: hintMedia } : {}),
 		...(helpMedia ? { help_media: helpMedia } : {}),
 		...(validateMsgMedia ? { validate_msg_media: validateMsgMedia } : {}),
-	} as Field;
+	};
 }
 
 /**
@@ -441,13 +485,13 @@ function injectSubcaseRepeat(
 	};
 	let repeatField: Field;
 	if (spec.mode === "user_controlled") {
-		repeatField = { ...repeatBase, repeat_mode: "user_controlled" } as Field;
+		repeatField = { ...repeatBase, repeat_mode: "user_controlled" };
 	} else if (spec.mode === "count_bound") {
 		repeatField = {
 			...repeatBase,
 			repeat_mode: "count_bound",
 			repeat_count: opaqueXPathExpression("3"),
-		} as Field;
+		};
 	} else {
 		repeatField = {
 			...repeatBase,
@@ -457,7 +501,7 @@ function injectSubcaseRepeat(
 					`instance('casedb')/casedb/case[@case_type='${spec.childCaseType}']/@case_id`,
 				),
 			},
-		} as Field;
+		};
 	}
 	ctx.fields[repeatUuid] = repeatField;
 	ctx.fieldOrder[repeatUuid] = [];
@@ -475,7 +519,7 @@ function injectSubcaseRepeat(
 		id: "case_name",
 		label: proseText("Child name"),
 		caseWrite: { caseType: spec.childCaseType, property: "case_name" },
-	} as Field;
+	};
 }
 
 // ── Field generation spec (the arbitrary's intermediate shape) ─────
@@ -487,7 +531,7 @@ function injectSubcaseRepeat(
  * which is where sibling-id uniqueness is enforced.
  */
 /**
- * Optional media populations the lowering attaches to a field. Each `1` slot
+ * Optional media populations the lowering attaches to a field. Each requested kind
  * means "emit a fresh `MediaAssetId` here"; the lowering mints the id at build
  * time via the shared `IdMinter`, so every asset id is globally unique and
  * conforms to `uuidSchema`. Slots default to no media — leaving the doc
@@ -630,9 +674,7 @@ function buildMediaSlot(
 		video?: MediaAssetId;
 	} = {};
 	for (const kind of kinds) {
-		// MediaAssetId is a branded plain-string (`mediaAssetIdSchema = z.string().min(1)`);
-		// the minter emits ids of shape `<prefix>-<base36>` which satisfies the
-		// non-empty constraint and brands cleanly via `asMediaAssetId`.
+		// The shared minter supplies stable UUIDs, including media references.
 		slot[kind] = asMediaAssetId(minter.uuid(`media${kind[0]}`));
 	}
 	return slot;
@@ -839,7 +881,7 @@ export function sectionRoot(
 			kind: "section",
 			id: `section_${i + 1}`,
 			...(title === undefined ? {} : { label: proseText(title) }),
-		} as Field;
+		};
 		ctx.fieldOrder[uuid] = rootChildren.slice(i * chunk, (i + 1) * chunk);
 	});
 }
@@ -1267,7 +1309,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					id: "case_name",
 					label: proseText("Case name"),
 					caseWrite: { caseType: modSpec.caseType, property: "case_name" },
-				} as Field;
+				};
 
 				const propUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(propUuid);
@@ -1279,7 +1321,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					id: "saved_prop",
 					label: proseText("A saved property"),
 					caseWrite: { caseType: modSpec.caseType, property: "saved_prop" },
-				} as Field;
+				};
 			}
 
 			// Random root fields draw ids from the sibling pool. Cousins under
@@ -1389,54 +1431,6 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 export const blueprintDocArbitrary: fc.Arbitrary<BlueprintDoc> =
 	docGenSpecArb.map(lowerToDoc);
 
-// ── Manifest synthesis ─────────────────────────────────────────────
-
-/**
- * Per-slot conventions the fuzz manifest synthesizer follows. Image slots
- * resolve to a .png file; audio to .mp3; video to .mp4. The choice is
- * arbitrary (CommCare's installer is content-agnostic on extension; the
- * sniffed mimeType is what the validator gates on), but the wire path
- * carries the extension verbatim so the choice MUST be stable for the
- * synthesizer + the oracles to agree on the manifest's wire-path set.
- */
-const SLOT_EXTENSION_BY_KIND: Record<
-	"image" | "audio" | "video",
-	{ readonly extension: string; readonly mimeType: string }
-> = {
-	image: { extension: ".png", mimeType: "image/png" },
-	audio: { extension: ".mp3", mimeType: "audio/mpeg" },
-	video: { extension: ".mp4", mimeType: "video/mp4" },
-};
-
-/**
- * The minimum manifest payload the wire emitters and oracles need.
- * Kept narrower than `ResolvedMediaAsset` so the fuzz harness doesn't
- * have to import + assemble the full storage shape.
- */
-export interface FuzzMediaAsset {
-	readonly assetId: MediaAssetId;
-	readonly wirePath: string;
-	readonly kind: "image" | "audio" | "video";
-	readonly mimeType: string;
-	readonly contentHash: string;
-	readonly extension: string;
-}
-
-/**
- * True when the doc carries at least one media reference that lowers to
- * an XForm `<value form="image|audio|video">jr://...` sibling — i.e. a
- * field message-slot bundle (`label_media` / `hint_media` / `help_media`
- * / `validate_msg_media`) or an option `media` bundle.
- *
- * This is the form-itext sub-population, deliberately NARROWER than
- * `hasMedia`: menu-style carriers (app logo, module/form icon +
- * audioLabel, image-map columns) emit into the suite + app_strings, not
- * into any form's itext, so they never feed the XForm oracle's
- * `XFORM_DANGLING_MEDIA_REF` resolution path. The XForm fuzz floors THIS
- * ratio (not `hasMedia`'s) so a drift in `FIELD_MEDIA_SPEC_ARB` toward
- * all-empty slots fails loud rather than turning the media-resolution
- * check into a silent no-op while menu media keeps `hasMedia` true.
- */
 /** Whether any form in `doc` is sectioned (its root holds a section). */
 export function hasSectionedForm(doc: BlueprintDoc): boolean {
 	return Object.keys(doc.forms).some((formUuid) =>
@@ -1456,70 +1450,4 @@ export function hasFormItextMedia(doc: BlueprintDoc): boolean {
 		}
 	}
 	return false;
-}
-
-/**
- * Build a deterministic manifest covering every `MediaAssetId` the doc
- * references. Walks via `walkAssetRefs` (the same single-source-of-truth
- * walker the validator + manifest loader consume) so the fuzz manifest
- * matches the emitter's actual reference set 1:1.
- *
- * Each asset is assigned:
- *   - A deterministic `contentHash` (sha256-like 64-hex prefix derived
- *     from the asset id) so emit output is stable across runs.
- *   - An extension + mimeType matching its slot kind (the schema only
- *     gates `mediaKindMatches` when the validator is invoked WITH a
- *     manifest; the fuzz tests don't run that rule, so any sane pairing
- *     here is fine — the synthesizer just keeps the wire-path
- *     extensions sensible).
- *
- * Same-asset-id collisions across slots use the FIRST seen slot's kind —
- * one `MediaAssetId` produces exactly one wire-path entry, which is the
- * shape the dedup bundler relies on.
- */
-export function fuzzManifestFromDoc(
-	doc: BlueprintDoc,
-): Map<MediaAssetId, FuzzMediaAsset> {
-	const manifest = new Map<MediaAssetId, FuzzMediaAsset>();
-	for (const ref of walkAssetRefs(doc)) {
-		const branded = asMediaAssetId(ref.assetId);
-		if (manifest.has(branded)) continue;
-		const { extension, mimeType } = SLOT_EXTENSION_BY_KIND[ref.slotKind];
-		// Deterministic 64-hex content hash derived from the asset id — same id
-		// in two runs produces the same hash, which keeps emit output stable
-		// for fuzz seed reproducibility.
-		const contentHash = hashForAssetId(ref.assetId);
-		const wirePath = `commcare/${contentHash}${extension}`;
-		manifest.set(branded, {
-			assetId: branded,
-			wirePath,
-			kind: ref.slotKind,
-			mimeType,
-			contentHash,
-			extension,
-		});
-	}
-	return manifest;
-}
-
-/**
- * Stable 64-hex hash for an asset id. Not a cryptographic hash — the
- * synthesizer just needs a deterministic, collision-resistant string with
- * the same shape as the real content hash so the emitter's wire path
- * format check (`/^[a-f0-9]{64}$/` on the schema side) is irrelevant
- * here (the validator doesn't run kind-matching during fuzz runs), but
- * a clean shape keeps emit output legible in golden-style diffs.
- */
-function hashForAssetId(assetId: string): string {
-	// Simple FNV-1a 32-bit hash folded out into 64 hex chars by repeating.
-	// Deterministic + collision-resistant enough for fuzz coverage — the
-	// per-asset uniqueness fast-check provides via the IdMinter is the actual
-	// guarantee, this just pads it into a 64-char display.
-	let h = 0x811c9dc5;
-	for (let i = 0; i < assetId.length; i++) {
-		h ^= assetId.charCodeAt(i);
-		h = Math.imul(h, 0x01000193);
-	}
-	const hex8 = (h >>> 0).toString(16).padStart(8, "0");
-	return hex8.repeat(8);
 }

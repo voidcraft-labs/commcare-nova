@@ -8,6 +8,7 @@ import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
+	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
@@ -387,25 +388,13 @@ export function applyModuleMutation(
 					}
 					const config = mod.caseSearchConfig;
 					if (config === undefined) continue;
-					delete config.searchScreenTitle;
-					delete config.searchScreenSubtitle;
-					const hasSearchActionSetting =
-						config.searchButtonLabel !== undefined ||
-						config.searchButtonDisplayCondition !== undefined;
-					const hasCasesAvailableCondition =
+					const nextConfig = caseSearchConfigAfterFinalInputRemoval(
+						config,
 						effectiveFilterForEmission(mod.caseListConfig?.filter) !==
-						undefined;
-					if (hasSearchActionSetting || hasCasesAvailableCondition) {
-						continue;
-					}
-					if (config.excludedOwnerIds !== undefined) {
-						mod.caseSearchConfig = {
-							searchActionEnabled: false,
-							excludedOwnerIds: config.excludedOwnerIds,
-						};
-						continue;
-					}
-					delete mod.caseSearchConfig;
+							undefined,
+					);
+					if (nextConfig === undefined) delete mod.caseSearchConfig;
+					else mod.caseSearchConfig = nextConfig;
 					continue;
 				}
 				if (value === null || value === undefined) delete target[key];

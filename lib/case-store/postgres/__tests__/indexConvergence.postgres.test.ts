@@ -146,6 +146,13 @@ describe("durable case-schema index convergence", () => {
 				.execute();
 		});
 
+		const loaded = await appDb
+			.transaction()
+			.setIsolationLevel("repeatable read")
+			.setAccessMode("read only")
+			.execute((tx) => loadPersistedBlueprintReadOnly(tx, APP_ID));
+		expect(loaded).toEqual(desired);
+
 		const prepared = await appDb
 			.transaction()
 			.execute((tx) =>
@@ -165,19 +172,6 @@ describe("durable case-schema index convergence", () => {
 			(stored.schema as { properties: { value: { type: string } } }).properties
 				.value.type,
 		).toBe("string");
-	});
-
-	it("loads the exact Blueprint in a nonlocking read-only snapshot", async () => {
-		const appDb = database.db as unknown as Kysely<AppDatabase>;
-		const blueprint = await appDb
-			.transaction()
-			.setIsolationLevel("repeatable read")
-			.setAccessMode("read only")
-			.execute((tx) => loadPersistedBlueprintReadOnly(tx, APP_ID));
-
-		expect(blueprint).toMatchObject({
-			appName: "Index convergence",
-		});
 	});
 
 	it("audits residual indexes after production relocates cases out of public", async () => {
@@ -845,38 +839,41 @@ describe("durable case-schema index convergence", () => {
 		).toBe(false);
 	});
 
-	it("rebuilds a valid same-name index whose physical definition is wrong", async () => {
-		const caseStore = store();
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: schema("int"),
-			syncedSeq: 1,
-		});
-		const name = indexName("int");
-		await sql`DROP INDEX ${sql.id(name)}`.execute(database.db);
-		await sql`
+	it.each(["cast", "predicate"] as const)(
+		"rebuilds a valid same-name index with a wrong %s",
+		async (mismatch) => {
+			const caseStore = store();
+			await caseStore.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schema("int"),
+				syncedSeq: 1,
+			});
+			const name = indexName("int");
+			await sql`DROP INDEX ${sql.id(name)}`.execute(database.db);
+			await sql`
 			CREATE INDEX ${sql.id(name)}
-			ON cases USING btree ((properties->>'value'))
+			ON cases USING btree (${mismatch === "cast" ? sql`(properties->>'value')` : sql`((properties->>'value')::integer)`})
 			WHERE app_id = ${sql.lit(APP_ID)}
-			  AND case_type = ${sql.lit("wrong-type")}
+			  AND case_type = ${sql.lit(mismatch === "predicate" ? "wrong-type" : "patient")}
 		`.execute(database.db);
 
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: schema("int"),
-			syncedSeq: 2,
-		});
+			await caseStore.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: schema("int"),
+				syncedSeq: 2,
+			});
 
-		const definition = await sql<{ definition: string }>`
+			const definition = await sql<{ definition: string }>`
 			SELECT pg_get_indexdef(to_regclass(${name})) AS definition
 		`.execute(database.db);
-		expect(definition.rows[0]?.definition).toContain("::integer");
-		expect(definition.rows[0]?.definition).toContain(
-			`case_type = 'patient'::text`,
-		);
-	});
+			expect(definition.rows[0]?.definition).toContain("::integer");
+			expect(definition.rows[0]?.definition).toContain(
+				`case_type = 'patient'::text`,
+			);
+		},
+	);
 
 	it("rejects a malformed stored property declaration and leaves it pending", async () => {
 		const caseStore = store();

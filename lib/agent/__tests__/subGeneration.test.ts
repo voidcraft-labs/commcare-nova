@@ -1,398 +1,458 @@
-/**
- * Unit tests for the structured sub-generation cores: `streamObjectWith` (the
- * streaming path — per-chunk `onProgress` fed from BOTH reasoning and output
- * deltas, the final-object-only result, the output-failure → null mapping) and
- * `generateObjectWith` (the blocking twin, whose input wiring must not drift
- * from the streaming path's — its only production-adjacent caller is the paid
- * preview script, so drift would ship silently without these).
- *
- * The AI SDK's `streamText` / `generateObject` are mocked at the import
- * boundary so no model runs.
- */
-
-import type { LanguageModelUsage } from "ai";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import type { ServerResponse } from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, expect, it, vi } from "vitest";
 import { z } from "zod";
-
-// A minimal usage value cast to the SDK type — `streamText` is mocked at runtime,
-// but tsc still checks `new NoObjectGeneratedError({ usage })` against the real
-// `LanguageModelUsage` shape.
-const USAGE = {
-	inputTokens: 1,
-	outputTokens: 0,
-} as unknown as LanguageModelUsage;
-
-const { streamTextMock, generateObjectMock } = vi.hoisted(() => ({
-	streamTextMock: vi.fn(),
-	generateObjectMock: vi.fn(),
-}));
-
-// Mock the SDK: `streamText`/`generateObject` are driven per test; `Output.object`
-// is a passthrough (the mocked streamText ignores it); `NoObjectGeneratedError` is
-// a real class so the production `isInstance` check (and our `new …()` here) agree.
-vi.mock("ai", () => {
-	class NoObjectGeneratedError extends Error {
-		usage: unknown;
-		finishReason: string | undefined;
-		constructor(opts?: { usage?: unknown; finishReason?: string }) {
-			super("no object generated");
-			this.usage = opts?.usage;
-			this.finishReason = opts?.finishReason;
-		}
-		static isInstance(e: unknown): e is NoObjectGeneratedError {
-			return e instanceof NoObjectGeneratedError;
-		}
-	}
-	return {
-		streamText: streamTextMock,
-		generateObject: generateObjectMock,
-		Output: { object: (cfg: unknown) => cfg },
-		NoObjectGeneratedError,
-	};
-});
-
-import { NoObjectGeneratedError } from "ai";
+import { log } from "@/lib/logger";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
+import { classifyError } from "../errorClassifier";
+import { runStructuredWith } from "../modelRunContext";
 import { generateObjectWith, streamObjectWith } from "../subGeneration";
+import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 
-type StreamPart = { type: string; text?: string };
-
-/** An async-iterable `stream` from a fixed part list. */
-async function* streamOf(parts: StreamPart[]) {
-	for (const p of parts) yield p;
-}
-
-// `streamText` is mocked and ignores the model; a string is a valid
-// `LanguageModel` (a model id) so the call type-checks without a real provider.
-const MODEL = "mock-model";
-const SCHEMA = z.object({ x: z.number() });
-
+// The SDK and provider run unchanged. Socket ownership, final results and
+// rejection are the evidence; SDK-internal inert promise allocations are not
+// replaced with mocks merely to silence async-hooks diagnostics.
+const MODEL = MODEL_ROLES.designReviewer.modelId;
+const schema = z.object({
+	answer: z.literal("yes"),
+	note: z.string().optional(),
+});
+const args = {
+	schema,
+	modelId: MODEL,
+	system: "System instruction",
+	prompt: "Question",
+	maxOutputTokens: 500,
+	providerOptions: reasoningProviderOptions("high"),
+	signal: new AbortController().signal,
+};
 beforeEach(() => vi.clearAllMocks());
 
-describe("streamObjectWith", () => {
-	it("feeds onProgress from BOTH reasoning and output deltas, returns the final object + usage", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([
-				{ type: "reasoning-start" }, // ignored (no text)
-				{ type: "reasoning-delta", text: "abc" }, // 3
-				{ type: "text-start" }, // ignored
-				{ type: "text-delta", text: "de" }, // 2
-				{ type: "finish" }, // ignored
-			]),
-			output: Promise.resolve({ x: 1 }),
-			usage: Promise.resolve({ inputTokens: 3, outputTokens: 4 }),
-			warnings: Promise.resolve([]),
-			finishReason: Promise.resolve("stop"),
-		});
-		const onProgress = vi.fn();
-
-		const result = await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-			onProgress,
-		});
-
-		// Reasoning delta (3) THEN output delta (2) — thinking progress counts too.
-		expect(onProgress.mock.calls).toEqual([[3], [2]]);
-		expect(result.object).toEqual({ x: 1 });
-		expect(result.finishReason).toBe("stop");
-		expect(result.usage).toEqual({ inputTokens: 3, outputTokens: 4 });
-	});
-
-	it("maps an output failure to a null object, surfacing usage + finishReason", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([{ type: "text-delta", text: "truncated" }]),
-			// Truncation / malformed / invalid object → `output` rejects.
-			output: Promise.reject(new Error("no valid object")),
-			usage: Promise.resolve(USAGE),
-			warnings: Promise.resolve(undefined),
-			finishReason: Promise.resolve("length"),
-		});
-
-		const result = await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-		});
-
-		// No salvage; the caller still meters tokens + detects truncation. usage and
-		// finishReason come from the (settled) stream, not the rejected output.
-		expect(result.object).toBeNull();
-		expect(result.finishReason).toBe("length");
-		expect(result.usage).toEqual({ inputTokens: 1, outputTokens: 0 });
-	});
-
-	it("maps a NoObjectGeneratedError thrown from the stream to a null object", async () => {
-		// Defensive path: a NoObjectGeneratedError surfaced as a stream throw (rather
-		// than an output rejection) still maps to null, surfacing the error's usage.
-		async function* boom(): AsyncGenerator<StreamPart> {
-			yield* [];
-			// The runtime class is mocked and ignores its arg; cast past the real SDK
-			// constructor's required fields — only usage/finishReason are read.
-			throw new NoObjectGeneratedError({
-				usage: USAGE,
-				finishReason: "length",
-			} as never);
-		}
-		streamTextMock.mockReturnValue({
-			stream: boom(),
-			output: Promise.reject(new Error("obj")),
-			usage: Promise.reject(new Error("u")),
-			warnings: Promise.reject(new Error("w")),
-			finishReason: Promise.reject(new Error("f")),
-		});
-
-		const result = await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-		});
-
-		expect(result.object).toBeNull();
-		expect(result.finishReason).toBe("length");
-	});
-
-	it("re-throws a stream-stopping error and observes the (rejecting) result promises", async () => {
-		// A real transport failure: the stream throws AND the result promises reject.
-		// streamObjectWith must re-throw the stream error; vitest fails the run on any
-		// unhandled rejection, so a clean pass proves all four were observed.
-		async function* boom(): AsyncGenerator<StreamPart> {
-			yield* [];
-			throw new Error("transport exploded");
-		}
-		streamTextMock.mockReturnValue({
-			stream: boom(),
-			output: Promise.reject(new Error("object rejected")),
-			usage: Promise.reject(new Error("usage rejected")),
-			warnings: Promise.reject(new Error("warnings rejected")),
-			finishReason: Promise.reject(new Error("finishReason rejected")),
-		});
-
-		await expect(
-			streamObjectWith({
+it("validates streamed JSON and strict wire options, restores omission, and meters decoded usage", async () => {
+	const received = Promise.withResolvers<unknown>();
+	await withResponsesPeer(
+		(request, response) => {
+			let body = "";
+			request.setEncoding("utf8");
+			request.on("data", (chunk) => {
+				body += chunk;
+			});
+			request.on("end", () => {
+				received.resolve(JSON.parse(body));
+				respondWithObject(response, '{"answer":"yes","note":null}', {
+					reasoning: "Check the answer.",
+				});
+			});
+		},
+		async (provider) => {
+			const tracked: unknown[] = [];
+			const progress: number[] = [];
+			const result = await runStructuredWith(
+				provider(MODEL),
+				{ ...args, onProgress: (size) => progress.push(size) },
+				(usage) => tracked.push(usage),
+			);
+			expect(result.object).toEqual({ answer: "yes" });
+			expect(result.reasoningText).toBe("Check the answer.");
+			expect(progress.reduce((sum, size) => sum + size, 0)).toBe(
+				'Check the answer.{"answer":"yes","note":null}'.length,
+			);
+			expect(result.usage).toMatchObject({
+				inputTokens: 11,
+				outputTokens: 7,
+				inputTokenDetails: { cacheReadTokens: 3 },
+			});
+			expect(tracked).toEqual([result.usage]);
+			expect(await received.promise).toMatchObject({
 				model: MODEL,
+				store: false,
+				stream: true,
+				max_output_tokens: 500,
+				reasoning: { effort: "high", summary: "auto" },
+				text: {
+					format: {
+						strict: true,
+						type: "json_schema",
+						schema: {
+							required: ["answer", "note"],
+							additionalProperties: false,
+						},
+					},
+				},
+			});
+		},
+	);
+});
+
+it.each([
+	["malformed JSON", "private_document_prose", false],
+	["schema mismatch", '{"answer":"private_document_prose"}', false],
+	["truncated JSON", '{"answer":', true],
+] as const)(
+	"returns no partial object for %s and still meters usage",
+	async (_name, text, incomplete) => {
+		await withResponsesPeer(
+			(_request, response) => respondWithObject(response, text, { incomplete }),
+			async (provider) => {
+				const tracked: unknown[] = [];
+				const result = await runStructuredWith(provider(MODEL), args, (usage) =>
+					tracked.push(usage),
+				);
+				expect(result.object).toBeNull();
+				expect(result.finishReason).toBe(incomplete ? "length" : "stop");
+				expect(result.usage?.inputTokens).toBe(11);
+				expect(tracked).toEqual([result.usage]);
+			},
+		);
+		expect(JSON.stringify(vi.mocked(log.error).mock.calls)).not.toContain(
+			"private_document_prose",
+		);
+		for (const call of vi.mocked(log.error).mock.calls) {
+			const error = call[1];
+			expect(error).toBeInstanceOf(Error);
+			expect((error as Error).cause).toBeUndefined();
+			expect((error as Error).message).not.toContain("private_document_prose");
+		}
+		expect(incomplete ? log.warn : log.error).toHaveBeenCalledOnce();
+	},
+);
+
+it("finishes generation even when the progress display throws", async () => {
+	await withResponsesPeer(
+		(_request, response) => respondWithObject(response, '{"answer":"yes"}'),
+		async (provider) => {
+			const result = await streamObjectWith({
+				model: provider(MODEL),
 				system: "s",
-				schema: SCHEMA,
+				schema,
 				prompt: "p",
-			}),
-		).rejects.toThrow("transport exploded");
-	});
-
-	it("never lets a throwing onProgress break the drain (best-effort progress)", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([
-				{ type: "text-delta", text: "ab" },
-				{ type: "text-delta", text: "cd" },
-			]),
-			output: Promise.resolve({ x: 7 }),
-			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
-			warnings: Promise.resolve([]),
-			finishReason: Promise.resolve("stop"),
-		});
-
-		const result = await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-			onProgress: () => {
-				throw new Error("write to a disconnected client");
-			},
-		});
-
-		// The throwing callback is swallowed; the extraction still completes.
-		expect(result.object).toEqual({ x: 7 });
-	});
-
-	it("attaches images beside the prompt as labeled file parts in one user message", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([{ type: "text-delta", text: "x" }]),
-			output: Promise.resolve({ x: 1 }),
-			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
-			warnings: Promise.resolve([]),
-			finishReason: Promise.resolve("stop"),
-		});
-
-		await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "doc text",
-			images: [
-				{
-					mediaType: "image/png",
-					data: "data:image/png;base64,AAA",
-					label: '<nova:figure index="1"/>',
+				onProgress() {
+					throw new Error("Disconnected display");
 				},
-				// No label: the image part rides alone.
-				{ mediaType: "image/jpeg", data: "data:image/jpeg;base64,BBB" },
-			],
-		});
-
-		// The document text leads; each labeled image is preceded by its label
-		// text part; an unlabeled image rides bare. No top-level `prompt`.
-		const call = streamTextMock.mock.calls[0][0];
-		expect(call.prompt).toBeUndefined();
-		expect(call.messages).toEqual([
-			{
-				role: "user",
-				content: [
-					{ type: "text", text: "doc text" },
-					{ type: "text", text: '<nova:figure index="1"/>' },
-					{
-						type: "file",
-						data: "data:image/png;base64,AAA",
-						mediaType: "image/png",
-					},
-					{
-						type: "file",
-						data: "data:image/jpeg;base64,BBB",
-						mediaType: "image/jpeg",
-					},
-				],
-			},
-		]);
-	});
-
-	it("sends a bare prompt as one user message with one text part (no images)", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([]),
-			output: Promise.resolve({ x: 1 }),
-			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
-			warnings: Promise.resolve([]),
-			finishReason: Promise.resolve("stop"),
-		});
-
-		await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-			images: [],
-		});
-
-		// One messages form for text-with-optional-images: a bare string prompt is
-		// wire-identical to this shape, so there is deliberately no third branch.
-		const call = streamTextMock.mock.calls[0][0];
-		expect(call.prompt).toBeUndefined();
-		expect(call.messages).toEqual([
-			{ role: "user", content: [{ type: "text", text: "p" }] },
-		]);
-	});
-
-	it("drives generation with no onProgress (drains the stream, returns the object)", async () => {
-		streamTextMock.mockReturnValue({
-			stream: streamOf([{ type: "text-delta", text: "x" }]),
-			output: Promise.resolve({ x: 9 }),
-			usage: Promise.resolve({ inputTokens: 1, outputTokens: 1 }),
-			warnings: Promise.resolve([]),
-			finishReason: Promise.resolve("stop"),
-		});
-
-		const result = await streamObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-		});
-
-		expect(result.object).toEqual({ x: 9 });
-	});
+			});
+			expect(result.object).toEqual({ answer: "yes" });
+		},
+	);
 });
 
-describe("generateObjectWith", () => {
-	const RESULT = {
-		object: { x: 1 },
-		usage: { inputTokens: 2, outputTokens: 3 },
-		warnings: [],
-		finishReason: "stop",
-	};
-
-	it("attaches images beside the prompt exactly like the streaming path", async () => {
-		generateObjectMock.mockResolvedValue(RESULT);
-
-		const result = await generateObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "doc text",
-			images: [
-				{
-					mediaType: "image/png",
-					data: "data:image/png;base64,AAA",
-					label: '<nova:figure index="1"/>',
-				},
-			],
-		});
-
-		expect(result.object).toEqual({ x: 1 });
-		const call = generateObjectMock.mock.calls[0][0];
-		expect(call.prompt).toBeUndefined();
-		expect(call.messages).toEqual([
-			{
-				role: "user",
-				content: [
-					{ type: "text", text: "doc text" },
-					{ type: "text", text: '<nova:figure index="1"/>' },
+it.each(["headers", "body"] as const)(
+	"cancellation during %s rejects and closes the socket",
+	async (phase) => {
+		const received = Promise.withResolvers<void>();
+		const disconnected = Promise.withResolvers<void>();
+		const controller = new AbortController();
+		await withResponsesPeer(
+			(request, response) => {
+				request.resume();
+				response.once("close", () => disconnected.resolve());
+				if (phase === "body") writePartial(response);
+				else received.resolve();
+			},
+			async (provider) => {
+				const outcome = runStructuredWith(
+					provider(MODEL),
 					{
-						type: "file",
-						data: "data:image/png;base64,AAA",
-						mediaType: "image/png",
+						...args,
+						signal: controller.signal,
+						onProgress: () => received.resolve(),
 					},
-				],
-			},
-		]);
-	});
-
-	it("sends a bare prompt as one user message with one text part", async () => {
-		generateObjectMock.mockResolvedValue(RESULT);
-
-		await generateObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			prompt: "p",
-		});
-
-		const call = generateObjectMock.mock.calls[0][0];
-		expect(call.prompt).toBeUndefined();
-		expect(call.messages).toEqual([
-			{ role: "user", content: [{ type: "text", text: "p" }] },
-		]);
-	});
-
-	it("gives a native file block precedence over images", async () => {
-		generateObjectMock.mockResolvedValue(RESULT);
-
-		await generateObjectWith({
-			model: MODEL,
-			system: "s",
-			schema: SCHEMA,
-			file: {
-				mediaType: "application/pdf",
-				data: "data:application/pdf;base64,BB",
-			},
-			instruction: "Extract.",
-			images: [{ mediaType: "image/png", data: "data:image/png;base64,AAA" }],
-		});
-
-		// A `file` document carries its own images natively; `images` is ignored.
-		const call = generateObjectMock.mock.calls[0][0];
-		expect(call.messages).toEqual([
-			{
-				role: "user",
-				content: [
-					{ type: "text", text: "Extract." },
-					{
-						type: "file",
-						data: "data:application/pdf;base64,BB",
-						mediaType: "application/pdf",
+					() => {
+						throw new Error("Aborted request has no usage receipt");
 					},
-				],
+				).then(
+					() => ({ ok: true as const }),
+					(error: unknown) => ({ ok: false as const, error }),
+				);
+				try {
+					await Promise.race([
+						received.promise,
+						outcome.then(() => {
+							throw new Error("Call ended before cancellation barrier");
+						}),
+					]);
+					controller.abort();
+					const result = await outcome;
+					expect(result).toMatchObject({
+						ok: false,
+						error: { name: "AbortError" },
+					});
+					await disconnected.promise;
+				} finally {
+					controller.abort();
+					await outcome;
+				}
 			},
-		]);
-	});
+		);
+	},
+);
+
+it("preserves the actual HTTP refusal instead of replacing it with a missing-output error", async () => {
+	await withResponsesPeer(
+		(_request, response) => {
+			response.writeHead(400, { "content-type": "application/json" });
+			response.end(
+				JSON.stringify({
+					error: {
+						message: "Request refused",
+						type: "invalid_request_error",
+						code: "bad_request",
+					},
+				}),
+			);
+		},
+		async (provider) => {
+			await expect(
+				runStructuredWith(provider(MODEL), args, () => {
+					throw new Error("Refusal cannot accrue tokens");
+				}),
+			).rejects.toMatchObject({ message: "Request refused", statusCode: 400 });
+		},
+	);
 });
+
+it("rejects a disconnected partial stream and closes the socket before returning", async () => {
+	const responseReady = Promise.withResolvers<ServerResponse>();
+	const progressed = Promise.withResolvers<void>();
+	const disconnected = Promise.withResolvers<void>();
+	const controller = new AbortController();
+	await withResponsesPeer(
+		(request, response) => {
+			request.resume();
+			response.once("close", () => disconnected.resolve());
+			writePartial(response);
+			responseReady.resolve(response);
+		},
+		async (provider) => {
+			const outcome = runStructuredWith(
+				provider(MODEL),
+				{
+					...args,
+					signal: controller.signal,
+					onProgress: () => progressed.resolve(),
+				},
+				() => {},
+			).then(
+				() => ({ ok: true as const }),
+				(error: unknown) => ({ ok: false as const, error }),
+			);
+			try {
+				const response = await responseReady.promise;
+				await Promise.race([
+					progressed.promise,
+					outcome.then(() => {
+						throw new Error("Call ended before body interruption");
+					}),
+				]);
+				response.destroy();
+				const result = await outcome;
+				expect(result).toMatchObject({
+					ok: false,
+					error: {
+						name: "AI_APICallError",
+						cause: { cause: { code: "UND_ERR_SOCKET" } },
+					},
+				});
+				await disconnected.promise;
+			} finally {
+				controller.abort();
+				await outcome;
+			}
+		},
+	);
+});
+
+it("rejects an already-aborted call before reaching HTTP", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	await withResponsesPeer(
+		() => {
+			throw new Error("Already-aborted call reached HTTP");
+		},
+		async (provider) => {
+			await expect(
+				runStructuredWith(
+					provider(MODEL),
+					{ ...args, signal: controller.signal },
+					() => {
+						throw new Error("No call can have usage");
+					},
+				),
+			).rejects.toMatchObject({ name: "AbortError" });
+		},
+	);
+});
+
+it.each(["streaming", "blocking"] as const)(
+	"serializes images and native PDF input through the real %s adapter",
+	async (mode) => {
+		for (const nativePdf of [false, true]) {
+			const received = Promise.withResolvers<{ input: unknown[] }>();
+			await withResponsesPeer(
+				(request, response) => {
+					let body = "";
+					request.setEncoding("utf8");
+					request.on("data", (chunk) => {
+						body += chunk;
+					});
+					request.on("end", () => {
+						received.resolve(JSON.parse(body));
+						if (mode === "streaming")
+							respondWithObject(response, '{"answer":"yes"}');
+						else {
+							response.writeHead(200, { "content-type": "application/json" });
+							response.end(
+								JSON.stringify({
+									id: "resp_local",
+									created_at: 1,
+									model: MODEL,
+									output: [
+										{
+											type: "message",
+											role: "assistant",
+											id: "msg_local",
+											content: [
+												{
+													type: "output_text",
+													text: '{"answer":"yes"}',
+													annotations: [],
+												},
+											],
+										},
+									],
+									usage: { input_tokens: 11, output_tokens: 7 },
+								}),
+							);
+						}
+					});
+				},
+				async (provider) => {
+					const generate =
+						mode === "streaming" ? streamObjectWith : generateObjectWith;
+					const result = await generate({
+						model: provider(MODEL),
+						system: "Extract",
+						schema,
+						prompt: "Document body",
+						...(nativePdf && {
+							file: {
+								mediaType: "application/pdf",
+								data: "data:application/pdf;base64,JVBERi0=",
+							},
+							instruction: "Read PDF",
+						}),
+						images: [
+							{
+								mediaType: "image/png",
+								data: "data:image/png;base64,iVBORw==",
+								label: "Figure 1",
+							},
+						],
+					});
+					expect(result.object).toEqual({ answer: "yes" });
+					const wire = await received.promise;
+					expect(wire.input).toContainEqual({
+						role: "user",
+						content: nativePdf
+							? [
+									{ type: "input_text", text: "Read PDF" },
+									{
+										type: "input_file",
+										filename: "part-1.pdf",
+										file_data: "data:application/pdf;base64,JVBERi0=",
+									},
+								]
+							: [
+									{ type: "input_text", text: "Document body" },
+									{ type: "input_text", text: "Figure 1" },
+									{
+										type: "input_image",
+										image_url: "data:image/png;base64,iVBORw==",
+									},
+								],
+					});
+				},
+			);
+		}
+	},
+);
+
+function writePartial(response: ServerResponse) {
+	response.writeHead(200, { "content-type": "text/event-stream" });
+	response.write(
+		'data: {"type":"response.created","response":{"id":"resp_partial","created_at":1,"model":"gpt-5"}}\n\n',
+	);
+	response.write(
+		'data: {"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_partial"}}\n\n',
+	);
+	response.write(
+		'data: {"type":"response.output_text.delta","item_id":"msg_partial","delta":"{\\"ans"}\n\n',
+	);
+}
+
+it("finishes an enabled local diagnostic write before returning malformed output", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "nova-structured-diagnostic-"));
+	const previous = process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR;
+	process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR = dir;
+	try {
+		await withResponsesPeer(
+			(_request, response) =>
+				respondWithObject(response, "unparseable diagnostic fixture"),
+			async (provider) => {
+				const result = await runStructuredWith(provider(MODEL), args, () => {});
+				expect(result.object).toBeNull();
+			},
+		);
+		const files = await readdir(dir);
+		expect(files).toHaveLength(1);
+		expect(await readFile(join(dir, files[0]), "utf8")).toBe(
+			"unparseable diagnostic fixture",
+		);
+	} finally {
+		if (previous === undefined)
+			delete process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR;
+		else process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR = previous;
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+it.each([
+	[
+		"invalid_prompt",
+		"Invalid prompt was flagged as potentially violating usage policy",
+		"prompt_flagged",
+	],
+	[
+		"server_error",
+		"The server had an error processing the request",
+		"api_server",
+	],
+] as const)(
+	"preserves the native mid-stream %s event for classification",
+	async (code, message, expected) => {
+		await withResponsesPeer(
+			(request, response) => {
+				request.resume();
+				writePartial(response);
+				response.end(
+					`data: ${JSON.stringify({ type: "error", sequence_number: 1, error: { type: code === "server_error" ? "server_error" : "invalid_request_error", code, message, param: null } })}\n\n`,
+				);
+			},
+			async (provider) => {
+				const outcome = await runStructuredWith(
+					provider(MODEL),
+					args,
+					() => {},
+				).then(
+					() => ({ ok: true as const }),
+					(error: unknown) => ({ ok: false as const, error }),
+				);
+				expect(outcome.ok).toBe(false);
+				if (outcome.ok)
+					throw new Error("Provider error unexpectedly produced an object");
+				expect(classifyError(outcome.error).type).toBe(expected);
+			},
+		);
+	},
+);

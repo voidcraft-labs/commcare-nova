@@ -1,117 +1,21 @@
-/**
- * Wire-body pin for the design agent's OpenAI Responses request: built
- * through the REAL factory (`createDesignAgent` + `createDesignLoopTools`)
- * against a capturing fetch that never sends. The drift guards:
- *
- *  - semantic updates, inspection, and tiny finalizers ride `strict: true`
- *    with the strict wire projection, while askQuestions stays non-strict;
- *  - parallel tool calls are enabled while the server serializes their
- *    workspace effects in response order;
- *  - the per-session prompt-cache triple and the statelessness pair are on
- *    the wire exactly as the SA's (`wireCacheConfig.test.ts` discipline);
- *  - the loop carries the configured design-author reasoning effort.
- */
-
-import { createOpenAI } from "@ai-sdk/openai";
+/** The installed SDK decodes complete Responses streams and executes the actual
+ * design tool registry. External Project inspection is controlled solely to
+ * observe provider ordering; native Project authority has its own suite. */
 import { describe, expect, it } from "vitest";
 import { did } from "@/lib/agent/design/__tests__/fixtures";
-import type { OpenQuestion } from "@/lib/agent/design/contract";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { MODEL_ROLES } from "@/lib/models";
 import {
-	createDesignAgent,
 	isExactRequiredDesignQuestionCall,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
-	requiredDesignQuestionAuthorizationKey,
-	requiredDesignQuestionBatchWasAnswered,
-	requiredDesignQuestionCardAuthorizationKey,
-	requiredDesignQuestionInputSchema,
-	requiredDesignQuestionStep,
-	unansweredRequiredDesignQuestions,
-} from "@/lib/agent/design/loop/designAgent";
-import { DesignRepairTracker } from "@/lib/agent/design/loop/gates";
+} from "../designAgent";
 import {
-	collectDesignIdentityHandleBindings,
-	collectDesignReferenceBindings,
-	createDesignLoopTools,
-	createDesignToolExecutionQueue,
-	designCreationIdentityIssue,
-	designReservedReferenceIssue,
-	resolveDesignWorkspaceHandles,
-} from "@/lib/agent/design/loop/tools";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { computeSourcePackageDigest } from "@/lib/agent/design/sourcePackage";
-import { MODEL_ROLES } from "@/lib/models";
-
-describe("design tool execution queue", () => {
-	it("serializes a wait and refuses every later callback in the response", async () => {
-		const queue = createDesignToolExecutionQueue();
-		const applied: string[] = [];
-
-		const beforeWait = queue.run(async () => {
-			applied.push("before-wait");
-			return { ok: true as const };
-		});
-		const wait = queue.pause();
-		const afterWait = queue.run(async () => {
-			applied.push("after-wait");
-			return { ok: true as const };
-		});
-
-		await expect(beforeWait).resolves.toEqual({ ok: true });
-		await expect(wait).resolves.toEqual({ ok: true, awaitingInput: true });
-		await expect(afterWait).resolves.toMatchObject({
-			error: expect.stringContaining("already waiting"),
-			diagnostic: { code: "design-input-pause-terminal" },
-		});
-		expect(applied).toEqual(["before-wait"]);
-	});
-
-	it("reserves a client question in provider order before server execution", async () => {
-		const queue = createDesignToolExecutionQueue();
-		const beforeInput = {};
-		const questionInput = {};
-		const waitInput = {};
-		const applied: string[] = [];
-
-		queue.beginResponse();
-		queue.register("updateActors", beforeInput);
-		queue.register("askQuestions", questionInput);
-		queue.register("waitForInput", waitInput);
-
-		const beforeQuestion = queue.run(beforeInput, async () => {
-			applied.push("before-question");
-			return { ok: true as const };
-		});
-		const laterWait = queue.pause(waitInput);
-
-		await expect(beforeQuestion).resolves.toEqual({ ok: true });
-		await expect(laterWait).resolves.toMatchObject({
-			error: expect.stringContaining("already waiting"),
-			diagnostic: { code: "design-input-pause-terminal" },
-		});
-		expect(applied).toEqual(["before-question"]);
-	});
-});
-
-interface CapturedBody {
-	model?: string;
-	store?: boolean;
-	include?: string[];
-	reasoning?: { effort?: string; summary?: string };
-	prompt_cache_key?: string;
-	prompt_cache_options?: { mode?: string; ttl?: string };
-	parallel_tool_calls?: boolean;
-	tool_choice?: { type?: string; name?: string };
-	tools?: Array<{
-		name?: string;
-		strict?: boolean;
-		parameters?: {
-			type?: string;
-			additionalProperties?: boolean;
-			required?: string[];
-			properties?: Record<string, unknown>;
-		};
-	}>;
-}
+	catalogInput,
+	consumeDesignAgent,
+	type ProviderOutput,
+	wireAgent,
+	withDesignResponses,
+} from "./designAgentPeer";
 
 const DESIGN_TOOL_NAMES = [
 	"askQuestions",
@@ -135,708 +39,216 @@ const DESIGN_TOOL_NAMES = [
 	"updateRecords",
 	"updateWorkflows",
 	"waitForInput",
-] as const;
+];
+const answer = [{ type: "text" as const, text: "I can prepare that design." }];
 
-function requiredQuestions(
-	texts: readonly string[],
-	identityBase = 9000,
-): OpenQuestion[] {
-	return texts.map((question, index) => ({
-		id: did(identityBase + index),
-		question,
-		blocking: true,
-		relatedElementIds: [did(identityBase - 1000 + index)],
-	}));
-}
-
-function fixturePkg(): DesignSourcePackage {
-	const ref = {
-		kind: "message" as const,
-		threadId: "00000000-0000-4000-8000-000000000001",
-		messageId: "m1",
-		partIndex: 0,
-	};
-	const unsealed: Omit<DesignSourcePackage, "packageDigest"> = {
-		schemaVersion: 1,
-		designSessionId: "00000000-0000-4000-8000-000000000002",
-		projectId: "proj-1",
-		request: { blocks: [{ ref, text: "Build it.", truncated: false }] },
-		claims: [],
-		attachments: [],
-		images: [],
-		platformConstraints: [],
-		sources: [{ ref }],
-	};
-	return { ...unsealed, packageDigest: computeSourcePackageDigest(unsealed) };
-}
-
-async function captureDesignTurnBody(
-	requiredQuestions: readonly OpenQuestion[] = [],
-	phase: "author" | "review" | "revision" | "awaiting-input" = "author",
-): Promise<CapturedBody> {
-	let captured: CapturedBody | null = null;
-	const capture: typeof fetch = async (_url, init) => {
-		captured ??= JSON.parse(init?.body as string) as CapturedBody;
-		return new Response(JSON.stringify({ error: { message: "intercepted" } }), {
-			status: 400,
-		});
-	};
-	const openai = createOpenAI({ apiKey: "sk-fake-never-sent", fetch: capture });
-	const pkg = fixturePkg();
-	const toolExecutionQueue = createDesignToolExecutionQueue();
-	const tools = createDesignLoopTools(
-		{
-			designSessionId: pkg.designSessionId,
-			runId: "run-1",
-			authority: {
-				actorUserId: "u",
-				runId: "run-1",
-				holderNonce: "00000000-0000-4000-8000-000000000003",
-				expectedProjectId: "p",
+describe("design agent Responses contract", () => {
+	it("preserves one successful streamed tool grammar across all four phases", async () => {
+		await withDesignResponses(
+			[answer, answer, answer, answer],
+			async (model, requests) => {
+				for (const phase of [
+					"author",
+					"review",
+					"revision",
+					"awaiting-input",
+				] as const) {
+					const result = await consumeDesignAgent(wireAgent(model, { phase }));
+					expect(result.text).toBe("I can prepare that design.");
+					expect(result.finishReason).toBe("stop");
+				}
+				const first = requests[0];
+				if (!first) throw new Error("No provider request captured");
+				for (const request of requests) {
+					expect(JSON.stringify(request.tools)).toBe(
+						JSON.stringify(first.tools),
+					);
+					expect(request.tool_choice).not.toEqual({
+						type: "function",
+						name: "askQuestions",
+					});
+					expect(request.model).toBe(MODEL_ROLES.designAuthor.modelId);
+					expect(request.store).toBe(false);
+					expect(request.include).toContain("reasoning.encrypted_content");
+					expect(request.reasoning?.effort).toBe(
+						MODEL_ROLES.designAuthor.reasoningEffort,
+					);
+					expect(request.reasoning?.summary).toBeTruthy();
+					expect(request.prompt_cache_key).toBe("nova:design:session-probe");
+					expect(request.prompt_cache_options).toEqual({
+						mode: "implicit",
+						ttl: "30m",
+					});
+					expect(request.parallel_tool_calls).toBe(true);
+				}
+				const byName = new Map(first.tools?.map((tool) => [tool.name, tool]));
+				expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
+				for (const name of DESIGN_TOOL_NAMES.filter(
+					(name) => name !== "askQuestions",
+				)) {
+					const tool = byName.get(name);
+					expect(tool?.strict, name).toBe(true);
+					expect(tool?.parameters?.additionalProperties, name).toBe(false);
+					expect(tool?.parameters?.required, name).toEqual(
+						Object.keys(tool?.parameters?.properties ?? {}),
+					);
+				}
+				expect(byName.get("askQuestions")?.strict).toBe(false);
+				expect(
+					byName.get("inspectProjectData")?.parameters?.properties?.tableId,
+				).toHaveProperty("pattern");
+				expect(
+					byName.get("inspectProjectData")?.parameters?.properties?.tableId,
+				).not.toHaveProperty("anyOf");
 			},
-			currentPkg: pkg,
-			catalogText: "CATALOG",
-			ctx: {
-				userId: "u",
-				projectId: "p",
-				runId: "run-1",
-				target: {
-					kind: "design-session",
-					designSessionId: pkg.designSessionId,
-				},
-				model: () => openai(MODEL_ROLES.designAuthor.modelId),
-				trackSubGeneration: () => {},
-				runStructured: async () => {
-					throw new Error("never called at registration time");
-				},
-			},
-			signal: new AbortController().signal,
-			repair: new DesignRepairTracker(),
-			loadAncestry: async () => {
-				throw new Error("never called at registration time");
-			},
-			ancestryChanged: () => {},
-			rebuildPackageForDigest: async () => null,
-			inspectProjectData: async () => ({
-				kind: "catalog",
-				projectRevision: "0" as never,
-				tables: [],
-				complete: true,
-			}),
-			validateProjectLookupEvidence: async () => [],
-		},
-		toolExecutionQueue,
-	);
-	const agent = createDesignAgent({
-		model: openai(MODEL_ROLES.designAuthor.modelId),
-		tools,
-		toolExecutionQueue,
-		phase,
-		catalogText: "CATALOG",
-		constraintsText: "CONSTRAINTS",
-		instructions: "You are Nova's designer.",
-		promptCacheKey: "nova:design:session-probe",
-		fatalError: () => undefined,
-		requiredUserQuestions: () => requiredQuestions,
-		freshStateMessage: async () => ({
-			role: "user",
-			content: "# Design session state (server-derived)",
-		}),
-		stepsBeforeStream: 0,
-		contextGeneration: 0,
-	});
-	/* `generate`, not `stream`: the capturing fetch fails every request, and
-	 * a failed stream strands the SDK's internal tee/result promises as
-	 * async leaks. The blocking call builds the identical request body. */
-	await agent
-		.generate({
-			prompt: [
-				{ role: "user", content: [{ type: "text", text: "Build it." }] },
-			],
-		})
-		.catch(() => {
-			// expected: the capturing fetch answers 400 after recording the body
-		});
-	if (!captured) throw new Error("no request captured");
-	return captured;
-}
-
-describe("design agent Responses wire body", () => {
-	it("appends the exact required question batch and forces its tool", () => {
-		const questions = requiredQuestions(
-			Array.from(
-				{ length: 7 },
-				(_, index) => `Which protocol threshold ${index + 1} applies?`,
-			),
 		);
-		const step = requiredDesignQuestionStep(questions);
-		expect(step).toMatchObject({
-			message: { role: "user" },
-			toolChoice: { type: "tool", toolName: "askQuestions" },
-		});
-		expect(step?.message.content).toContain(questions[0]?.question);
-		expect(step?.message.content).not.toContain(questions[5]?.question);
-		expect(requiredDesignQuestionStep([])).toBeNull();
 	});
 
-	it("keeps the question schema stable while the exact batch rides the message", async () => {
-		const questions = requiredQuestions(
-			Array.from(
-				{ length: 7 },
-				(_, index) => `Which protocol threshold ${index + 1} applies?`,
-			),
-		);
-		const schema = requiredDesignQuestionInputSchema(questions);
-		const exactInput = {
+	it("forces the first five exact required questions while retaining the stable decoded client tool", async () => {
+		const questions = Array.from({ length: 7 }, (_, index) => ({
+			id: did(9000 + index),
+			question: `Which protocol threshold ${index + 1} applies?`,
+			blocking: true,
+			relatedElementIds: [did(8000 + index)],
+		}));
+		const input = {
 			header: REQUIRED_DESIGN_QUESTIONS_HEADER,
-			questions: questions.slice(0, 5).map((question) => ({
-				question: question.question,
-				options: [],
-			})),
+			questions: questions
+				.slice(0, 5)
+				.map(({ question }) => ({ question, options: [] })),
 		};
-		expect(await schema.validate?.(exactInput)).toMatchObject({
-			success: true,
-		});
-		expect(isExactRequiredDesignQuestionCall(exactInput, questions)).toBe(true);
-		expect(
-			isExactRequiredDesignQuestionCall(
-				{ ...exactInput, questions: exactInput.questions.slice(0, 1) },
-				questions,
-			),
-		).toBe(false);
-		expect(
-			await schema.validate?.({
-				...exactInput,
-				questions: exactInput.questions.map((question, index) =>
-					index === 0 ? { ...question, question: "A paraphrase?" } : question,
-				),
-			}),
-		).toMatchObject({ success: true });
-		expect(
-			isExactRequiredDesignQuestionCall(
-				{
-					...exactInput,
-					questions: exactInput.questions.map((question, index) =>
-						index === 0 ? { ...question, question: "A paraphrase?" } : question,
-					),
-				},
-				questions,
-			),
-		).toBe(false);
-		/* Model-proposed candidate options ride an exact call freely: the
-		 * authorization property is prose exactness, and options are the
-		 * recommended defaults the user can tap instead of typing. The marker
-		 * follows the conversation language, so a localized spelling is
-		 * exact-call-compatible too. */
-		expect(
-			isExactRequiredDesignQuestionCall(
-				{
-					...exactInput,
-					questions: exactInput.questions.map((question, index) =>
-						index === 0
-							? {
-									...question,
-									options: [{ label: "Dos días (Recomendado)" }],
-								}
-							: question,
-					),
-				},
-				questions,
-			),
-		).toBe(true);
-		const projected = await schema.jsonSchema;
-		expect(projected).toEqual(
-			await requiredDesignQuestionInputSchema([]).jsonSchema,
-		);
-
-		const body = await captureDesignTurnBody(questions);
-		expect(body.tool_choice).toEqual({
-			type: "function",
-			name: "askQuestions",
-		});
-		const askQuestions = body.tools?.find(
-			(tool) => tool.name === "askQuestions",
-		);
-		expect(body.tools?.map((tool) => tool.name).sort()).toEqual(
-			DESIGN_TOOL_NAMES,
-		);
-		expect(askQuestions?.parameters).toEqual(await schema.jsonSchema);
-
-		const answered = [
-			{
-				id: "assistant-1",
-				role: "assistant",
-				parts: [
-					{ type: "step-start" },
+		await withDesignResponses(
+			[
+				[
 					{
-						type: "tool-askQuestions",
-						toolCallId: "question-call-1",
-						state: "output-available",
-						input: exactInput,
-						output: Object.fromEntries(
-							exactInput.questions.map((_, index) => [String(index), "Answer"]),
-						),
+						type: "tool",
+						name: "askQuestions",
+						input,
+						callId: "required-card",
 					},
 				],
-			},
-		] as never;
-		const authorizationKey = requiredDesignQuestionAuthorizationKey(questions);
-		const authorized = new Set([
-			authorizationKey,
-			requiredDesignQuestionCardAuthorizationKey({
-				toolCallId: "question-call-1",
-				authorizationKey,
-				input: exactInput,
-			}),
-		]);
-		expect(requiredDesignQuestionAuthorizationKey(questions)).toHaveLength(410);
-		expect(
-			requiredDesignQuestionAuthorizationKey(
-				requiredQuestions(
-					Array.from({ length: 100 }, (_, index) => `Question ${index + 1}?`),
-				),
-			).length,
-		).toBeLessThan(512);
-		/* Seven questions are pending but the round cap presented only the first
-		 * five, so the answered card covers Q1-Q5 and the unasked Q6-Q7 still
-		 * need their own round before staging is authorized. */
-		expect(
-			requiredDesignQuestionBatchWasAnswered(answered, questions, authorized),
-		).toBe(false);
-		expect(
-			unansweredRequiredDesignQuestions(answered, questions, authorized).map(
-				(question) => question.id,
-			),
-		).toEqual(questions.slice(5).map((question) => question.id));
-		/* An answer binds to the exact question identity: once the pending set
-		 * is exactly the answered card's questions — in any order, and however
-		 * bounded stages shrank it — staging is authorized. */
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				questions.slice(0, 5),
-				authorized,
-			),
-		).toBe(true);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				questions.slice(1, 5),
-				authorized,
-			),
-		).toBe(true);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				[...questions.slice(0, 5)].reverse(),
-				authorized,
-			),
-		).toBe(true);
-		/* A newly introduced question never inherits an old answer, and only it
-		 * is demanded again — the four already-answered identities stay
-		 * answered instead of coming back to the user. */
-		const newlyIntroduced = requiredQuestions(
-			["A newly introduced decision?"],
-			9500,
-		);
-		const shiftedPending = [
-			...questions.slice(0, 4),
-			...newlyIntroduced,
-		] as OpenQuestion[];
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				shiftedPending,
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			unansweredRequiredDesignQuestions(answered, shiftedPending, authorized),
-		).toEqual(newlyIntroduced);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				[
-					...questions.slice(0, 4),
-					...requiredQuestions(["A different final decision?"], 9600),
-				],
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				questions.slice(4),
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				[
-					...answered,
-					{
-						id: "user-after-crash",
-						role: "user",
-						parts: [{ type: "text", text: "Please continue." }],
-					},
-				] as never,
-				questions.slice(0, 5),
-				authorized,
-			),
-		).toBe(true);
-		/* A redundant newer card for identities the durable answered card already
-		 * covers cannot un-answer them; coverage is per question identity, not
-		 * per newest card. */
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				[
-					...answered,
-					{
-						...(answered[0] as object),
-						id: "assistant-newer-unanswered",
-						parts: [
-							{ type: "step-start" },
-							{
-								type: "tool-askQuestions",
-								state: "input-available",
-								input: exactInput,
-							},
-						],
-					},
-				] as never,
-				questions.slice(0, 5),
-				authorized,
-			),
-		).toBe(true);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				[
-					{
-						...(answered[0] as object),
-						parts: [
-							{ type: "step-start" },
-							{
-								type: "tool-askQuestions",
-								state: "output-available",
-								input: exactInput,
-								output: {},
-							},
-						],
-					},
-				] as never,
-				questions.slice(0, 5),
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				questions.slice(5),
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				[
-					{
-						...(answered[0] as object),
-						parts: [
-							{ type: "step-start" },
-							{
-								type: "tool-askQuestions",
-								state: "output-available",
-								input: {
-									...exactInput,
-									questions: exactInput.questions.slice(0, 1),
-								},
-								output: { "0": "Answer" },
-							},
-						],
-					},
-				] as never,
-				questions.slice(0, 5),
-				authorized,
-			),
-		).toBe(false);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				questions.slice(0, 5),
-				new Set(),
-			),
-		).toBe(false);
-		const reusedTextWithNewIdentity = requiredQuestions(
-			[questions[0]?.question ?? ""],
-			9700,
-		);
-		const newAuthorizationKey = requiredDesignQuestionAuthorizationKey(
-			reusedTextWithNewIdentity,
-		);
-		expect(newAuthorizationKey).not.toBe(authorizationKey);
-		expect(
-			requiredDesignQuestionBatchWasAnswered(
-				answered,
-				reusedTextWithNewIdentity,
-				new Set([...authorized, newAuthorizationKey]),
-			),
-		).toBe(false);
-	});
-
-	it("binds forward references eagerly instead of forcing a staging order", () => {
-		const designSessionId = "00000000-0000-4000-8000-000000000002";
-		const handle = "@source_record";
-		const designId = resolveDesignWorkspaceHandles(
-			{ handle },
-			designSessionId,
-		) as string;
-		const input = { selection: { ids: [{ handle }] } };
-
-		/* A handle already in the ledger mints no new binding. */
-		expect(
-			collectDesignReferenceBindings(
-				input,
-				[{ handle, designId, entityKind: "record" }],
-				designSessionId,
-			),
-		).toEqual([]);
-		/* A forward reference mints its deterministic identity under the
-		 * `referenced` marker kind — the later declaration converges on the
-		 * same UUID, so staging order stops mattering. */
-		expect(collectDesignReferenceBindings(input, [], designSessionId)).toEqual([
-			{ handle, designId, entityKind: "referenced" },
-		]);
-		/* A declaration in the same call already binds; no reference row. */
-		expect(
-			collectDesignReferenceBindings(
-				{
-					...input,
-					collections: [
-						{ collection: "records", upserts: [{ id: { handle } }] },
-					],
-				},
-				[],
-				designSessionId,
-			),
-		).toEqual([]);
-		/* The reserved finding namespace never mints a design identity. */
-		expect(
-			designReservedReferenceIssue({ selection: { ids: [{ handle: "@f2" }] } }),
-		).toContain("@f2");
-		expect(designReservedReferenceIssue(input)).toBeNull();
-
-		const rawSourceUpsert = {
-			collections: [{ collection: "records", upserts: [{ id: designId }] }],
-		};
-		expect(
-			designCreationIdentityIssue(
-				rawSourceUpsert,
-				{ records: [] },
-				{ records: [{ id: designId, properties: [] }] },
-			),
-		).toBeNull();
-		expect(
-			designCreationIdentityIssue(rawSourceUpsert, { records: [] }),
-		).toContain("raw UUID");
-
-		const lookupInput = {
-			collections: [
-				{
-					collection: "lookupTables",
-					upserts: [
-						{
-							kind: "create",
-							id: { handle: "@risk_table" },
-							columns: [{ id: { handle: "@risk_value" } }],
-							rows: [{ id: { handle: "@risk_routine" } }],
-						},
-					],
-				},
 			],
-		};
-		expect(
-			collectDesignIdentityHandleBindings(lookupInput, designSessionId).map(
-				({ handle, entityKind }) => ({ handle, entityKind }),
-			),
-		).toEqual([
-			{ handle: "@risk_table", entityKind: "lookup_table_intent" },
-			{ handle: "@risk_value", entityKind: "lookup_column_intent" },
-			{ handle: "@risk_routine", entityKind: "lookup_row_intent" },
-		]);
-		expect(
-			designCreationIdentityIssue(
-				{
-					collections: [
-						{
-							collection: "lookupTables",
-							upserts: [
-								{
-									kind: "create",
-									id: { handle: "@risk_table" },
-									columns: [{ id: did(8701) }],
-									rows: [],
-								},
-							],
-						},
-					],
-				},
-				{ lookupTables: [] },
-			),
-		).toContain("columns.0.id");
-
-		/* UUID spelling is not identity semantics. Source provenance and
-		 * inspected Project-data UUIDs keep their own domains even inside the
-		 * lookup collection. */
-		const threadId = "00000000-0000-4000-8000-000000000091";
-		const existingTableId = "01998765-4321-7abc-8def-0123456789ab";
-		const existingColumnId = "01998765-4321-7abc-8def-0123456789ac";
-		const existingRowId = "01998765-4321-7abc-8def-0123456789ad";
-		expect(
-			designCreationIdentityIssue(
-				{
-					collections: [
-						{
-							collection: "lookupTables",
-							upserts: [
-								{
-									kind: "modify-existing",
-									id: { handle: "@facility_changes" },
-									tableId: existingTableId,
-									authorization: {
-										kind: "direct-user-request",
-										sourceRefs: [
-											{
-												kind: "message",
-												threadId,
-												messageId: "request",
-												partIndex: 0,
-											},
-										],
-									},
-									operations: [
-										{
-											kind: "update-row",
-											rowId: existingRowId,
-											cells: [
-												{
-													column: {
-														kind: "existing-column",
-														columnId: existingColumnId,
-													},
-												},
-											],
-											rowEvidence: {
-												sourceRefs: [
-													{
-														kind: "message",
-														threadId,
-														messageId: "request",
-														partIndex: 0,
-													},
-												],
-											},
-										},
-									],
-								},
-							],
-							removeIds: [],
-						},
-					],
-				},
-				{ lookupTables: [] },
-			),
-		).toBeNull();
+			async (model, requests) => {
+				const result = await consumeDesignAgent(
+					wireAgent(model, { requiredUserQuestions: () => questions }),
+				);
+				expect(requests[0]?.tool_choice).toEqual({
+					type: "function",
+					name: "askQuestions",
+				});
+				const wireInput = JSON.stringify(requests[0]?.input);
+				for (const question of questions.slice(0, 5))
+					expect(wireInput).toContain(question.question);
+				for (const question of questions.slice(5))
+					expect(wireInput).not.toContain(question.question);
+				expect(requests[0]?.tools?.map((tool) => tool.name).sort()).toEqual(
+					DESIGN_TOOL_NAMES,
+				);
+				const calls = result.steps.flatMap((step) => step.toolCalls);
+				expect(calls).toHaveLength(1);
+				expect(calls[0]).toMatchObject({
+					toolCallId: "required-card",
+					toolName: "askQuestions",
+					input,
+				});
+				expect(
+					isExactRequiredDesignQuestionCall(calls[0]?.input, questions),
+				).toBe(true);
+				expect(result.steps.flatMap((step) => step.toolResults)).toEqual([]);
+			},
+		);
 	});
 
-	it("keeps review finding UUIDs outside the design identity namespace", () => {
-		const findingId = did(8501);
-		const removedFindingId = did(8502);
-
-		expect(
-			designCreationIdentityIssue(
-				{
-					collections: [],
-					dispositions: {
-						collection: "dispositions",
-						upserts: [
-							{
-								findingId,
-								status: "addressed",
-								rationale: "The reviewed correction is staged.",
+	it.each(["askQuestions", "waitForInput"] as const)(
+		"honors provider order when %s follows an unfinished server callback",
+		async (terminal) => {
+			const firstStarted = Promise.withResolvers<void>();
+			const allDecoded = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
+			const applied: string[] = [];
+			let inspections = 0;
+			const pause: ProviderOutput =
+				terminal === "askQuestions"
+					? {
+							type: "tool",
+							name: terminal,
+							callId: "pause",
+							input: {
+								header: "Design choice",
+								questions: [
+									{ question: "Which workflow comes first?", options: [] },
+								],
 							},
-						],
-						removeIds: [removedFindingId],
-					},
-				},
-				{ records: [] },
-			),
-		).toBeNull();
-		expect(
-			designCreationIdentityIssue(
-				{
-					collections: [
+						}
+					: {
+							type: "tool",
+							name: terminal,
+							callId: "pause",
+							input: { reason: "more-requirements-coming" },
+						};
+			await withDesignResponses(
+				[
+					[
 						{
-							collection: "workflows",
-							upserts: [],
-							removeIds: [findingId],
+							type: "tool",
+							name: "inspectProjectData",
+							input: catalogInput,
+							callId: "before",
+						},
+						pause,
+						{
+							type: "tool",
+							name: "inspectProjectData",
+							input: catalogInput,
+							callId: "after",
 						},
 					],
+				],
+				async (model) => {
+					const agent = wireAgent(model, {}, async () => {
+						inspections++;
+						firstStarted.resolve();
+						await release.promise;
+						applied.push("catalog read completed");
+						return {
+							kind: "catalog",
+							projectRevision: parseLookupRevision("0"),
+							tables: [],
+							complete: true,
+						};
+					});
+					const run = consumeDesignAgent(agent, undefined, (part) => {
+						if (part.type === "tool-call" && part.toolCallId === "after")
+							allDecoded.resolve();
+					});
+					try {
+						await firstStarted.promise;
+						await allDecoded.promise;
+						expect(inspections).toBe(1);
+						expect(applied).toEqual([]);
+					} finally {
+						release.resolve();
+						await run;
+					}
+					const result = await run;
+					expect(applied).toEqual(["catalog read completed"]);
+					expect(inspections).toBe(1);
+					expect(result.steps).toHaveLength(1);
+					const results = result.steps.flatMap((step) => step.toolResults);
+					expect(
+						results.find((part) => part.toolCallId === "before")?.output,
+					).toMatchObject({ kind: "catalog", complete: true });
+					expect(
+						results.find((part) => part.toolCallId === "after")?.output,
+					).toMatchObject({
+						diagnostic: { code: "design-input-pause-terminal" },
+					});
+					if (terminal === "waitForInput")
+						expect(
+							results.find((part) => part.toolCallId === "pause")?.output,
+						).toEqual({ ok: true, awaitingInput: true });
 				},
-				{ workflows: [] },
-			),
-		).toContain("unknown raw design UUID");
-	});
-
-	it("sends one byte-stable tool contract through every design phase", async () => {
-		const bodies = await Promise.all(
-			(["author", "review", "revision", "awaiting-input"] as const).map(
-				(phase) => captureDesignTurnBody([], phase),
-			),
-		);
-		const first = JSON.stringify(bodies[0]?.tools);
-		for (const body of bodies.slice(1)) {
-			expect(JSON.stringify(body.tools)).toBe(first);
-			expect(body.tool_choice).not.toEqual({
-				type: "function",
-				name: "askQuestions",
-			});
-		}
-	});
-
-	it("carries strict ordered tools, the cache triple, and configured reasoning", async () => {
-		const body = await captureDesignTurnBody();
-
-		expect(body.model).toBe(MODEL_ROLES.designAuthor.modelId);
-		expect(body.store).toBe(false);
-		expect(body.include).toContain("reasoning.encrypted_content");
-		expect(body.reasoning?.effort).toBe(
-			MODEL_ROLES.designAuthor.reasoningEffort,
-		);
-		expect(body.reasoning?.summary).toBeTruthy();
-		expect(body.prompt_cache_key).toBe("nova:design:session-probe");
-		expect(body.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
-		expect(body.parallel_tool_calls).toBe(true);
-
-		const byName = new Map((body.tools ?? []).map((t) => [t.name, t]));
-		for (const name of DESIGN_TOOL_NAMES.filter(
-			(name) => name !== "askQuestions",
-		)) {
-			const tool = byName.get(name);
-			expect(tool, name).toBeDefined();
-			expect(tool?.strict, name).toBe(true);
-			/* The strict projection's signature: a closed object whose every
-			 * property is required (optionality is the null union). */
-			expect(tool?.parameters?.additionalProperties, name).toBe(false);
-			expect(tool?.parameters?.required ?? [], name).toEqual(
-				Object.keys(tool?.parameters?.properties ?? {}),
 			);
-		}
-		expect(byName.get("askQuestions")?.strict).toBe(false);
-		const projectDataTableId = byName.get("inspectProjectData")?.parameters
-			?.properties?.tableId as
-			| { pattern?: string; anyOf?: unknown[] }
-			| undefined;
-		expect(projectDataTableId?.pattern).toBeDefined();
-		expect(projectDataTableId?.anyOf).toBeUndefined();
-		expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
-	});
+		},
+	);
 });

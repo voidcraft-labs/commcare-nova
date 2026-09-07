@@ -1,7 +1,7 @@
 /**
  * Tests for the four search-first refusals in `searchFirst.ts`, each
- * mirroring a CommCare HQ build-validator refusal of the inline search
- * shape (`helpers/validators.py`).
+ * enforcing Nova entry shape plus actual HQ workflow and instance-name
+ * refusals. Selected native HQ methods run in search-validation-proof.py.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,9 +13,11 @@ import {
 	f,
 	type ModuleSpec,
 } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -55,7 +57,7 @@ function docWith(
 			{
 				uuid: FOLLOWUP,
 				name: "Followup",
-				caseType: "case",
+				caseType: "patient",
 				caseListConfig: searchList(),
 				caseSearchConfig: { searchFirst: true },
 				forms: [
@@ -72,7 +74,7 @@ function docWith(
 		],
 		caseTypes: caseTypes ?? [
 			{
-				name: "case",
+				name: "patient",
 				properties: [{ name: "case_name", label: proseText("Name") }],
 			},
 		],
@@ -80,9 +82,12 @@ function docWith(
 }
 
 function codes(doc: BlueprintDoc, code: string): string[] {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-		.filter((error) => error.code === code)
-		.map((error) => error.message);
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(errors.map((error) => error.code)).toEqual(
+		Array(errors.length).fill(code),
+	);
+	return errors.map((error) => error.message);
 }
 
 describe("searchFirstRequiresCaseFirstModule", () => {
@@ -112,7 +117,7 @@ describe("searchFirstRequiresCaseFirstModule", () => {
 							kind: "text",
 							id: "case_name",
 							label: proseText("Name"),
-							caseWrite: { caseType: "case", property: "case_name" },
+							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
 					],
 				},
@@ -129,7 +134,13 @@ describe("searchFirstRequiresCaseFirstModule", () => {
 			caseListOnly: true,
 			forms: undefined,
 		});
-		expect(codes(doc, CODE)).toHaveLength(1);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code),
+		).toEqual([
+			"CASE_LIST_ONLY_NO_CASE_TYPE",
+			"CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE",
+			CODE,
+		]);
 	});
 
 	it("is silent when Search first is off", () => {
@@ -150,7 +161,7 @@ describe("searchFirstRequiresCaseFirstModule", () => {
 							kind: "text",
 							id: "case_name",
 							label: proseText("Name"),
-							caseWrite: { caseType: "case", property: "case_name" },
+							caseWrite: { caseType: "patient", property: "case_name" },
 						}),
 					],
 				},
@@ -255,7 +266,7 @@ describe("searchFirstUniqueInstance", () => {
 			{
 				uuid: OTHER,
 				name: "Child",
-				caseType: "case",
+				caseType: "patient",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -285,12 +296,12 @@ describe("searchFirstUniqueInstance", () => {
 			},
 			[
 				{
-					name: "case",
+					name: "patient",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					parent_type: "case",
+					parent_type: "patient",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
@@ -309,7 +320,7 @@ describe("searchFirstUniqueInstance", () => {
 			{
 				uuid: OTHER,
 				name: "Parents",
-				caseType: "case",
+				caseType: "patient",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -317,12 +328,12 @@ describe("searchFirstUniqueInstance", () => {
 			},
 			[
 				{
-					name: "case",
+					name: "patient",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 				{
 					name: "child",
-					parent_type: "case",
+					parent_type: "patient",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
@@ -336,7 +347,7 @@ describe("searchFirstUniqueInstance", () => {
 			{
 				uuid: OTHER,
 				name: "Child",
-				caseType: "case",
+				caseType: "patient",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	addSection,
 	currentPartition,
@@ -24,8 +25,10 @@ import {
 } from "@/lib/doc/formSectionMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("frm-1");
 const A = testUuid("fld-a");
@@ -45,8 +48,8 @@ function text(uuid: Uuid, id: string): FieldSpec {
 	return f({ kind: "text", uuid, id, label: proseText(id) });
 }
 
-function docWith(fields: FieldSpec[]): BlueprintDoc {
-	return buildDoc({
+function docWith(fields: FieldSpec[], malformedEmpty = false): BlueprintDoc {
+	const doc = buildDoc({
 		appName: "Sections",
 		modules: [
 			{
@@ -55,6 +58,8 @@ function docWith(fields: FieldSpec[]): BlueprintDoc {
 			},
 		],
 	});
+	if (!malformedEmpty) assertAdmittedDoc(doc);
+	return doc;
 }
 
 /** Single page: a, b, group g(g_child), c. */
@@ -96,7 +101,9 @@ function apply(doc: BlueprintDoc, plan: FormSectionPlan): BlueprintDoc {
 	if (!plan.ok) throw new Error(`plan refused: ${plan.reason}`);
 	const verdict = mutationCommitVerdict(
 		doc,
-		plan.mutations,
+		plan.mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
 	if (!verdict.ok) {
@@ -108,7 +115,7 @@ function apply(doc: BlueprintDoc, plan: FormSectionPlan): BlueprintDoc {
 	const replayed = produce(verdict.nextDoc, (draft) => {
 		applyMutations(draft, [...plan.mutations]);
 	});
-	expect(shape(replayed)).toEqual(shape(verdict.nextDoc));
+	expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(verdict.nextDoc));
 	return verdict.nextDoc;
 }
 
@@ -163,8 +170,8 @@ describe("splitIntoSections", () => {
 		expect(section?.kind === "section" && section.label).toBeUndefined();
 	});
 
-	it("refuses an empty form: pages come from questions", () => {
-		const doc = docWith([]);
+	it("defensively refuses a malformed empty form", () => {
+		const doc = docWith([], true);
 		expect(
 			refusal(splitIntoSections(doc, FORM, { sectionUuids: [S1] })),
 		).toContain("nothing to split");
@@ -247,8 +254,8 @@ describe("splitSection / addSection / mergeWithPrevious", () => {
 		expect(refusal(addSection(flat(), FORM))).toContain(
 			"isn't split into sections yet",
 		);
-		// An empty form refuses too: a form of empty pages can't be built.
-		const empty = docWith([]);
+		// Deliberately malformed boundary: empty forms cannot pass admission.
+		const empty = docWith([], true);
 		expect(refusal(addSection(empty, FORM, { sectionUuid: NEW }))).toContain(
 			"no questions yet",
 		);
@@ -327,6 +334,16 @@ describe("removeSectionKeepingQuestions", () => {
 });
 
 describe("setFormSections", () => {
+	it("refuses flattening pages whose questions would collide at the form root", () => {
+		const doc = docWith([
+			f({ kind: "section", uuid: S1, id: "s1", children: [text(A, "notes")] }),
+			f({ kind: "section", uuid: S2, id: "s2", children: [text(B, "notes")] }),
+		]);
+		expect(refusal(setFormSections(doc, FORM, []))).toContain(
+			'Two questions named "notes"',
+		);
+	});
+
 	it("keeps named pages, creates unnamed ones, removes the rest, and re-homes every question", () => {
 		const doc = paged();
 		const plan = setFormSections(doc, FORM, [

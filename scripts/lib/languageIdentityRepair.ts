@@ -38,8 +38,10 @@ import {
 import { languageDescriptor } from "../../lib/domain/languageRegistry/names";
 import {
 	type AppLanguageIdentity,
+	type AppLocalization,
 	appLanguageIdentitySchema,
 	appLocalizationSchema,
+	isEnglishOnlyLocalization,
 	type LanguageTag,
 	languageTag,
 	languageTagSchema,
@@ -410,6 +412,7 @@ export interface LanguageIdentityRepairPlan {
 	readonly neededMappings: readonly string[];
 	readonly blocked: readonly LanguageIdentityFinding[];
 	readonly rootAction: "null" | "canonical" | "rewrite";
+	/** SQL NULL clears an English-only root when rootAction is rewrite. */
 	readonly rootRewriteText: string | null;
 	readonly rowRewrites: readonly {
 		readonly seq: number;
@@ -436,7 +439,7 @@ export function languageIdentityPlanHasRewrites(
 	plan: LanguageIdentityRepairPlan,
 ): boolean {
 	return (
-		plan.rootRewriteText !== null ||
+		plan.rootAction === "rewrite" ||
 		plan.rowRewrites.length > 0 ||
 		plan.baselineRewrites.length > 0 ||
 		plan.attemptRewrites.length > 0 ||
@@ -448,11 +451,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-// The English-only mini-fold state used to resolve a batch emptied by
-// dropping its `updateLanguage` mutations. It mirrors exactly the catalog
-// half of the current reducer arms: every arm materializes first, so the
-// replacement `setDefaultLanguage` to the current default reproduces the old
-// `updateLanguage`'s one surviving effect (materialization) as a fold no-op.
+// Effective language-catalog state used to resolve a batch emptied by
+// dropping metadata-only `updateLanguage` mutations. Setting the same default
+// retains the history revision without changing language semantics. The real
+// fold proof, including English-only dematerialization, owns stored equality.
 interface MiniLocalizationState {
 	source: LanguageTag;
 	default: LanguageTag;
@@ -614,7 +616,7 @@ export function planLanguageIdentityRepair(
 		old: OldAppLocalization,
 		store: LanguageIdentityFinding["store"],
 		ref: string,
-	): Record<string, unknown> | undefined => {
+	): AppLocalization | undefined => {
 		let failed = false;
 		const need = (code: string): string => {
 			const tag = mapCode(code, store, ref);
@@ -671,7 +673,7 @@ export function planLanguageIdentityRepair(
 			);
 			return undefined;
 		}
-		return root;
+		return admitted.data;
 	};
 
 	/** Classify one parsed localization root: already canonical, old-shape
@@ -682,7 +684,10 @@ export function planLanguageIdentityRepair(
 		value: unknown,
 		store: LanguageIdentityFinding["store"],
 		ref: string,
-	): { action: "canonical" } | { action: "rewrite"; root: unknown } | null => {
+	):
+		| { action: "canonical" }
+		| { action: "rewrite"; root: AppLocalization | null }
+		| null => {
 		const canonical = appLocalizationSchema.safeParse(value);
 		if (canonical.success) {
 			const unlawful = canonical.data.languageOrder.filter(
@@ -696,7 +701,9 @@ export function planLanguageIdentityRepair(
 				);
 				return null;
 			}
-			return { action: "canonical" };
+			return isEnglishOnlyLocalization(canonical.data)
+				? { action: "rewrite", root: null }
+				: { action: "canonical" };
 		}
 		const old = oldAppLocalizationSchema.safeParse(value);
 		if (!old.success) {
@@ -709,7 +716,10 @@ export function planLanguageIdentityRepair(
 		}
 		const root = rewriteOldRoot(old.data, store, ref);
 		if (root === undefined) return null;
-		return { action: "rewrite", root };
+		return {
+			action: "rewrite",
+			root: isEnglishOnlyLocalization(root) ? null : root,
+		};
 	};
 
 	let rootAction: LanguageIdentityRepairPlan["rootAction"] = "null";
@@ -731,7 +741,8 @@ export function planLanguageIdentityRepair(
 		if (planned?.action === "canonical") rootAction = "canonical";
 		else if (planned?.action === "rewrite") {
 			rootAction = "rewrite";
-			rootRewriteText = JSON.stringify(planned.root);
+			rootRewriteText =
+				planned.root === null ? null : JSON.stringify(planned.root);
 		}
 	}
 
@@ -765,7 +776,9 @@ export function planLanguageIdentityRepair(
 		}
 		if (planned?.action !== "rewrite") continue;
 		rewrittenBaselineRoots.set(baseline.seq, planned.root);
-		const next = { ...snapshot, localization: planned.root };
+		const next = { ...snapshot };
+		if (planned.root === null) delete next.localization;
+		else next.localization = planned.root;
 		baselineRewrites.push({
 			seq: baseline.seq,
 			snapshotText: JSON.stringify(next),
@@ -980,10 +993,8 @@ export function planLanguageIdentityRepair(
 
 		let replacedEmptiedBatch = false;
 		if (nextElements.length === 0) {
-			// Every mutation in the batch was an updateLanguage. Its whole
-			// surviving effect is materialization, which setDefaultLanguage to
-			// the current default reproduces exactly, keeping the row's batch
-			// nonempty and the fold byte-identical.
+			// Every mutation was metadata-only. Keep the revision with an
+			// unchanged effective default; the real fold canonicalizes storage.
 			const current = miniMaterialize(miniState);
 			const replacement = { kind: "setDefaultLanguage", code: current.default };
 			nextElements.push(replacement);
@@ -996,7 +1007,7 @@ export function planLanguageIdentityRepair(
 				store: "change-row",
 				ref,
 				classification: "mechanical",
-				detail: `the batch emptied by dropping updateLanguage is replaced with setDefaultLanguage ${current.default}, a fold no-op that preserves materialization`,
+				detail: `the batch emptied by dropping updateLanguage is replaced with setDefaultLanguage ${current.default}, an unchanged effective default whose storage is canonicalized by replay`,
 			});
 		}
 
@@ -1400,7 +1411,7 @@ async function repairOneAppInTransaction(
 		};
 	}
 
-	if (plan.rootRewriteText !== null) {
+	if (plan.rootAction === "rewrite") {
 		await tx
 			.updateTable("apps")
 			.set({ localization: plan.rootRewriteText })
@@ -1455,7 +1466,7 @@ async function repairOneAppInTransaction(
 	}
 
 	const touchedCanonicalHistory =
-		plan.rootRewriteText !== null ||
+		plan.rootAction === "rewrite" ||
 		plan.rowRewrites.length > 0 ||
 		plan.baselineRewrites.length > 0;
 	if (touchedCanonicalHistory) await proveRewrittenApp(tx, appId);

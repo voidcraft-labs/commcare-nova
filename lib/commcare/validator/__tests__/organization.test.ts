@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	MAX_ATOMIC_LOCATION_DESCENDANTS,
 	MAX_LOCATION_VALUES,
 	type OrganizationLevel,
+	plainColumn,
 } from "@/lib/domain";
-import { ORGANIZATION_RULES } from "../rules/organization";
+import { runValidation } from "../runner";
 
 const REGION = testUuid("organization-rule-region");
 const DISTRICT = testUuid("organization-rule-district");
@@ -42,11 +46,11 @@ function doc(): BlueprintDoc {
 		[FACILITY]: level(FACILITY, "Facility", DISTRICT),
 	};
 	value.organizationLevelOrder = [REGION, DISTRICT, FACILITY];
-	return value;
+	return expectAdmittedDoc(value);
 }
 
 function findings(value: BlueprintDoc) {
-	return ORGANIZATION_RULES.flatMap((rule) => rule(value));
+	return runValidation(value, LOOKUP_CONTEXT_UNAVAILABLE);
 }
 
 describe("organization address-book level references", () => {
@@ -146,7 +150,7 @@ describe("organization address-book level references", () => {
 
 describe("organization reverse-hop construction bounds", () => {
 	it("rejects more distinct destinations than one atomic source create can carry", () => {
-		const value = doc();
+		let value = doc();
 		const destinationUuids = Array.from(
 			{ length: MAX_ATOMIC_LOCATION_DESCENDANTS + 1 },
 			(_, index) => testUuid(`reverse-destination-${index}`),
@@ -161,25 +165,77 @@ describe("organization reverse-hop construction bounds", () => {
 			),
 		};
 		value.organizationLevelOrder = [REGION, ...destinationUuids];
-		const formUuid = value.formOrder[value.moduleOrder[0]]?.[0];
-		if (formUuid === undefined) throw new Error("fixture form missing");
-		value.forms[formUuid].caseOperations = destinationUuids.map(
-			(levelUuid, index) => ({
-				uuid: testUuid(`reverse-operation-${index}`),
-				id: `route_${index}`,
-				action: "update" as const,
-				caseType: "case",
-				target: { kind: "session" as const },
-				owner: {
-					kind: "term" as const,
-					term: {
-						kind: "owner-location-at-level" as const,
-						levelUuid,
-						ownerCaseType: "case",
+		const workflows = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [plainColumn(testUuid("org-column"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									label: "Name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+						...destinationUuids.map((_levelUuid, index) => ({
+							name: `Route ${index}`,
+							type: "followup" as const,
+							fields: [f({ kind: "text", id: "note", label: "Note" })],
+						})),
+					],
+				},
+			],
+		});
+		for (const [index, levelUuid] of destinationUuids.entries()) {
+			const formUuid = workflows.formOrder[workflows.moduleOrder[0]][index + 1];
+			workflows.forms[formUuid].caseOperations = [
+				{
+					uuid: testUuid(`reverse-operation-${index}`),
+					id: `route_${index}`,
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					owner: {
+						kind: "term",
+						term: {
+							kind: "owner-location-at-level",
+							levelUuid,
+							ownerCaseType: "patient",
+						},
 					},
 				},
-			}),
-		);
+			];
+		}
+		value = {
+			...value,
+			caseTypes: workflows.caseTypes,
+			modules: workflows.modules,
+			forms: workflows.forms,
+			fields: workflows.fields,
+			moduleOrder: workflows.moduleOrder,
+			formOrder: workflows.formOrder,
+			fieldOrder: workflows.fieldOrder,
+			fieldParent: workflows.fieldParent,
+		};
+		const lastFormUuid = value.formOrder[value.moduleOrder[0]].at(-1);
+		if (!lastFormUuid) throw new Error("Missing final routing form");
+		const accepted = structuredClone(value);
+		delete accepted.forms[lastFormUuid].caseOperations;
+		expectAdmittedDoc(accepted);
+		expect(findings(value).map((finding) => finding.code)).toEqual([
+			"ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT",
+		]);
 
 		expect(findings(value)).toEqual(
 			expect.arrayContaining([
@@ -226,6 +282,7 @@ describe("place-information row capacity", () => {
 		const last = properties.at(-1)?.property;
 		if (last === undefined) throw new Error("property fixture missing");
 		last.levelUuids = [REGION];
+		expectAdmittedDoc(value);
 		expect(findings(value)).not.toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({

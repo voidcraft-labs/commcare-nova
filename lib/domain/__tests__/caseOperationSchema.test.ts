@@ -1,3 +1,6 @@
+/** Stored action grammar only; contextual case targets, execution order and
+ * catalog permission are enforced by the complete document gate. */
+
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseOperationSchema } from "../forms";
@@ -14,7 +17,7 @@ const common = {
 	caseType: "visit",
 };
 const write = {
-	property: "status",
+	property: "visit_state",
 	value: literal("complete"),
 };
 const link = {
@@ -25,7 +28,7 @@ const link = {
 };
 
 describe("caseOperationSchema", () => {
-	it("admits exactly the action-specific stored facets", () => {
+	it("admits the authored create, update and close facet examples", () => {
 		for (const valid of [
 			{
 				action: "create",

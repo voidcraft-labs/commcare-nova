@@ -1493,7 +1493,7 @@ export async function POST(req: Request) {
 					 * heartbeat MUST stop here or an abandoned pause would never lapse for
 					 * the reapers). Idempotent. Clearing the interval here is what keeps it
 					 * from leaking. */
-					ctx.stopRunLeaseHeartbeat();
+					await ctx.stopRunLeaseHeartbeat();
 					const paused = opts?.paused ?? false;
 
 					/* Retire the transcript FIRST, before any settle/flush work: set
@@ -3293,7 +3293,6 @@ export async function POST(req: Request) {
 				 * the marker is settled" invariant the failure funnel upholds. Awaited
 				 * (not fire-and-forget) so the settle precedes the clear. */
 				await usage.flush().catch(() => {});
-				void logWriter.flush();
 				/* A prelude throw AFTER an EDIT claimed the `run_lock` would otherwise
 				 * strand that lock until its 15-min lease: locking the whole shared app
 				 * for every other member (RunConflictError → the 120s wait → "still
@@ -3305,8 +3304,15 @@ export async function POST(req: Request) {
 				 * must not touch. Gated on `claimedRun.mode === "edit"` so a build or a
 				 * lock-less run pays no extra transaction. The flush above already settled
 				 * the marker, so this release can't strand the hold. */
-				if (!finalizeRan && claimedRun?.mode === "edit") {
-					await clearRunLock(appId, effectiveRunId, holderNonce);
+				try {
+					if (!finalizeRan && claimedRun?.mode === "edit") {
+						await clearRunLock(appId, effectiveRunId, holderNonce);
+					}
+				} finally {
+					// Every exit owns prior timer-triggered event writes, even if the
+					// ordinary finalizer or fallback lock release failed. Release the
+					// edit before awaiting best-effort observability.
+					await logWriter.flush();
 				}
 			}
 		},

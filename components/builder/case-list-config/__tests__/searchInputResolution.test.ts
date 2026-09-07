@@ -1,281 +1,318 @@
-// Pins the custom-condition conversion contract: picking "Custom
-// Condition" on a search input must land a predicate the commit gate
-// ACCEPTS, and converting back must recover the property it was
-// anchored on.
-//
-// The bug this guards against: the seed compared the property to the
-// typed value with a BARE `input(...)` ref. A bare search-input ref in
-// a wire-emission-bound slot resolves to the empty string before
-// anyone searches, so the validator (`CASE_LIST_BARE_SEARCH_INPUT_REF`,
-// `requires-envelope` mode) rejects it: the conversion failed the
-// moment it was chosen ("Change not applied"). The seed now wraps the
-// comparison in the same `when-input-present` envelope the standard
-// match modes derive at wire-emit (`deriveSimpleArmPredicate`), which
-// the rule's own test proves the gate accepts.
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	advancedSearchInputDef,
 	type CaseType,
-	type SearchInputMode,
+	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	ancestorPath,
+	anyRelationPath,
 	checkPredicate,
 	eq,
 	input,
-	match,
 	prop,
 	relationStep,
-	whenInput,
+	subcasePath,
 } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
+import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import {
 	canSeedCustomConditionFaithfully,
 	recoverAnchoredProperty,
+	resolveDestinationCaseType,
+	resolveProperty,
+	resolveRows,
 	searchInputDecls,
 	seedCustomCondition,
 } from "../searchInputResolution";
+import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
 
-const CASE_TYPE = "household";
-
-const CASE_TYPES: CaseType[] = [
+const caseTypes: CaseType[] = [
+	{
+		name: "patient",
+		parent_type: "household",
+		properties: [
+			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+		],
+	},
 	{
 		name: "household",
 		properties: [
-			{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			{ name: "region", label: proseText("Region"), data_type: "text" },
+			{ name: "opened", label: proseText("Opened"), data_type: "date" },
 		],
-	} as CaseType,
+	},
 ];
+function workspace(row: SimpleSearchInputDef) {
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.searchInputs = [row];
+	return admittedWorkspace(caseTypes, config, "patient");
+}
 
-describe("seedCustomCondition", () => {
+describe("Search custom-condition conversion", () => {
 	it.each([
-		{ kind: "exact" },
-		{ kind: "fuzzy" },
-		{ kind: "starts-with" },
-		{ kind: "phonetic" },
-		{ kind: "fuzzy-date" },
-	] satisfies readonly SearchInputMode[])(
-		"preserves $kind behavior, the relationship path, and the input envelope",
-		(mode) => {
+		["exact", "text", "region"],
+		["fuzzy", "text", "region"],
+		["starts-with", "text", "region"],
+		["phonetic", "text", "region"],
+		["fuzzy-date", "date", "opened"],
+	] as const)(
+		"commits %s conversion with the parent binding and input envelope intact",
+		(kind, type, property) => {
 			const via = ancestorPath(relationStep("parent"));
 			const row = simpleSearchInputDef(
-				testUuid(`si-${mode.kind}`),
+				testUuid(`convert-${kind}`),
 				"query",
 				"Query",
-				"text",
-				"case_name",
-				{ mode, via },
+				type,
+				property,
+				{ via, mode: { kind } },
 			);
-			const propertyRef = prop(CASE_TYPE, "case_name", via);
-			const inputRef = input(row.uuid);
-			const expectedClause =
-				mode.kind === "exact"
-					? eq(propertyRef, inputRef)
-					: match(propertyRef, inputRef, mode.kind);
-
-			expect(seedCustomCondition(row, CASE_TYPE)).toEqual(
-				whenInput(inputRef, expectedClause),
-			);
-		},
-	);
-
-	it("wraps an input-bound comparison in a when-input-present envelope", () => {
-		// The exact shape from the screenshot: one text search on
-		// `case_name`, reference name `case_name`.
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"case_name",
-			"Client name",
-			"text",
-			"case_name",
-		);
-		const seeded = seedCustomCondition(row, CASE_TYPE);
-
-		// Top-level is the envelope, NOT a bare comparison: this is the
-		// difference between a gate rejection and a clean commit.
-		expect(seeded.kind).toBe("when-input-present");
-		// Byte-for-byte the canonical shape the standard "exact" mode
-		// derives at wire-emit, so what the gate already proves valid is
-		// exactly what the seed produces.
-		expect(seeded).toEqual(
-			whenInput(
-				input(row.uuid),
-				eq(prop(CASE_TYPE, "case_name"), input(row.uuid)),
-			),
-		);
-	});
-
-	it("preserves a parent-case walk in the seeded property ref", () => {
-		// A row bound to a parent property keeps its relation walk, so
-		// the seed reads the property on the case it actually searches:
-		// not on the current case type, which may not even declare it.
-		const via = ancestorPath(relationStep("parent"));
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"region",
-			"Region",
-			"text",
-			"region",
-			{ via },
-		);
-		const seeded = seedCustomCondition(row, "patient");
-		expect(seeded).toEqual(
-			whenInput(
-				input(row.uuid),
-				eq(prop("patient", "region", via), input(row.uuid)),
-			),
-		);
-	});
-});
-
-describe("canSeedCustomConditionFaithfully", () => {
-	it.each([
-		{ kind: "exact" },
-		{ kind: "fuzzy" },
-		{ kind: "starts-with" },
-		{ kind: "phonetic" },
-		{ kind: "fuzzy-date" },
-	] satisfies readonly SearchInputMode[])(
-		"reports $kind as faithfully representable",
-		(mode) => {
-			const row = simpleSearchInputDef(
-				testUuid(`si-${mode.kind}`),
-				"query",
-				"Query",
-				"text",
-				"case_name",
-				{ mode },
-			);
+			const { doc, moduleUuid } = workspace(row);
 			expect(canSeedCustomConditionFaithfully(row)).toBe(true);
+			const predicate = seedCustomCondition(row, "patient");
+			expect(predicate).toMatchObject({
+				kind: "when-input-present",
+				input: { kind: "input", searchInputUuid: row.uuid },
+			});
+			const advanced = advancedSearchInputDef(
+				row.uuid,
+				row.name,
+				row.label,
+				row.type,
+				predicate,
+			);
+			const { uuid, ...searchInput } = advanced;
+			const next = commitWorkspace(doc, [
+				{ kind: "updateSearchInput", moduleUuid, uuid, searchInput },
+			]);
+			const saved = next.modules[moduleUuid].caseListConfig?.searchInputs[0];
+			expect(saved).toEqual(advanced);
+			if (predicate.kind !== "when-input-present")
+				throw new Error("missing envelope");
+			if (predicate.clause.kind === "eq")
+				expect(predicate.clause.left).toMatchObject({
+					kind: "term",
+					term: { kind: "prop", caseType: "patient", property, via },
+				});
+			if (predicate.clause.kind === "match")
+				expect(predicate.clause.property).toEqual({
+					kind: "prop",
+					caseType: "patient",
+					property,
+					via,
+				});
+			expect(predicate.clause.kind).toBe(kind === "exact" ? "eq" : "match");
+			if (predicate.clause.kind === "match")
+				expect(predicate.clause.mode).toBe(kind);
+			expect(recoverAnchoredProperty(predicate)).toBeUndefined();
 		},
 	);
-
-	it("reports range as requiring confirmation", () => {
+	it("commits a self-bound conversion and includes its own declaration in editor scope", () => {
 		const row = simpleSearchInputDef(
-			testUuid("si-range-confirmation"),
-			"query",
-			"Query",
-			"date-range",
-			"case_name",
-			{ mode: { kind: "range" } },
-		);
-		expect(canSeedCustomConditionFaithfully(row)).toBe(false);
-	});
-
-	it("uses the row type's effective default when mode is omitted", () => {
-		const textRow = simpleSearchInputDef(
-			testUuid("si-text"),
-			"query",
-			"Query",
-			"text",
-			"case_name",
-		);
-		const rangeRow = simpleSearchInputDef(
-			testUuid("si-range"),
-			"query",
-			"Query",
-			"date-range",
-			"date_opened",
-		);
-
-		expect(canSeedCustomConditionFaithfully(textRow)).toBe(true);
-		expect(canSeedCustomConditionFaithfully(rangeRow)).toBe(false);
-	});
-});
-
-describe("searchInputDecls", () => {
-	it("includes the edited row so its own custom condition resolves", () => {
-		// The exact screenshot scenario: a single search input named
-		// `case_name` converted to a custom condition. The seed
-		// self-references `input("case_name")`, so the row's OWN
-		// declaration must be in scope: excluding it made the editor
-		// report "Unknown search input 'case_name'." against a condition
-		// the commit gate and wire emitter both accept.
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"case_name",
+			testUuid("self-query"),
+			"by_name",
 			"Client name",
 			"text",
 			"case_name",
 		);
-		const decls = searchInputDecls([row]);
-		expect(decls.map((d) => d.name)).toContain("case_name");
-		expect(decls[0]?.label).toBe("Client name");
-
-		// The seeded custom condition must type-check clean: the same
-		// verdict the validator's `moduleTypeContext` reaches.
-		const seeded = seedCustomCondition(row, CASE_TYPE);
+		const { doc, moduleUuid } = workspace(row);
+		const predicate = seedCustomCondition(row, "patient");
+		const { uuid, ...searchInput } = advancedSearchInputDef(
+			row.uuid,
+			row.name,
+			row.label,
+			row.type,
+			predicate,
+		);
+		const next = commitWorkspace(doc, [
+			{ kind: "updateSearchInput", moduleUuid, uuid, searchInput },
+		]);
+		const decls = searchInputDecls(
+			next.modules[moduleUuid].caseListConfig?.searchInputs ?? [],
+		);
+		expect(decls).toEqual([
+			{
+				uuid: row.uuid,
+				name: "by_name",
+				label: "Client name",
+				data_type: "text",
+			},
+		]);
 		expect(
-			checkPredicate(seeded, {
-				caseTypes: CASE_TYPES,
+			checkPredicate(predicate, {
+				caseTypes,
 				knownInputs: [...decls],
-				currentCaseType: CASE_TYPE,
+				currentCaseType: "patient",
 			}).ok,
 		).toBe(true);
+		expect(
+			checkPredicate(predicate, {
+				caseTypes,
+				knownInputs: [],
+				currentCaseType: "patient",
+			}).ok,
+		).toBe(false);
+		expect(recoverAnchoredProperty(predicate)).toBe("case_name");
 	});
-
-	it("uses the widget's runtime scalar type for every editor and verdict", () => {
+	it.each([undefined, { kind: "range" }] as const)(
+		"requires a consequence review for date-range conversion (%j)",
+		(mode) => {
+			const row = simpleSearchInputDef(
+				testUuid("range-query"),
+				"dob",
+				"Date range",
+				"date-range",
+				"dob",
+				mode ? { mode } : {},
+			);
+			workspace(row);
+			expect(canSeedCustomConditionFaithfully(row)).toBe(false);
+		},
+	);
+	it("derives date and date-range runtime declarations from admitted widgets", () => {
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		const date = simpleSearchInputDef(
-			testUuid("date-input"),
-			"visit_date",
-			"Visit date",
+			testUuid("date-query"),
+			"by_date",
+			"Date",
 			"date",
 			"dob",
 		);
 		const range = simpleSearchInputDef(
-			testUuid("range-input"),
-			"visit_range",
-			"Visit range",
+			testUuid("range-query"),
+			"dob",
+			"Range",
 			"date-range",
 			"dob",
 		);
-
-		expect(searchInputDecls([date, range])).toEqual([
-			{
-				uuid: date.uuid,
-				name: "visit_date",
-				label: "Visit date",
-				data_type: "date",
-			},
-			{
-				uuid: range.uuid,
-				name: "visit_range",
-				label: "Visit range",
-				data_type: "text",
-			},
+		config.searchInputs = [date, range];
+		admittedWorkspace(caseTypes, config, "patient");
+		expect(searchInputDecls(config.searchInputs)).toEqual([
+			{ uuid: date.uuid, name: "by_date", label: "Date", data_type: "date" },
+			{ uuid: range.uuid, name: "dob", label: "Range", data_type: "text" },
 		]);
 	});
 });
 
-describe("recoverAnchoredProperty", () => {
-	it("recovers the property through the when-input-present envelope", () => {
-		const row = simpleSearchInputDef(
-			testUuid("si-1"),
-			"case_name",
-			"Name",
-			"text",
-			"case_name",
-		);
-		// The forward seed round-trips: custom → standard lands back on
-		// the same property rather than re-seeding a different one.
-		const seeded = seedCustomCondition(row, CASE_TYPE);
-		expect(recoverAnchoredProperty(seeded)).toBe("case_name");
-	});
+// Recovery is a lower-level AST shape projection; this deliberately bare input
+// predicate is not asserted to be an admissible app condition.
+it("recovers a bare self-bound property's identity", () => {
+	expect(
+		recoverAnchoredProperty(
+			eq(prop("patient", "case_name"), input(testUuid("bare-query"))),
+		),
+	).toBe("case_name");
+});
 
-	it("recovers the property from a bare left-anchored comparison", () => {
-		// Hand-authored (or chat/MCP) conditions without an envelope still
-		// recover the same way.
-		const bare = eq(prop(CASE_TYPE, "status"), input(testUuid("status")));
-		expect(recoverAnchoredProperty(bare)).toBe("status");
-	});
+describe("Search property resolution follows the admitted relationship", () => {
+	const caseTypes: CaseType[] = [
+		{
+			name: "patient",
+			parent_type: "household",
+			properties: [
+				{ name: "code", label: proseText("Patient code"), data_type: "text" },
+			],
+		},
+		{
+			name: "household",
+			parent_type: "district",
+			properties: [
+				{ name: "code", label: proseText("Household code"), data_type: "text" },
+			],
+		},
+		{
+			name: "district",
+			properties: [
+				{ name: "code", label: proseText("District date"), data_type: "date" },
+			],
+		},
+		{
+			name: "visit",
+			parent_type: "patient",
+			properties: [
+				{ name: "code", label: proseText("Visit date"), data_type: "date" },
+			],
+		},
+	];
+	it.each([
+		[
+			"grandparent",
+			ancestorPath(relationStep("parent"), relationStep("parent")),
+			"district",
+		],
+		["child", subcasePath("parent", "visit"), "visit"],
+		["related child", anyRelationPath("parent", "visit"), "visit"],
+		[
+			"custom parent",
+			ancestorPath(relationStep("referral", "district")),
+			"district",
+		],
+	] as const)(
+		"uses the %s property's actual type, not a same-name origin property",
+		(_name, via, destination) => {
+			const row = simpleSearchInputDef(
+				testUuid(`resolve-${destination}`),
+				"query",
+				"Date",
+				"date",
+				"code",
+				{ via },
+			);
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			config.searchInputs = [row];
+			admittedWorkspace(caseTypes, config, "patient");
+			expect(resolveProperty(caseTypes, row, "patient")).toEqual(
+				caseTypes.find((c) => c.name === destination)?.properties[0],
+			);
+			expect(
+				resolveRows([row], caseTypes, "patient", (label) =>
+					label.parts
+						.flatMap((p) => (p.kind === "text" ? [p.text] : []))
+						.join(""),
+				)[0].typeCouplingErrors,
+			).toEqual([]);
+		},
+	);
+});
 
-	it("does not recover when the left side walks to another case", () => {
-		const crossWalk = eq(
-			prop("patient", "status", ancestorPath(relationStep("parent"))),
-			input(testUuid("status")),
-		);
-		expect(recoverAnchoredProperty(crossWalk)).toBeUndefined();
-	});
+it("leaves malformed or ambiguous walks unresolved instead of borrowing origin properties", () => {
+	expect(
+		resolveDestinationCaseType(
+			caseTypes,
+			ancestorPath(relationStep("parent", "patient")),
+			"patient",
+		),
+	).toBeUndefined();
+	expect(
+		resolveDestinationCaseType(
+			caseTypes,
+			ancestorPath(relationStep("parent")),
+			"household",
+		),
+	).toBeUndefined();
+	const ambiguous = [
+		...caseTypes,
+		{ name: "visit", parent_type: "patient", properties: [] },
+		{ name: "referral", parent_type: "patient", properties: [] },
+	];
+	expect(
+		resolveDestinationCaseType(ambiguous, subcasePath("parent"), "patient"),
+	).toBeUndefined();
+	const row = simpleSearchInputDef(
+		testUuid("invalid-walk"),
+		"query",
+		"Name",
+		"text",
+		"case_name",
+		{ via: subcasePath("parent") },
+	);
+	expect(resolveProperty(ambiguous, row, "patient")).toBeUndefined();
+	expect(
+		resolveRows([row], ambiguous, "patient", proseTemplateText)[0]
+			.propertyState,
+	).toEqual({ kind: "dangling", destination: undefined });
 });

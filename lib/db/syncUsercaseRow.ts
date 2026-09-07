@@ -15,6 +15,7 @@
 
 import "server-only";
 
+import { v5 as uuidv5 } from "uuid";
 import type { CaseStore, JsonObject } from "@/lib/case-store";
 import {
 	assignedLocationUuids,
@@ -31,22 +32,47 @@ import {
 } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 
-/**
- * The worker's case id IS their own id.
- *
- * Nova picks this id freely — the wire finds a usercase by a `casedb` join on
- * `hq_user_id` (`app_manager/xpath.py::UsercaseXPath.case()`), never by
- * matching an id HQ chose — so the useful choice is the one that makes the
- * sync idempotent BY CONSTRUCTION rather than by care. `cases` is keyed on
- * `case_id` alone, so two concurrent syncs for one worker cannot produce two
- * usercases; the second collides with the first instead of racing it.
- *
- * Safe because a persona uuid is never reissued. A removed persona's row is
- * CLOSED rather than deleted, and a reissued uuid would collide with that
- * closed row instead of quietly reopening someone else's history.
- */
-function usercaseIdFor(worker: UsercaseWorker): string {
-	return worker.id;
+/** New records are stable per app and worker. Existing rows are always found
+ * by hq_user_id, so their historical case identity is preserved. Project is
+ * deliberately absent: moving an app does not create a new worker record. */
+function usercaseIdFor(appId: string, worker: UsercaseWorker): string {
+	return uuidv5(
+		JSON.stringify(["nova-usercase-v1", appId, worker.id]),
+		uuidv5.URL,
+	);
+}
+
+/** The semantic identity used by the device: case type plus hq_user_id inside
+ * this app's tenant scope. Held and closed rows still exist; materialization
+ * must not replace or reopen them. A duplicate is an invariant failure, never
+ * an arbitrary first-row choice. */
+export async function findUsercaseRow(
+	store: CaseStore,
+	args: {
+		readonly appId: string;
+		readonly workerId: string;
+		readonly doc: UserCollections;
+	},
+) {
+	const rows = await store.query({
+		appId: args.appId,
+		caseType: USERCASE_CASE_TYPE,
+		caseTypeSchemas: new Map([
+			[USERCASE_CASE_TYPE, usercaseCaseType(args.doc)],
+		]),
+		predicate: eq(
+			prop(USERCASE_CASE_TYPE, "hq_user_id"),
+			literal(args.workerId),
+		),
+		limit: 2,
+		includeHeld: true,
+	});
+	if (rows.length > 1)
+		throw new Error("More than one worker record exists for this app.");
+	if (rows[0] !== undefined && rows[0].owner_id !== args.workerId) {
+		throw new Error("The worker record belongs to a different owner.");
+	}
+	return rows[0];
 }
 
 /** The record split the way the case store stores it: reserved scalars to
@@ -124,42 +150,43 @@ export async function syncUsercaseRow(
 	readonly stored: Record<string, string>;
 }> {
 	const { appId, worker, authored, doc, projectSpace } = args;
-	const caseId = usercaseIdFor(worker);
+	const caseId = usercaseIdFor(appId, worker);
 	const record = usercaseRecord(worker, authored, doc, projectSpace);
 	const { caseName, properties } = splitRecord(record);
-	const caseTypeSchemas = new Map([
-		[USERCASE_CASE_TYPE, usercaseCaseType(doc)],
-	]);
-
-	// `includeHeld` so a usercase whose value is parked still counts as
-	// existing. Without it a held row is invisible here and the insert below
-	// collides with its own primary key rather than updating it.
-	const existing = await store.query({
-		appId,
-		caseType: USERCASE_CASE_TYPE,
-		caseTypeSchemas,
-		predicate: eq(prop(USERCASE_CASE_TYPE, "case_id"), literal(caseId)),
-		limit: 1,
-		includeHeld: true,
-	});
-
-	const current = existing[0];
+	const lookup = { appId, workerId: worker.id, doc };
+	let current = await findUsercaseRow(store, lookup);
 	if (current === undefined) {
-		await store.insert({
-			appId,
-			row: {
-				case_id: caseId,
-				case_type: USERCASE_CASE_TYPE,
-				case_name: caseName,
-				status: "open",
-				properties,
-			},
-		});
-		return {
-			created: true,
-			changed: Object.keys(properties).length,
-			stored: properties as Record<string, string>,
-		};
+		try {
+			await store.insert({
+				appId,
+				row: {
+					case_id: caseId,
+					case_type: USERCASE_CASE_TYPE,
+					case_name: caseName,
+					status: "open",
+					properties,
+				},
+			});
+			return {
+				created: true,
+				changed: Object.keys(properties).length,
+				stored: properties as Record<string, string>,
+			};
+		} catch (error) {
+			// insert owns its transaction, which has rolled back before rejecting.
+			// A concurrent ensure may have created this exact row after our read.
+			// Re-query by semantic identity; never accept an unrelated PK collision.
+			if (
+				!(error instanceof Error) ||
+				!("code" in error) ||
+				error.code !== "23505" ||
+				!("constraint" in error) ||
+				error.constraint !== "cases_pkey"
+			)
+				throw error;
+			current = await findUsercaseRow(store, lookup);
+			if (current === undefined || current.case_id !== caseId) throw error;
+		}
 	}
 
 	if (args.ensureOnly === true) {
@@ -193,7 +220,7 @@ export async function syncUsercaseRow(
 	}
 	await store.update({
 		appId,
-		caseId,
+		caseId: current.case_id,
 		patch: {
 			...(renamed && { case_name: caseName }),
 			...(Object.keys(changed).length > 0 && { properties: changed }),
@@ -278,8 +305,8 @@ function recordsEqual(
  * (`sync_usercase.py::_get_sync_usercase_helper` closes the usercase and
  * leaves the cases that worker owned alone), and it matches Nova's own shipped
  * policy of preserving rows. HQ's reopen-on-return branch has no counterpart
- * here because a persona uuid is never reissued — which is also what makes the
- * worker's id safe to use as the case id.
+ * here because a persona uuid is never reissued. The row is resolved by its
+ * app-scoped hq_user_id; its case id may predate the current allocator.
  */
 export function workersWithRemovedUsercases(args: {
 	readonly prior: UserCollections;

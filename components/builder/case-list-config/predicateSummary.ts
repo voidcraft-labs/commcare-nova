@@ -309,6 +309,15 @@ function matchVerb(
 	}
 }
 
+/** Keep nested logical groups visible so the summary cannot imply a different rule. */
+function compoundClause(clause: Predicate): boolean {
+	return (
+		clause.kind === "and" ||
+		clause.kind === "or" ||
+		(clause.kind === "not" && compoundClause(clause.clause))
+	);
+}
+
 function joinNegatedClauses(
 	clauses: readonly Predicate[],
 	word: "and" | "or",
@@ -317,7 +326,8 @@ function joinNegatedClauses(
 ): string {
 	const rendered = clauses.slice(0, MAX_CLAUSES).map((clause, index) => {
 		const summary = summarizeNegatedPredicate(clause, context, currentCaseType);
-		return index === 0 ? summary : embeddedSummary(summary);
+		const grouped = compoundClause(clause) ? `(${summary})` : summary;
+		return index === 0 ? grouped : embeddedSummary(grouped);
 	});
 	const overflow = clauses.length - MAX_CLAUSES;
 	const tail = overflow > 0 ? ` ${word} ${overflow} more` : "";
@@ -332,7 +342,8 @@ function joinClauses(
 ): string {
 	const rendered = clauses.slice(0, MAX_CLAUSES).map((clause, index) => {
 		const summary = summarizePredicate(clause, context, currentCaseType);
-		return index === 0 ? summary : embeddedSummary(summary);
+		const grouped = compoundClause(clause) ? `(${summary})` : summary;
+		return index === 0 ? grouped : embeddedSummary(grouped);
 	});
 	const overflow = clauses.length - MAX_CLAUSES;
 	const tail = overflow > 0 ? ` ${word} ${overflow} more` : "";

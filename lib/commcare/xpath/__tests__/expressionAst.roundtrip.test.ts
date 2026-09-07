@@ -195,9 +195,9 @@ describe("expression round-trip law", () => {
 		);
 	});
 
-	it("holds over arbitrary strings (opaque passthrough included)", async () => {
+	it("holds over arbitrary Unicode strings (opaque passthrough included)", async () => {
 		await fc.assert(
-			fc.property(fc.string({ maxLength: 80 }), (source) => {
+			fc.property(fc.string({ unit: "grapheme", maxLength: 80 }), (source) => {
 				expectCanonicalLaw(source);
 			}),
 			{ numRuns: 500, seed: 20260611 },

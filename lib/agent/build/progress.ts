@@ -275,69 +275,67 @@ export function createDesignPulseEmitter(
 /* Submission step narration                                           */
 /* ------------------------------------------------------------------ */
 
-/**
- * Sub-step labels for a streaming submission's top-level keys. Strict-mode
- * constrained decoding pins property order to schema order, so the keys of
- * a contract appear in a known sequence as the tool call's input
- * streams, so watching the accumulated text for them yields honest sub-steps.
- * Schema field order is a narration lever the repo already treats as
- * load-bearing (`documentExtraction.ts`). Labels follow the design system's
- * activity voice: sentence case, present tense, no punctuation.
- */
-export const CONTRACT_STEP_LABELS: ReadonlyArray<readonly [string, string]> = [
-	["charter", "Setting the app direction"],
-	["actors", "Understanding who does what"],
-	["records", "Working out the records"],
-	["workflows", "Shaping the workflows"],
-	["lists", "Designing the worklists"],
-	["access", "Setting who sees what"],
-	["navigation", "Laying out navigation"],
-	["externalRequirements", "Checking what needs setup"],
-	["decisions", "Weighing the choices"],
-	["assumptions", "Recording assumptions"],
-	["openQuestions", "Noting open questions"],
-] as const;
-
 export interface SubmissionStepNarrator {
 	/** Feed one input-delta's text; returns the current sub-step label. */
 	feed(deltaText: string): string | undefined;
 }
 
 /**
- * Advisory-only key spotting over a submission's streaming arguments: a
- * missed or out-of-order key mislabels a step, never corrupts state, and
- * with no match the pulse degrades to its chars-only form. A small overlap
- * window survives a key token split across two deltas.
+ * Advisory narration from complete top-level JSON keys. Track string escaping
+ * and container depth across deltas so nested keys and quoted source text
+ * cannot announce a later step. This is a bounded key recognizer, not JSON
+ * validation; the actual submission schema still owns acceptance.
  */
 export function createSubmissionStepNarrator(
 	labels: ReadonlyArray<readonly [string, string]>,
 ): SubmissionStepNarrator {
-	const remaining = labels.map(([key, label]) => ({
-		token: `"${key}"`,
-		label,
-	}));
-	const maxToken = remaining.reduce(
-		(max, entry) => Math.max(max, entry.token.length),
-		0,
-	);
-	let window = "";
+	const byKey = new Map(labels);
+	// Each UTF-16 code unit can be spelled as six ASCII characters (\\uXXXX).
+	const maxKeyBytes = Math.max(0, ...labels.map(([key]) => key.length)) * 6 + 2;
+	let depth = 0;
+	let inString = false;
+	let escaped = false;
+	let keyToken: string | undefined;
+	let pendingKey: string | undefined;
 	let current: string | undefined;
 	return {
-		feed(deltaText: string): string | undefined {
-			window = (window + deltaText).slice(-(maxToken + deltaText.length));
-			/* Several keys can land in one delta (a fast stream); the current
-			 * step is the LATEST one appearing in the text. */
-			let bestPos = -1;
-			for (let i = remaining.length - 1; i >= 0; i -= 1) {
-				const entry = remaining[i];
-				if (entry === undefined) continue;
-				const pos = window.lastIndexOf(entry.token);
-				if (pos < 0) continue;
-				if (pos > bestPos) {
-					bestPos = pos;
-					current = entry.label;
+		feed(deltaText) {
+			for (const char of deltaText) {
+				if (inString) {
+					if (keyToken !== undefined) {
+						keyToken += char;
+						if (keyToken.length > maxKeyBytes) keyToken = undefined;
+					}
+					if (escaped) {
+						escaped = false;
+						continue;
+					}
+					if (char === "\\") {
+						escaped = true;
+						continue;
+					}
+					if (char !== '"') continue;
+					inString = false;
+					if (keyToken !== undefined) {
+						try {
+							const decoded: unknown = JSON.parse(keyToken);
+							pendingKey = typeof decoded === "string" ? decoded : undefined;
+						} catch {
+							pendingKey = undefined;
+						}
+					}
+					continue;
 				}
-				remaining.splice(i, 1);
+				if (/\s/.test(char)) continue;
+				if (char === ":" && depth === 1 && pendingKey !== undefined) {
+					current = byKey.get(pendingKey) ?? current;
+				}
+				pendingKey = undefined;
+				if (char === '"') {
+					inString = true;
+					keyToken = depth === 1 ? '"' : undefined;
+				} else if (char === "{" || char === "[") depth += 1;
+				else if (char === "}" || char === "]") depth -= 1;
 			}
 			return current;
 		},

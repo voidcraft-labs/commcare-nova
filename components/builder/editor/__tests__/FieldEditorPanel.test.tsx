@@ -1,18 +1,15 @@
 /**
  * FieldEditorPanel: pure registry-driven contract tests.
  *
- * Two contracts live here, both exercised against the real per-kind
+ * The section-content contract is exercised against the real per-kind
  * schemas in `fieldEditorSchemas`:
  *
  *   1. Section visibility: `sectionHasContent` decides whether the
  *      panel mounts each card (Data / Logic / Appearance). The card
  *      skips when no entry would render and mounts otherwise.
  *
- *   2. `valueOnAdd` on `required`: every kind that exposes a
- *      `required` entry must declare `valueOnAdd: ALWAYS_REQUIRED_EXPRESSION`,
- *      so clicking "+ Required" turns the toggle on in one click
- *      rather than mounting an empty editor that the user has to
- *      manually flip.
+ * Required pill activation uses FieldEditorSection and its actual
+ * requiredEntry factory in the native browser suite.
  *
  * Rendered chrome (CSS, motion transitions, label ordering) belongs
  * in Playwright.
@@ -20,15 +17,9 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	type Field,
-	fieldKinds,
-	type GroupField,
-	type TextField,
-} from "@/lib/domain";
+import type { Field, GroupField, TextField } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { fieldEditorSchemas } from "../fieldEditorSchemas";
-import { ALWAYS_REQUIRED_EXPRESSION } from "../fields/requiredState";
 import { sectionHasContent } from "../partitionEditorEntries";
 
 // Trivial fixtures: only the discriminant + identity keys are read by
@@ -96,56 +87,4 @@ describe("FieldEditorPanel section visibility", () => {
 			ui: false,
 		});
 	});
-
-	it("a kind with empty data + ui sections never mounts those cards", () => {
-		// Regression pin for the panel's contract: the schema-empty + no-
-		// addable case must short-circuit to false so the panel doesn't
-		// mount a labelled-but-empty card. Group is the canonical example.
-		const sections = panelSections(groupField());
-		expect(sections.data).toBe(false);
-		expect(sections.ui).toBe(false);
-	});
-});
-
-describe("required entry — valueOnAdd contract", () => {
-	// Pins the section-pill UX rule registry-wide: clicking "+ Required"
-	// turns the toggle on, not off. The entry's `valueOnAdd` is what
-	// FieldEditorSection writes through `updateField` on pill click,
-	// instead of the empty-editor + autoFocus dance the other addable
-	// entries take. Without it, the user would have to click twice (add
-	// property → flip toggle) to express one decision.
-	//
-	// Iterating `fieldKinds` and scanning every section of every schema
-	// means a future kind that inlines a bare `{ key: "required" }`
-	// entry without going through the `requiredEntry()` factory fails
-	// here: the contract follows the registry instead of mirroring it.
-
-	// Per-kind variants reference different `FieldEditorEntry<F>` shapes
-	// that TS can't correlate when the schema is indexed by a
-	// `kind: FieldKind` value. The cast collapses the union to the
-	// minimal record this contract reads (`key` + `valueOnAdd`); a
-	// stricter type would just be ceremony.
-	interface ContractEntry {
-		key: string;
-		valueOnAdd?: unknown;
-	}
-
-	it.each(fieldKinds)(
-		"%s schema's `required` entries (any section) write ALWAYS_REQUIRED on pill click",
-		(kind) => {
-			const schema = fieldEditorSchemas[kind] as unknown as {
-				data: readonly ContractEntry[];
-				logic: readonly ContractEntry[];
-				ui: readonly ContractEntry[];
-			};
-			const sections = [schema.data, schema.logic, schema.ui];
-			for (const section of sections) {
-				for (const entry of section) {
-					if (entry.key === "required") {
-						expect(entry.valueOnAdd).toBe(ALWAYS_REQUIRED_EXPRESSION);
-					}
-				}
-			}
-		},
-	);
 });

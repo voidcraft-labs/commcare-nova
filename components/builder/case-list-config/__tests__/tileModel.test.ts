@@ -35,12 +35,9 @@ import {
 function column(
 	id: string,
 	header: string,
-	slots: Partial<Column> = {},
+	slots: Parameters<typeof plainColumn>[3] = {},
 ): Column {
-	return {
-		...plainColumn(testUuid(id), id, header),
-		...slots,
-	} as Column;
+	return plainColumn(testUuid(id), id, header, slots);
 }
 
 const NAME = column("case_name", "Patient name", {
@@ -362,13 +359,7 @@ describe("placementForJoiningTile", () => {
 		);
 		expect(place).not.toBeNull();
 		if (place === null) return;
-		expect(
-			planColumnTilePlacement({
-				config: config([NAME, VILLAGE, taken]),
-				column: taken,
-				geometry: place,
-			}).ok,
-		).toBe(true);
+		expect(place).toEqual(tileCell(0, 1, 6, 1));
 	});
 
 	it("keeps the size the author chose when it moves", () => {

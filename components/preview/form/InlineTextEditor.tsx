@@ -280,9 +280,8 @@ export function InlineTextEditor({
 
 	/**
 	 * TipTap keyboard extension for Tab/Shift+Tab navigation between
-	 * TextEditable instances. On Tab: save current editor, find next
-	 * [data-text-editable] in DOM order, click it to activate. On Escape:
-	 * save and deactivate.
+	 * TextEditable instances. Resolve the next target before save unmounts
+	 * the current editor. Escape cancels the draft.
 	 */
 	const keyboardExtension = useMemo(
 		() =>
@@ -291,15 +290,13 @@ export function InlineTextEditor({
 				addKeyboardShortcuts() {
 					return {
 						Tab: ({ editor }) => {
-							if (saveRef.current(editor)) {
-								requestAnimationFrame(() => activateAdjacentEditable("next"));
-							}
+							const next = adjacentEditable(editor.view.dom, "next");
+							if (saveRef.current(editor)) next?.click();
 							return true;
 						},
 						"Shift-Tab": ({ editor }) => {
-							if (saveRef.current(editor)) {
-								requestAnimationFrame(() => activateAdjacentEditable("prev"));
-							}
+							const previous = adjacentEditable(editor.view.dom, "prev");
+							if (saveRef.current(editor)) previous?.click();
 							return true;
 						},
 						"Mod-Enter": ({ editor }) => {
@@ -417,24 +414,18 @@ export function InlineTextEditor({
  * Find and click the next or previous [data-text-editable] element
  * in DOM order to activate its InlineTextEditor.
  */
-function activateAdjacentEditable(direction: "next" | "prev") {
+function adjacentEditable(
+	editorElement: HTMLElement,
+	direction: "next" | "prev",
+): HTMLElement | undefined {
 	const all = Array.from(
 		document.querySelectorAll<HTMLElement>("[data-text-editable]"),
 	);
-	/* Find the currently active editable: the one whose InlineTextEditor just saved. */
-	const active =
-		(document.activeElement?.closest(
-			"[data-text-editable]",
-		) as HTMLElement | null) ??
-		all.find((el) => el.querySelector(".ProseMirror"));
-	if (!active) return;
-
-	const idx = all.indexOf(active);
-	if (idx === -1) return;
-
-	const targetIdx =
-		direction === "next"
-			? (idx + 1) % all.length
-			: (idx - 1 + all.length) % all.length;
-	all[targetIdx]?.click();
+	const active = editorElement.closest<HTMLElement>("[data-text-editable]");
+	if (active === null || all.length < 2) return undefined;
+	const index = all.indexOf(active);
+	if (index < 0) return undefined;
+	return all[
+		(index + (direction === "next" ? 1 : all.length - 1)) % all.length
+	];
 }

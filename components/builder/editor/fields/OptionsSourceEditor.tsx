@@ -12,7 +12,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import { useCallback, useId, useMemo, useState } from "react";
-import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import type { EditorFormFieldDecl } from "@/components/builder/shared/formFieldPresentation";
@@ -30,51 +30,28 @@ import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import {
-	asUuid,
-	DEFAULT_SELECT_OPTIONS,
-	type InlineOptionsSource,
-	type LookupColumnId,
-	type LookupOptionsSource,
-	type LookupTableId,
-	type MultiSelectField,
-	type SelectOptionsSource,
-	type SingleSelectField,
+import type {
+	InlineOptionsSource,
+	LookupOptionsSource,
+	LookupTableId,
+	MultiSelectField,
+	SelectOptionsSource,
+	SingleSelectField,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import type { Predicate } from "@/lib/domain/predicate";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { OptionsEditorWidget } from "./OptionsEditor";
+import {
+	beginOptionsSource,
+	completeLookupSource,
+	type LookupSourceDraft,
+	type SourceDraft,
+	withoutFilter,
+} from "./optionsSourceModel";
 
 const INLINE = "inline";
-
-interface LookupSourceDraft {
-	readonly kind: "lookup";
-	readonly tableId: LookupTableId;
-	readonly valueColumnId?: LookupColumnId;
-	readonly labelColumnId?: LookupColumnId;
-	readonly filter?: Predicate;
-}
-
-type SourceDraft = InlineOptionsSource | LookupSourceDraft;
-
-function freshInlineSource(): InlineOptionsSource {
-	return {
-		kind: "inline",
-		options: DEFAULT_SELECT_OPTIONS.map((option) => ({
-			...option,
-			uuid: asUuid(crypto.randomUUID()),
-		})),
-	};
-}
-
-function withoutFilter(
-	source: LookupSourceDraft | LookupOptionsSource,
-): Omit<typeof source, "filter"> {
-	const { filter: _filter, ...identity } = source;
-	return identity;
-}
 
 /**
  * Generic across only the two select kinds. Both declare the same canonical
@@ -138,32 +115,14 @@ export function OptionsSourceEditor<
 	const selectedSource = active.kind === "inline" ? INLINE : active.tableId;
 
 	const beginSource = (next: string | null): void => {
-		if (next === null) return;
+		const transition = beginOptionsSource(source, next, tables);
+		if (transition.kind === "unchanged") return;
+		if (transition.kind === "refused") {
+			setRejection(transition.reason);
+			return;
+		}
 		setRejection(null);
-		if (next === INLINE) {
-			if (source.kind === "inline") {
-				setDraft(null);
-				return;
-			}
-			setDraft(freshInlineSource());
-			return;
-		}
-		const selectedTable = tables.find((candidate) => candidate.id === next);
-		if (selectedTable === undefined) {
-			setRejection(
-				"That Project data table is no longer available. Choose another table.",
-			);
-			return;
-		}
-		const tableId = selectedTable.id;
-		if (source.kind === "lookup" && source.tableId === tableId) {
-			setDraft(null);
-			return;
-		}
-		/* Columns intentionally start unchosen. Silently binding both roles to
-		 * the first column makes a complete-looking source without the author
-		 * ever saying which value is stored or shown. */
-		setDraft({ kind: "lookup", tableId });
+		setDraft(transition.draft);
 	};
 
 	const writeLookup = (next: LookupSourceDraft | LookupOptionsSource): void => {
@@ -193,25 +152,10 @@ export function OptionsSourceEditor<
 		writeLookup(next === undefined ? identity : { ...identity, filter: next });
 	};
 
-	const completeLookupDraft = useMemo<LookupOptionsSource | undefined>(() => {
-		if (
-			draft?.kind !== "lookup" ||
-			table === undefined ||
-			draft.valueColumnId === undefined ||
-			draft.labelColumnId === undefined ||
-			!table.columns.some((column) => column.id === draft.valueColumnId) ||
-			!table.columns.some((column) => column.id === draft.labelColumnId)
-		) {
-			return undefined;
-		}
-		return {
-			kind: "lookup",
-			tableId: draft.tableId,
-			valueColumnId: draft.valueColumnId,
-			labelColumnId: draft.labelColumnId,
-			...(draft.filter === undefined ? {} : { filter: draft.filter }),
-		};
-	}, [draft, table]);
+	const completeLookupDraft = useMemo(
+		() => completeLookupSource(draft, table),
+		[draft, table],
+	);
 
 	return (
 		<div className="space-y-3" data-field-id="options-source">
@@ -244,6 +188,15 @@ export function OptionsSourceEditor<
 					</SelectTrigger>
 					<SelectContent>
 						<SelectItem value={INLINE}>Options in this question</SelectItem>
+						{/* Keep a missing saved identity represented. Base UI otherwise
+						 * treats catalog removal as a value change and restores the initial
+						 * inline option, which would incorrectly stage a new source. */}
+						{activeLookup !== undefined &&
+						!tablesById.has(activeLookup.tableId) ? (
+							<SelectItem value={activeLookup.tableId} disabled>
+								A data table that is no longer available
+							</SelectItem>
+						) : null}
 						{tables.map((candidate) => (
 							<SelectItem key={candidate.id} value={candidate.id} wrap>
 								{candidate.name}

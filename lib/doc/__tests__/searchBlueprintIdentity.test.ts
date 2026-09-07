@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import {
 	asUuid,
@@ -7,6 +9,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
 const FORM = asUuid("22222222-2222-4222-8222-222222222222");
@@ -15,11 +18,16 @@ const COLUMN = asUuid("44444444-4444-4444-8444-444444444444");
 const INPUT = asUuid("55555555-5555-4555-8555-555555555555");
 
 function identityFixture(): BlueprintDoc {
-	return {
+	const doc: BlueprintDoc = {
 		appId: "search-identity",
 		appName: "Search identity",
 		connectType: null,
-		caseTypes: null,
+		caseTypes: [
+			{
+				name: "target_case",
+				properties: [{ name: "target_property", label: proseText("Value") }],
+			},
+		],
 		modules: {
 			[MODULE]: {
 				uuid: MODULE,
@@ -47,7 +55,7 @@ function identityFixture(): BlueprintDoc {
 				uuid: FORM,
 				id: "target_form",
 				name: "Target form",
-				type: "registration",
+				type: "followup",
 			},
 		},
 		fields: {
@@ -61,8 +69,10 @@ function identityFixture(): BlueprintDoc {
 		moduleOrder: [MODULE],
 		formOrder: { [MODULE]: [FORM] },
 		fieldOrder: { [FORM]: [FIELD] },
-		fieldParent: {},
+		fieldParent: { [FIELD]: FORM },
 	};
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("searchBlueprint identity projection", () => {
@@ -120,20 +130,34 @@ describe("searchBlueprint identity projection", () => {
 		]);
 	});
 
-	it("never serializes retired index, path, generic, or container addresses", () => {
-		const json = JSON.stringify(searchBlueprint(identityFixture(), "Target"));
-
-		for (const retired of [
-			"moduleIndex",
-			"formIndex",
-			"fieldPath",
-			'"uuid":',
-			"containerUuid",
-			"m0-f0",
-			"Module 0",
-			"Form 0",
-		]) {
-			expect(json).not.toContain(retired);
-		}
+	it("keeps follow-up addresses stable after field and form identifiers change", () => {
+		const doc = identityFixture();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{ kind: "renameForm", uuid: FORM, newId: "renamed_form" },
+				{
+					kind: "updateField",
+					uuid: FIELD,
+					targetKind: "text",
+					patch: { id: "renamed_field" },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const result = searchBlueprint(verdict.nextDoc, "Target field");
+		expect(result).toEqual([
+			{
+				type: "field",
+				moduleUuid: MODULE,
+				formUuid: FORM,
+				fieldUuid: FIELD,
+				field: "label",
+				value: "Target field",
+				context:
+					'Menu "Target module" > Form "renamed_form" > Field "renamed_field" (text)',
+			},
+		]);
 	});
 });

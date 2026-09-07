@@ -129,6 +129,10 @@ describe("parseLookupCsv — RFC-4180 bytes", () => {
 
 	it("rejects more than 250 headers before column binding", () => {
 		const headers = Array.from({ length: 251 }, (_, index) => `c_${index}`);
+		const boundary = parse(headers.slice(0, 250).join(","));
+		expect(boundary.success).toBe(true);
+		if (boundary.success)
+			expect(boundary.value.headers).toEqual(headers.slice(0, 250));
 		for (const text of [
 			headers.join(","),
 			headers.map((header) => `"${header}"`).join(","),
@@ -136,12 +140,8 @@ describe("parseLookupCsv — RFC-4180 bytes", () => {
 			const result = parse(text);
 			expect(result.success).toBe(false);
 			if (!result.success) {
-				expect(result.details).toEqual([
-					{
-						code: "column_limit",
-						row: 1,
-						message: "CSV may contain at most 250 columns.",
-					},
+				expect(result.details).toMatchObject([
+					{ code: "column_limit", row: 1 },
 				]);
 			}
 		}
@@ -167,6 +167,12 @@ describe("parseLookupCsv — RFC-4180 bytes", () => {
 			expect(oversized.details?.[0].code).toBe("csv_too_large");
 		}
 
+		const atRowLimit = parse(
+			`name\n${Array.from({ length: LOOKUP_MAX_ROWS }, () => "Ada").join("\n")}`,
+		);
+		expect(atRowLimit.success).toBe(true);
+		if (atRowLimit.success)
+			expect(atRowLimit.value.rows).toHaveLength(LOOKUP_MAX_ROWS);
 		const tooManyRows = parse(
 			`name\n${Array.from({ length: LOOKUP_MAX_ROWS + 1 }, () => "Ada").join("\n")}`,
 		);

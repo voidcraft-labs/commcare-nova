@@ -28,7 +28,6 @@
  */
 
 "use client";
-import { dropTargetForElements } from "@atlaskit/pragmatic-drag-and-drop/adapter/element-adapter";
 import { autoScrollForElements } from "@atlaskit/pragmatic-drag-and-drop-auto-scroll/element";
 import { Menu } from "@base-ui/react/menu";
 import {
@@ -45,7 +44,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { DragStateProvider } from "@/components/builder/contexts/DragStateContext";
 import type { Uuid } from "@/lib/doc/types";
 import { useSelectedField } from "@/lib/routing/hooks";
 import {
@@ -61,6 +59,7 @@ import {
 } from "../FieldPickerContext";
 import { FieldTypePickerPopup } from "../FieldTypePicker";
 import { useFormLayout } from "../FormLayoutContext";
+import { DropPlaceholderRow } from "./DropPlaceholderRow";
 import { isDraggableFieldData } from "./dragData";
 import type { FormRow } from "./rowModel";
 import {
@@ -148,8 +147,10 @@ export const VirtualFormList = memo(function VirtualFormList({
 	// only needs the reactive placeholder position; insertion-point reveal
 	// state lives in the surface-wide insertion-intent model below.
 
-	const { dragActive, setDragActive, placeholderIndex, placeholderDepth } =
-		useDragIntent({ formUuid, baseRowsRef });
+	const { dragActive, placeholderIndex, placeholderDepth } = useDragIntent({
+		formUuid,
+		baseRowsRef,
+	});
 
 	// REPLACE the insertion row at the drop position with a taller
 	// placeholder. The row count stays the same, every other row keeps
@@ -328,44 +329,42 @@ export const VirtualFormList = memo(function VirtualFormList({
 					toggleCollapse={toggleCollapse}
 					isCollapsed={isCollapsed}
 				>
-					<DragStateProvider isActive={dragActive} setActive={setDragActive}>
+					<div
+						ref={scrollerRef}
+						data-preview-scroll-container
+						data-insertion-surface
+						className="relative h-full overflow-auto"
+						style={{ contain: "strict" }}
+					>
 						<div
-							ref={scrollerRef}
-							data-preview-scroll-container
-							data-insertion-surface
-							className="relative h-full overflow-auto"
-							style={{ contain: "strict" }}
+							style={{
+								height: totalSize,
+								width: "100%",
+								position: "relative",
+							}}
 						>
-							<div
-								style={{
-									height: totalSize,
-									width: "100%",
-									position: "relative",
-								}}
-							>
-								{virtualItems.map((vi) => {
-									const row = rows[vi.index];
-									if (!row) return null;
-									return (
-										<div
-											key={vi.key}
-											ref={virtualizer.measureElement}
-											data-index={vi.index}
-											style={{
-												position: "absolute",
-												top: 0,
-												left: 0,
-												width: "100%",
-												transform: `translateY(${vi.start}px)`,
-											}}
-										>
-											<RenderRow row={row} disableInsertion={dragActive} />
-										</div>
-									);
-								})}
-							</div>
+							{virtualItems.map((vi) => {
+								const row = rows[vi.index];
+								if (!row) return null;
+								return (
+									<div
+										key={vi.key}
+										ref={virtualizer.measureElement}
+										data-index={vi.index}
+										style={{
+											position: "absolute",
+											top: 0,
+											left: 0,
+											width: "100%",
+											transform: `translateY(${vi.start}px)`,
+										}}
+									>
+										<RenderRow row={row} disableInsertion={dragActive} />
+									</div>
+								);
+							})}
 						</div>
-					</DragStateProvider>
+					</div>
 
 					<Menu.Root handle={fieldPickerHandle} modal={false}>
 						{({ payload }: { payload: FieldPickerPayload | undefined }) =>
@@ -510,41 +509,4 @@ function GroupNestingRails({ depth }: { depth: number }) {
 		);
 	}
 	return <>{rails}</>;
-}
-
-// ── Drop placeholder row ────────────────────────────────────────────
-
-/**
- * The visible gap that opens at the drop position during drag. Registered
- * as a `dropTargetForElements` so the browser accepts the native drop
- * (calls `preventDefault` on `dragover`): without this, the browser
- * rejects the drop, plays its snap-back animation, and THEN our monitor
- * fires the mutation, producing a jarring delay.
- */
-function DropPlaceholderRow({ depth }: { depth: number }) {
-	const ref = useRef<HTMLDivElement | null>(null);
-
-	useEffect(() => {
-		const el = ref.current;
-		if (!el) return;
-		return dropTargetForElements({
-			element: el,
-			// Accept anything: the monitor handles the actual mutation.
-			getData: () => ({ kind: "drop-placeholder" }),
-		});
-	}, []);
-
-	return (
-		<div
-			ref={ref}
-			style={{
-				paddingLeft: depthPadding(depth),
-				paddingRight: depthPadding(depth),
-				paddingTop: INSERTION_REST_HEIGHT_PX / 2,
-				paddingBottom: INSERTION_REST_HEIGHT_PX / 2,
-			}}
-		>
-			<div className="h-[56px] rounded-lg border-2 border-dashed border-nova-violet bg-nova-violet/20" />
-		</div>
-	);
 }

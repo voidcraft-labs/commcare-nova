@@ -1,0 +1,161 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<suite version="1" descriptor="Suite File">
+  <detail id="m0_case_short">
+    <title>
+      <text>
+        <locale id="cchq.case"/>
+      </text>
+    </title>
+    <field>
+      <header>
+        <text>
+          <locale id="m0.case_short.case_case_name_1.header"/>
+        </text>
+      </header>
+      <template>
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </template>
+      <sort type="string" order="1" direction="ascending">
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </sort>
+    </field>
+  </detail>
+  <detail id="m0_case_long">
+    <title>
+      <text>
+        <locale id="cchq.case"/>
+      </text>
+    </title>
+    <field>
+      <header>
+        <text>
+          <locale id="m0.case_long.case_case_name_1.header"/>
+        </text>
+      </header>
+      <template>
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </template>
+    </field>
+  </detail>
+  <detail id="m1_case_short">
+    <title>
+      <text>
+        <locale id="cchq.case"/>
+      </text>
+    </title>
+    <field>
+      <header>
+        <text>
+          <locale id="m1.case_short.case_case_name_1.header"/>
+        </text>
+      </header>
+      <template>
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </template>
+      <sort type="string" order="1" direction="ascending">
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </sort>
+    </field>
+  </detail>
+  <detail id="m1_case_long">
+    <title>
+      <text>
+        <locale id="cchq.case"/>
+      </text>
+    </title>
+    <field>
+      <header>
+        <text>
+          <locale id="m1.case_long.case_case_name_1.header"/>
+        </text>
+      </header>
+      <template>
+        <text>
+          <xpath function="case_name"/>
+        </text>
+      </template>
+    </field>
+  </detail>
+  <entry>
+    <form>http://openrosa.org/formdesigner/fd6e5835349de6e1</form>
+    <post url="https://www.commcarehq.org/a/nova-search-evidence/phone/claim-case/" relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]) = 0">
+      <data key="case_id" ref="instance('commcaresession')/session/data/case_id"/>
+    </post>
+    <command id="m0-f0">
+      <text>
+        <locale id="forms.m0f0"/>
+      </text>
+    </command>
+    <instance id="casedb" src="jr://instance/casedb"/>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <instance id="results:inline" src="jr://instance/remote/results:inline"/>
+    <session>
+      <query url="https://www.commcarehq.org/a/nova-search-evidence/phone/search/search-evidence/" storage-instance="results:inline" template="case" default_search="true">
+        <title>
+          <text>
+            <locale id="case_search.m0.inputs"/>
+          </text>
+        </title>
+        <data key="case_type" ref="'patient'"/>
+        <prompt key="search_time" hidden="true" default="'now'" exclude="true()">
+          <display>
+            <text>
+              <locale id="search_property.m0.search_time"/>
+            </text>
+          </display>
+        </prompt>
+      </query>
+      <datum id="case_id" nodeset="instance('results:inline')/results/case[@case_type='patient'][@status='open'][not(commcare_is_related_case=true())]" value="./@case_id" detail-select="m0_case_short" detail-confirm="m0_case_long"/>
+    </session>
+    <stack>
+      <create>
+        <command value="'m0'"/>
+      </create>
+    </stack>
+  </entry>
+  <entry>
+    <form>http://openrosa.org/formdesigner/60d91c02ad277972</form>
+    <command id="m1-f0">
+      <text>
+        <locale id="forms.m1f0"/>
+      </text>
+    </command>
+    <instance id="commcaresession" src="jr://instance/session"/>
+    <session>
+      <datum id="case_id_new_patient_0" function="uuid()"/>
+    </session>
+    <stack>
+      <create>
+        <command value="'m0'"/>
+        <query id="results:inline" value="https://www.commcarehq.org/a/nova-search-evidence/phone/case_fixture/search-evidence/">
+          <data key="case_type" ref="'patient'"/>
+          <data key="case_id" ref="instance('commcaresession')/session/data/case_id"/>
+        </query>
+        <datum id="case_id" value="instance('commcaresession')/session/data/case_id_new_patient_0"/>
+        <command value="'m0-f0'"/>
+      </create>
+    </stack>
+  </entry>
+  <menu id="m0">
+    <text>
+      <locale id="modules.m0"/>
+    </text>
+    <command id="m0-f0"/>
+  </menu>
+  <menu id="m1">
+    <text>
+      <locale id="modules.m1"/>
+    </text>
+    <command id="m1-f0"/>
+  </menu>
+</suite>

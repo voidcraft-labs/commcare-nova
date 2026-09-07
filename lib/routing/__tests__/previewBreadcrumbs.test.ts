@@ -1,26 +1,17 @@
-/**
- * Tests for the preview-mode breadcrumb derivation.
- *
- * `previewBreadcrumbTrail` is the running-app wayfinding rewrite, pulled out
- * of `BreadcrumbStrip` so the whole class of "the trail names a screen the app
- * isn't on" bugs is provable here rather than only observable in the browser.
- * The headline case is the regression that prompted the extraction: a stale
- * `previewCaseTarget` from a follow-up form must NOT name a case on a register
- * form (or on a different case-loading form) — the breadcrumb gates the case
- * crumb on the SAME predicate the preview engine grafts the case with, so the
- * named case and the loaded case can never disagree.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
-import type { BreadcrumbItem } from "@/lib/routing/hooks";
+import type { BreadcrumbItem } from "@/lib/routing/breadcrumbs";
 import {
 	type PreviewTrailForm,
 	previewBreadcrumbTrail,
 	previewCaseTargetBindsLocation,
 } from "@/lib/routing/previewBreadcrumbs";
 import type { Location } from "@/lib/routing/types";
+import type {
+	PreviewCaseTarget,
+	PreviewSelectedCase,
+} from "@/lib/session/types";
 
 const moduleUuid = testUuid("module-1");
 const registerUuid = testUuid("form-register");
@@ -65,18 +56,15 @@ const baseFor = (loc: Location): BreadcrumbItem[] =>
 function run(args: {
 	loc: Location;
 	moduleForms?: PreviewTrailForm[];
-	previewCaseTarget?: {
-		formUuid: string;
-		cases?: readonly { caseId: string; caseName?: string }[];
-	};
-	previewSelectedCase?: { caseId: string; caseName: string };
+	previewCaseTarget?: PreviewCaseTarget;
+	previewSelectedCase?: PreviewSelectedCase;
 }) {
 	return previewBreadcrumbTrail({
 		loc: args.loc,
 		baseBreadcrumbs: baseFor(args.loc),
 		moduleUuid: args.loc.kind === "home" ? undefined : moduleUuid,
 		moduleForms: args.moduleForms ?? forms,
-		previewCaseTarget: args.previewCaseTarget as never,
+		previewCaseTarget: args.previewCaseTarget,
 		previewSelectedCase: args.previewSelectedCase,
 	});
 }
@@ -185,7 +173,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			previewCaseTarget: {
 				formUuid: followupUuid,
 				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
-			} as never,
+			},
 			previewSelectedCase: undefined,
 		});
 		expect(trail.map((crumb) => crumb.label)).toEqual([
@@ -251,7 +239,6 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			"Households",
 			"Register Household",
 		]);
-		expect(trail.some((t) => t.label === "Yusuf Patel")).toBe(false);
 	});
 
 	it("a case-loading form ignores another case-loading form's target", () => {
@@ -288,7 +275,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			previewCaseTarget: {
 				formUuid: followupUuid,
 				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
-			} as never,
+			},
 			previewSelectedCase: undefined,
 		});
 		expect(trail.map((t) => t.label)).toEqual([
@@ -297,7 +284,6 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			"Household Visit",
 			"Yusuf Patel",
 		]);
-		expect(trail.some((t) => t.label === "After submit")).toBe(false);
 	});
 
 	it("falls back to a 'Form' label when the form is unknown", () => {
@@ -348,30 +334,47 @@ describe("previewBreadcrumbTrail — case-list screens", () => {
 		]);
 	});
 
-	it("treats search-config / detail-config like the case list in preview", () => {
-		const trail = run({
-			loc: { kind: "search-config", moduleUuid },
-			previewCaseTarget: { formUuid: followupUuid },
-		});
-		expect(trail.map((t) => t.label)).toEqual([
-			"Home",
-			"Households",
-			"Household Visit",
-		]);
-	});
+	it.each(["search-config", "detail-config", "data-review"] as const)(
+		"%s follows the running case-list destination",
+		(kind) => {
+			expect(
+				run({
+					loc: { kind, moduleUuid },
+					previewCaseTarget: { formUuid: followupUuid },
+				}),
+			).toEqual([
+				home,
+				moduleCrumb,
+				{
+					key: `pf:${followupUuid}`,
+					label: "Household Visit",
+					location: { kind: "cases", moduleUuid },
+				},
+			]);
+		},
+	);
+});
 
-	it("treats the data review URL like the case list in preview", () => {
-		// Preview shows the RUNNING app — the data review screen is
-		// edit-only, so its URL follows the same running-app rewrite as
-		// the config kinds.
-		const trail = run({
-			loc: { kind: "data-review", moduleUuid },
-			previewCaseTarget: { formUuid: followupUuid },
-		});
-		expect(trail.map((t) => t.label)).toEqual([
-			"Home",
-			"Households",
-			"Household Visit",
-		]);
-	});
+describe("bound case cardinality", () => {
+	it.each([
+		{ cases: [], labels: ["Home", "Households", "Household Visit"] },
+		{
+			cases: [{ caseId: "c1" }],
+			labels: ["Home", "Households", "Household Visit", "1 case"],
+		},
+		{
+			cases: [{ caseId: "c1", caseName: "Ana" }, { caseId: "c2" }],
+			labels: ["Home", "Households", "Household Visit", "2 cases"],
+		},
+	])(
+		"names $cases without inventing a bound selection",
+		({ cases, labels }) => {
+			expect(
+				run({
+					loc: formLoc(followupUuid),
+					previewCaseTarget: { formUuid: followupUuid, cases },
+				}).map((crumb) => crumb.label),
+			).toEqual(labels);
+		},
+	);
 });

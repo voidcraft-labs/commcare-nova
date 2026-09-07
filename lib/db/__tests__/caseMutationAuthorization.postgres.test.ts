@@ -183,7 +183,7 @@ describe("case mutation authorization", () => {
 		expect(row).toEqual({ status: "open", project_id: OTHER_PROJECT });
 	});
 
-	it("rejects every write after the actor loses edit capability", async () => {
+	it("rejects inserts after the actor loses edit capability", async () => {
 		const appId = await seedAuthorizedApp();
 		await h.seedProjectMember(USER, PROJECT, "viewer");
 

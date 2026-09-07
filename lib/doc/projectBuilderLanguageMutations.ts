@@ -94,7 +94,11 @@ export function projectBuilderLanguageMutations(
 					: "That value is not valid for this worker-facing translation. Edit it in Languages and try again.";
 			return unit.source;
 		}
-		const current = localizeTranslationUnit(doc, language, unit).effective;
+		// Compare with the preceding edit in this batch. Reading only the
+		// original overlay loses a later edit that restores the original value.
+		const current = targetWrites.has(id)
+			? (targetWrites.get(id)?.value ?? unit.source)
+			: localizeTranslationUnit(doc, language, unit).effective;
 		if (!sameValue(current, presented)) {
 			targetWrites.set(id, {
 				value: structuredClone(presented),
@@ -111,7 +115,10 @@ export function projectBuilderLanguageMutations(
 	const redirectClear = (id: TranslationUnitId): boolean => {
 		const unit = units.get(id);
 		if (unit === undefined) return false;
-		if (localization.translations[language]?.[id] !== undefined) {
+		if (
+			targetWrites.has(id) ||
+			localization.translations[language]?.[id] !== undefined
+		) {
 			targetWrites.set(id, null);
 		}
 		return true;

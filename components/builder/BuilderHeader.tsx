@@ -28,9 +28,9 @@
  *
  * Portal-opening header controls stay unmounted while app access is
  * unresolved, so the access mask never leaves a visible button whose popup is
- * intentionally quarantined. That now includes the account control, which the
- * band owns: the claim carries permission to show it. The mark is never one of
- * them — it renders in every phase.
+ * intentionally quarantined. The account control also portals from here, so
+ * its Files dialog reads live Builder authority and subscribes to synchronous
+ * Project retirement. The mark renders in every phase.
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -54,6 +54,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { AccountMenu } from "@/components/ui/AccountMenu";
 import {
 	HEADER_HANDOFF_DELAY,
 	HeaderCluster,
@@ -142,16 +143,9 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 			homeLabel: "Back to your apps",
 			markOnly: true,
 			stacked,
-			showAccount: accessPhase === "authorized",
-			/* `canManageFiles` is deliberately absent. `MediaPickerDialog`
-			 * resolves `canWriteOverride ?? sessionCanEdit` and its own prop doc
-			 * says to omit it inside the builder so the live session capability
-			 * stays authoritative — an explicit `false` is not "unspecified",
-			 * it is a hard read-only that takes upload and delete away from an
-			 * editor who had them. */
 			handoff: !openedWithApp.current,
 		});
-	}, [claim, beforeAnyApp, stacked, accessPhase]);
+	}, [claim, beforeAnyApp, stacked]);
 	useEffect(() => () => claim?.(null), [claim]);
 
 	const documentActions = showAccessStatus ? (
@@ -274,6 +268,9 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 		<>
 			{slots?.center ? createPortal(center, slots.center) : null}
 			{slots?.actions ? createPortal(actions, slots.actions) : null}
+			{slots?.account && !beforeAnyApp && accessPhase === "authorized"
+				? createPortal(<AccountMenu appId={appId} />, slots.account)
+				: null}
 		</>
 	);
 }

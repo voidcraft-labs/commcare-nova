@@ -1,19 +1,21 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	enableCaseSearchMutation,
 	setOwnerOnlyCaseSearchMutation,
 } from "@/lib/doc/caseSearchConfigMutations";
-import { applyMutations } from "@/lib/doc/mutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type CaseSearchConfig,
 	effectiveCaseSearchConfig,
-	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
+	plainColumn,
 } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("10000000-0000-4000-8000-000000000001");
 const INPUT = testUuid("20000000-0000-4000-8000-000000000001");
@@ -27,37 +29,41 @@ const AUTHORED_NEVER: CaseSearchConfig = {
 };
 
 function docWith(config: CaseSearchConfig): BlueprintDoc {
-	return {
+	const doc = buildDoc({
 		appId: "search-provenance",
 		appName: "Search provenance",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[MODULE]: {
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
 				uuid: MODULE,
-				id: "patients",
 				name: "Patients",
 				caseType: "patient",
-				caseListConfig: emptyCaseListConfig(),
+				caseListOnly: true,
+				caseListConfig: {
+					columns: [
+						plainColumn(testUuid("provenance-column"), "case_name", "Name"),
+					],
+					searchInputs: [],
+				},
 				caseSearchConfig: config,
 			},
-		},
-		forms: {},
-		fields: {},
-		moduleOrder: [MODULE],
-		formOrder: { [MODULE]: [] },
-		fieldOrder: {},
-		fieldParent: {},
-	};
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function apply(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, [...mutations]);
-	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 describe("case-search owner-only provenance", () => {
@@ -78,7 +84,7 @@ describe("case-search owner-only provenance", () => {
 			searchButtonDisplayCondition: { kind: "match-none" },
 		};
 		const doc = docWith(neverAction);
-		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toBe(neverAction);
+		expect(effectiveCaseSearchConfig(doc.modules[MODULE])).toEqual(neverAction);
 	});
 
 	it("preserves the Never condition when a Search input is later added", () => {

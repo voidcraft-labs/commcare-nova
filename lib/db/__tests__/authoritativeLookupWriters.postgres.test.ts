@@ -15,7 +15,7 @@
  */
 
 import { Client } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
@@ -44,11 +44,6 @@ import {
 } from "../lookupReferenceEdges";
 import { setupAppStateTestDb } from "./appStateTestDb";
 import { createPerTestAppDb } from "./perTestAppDb";
-
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: vi.fn(async () => "owner"),
-	projectRoleForInTransaction: vi.fn(async () => "owner"),
-}));
 
 const {
 	appendSyntheticBatch,
@@ -82,6 +77,11 @@ const MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
 );
 const WRITER_RACE_ADVISORY_KEY = 20_260_722;
 const DELETE_RACE_ADVISORY_KEY = 20_260_723;
+
+beforeEach(async () => {
+	await h.seedProjectMember(ACTOR, PROJECT_A, "owner");
+	await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
+});
 
 async function backendPid(client: Client): Promise<number> {
 	const result = await client.query<{ pid: number }>(
@@ -703,13 +703,11 @@ describe("lookup materialization versus resource deletion", () => {
 		const blocker = new Client({ connectionString: h.uri() });
 		const deleter = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([
-			blocker.connect(),
-			deleter.connect(),
-			observer.connect(),
-		]);
 		const pending: Promise<unknown>[] = [];
 		try {
+			await blocker.connect();
+			await deleter.connect();
+			await observer.connect();
 			await blocker.query("BEGIN");
 			await blocker.query(
 				"SELECT pg_advisory_xact_lock(hashtext(current_database()), $1)",
@@ -756,13 +754,9 @@ describe("lookup materialization versus resource deletion", () => {
 			);
 			expect(await readTargets(appId)).toEqual(targets);
 		} finally {
-			await Promise.allSettled([
-				blocker.query("ROLLBACK"),
-				deleter.query("ROLLBACK"),
-				observer.query("ROLLBACK"),
-			]);
+			await blocker.end();
 			await Promise.allSettled(pending);
-			await Promise.all([blocker.end(), deleter.end(), observer.end()]);
+			await Promise.all([deleter.end(), observer.end()]);
 		}
 	});
 
@@ -802,9 +796,10 @@ describe("lookup materialization versus resource deletion", () => {
 		const governance = createPerTestAppDb(h.uri());
 		const blocker = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([blocker.connect(), observer.connect()]);
 		const pending: Promise<unknown>[] = [];
 		try {
+			await blocker.connect();
+			await observer.connect();
 			await blocker.query("BEGIN");
 			await blocker.query(
 				"SELECT pg_advisory_xact_lock(hashtext(current_database()), $1)",
@@ -888,12 +883,9 @@ describe("lookup materialization versus resource deletion", () => {
 				.executeTakeFirst();
 			expect(deletedTable).toBeUndefined();
 		} finally {
-			await Promise.allSettled([
-				blocker.query("ROLLBACK"),
-				observer.query("ROLLBACK"),
-			]);
+			await blocker.end();
 			await Promise.allSettled(pending);
-			await Promise.all([blocker.end(), observer.end()]);
+			await observer.end();
 			await governance.destroy();
 		}
 	});
@@ -950,8 +942,6 @@ describe("cross-Project move", () => {
 			table.id,
 			column.id,
 		);
-		await h.seedProjectMember(ACTOR, PROJECT_A, "owner");
-		await h.seedProjectMember(ACTOR, PROJECT_B, "owner");
 		await materializeTargets(appId, PROJECT_A, targets);
 
 		const move = () =>

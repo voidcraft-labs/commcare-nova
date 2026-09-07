@@ -28,12 +28,9 @@
 //     case target, while `<remote-request>`'s `<datum>` references
 //     the search target via `detail-select="m{N}_search_short"`.
 //
-//   - `<title>` referencing `<locale id="cchq.case"/>` — CCHQ's
-//     built-in case-detail title locale, registered with
-//     `default="Case"` at
-//     `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`.
-//     No app-strings entry needed; the runtime resolves the
-//     fallback.
+//   - `<title>` references `<locale id="cchq.case"/>`. Nova's compiler
+//     registers its value in every emitted app-string table. HQ independently
+//     adds the same id when it generates its app strings.
 //
 //   - One `<field>` per column where `visibleInList ?? true`, in
 //     the config's exact Results UUID permutation.
@@ -52,11 +49,8 @@
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
-// The emitter does NOT register the `<title>` text into app_strings
-// — `cchq.case` is CCHQ's built-in locale with a runtime fallback.
-// Authors who want to override the title register `cchq.case`
-// themselves at the app-strings layer (Nova has no such authoring
-// surface today; the runtime fallback is the rendered title).
+// The compiler owns the shared title locale; this emitter returns column
+// strings only. Core has no ambient cchq.case mapping.
 //
 // Search-action element. When the parent module has a
 // `caseSearchConfig`, the case-target short detail carries a
@@ -75,10 +69,10 @@
 // (present) and the same fixture's `detail[@id='m0_search_short']`
 // (no `<action>` child).
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type BlueprintDoc,
 	type CaseTileGrouping,
@@ -321,12 +315,12 @@ export function emitShortDetail(args: {
 	readonly searchAction?: SearchActionContext;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildShortDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
+	return { xml: serializeXml(element), strings, translationUnits };
 }
 
 /**
  * Build the surrounding `<detail>` Element. The title routes through
- * the built-in `cchq.case` locale; the field Elements slot in between
+ * the compiler-registered `cchq.case` locale; the field Elements slot in between
  * the title and the optional `<action>`.
  *
  * When `searchAction` is supplied (the case-target detail of a

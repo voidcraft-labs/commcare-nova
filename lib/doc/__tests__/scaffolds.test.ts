@@ -27,15 +27,9 @@ import {
 } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/doc/types";
 
-import {
-	CASE_SCALAR_PROPERTY_NAMES,
-	type CaseOperation,
-	type Field,
-	type Form,
-	type Module,
-	plainColumn,
-} from "@/lib/domain";
+import { type CaseOperation, type Module, plainColumn } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
 const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
@@ -63,10 +57,10 @@ function emptyDoc(): BlueprintDoc {
  * the shared absolute-gate assertions below prove the born shape itself.
  */
 function baseDoc(): BlueprintDoc {
-	return produce(emptyDoc(), (d) => {
+	const doc = produce(emptyDoc(), (d) => {
 		applyMutation(d, {
 			kind: "addModule",
-			module: { uuid: M("base"), id: "base", name: "Base" } as Module,
+			module: { uuid: M("base"), id: "base", name: "Base" },
 		});
 		applyMutation(d, {
 			kind: "addForm",
@@ -76,7 +70,7 @@ function baseDoc(): BlueprintDoc {
 				id: "base_form",
 				name: "Base form",
 				type: "survey",
-			} as Form,
+			},
 		});
 		applyMutation(d, {
 			kind: "addField",
@@ -86,9 +80,11 @@ function baseDoc(): BlueprintDoc {
 				id: "note",
 				kind: "text",
 				label: proseText("Note"),
-			} as never as Field,
+			},
 		});
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("caseListModuleMutations", () => {
@@ -102,6 +98,7 @@ describe("caseListModuleMutations", () => {
 		);
 
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBe("patient");
@@ -130,6 +127,7 @@ describe("caseListModuleMutations", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		expect(verdict.nextDoc.modules[scaffold.moduleUuid]?.name).toBe(
 			"Home visit",
 		);
@@ -137,9 +135,9 @@ describe("caseListModuleMutations", () => {
 });
 
 describe("caseOperationCatalogMutations", () => {
-	it("never materializes a scalar case column as a catalog property", () => {
+	it("declares only a custom property before committing writable scalar and custom writes", () => {
 		const doc = {
-			...emptyDoc(),
+			...baseDoc(),
 			caseTypes: [{ name: "patient", properties: [] }],
 		};
 		const operation: CaseOperation = {
@@ -147,9 +145,9 @@ describe("caseOperationCatalogMutations", () => {
 			id: "write_scalars",
 			action: "update",
 			caseType: "patient",
-			target: { kind: "session" },
+			target: { kind: "expression", expr: term(literal("patient-id")) },
 			writes: [
-				...[...CASE_SCALAR_PROPERTY_NAMES].map((property) => ({
+				...["external_id"].map((property) => ({
 					property,
 					value: term(literal(property)),
 				})),
@@ -157,6 +155,7 @@ describe("caseOperationCatalogMutations", () => {
 			],
 		};
 
+		assertAdmittedDoc(doc);
 		expect(caseOperationCatalogMutations(doc, operation)).toEqual([
 			{
 				kind: "addCaseProperty",
@@ -167,6 +166,23 @@ describe("caseOperationCatalogMutations", () => {
 				},
 			},
 		]);
+		const result = mutationCommitVerdict(
+			doc,
+			[
+				...caseOperationCatalogMutations(doc, operation),
+				{
+					kind: "updateForm",
+					uuid: F("base"),
+					patch: {},
+					caseOperationChange: { operation: "add", value: operation },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(result.ok, JSON.stringify(result.ok ? [] : result.findings)).toBe(
+			true,
+		);
+		assertAdmittedDoc(result.nextDoc);
 	});
 });
 
@@ -184,6 +200,7 @@ describe("surveyModuleMutations", () => {
 		// NO_FORMS_OR_CASE_LIST (a hard CommCare build error), so the module is
 		// born with a survey form — no case type, but a form.
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		const mod = verdict.nextDoc.modules[scaffold.moduleUuid];
 		expect(mod?.caseType).toBeUndefined();
 		expect(mod?.caseListOnly).toBeFalsy();
@@ -230,7 +247,7 @@ describe("surveyModuleMutations", () => {
 			[
 				{
 					kind: "addModule",
-					module: { uuid: M("bare"), id: "bare", name: "Bare" } as Module,
+					module: { uuid: M("bare"), id: "bare", name: "Bare" },
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -283,6 +300,7 @@ describe("formScaffoldMutations", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		// Born with a default question, never empty.
 		expect(verdict.nextDoc.fieldOrder[scaffold.formUuid]?.length).toBe(1);
 	});
@@ -307,6 +325,7 @@ describe("formScaffoldMutations", () => {
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			);
 			expect(verdict.ok, type).toBe(true);
+			assertAdmittedDoc(verdict.nextDoc);
 		}
 	});
 
@@ -328,6 +347,7 @@ describe("formScaffoldMutations", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		const fieldUuids = verdict.nextDoc.fieldOrder[scaffold.formUuid] ?? [];
 		expect(fieldUuids).toHaveLength(1);
 		expect(verdict.nextDoc.fields[fieldUuids[0]]?.id).toBe("case_name");
@@ -339,13 +359,12 @@ describe("formScaffoldMutations", () => {
 });
 
 describe("caseTypeSetPatch", () => {
-	const moduleWith = (caseListConfig?: Module["caseListConfig"]): Module =>
-		({
-			uuid: M("x"),
-			id: "x",
-			name: "X",
-			...(caseListConfig && { caseListConfig }),
-		}) as Module;
+	const moduleWith = (caseListConfig?: Module["caseListConfig"]): Module => ({
+		uuid: M("x"),
+		id: "x",
+		name: "X",
+		...(caseListConfig && { caseListConfig }),
+	});
 
 	it("seeds a Name column when the module has forms but no columns", () => {
 		// MISSING_CASE_LIST_COLUMNS obliges a column once a case module has forms.
@@ -384,16 +403,21 @@ describe("caseTypeSetPatch", () => {
 		});
 	});
 
-	it("set-on-formless commits clean through the gate (new type declared)", () => {
+	it("repairs an imported formless module by making it a complete viewer", () => {
 		// Mirror the hook: updateModule declares a brand-new type BEFORE the patch,
 		// so the seeded Name column resolves. Without the declaration this rejects
 		// (CASE_LIST_COLUMN_UNKNOWN_FIELD).
 		const doc = produce(emptyDoc(), (d) => {
 			applyMutation(d, {
 				kind: "addModule",
-				module: { uuid: M("s"), id: "s", name: "S" } as Module,
+				module: { uuid: M("s"), id: "s", name: "S" },
 			});
 		});
+		expect(
+			evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(finding) => finding.code,
+			),
+		).toContain("NO_FORMS_OR_CASE_LIST");
 		const mod = doc.modules[M("s")];
 		if (!mod) throw new Error("expected module");
 		const verdict = mutationCommitVerdict(
@@ -405,6 +429,7 @@ describe("caseTypeSetPatch", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		expect(verdict.nextDoc.modules[M("s")]?.caseListOnly).toBe(true);
 	});
 
@@ -430,6 +455,7 @@ describe("caseTypeSetPatch", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		const names = (verdict.nextDoc.caseTypes ?? []).map((ct) => ct.name);
 		expect(names).toContain("b");
 		expect(names).not.toContain("a");
@@ -474,6 +500,7 @@ describe("caseTypeClearPatch", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
+		assertAdmittedDoc(verdict.nextDoc);
 		expect(verdict.nextDoc.modules[moduleUuid]?.caseListOnly).toBeFalsy();
 		expect(verdict.nextDoc.modules[moduleUuid]?.caseType).toBeUndefined();
 	});
@@ -517,7 +544,7 @@ describe("atomic creation is load-bearing", () => {
 						id: "bad",
 						name: "Bad",
 						caseType: "patient",
-					} as Module,
+					},
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,

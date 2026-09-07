@@ -19,6 +19,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import {
@@ -26,6 +27,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	echoLookupDefinitions,
 	LOOKUP_SELECT_DOC,
@@ -127,10 +129,18 @@ function makeHarness(
 	options: { readonly answering: boolean },
 ) {
 	const lookupDefinitions = echoLookupDefinitions(CATALOG);
-	const h = makeToolWorkspaceHarness(doc, {
-		appId: "app-1",
-		...(options.answering ? { lookupDefinitions } : {}),
-	});
+	const h = makeToolWorkspaceHarness(
+		expectAdmittedDoc(doc, {
+			kind: "available",
+			projectId: "project-test",
+			projectRevision: parseLookupRevision("1"),
+			definitions: CATALOG,
+		}),
+		{
+			appId: "app-1",
+			...(options.answering ? { lookupDefinitions } : {}),
+		},
+	);
 	return { h, lookupDefinitions };
 }
 
@@ -146,7 +156,7 @@ describe("mutating a document that carries a lookup source", () => {
 
 		expect(out.result).not.toHaveProperty("error");
 		expect(h.currentDoc().modules[MODULE]?.name).toBe("Referral queue");
-		// The gate was given a real snapshot, resolved from the carrier the doc
+		// The real gate received controlled definitions for the carrier the doc
 		// already holds — not from anything this call touched.
 		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE]);
 	});
@@ -164,6 +174,8 @@ describe("mutating a document that carries a lookup source", () => {
 		 * whole batch is refused. The point of the test above is that this is
 		 * reached only when the definitions genuinely cannot be read. */
 		expect(out.result).toHaveProperty("error");
+		expect(h.currentDoc()).toBe(doc);
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });
 

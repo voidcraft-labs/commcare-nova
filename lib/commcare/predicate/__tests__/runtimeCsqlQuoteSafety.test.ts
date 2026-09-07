@@ -1,191 +1,153 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import {
-	advancedSearchInputDef,
-	type CaseListConfig,
-	simpleSearchInputDef,
-} from "@/lib/domain";
 import {
 	arith,
+	coalesce,
+	concat,
 	count,
 	dateCoerce,
+	double,
 	eq,
 	gt,
 	ifExpr,
 	input,
 	literal,
 	matchAll,
-	matchNone,
 	prop,
 	subcasePath,
+	switchCase,
+	switchExpr,
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { composeXPathQueryPredicate } from "../../suite/case-search/xpathQuery";
-import { collectRuntimeCsqlStringInputNames as collectRuntimeCsqlStringInputNamesRaw } from "../runtimeCsqlQuoteSafety";
+import {
+	collectRuntimeCsqlStringExpressionInputNames,
+	collectRuntimeCsqlStringInputNames,
+} from "../runtimeCsqlQuoteSafety";
 
-const u = (tail: number) =>
-	testUuid(`00000000-0000-0000-0000-${String(tail).padStart(12, "0")}`);
-
-const TEST_INPUTS = [
+const names = [
 	"direct",
 	"date_text",
 	"trigger",
 	"number",
 	"control",
 	"branch_value",
+	"fallback",
 	"visit_name",
-].map((name) => ({
+] as const;
+const inputs = names.map((name) => ({
 	uuid: testUuid(name),
 	name,
 	data_type: "text" as const,
 }));
-TEST_INPUTS.push(
-	{ uuid: u(1), name: "client_query", data_type: "text" },
-	{ uuid: u(2), name: "advanced_owner", data_type: "text" },
-	{ uuid: u(3), name: "sibling", data_type: "text" },
-	{ uuid: u(4), name: "query", data_type: "text" },
-	{ uuid: u(5), name: "filter_value", data_type: "text" },
-);
+const ref = (name: (typeof names)[number]) => input(testUuid(name));
+const value = (name: (typeof names)[number]) => term(ref(name));
+const collect = (
+	predicate: Parameters<typeof collectRuntimeCsqlStringInputNames>[0],
+) => collectRuntimeCsqlStringInputNames(predicate, inputs);
 
-function collectRuntimeCsqlStringInputNames(
-	predicate: Parameters<typeof collectRuntimeCsqlStringInputNamesRaw>[0],
-) {
-	return collectRuntimeCsqlStringInputNamesRaw(predicate, TEST_INPUTS);
-}
-
-describe("collectRuntimeCsqlStringInputNames", () => {
-	it("collects direct and native-function input values", () => {
-		expect(
-			collectRuntimeCsqlStringInputNames(
-				eq(prop("patient", "case_name"), input(testUuid("direct"))),
+// Private conservative byte-flow analysis; complete query composition and real
+// runtime error assignment are exercised by the admitted Search prompt corpus.
+it("distinguishes raw native function arguments from already converted device output", () => {
+	expect(collect(eq(prop("patient", "case_name"), ref("direct")))).toEqual(
+		new Set(["direct"]),
+	);
+	expect(
+		collect(eq(prop("patient", "dob"), dateCoerce(value("date_text")))),
+	).toEqual(new Set(["date_text"]));
+	expect(
+		collect(eq(prop("patient", "score"), double(value("number")))),
+	).toEqual(new Set(["number"]));
+	expect(
+		collectRuntimeCsqlStringExpressionInputNames(
+			double(value("number")),
+			inputs,
+		),
+	).toEqual(new Set());
+	expect(
+		collect(
+			eq(
+				prop("patient", "score"),
+				arith("+", double(value("number")), term(literal(1))),
 			),
-		).toEqual(new Set(["direct"]));
-		expect(
-			collectRuntimeCsqlStringInputNames(
-				eq(
-					prop("patient", "dob"),
-					dateCoerce(term(input(testUuid("date_text")))),
+		),
+	).toEqual(new Set());
+});
+it("does not blame inputs used only for presence or branch selection", () => {
+	expect(
+		collect(
+			whenInput(
+				ref("trigger"),
+				eq(prop("patient", "status"), literal("active")),
+			),
+		),
+	).toEqual(new Set());
+	expect(
+		collect(
+			eq(
+				prop("patient", "label"),
+				ifExpr(
+					eq(ref("control"), literal("yes")),
+					term(literal("accepted")),
+					term(literal("rejected")),
 				),
 			),
-		).toEqual(new Set(["date_text"]));
-	});
-
-	it("skips trigger-only and normalized on-device control values", () => {
-		const triggerOnly = whenInput(
-			input(testUuid("trigger")),
-			eq(prop("patient", "status"), literal("active")),
-		);
-		const numericOutput = eq(
-			prop("patient", "score"),
-			arith("+", term(input(testUuid("number"))), term(literal(1))),
-		);
-		const conditionalControl = eq(
-			prop("patient", "label"),
-			ifExpr(
-				eq(input(testUuid("control")), literal("yes")),
-				term(literal("accepted")),
-				term(literal("rejected")),
+		),
+	).toEqual(new Set());
+});
+it("unions raw outputs across concat, coalesce and switch without collecting their controls", () => {
+	const expression = concat(
+		value("direct"),
+		coalesce(double(value("number")), value("branch_value")),
+		switchExpr(
+			value("control"),
+			[switchCase(literal("yes"), value("fallback"))],
+			value("branch_value"),
+		),
+	);
+	expect(
+		collectRuntimeCsqlStringExpressionInputNames(expression, inputs),
+	).toEqual(new Set(["direct", "branch_value", "fallback"]));
+	expect(collect(eq(prop("patient", "case_name"), expression))).toEqual(
+		new Set(["direct", "branch_value", "fallback"]),
+	);
+});
+it("includes both possible raw conditional outputs", () => {
+	const expression = ifExpr(
+		eq(ref("control"), literal("yes")),
+		value("branch_value"),
+		value("fallback"),
+	);
+	expect(
+		collectRuntimeCsqlStringExpressionInputNames(expression, inputs),
+	).toEqual(new Set(["branch_value", "fallback"]));
+});
+it("finds a server-side count filter after reversing the authored comparison", () => {
+	const predicate = gt(
+		literal(2),
+		count(
+			subcasePath("parent", "visit"),
+			whenInput(
+				ref("visit_name"),
+				eq(prop("visit", "case_name"), ref("visit_name")),
 			),
-		);
-		expect(collectRuntimeCsqlStringInputNames(triggerOnly)).toEqual(new Set());
-		expect(collectRuntimeCsqlStringInputNames(numericOutput)).toEqual(
-			new Set(),
-		);
-		expect(collectRuntimeCsqlStringInputNames(conditionalControl)).toEqual(
-			new Set(),
-		);
-	});
-
-	it("follows raw output through non-native branches", () => {
-		const predicate = eq(
-			prop("patient", "label"),
-			ifExpr(
-				matchAll(),
-				term(input(testUuid("branch_value"))),
-				term(literal("fallback")),
-			),
-		);
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["branch_value"]),
-		);
-	});
-
-	it("normalizes an RHS subcase-count before walking its native filter", () => {
-		const predicate = gt(
-			literal(2),
-			count(
-				subcasePath("visit"),
-				whenInput(
-					input(testUuid("visit_name")),
-					eq(prop("visit", "case_name"), input(testUuid("visit_name"))),
-				),
-			),
-		);
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["visit_name"]),
-		);
-	});
-
-	it("uses the exact effective composition across filter, advanced, and simple inputs", () => {
-		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
-			searchInputs: [
-				simpleSearchInputDef(
-					u(1),
-					"client_query",
-					"Client",
-					"text",
-					"case_name",
-				),
-				advancedSearchInputDef(
-					u(2),
-					"advanced_owner",
-					"Advanced",
-					"text",
-					whenInput(input(u(3)), eq(prop("patient", "region"), input(u(3)))),
-				),
-				// This prompt is consumed by the sibling advanced predicate.
-				advancedSearchInputDef(u(3), "sibling", "Region", "text", matchAll()),
-				// The app-wide Results filter owns this independent prompt.
-				advancedSearchInputDef(
-					u(5),
-					"filter_value",
-					"Filter",
-					"text",
-					matchAll(),
-				),
-			],
-			filter: whenInput(
-				input(u(5)),
-				eq(prop("patient", "status"), input(u(5))),
-			),
-		});
-		const predicate = composeXPathQueryPredicate(config, "patient");
-		expect(collectRuntimeCsqlStringInputNames(predicate)).toEqual(
-			new Set(["client_query", "sibling", "filter_value"]),
-		);
-	});
-
-	it("does not restrict dead clauses absorbed by match-none", () => {
-		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
-			filter: matchNone(),
-			searchInputs: [
-				advancedSearchInputDef(
-					u(4),
-					"query",
-					"Query",
-					"text",
-					whenInput(input(u(4)), eq(prop("patient", "case_name"), input(u(4)))),
-				),
-			],
-		});
-		expect(
-			collectRuntimeCsqlStringInputNames(
-				composeXPathQueryPredicate(config, "patient"),
-			),
-		).toEqual(new Set());
-	});
+		),
+	);
+	expect(collect(predicate)).toEqual(new Set(["visit_name"]));
+});
+it("resolves current names by identity and does not borrow an unrelated declaration", () => {
+	const expression = value("direct");
+	expect(
+		collectRuntimeCsqlStringExpressionInputNames(expression, [
+			{ uuid: testUuid("direct"), name: "renamed", data_type: "text" },
+			{ uuid: testUuid("other"), name: "direct", data_type: "text" },
+		]),
+	).toEqual(new Set(["renamed"]));
+	expect(
+		collectRuntimeCsqlStringExpressionInputNames(expression, [
+			{ uuid: testUuid("other"), name: "direct", data_type: "text" },
+		]),
+	).toEqual(new Set());
+	expect(collect(undefined)).toEqual(new Set());
+	expect(collect(matchAll())).toEqual(new Set());
 });

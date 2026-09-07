@@ -44,9 +44,8 @@
  * or at the export boundary) MUST have an entry. `oracle` codes are
  * generator-bug tripwires `runValidation` never produces; if one somehow
  * reaches a user it's a Nova bug, and the generic fallback says so rather
- * than leaking wire detail. The exhaustiveness test
- * (`__tests__/userFacingErrors.test.ts`) pins this against
- * `VALIDITY_CLASS_BY_CODE`.
+ * than leaking wire detail. The table requires every non-oracle code at
+ * compile time, derived from `VALIDITY_CLASS_BY_CODE`.
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
@@ -54,6 +53,7 @@ import type {
 	ValidationError,
 	ValidationErrorCode,
 } from "@/lib/commcare/validator/errors";
+import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -160,12 +160,6 @@ type UserMessageBuilder = (err: ValidationError) => string;
 
 // ── The code → builder table ───────────────────────────────────────
 
-/**
- * One concise builder per user-reachable code. `Partial` over the full
- * code union: oracle codes intentionally have no entry and fall through
- * to the generic line. The exhaustiveness test guarantees every
- * shape/soundness/completeness/environment code IS present.
- */
 /** The field a misplaced section sits in, from `parentKind` / `parentId`. */
 const sectionParentPhrase = (e: ValidationError): string => {
 	const id = e.details?.parentId;
@@ -180,15 +174,21 @@ const looseFieldsPhrase = (e: ValidationError): string => {
 	return `${present(count, "some")} fields sit`;
 };
 
-const USER_MESSAGE_BY_CODE: Partial<
-	Record<ValidationErrorCode, UserMessageBuilder>
-> = {
+const USER_MESSAGE_BY_CODE: Record<
+	UserFacingValidationCode,
+	UserMessageBuilder
+> &
+	Partial<
+		Record<Exclude<ValidationErrorCode, UserFacingValidationCode>, never>
+	> = {
 	// ── App-level ────────────────────────────────────────────────────
 	// Reached in the builder only by trying to remove the app's last module, so
 	// "add one" reads backwards — you'd add another BEFORE removing this one.
 	NO_MODULES: () =>
 		"An app needs at least one module, so you can't remove your last one. Add another first if you want to replace it.",
 	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
+	APP_TEXT_UNREPRESENTABLE: (e) =>
+		`${det(e, "label", "Some app text")} contains a character Nova can't preserve. You can remove ${det(e, "character", "that character")} or retype the affected text.`,
 	RESERVED_CASE_TYPE_NAME: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
@@ -408,8 +408,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
-	CASE_LIST_ID_MAPPING_EMPTY_VALUE: (e) =>
-		`A value label in ${q(modName(e))} has no saved value to match. Enter a value or remove the row.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
@@ -589,8 +587,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} opens when a search finds nothing. It can return to Results or App home, but cannot have after-submit links or a display condition. Clear those settings, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
 		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose App home after submit, or change the module to one-case selection.`,
-	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: (e) =>
-		`${q(formName(e))} opens when a search finds nothing in ${q(modName(e))}, which picks a parent case first, but the module has no menu form to carry that parent into the registration. Add a menu form to the module, or make ${q(formName(e))} a menu form again.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -645,6 +641,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can never be used: an earlier link has no condition, so it always wins. Move this link above it, or give that link a condition.`,
 	FORM_LINK_DATUMS_INCOMPLETE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
+	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.`,
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
 	FORM_LINK_SELECTION_CARDINALITY: (e) =>
@@ -817,10 +815,16 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"Lookup data hasn't finished reconnecting yet. Wait a moment, then try that change again.",
 	LOOKUP_TABLE_NOT_AVAILABLE: () =>
 		"This setting uses a lookup table that isn't available in this Project. Choose an available table, or clear the setting.",
+	LOOKUP_TAG_RESERVED_BY_RUNTIME: (e) =>
+		`The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
+	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: (e) =>
+		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data, or download the app to preserve these values.`,
+	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) =>
+		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. You can remove them or retype the affected values in Project data.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
@@ -833,6 +837,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
 		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) =>
+		det(e, "reason", "") === "smaller-child-maximum"
+			? `CommCare HQ cannot preserve this child menu's limit of ${det(e, "targetMaximum", "fewer")} selected cases. You can download the app to keep this selection, or change the nested selection before uploading.`
+			: "CommCare HQ cannot preserve this child menu's selection from multiple parent cases. You can download the app to keep this selection, or change the nested selection before uploading.",
 	LOOKUP_TAG_TOO_LONG_FOR_HQ: (e) =>
 		`CommCare HQ addresses a lookup table by its export tag, and ${det(e, "tag", "one referenced table")} is too long for it. Shorten the tag to ${det(e, "tagAllowed", "31")} characters or fewer in Project data, then try again.`,
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>
@@ -896,8 +904,3 @@ export function offeredChoiceRefusal(
 		? "This choice isn't available here."
 		: userFacingError(first);
 }
-
-/** Exposed for the exhaustiveness test only. */
-export const USER_MESSAGE_CODES = new Set(
-	Object.keys(USER_MESSAGE_BY_CODE) as ValidationErrorCode[],
-);

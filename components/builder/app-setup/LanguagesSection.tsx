@@ -40,26 +40,18 @@ import {
 } from "@/components/shadcn/select";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { Textarea } from "@/components/shadcn/textarea";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { useLocalizationWorkspace } from "@/lib/doc/hooks/useLocalizationWorkspace";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
-	canonicalProseTemplate,
-	collectLocalizedTranslationUnits,
-	collectTranslationCoverageDiagnostics,
-	effectiveAppLocalization,
 	fieldRegistry,
 	type LanguageDirection,
 	type LanguageTag,
 	type LocalizedTranslationUnit,
 	type LocalizedValue,
-	type ProsePart,
-	type ProseReferencePart,
 	type ProseTemplate,
 	parseLanguageTag,
-	projectProseTemplate,
-	resolveAppLanguage,
 	type TranslationCoverageDiagnosticCode,
 	type TranslationStatus,
 	type TranslationUnitRole,
@@ -85,6 +77,10 @@ import {
 	type LanguagePickerChoice,
 	resolvedLanguageSelection,
 } from "./languagePicker/pickerModel";
+import {
+	createProtectedProseDraft,
+	editProtectedProseDraft,
+} from "./protectedProse";
 
 const STATUS_LABELS: Readonly<Record<TranslationStatus, string>> = {
 	missing: "Missing",
@@ -223,17 +219,20 @@ function LanguageName({
 }
 
 export function LanguagesSection() {
-	const doc = useBlueprintDoc((value) => value);
-	const localization = effectiveAppLocalization(doc.localization);
 	const languageState = useBuilderLanguage();
+	const {
+		localization,
+		selectedTag,
+		selectedUnits,
+		coverageDiagnostics,
+		unitsForLanguage,
+		projectValue,
+	} = useLocalizationWorkspace(languageState.language);
 	const { inline } = useBlueprintMutations();
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState<TranslationStatusFilter>("all");
 	const [message, setMessage] = useState<string>();
-	const selectedTag = resolveAppLanguage(
-		doc.localization,
-		languageState.language,
-	);
+
 	const isSource = selectedTag === localization.sourceLanguage;
 
 	// The baked common set labels most languages statically; the full registry
@@ -270,14 +269,7 @@ export function LanguagesSection() {
 				sourceDisplay.identity,
 				selectedDisplay.identity,
 			);
-	const selectedUnits = useMemo(
-		() => collectLocalizedTranslationUnits(doc, selectedTag),
-		[doc, selectedTag],
-	);
-	const coverageDiagnostics = useMemo(
-		() => collectTranslationCoverageDiagnostics(doc),
-		[doc],
-	);
+
 	const normalizedQuery = query.trim().toLocaleLowerCase();
 	const visibleUnits = selectedUnits.filter((unit) => {
 		if (status !== "all" && unit.status !== status) return false;
@@ -314,7 +306,7 @@ export function LanguagesSection() {
 				<div className="grid gap-3 @xl:grid-cols-2">
 					{localization.languageOrder.map((tag) => {
 						const display = displays.get(tag) ?? languageDisplay(tag, resolver);
-						const units = collectLocalizedTranslationUnits(doc, tag);
+						const units = unitsForLanguage(tag);
 						const counts = coverageCounts(units);
 						const source = tag === localization.sourceLanguage;
 						const active = tag === selectedTag;
@@ -420,7 +412,7 @@ export function LanguagesSection() {
 					})}
 				</div>
 				<AddLanguageDialog
-					doc={doc}
+					unitsForLanguage={unitsForLanguage}
 					languages={localization.languageOrder.map(
 						(tag) => displays.get(tag) ?? languageDisplay(tag, resolver),
 					)}
@@ -535,7 +527,7 @@ export function LanguagesSection() {
 					{visibleUnits.map((unit) => (
 						<TranslationUnitRow
 							key={`${selectedTag}:${unit.id}:${unit.sourceFingerprint}:${JSON.stringify(unit.explicit ?? null)}`}
-							doc={doc}
+							projectValue={projectValue}
 							unit={unit}
 							isSource={isSource}
 						/>
@@ -588,12 +580,14 @@ function RegistryLoadFallback({
 }
 
 function AddLanguageDialog({
-	doc,
+	unitsForLanguage,
 	languages,
 	onCommit,
 	onAdded,
 }: {
-	readonly doc: BlueprintDoc;
+	readonly unitsForLanguage: (
+		language: LanguageTag,
+	) => readonly LocalizedTranslationUnit[];
 	readonly languages: readonly LanguageDisplay[];
 	readonly onCommit: (mutations: Mutation[]) => boolean;
 	readonly onAdded: (language: LanguageTag) => void;
@@ -650,7 +644,7 @@ function AddLanguageDialog({
 		const mutations: Mutation[] = [
 			{ kind: "addLanguage", language: selection.identity },
 		];
-		for (const unit of collectLocalizedTranslationUnits(doc, copySource.tag)) {
+		for (const unit of unitsForLanguage(copySource.tag)) {
 			mutations.push({
 				kind: "setTranslation",
 				language: selection.tag,
@@ -934,33 +928,26 @@ function RemoveLanguageDialog({
 	);
 }
 
-function displayValue(value: LocalizedValue, doc: BlueprintDoc): string {
-	return typeof value === "string"
-		? value
-		: projectProseTemplate(value, doc).text;
-}
-
 function TranslationUnitRow({
-	doc,
+	projectValue,
 	unit,
 	isSource,
 }: {
-	readonly doc: BlueprintDoc;
+	readonly projectValue: (value: LocalizedValue) => string;
 	readonly unit: LocalizedTranslationUnit;
 	readonly isSource: boolean;
 }) {
 	const { inline } = useBlueprintMutations();
 	const navigate = useNavigate();
 	const editor = useTranslationUnitEditor(unit.id);
-	const { direction } = useBuilderLanguage();
+	const { direction, sourceLanguage } = useBuilderLanguage();
 	const initial = unit.explicit?.value ?? unit.effective;
 	const [draft, setDraft] = useState<LocalizedValue>(() =>
 		structuredClone(initial),
 	);
 	const [draftValid, setDraftValid] = useState(true);
 	const [error, setError] = useState<string>();
-	const localization = effectiveAppLocalization(doc.localization);
-	const sourceDirection = languageDirection(localization.sourceLanguage);
+	const sourceDirection = languageDirection(sourceLanguage);
 	const changed = JSON.stringify(draft) !== JSON.stringify(initial);
 	const save = () => {
 		if (!draftValid) return;
@@ -1066,7 +1053,7 @@ function TranslationUnitRow({
 						dir={sourceDirection}
 						className="min-h-11 whitespace-pre-wrap rounded-lg border border-nova-border bg-black/10 px-3.5 py-2.5 text-sm leading-relaxed text-nova-text-secondary"
 					>
-						{displayValue(unit.source, doc) || (
+						{projectValue(unit.source) || (
 							<span className="italic text-nova-text-muted">Empty</span>
 						)}
 					</div>
@@ -1084,7 +1071,7 @@ function TranslationUnitRow({
 							/>
 						) : (
 							<ProtectedProseEditor
-								doc={doc}
+								projectValue={projectValue}
 								source={unit.source as ProseTemplate}
 								value={draft}
 								onChange={setDraft}
@@ -1131,123 +1118,14 @@ function TranslationUnitRow({
 	);
 }
 
-interface ProtectedToken {
-	readonly token: string;
-	readonly part: ProseReferencePart;
-	readonly label: string;
-}
-
-function sameReference(left: ProseReferencePart, right: ProseReferencePart) {
-	return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function protectedTokens(
-	source: ProseTemplate,
-	target: ProseTemplate,
-	doc: BlueprintDoc,
-): readonly ProtectedToken[] {
-	const literalText = [...source.parts, ...target.parts]
-		.filter((part) => part.kind === "text")
-		.map((part) => part.text)
-		.join("");
-	let prefix = "NOVA_REF";
-	while (literalText.includes(`[[${prefix}_`)) prefix += "_";
-	return source.parts
-		.filter((part): part is ProseReferencePart => part.kind !== "text")
-		.map((part, index) => ({
-			token: `[[${prefix}_${index + 1}]]`,
-			part,
-			label: projectProseTemplate({ parts: [part] }, doc).text,
-		}));
-}
-
-function serializeProse(
-	value: ProseTemplate,
-	tokens: readonly ProtectedToken[],
-): string {
-	const unused = [...tokens];
-	let output = "";
-	for (const part of value.parts) {
-		if (part.kind === "text") {
-			if (tokens.length === 0) {
-				output += part.text;
-				continue;
-			}
-			let escaped = part.text.replaceAll("\\", "\\\\");
-			for (const token of tokens) {
-				escaped = escaped.replaceAll(token.token, `\\${token.token}`);
-			}
-			output += escaped;
-			continue;
-		}
-		const index = unused.findIndex((token) => sameReference(token.part, part));
-		if (index < 0) continue;
-		output += unused[index]?.token ?? "";
-		unused.splice(index, 1);
-	}
-	return output;
-}
-
-function parseProtectedProse(
-	value: string,
-	tokens: readonly ProtectedToken[],
-): { value?: ProseTemplate; error?: string } {
-	if (tokens.length === 0) {
-		return {
-			value: canonicalProseTemplate(
-				value.length === 0 ? [] : [{ kind: "text", text: value }],
-			),
-		};
-	}
-	const counts = new Map(tokens.map((token) => [token.token, 0]));
-	const parts: ProsePart[] = [];
-	let literal = "";
-	const flushLiteral = () => {
-		if (literal === "") return;
-		parts.push({ kind: "text", text: literal });
-		literal = "";
-	};
-	for (let index = 0; index < value.length; ) {
-		if (value[index] === "\\") {
-			if (index + 1 < value.length) {
-				literal += value[index + 1];
-				index += 2;
-			} else {
-				literal += "\\";
-				index += 1;
-			}
-			continue;
-		}
-		const token = tokens.find((candidate) =>
-			value.startsWith(candidate.token, index),
-		);
-		if (token === undefined) {
-			literal += value[index];
-			index += 1;
-			continue;
-		}
-		flushLiteral();
-		parts.push(token.part);
-		counts.set(token.token, (counts.get(token.token) ?? 0) + 1);
-		index += token.token.length;
-	}
-	flushLiteral();
-	for (const token of tokens) {
-		if (counts.get(token.token) !== 1) {
-			return { error: `Keep ${token.token} exactly once.` };
-		}
-	}
-	return { value: canonicalProseTemplate(parts) };
-}
-
 function ProtectedProseEditor({
-	doc,
+	projectValue,
 	source,
 	value,
 	onChange,
 	onValidityChange,
 }: {
-	readonly doc: BlueprintDoc;
+	readonly projectValue: (value: LocalizedValue) => string;
 	readonly source: ProseTemplate;
 	readonly value: ProseTemplate;
 	readonly onChange: (value: ProseTemplate) => void;
@@ -1256,20 +1134,19 @@ function ProtectedProseEditor({
 	/* Freeze collision-free markers for this editor instance. Parent draft
 	 * updates must not change the marker alphabet midway through an edit; the
 	 * row remounts when its persisted source or target value changes. */
-	const [tokens] = useState(() => protectedTokens(source, value, doc));
-	const [draft, setDraft] = useState(() => serializeProse(value, tokens));
-	const [error, setError] = useState<string>();
+	const [state, setState] = useState(() =>
+		createProtectedProseDraft(source, value, projectValue),
+	);
+	const { tokens, draft, error } = state;
 	return (
 		<div>
 			<Textarea
 				value={draft}
 				onChange={(event) => {
-					const next = event.target.value;
-					setDraft(next);
-					const parsed = parseProtectedProse(next, tokens);
-					setError(parsed.error);
-					onValidityChange(parsed.error === undefined);
-					if (parsed.value !== undefined) onChange(parsed.value);
+					const next = editProtectedProseDraft(state, event.target.value);
+					setState(next);
+					onValidityChange(next.error === undefined);
+					if (next.value !== undefined) onChange(next.value);
 				}}
 				aria-label="Reference-safe translation"
 			/>

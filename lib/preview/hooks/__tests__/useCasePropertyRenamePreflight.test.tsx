@@ -1,46 +1,14 @@
 // @vitest-environment happy-dom
-
 import { act, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CasePropertyRenamePreflightResult } from "@/lib/preview/engine/casePropertyRenamePreflightTypes";
+import { BuilderSessionContext } from "@/lib/session/provider";
+import { createBuilderSessionStore } from "@/lib/session/store";
 
-const mocks = vi.hoisted(() => ({
-	action: vi.fn(),
-	rendered: {
-		appId: "app-1" as string | undefined,
-		accessPhase: "authorized" as
-			| "authorized"
-			| "refreshing"
-			| "reconnecting"
-			| "upgradeRequired"
-			| "revoked",
-		scopeEpoch: 1,
-	},
-	current: {
-		appId: "app-1" as string | undefined,
-		accessPhase: "authorized" as
-			| "authorized"
-			| "refreshing"
-			| "reconnecting"
-			| "upgradeRequired"
-			| "revoked",
-		scopeEpoch: 1,
-		canEdit: false,
-	},
-}));
-
+const { action } = vi.hoisted(() => ({ action: vi.fn() }));
 vi.mock("@/lib/preview/engine/casePropertyRenamePreflight", () => ({
-	preflightCasePropertyRenamesAction: mocks.action,
-}));
-vi.mock("@/lib/session/hooks", () => ({
-	useAppId: () => mocks.rendered.appId,
-	useAccessPhase: () => mocks.rendered.accessPhase,
-	useProjectScopeEpoch: () => mocks.rendered.scopeEpoch,
-}));
-vi.mock("@/lib/session/provider", () => ({
-	useOptionalBuilderSessionApi: () => ({
-		getState: () => mocks.current,
-	}),
+	preflightCasePropertyRenamesAction: action,
 }));
 
 import { useCasePropertyRenamePreflight } from "../useCasePropertyRenamePreflight";
@@ -54,98 +22,68 @@ const OK: CasePropertyRenamePreflightResult = {
 	report: {
 		renamedRows: 2,
 		renamedParkedValues: 1,
-		byRename: [
-			{
-				...RENAMES[0],
-				rowsWithSource: 2,
-				parkedValuesWithSource: 1,
-			},
-		],
+		byRename: [{ ...RENAMES[0], rowsWithSource: 2, parkedValuesWithSource: 1 }],
 	},
 };
-
-function deferred<T>(): {
-	readonly promise: Promise<T>;
-	readonly resolve: (value: T) => void;
-} {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((settle) => {
-		resolve = settle;
-	});
+function deferred<T>() {
+	const { promise, resolve } = Promise.withResolvers<T>();
 	return { promise, resolve };
 }
-
-beforeEach(() => {
-	vi.resetAllMocks();
-	Object.assign(mocks.rendered, {
+function harness() {
+	const session = createBuilderSessionStore({
 		appId: "app-1",
-		accessPhase: "authorized",
-		scopeEpoch: 1,
-	});
-	Object.assign(mocks.current, {
-		appId: "app-1",
-		accessPhase: "authorized",
-		scopeEpoch: 1,
+		projectId: "project-1",
+		role: "viewer",
 		canEdit: false,
 	});
+	const wrapper = ({ children }: { children: ReactNode }) => (
+		<BuilderSessionContext value={session}>{children}</BuilderSessionContext>
+	);
+	return {
+		session,
+		...renderHook(() => useCasePropertyRenamePreflight(), { wrapper }),
+	};
+}
+beforeEach(() => {
+	vi.resetAllMocks();
 });
 
-describe("useCasePropertyRenamePreflight", () => {
-	it("allows an authorized viewer to inspect impact", async () => {
-		mocks.action.mockResolvedValue(OK);
-		const { result } = renderHook(() => useCasePropertyRenamePreflight());
-
-		let settled: CasePropertyRenamePreflightResult | undefined;
-		await act(async () => {
-			settled = await result.current.preflight(RENAMES);
-		});
-
-		expect(mocks.current.canEdit).toBe(false);
-		expect(mocks.action).toHaveBeenCalledWith({
-			appId: "app-1",
-			renames: RENAMES,
-		});
-		expect(settled).toEqual(OK);
-		expect(result.current.state).toEqual(OK);
-	});
-
-	it("drops an in-flight result after the Project scope epoch changes", async () => {
-		const pending = deferred<CasePropertyRenamePreflightResult>();
-		mocks.action.mockReturnValue(pending.promise);
-		const { result, rerender } = renderHook(() =>
-			useCasePropertyRenamePreflight(),
-		);
-
-		let settlePromise:
-			| Promise<CasePropertyRenamePreflightResult | undefined>
-			| undefined;
-		act(() => {
-			settlePromise = result.current.preflight(RENAMES);
-		});
-		expect(result.current.state).toEqual({ kind: "checking" });
-
-		Object.assign(mocks.rendered, {
-			appId: "app-2",
-			scopeEpoch: 2,
-		});
-		Object.assign(mocks.current, {
-			appId: "app-2",
-			scopeEpoch: 2,
-		});
-		rerender();
-		expect(result.current.state).toEqual({ kind: "idle" });
-
-		pending.resolve(OK);
-		let settled: CasePropertyRenamePreflightResult | undefined;
-		await act(async () => {
-			settled = await settlePromise;
-		});
-		expect(settled).toBeUndefined();
-		expect(result.current.state).toEqual({ kind: "idle" });
-	});
-
-	it("lets the newest request win within one scope", async () => {
-		const first = deferred<CasePropertyRenamePreflightResult>();
+describe("rename preflight request lifetime with the real session store", () => {
+	it.each(["scope", "revocation", "app", "unmount"] as const)(
+		"discards the result after %s",
+		async (boundary) => {
+			const gate = deferred<CasePropertyRenamePreflightResult>();
+			action.mockReturnValue(gate.promise);
+			const h = harness();
+			let request: ReturnType<typeof h.result.current.preflight> | undefined;
+			try {
+				act(() => {
+					request = h.result.current.preflight(RENAMES);
+				});
+				expect(h.result.current.state).toEqual({ kind: "checking" });
+				act(() => {
+					if (boundary === "scope") h.session.getState().beginAccessRefresh();
+					else if (boundary === "revocation")
+						h.session.getState().revokeAccess();
+					else if (boundary === "app") h.session.getState().setAppId("app-2");
+					else h.unmount();
+				});
+				await act(async () => {
+					gate.resolve(OK);
+					expect(await request).toBeUndefined();
+				});
+				if (boundary !== "unmount")
+					expect(h.result.current.state).toEqual({ kind: "idle" });
+			} finally {
+				await act(async () => {
+					gate.resolve(OK);
+					await request;
+				});
+			}
+		},
+	);
+	it("keeps the newest response when the older request settles last", async () => {
+		const gate = deferred<CasePropertyRenamePreflightResult>();
 		const conflict: CasePropertyRenamePreflightResult = {
 			kind: "conflict",
 			mutationSeq: 5,
@@ -158,43 +96,35 @@ describe("useCasePropertyRenamePreflight", () => {
 				},
 			],
 		};
-		mocks.action
-			.mockReturnValueOnce(first.promise)
-			.mockResolvedValueOnce(conflict);
-		const { result } = renderHook(() => useCasePropertyRenamePreflight());
-
-		let firstPromise:
-			| Promise<CasePropertyRenamePreflightResult | undefined>
-			| undefined;
-		act(() => {
-			firstPromise = result.current.preflight(RENAMES);
-		});
-		await act(async () => {
-			await result.current.preflight(RENAMES);
-		});
-		expect(result.current.state).toEqual(conflict);
-
-		first.resolve(OK);
-		let firstResult: CasePropertyRenamePreflightResult | undefined;
-		await act(async () => {
-			firstResult = await firstPromise;
-		});
-		expect(firstResult).toBeUndefined();
-		expect(result.current.state).toEqual(conflict);
+		action.mockReturnValueOnce(gate.promise).mockResolvedValueOnce(conflict);
+		const h = harness();
+		let request: ReturnType<typeof h.result.current.preflight> | undefined;
+		try {
+			act(() => {
+				request = h.result.current.preflight(RENAMES);
+			});
+			await act(async () => {
+				expect(await h.result.current.preflight(RENAMES)).toEqual(conflict);
+			});
+			await act(async () => {
+				gate.resolve(OK);
+				expect(await request).toBeUndefined();
+			});
+			expect(h.result.current.state).toEqual(conflict);
+		} finally {
+			await act(async () => {
+				gate.resolve(OK);
+				await request;
+			});
+		}
 	});
-
-	it("does not issue a request while access is refreshing", async () => {
-		mocks.rendered.accessPhase = "refreshing";
-		mocks.current.accessPhase = "refreshing";
-		const { result } = renderHook(() => useCasePropertyRenamePreflight());
-
-		let settled: CasePropertyRenamePreflightResult | undefined;
+	it("does not send a request during an access refresh", async () => {
+		const h = harness();
+		act(() => h.session.getState().beginAccessRefresh());
 		await act(async () => {
-			settled = await result.current.preflight(RENAMES);
+			expect(await h.result.current.preflight(RENAMES)).toBeUndefined();
 		});
-
-		expect(settled).toBeUndefined();
-		expect(result.current.state).toEqual({ kind: "idle" });
-		expect(mocks.action).not.toHaveBeenCalled();
+		expect(action).not.toHaveBeenCalled();
+		expect(h.result.current.state).toEqual({ kind: "idle" });
 	});
 });

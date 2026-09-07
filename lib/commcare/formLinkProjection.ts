@@ -51,10 +51,10 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
  * datum does NOT make the runtime prompt for it: HQ yields it as a
  * self-named session reference (`<datum id="case_id"
  * value="instance('commcaresession')/session/data/case_id"/>`), Core
- * evaluates that to `""` at push time (`StackFrameStep.defineStep`),
- * `CommCareSession.syncState` stores the empty string, and
- * `getFirstMissingDatum` only checks `containsKey`, so the target form opens
- * with an empty case id. The projection therefore REPORTS every unmatched
+ * raises when that session node is absent (`StackFrameStep.defineStep`). If
+ * the node exists with an empty value, `CommCareSession.syncState` stores it
+ * and `getFirstMissingDatum` only checks `containsKey`, so the target form
+ * opens with an empty case id. Neither state prompts for a missing case. The projection therefore REPORTS every unmatched
  * selection datum (`unmatched` / `missing`) and the validator refuses the
  * document; the bytes are still total for parity's sake, but only links whose
  * frames resolve reach the wire.
@@ -63,6 +63,7 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	deriveCaseWriteInventory,
@@ -175,6 +176,10 @@ export function sessionDataRef(datumId: string): string {
  * expanded actions (the datum list depends on which cases the form opens).
  */
 export interface FormLinkProjectionContext {
+	/** Export-only observer of an HQ root alignment that would bypass a bound. */
+	readonly onHqSelectionBoundMismatch?: (
+		issue: HqSelectionBoundMismatch,
+	) => void;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
@@ -194,6 +199,14 @@ export interface FormLinkProjectionContext {
 	readonly inlineSearches: Map<Uuid, InlineSearchEmission>;
 	/** The datum each placed `<query>` feeds (HQ `WorkflowQueryMeta.next_datum`). */
 	readonly queryNextDatums: WeakMap<SessionDatum, SessionDatum>;
+}
+
+export interface HqSelectionBoundMismatch {
+	readonly moduleUuid: Uuid;
+	readonly sourceModuleUuid: Uuid;
+	readonly targetModuleUuid: Uuid;
+	readonly sourceMaximum: number;
+	readonly targetMaximum: number;
 }
 
 /**
@@ -219,6 +232,9 @@ export function moduleCaseTypeForActions(
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
 	opts: {
+		readonly onHqSelectionBoundMismatch?: (
+			issue: HqSelectionBoundMismatch,
+		) => void;
 		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
@@ -256,6 +272,9 @@ export function formLinkProjectionContext(
 			return built;
 		});
 	return {
+		...(opts.onHqSelectionBoundMismatch !== undefined && {
+			onHqSelectionBoundMismatch: opts.onHqSelectionBoundMismatch,
+		}),
 		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
@@ -458,8 +477,12 @@ function selectableDatums(
 	moduleUuid: Uuid,
 	formType: BlueprintDoc["forms"][string]["type"],
 ): SessionDatum[] {
+	// HQ get_case_datums_basic_module selects this chain only for requires_case().
+	// A catalog parent relationship does not make primary registration load a
+	// parent; explicit child writes get their computed datums separately below.
+	if (!CASE_LOADING_FORM_TYPES.has(formType)) return [];
 	const chain = parentSelectChain(doc, ctx, moduleUuid);
-	if (formType === "followup" || formType === "close") chain.push(moduleUuid);
+	chain.push(moduleUuid);
 	if (chain.length === 0) return [];
 
 	const datums: SessionDatum[] = [];
@@ -576,6 +599,24 @@ function alignWithRootMenu(
 				parentSourceModule,
 				matchedSourceModule,
 			);
+		// HQ `_same_case` compares case type and XML datum kind, but ignores
+		// maximum selection count. Its reuse would skip this child's prompt.
+		if (
+			parentSourceUuid !== undefined &&
+			matchedSourceUuid !== undefined &&
+			parentDatum.caseType === matched?.caseType &&
+			parentDatum.maxSelectValue !== undefined &&
+			matched?.maxSelectValue !== undefined &&
+			parentDatum.maxSelectValue > matched.maxSelectValue
+		) {
+			ctx.onHqSelectionBoundMismatch?.({
+				moduleUuid,
+				sourceModuleUuid: parentSourceUuid,
+				targetModuleUuid: matchedSourceUuid,
+				sourceMaximum: parentDatum.maxSelectValue,
+				targetMaximum: matched.maxSelectValue,
+			});
+		}
 		if (
 			matched === undefined ||
 			matched.nodeset === undefined ||
@@ -916,7 +957,7 @@ function findBestMatch(
 export interface SourceMatch {
 	readonly children: MatchedChild[];
 	/** Selection datums no source datum could satisfy (HQ would emit a
-	 *  self-named reference that resolves to an empty value). */
+	 *  self-named reference that may be absent or empty). */
 	readonly unmatched: FrameDatum[];
 	/** Which source datum each matched selection datum reads, in target
 	 *  order — the structural answer a surface needs to say "the case this
@@ -1317,6 +1358,8 @@ export interface ProjectedFormLink {
 	readonly unmatched: readonly FrameDatum[];
 	readonly missing: readonly FrameDatum[];
 	readonly unused: readonly string[];
+	/** Manual selections that HQ cannot use to hydrate a preceding Search query. */
+	readonly unrepresentableQueryDatums?: readonly string[];
 }
 
 export interface ProjectedFormLinks {
@@ -1534,6 +1577,64 @@ export function projectFormLinkSessionExpression(
 	)(expression);
 }
 
+/** HQ leaves a manual link's hydration query pointed at the target's old
+ * session datum. Core defines every step against the source context, so the
+ * subsequent manual assignment cannot supply that query. Automatic matching
+ * does bind the query to the source. Use it when every non-query step is
+ * identical; otherwise only an unchanged source selection is representable. */
+function projectManualSearchLink(
+	target: readonly FrameChild[],
+	datums: readonly { readonly name: string; readonly xpath: string }[],
+	sourceDatums: readonly FrameDatum[],
+	sourceIds: ReadonlySet<string>,
+): {
+	readonly match: ManualMatch;
+	readonly datums: typeof datums;
+	readonly unrepresentableQueryDatums: readonly string[];
+} {
+	const match = matchFrameToManual(target, datums, sourceIds);
+	const queries = target.flatMap((child) =>
+		child.type === "datum" && child.datum.query !== undefined
+			? [child.datum.query]
+			: [],
+	);
+	if (queries.length === 0 || match.missing.length || match.unused.length)
+		return { match, datums, unrepresentableQueryDatums: [] };
+	const automatic = matchFrameToSource(target, sourceDatums);
+	const withoutQueries = (children: readonly MatchedChild[]) =>
+		children.filter((child) => child.type !== "query");
+	const manualSteps = withoutQueries(match.children);
+	const autoSteps = withoutQueries(automatic.children);
+	const sameSteps =
+		automatic.unmatched.length === 0 &&
+		manualSteps.length === autoSteps.length &&
+		manualSteps.every((child, index) => {
+			const other = autoSteps[index];
+			return (
+				other !== undefined &&
+				child.type === other.type &&
+				child.id === other.id &&
+				(child.type === "command" ||
+					(other.type === "datum" && child.value === other.value))
+			);
+		});
+	if (sameSteps)
+		return {
+			match: { ...match, children: automatic.children },
+			datums: [],
+			unrepresentableQueryDatums: [],
+		};
+	const byName = new Map(datums.map((datum) => [datum.name, datum.xpath]));
+	const unrepresentableQueryDatums = queries
+		.filter(
+			(query) =>
+				!sourceIds.has(query.nextDatumId) ||
+				byName.get(query.nextDatumId) !== sessionDataRef(query.nextDatumId),
+		)
+		.map((query) => query.nextDatumId);
+	return { match, datums, unrepresentableQueryDatums };
+}
+
 /**
  * Project one form's links, or `undefined` when it has none. Pure over the
  * document and the context; the expander (HQ JSON), the compiler (local
@@ -1582,13 +1683,22 @@ export function projectFormLinks(
 			xpath: project(datum.xpath),
 		}));
 		if (link.datums !== undefined) {
-			const match = matchFrameToManual(target, datums, sourceIds);
+			const manual = projectManualSearchLink(
+				target,
+				datums,
+				sourceDatums,
+				sourceIds,
+			);
+			const { match } = manual;
 			return {
 				uuid: link.uuid,
 				...(guard !== undefined && { guard }),
 				target: link.target,
 				children: match.children,
-				datums,
+				datums: manual.datums,
+				...(manual.unrepresentableQueryDatums.length > 0 && {
+					unrepresentableQueryDatums: manual.unrepresentableQueryDatums,
+				}),
 				unmatched: [],
 				missing: match.missing,
 				unused: match.unused,

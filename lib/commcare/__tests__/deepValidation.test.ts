@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { CaseType } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	type CaseType,
+} from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { eq, formField, literal } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
@@ -11,17 +19,24 @@ import {
 	caseListConfig,
 	type FieldSpec,
 	f,
-	xp,
+	xpIn,
 } from "../../__tests__/docHelpers";
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
 import { type DeepValidationError, validateBlueprintDeep } from "../validator";
-import {
-	FUNCTION_REGISTRY,
-	findCaseInsensitiveMatch,
-} from "../validator/functionRegistry";
+import { findCaseInsensitiveMatch } from "../validator/functionRegistry";
 import { runValidation } from "../validator/runner";
 import { validateXPath } from "../validator/xpathValidator";
+
+function assertAdmitted(doc: BlueprintDoc): void {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+}
+
+// The parser and DAG sections deliberately exercise private partial contexts,
+// including invalid graphs. Whole-document success claims use full admission.
+// Native XPath dispatch/arity and container execution have independent Core
+// fixtures; these tests own Nova diagnostics, identity resolution and graph state.
 
 // ── XPath Validator ─────────────────────────────────────────────────
 
@@ -568,52 +583,6 @@ describe("validateXPath", () => {
 // ── Function Registry ───────────────────────────────────────────────
 
 describe("functionRegistry", () => {
-	it("contains all expected CommCare functions", () => {
-		const expected = [
-			"if",
-			"today",
-			"now",
-			"selected",
-			"count-selected",
-			"format-date",
-			"uuid",
-			"random",
-			"round",
-			"concat",
-			"join",
-			"regex",
-			"cond",
-			"coalesce",
-			"distance",
-			"id-compress",
-			"encrypt-string",
-		];
-		for (const name of expected) {
-			expect(FUNCTION_REGISTRY.has(name)).toBe(true);
-		}
-	});
-
-	it("has correct arity for round (exactly 1)", () => {
-		const spec = FUNCTION_REGISTRY.get("round");
-		if (!spec) throw new Error("expected round in registry");
-		expect(spec.minArgs).toBe(1);
-		expect(spec.maxArgs).toBe(1);
-	});
-
-	it("has correct arity for if (exactly 3)", () => {
-		const spec = FUNCTION_REGISTRY.get("if");
-		if (!spec) throw new Error("expected if in registry");
-		expect(spec.minArgs).toBe(3);
-		expect(spec.maxArgs).toBe(3);
-	});
-
-	it("has correct arity for concat (0+)", () => {
-		const spec = FUNCTION_REGISTRY.get("concat");
-		if (!spec) throw new Error("expected concat in registry");
-		expect(spec.minArgs).toBe(0);
-		expect(spec.maxArgs).toBe(-1);
-	});
-
 	describe("findCaseInsensitiveMatch", () => {
 		it("finds Today → today", () => {
 			expect(findCaseInsensitiveMatch("Today")).toBe("today");
@@ -645,10 +614,12 @@ function treeFromFields(fields: FieldSpec[]) {
 	};
 }
 
-const DAG_LOOKUP_TABLE =
-	"30000000-0000-7000-8000-000000000001" as LookupTableId;
-const DAG_LOOKUP_COLUMN =
-	"40000000-0000-7000-8000-000000000001" as LookupColumnId;
+const DAG_LOOKUP_TABLE = lookupTableIdSchema.parse(
+	"30000000-0000-7000-8000-000000000001",
+);
+const DAG_LOOKUP_COLUMN = lookupColumnIdSchema.parse(
+	"40000000-0000-7000-8000-000000000001",
+);
 
 function lookupSelectForDag(
 	uuid: ReturnType<typeof testUuid>,
@@ -1120,7 +1091,16 @@ describe("validateBlueprintDeep", () => {
 				{
 					name: "Mod",
 					caseType: caseTypes ? "patient" : undefined,
-					forms: [{ name: "Form", type: "registration", fields }],
+					caseListConfig: caseTypes
+						? caseListConfig([{ field: "case_name", header: "Name" }])
+						: undefined,
+					forms: [
+						{
+							name: "Form",
+							type: caseTypes ? "registration" : "survey",
+							fields,
+						},
+					],
 				},
 			],
 			caseTypes,
@@ -1149,6 +1129,7 @@ describe("validateBlueprintDeep", () => {
 				},
 			],
 		);
+		assertAdmitted(doc);
 		expect(validateBlueprintDeep(doc)).toEqual([]);
 	});
 
@@ -1464,6 +1445,9 @@ describe("validateBlueprintDeep", () => {
 				{
 					name: "Mod",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Update",
@@ -1494,6 +1478,7 @@ describe("validateBlueprintDeep", () => {
 		if (field?.kind !== "hidden" || field.calculate === undefined) {
 			throw new Error("fixture must hold the hidden case-ref field");
 		}
+		assertAdmitted(doc);
 		const sorted = JSON.parse(
 			canonicalJsonText(field.calculate),
 		) as typeof field.calculate;
@@ -1501,6 +1486,7 @@ describe("validateBlueprintDeep", () => {
 		// part's sorted spelling differs, this regression stops testing.
 		expect(JSON.stringify(sorted)).not.toBe(JSON.stringify(field.calculate));
 		doc.fields[field.uuid] = { ...field, calculate: sorted };
+		assertAdmitted(doc);
 		expect(validateBlueprintDeep(doc)).toEqual([]);
 	});
 });
@@ -1508,7 +1494,7 @@ describe("validateBlueprintDeep", () => {
 // ── Full Integration (runValidation calls deep) ────────────────────
 
 describe("runValidation with deep validation", () => {
-	it("catches both rule-based and deep XPath errors", () => {
+	it("projects a deep XPath error through the full validation runner", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -1581,7 +1567,7 @@ describe("runValidation with deep validation", () => {
 					properties: [
 						{ name: "case_name", label: proseText("Name") },
 						{
-							name: "status",
+							name: "care_status",
 							label: proseText("Status"),
 							validation: "#patient/priority != ''",
 						},
@@ -1592,10 +1578,11 @@ describe("runValidation with deep validation", () => {
 		});
 		const property = doc.caseTypes
 			?.find((caseType) => caseType.name === "patient")
-			?.properties.find((candidate) => candidate.name === "status");
+			?.properties.find((candidate) => candidate.name === "care_status");
 		if (!property || property.validation === undefined) {
 			throw new Error("fixture must hold the case-ref validation default");
 		}
+		assertAdmitted(doc);
 		const sorted = JSON.parse(
 			canonicalJsonText(property.validation),
 		) as typeof property.validation;
@@ -1604,9 +1591,8 @@ describe("runValidation with deep validation", () => {
 		);
 		(property as { validation: typeof sorted }).validation = sorted;
 		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.filter((e) => e.code === "CASE_PROPERTY_REFERENCE_INVALID"),
-		).toEqual([]);
+		expect(errors).toEqual([]);
+		blueprintDocSchema.parse(toPersistableDoc(doc));
 	});
 });
 
@@ -1623,9 +1609,31 @@ describe("runValidation with deep validation", () => {
 // editing a calculate or relevant.
 
 describe("runValidation deep XPath on repeat fields", () => {
-	it("catches syntax errors in count_bound repeat_count", () => {
+	function candidate(mode: "count_bound" | "query_bound" | "user_controlled") {
+		const common = {
+			kind: "repeat" as const,
+			id: "visits",
+			label: proseText("Visits"),
+			children: [f({ kind: "text", id: "note", label: proseText("Note") })],
+		};
+		const repeat =
+			mode === "count_bound"
+				? f({
+						...common,
+						repeat_mode: mode,
+						repeat_count: "#form/desired_count",
+					})
+				: mode === "query_bound"
+					? f({
+							...common,
+							repeat_mode: mode,
+							data_source: {
+								ids_query:
+									"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
+							},
+						})
+					: f({ ...common, repeat_mode: mode });
 		const doc = buildDoc({
-			appName: "Test",
 			modules: [
 				{
 					name: "M",
@@ -1634,458 +1642,68 @@ describe("runValidation deep XPath on repeat fields", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "if(true(, 1, 2)",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
+								f({ kind: "hidden", id: "desired_count", calculate: "5" }),
+								repeat,
 							],
 						},
 					],
 				},
 			],
 		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
-	});
-
-	it("catches unknown functions in count_bound repeat_count", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "noSuchFunction(5)",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
-	});
-
-	it("catches syntax errors in query_bound ids_query", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "open_cases",
-									label: proseText("Open cases"),
-									repeat_mode: "query_bound",
-									data_source: { ids_query: "instance('casedb')//[bad" },
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "XPATH_SYNTAX")).toBe(true);
-	});
-
-	it("catches unknown functions in query_bound ids_query", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "open_cases",
-									label: proseText("Open cases"),
-									repeat_mode: "query_bound",
-									data_source: { ids_query: "boguscall('x')" },
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "UNKNOWN_FUNCTION")).toBe(true);
-	});
-
-	it("does not produce deep XPath errors for valid count_bound repeat_count", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "desired_count",
-									calculate: "5",
-								}),
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "#form/desired_count",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const xpathRelated = errors.filter(
-			(e) =>
-				(e.code === "XPATH_SYNTAX" ||
-					e.code === "UNKNOWN_FUNCTION" ||
-					e.code === "INVALID_REF") &&
-				e.location.fieldId === "visits",
+		assertAdmitted(doc);
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const field = Object.values(doc.fields).find(
+			(field) => field.id === "visits",
 		);
-		expect(xpathRelated).toEqual([]);
-	});
-
-	it("does not produce deep XPath errors for valid query_bound ids_query", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "open_cases",
-									label: proseText("Open cases"),
-									repeat_mode: "query_bound",
-									data_source: {
-										ids_query:
-											"instance('casedb')/casedb/case[@case_type='visit']/@case_id",
-									},
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
+		if (field?.kind !== "repeat") throw new Error("Expected repeat fixture");
+		return { doc, formUuid, field };
+	}
+	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
+		"admits a reachable %s repeat",
+		(mode) => {
+			candidate(mode);
+		},
+	);
+	describe.each(["count_bound", "query_bound"] as const)(
+		"%s carrier",
+		(mode) => {
+			it.each([
+				["if(true(, 1, 2)", "XPATH_SYNTAX"],
+				["noSuchFunction(5)", "UNKNOWN_FUNCTION"],
+				["/data/nonexistent_field", "INVALID_REF"],
+				[" \n\t ", "empty"],
+			])(
+				"classifies %s exactly at the edited repeat",
+				(text, classification) => {
+					const { doc, formUuid, field } = candidate(mode);
+					const expression = xpIn(doc, formUuid, text);
+					if (field.repeat_mode === "count_bound")
+						doc.fields[field.uuid] = { ...field, repeat_count: expression };
+					else if (field.repeat_mode === "query_bound")
+						doc.fields[field.uuid] = {
+							...field,
+							data_source: { ...field.data_source, ids_query: expression },
+						};
+					else throw new Error("Expected an expression-bearing repeat");
+					const code =
+						classification === "empty"
+							? mode === "count_bound"
+								? "EMPTY_REPEAT_COUNT"
+								: "EMPTY_IDS_QUERY"
+							: classification;
+					const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+					expect(errors).toEqual([
+						expect.objectContaining({
+							code,
+							location: expect.objectContaining({ fieldId: "visits" }),
+						}),
+					]);
+					if (classification === "XPATH_SYNTAX" && mode === "count_bound")
+						expect(errors[0].message).toContain("repeat count");
 				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const xpathRelated = errors.filter(
-			(e) =>
-				(e.code === "XPATH_SYNTAX" ||
-					e.code === "UNKNOWN_FUNCTION" ||
-					e.code === "INVALID_REF") &&
-				e.location.fieldId === "open_cases",
-		);
-		expect(xpathRelated).toEqual([]);
-	});
-
-	it("whitespace-only repeat_count fires only the empty rule, not deep XPath", () => {
-		// The empty-rule layer (`EMPTY_REPEAT_COUNT`) trims whitespace,
-		// so it catches `"   "` cleanly. The deep validator's gate must
-		// match — without trim symmetry, whitespace double-reports
-		// (empty rule + a synthetic deep error from `validateXPath`'s
-		// truthy-guarded parser). The deep filter checks the full set
-		// of XPath error codes so a future change emitting a different
-		// code on whitespace doesn't slip past.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "   ",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const visitErrs = errors.filter((e) => e.location.fieldId === "visits");
-		expect(visitErrs.some((e) => e.code === "EMPTY_REPEAT_COUNT")).toBe(true);
-		const deepCodes: ReadonlySet<string> = new Set([
-			"XPATH_SYNTAX",
-			"UNKNOWN_FUNCTION",
-			"INVALID_REF",
-			"INVALID_CASE_REF",
-			"WRONG_ARITY",
-			"TYPE_ERROR",
-			"CYCLE",
-		]);
-		expect(visitErrs.some((e) => deepCodes.has(e.code))).toBe(false);
-	});
-
-	it("whitespace-only ids_query fires only the empty rule, not deep XPath", () => {
-		// Symmetric to the count_bound whitespace test above. Same
-		// trim-symmetry contract on the query_bound side.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "open_cases",
-									label: proseText("Open cases"),
-									repeat_mode: "query_bound",
-									data_source: { ids_query: "\n\t " },
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const caseErrs = errors.filter((e) => e.location.fieldId === "open_cases");
-		expect(caseErrs.some((e) => e.code === "EMPTY_IDS_QUERY")).toBe(true);
-		const deepCodes: ReadonlySet<string> = new Set([
-			"XPATH_SYNTAX",
-			"UNKNOWN_FUNCTION",
-			"INVALID_REF",
-			"INVALID_CASE_REF",
-			"WRONG_ARITY",
-			"TYPE_ERROR",
-			"CYCLE",
-		]);
-		expect(caseErrs.some((e) => deepCodes.has(e.code))).toBe(false);
-	});
-
-	it("catches references to nonexistent paths in repeat_count", () => {
-		// `validateXPath` resolves `#form/...` and `/data/...` references
-		// against the form's path set. A reference to a field that
-		// doesn't exist surfaces as INVALID_REF — same code class an
-		// equivalent typo on a `calculate` would produce.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "/data/nonexistent_field",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) => e.code === "INVALID_REF" && e.location.fieldId === "visits",
-			),
-		).toBe(true);
-	});
-
-	it("catches references to nonexistent paths in ids_query", () => {
-		// Symmetric to the count_bound INVALID_REF case above. The SA
-		// editing a query_bound repeat should get the same error class
-		// as editing a count_bound one — same `validateXPath` path, same
-		// `INVALID_REF` code, same humanization through
-		// `FIELD_NAMES["ids_query"]`.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "open_cases",
-									label: proseText("Open cases"),
-									repeat_mode: "query_bound",
-									data_source: {
-										ids_query: "/data/nonexistent_field",
-									},
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) => e.code === "INVALID_REF" && e.location.fieldId === "open_cases",
-			),
-		).toBe(true);
-	});
-
-	it("user_controlled repeats produce no deep XPath errors from the new branch", () => {
-		// The discriminant guard `repeat_mode === "count_bound" |
-		// "query_bound"` is load-bearing — `user_controlled` repeats
-		// have no XPath field, so the new branch must skip them
-		// cleanly. Without this assertion, a regression that drops the
-		// discriminant check (and accidentally calls `validateXPath`
-		// on something that doesn't exist) would slip past the other
-		// tests.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "members",
-									label: proseText("Members"),
-									repeat_mode: "user_controlled",
-									children: [
-										f({ kind: "text", id: "name", label: proseText("Name") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const memberErrs = errors.filter((e) => e.location.fieldId === "members");
-		const deepCodes: ReadonlySet<string> = new Set([
-			"XPATH_SYNTAX",
-			"UNKNOWN_FUNCTION",
-			"INVALID_REF",
-			"INVALID_CASE_REF",
-			"WRONG_ARITY",
-			"TYPE_ERROR",
-			"CYCLE",
-		]);
-		expect(memberErrs.some((e) => deepCodes.has(e.code))).toBe(false);
-	});
-
-	it("humanized error message names the user-facing field label", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									repeat_mode: "count_bound",
-									repeat_count: "if(true(, 1, 2)",
-									children: [
-										f({ kind: "text", id: "note", label: proseText("Note") }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		const syntaxErr = errors.find(
-			(e) => e.code === "XPATH_SYNTAX" && e.location.fieldId === "visits",
-		);
-		expect(syntaxErr).toBeDefined();
-		expect(syntaxErr?.message).toContain("repeat count");
-	});
+			);
+		},
+	);
 });
 
 describe("runValidation — bare-id reference suggestion (group-path DX)", () => {
@@ -2126,7 +1744,7 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 									kind: "label",
 									id: "consent_stop",
 									label: proseText("Enrollment stopped."),
-									relevant: "#form/consent = 'no'",
+									relevant: "#form/consent_grp/consent = 'no'",
 								}),
 							],
 						},
@@ -2134,6 +1752,19 @@ describe("runValidation — bare-id reference suggestion (group-path DX)", () =>
 				},
 			],
 		});
+		assertAdmitted(doc);
+		const stop = Object.values(doc.fields).find(
+			(field) => field.id === "consent_stop",
+		);
+		if (stop?.kind !== "label") throw new Error("Expected stop label");
+		doc.fields[stop.uuid] = {
+			...stop,
+			relevant: xpIn(
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+				"#form/consent = 'no'",
+			),
+		};
 		const refErr = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
 			(e) => e.code === "INVALID_REF" && e.location.fieldId === "consent_stop",
 		);
@@ -2164,9 +1795,18 @@ describe("INVALID_REF stored-reference classification", () => {
 			f({
 				kind: "hidden",
 				id: "total",
-				calculate: { parts: [{ kind: "field-ref", uuid: ghost }] },
+				calculate: "#form/score",
 			}),
 		]);
+		assertAdmitted(doc);
+		const total = Object.values(doc.fields).find(
+			(field) => field.id === "total",
+		);
+		if (total?.kind !== "hidden") throw new Error("Expected total field");
+		doc.fields[total.uuid] = {
+			...total,
+			calculate: { parts: [{ kind: "field-ref", uuid: ghost }] },
+		};
 		const deepErr = validateBlueprintDeep(doc).find(
 			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
 				e.kind === "field-xpath" && e.error.code === "INVALID_REF",
@@ -2195,8 +1835,21 @@ describe("INVALID_REF stored-reference classification", () => {
 				label: proseText("Group"),
 				children: [f({ kind: "int", id: "score", label: proseText("Score") })],
 			}),
-			f({ kind: "hidden", id: "total", calculate: xp("#form/score") }),
+			f({ kind: "hidden", id: "total", calculate: "#form/grp/score" }),
 		]);
+		assertAdmitted(doc);
+		const total = Object.values(doc.fields).find(
+			(field) => field.id === "total",
+		);
+		if (total?.kind !== "hidden") throw new Error("Expected total field");
+		doc.fields[total.uuid] = {
+			...total,
+			calculate: xpIn(
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+				"#form/score ",
+			),
+		};
 		const rendered = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
 			(e) => e.code === "INVALID_REF",
 		);
@@ -2208,8 +1861,21 @@ describe("INVALID_REF stored-reference classification", () => {
 	it("leaves an unresolved absolute path unclassified — the generic typo prose", () => {
 		const doc = makeDoc([
 			f({ kind: "int", id: "score", label: proseText("Score") }),
-			f({ kind: "hidden", id: "total", calculate: xp("/data/scroe + 1") }),
+			f({ kind: "hidden", id: "total", calculate: "/data/score + 1" }),
 		]);
+		assertAdmitted(doc);
+		const total = Object.values(doc.fields).find(
+			(field) => field.id === "total",
+		);
+		if (total?.kind !== "hidden") throw new Error("Expected total field");
+		doc.fields[total.uuid] = {
+			...total,
+			calculate: xpIn(
+				doc,
+				doc.formOrder[doc.moduleOrder[0]][0],
+				"/data/scroe + 1 ",
+			),
+		};
 		const deepErr = validateBlueprintDeep(doc).find(
 			(e): e is Extract<DeepValidationError, { kind: "field-xpath" }> =>
 				e.kind === "field-xpath" && e.error.code === "INVALID_REF",

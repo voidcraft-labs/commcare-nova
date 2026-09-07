@@ -10,7 +10,6 @@ import {
 	applyRecordUpsert,
 	beginRecordsLoad,
 	compactTargetRows,
-	DEPLOYMENT_STATE_LABELS,
 	deploymentViewKey,
 	INITIAL_PUBLISHING_RECORDS,
 	preseededDomainSelection,
@@ -77,6 +76,7 @@ function appResource(): DeploymentResource {
 		adoptedAt: null,
 		adoptedBy: null,
 		pushedRevision: 3,
+		pushToken: "01992000-0000-7000-8000-000000000001",
 		pushedAt: "2026-08-01T00:00:00Z",
 		remoteRevision: null,
 		remoteObservedAt: null,
@@ -135,6 +135,20 @@ describe("the section's record load", () => {
 			views: [view({})],
 		});
 		expect(settled).toBe(state);
+	});
+
+	it("ignores a superseded refusal without hiding the newer successful records", () => {
+		const latest = resolveRecordsLoad(
+			beginRecordsLoad(INITIAL_PUBLISHING_RECORDS, 2),
+			2,
+			{ ok: true, views: [view({ state: "released" })] },
+		);
+		expect(
+			resolveRecordsLoad(latest, 1, {
+				ok: false,
+				message: "Old request failed",
+			}),
+		).toBe(latest);
 	});
 
 	it("degrades a failed reload to a failure beside the held records", () => {
@@ -196,7 +210,7 @@ describe("the section's record load", () => {
 describe("compactTargetRows", () => {
 	it("labels a reached record with its furthest rung", () => {
 		const rows = compactTargetRows([view({ state: "released" })], "production");
-		expect(rows[0].statusLabel).toBe(DEPLOYMENT_STATE_LABELS.released);
+		expect(rows[0].statusLabel).toBe("Released");
 		expect(rows[0].stopped).toBe(false);
 	});
 

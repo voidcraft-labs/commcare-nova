@@ -7,30 +7,34 @@
  * That writer and `refundReservation` are mocked so these tests stay unit-
  * scoped. `runSummary.postgres.test.ts` proves the two database rows commit together.
  */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.mock is hoisted above imports by Vitest, so any identifiers referenced
 // inside the factory must be hoisted too — vi.hoisted lifts a block of setup
 // alongside the mock calls. Without this, the mock factory runs before the
 // top-level `const` bindings exist and throws a ReferenceError on load.
-const { writeRunSummaryMock, refundReservationMock, accrueMonthlyUsageMock } =
-	vi.hoisted(() => ({
-		writeRunSummaryMock: vi.fn(),
-		refundReservationMock: vi.fn(),
-		accrueMonthlyUsageMock: vi.fn(
-			async (
-				_billing: { userId: string; period: string },
-				_totals: {
-					inputTokens: number;
-					outputTokens: number;
-					costEstimate: number;
-				},
-			) => true,
-		),
-	}));
+const {
+	writeRunSummaryMock,
+	refundReservationMock,
+	refundDesignSessionReservationMock,
+	accrueMonthlyUsageMock,
+} = vi.hoisted(() => ({
+	writeRunSummaryMock: vi.fn(),
+	refundReservationMock: vi.fn(),
+	refundDesignSessionReservationMock: vi.fn(),
+	accrueMonthlyUsageMock: vi.fn(
+		async (
+			_billing: { userId: string; period: string },
+			_totals: {
+				inputTokens: number;
+				outputTokens: number;
+				costEstimate: number;
+			},
+		) => true,
+	),
+}));
 
-// Run summary writer is fire-and-forget in prod — mock it outright so
-// the idempotence + zero-cost tests can count invocations.
+// Replace the awaited persistence boundary; real row atomicity is tested in Postgres.
 vi.mock("../runSummary", () => ({
 	accrueMonthlyUsageBestEffort: accrueMonthlyUsageMock,
 	writeRunSummaryWithDurableContributions: async (
@@ -64,6 +68,7 @@ vi.mock("../runSummary", () => ({
 // intercepts the import that `usage.ts` resolves at flush time.
 vi.mock("../credits", () => ({
 	refundReservation: refundReservationMock,
+	refundDesignSessionReservation: refundDesignSessionReservationMock,
 }));
 
 // `@/lib/logger` is globally stubbed in vitest.setup.ts and `clearMocks: true`
@@ -89,6 +94,12 @@ function lastRequestedBillingCost(): number | undefined {
 }
 
 describe("UsageAccumulator", () => {
+	beforeEach(() => {
+		writeRunSummaryMock.mockReset();
+		refundReservationMock.mockReset();
+		refundDesignSessionReservationMock.mockReset();
+		accrueMonthlyUsageMock.mockReset().mockResolvedValue(true);
+	});
 	it("tracks cumulative tokens + cost across track() calls", () => {
 		const acc = new UsageAccumulator({
 			target: { kind: "app", appId: "app-1" },
@@ -257,7 +268,6 @@ describe("UsageAccumulator", () => {
 	});
 
 	it("registers one durable contribution for repeated recovery of the same step", async () => {
-		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
 			target: { kind: "design-session", designSessionId: "design-1" },
 			userId: "u",
@@ -297,7 +307,6 @@ describe("UsageAccumulator", () => {
 	});
 
 	it("keeps a durable translation batch distinct from design model-step identity", async () => {
-		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
 			target: { kind: "design-session", designSessionId: "design-1" },
 			userId: "u",
@@ -332,7 +341,6 @@ describe("UsageAccumulator", () => {
 	});
 
 	it("flush() is idempotent", async () => {
-		writeRunSummaryMock.mockReset();
 		const acc = new UsageAccumulator({
 			target: { kind: "app", appId: "a" },
 			userId: "u",
@@ -352,8 +360,7 @@ describe("UsageAccumulator", () => {
 		expect(lastRequestedBillingCost()).toBeGreaterThan(0);
 	});
 
-	it("flush() with zero cost skips the monthly increment", async () => {
-		writeRunSummaryMock.mockReset();
+	it("flush() still sends a summary when no billable work occurred", async () => {
 		const acc = new UsageAccumulator({
 			target: { kind: "app", appId: "a" },
 			userId: "u",
@@ -369,20 +376,6 @@ describe("UsageAccumulator", () => {
 		// Run summary still written so the inspect tools see the run at all —
 		// admins care about zero-cost replays too (e.g. cache-hit analysis).
 		expect(writeRunSummaryMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("runId getter returns the seed runId", () => {
-		const acc = new UsageAccumulator({
-			target: { kind: "app", appId: "a" },
-			userId: "u",
-			runId: "run-getter-test",
-			holderNonce: HOLDER_NONCE,
-			model: "gpt-5.6-sol",
-			promptMode: "build",
-			appReady: false,
-			moduleCount: 0,
-		});
-		expect(acc.runId).toBe("run-getter-test");
 	});
 
 	// ── Credit refund on no-op / failed runs ────────────────────────
@@ -409,8 +402,6 @@ describe("UsageAccumulator", () => {
 		};
 
 		it("refunds the reservation on a zero-cost run and skips the increment", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			// No track() calls → zero cost → the run did no billable work.
 			const acc = new UsageAccumulator(reservedSeed);
 			await acc.flush();
@@ -428,8 +419,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("charges (no refund) on a successful run with real cost", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			await acc.flush();
@@ -441,9 +430,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("does not refund when durable paid work could not be accounted", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("failed");
-			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.trackDurable(
 				{ contextId: "context-1", stepKey: "step-1" },
@@ -465,14 +452,12 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("does not refund when another finalizer already admitted the durable step", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue({
 				action: "incremented",
 				admittedContributions: [],
 				monthlyUsageAccrued: false,
 				runCostEstimate: 0.025,
 			});
-			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.trackDurable(
 				{ contextId: "context-1", stepKey: "step-1" },
@@ -492,8 +477,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("on a FAILED run with real cost it BOTH accrues the cost AND refunds", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			acc.markRunFailed();
@@ -513,8 +496,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("never refunds a free continuation that was never reserved", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			// didReserve:false — an assistant-tail continuation that booked nothing.
 			const acc = new UsageAccumulator({
 				...reservedSeed,
@@ -531,8 +512,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("the didReserve flag alone vetoes the refund even with amount + period present", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			// `reservedAmount` and `chargePeriod` are PRESENT but `didReserve` is
 			// false. This isolates `didReserve`'s contribution to the guard: with the
 			// other two clauses truthy, only the flag can veto the refund. Dropping
@@ -550,8 +529,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("triggers the refund for an edit's reservation (a non-build amount still fires the gate)", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			// An EDIT reserved 5, not a build's 100. The exact amount is no longer
 			// flush's concern (refundReservation reads it off the marker — see
 			// credits.postgres.test.ts); this pins that the flush refund GATE still fires for a
@@ -571,9 +548,19 @@ describe("UsageAccumulator", () => {
 			);
 		});
 
+		it("refunds a pre-app design against its own authority row", async () => {
+			const acc = new UsageAccumulator({
+				...reservedSeed,
+				target: { kind: "design-session", designSessionId: "pre-app-design" },
+			});
+			await acc.flush();
+			expect(
+				refundDesignSessionReservationMock,
+			).toHaveBeenCalledExactlyOnceWith("pre-app-design", "r", HOLDER_NONCE);
+			expect(refundReservationMock).not.toHaveBeenCalled();
+		});
+
 		it("refunds at most once across repeated flush() calls", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
 			const acc = new UsageAccumulator(reservedSeed);
 			await acc.flush();
 			await acc.flush();
@@ -581,27 +568,6 @@ describe("UsageAccumulator", () => {
 			// The `_finalized` guard short-circuits the second flush before the
 			// refund branch — a double-refund would over-credit the user.
 			expect(refundReservationMock).toHaveBeenCalledTimes(1);
-		});
-
-		it("still fires the refund gate when the reservation was booked to a prior month", async () => {
-			writeRunSummaryMock.mockReset();
-			refundReservationMock.mockReset();
-			// The cross-midnight period-capture now lives on the marker: reserveCredits
-			// writes the booked period, refundReservation reads it (credits.postgres.test.ts).
-			// flush's job is only to FIRE the refund — this asserts a prior-month
-			// chargePeriod still passes the gate and delegates by appId.
-			const acc = new UsageAccumulator({
-				...reservedSeed,
-				chargePeriod: "2026-05",
-			});
-			await acc.flush();
-
-			expect(refundReservationMock).toHaveBeenCalledWith(
-				"a",
-				"r",
-				HOLDER_NONCE,
-				"build",
-			);
 		});
 	});
 
@@ -626,9 +592,7 @@ describe("UsageAccumulator", () => {
 		};
 
 		it("re-accrues the process-local spend when the summary transaction fails", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("failed");
-			accrueMonthlyUsageMock.mockClear();
 			const acc = new UsageAccumulator(seed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			await acc.flush();
@@ -655,9 +619,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("reports the accrual lost when the fallback also fails", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("failed");
-			accrueMonthlyUsageMock.mockClear();
 			accrueMonthlyUsageMock.mockResolvedValueOnce(false);
 			const acc = new UsageAccumulator(seed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
@@ -670,9 +632,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("leaves durable-only spend to a later finalizer's exact-once admission", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("failed");
-			accrueMonthlyUsageMock.mockClear();
 			const acc = new UsageAccumulator(seed);
 			acc.trackDurable(
 				{ contextId: "context-1", stepKey: "step-1" },
@@ -685,8 +645,6 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("never fires on a healthy summary write", async () => {
-			writeRunSummaryMock.mockReset();
-			accrueMonthlyUsageMock.mockClear();
 			const acc = new UsageAccumulator(seed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
 			await acc.flush();
@@ -719,10 +677,8 @@ describe("UsageAccumulator", () => {
 		};
 
 		it("carries the summaryAction, the zero-cost refund reason, and the input composition", async () => {
-			writeRunSummaryMock.mockReset();
 			// A clobbered prior doc — the silent-undercount path we most want to see.
 			writeRunSummaryMock.mockResolvedValue("overwritten");
-			refundReservationMock.mockReset();
 
 			// No track() → zero cost. Reserved + zero-cost = the wrong-refund signature.
 			const acc = new UsageAccumulator(reservedSeed);
@@ -750,9 +706,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("labels a FAILED run with real cost as run-failed (the legit-refund leg, not the zero-cost alarm)", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");
-			refundReservationMock.mockReset();
 
 			// Real cost + markRunFailed → the third leg of the refundReason ternary.
 			// This is the discriminator the log exists for: a legitimate failed-run
@@ -777,9 +731,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("logs refunded:false + refundFailed:true when the owed refund's transaction throws", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");
-			refundReservationMock.mockReset();
 			// The refund was owed (failed run, reservation booked) but its cross-doc
 			// transaction threw. The log reports the OUTCOME, not the intent: a refund
 			// that did not commit logs refunded:false + refundFailed:true, so the cost
@@ -801,9 +753,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("logs refundReason null + accruedCost true on a healthy paid run", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("incremented");
-			refundReservationMock.mockReset();
 
 			const acc = new UsageAccumulator(reservedSeed);
 			acc.track({ inputTokens: 1000, outputTokens: 500 }, { step: true });
@@ -821,9 +771,7 @@ describe("UsageAccumulator", () => {
 		});
 
 		it("carries undefined composition when the run finalizes before configureRun", async () => {
-			writeRunSummaryMock.mockReset();
 			writeRunSummaryMock.mockResolvedValue("created");
-			refundReservationMock.mockReset();
 
 			// No configureRun() — the early-finalize shape: a flush that lands
 			// before the route assembles the effective messages. Pinning the

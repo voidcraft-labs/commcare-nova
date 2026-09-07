@@ -16,9 +16,10 @@
 // references — its own traversal is covered in the domain layer.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ListAppsResult } from "@/lib/db/apps";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import type { BlueprintDoc } from "@/lib/domain";
+import type { AssetRef } from "@/lib/domain/mediaRefs";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import {
 	carriersForAsset,
@@ -32,7 +33,6 @@ import {
 const {
 	listApps,
 	loadApp,
-	deleteAssetRow,
 	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 	hasReadyExtractForProjectAndHash,
@@ -40,25 +40,21 @@ const {
 	walkAuthoredAssetRefs,
 	withMediaObjectKeyLock,
 } = vi.hoisted(() => ({
-	listApps: vi.fn<() => Promise<ListAppsResult>>(() =>
-		Promise.resolve({ apps: [] }),
-	),
+	listApps: vi.fn(() => Promise.resolve({ apps: [] })),
 	loadApp: vi.fn(),
-	deleteAssetRow: vi.fn(() => Promise.resolve()),
 	hasAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	hasOtherAssetForGcsObjectKey: vi.fn(() => Promise.resolve(false)),
 	hasReadyExtractForProjectAndHash: vi.fn(() => Promise.resolve(false)),
 	deleteGcsObject: vi.fn(() => Promise.resolve()),
-	walkAuthoredAssetRefs: vi.fn(() => []),
+	walkAuthoredAssetRefs: vi.fn<() => AssetRef[]>(() => []),
 	withMediaObjectKeyLock: vi.fn(
 		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
-			body({ pinned: true }),
+			body(PINNED_DB),
 	),
 }));
 
 vi.mock("@/lib/db/apps", () => ({ listApps, loadApp }));
 vi.mock("@/lib/db/mediaAssets", () => ({
-	deleteAsset: deleteAssetRow,
 	hasAssetForGcsObjectKey,
 	hasOtherAssetForGcsObjectKey,
 	hasReadyExtractForProjectAndHash,
@@ -78,11 +74,13 @@ vi.mock("@/lib/domain/mediaRefs", async (importOriginal) => ({
 }));
 
 const PROJECT = "project-1";
+const PINNED_DB = { session: Symbol("cleanup connection") };
+const ASSET_ID = testMediaAssetId("asset-1");
 
 /** A ready document asset row, overridable per test. */
 function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "asset-1",
+		id: ASSET_ID,
 		owner: "user-1",
 		project_id: PROJECT,
 		gcsObjectKey: "projects/project-1/asset-1.pdf",
@@ -93,21 +91,22 @@ function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		extension: ".pdf",
 		sizeBytes: 100,
 		status: "ready",
+		created_at: new Date("2026-01-01"),
 		...over,
-	} as unknown as MediaAssetRecord;
+	};
 }
 
 /** A single app-logo reference to the asset (describeCarrier → "the app logo"). */
-const logoRef = [
-	{ assetId: "asset-1", location: { kind: "app_logo" } },
-] as never;
+const logoRef: AssetRef[] = [
+	{ assetId: ASSET_ID, slotKind: "image", location: { kind: "app_logo" } },
+];
 
 beforeEach(() => {
-	// `clearAllMocks` resets call history but NOT implementations, so a
-	// `mockResolvedValue` set in one test would leak into the next. Re-seed every
-	// mock's default impl here so each test starts from the same baseline
-	// regardless of order.
-	vi.clearAllMocks();
+	vi.resetAllMocks();
+	withMediaObjectKeyLock.mockImplementation(async (_key, body) =>
+		body(PINNED_DB),
+	);
+	deleteGcsObject.mockResolvedValue();
 	listApps.mockResolvedValue({ apps: [] });
 	loadApp.mockResolvedValue(null);
 	hasAssetForGcsObjectKey.mockResolvedValue(false);
@@ -129,40 +128,56 @@ function appDoc(over: Record<string, unknown> = {}) {
 }
 
 describe("carriersForAsset", () => {
-	const doc = {} as BlueprintDoc;
+	const doc = buildDoc({ modules: [] });
 
-	it("filters to the asset, maps to carrier phrases, and dedups", async () => {
+	it("filters to the asset and maps to carrier phrases", () => {
 		// Two references to asset-1 (logo + module icon) plus one to asset-2.
 		walkAuthoredAssetRefs.mockReturnValue([
-			{ assetId: "asset-1", location: { kind: "app_logo" } },
+			{ assetId: ASSET_ID, slotKind: "image", location: { kind: "app_logo" } },
 			{
-				assetId: "asset-1",
+				assetId: ASSET_ID,
 				slotKind: "image",
-				location: { kind: "module_icon", moduleName: "Clients" },
+				location: {
+					kind: "module_icon",
+					moduleName: "Clients",
+					moduleUuid: testUuid("clients"),
+				},
 			},
-			{ assetId: "asset-2", location: { kind: "app_logo" } },
-		] as never);
-		const carriers = carriersForAsset(doc, "asset-1");
+			{
+				assetId: testMediaAssetId("other"),
+				slotKind: "audio",
+				location: {
+					kind: "module_audio_label",
+					moduleUuid: testUuid("other"),
+					moduleName: "Other",
+				},
+			},
+		]);
+		const carriers = carriersForAsset(doc, ASSET_ID);
 		expect(carriers).toContain("the app logo");
 		expect(carriers).toContain('the icon on module "Clients"');
-		// asset-2's carrier is excluded.
-		expect(carriers).not.toContain("the app logo the app logo");
+		// The unrelated asset has a distinct carrier, so exclusion is observable.
+		expect(carriers).not.toContain('the audio label on module "Other"');
 		expect(carriers).toHaveLength(2);
 	});
 
-	it("dedups identical carriers (same asset on two slots of one form reads once)", async () => {
+	it("dedups identical carrier phrases", () => {
 		walkAuthoredAssetRefs.mockReturnValue([
-			{ assetId: "asset-1", location: { kind: "app_logo" } },
-			{ assetId: "asset-1", location: { kind: "app_logo" } },
-		] as never);
-		expect(carriersForAsset(doc, "asset-1")).toEqual(["the app logo"]);
+			{ assetId: ASSET_ID, slotKind: "image", location: { kind: "app_logo" } },
+			{ assetId: ASSET_ID, slotKind: "image", location: { kind: "app_logo" } },
+		]);
+		expect(carriersForAsset(doc, ASSET_ID)).toEqual(["the app logo"]);
 	});
 
-	it("returns empty when the doc doesn't reference the asset", async () => {
+	it("returns empty when the doc doesn't reference the asset", () => {
 		walkAuthoredAssetRefs.mockReturnValue([
-			{ assetId: "other", location: { kind: "app_logo" } },
-		] as never);
-		expect(carriersForAsset(doc, "asset-1")).toEqual([]);
+			{
+				assetId: testMediaAssetId("other"),
+				slotKind: "image",
+				location: { kind: "app_logo" },
+			},
+		]);
+		expect(carriersForAsset(doc, ASSET_ID)).toEqual([]);
 	});
 });
 
@@ -170,7 +185,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 	it("loads ONLY the candidate apps, never the Project's whole list", async () => {
 		loadApp.mockResolvedValue(appDoc());
 		walkAuthoredAssetRefs.mockReturnValue(logoRef);
-		const refs = await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]);
+		const refs = await findAppReferencesToAsset(PROJECT, ASSET_ID, ["app-1"]);
 		expect(refs).toHaveLength(1);
 		expect(refs[0]).toContain("App One");
 		expect(refs[0]).toContain("the app logo");
@@ -185,12 +200,12 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		loadApp.mockResolvedValue(appDoc());
 		walkAuthoredAssetRefs.mockReturnValue([]); // app loaded, but no carrier points at it
 		expect(
-			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
+			await findAppReferencesToAsset(PROJECT, ASSET_ID, ["app-1"]),
 		).toEqual([]);
 	});
 
 	it("returns empty for an empty candidate set without touching Postgres", async () => {
-		expect(await findAppReferencesToAsset(PROJECT, "asset-1", [])).toEqual([]);
+		expect(await findAppReferencesToAsset(PROJECT, ASSET_ID, [])).toEqual([]);
 		expect(loadApp).not.toHaveBeenCalled();
 		expect(listApps).not.toHaveBeenCalled();
 	});
@@ -199,7 +214,7 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		walkAuthoredAssetRefs.mockReturnValue(logoRef);
 		const refs = await findAppReferencesToAsset(
 			PROJECT,
-			"asset-1",
+			ASSET_ID,
 			["current"],
 			{
 				skipAppId: "current",
@@ -209,13 +224,20 @@ describe("findAppReferencesToAsset — index path (candidates given)", () => {
 		expect(loadApp).not.toHaveBeenCalled();
 	});
 
-	it("ignores a deleted or foreign-Project candidate", async () => {
-		loadApp.mockResolvedValue(appDoc({ project_id: "project-2" })); // another Project
-		walkAuthoredAssetRefs.mockReturnValue(logoRef);
-		expect(
-			await findAppReferencesToAsset(PROJECT, "asset-1", ["app-1"]),
-		).toEqual([]);
-	});
+	it.each([
+		null,
+		appDoc({ project_id: "project-2" }),
+		appDoc({ deleted_at: new Date("2026-01-01") }),
+	])(
+		"ignores missing, foreign, or deleted candidates: %j",
+		async (candidate) => {
+			loadApp.mockResolvedValue(candidate);
+			walkAuthoredAssetRefs.mockReturnValue(logoRef);
+			expect(
+				await findAppReferencesToAsset(PROJECT, ASSET_ID, ["app-1"]),
+			).toEqual([]);
+		},
+	);
 });
 
 describe("purgeAssetStorage", () => {
@@ -276,7 +298,7 @@ describe("purgeAssetStorage", () => {
 			"project-1",
 			"a".repeat(64),
 			2,
-			expect.anything(),
+			PINNED_DB,
 		);
 	});
 
@@ -303,7 +325,7 @@ describe("purgeAssetStorage", () => {
 			"project-1",
 			"c".repeat(64),
 			EXTRACTOR_VERSION,
-			expect.anything(),
+			PINNED_DB,
 		);
 	});
 
@@ -365,22 +387,28 @@ describe("purgeAssetStorage", () => {
 			}),
 		).toBe(false);
 		expect(deleteRow).toHaveBeenCalledOnce();
-		expect(deleteAssetRow).not.toHaveBeenCalled();
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
-	it("commits metadata deletion before taking the object-key cleanup lock", async () => {
-		const deleted = asset();
-		const deleteRow = vi.fn(() => Promise.resolve(deleted));
-		await purgeAssetStorage({ deleteRow });
-
-		expect(deleteRow.mock.invocationCallOrder[0]).toBeLessThan(
-			withMediaObjectKeyLock.mock.invocationCallOrder[0] ?? 0,
-		);
-		expect(withMediaObjectKeyLock).toHaveBeenCalledWith(
-			"projects/project-1/asset-1.pdf",
-			expect.any(Function),
-		);
+	it("waits for committed metadata deletion before taking the cleanup lock", async () => {
+		const gate = deferred();
+		const deleteRow = vi.fn(async () => {
+			await gate.promise;
+			return asset();
+		});
+		const pending = purgeAssetStorage({ deleteRow });
+		const settled = Promise.allSettled([pending]);
+		try {
+			await vi.waitFor(() => expect(deleteRow).toHaveBeenCalledOnce());
+			expect(withMediaObjectKeyLock).not.toHaveBeenCalled();
+			expect(deleteGcsObject).not.toHaveBeenCalled();
+			gate.resolve();
+			expect(await pending).toBe(true);
+			expect(deleteGcsObject).toHaveBeenCalledWith(asset().gcsObjectKey);
+		} finally {
+			gate.resolve();
+			await settled;
+		}
 	});
 
 	it("cleans the authoritative locked row when publication changed the key after preflight", async () => {
@@ -426,7 +454,7 @@ function installKeyMutex(): void {
 			});
 			await prior;
 			try {
-				return await body({ pinned: true });
+				return await body(PINNED_DB);
 			} finally {
 				release();
 			}
@@ -444,14 +472,11 @@ describe("canonical object-key cleanup/publication winner orders", () => {
 			key,
 			expect.any(Function),
 		);
-		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(
-			key,
-			expect.anything(),
-		);
+		expect(hasAssetForGcsObjectKey).toHaveBeenCalledWith(key, PINNED_DB);
 		expect(deleteGcsObject).toHaveBeenCalledWith(key);
 	});
 
-	it("retains a copied final object when a retry published while cleanup waited", async () => {
+	it("retains a copied final object when metadata already names it", async () => {
 		hasAssetForGcsObjectKey.mockResolvedValue(true);
 
 		await cleanupUnpublishedAssetObject("projects/project-1/published.pdf");
@@ -477,7 +502,7 @@ describe("canonical object-key cleanup/publication winner orders", () => {
 			PROJECT,
 			"hash",
 			2,
-			expect.anything(),
+			PINNED_DB,
 		);
 		expect(deleteGcsObject).toHaveBeenCalledWith(key);
 	});
@@ -510,64 +535,77 @@ describe("canonical object-key cleanup/publication winner orders", () => {
 		expect(deleteGcsObject).not.toHaveBeenCalled();
 	});
 
-	it("lets cleanup finish first, then a waiting publisher restores bytes before ready metadata", async () => {
+	it("holds the cleanup lock through byte deletion before a waiting publisher runs", async () => {
 		installKeyMutex();
-		let objectExists = true;
-		let siblingExists = false;
-		const probeStarted = deferred();
 		const allowProbe = deferred();
+		const events: string[] = [];
 		hasOtherAssetForGcsObjectKey.mockImplementation(async () => {
-			probeStarted.resolve();
 			await allowProbe.promise;
-			return siblingExists;
+			return false;
 		});
 		deleteGcsObject.mockImplementation(async () => {
-			objectExists = false;
+			events.push("delete");
 		});
-
 		const cleanup = cleanupReleasedAssetStorage(asset());
-		await probeStarted.promise;
-		const publication = withMediaObjectKeyLock(
-			"projects/project-1/asset-1.pdf",
-			async () => {
-				objectExists = true;
-				siblingExists = true;
-			},
-		);
-		allowProbe.resolve();
-		await Promise.all([cleanup, publication]);
-
-		expect(objectExists).toBe(true);
-		expect(siblingExists).toBe(true);
+		const cleanupSettled = Promise.allSettled([cleanup]);
+		let publicationSettled: Promise<unknown> | undefined;
+		try {
+			await vi.waitFor(() =>
+				expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
+					asset().gcsObjectKey,
+					ASSET_ID,
+					PINNED_DB,
+				),
+			);
+			const publication = withMediaObjectKeyLock(
+				asset().gcsObjectKey,
+				async () => {
+					events.push("publish");
+				},
+			);
+			publicationSettled = Promise.allSettled([publication]);
+			allowProbe.resolve();
+			await Promise.all([cleanup, publication]);
+			expect(events).toEqual(["delete", "publish"]);
+		} finally {
+			allowProbe.resolve();
+			await cleanupSettled;
+			await publicationSettled;
+		}
 	});
 
-	it("lets publication finish first, then cleanup sees its ready sibling and retains bytes", async () => {
+	it("rechecks metadata after a prior publisher releases the shared lock", async () => {
 		installKeyMutex();
-		let objectExists = false;
 		let siblingExists = false;
-		const publisherEntered = deferred();
 		const allowPublisherCommit = deferred();
 		hasOtherAssetForGcsObjectKey.mockImplementation(async () => siblingExists);
-		deleteGcsObject.mockImplementation(async () => {
-			objectExists = false;
-		});
-
 		const publication = withMediaObjectKeyLock(
-			"projects/project-1/asset-1.pdf",
+			asset().gcsObjectKey,
 			async () => {
-				publisherEntered.resolve();
-				objectExists = true;
 				await allowPublisherCommit.promise;
 				siblingExists = true;
 			},
 		);
-		await publisherEntered.promise;
+		const publicationSettled = Promise.allSettled([publication]);
 		const cleanup = cleanupReleasedAssetStorage(asset());
-		allowPublisherCommit.resolve();
-		await Promise.all([publication, cleanup]);
-
-		expect(objectExists).toBe(true);
-		expect(siblingExists).toBe(true);
-		expect(deleteGcsObject).not.toHaveBeenCalled();
+		const cleanupSettled = Promise.allSettled([cleanup]);
+		try {
+			// A queued cleanup must not read metadata until publication completes.
+			await vi.waitFor(() =>
+				expect(withMediaObjectKeyLock).toHaveBeenCalledTimes(2),
+			);
+			expect(hasOtherAssetForGcsObjectKey).not.toHaveBeenCalled();
+			allowPublisherCommit.resolve();
+			await Promise.all([publication, cleanup]);
+			expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
+				asset().gcsObjectKey,
+				ASSET_ID,
+				PINNED_DB,
+			);
+			expect(deleteGcsObject).not.toHaveBeenCalled();
+		} finally {
+			allowPublisherCommit.resolve();
+			await Promise.all([publicationSettled, cleanupSettled]);
+		}
 	});
 });

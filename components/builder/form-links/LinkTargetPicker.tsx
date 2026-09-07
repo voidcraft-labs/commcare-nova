@@ -13,9 +13,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerTable from "@iconify-icons/tabler/table";
-import { useMemo } from "react";
-import { formLinkTargetVerdict } from "@/lib/doc/formLinkReview";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useFormLinkTargetChoices } from "@/lib/doc/hooks/useFormLinkChoices";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
@@ -48,56 +46,7 @@ export function LinkTargetPickerContent({
 	readonly current?: FormLinkTarget;
 	readonly onChoose: (target: FormLinkTarget) => void;
 }) {
-	/* The whole app is on offer, so the whole doc is read. */
-	const doc = useBlueprintDoc((state) => state);
-	/* Each candidate's verdict is a graph walk over the app's links, so every
-	 * row is decided once, with the groups, and only when the document or the
-	 * link being aimed changes. */
-	const groups = useMemo(
-		() =>
-			doc.moduleOrder.flatMap((moduleUuid) => {
-				const mod = doc.modules[moduleUuid];
-				if (mod === undefined) return [];
-				const moduleTarget: FormLinkTarget = { type: "module", moduleUuid };
-				return [
-					{
-						uuid: moduleUuid,
-						name: mod.name,
-						target: moduleTarget,
-						verdict: formLinkTargetVerdict(
-							doc,
-							formUuid,
-							editing,
-							moduleTarget,
-						),
-						forms: (doc.formOrder[moduleUuid] ?? []).flatMap((candidate) => {
-							const form = doc.forms[candidate];
-							if (form === undefined) return [];
-							const target: FormLinkTarget = {
-								type: "form",
-								moduleUuid,
-								formUuid: candidate,
-							};
-							return [
-								{
-									uuid: candidate,
-									name: form.name,
-									target,
-									verdict: formLinkTargetVerdict(
-										doc,
-										formUuid,
-										editing,
-										target,
-									),
-								},
-							];
-						}),
-					},
-				];
-			}),
-		[doc, formUuid, editing],
-	);
-	const nameOf = (uuid: Uuid) => doc.forms[uuid]?.name;
+	const { groups, nameOf } = useFormLinkTargetChoices(formUuid, editing);
 
 	return (
 		<div className="max-h-[22rem] space-y-3 overflow-y-auto p-1">

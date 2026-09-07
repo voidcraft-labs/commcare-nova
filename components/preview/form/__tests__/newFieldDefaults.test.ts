@@ -3,7 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type Field, fieldKinds, fieldSchema } from "@/lib/domain";
+import { fieldKinds, fieldSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { NEW_FIELD_BUILDERS, newPageRepeat } from "../newFieldDefaults";
 
@@ -100,7 +100,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 			const doc = pickerDoc();
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 			const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
-			const field = { ...built, uuid: UUID } as Field;
+			const field = fieldSchema.parse({ ...built, uuid: UUID });
 			const verdict = mutationCommitVerdict(
 				doc,
 				[{ kind: "addField", parentUuid: formUuid, field }],
@@ -112,6 +112,8 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 					? ""
 					: `${kind}: ${verdict.findings.map((e) => e.code).join(", ")}`,
 			).toBe(true);
+			expect(verdict.nextDoc.fields[UUID]).toEqual(field);
+			expect(verdict.nextDoc.fieldOrder[formUuid]).toContain(UUID);
 		},
 	);
 
@@ -125,7 +127,7 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const root = doc.fieldOrder[formUuid] ?? [];
 		const built = NEW_FIELD_BUILDERS.section("new_section", "New Field");
-		const field = { ...built, uuid: UUID } as Field;
+		const field = fieldSchema.parse({ ...built, uuid: UUID });
 		const verdict = mutationCommitVerdict(
 			doc,
 			[
@@ -145,5 +147,37 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 				? ""
 				: `section: ${verdict.findings.map((e) => e.code).join(", ")}`,
 		).toBe(true);
+	});
+	it("gives two newly inserted select questions disjoint option identities", () => {
+		const doc = pickerDoc();
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const fields = ["single_select", "multi_select"].map((kind, index) =>
+			fieldSchema.parse({
+				...NEW_FIELD_BUILDERS[kind as "single_select" | "multi_select"](
+					`choice_${index}`,
+					"Choice",
+				),
+				uuid: testUuid(`starter-${index}`),
+			}),
+		);
+		const result = mutationCommitVerdict(
+			doc,
+			fields.map((field) => ({
+				kind: "addField",
+				parentUuid: formUuid,
+				field,
+			})),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(result.ok).toBe(true);
+		const ids = fields.flatMap((field) =>
+			field.kind === "single_select" || field.kind === "multi_select"
+				? field.optionsSource.kind === "inline"
+					? field.optionsSource.options.map((option) => option.uuid)
+					: []
+				: [],
+		);
+		expect(ids).toHaveLength(4);
+		expect(new Set(ids).size).toBe(4);
 	});
 });

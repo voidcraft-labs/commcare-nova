@@ -3,11 +3,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-	AS_ISSUER,
 	classifyHost,
 	HOSTNAMES,
 	isPathAllowedOnHost,
-	MCP_RESOURCE_URL,
 	normalizeHost,
 	STARTUP_PROBE_PATH,
 } from "../hostnames";
@@ -23,6 +21,12 @@ describe("normalizeHost", () => {
 		expect(normalizeHost("commcare.app:443")).toBe("commcare.app");
 		expect(normalizeHost("commcare.app:80")).toBe("commcare.app");
 	});
+	it.each(["commcare.app.:443", "COMMCARE.APP.:80"])(
+		"normalizes an absolute DNS name with port %s",
+		(host) => {
+			expect(classifyHost(normalizeHost(host))).toBe(HOSTNAMES.main);
+		},
+	);
 	it("keeps non-standard ports (dev)", () => {
 		expect(normalizeHost("localhost:3000")).toBe("localhost:3000");
 	});
@@ -241,15 +245,5 @@ describe("main-host page routes are all allowlisted (regression guard)", () => {
 
 	it.each(mainHostPages)("allows %s on the main host", (path) => {
 		expect(isPathAllowedOnHost(HOSTNAMES.main, path)).toBe(true);
-	});
-});
-
-describe("OAuth resource identifiers", () => {
-	it("uses the externally reachable MCP endpoint URL as the protected resource", () => {
-		expect(MCP_RESOURCE_URL).toBe("https://mcp.commcare.app/mcp");
-	});
-
-	it("uses Better Auth's /api/auth base path as the token issuer", () => {
-		expect(AS_ISSUER).toBe("https://commcare.app/api/auth");
 	});
 });

@@ -36,7 +36,6 @@ export function CollapseChevron({
 			aria-expanded={!isCollapsed}
 			className="shrink-0"
 			onClick={onClick}
-			onKeyDown={(event) => event.stopPropagation()}
 		>
 			<Icon
 				icon={tablerChevronRight}

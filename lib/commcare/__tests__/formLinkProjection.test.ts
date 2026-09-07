@@ -3,10 +3,8 @@
  * guards, HQ's frame-children algorithm, datum matching, the `previous`
  * frame, and the totality predicates the validator asks before projecting.
  *
- * The byte oracle for the frame shapes is CommCare HQ's own suite fixture
- * `corehq/apps/app_manager/tests/data/form_workflow/form_link_multiple.xml`
- * (a frog-registration form linking to a followup and to another
- * registration in a second module), reproduced here as `frogDoc`.
+ * Local projection regressions, including deliberately invalid lower-boundary
+ * inputs. Native HQ/Core links corpus independently owns wire acceptance.
  */
 
 import { describe, expect, it } from "vitest";
@@ -32,7 +30,10 @@ import {
 	targetFrameChildren,
 	targetSelectionDatums,
 } from "@/lib/commcare/formLinkProjection";
-import type { BlueprintDoc } from "@/lib/domain";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 const INTAKE = testUuid("mod-intake");
@@ -53,7 +54,7 @@ const nameWriter = () =>
 
 /** HQ's `form_link_multiple.xml` scenario in Nova's vocabulary. */
 function frogDoc(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Frogs",
 		caseTypes: [
 			{
@@ -78,12 +79,12 @@ function frogDoc(): BlueprintDoc {
 						formLinks: [
 							{
 								uuid: "lnk-visit",
-								condition: "a = 1",
+								condition: "#user/username = 'alice'",
 								target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
 							},
 							{
 								uuid: "lnk-reg",
-								condition: "a = 2",
+								condition: "#user/username = 'bea'",
 								target: {
 									type: "form",
 									moduleUuid: CARE,
@@ -126,6 +127,9 @@ function frogDoc(): BlueprintDoc {
 			},
 		],
 	});
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
 }
 
 /** Strip the render closure so frame datums compare structurally. */
@@ -419,7 +423,7 @@ describe("datum matching", () => {
 
 	it("reports a selection datum nothing in the source satisfies", () => {
 		// A type-less source datum never matches, and a different type
-		// never matches: Core would open the target with an empty case id.
+		// never matches: the wire cannot supply a valid target case.
 		const match = matchFrameToSource(target, [
 			datum("case_id", true),
 			datum("case_id", true, "toad"),
@@ -533,7 +537,7 @@ describe("previousFrameChildren (HQ `previous_screen`)", () => {
 });
 
 describe("projectFormLinks", () => {
-	it("reproduces HQ's form_link_multiple.xml frames with exclusive guards", () => {
+	it("projects two admitted destinations with exclusive guards", () => {
 		const doc = frogDoc();
 		const projected = projectFormLinks(
 			doc,
@@ -543,8 +547,8 @@ describe("projectFormLinks", () => {
 		expect(projected).toBeDefined();
 		if (projected === undefined) return;
 		expect(projected.links.map((link) => link.guard)).toEqual([
-			"a = 1",
-			"(a = 2) and not(a = 1)",
+			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice'",
+			"(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
 		]);
 		expect(projected.links[0]).toMatchObject({
 			uuid: LINK_VISIT,
@@ -572,7 +576,8 @@ describe("projectFormLinks", () => {
 		});
 		expect(projected.fallback).toEqual({
 			kind: "guarded",
-			guard: "not(a = 1) and not((a = 2) and not(a = 1))",
+			guard:
+				"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice') and not((instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice'))",
 		});
 	});
 

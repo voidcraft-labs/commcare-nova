@@ -1,34 +1,10 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { emptyCaseListConfig } from "@/lib/domain";
-// lib/domain/__tests__/modules.test.ts
-//
-// Schema-parse coverage for the `caseListConfig` shape. The schema
-// declares the case-list collections, optional filter, bounded selection, and
-// presentation metadata
-// with sort, visibility, and calculated arms carried on columns.
-// Every schema in this file is `.strict()`, so unknown keys are
-// rejected at parse rather than stripped silently.
-//
-// The contracts pinned below:
-//
-//   1. Empty `caseListConfig` is valid (a module that authors a
-//      case list but hasn't filled in any of its sub-fields).
-//   2. Every column kind round-trips through `safeParse` with a
-//      `uuid` and the per-kind required slots (the calculated arm
-//      has no `field` slot — the expression is the source).
-//   3. The `interval` kind preserves `display: "always"` AND
-//      `display: "flag"` arms.
-//   4. `Column.sort` round-trips with direction + priority.
-//   5. Visibility flags and independent Results / Details sequences
-//      round-trip.
-//   6. The `SearchInputDef` discriminated union round-trips both
-//      arms; the simple arm requires `property`; the advanced arm
-//      requires `predicate`.
-//   7. `caseListConfig.selection` has one multiple-selection spelling and a
-//      maximum from 1 through 100; absence is the single-case projection.
-//   8. Unknown top-level keys are rejected at
-//      parse — `safeParse` returns `success: false`.
+// Local module/column/search grammar and pure projection contracts.
+// Structurally valid candidates may still fail document admission (empty
+// case lists, duplicate sort priorities, unresolved references). These tests
+// do not establish runtime or CommCare acceptance.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -50,7 +26,6 @@ import {
 	idMappingEntry,
 	intervalColumn,
 	joinMultiSelectSearchAnswer,
-	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	moduleSchema,
 	phoneColumn,
 	plainColumn,
@@ -137,8 +112,7 @@ describe("caseListConfigSchema — canonical shape", () => {
 		// so a stale generator emitting an unknown field (e.g.
 		// `detailColumns`) or a typo cannot reach the typed surface.
 		const parsed = caseListConfigSchema.safeParse({
-			columns: [],
-			searchInputs: [],
+			...emptyCaseListConfig(),
 			__unknown_a: "alpha",
 			__unknown_b: { nested: 42 },
 			__unknown_c: ["mixed", "shapes", 99],
@@ -148,6 +122,16 @@ describe("caseListConfigSchema — canonical shape", () => {
 			detailColumns: [{ kind: "plain", field: "phone", header: "Phone" }],
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	it("admits grouping inside a tile and refuses the same object beside the tile", () => {
+		const grouping = { identifier: "parent", headerRows: 1 };
+		const valid = { ...emptyCaseListConfig(), tile: { grouping } };
+		expect(caseListConfigSchema.parse(valid)).toEqual(valid);
+		expect(
+			caseListConfigSchema.safeParse({ ...emptyCaseListConfig(), grouping })
+				.success,
+		).toBe(false);
 	});
 
 	it.each([1, 100])(
@@ -226,8 +210,8 @@ describe("caseListConfigSchema — canonical shape", () => {
 	});
 });
 
-describe("columnSchema — eight discriminated arms", () => {
-	it("parses every column kind with its required slots + a uuid", () => {
+describe("columnSchema — authored display shapes", () => {
+	it("preserves the authored display corpus with required slots and UUIDs", () => {
 		const arms: readonly Column[] = [
 			{
 				uuid: u(1),
@@ -484,7 +468,7 @@ describe("columnSchema — eight discriminated arms", () => {
 	});
 
 	it.each(["%Q", "Date %"])(
-		"rejects a date column pattern JavaRosa cannot evaluate: %s",
+		"rejects unsupported date-pattern escapes at the schema boundary: %s",
 		(pattern) => {
 			const parsed = columnSchema.safeParse({
 				uuid: u(1),
@@ -763,8 +747,8 @@ describe("Column builders — helper construction", () => {
 	});
 });
 
-describe("searchInputDefSchema — exact four-arm union", () => {
-	it("round-trips a simple input with property + mode + via", () => {
+describe("searchInputDefSchema — authored prompt shapes", () => {
+	it("round-trips a simple input with property and mode", () => {
 		const input: SimpleSearchInputDef = {
 			uuid: u(1),
 			kind: "simple",
@@ -866,18 +850,36 @@ describe("searchInputDefSchema — exact four-arm union", () => {
 		expect(parsed.success).toBe(false);
 	});
 
-	it("rejects the removed select widget and multi-select mode", () => {
-		const parsed = searchInputDefSchema.safeParse({
-			uuid: u(1),
-			kind: "simple",
-			name: "tags",
-			label: "Tags",
-			type: "select",
-			property: "tags",
-			mode: { kind: "multi-select-contains", quantifier: "any" },
-		});
-		expect(parsed.success).toBe(false);
-	});
+	it.each(["select", "multi-select"] as const)(
+		"requires lookup choices and exact mode for %s",
+		(type) => {
+			const valid = {
+				uuid: u(1),
+				kind: "simple",
+				name: "region",
+				label: "Region",
+				type,
+				property: "region",
+				options: {
+					kind: "lookup",
+					tableId: u(20),
+					valueColumnId: u(21),
+					labelColumnId: u(22),
+				},
+			};
+			expect(searchInputDefSchema.parse(valid)).toEqual(valid);
+			const { options: _options, ...withoutOptions } = valid;
+			expect(searchInputDefSchema.safeParse(withoutOptions).success).toBe(
+				false,
+			);
+			expect(
+				searchInputDefSchema.safeParse({
+					...valid,
+					mode: { kind: "multi-select-contains", quantifier: "any" },
+				}).success,
+			).toBe(false);
+		},
+	);
 
 	it("rejects a scalar default on either date-range arm", () => {
 		const simple = searchInputDefSchema.safeParse({
@@ -905,17 +907,13 @@ describe("searchInputDefSchema — exact four-arm union", () => {
 });
 
 describe("multi-select search answer delimiter", () => {
-	// `commcare-core session/RemoteQuerySessionManager.java::ANSWER_DELIMITER`
-	// and Web Apps' `query.js::selectDelimiter` both spell it `#,#`.
-	it("is CommCare's three-character separator, never a space", () => {
-		expect(MULTI_SELECT_SEARCH_ANSWER_DELIMITER).toBe("#,#");
-	});
-
 	it("round-trips tokens, including one holding a space", () => {
 		const tokens = ["north", "south west", "east"];
 		const answer = joinMultiSelectSearchAnswer(tokens);
 		expect(answer).toBe("north#,#south west#,#east");
-		expect(splitMultiSelectSearchAnswer(answer)).toEqual(tokens);
+		expect(splitMultiSelectSearchAnswer("north#,#south west#,#east")).toEqual(
+			tokens,
+		);
 	});
 
 	it("drops blank tokens when splitting and yields none for a blank answer", () => {
@@ -1059,11 +1057,8 @@ describe("caseListConfigSchema — populated round-trip", () => {
 });
 
 describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
-	it("round-trips a fully-populated config (every slot set)", () => {
-		// Round-trips every authored slot: `excludedOwnerIds`, the
-		// three display labels, and `searchButtonDisplayCondition`. The
-		// `toEqual(config)` assertion pins that the schema preserves
-		// every slot without drift across a strict-mode parse.
+	it("preserves the authored owner and display settings", () => {
+		// Finite settings corpus; additional optional slots may be absent.
 		const config: CaseSearchConfig = {
 			// `excludedOwnerIds` is a `ValueExpression`; the `term` arm
 			// wraps a `Term` (here a string literal — owner ids joined

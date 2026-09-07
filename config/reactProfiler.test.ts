@@ -40,6 +40,11 @@ describe("readReactProfilerConfig", () => {
 		"https://127.0.0.1:3100",
 		"http://commcare.app",
 		"http://127.0.0.1:3100/path",
+		"http://127.0.0.1:3100?secret=1",
+		"http://127.0.0.1:3100#fragment",
+		"http://person:secret@127.0.0.1:3100",
+		"http://localhost.evil.test:3100",
+		"not a URL",
 	])("rejects a non-loopback or non-origin browser address: %s", (origin) => {
 		expect(() =>
 			readReactProfilerConfig({
@@ -48,4 +53,57 @@ describe("readReactProfilerConfig", () => {
 			}),
 		).toThrow(/loopback HTTP origin/);
 	});
+	it("requires an explicit development opt-in before reading bridge secrets", () => {
+		expect(readReactProfilerConfig({ NODE_ENV: "development" })).toEqual({
+			enabled: false,
+		});
+		expect(
+			readReactProfilerConfig({
+				NODE_ENV: "development",
+				NOVA_REACT_PROFILE: "true",
+			}),
+		).toEqual({ enabled: false });
+	});
+
+	it.each(["1024", "65535"])(
+		"accepts the port boundary %s and normalizes localhost",
+		(port) => {
+			expect(
+				readReactProfilerConfig({
+					...enabledEnv,
+					NOVA_REACT_PROFILE_PORT: port,
+					NOVA_REACT_PROFILE_ORIGIN: "http://localhost:3100/",
+				}),
+			).toMatchObject({
+				enabled: true,
+				bridgePort: Number(port),
+				browserOrigin: "http://localhost:3100",
+				webSocketSource: `ws://127.0.0.1:${port}`,
+			});
+		},
+	);
+
+	it.each(["1023", "65536", "3100.5", "3100junk"])(
+		"rejects invalid bridge port %s",
+		(port) => {
+			expect(() =>
+				readReactProfilerConfig({
+					...enabledEnv,
+					NOVA_REACT_PROFILE_PORT: port,
+				}),
+			).toThrow(/NOVA_REACT_PROFILE_PORT/);
+		},
+	);
+
+	it.each(["a".repeat(31), "a".repeat(129), `${"a".repeat(42)}+`])(
+		"rejects malformed bridge tokens",
+		(token) => {
+			expect(() =>
+				readReactProfilerConfig({
+					...enabledEnv,
+					NOVA_REACT_PROFILE_TOKEN: token,
+				}),
+			).toThrow(/base64url token/);
+		},
+	);
 });

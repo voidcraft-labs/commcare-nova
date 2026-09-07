@@ -1,9 +1,11 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
@@ -14,6 +16,7 @@ import {
 	automationMessageText,
 	type BlueprintDoc,
 } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const AUTOMATION_UUID = testUuid("doc-automation");
 const CONDITION_ONE = testUuid("doc-automation-condition-one");
@@ -84,31 +87,64 @@ function rule(): Automation {
 function docWithRule(): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Visit automations",
+		modules: [
+			{
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
 		caseTypes: [
 			{
 				name: "visit",
 				properties: [
 					{ name: "state", label: "State", data_type: "text" },
 					{ name: "priority", label: "Priority", data_type: "int" },
+					{ name: "completed", label: "Completed", data_type: "text" },
+					...Array.from({ length: 3 }, (_, index) => ({
+						name: `status_${index}`,
+						label: `Status ${index}`,
+						data_type: "text" as const,
+					})),
 				],
 			},
 		],
 	});
 	doc.automations = { [AUTOMATION_UUID]: rule() };
 	doc.automationOrder = [AUTOMATION_UUID];
+	assertAdmittedDoc(doc);
 	return doc;
 }
 
-function replayWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
-	const wire = JSON.parse(
-		JSON.stringify({ mutations: diffDocsToMutations(prev, next) }),
-	) as { mutations: unknown[] };
-	const parsed = wire.mutations.map((mutation) =>
-		mutationSchema.parse(mutation),
+function commit(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	assertAdmittedDoc(doc);
+	const parsed = mutations.map((mutation) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
 	);
-	return produce(prev, (draft) => {
-		applyMutations(draft, parsed as Mutation[]);
-	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		parsed,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	return verdict.nextDoc;
+}
+
+function replayWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
+	assertAdmittedDoc(next);
+	return commit(prev, diffDocsToMutations(prev, next));
 }
 
 describe("automation mutation replay", () => {
@@ -190,9 +226,12 @@ describe("automation mutation replay", () => {
 			},
 		]);
 		expect(mutationTargetsInvalid(before, move)).toBe(false);
-		const moved = produce(before, (draft) => {
-			applyMutations(draft, [...move, ...move]);
-		});
+		const moved = commit(before, move);
+		expect(
+			produce(moved, (draft) => {
+				applyMutations(draft, [...move]);
+			}),
+		).toEqual(moved);
 		expect(moved.automationOrder).toEqual([otherUuid, AUTOMATION_UUID]);
 
 		const remove = admitMutationBatch([
@@ -203,9 +242,12 @@ describe("automation mutation replay", () => {
 			},
 		]);
 		expect(mutationTargetsInvalid(moved, remove)).toBe(false);
-		const removed = produce(moved, (draft) => {
-			applyMutations(draft, [...remove, ...remove]);
-		});
+		const removed = commit(moved, remove);
+		expect(
+			produce(removed, (draft) => {
+				applyMutations(draft, [...remove]);
+			}),
+		).toEqual(removed);
 		expect(removed.automations?.[AUTOMATION_UUID]).toBeUndefined();
 		expect(removed.automationOrder).toEqual([otherUuid]);
 	});
@@ -258,16 +300,16 @@ describe("automation mutation replay", () => {
 
 	it("round-trips granular scalar, nested add, update, remove, and reorder edits", () => {
 		const prev = docWithRule();
-		const locationUuid = testUuid("doc-automation-location");
 		const next = produce(prev, (draft) => {
 			const automation = draft.automations?.[AUTOMATION_UUID];
 			if (automation?.kind !== "case-update") throw new Error("missing rule");
 			automation.name = "Resolve urgent stale visits";
 			automation.criteria.push({
 				uuid: CONDITION_TWO,
-				kind: "location",
-				locationUuid,
-				includeDescendants: true,
+				kind: "match-property",
+				scope: "case",
+				property: "priority",
+				matchType: "has-value",
 			});
 			automation.criteria = [automation.criteria[1], automation.criteria[0]];
 			automation.updates[0].value = { kind: "literal", value: "done" };
@@ -443,6 +485,7 @@ describe("automation mutation replay", () => {
 		const add = admitMutationBatch([
 			{ kind: "addAutomation", automation: added },
 		]);
+		commit(base, add);
 		store.getState().applyMany(add);
 		expect(store.getState().takeCommandBatches()).toEqual([add]);
 		store.getState().undo();
@@ -466,6 +509,13 @@ describe("automation mutation replay", () => {
 				after: otherUuid,
 			},
 		]);
+		commit(
+			{
+				...toPersistableDoc(store.getState()),
+				fieldParent: store.getState().fieldParent,
+			},
+			move,
+		);
 		store.getState().applyMany(move);
 		store.getState().takeCommandBatches();
 		store.getState().undo();

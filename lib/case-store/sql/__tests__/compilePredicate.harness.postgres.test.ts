@@ -1,36 +1,4 @@
-// lib/case-store/sql/__tests__/compilePredicate.harness.postgres.test.ts
-//
-// Execute-against-real-Postgres tests for the Predicate compiler.
-// These tests insert rows, build a wider query that uses the
-// compiled predicate as the `where` clause, and execute the whole
-// thing through the testcontainers harness. The point is to catch
-// failures the compile-only sibling test
-// (`compilePredicate.test.ts`) can't see — most notably:
-//
-//   - JSONB operators (`?`, `?|`, `?&`) that Postgres parses but
-//     the cold suite would accept as opaque tokens.
-//   - The `fuzzy` / `phonetic` match modes returning the same row
-//     set CommCare HQ's Elasticsearch case-search would: token-wise
-//     `levenshtein` (AUTO fuzziness + prefix) and array overlap for
-//     `fuzzy`, per-token `soundex` for `phonetic`, both over the
-//     `regexp_split_to_array` + `array_remove` + `unnest` token
-//     machinery the extension-installed engine has to actually run.
-//   - PostGIS `ST_DWithin` returning the correct geographic
-//     distance result against `ST_MakePoint(lon, lat)::geography`.
-//   - The Postgres-strict null semantic — four distinct cases
-//     pinned (absent / null / empty string / non-empty value).
-//
-// ## Why a separate file from the cold compile-only suite
-//
-// Cold tests use Kysely's `DummyDriver` and assert on the
-// `.compile()` output's string shape. They never execute. A
-// regression that produced a syntactically-valid but semantically-
-// wrong operator (e.g. `soundx(...)` instead of `soundex(...)`)
-// would still pass every `toContain("soundex(")` check the cold
-// suite makes — the cold suite answers "does the SQL contain these
-// tokens", not "does Postgres parse and execute it correctly". This
-// file's tests answer the second question.
-
+// Execute predicate semantics, boundary values, and composed expressions.
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
@@ -41,18 +9,22 @@ import {
 import {
 	ancestorPath,
 	and,
+	arith,
 	between,
 	concat,
+	count,
 	dateLiteral,
 	eq,
 	exists,
 	gt,
 	gte,
+	ifExpr,
 	input,
 	isBlank,
 	isIn,
 	literal,
 	lt,
+	lte,
 	match,
 	matchAll,
 	matchNone,
@@ -64,11 +36,13 @@ import {
 	or,
 	prop,
 	relationStep,
+	selfPath,
 	sessionUser,
 	term,
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { checkPredicate } from "@/lib/domain/predicate/typeChecker";
 import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
@@ -89,7 +63,6 @@ const OWNER_ID = "owner-pred-compiler";
 
 const PATIENT_CASE_ID = "20000000-0000-0000-0000-000000000001";
 const PATIENT_2_CASE_ID = "20000000-0000-0000-0000-000000000002";
-const HOUSEHOLD_CASE_ID = "20000000-0000-0000-0000-000000000003";
 
 // `patient` schema: text + int + decimal + date + multi_select +
 // geopoint cover the data_type variants every predicate-arm test
@@ -266,54 +239,6 @@ describe("compilePredicate — calendar-day search UTC boundaries", () => {
 // Sentinels round-trip
 // ---------------------------------------------------------------
 
-describe("compilePredicate — round-trip — sentinels", () => {
-	test("match-all matches every tenant row", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-				}),
-			])
-			.execute();
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(matchAll(), makeCtx(db)),
-		);
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
-
-	test("match-none matches zero rows", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values(
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-				}),
-			)
-			.execute();
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(matchNone(), makeCtx(db)),
-		);
-		expect(rows).toEqual([]);
-	});
-});
-
 // ---------------------------------------------------------------
 // Logical operators round-trip
 // ---------------------------------------------------------------
@@ -356,102 +281,6 @@ describe("compilePredicate — round-trip — logical operators", () => {
 		);
 		expect(rows).toEqual([]);
 	});
-
-	test("and matches only rows satisfying every clause", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice", age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice", age: 25 }),
-				}),
-			])
-			.execute();
-		const pred = and(
-			eq(prop("patient", "nickname"), literal("Alice")),
-			eq(prop("patient", "age"), literal(30)),
-		);
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-
-	test("or matches rows satisfying any clause", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-			])
-			.execute();
-		const pred = or(
-			eq(prop("patient", "nickname"), literal("Alice")),
-			eq(prop("patient", "nickname"), literal("Bob")),
-		);
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
-
-	test("not inverts the row set", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-			])
-			.execute();
-		const pred = not(eq(prop("patient", "nickname"), literal("Alice")));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		// SQL three-valued logic: a row whose `name` is NULL (here
-		// neither "Alice" nor "Bob" missing — every test row has a
-		// name, so no NULL surface). The negation of `name = 'Alice'`
-		// matches the Bob row.
-		expect(rows).toEqual([{ case_id: PATIENT_2_CASE_ID }]);
-	});
 });
 
 // ---------------------------------------------------------------
@@ -459,42 +288,6 @@ describe("compilePredicate — round-trip — logical operators", () => {
 // ---------------------------------------------------------------
 
 describe("compilePredicate — round-trip — comparison operators", () => {
-	test("equality, inequality, ordered comparisons all match correctly", async ({
-		db,
-	}) => {
-		// One patient row at age 30; the suite of six comparisons
-		// covers eq=30 (match), neq=20 (match), gt=25 (match),
-		// gte=30 (match), lt=35 (match), lte=30 (match).
-		await db
-			.insertInto("cases")
-			.values(
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 30 }),
-				}),
-			)
-			.execute();
-
-		const cases = [
-			eq(prop("patient", "age"), literal(30)),
-			neq(prop("patient", "age"), literal(20)),
-			gt(prop("patient", "age"), literal(25)),
-			gte(prop("patient", "age"), literal(30)),
-			lt(prop("patient", "age"), literal(35)),
-		] as const;
-
-		for (const pred of cases) {
-			const rows = await executeAgainstPredicate(
-				db,
-				compilePredicate(pred, makeCtx(db)),
-			);
-			expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-		}
-	});
-
 	test("text equality is case-sensitive (bob does not equal-match Bob)", async ({
 		db,
 	}) => {
@@ -532,489 +325,17 @@ describe("compilePredicate — round-trip — comparison operators", () => {
 // The AST's portable blank operator matches absent or empty string; direct
 // comparisons remain exact.
 
-describe("compilePredicate — round-trip — Postgres-strict null semantics", () => {
-	test("is-blank matches absent OR empty-string — not JSON null", async ({
-		db,
-	}) => {
-		// Same three rows. is-blank matches the absent row AND the
-		// empty-string row, but NOT the JSON-null row. (The wider
-		// CCHQ semantic collapses null with empty / absent on the
-		// wire, but Postgres + this AST distinguishes them.)
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000001",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000002",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "" }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000003",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: null }),
-				}),
-			])
-			.execute();
-		const pred = isBlank(prop("patient", "nickname"));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows.map((r) => r.case_id).sort()).toEqual([
-			"30000000-0000-0000-0000-000000000001",
-			"30000000-0000-0000-0000-000000000002",
-		]);
-	});
-
-	test('compare(prop, literal("")) matches strictly empty-string only', async ({
-		db,
-	}) => {
-		// Same three rows. The `eq(prop, "")` shape matches the
-		// empty-string row alone — JSONB `->>` returns `''` for
-		// the empty-string value, `NULL` for the absent key, `NULL`
-		// for the JSON-null value (per Postgres docs § 9.16 "JSON
-		// Functions and Operators": `->>` on a JSON null returns
-		// SQL NULL).
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000001",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000002",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "" }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000003",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: null }),
-				}),
-			])
-			.execute();
-		const pred = eq(prop("patient", "nickname"), literal(""));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: "30000000-0000-0000-0000-000000000002" }]);
-	});
-
-	test("compare(prop, literal(null)) matches no rows in SQL three-valued logic", async ({
-		db,
-	}) => {
-		// Same three rows. `<col> = NULL` evaluates to `NULL` (never
-		// `TRUE`) in SQL three-valued logic, so the predicate
-		// matches no rows. This is the strict-null semantic — to
-		// match the JSON-null row, callers use `is-null` (which
-		// matches strict-absent only on JSONB) or check
-		// `<col> IS NULL` directly (which matches both absent and
-		// JSON-null rows because `->>` returns NULL for both).
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000001",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000002",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "" }),
-				}),
-				makeCaseRow({
-					case_id: "30000000-0000-0000-0000-000000000003",
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: null }),
-				}),
-			])
-			.execute();
-		const pred = eq(prop("patient", "nickname"), literal(null));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([]);
-	});
-});
-
 // ---------------------------------------------------------------
 // `in` round-trip — single + multi value
 // ---------------------------------------------------------------
-
-describe("compilePredicate — round-trip — in", () => {
-	test("single-value IN matches the single row", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-			])
-			.execute();
-		const pred = isIn(prop("patient", "nickname"), literal("Alice"));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-
-	test("multi-value IN matches the union of values", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-				makeCaseRow({
-					case_id: HOUSEHOLD_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Carol" }),
-				}),
-			])
-			.execute();
-		const pred = isIn(
-			prop("patient", "nickname"),
-			literal("Alice"),
-			literal("Bob"),
-		);
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
-});
 
 // ---------------------------------------------------------------
 // `between` round-trip — four inclusivity combinations
 // ---------------------------------------------------------------
 
-describe("compilePredicate — round-trip — between", () => {
-	test("closed interval [18, 65] includes both endpoints", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 18 }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 65 }),
-				}),
-				makeCaseRow({
-					case_id: HOUSEHOLD_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 70 }),
-				}),
-			])
-			.execute();
-		const pred = between(prop("patient", "age"), {
-			lower: literal(18),
-			upper: literal(65),
-		});
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		// Both endpoints (18 and 65) are included by default; the
-		// 70-year-old is excluded.
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
-
-	test("open interval (18, 65) excludes both endpoints", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 18 }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 30 }),
-				}),
-				makeCaseRow({
-					case_id: HOUSEHOLD_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 65 }),
-				}),
-			])
-			.execute();
-		const pred = between(prop("patient", "age"), {
-			lower: literal(18),
-			upper: literal(65),
-			lowerInclusive: false,
-			upperInclusive: false,
-		});
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		// Both endpoints excluded — only the 30-year-old in middle.
-		expect(rows).toEqual([{ case_id: PATIENT_2_CASE_ID }]);
-	});
-
-	test("half-open [18, 65) includes lower but excludes upper", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 18 }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 65 }),
-				}),
-			])
-			.execute();
-		const pred = between(prop("patient", "age"), {
-			lower: literal(18),
-			upper: literal(65),
-			lowerInclusive: true,
-			upperInclusive: false,
-		});
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-
-	test("half-open (18, 65] excludes lower but includes upper", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 18 }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ age: 65 }),
-				}),
-			])
-			.execute();
-		const pred = between(prop("patient", "age"), {
-			lower: literal(18),
-			upper: literal(65),
-			lowerInclusive: false,
-			upperInclusive: true,
-		});
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: PATIENT_2_CASE_ID }]);
-	});
-});
-
 // ---------------------------------------------------------------
 // `multi-select-contains` round-trip — three quantifier shapes
 // ---------------------------------------------------------------
-
-describe("compilePredicate — round-trip — multi-select-contains", () => {
-	test("any (single value) matches a row whose JSONB array contains the value", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["urgent", "review"] }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["routine"] }),
-				}),
-			])
-			.execute();
-		const pred = multiSelectAny(prop("patient", "tags"), literal("urgent"));
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-
-	test("any (multiple values) matches a row whose array intersects the values", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["urgent"] }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["review"] }),
-				}),
-				makeCaseRow({
-					case_id: HOUSEHOLD_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["routine"] }),
-				}),
-			])
-			.execute();
-		// `?|` matches rows whose array contains ANY of the
-		// supplied keys. `routine` is in neither matching row.
-		const pred = multiSelectAny(
-			prop("patient", "tags"),
-			literal("urgent"),
-			literal("review"),
-		);
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
-
-	test("all matches only rows whose array contains every value", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["urgent", "review"] }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ tags: ["urgent"] }),
-				}),
-			])
-			.execute();
-		const pred = multiSelectAll(
-			prop("patient", "tags"),
-			literal("urgent"),
-			literal("review"),
-		);
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		// Only the row with both tags matches; the urgent-only row
-		// fails the `?&` (all-keys-exist) check.
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-});
 
 // ---------------------------------------------------------------
 // `match` round-trip — four modes
@@ -1221,29 +542,6 @@ describe("compilePredicate — round-trip — match", () => {
 		expect(noMatch).toEqual([]);
 	});
 
-	test("fuzzy does not match a value nothing like the query (xyz vs bob)", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "bob" }),
-				}),
-			])
-			.execute();
-		const pred = match(prop("patient", "nickname"), "xyz", "fuzzy");
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([]);
-	});
-
 	test("fuzzy with a search-input ref drives the match value at runtime", async ({
 		db,
 	}) => {
@@ -1387,29 +685,6 @@ describe("compilePredicate — round-trip — match", () => {
 			compilePredicate(pred, makeCtx(db)),
 		);
 		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
-
-	test("phonetic does not match a value that sounds different (bob vs alice)", async ({
-		db,
-	}) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "alice" }),
-				}),
-			])
-			.execute();
-		const pred = match(prop("patient", "nickname"), "bob", "phonetic");
-		const rows = await executeAgainstPredicate(
-			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		expect(rows).toEqual([]);
 	});
 
 	test("phonetic with a query that tokenizes to zero tokens matches nothing without erroring", async ({
@@ -2132,78 +1407,386 @@ describe("compilePredicate — round-trip — exists / missing", () => {
 // `when-input-present` round-trip — bound + unbound
 // ---------------------------------------------------------------
 
-describe("compilePredicate — round-trip — when-input-present", () => {
-	test("compiles inner clause when input is bound", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-			])
-			.execute();
-		const pred = whenInput(
-			input(testUuid("name_filter")),
-			eq(prop("patient", "nickname"), literal("Alice")),
-		);
+test("is-blank on an arithmetic value matches missing operands without casting blank to numeric", async ({
+	db,
+}) => {
+	await db
+		.insertInto("cases")
+		.values([
+			makeCaseRow({
+				case_id: "missing-age",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+			}),
+			makeCaseRow({
+				case_id: "zero-age",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				properties: JSON.stringify({ age: 0 }),
+			}),
+			makeCaseRow({
+				case_id: "present-age",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				properties: JSON.stringify({ age: 30 }),
+			}),
+		])
+		.execute();
+	const predicate = isBlank(
+		arith("+", term(prop("patient", "age")), term(literal(1))),
+	);
+	expect(
+		checkPredicate(predicate, {
+			caseTypes: [...SCHEMAS.values()],
+			currentCaseType: "patient",
+			knownInputs: [],
+		}),
+	).toEqual({ ok: true });
+	expect(
+		await executeAgainstPredicate(db, compilePredicate(predicate, makeCtx(db))),
+	).toEqual([{ case_id: "missing-age" }]);
+});
+
+test("is-blank gives bound null, empty and nonempty session values a SQL type", async ({
+	db,
+}) => {
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: PATIENT_CASE_ID,
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+			}),
+		)
+		.execute();
+	for (const value of [
+		null,
+		"",
+		"present",
+		0,
+		false,
+		new Date("2026-01-01T00:00:00Z"),
+	]) {
+		const ctx = makeCtx(db, {
+			bindings: { sessionUser: new Map([["value", value]]) },
+		});
 		const rows = await executeAgainstPredicate(
 			db,
-			compilePredicate(
-				pred,
-				makeCtx(db, {
-					bindings: {
-						searchInputs: new Map([[testUuid("name_filter"), "Alice"]]),
-					},
+			compilePredicate(isBlank(term(sessionUser("value"))), ctx),
+		);
+		expect(rows, String(value)).toEqual(
+			value === null || value === "" ? [{ case_id: PATIENT_CASE_ID }] : [],
+		);
+	}
+});
+
+// One fixture per operator family keeps both matches and exclusions visible.
+async function seedProperties(
+	db: PredicateCompileContext["db"],
+	rows: ReadonlyArray<readonly [string, Record<string, unknown>]>,
+) {
+	await db
+		.insertInto("cases")
+		.values(
+			rows.map(([case_id, properties]) =>
+				makeCaseRow({
+					case_id,
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					case_type: "patient",
+					properties: JSON.stringify(properties),
 				}),
 			),
-		);
-		// Bound input → inner clause applies, only Alice matches.
-		expect(rows).toEqual([{ case_id: PATIENT_CASE_ID }]);
-	});
+		)
+		.execute();
+}
+async function matchedIds(
+	db: PredicateCompileContext["db"],
+	predicate: Parameters<typeof compilePredicate>[0],
+	ctx = makeCtx(db),
+) {
+	return (await executeAgainstPredicate(db, compilePredicate(predicate, ctx)))
+		.map((row) => row.case_id)
+		.sort();
+}
 
-	test("collapses to match-all when input is unbound", async ({ db }) => {
-		await db
-			.insertInto("cases")
-			.values([
-				makeCaseRow({
-					case_id: PATIENT_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Alice" }),
-				}),
-				makeCaseRow({
-					case_id: PATIENT_2_CASE_ID,
-					case_type: "patient",
-					app_id: APP_ID,
-					project_id: OWNER_ID,
-					properties: JSON.stringify({ nickname: "Bob" }),
-				}),
-			])
-			.execute();
-		const pred = whenInput(
-			input(testUuid("name_filter")),
-			eq(prop("patient", "nickname"), literal("Alice")),
+test("boolean operators and self quantifiers preserve grouping and null semantics", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["a", { nickname: "Alice", age: 17 }],
+		["b", { nickname: "Alice", age: 30 }],
+		["c", { nickname: "Bob", age: 30 }],
+		["d", { nickname: "Carol", age: 30 }],
+		["e", {}],
+	]);
+	const alice = eq(prop("patient", "nickname"), literal("Alice"));
+	const aliceOrBob = or(alice, eq(prop("patient", "nickname"), literal("Bob")));
+	for (const [pred, expected] of [
+		[matchAll(), ["a", "b", "c", "d", "e"]],
+		[matchNone(), []],
+		[and(alice, eq(prop("patient", "age"), literal(30))), ["b"]],
+		[aliceOrBob, ["a", "b", "c"]],
+		[not(alice), ["c", "d"]],
+		[and(aliceOrBob, gt(prop("patient", "age"), literal(18))), ["b", "c"]],
+		[exists(selfPath()), ["a", "b", "c", "d", "e"]],
+		[missing(selfPath()), []],
+		[exists(selfPath(), alice), ["a", "b"]],
+		[missing(selfPath(), alice), ["c", "d"]],
+	] as const)
+		expect(await matchedIds(db, pred), JSON.stringify(pred)).toEqual(expected);
+});
+
+test("all six comparisons distinguish lower, equal and higher values", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["20", { age: 20 }],
+		["30", { age: 30 }],
+		["40", { age: 40 }],
+		["absent", {}],
+	]);
+	for (const [operator, expected] of [
+		[eq, ["30"]],
+		[neq, ["20", "40"]],
+		[gt, ["40"]],
+		[gte, ["30", "40"]],
+		[lt, ["20"]],
+		[lte, ["20", "30"]],
+	] as const) {
+		expect(
+			await matchedIds(db, operator(prop("patient", "age"), literal(30))),
+		).toEqual(expected);
+	}
+});
+
+test("blank, empty equality, null equality and membership distinguish stored states", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["absent", {}],
+		["blank", { nickname: "" }],
+		["null", { nickname: null }],
+		["Alice", { nickname: "Alice" }],
+		["Bob", { nickname: "Bob" }],
+		["Carol", { nickname: "Carol" }],
+	]);
+	const name = prop("patient", "nickname");
+	for (const [predicate, expected] of [
+		[isBlank(name), ["absent", "blank"]],
+		[eq(name, literal("")), ["blank"]],
+		[eq(name, literal(null)), []],
+		[isIn(name, literal("Alice")), ["Alice"]],
+		[
+			isIn(name, literal("Alice"), literal("Bob"), literal(null)),
+			["Alice", "Bob"],
+		],
+	] as const)
+		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
+			expected,
 		);
-		const rows = await executeAgainstPredicate(
+});
+
+test("ranges respect each endpoint, omitted bounds and interior values", async ({
+	db,
+}) => {
+	await seedProperties(
+		db,
+		[17, 18, 30, 65, 70].map((age) => [String(age), { age }]),
+	);
+	const lower = literal(18),
+		upper = literal(65);
+	for (const [bounds, expected] of [
+		[{ lower, upper }, ["18", "30", "65"]],
+		[{ lower, upper, lowerInclusive: false, upperInclusive: false }, ["30"]],
+		[{ lower, upper, upperInclusive: false }, ["18", "30"]],
+		[{ lower, upper, lowerInclusive: false }, ["30", "65"]],
+		[{ lower }, ["18", "30", "65", "70"]],
+		[{ upper }, ["17", "18", "30", "65"]],
+	] as const)
+		expect(
+			await matchedIds(db, between(prop("patient", "age"), bounds)),
+			JSON.stringify(bounds),
+		).toEqual(expected);
+});
+
+test("select membership distinguishes any, all, empty and absent arrays", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["urgent", { tags: ["urgent"] }],
+		["review", { tags: ["review"] }],
+		["both", { tags: ["urgent", "review"] }],
+		["neither", { tags: ["routine"] }],
+		["empty", { tags: [] }],
+		["absent", {}],
+	]);
+	const tags = prop("patient", "tags");
+	for (const [predicate, expected] of [
+		[multiSelectAny(tags, literal("urgent")), ["both", "urgent"]],
+		[
+			multiSelectAny(tags, literal("urgent"), literal("review")),
+			["both", "review", "urgent"],
+		],
+		[multiSelectAll(tags, literal("urgent"), literal("review")), ["both"]],
+	] as const)
+		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
+			expected,
+		);
+});
+
+test("input presence gates the clause even for bound blank and null", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["Alice", { nickname: "Alice" }],
+		["Bob", { nickname: "Bob" }],
+	]);
+	const uuid = testUuid("name_filter");
+	const predicate = whenInput(
+		input(uuid),
+		eq(prop("patient", "nickname"), input(uuid)),
+	);
+	for (const value of [undefined, "Alice", "", null]) {
+		const ctx = makeCtx(db, {
+			bindings: {
+				searchInputs:
+					value === undefined ? undefined : new Map([[uuid, value]]),
+			},
+		});
+		expect(await matchedIds(db, predicate, ctx), String(value)).toEqual(
+			value === undefined
+				? ["Alice", "Bob"]
+				: value === "Alice"
+					? ["Alice"]
+					: [],
+		);
+	}
+});
+
+test("computed operands execute in comparisons, membership, ranges and distance centers", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["young", { age: 17, loc: "42.3736 -71.1097 0 0" }],
+		["older", { age: 30, loc: "40.7128 -74.0060 0 0" }],
+	]);
+	const nextAge = arith("+", term(prop("patient", "age")), term(literal(1)));
+	for (const [predicate, expected] of [
+		[gt(nextAge, literal(18)), ["older"]],
+		[lt(literal(18), nextAge), ["older"]],
+		[isIn(nextAge, literal(18), literal(40)), ["young"]],
+		[
+			between(nextAge, {
+				lower: arith("+", term(literal(15)), term(literal(3))),
+				upper: arith("+", term(literal(20)), term(literal(2))),
+			}),
+			["young"],
+		],
+		[
+			eq(
+				count(selfPath(), gt(prop("patient", "age"), literal(18))),
+				literal(1),
+			),
+			["older"],
+		],
+		[
+			within(
+				prop("patient", "loc"),
+				ifExpr(
+					gt(prop("patient", "age"), literal(18)),
+					term(literal("0 0 0 0")),
+					term(literal("42.3601 -71.0589 0 0")),
+				),
+				10,
+				"miles",
+			),
+			["young"],
+		],
+	] as const)
+		expect(await matchedIds(db, predicate), JSON.stringify(predicate)).toEqual(
+			expected,
+		);
+});
+
+test("starts-with treats percent and underscore as literal prefix characters", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["literal", { nickname: "A%_tail" }],
+		["wildcard", { nickname: "Abtail" }],
+		["middle", { nickname: "prefixA%_tail" }],
+	]);
+	expect(
+		await matchedIds(
 			db,
-			compilePredicate(pred, makeCtx(db)),
-		);
-		// Unbound input → predicate collapses to `true`, every
-		// tenant row matches.
-		expect(rows.map((r) => r.case_id).sort()).toEqual(
-			[PATIENT_CASE_ID, PATIENT_2_CASE_ID].sort(),
-		);
-	});
+			match(prop("patient", "nickname"), "A%_", "starts-with"),
+		),
+	).toEqual(["literal"]);
+});
+
+test("distance units change which points fit the same numeric radius", async ({
+	db,
+}) => {
+	// At the equator, 0.01 longitude degrees is about 1.11 km: outside
+	// one kilometer but inside one mile. The origin is a positive control.
+	await seedProperties(db, [
+		["origin", { loc: "0 0" }],
+		["between-units", { loc: "0 0.01" }],
+		["outside", { loc: "0 1" }],
+	]);
+	const point = prop("patient", "loc");
+	expect(
+		await matchedIds(db, within(point, literal("0 0"), 1, "kilometers")),
+	).toEqual(["origin"]);
+	expect(
+		await matchedIds(db, within(point, literal("0 0"), 1, "miles")),
+	).toEqual(["between-units", "origin"]);
+});
+
+test("blank metadata reads scalar text and timestamp columns", async ({
+	db,
+}) => {
+	await db
+		.insertInto("cases")
+		.values([
+			makeCaseRow({
+				case_id: "blank",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "patient",
+				owner_id: "",
+				modified_on: null,
+				properties: JSON.stringify({
+					owner_id: "shadow",
+					last_modified: "shadow",
+				}),
+			}),
+			makeCaseRow({
+				case_id: "null",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "patient",
+				owner_id: null,
+				modified_on: null,
+			}),
+			makeCaseRow({
+				case_id: "present",
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "patient",
+				owner_id: "worker",
+				modified_on: new Date("2026-01-01T00:00:00Z"),
+				properties: JSON.stringify({ owner_id: "", last_modified: "" }),
+			}),
+		])
+		.execute();
+	expect(await matchedIds(db, isBlank(prop("patient", "owner_id")))).toEqual([
+		"blank",
+		"null",
+	]);
+	expect(
+		await matchedIds(db, isBlank(prop("patient", "last_modified"))),
+	).toEqual(["blank", "null"]);
 });

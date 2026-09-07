@@ -17,7 +17,7 @@
  */
 
 import { type NextRequest, NextResponse } from "next/server";
-import { ApiError, handleApiError } from "@/lib/apiError";
+import { ApiError, handleApiError, readBodyBytes } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { authorizePendingFormAttachmentUpload } from "@/lib/db/formAttachments";
@@ -65,7 +65,6 @@ export async function PUT(req: NextRequest) {
 		}
 		const contentType =
 			req.headers.get("content-type") ?? "application/octet-stream";
-		const bytes = Buffer.from(await req.arrayBuffer());
 		let max: number | null = null;
 		if (objectPrefix === STAGED_CAPTURE_PREFIX) {
 			const pending = await authorizePendingFormAttachmentUpload({
@@ -109,6 +108,12 @@ export async function PUT(req: NextRequest) {
 			}
 			max = parsedMax;
 		}
+		// Authorization and the authoritative capture budget are resolved before
+		// consuming bytes. A capped stream stops as soon as it exceeds the budget.
+		const bytes =
+			max === null
+				? Buffer.from(await req.arrayBuffer())
+				: Buffer.from(await readBodyBytes(req, max));
 		if (
 			max !== null &&
 			(objectPrefix === STAGED_CAPTURE_PREFIX

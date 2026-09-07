@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { up } from "@/lib/case-store/migrations/20260814000000_design_composition_handle_kinds";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 
+import { checkConstraintVerdicts } from "./checkConstraint";
+
 const h = setupAppStateTestDb("design_composition_handle_kinds_");
 
 describe("design composition handle kinds migration", () => {
@@ -21,19 +23,25 @@ describe("design composition handle kinds migration", () => {
 
 		await up(db as unknown as Kysely<unknown>);
 
-		const constraint = await sql<{ definition: string }>`
-			SELECT pg_get_constraintdef(oid) AS definition
-			FROM pg_constraint
-			WHERE conname = 'design_identity_handles_entity_kind_check'
-				AND conrelid = 'design_identity_handles'::regclass
-		`.execute(db);
-		for (const kind of [
+		const accepted = [
+			"contract",
 			"module_composition",
 			"form_composition",
 			"composition_section",
 			"composition_item",
-		]) {
-			expect(constraint.rows[0]?.definition).toContain(kind);
-		}
+		];
+		expect(
+			await checkConstraintVerdicts(
+				db as unknown as Kysely<unknown>,
+				"design_identity_handles",
+				"design_identity_handles_entity_kind_check",
+				"entity_kind",
+				[...accepted, "unknown_kind", "lookup_table_intent"],
+			),
+		).toEqual([
+			...accepted.map((value) => ({ value, admitted: true })),
+			{ value: "unknown_kind", admitted: false },
+			{ value: "lookup_table_intent", admitted: false },
+		]);
 	});
 });

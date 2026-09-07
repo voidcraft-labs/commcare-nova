@@ -53,6 +53,13 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Celebrate quietly.** "Your app is ready". Warmth, not fireworks. Exclamation points almost never.
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
 
+**Credential uncertainty.** The Workers panel uses “Account unconfirmed” when
+an account may not exist and “Password unconfirmed” when the account exists but
+a retained password is uncertain. Keep every candidate visible until resolved or
+explicitly dismissed, include the label in copied credentials, and keep dismissal
+buttons at the normal touch size. Never turn account adoption into a claim that a
+password works.
+
 **Casing.** The wordmark and product name are **always lowercase**: `commcare nova`. Everything else (titles, headings, labels, menu items, buttons) uses sentence case ("Build your first app", "Move to Project"), never Title Case. Data-domain labels mirroring user content (form names like "Register New Case") are the exception. There are **no etched console labels anymore**: the old UPPERCASE-mono chrome (`HIDDEN`, `LIVE`) is retired, and status tags are quiet sentence-case sans ("Hidden") or pill badges.
 
 **UX-writing mechanics:**
@@ -105,7 +112,7 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 
 **Focus.** Keyboard focus = violet-bright border + a soft 3px ring at 45% alpha (`--focus-ring`). Selection is violet at 0.32 alpha with white text.
 
-**Motion.** Unhurried and gentle: things settle, never snap. Entrances fade and rise 10 to 20px on `cubic-bezier(0.16,1,0.3,1)` over 0.6 to 0.8s. Press is real travel: keycap buttons sink 3px (`--key-wall`) as their wall collapses; text-only controls nudge `translateY(1px)`. Menus and popovers scale-fade from 0.95 to 0.97. Default UI transitions are 0.2s; ambient motion (breath, blooms) is slow enough to ignore. Respect `prefers-reduced-motion` (near-zero durations, not `none`, so lifecycles still complete).
+**Motion.** Unhurried and gentle: things settle, never snap. Entrances fade and rise 10 to 20px on `cubic-bezier(0.16,1,0.3,1)` over 0.6 to 0.8s. Press is real travel: keycap buttons sink 3px (`--key-wall`) as their wall collapses; text-only controls nudge `translateY(1px)`. Menus and popovers fade at their final size. Their contents can anchor another popup immediately, so entrance and exit motion must keep descendant geometry stable. Default UI transitions are 0.2s; ambient motion (breath, blooms) is slow enough to ignore. Respect `prefers-reduced-motion` (near-zero durations, not `none`, so lifecycles still complete).
 
 **Z-index** is a semantic token scale (`--z-ground` 10 → `--z-system` 9999); tooltips sit above modals.
 

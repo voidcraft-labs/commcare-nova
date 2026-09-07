@@ -113,4 +113,22 @@ describe("organizationLevelPatchIssue", () => {
 			}),
 		).toMatch(/Asha is assigned/);
 	});
+	it("permits a label-only change and leaves the input document intact", () => {
+		const { doc, locations } = fixture();
+		const before = structuredClone(doc);
+		expect(
+			organizationLevelPatchIssue(doc, locations, FACILITY, {
+				name: "Health facility",
+			}),
+		).toBeUndefined();
+		expect(doc).toEqual(before);
+	});
+	it("refuses a level that disappeared after the view loaded", () => {
+		const { doc, locations } = fixture();
+		expect(
+			organizationLevelPatchIssue(doc, locations, testUuid("missing-level"), {
+				name: "Missing",
+			}),
+		).toBe("This level no longer exists.");
+	});
 });

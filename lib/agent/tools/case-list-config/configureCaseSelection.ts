@@ -300,7 +300,7 @@ export const configureCaseSelectionTool = {
 
 			const commit =
 				plan.mutations.length === 0
-					? { ok: true as const, mutations: plan.mutations }
+					? { ok: true as const, mutations: [] as const }
 					: await guardedMutate(
 							ctx,
 							plan.mutations,

@@ -2,6 +2,10 @@
  * `editField` conversion consent — the needs-confirmation round for a
  * kind conversion whose per-row cast can fail (`plan.dataLossRisk`).
  *
+ * The impact service is controlled here; native case-store tests own actual
+ * stored-row casting and counts. These tests exercise the tool decision and
+ * admitted document transition for the supplied impact, not SQL persistence.
+ *
  * The contract these tests pin:
  *
  *   - a failable flip with a non-empty counted impact returns
@@ -14,26 +18,15 @@
  *     never consults the impact lookup at all.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-/** A patient module whose followup form writes `score` (a decimal case
+/** A patient module whose registration form writes `score` (a decimal case
  *  property) — the decimal → int flip is the canonical failable edge. */
 function makeCaseBoundDoc(): BlueprintDoc {
 	const doc = buildDoc({
@@ -83,7 +76,7 @@ function makeCaseBoundDoc(): BlueprintDoc {
 			},
 		],
 	});
-	return doc;
+	return expectAdmittedDoc(doc);
 }
 
 function soleField(doc: BlueprintDoc, id: string) {
@@ -100,19 +93,15 @@ function addressFor(doc: BlueprintDoc, id: string) {
 	};
 }
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("editField — conversion consent", () => {
 	it("a failable flip with saved data at stake returns needsConfirmation and persists nothing", async () => {
 		const doc = makeCaseBoundDoc();
-		const h = makeToolWorkspaceHarness(doc, {
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
 			conversionImpact: async () => ({
 				totalWithValue: 12,
 				uncastable: 3,
 				alreadyHeld: 1,
-				samples: ["17.5", "n/a", "3.25"],
+				samples: ["17.5", "1.25", "3.25"],
 			}),
 		});
 		const result = await h.runTool(editFieldTool, {
@@ -131,7 +120,7 @@ describe("editField — conversion consent", () => {
 			totalWithValue: 12,
 			uncastable: 3,
 			alreadyHeld: 1,
-			samples: ["17.5", "n/a", "3.25"],
+			samples: ["17.5", "1.25", "3.25"],
 		});
 		// The prose carries the counts, the hold consequence, and the
 		// expressible next state.
@@ -146,12 +135,12 @@ describe("editField — conversion consent", () => {
 		});
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
 		expect(result.mutations).toEqual([]);
-		expect(h.currentDoc()).toBe(doc);
+		expect(h.currentDoc()).toEqual(doc);
 	});
 
 	it("the same call with confirmConversion: true converts without re-counting", async () => {
 		const doc = makeCaseBoundDoc();
-		const h = makeToolWorkspaceHarness(doc, {
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
 			conversionImpact: async () => ({
 				totalWithValue: 12,
 				uncastable: 3,
@@ -159,6 +148,14 @@ describe("editField — conversion consent", () => {
 				samples: ["17.5"],
 			}),
 		});
+		const refused = await h.runTool(editFieldTool, {
+			...addressFor(doc, "score"),
+			updates: { kind: "int" },
+		});
+		expect(refused.result).toHaveProperty("needsConfirmation");
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
+		expect(h.conversionImpact).toHaveBeenCalledTimes(1);
 		const result = await h.runTool(editFieldTool, {
 			...addressFor(doc, "score"),
 			updates: { kind: "int" },
@@ -167,15 +164,16 @@ describe("editField — conversion consent", () => {
 		if ("error" in result.result || "needsConfirmation" in result.result) {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
-		expect(h.conversionImpact).not.toHaveBeenCalled();
+		expect(h.conversionImpact).toHaveBeenCalledTimes(1);
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "score").uuid];
 		expect(after?.kind).toBe("int");
 	});
 
 	it("a failable flip whose counted impact is empty proceeds without a confirmation round", async () => {
 		const doc = makeCaseBoundDoc();
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const result = await h.runTool(editFieldTool, {
 			...addressFor(doc, "score"),
 			updates: { kind: "int" },
@@ -185,13 +183,14 @@ describe("editField — conversion consent", () => {
 		}
 		expect(h.conversionImpact).toHaveBeenCalledTimes(1);
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+		expectAdmittedDoc(h.currentDoc());
 		const after = h.currentDoc().fields[soleField(doc, "score").uuid];
 		expect(after?.kind).toBe("int");
 	});
 
 	it("a total flip never consults the impact lookup", async () => {
 		const doc = makeCaseBoundDoc();
-		const h = makeToolWorkspaceHarness(doc, {
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
 			conversionImpact: async () => {
 				throw new Error("a total flip must not count impact");
 			},
@@ -205,6 +204,7 @@ describe("editField — conversion consent", () => {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
 		expect(h.conversionImpact).not.toHaveBeenCalled();
+		expectAdmittedDoc(h.currentDoc());
 	});
 
 	it("a non-case-bound conversion never consults the impact lookup", async () => {
@@ -224,7 +224,7 @@ describe("editField — conversion consent", () => {
 				},
 			],
 		});
-		const h = makeToolWorkspaceHarness(doc);
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const result = await h.runTool(editFieldTool, {
 			...addressFor(doc, "score"),
 			updates: { kind: "int" },
@@ -233,5 +233,6 @@ describe("editField — conversion consent", () => {
 			throw new Error(`expected success, got ${JSON.stringify(result.result)}`);
 		}
 		expect(h.conversionImpact).not.toHaveBeenCalled();
+		expectAdmittedDoc(h.currentDoc());
 	});
 });

@@ -46,7 +46,14 @@ export NOVA_REACT_PROFILE_TOKEN="${NOVA_REACT_PROFILE_TOKEN:-$(
 )}"
 export NOVA_REACT_PROFILE_ORIGIN="$profile_origin"
 export NOVA_REACT_PROFILE_STATE_DIR="$profile_state_dir"
-export NOVA_REACT_PROFILE_OUTPUT="${NOVA_REACT_PROFILE_OUTPUT:-react-profiles/${profile_stamp}-builder-smoke.json}"
+# This configured filename is a prefix; each scenario adds its own identity.
+export NOVA_REACT_PROFILE_OUTPUT="${NOVA_REACT_PROFILE_OUTPUT:-react-profiles/${profile_stamp}-builder-profile.json}"
+export NOVA_REACT_PROFILE_EXPORT_MANIFEST="$profile_state_dir/exports.jsonl"
+: > "$NOVA_REACT_PROFILE_EXPORT_MANIFEST"
+profile_run_log="${NOVA_REACT_PROFILE_OUTPUT%.json}.log"
+if [[ "$#" -eq 0 ]]; then
+ set -- builder-smoke.spec.ts
+fi
 
 profile_cli() {
 	node_modules/.bin/agent-react-devtools "$@" "--state-dir=$profile_state_dir"
@@ -110,6 +117,8 @@ docker compose exec -T postgres psql -U nova -d nova_react_profile \
 
 echo "[react-profile] applying migrations and seeding the Builder fixture"
 npm run db:migrate
+export NOVA_E2E_DISCOVERY_MANIFEST="$profile_state_dir/discovery.json"
+node_modules/.bin/playwright test --config=e2e/react-profile/playwright.config.ts "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
 node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 
 mkdir -p "$(dirname "$NOVA_REACT_PROFILE_OUTPUT")"
@@ -143,15 +152,31 @@ fi
 
 echo "[react-profile] running the automated profile scenario"
 if ! node_modules/.bin/playwright test \
-	--config=e2e/react-profile/playwright.config.ts "$@"; then
+	--config=e2e/react-profile/playwright.config.ts "$@" 2>&1 | tee "$profile_run_log"; then
 	echo "[react-profile] Profile scenario failed. Recent Next log output:" >&2
 	tail -n 80 "$profile_server_log" >&2
 	exit 1
 fi
 
-echo "[react-profile] analyzing $NOVA_REACT_PROFILE_OUTPUT"
-python3 scripts/analyze-react-profile.py "$NOVA_REACT_PROFILE_OUTPUT" \
-	| tee "${NOVA_REACT_PROFILE_OUTPUT%.json}.txt"
+node -e '
+ const fs = require("node:fs");
+ const paths = fs.readFileSync(process.argv[1], "utf8").split("\n").filter(Boolean).map(line => JSON.parse(line));
+ if (new Set(paths).size !== paths.length) throw new Error("Duplicate React profile export paths");
+ for (const file of paths) {
+  if (!fs.statSync(file).isFile()) throw new Error(`Missing React profile export: ${file}`);
+  console.log(file);
+ }
+' "$NOVA_REACT_PROFILE_EXPORT_MANIFEST" > "$profile_state_dir/export-paths.txt"
 
-echo "[react-profile] raw profile: $NOVA_REACT_PROFILE_OUTPUT"
-echo "[react-profile] analysis: ${NOVA_REACT_PROFILE_OUTPUT%.json}.txt"
+while IFS= read -r profile_export; do
+ echo "[react-profile] analyzing $profile_export"
+ python3 scripts/analyze-react-profile.py "$profile_export" \
+  | tee "${profile_export%.json}.txt"
+ echo "[react-profile] raw profile: $profile_export"
+ echo "[react-profile] analysis: ${profile_export%.json}.txt"
+done < "$profile_state_dir/export-paths.txt"
+
+echo "[react-profile] scenario log: $profile_run_log"
+if [[ ! -s "$profile_state_dir/export-paths.txt" ]]; then
+ echo "[react-profile] selected scenarios recorded diagnostic measurements only; no React commit profile was exported."
+fi

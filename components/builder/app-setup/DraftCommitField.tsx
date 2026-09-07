@@ -24,14 +24,11 @@ import { Input } from "@/components/shadcn/input";
 import { Textarea } from "@/components/shadcn/textarea";
 import type { CommitOutcome } from "@/lib/domain";
 
-const PEER_CHANGE_MESSAGE =
-	"This changed in another editor while you were typing. Press Escape to use the shared value, then make your change again.";
-
-function firstRefusal(outcome: CommitOutcome): string | undefined {
-	return outcome.ok
-		? undefined
-		: (outcome.messages[0] ?? "That change could not be applied.");
-}
+import {
+	acceptedValuesFromDraft,
+	decideDraftCommit,
+	firstDraftRefusal,
+} from "./draftCommitModel";
 
 export function DraftCommitInput({
 	id,
@@ -61,7 +58,6 @@ export function DraftCommitInput({
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 	const problemId = `${id}-problem`;
 	const dirty = draft !== baseValue;
-	const peerChanged = value !== baseValue;
 	const liveProblem =
 		refusal ??
 		(validateAsYouType && dirty ? validate?.(normalize(draft)) : undefined);
@@ -82,25 +78,27 @@ export function DraftCommitInput({
 	};
 
 	const commit = () => {
-		if (disabled) return;
-		if (peerChanged) {
-			setRefusal(PEER_CHANGE_MESSAGE);
+		const decision = decideDraftCommit({
+			draft,
+			baseValue,
+			currentValue: value,
+			disabled,
+			normalize,
+			validate,
+		});
+		if (decision.kind === "ignored") return;
+		if (decision.kind === "refused") {
+			setRefusal(decision.message);
 			return;
 		}
-		const next = normalize(draft);
-		const validationMessage = validate?.(next);
-		if (validationMessage !== undefined) {
-			setRefusal(validationMessage);
+		const next = decision.value;
+		if (decision.kind === "unchanged") {
+			restore();
 			return;
 		}
-		if (next === value) {
-			setDraft(value);
-			setBaseValue(value);
-			setRefusal(undefined);
-			return;
-		}
+
 		const outcome = onCommit(next);
-		const message = firstRefusal(outcome);
+		const message = firstDraftRefusal(outcome);
 		if (message !== undefined) {
 			setRefusal(message);
 			return;
@@ -178,7 +176,6 @@ export function DraftLinesField({
 	const problemId = useId();
 	const hintId = `${problemId}-hint`;
 	const dirty = draft !== baseValue;
-	const peerChanged = committedText !== baseValue;
 
 	useEffect(() => {
 		if (committedText === baseValue) return;
@@ -196,18 +193,28 @@ export function DraftLinesField({
 	};
 
 	const commit = () => {
-		if (disabled || !dirty) return;
-		if (peerChanged) {
-			setRefusal(PEER_CHANGE_MESSAGE);
+		const decision = decideDraftCommit({
+			draft,
+			baseValue,
+			currentValue: committedText,
+			disabled,
+			normalize: (value) => acceptedValuesFromDraft(value).join("\n"),
+			skipPristine: true,
+		});
+		if (decision.kind === "ignored") return;
+		if (decision.kind === "refused") {
+			setRefusal(decision.message);
 			return;
 		}
-		const lines = draft
-			.split("\n")
-			.map((line) => line.trim())
-			.filter(Boolean);
-		const nextText = lines.join("\n");
+		const nextText = decision.value;
+		if (decision.kind === "unchanged") {
+			restore();
+			return;
+		}
+		const lines = acceptedValuesFromDraft(nextText);
+
 		const outcome = onCommit(lines.length === 0 ? null : lines);
-		const message = firstRefusal(outcome);
+		const message = firstDraftRefusal(outcome);
 		if (message !== undefined) {
 			setRefusal(message);
 			return;

@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 /**
  * `POST /api/media/upload`: signed-PUT initiate tests.
  *
@@ -10,6 +11,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { requireSession, resolveActiveProjectId } from "@/lib/auth-utils";
+import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	createPendingAsset,
 	findReadyAssetByProjectAndHash,
@@ -43,28 +45,26 @@ vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	resolveActiveProjectId: resolveActiveProjectIdMock,
 }));
-vi.mock("@/lib/db/appAccess", () => ({
+vi.mock("@/lib/db/appAccess", async (original) => ({
+	...(await original<typeof import("@/lib/db/appAccess")>()),
 	resolveAppScope: resolveAppScopeMock,
 	resolveProjectAccess: resolveProjectAccessMock,
 }));
-vi.mock("@/lib/db/mediaAssets", () => ({
+vi.mock("@/lib/db/mediaAssets", async (original) => ({
+	...(await original<typeof import("@/lib/db/mediaAssets")>()),
 	createPendingAsset: createPendingAssetMock,
 	findReadyAssetByProjectAndHash: findReadyAssetByProjectAndHashMock,
-	toWireMediaAsset: vi.fn((asset: MediaAssetRecord) => asset),
 }));
 vi.mock("@/lib/storage/media", () => ({
 	createSignedUploadUrl: createSignedUploadUrlMock,
 }));
 
 function reqWith(body: unknown) {
-	// `headers` is needed by `readJsonBody`'s Content-Length guard; an empty
-	// Headers means no declared length, so it falls through to `json()`.
-	return {
-		headers: new Headers(),
-		json: async () => body,
-		arrayBuffer: async () =>
-			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
-	} as Parameters<typeof POST>[0];
+	return new NextRequest("http://localhost/api/test", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
 }
 
 beforeEach(() => {
@@ -134,8 +134,7 @@ describe("POST /api/media/upload", () => {
 		// not seed pending rows/objects there. resolveProjectAccess throws
 		// AppAccessError, which handleApiError collapses to a 404, and nothing is
 		// written.
-		const denied = new Error("not an editor");
-		denied.name = "AppAccessError";
+		const denied = new AppAccessError("insufficient_role");
 		resolveProjectAccessMock.mockRejectedValue(denied);
 
 		const res = await POST(
@@ -155,3 +154,103 @@ describe("POST /api/media/upload", () => {
 		await res.json();
 	});
 });
+
+it("uses the URL app Project for an upload even when the active Project differs", async () => {
+	resolveAppScopeMock.mockResolvedValue({ projectId: "project-app" });
+	const response = await POST(
+		reqWith({
+			filename: "logo.png",
+			mimeType: "image/apng",
+			sizeBytes: 100,
+			contentHash: HASH,
+			appId: "app-2",
+		}),
+	);
+	expect(response.status).toBe(200);
+	expect(await response.json()).toMatchObject({
+		uploadContentType: "image/png",
+		deduplicated: false,
+	});
+	expect(resolveAppScopeMock).toHaveBeenCalledWith("app-2", "user-1", "edit");
+	expect(resolveActiveProjectIdMock).not.toHaveBeenCalled();
+	expect(createPendingAssetMock).toHaveBeenCalledWith(
+		expect.objectContaining({
+			project_id: "project-app",
+			mimeType: "image/png",
+			kind: "image",
+		}),
+	);
+});
+it("deduplicates within the authorized Project and returns only public asset metadata", async () => {
+	const asset: MediaAssetRecord = {
+		id: ASSET_ID,
+		owner: "u1",
+		project_id: "project-1",
+		contentHash: HASH,
+		mimeType: "image/png",
+		kind: "image",
+		extension: ".png",
+		sizeBytes: 100,
+		gcsObjectKey: "private-storage-key",
+		originalFilename: "image.png",
+		displayName: "Image",
+		status: "ready",
+		created_at: new Date(0),
+	};
+	findReadyAssetByProjectAndHashMock.mockResolvedValue(asset);
+	const response = await POST(
+		reqWith({
+			filename: "logo.png",
+			mimeType: "image/png",
+			sizeBytes: 100,
+			contentHash: HASH,
+		}),
+	);
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({
+		assetId: ASSET_ID,
+		deduplicated: true,
+		asset: {
+			id: ASSET_ID,
+			contentHash: HASH,
+			mimeType: "image/png",
+			kind: "image",
+			extension: ".png",
+			sizeBytes: 100,
+			originalFilename: "image.png",
+			displayName: "Image",
+			status: "ready",
+			createdAt: new Date(0).toISOString(),
+		},
+	});
+	expect(findReadyAssetByProjectAndHashMock).toHaveBeenCalledWith(
+		"project-1",
+		HASH,
+	);
+	expect(createPendingAssetMock).not.toHaveBeenCalled();
+	expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+});
+it.each([
+	{ sizeBytes: 0 },
+	{ sizeBytes: "100" },
+	{ contentHash: "bad" },
+	{ mimeType: "application/exe" },
+	{ projectId: "foreign" },
+])(
+	"refuses malformed metadata before reserving or signing: %j",
+	async (patch) => {
+		const response = await POST(
+			reqWith({
+				filename: "logo.png",
+				mimeType: "image/png",
+				sizeBytes: 100,
+				contentHash: HASH,
+				...patch,
+			}),
+		);
+		expect(response.status).toBe(400);
+		await response.json();
+		expect(createPendingAssetMock).not.toHaveBeenCalled();
+		expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+	},
+);

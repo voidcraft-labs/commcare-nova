@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./hq/deadline";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -34,17 +35,21 @@ import {
 	type ProjectSpaceCapabilityProbe,
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
+import { profileReferencesBuildSuite } from "./buildProfile";
 import {
 	authHeader,
 	baseUrl,
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	isEdgeRefusal,
 	isValidDomainSlug,
 	logAndReturnError,
 	WAF_PADDING,
 	warnAndReturnError,
 } from "./hq/http";
+import { isHqObject } from "./hq/readCollection";
+import { readHqJson } from "./hq/readJson";
 /** Private compatibility inputs stay behind the CommCare boundary. They are
  * types here so no manifest can enter a browser bundle through this client. */
 import type {
@@ -132,70 +137,64 @@ async function listDomainsMatching(
 	featureFlag?: string,
 	signal?: AbortSignal,
 ): Promise<CommCareDomain[] | CommCareApiError> {
+	if (signal === undefined)
+		return withHqRequestDeadline((owned) =>
+			listDomainsMatching(creds, featureFlag, owned),
+		);
 	const domains: CommCareDomain[] = [];
-	const base = baseUrl(creds);
+	const seen = new Set<string>();
 	const query = new URLSearchParams({ limit: "100" });
 	if (featureFlag) query.set("feature_flag", featureFlag);
-	let url: string | null = `${base}/api/user_domains/v1/?${query.toString()}`;
-	/** Safety bound — prevents infinite loops from buggy pagination pointers. */
-	const MAX_PAGES = 50;
-	let page = 0;
-
-	while (url && page < MAX_PAGES) {
-		page++;
-		const res = await fetch(url, {
-			headers: { Authorization: authHeader(creds) },
-			signal,
-		});
-
-		if (!res.ok) {
-			return logAndReturnError("listDomains failed", res);
-		}
-
-		const data: unknown = await res.json();
-		if (!isUserDomainsResponse(data)) {
-			log.warn("[commcare/project-space] invalid domain-list response shape", {
-				featureFlag,
+	const target = new URL(
+		`${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+	);
+	let url = target.toString();
+	let total: number | undefined;
+	for (let page = 0; page < 50; page++) {
+		const result = await readHqJson(creds, url, "project space list", signal);
+		if ("success" in result) return result;
+		const data = result.data;
+		if (
+			!isUserDomainsResponse(data) ||
+			(total !== undefined && total !== data.meta.total_count)
+		)
+			return { success: false, status: 502 };
+		total = data.meta.total_count;
+		for (const row of data.objects) {
+			if (seen.has(row.domain_name)) return { success: false, status: 502 };
+			seen.add(row.domain_name);
+			domains.push({
+				name: row.domain_name,
+				displayName: row.project_name || row.domain_name,
 			});
+		}
+		if (data.meta.next === null || data.meta.next === undefined)
+			return domains.length === total
+				? domains
+				: { success: false, status: 502 };
+		let next: URL;
+		try {
+			next = new URL(data.meta.next, url);
+		} catch {
 			return { success: false, status: 502 };
 		}
-		for (const obj of data.objects) {
-			domains.push({
-				name: obj.domain_name,
-				displayName: obj.project_name || obj.domain_name,
-			});
-		}
-
-		/* Resolve pagination URL — validate it stays on the expected host.
-		 * Tastypie can return absolute URLs; if a proxy rewrites the host or
-		 * a MITM injects a foreign URL, following it would leak the user's
-		 * API key via the Authorization header. */
-		if (data.meta.next) {
-			const resolved = new URL(data.meta.next, base);
-			if (resolved.origin !== new URL(base).origin) {
-				log.warn("[commcare/project-space] rejected foreign pagination URL", {
-					featureFlag,
-					origin: resolved.origin,
-				});
-				return { success: false, status: 502 };
-			}
-			url = resolved.toString();
-		} else {
-			url = null;
-		}
+		if (
+			data.meta.next === "" ||
+			next.origin !== target.origin ||
+			next.pathname !== target.pathname ||
+			next.username ||
+			next.password ||
+			next.hash ||
+			JSON.stringify(next.searchParams.getAll("feature_flag")) !==
+				JSON.stringify(target.searchParams.getAll("feature_flag")) ||
+			[...next.searchParams.keys()].some(
+				(key) => key !== "limit" && key !== "offset" && key !== "feature_flag",
+			)
+		)
+			return { success: false, status: 502 };
+		url = next.toString();
 	}
-	if (url !== null) {
-		log.warn(
-			"[commcare/project-space] domain pagination exceeded safety bound",
-			{
-				featureFlag,
-				pages: MAX_PAGES,
-			},
-		);
-		return { success: false, status: 508 };
-	}
-
-	return domains;
+	return { success: false, status: 508 };
 }
 
 function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
@@ -214,6 +213,8 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 	const meta = candidate.meta as Record<string, unknown>;
 	return (
 		typeof meta.total_count === "number" &&
+		Number.isSafeInteger(meta.total_count) &&
+		meta.total_count >= 0 &&
 		(meta.limit === undefined ||
 			meta.limit === null ||
 			typeof meta.limit === "number") &&
@@ -227,6 +228,9 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 				item !== null &&
 				!Array.isArray(item) &&
 				typeof (item as Record<string, unknown>).domain_name === "string" &&
+				isValidDomainSlug(
+					(item as Record<string, unknown>).domain_name as string,
+				) &&
 				(typeof (item as Record<string, unknown>).project_name === "string" ||
 					(item as Record<string, unknown>).project_name === null),
 		)
@@ -409,8 +413,21 @@ async function probeCaseSearchRuntime(
 				signal,
 			});
 			if (response.status === 200 && response.redirected !== true) {
+				// HQ emits a fixture as text/xml. Headers distinguish the runtime
+				// answer from a successful HTML login/proxy page without reading
+				// any case data. application/xml is the equivalent XML media type.
+				const mediaType = response.headers
+					.get("content-type")
+					?.split(";")[0]
+					.trim()
+					.toLowerCase();
 				await response.body?.cancel();
-				return { state: "available" };
+				return {
+					state:
+						mediaType === "text/xml" || mediaType === "application/xml"
+							? "available"
+							: "unverified",
+				};
 			}
 			if (response.status === 404) {
 				const body = await response.text();
@@ -424,10 +441,12 @@ async function probeCaseSearchRuntime(
 				 * account may be allowed to edit/import apps while this separate
 				 * role permission is absent. Diagnose that recoverable distinction;
 				 * never reinterpret it as Case Search being disabled. */
-				await response.body?.cancel();
+				const body = await response.text();
 				return {
 					state: "unverified",
-					issue: "connected-account-permission",
+					...(isEdgeRefusal(body)
+						? {}
+						: { issue: "connected-account-permission" as const }),
 				};
 			}
 			await response.body?.cancel();
@@ -515,12 +534,13 @@ async function runBoundedCompatibilityProbe<T>(
 /**
  * Test whether the API key can access a specific domain.
  *
- * Makes a lightweight GET to the list_apps endpoint — returns true on
- * 200, false on 401/403. CommCare HQ returns 401 (not 403) for domains
+ * Makes a lightweight GET to the list_apps endpoint: its explicit JSON success
+ * envelope proves access; ordinary 401/403 responses refuse it. CommCare HQ returns 401 (not 403) for domains
  * where the API key lacks app-level access, even though the key is valid
  * for the user_domains endpoint. Since callers already validated the key
  * via listDomains(), a per-domain 401 is a scope issue, not invalid creds.
- * Only 5xx errors propagate as CommCareApiError.
+ * Edge refusals, redirects, transport failures and malformed bodies remain
+ * unavailable answers rather than silently dropping an accessible space.
  */
 export async function testDomainAccess(
 	creds: CommCareCredentials,
@@ -528,13 +548,20 @@ export async function testDomainAccess(
 ): Promise<boolean | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return false;
 	const url = `${baseUrl(creds)}/a/${domain}/apps/api/list_apps/`;
-	const res = await fetch(url, {
-		headers: { Authorization: authHeader(creds) },
-	});
-
-	if (res.ok) return true;
-	if (res.status === 401 || res.status === 403) return false;
-	return logAndReturnError(`testDomainAccess(${domain}) failed`, res);
+	const result = await readHqJson(creds, url, "app access");
+	if ("success" in result) {
+		if (
+			(result.status === 401 || result.status === 403) &&
+			result.edgeRefusal !== true
+		)
+			return false;
+		return result;
+	}
+	return isHqObject(result.data) &&
+		result.data.status === "success" &&
+		Array.isArray(result.data.applications)
+		? true
+		: { success: false, status: 502 };
 }
 
 /**
@@ -620,7 +647,10 @@ export async function importApp(
 	appJson: object,
 	updateAppId?: string,
 ): Promise<ImportResponse> {
-	if (!isValidDomainSlug(domain)) {
+	if (
+		!isValidDomainSlug(domain) ||
+		(updateAppId !== undefined && !/^[A-Za-z0-9_-]+$/.test(updateAppId))
+	) {
 		return { success: false, status: 400 };
 	}
 	const base = baseUrl(creds);
@@ -641,44 +671,83 @@ export async function importApp(
 		"app.json",
 	);
 
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { Authorization: authHeader(creds) },
-		body: formData,
-	});
-
-	if (!res.ok) {
-		/* A 404 on the update arm is an ANSWER — the app Nova mapped was
-		 * deleted on HQ's side — handled as a first-class outcome by the
-		 * publish lifecycle, so it files at warn level like the observation
-		 * reads' expected refusals. */
-		if (updateAppId && res.status === 404) {
-			return warnAndReturnError("import target missing", res);
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				method: "POST",
+				headers: { Authorization: authHeader(creds) },
+				body: formData,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.error("[commcare] import response unavailable", error, { domain });
+			return { success: false, status: 503 };
 		}
-		return logAndReturnError("import failed", res);
-	}
 
-	const data = (await res.json()) as {
-		success: boolean;
-		app_id: string;
-		version?: number;
-		warnings?: string[];
-	};
+		if (!res.ok) {
+			/* A 404 on the update arm is an ANSWER — the app Nova mapped was
+			 * deleted on HQ's side — handled as a first-class outcome by the
+			 * publish lifecycle, so it files at warn level like the observation
+			 * reads' expected refusals. */
+			if (updateAppId && res.status === 404) {
+				return await warnAndReturnError("import target missing", res);
+			}
+			return await logAndReturnError("import failed", res);
+		}
 
-	/* HQ can return HTTP 200 with success:false for application-level
-	 * import failures (malformed JSON, schema violations). The response
-	 * body is already consumed so we log the parsed result directly. */
-	if (!data.success) {
-		log.error("[commcare] import rejected by HQ", undefined, { domain, data });
-		return { success: false, status: 422 };
-	}
+		let data: unknown;
+		try {
+			data = await res.json();
+		} catch {
+			log.error("[commcare] import returned non-JSON", undefined, { domain });
+			return { success: false, status: signal.aborted ? 503 : 502 };
+		}
+		if (typeof data !== "object" || data === null || Array.isArray(data)) {
+			return { success: false, status: 502 };
+		}
+		const acknowledgement = data as Record<string, unknown>;
 
-	return {
-		success: true,
-		appId: data.app_id,
-		version: typeof data.version === "number" ? data.version : null,
-		warnings: data.warnings ?? [],
-	};
+		/* HQ can return HTTP 200 with success:false for application-level
+		 * import failures (malformed JSON, schema violations). The response
+		 * body is already consumed so we log the parsed result directly. */
+		if (acknowledgement.success === false) {
+			log.error("[commcare] import rejected by HQ", undefined, {
+				domain,
+				data,
+			});
+			return { success: false, status: 422 };
+		}
+		const { app_id: appId, version, warnings } = acknowledgement;
+		if (
+			acknowledgement.success !== true ||
+			typeof appId !== "string" ||
+			!/^[A-Za-z0-9_-]+$/.test(appId) ||
+			(updateAppId !== undefined && appId !== updateAppId) ||
+			(version !== undefined &&
+				(typeof version !== "number" ||
+					!Number.isSafeInteger(version) ||
+					version < 0)) ||
+			(warnings !== undefined &&
+				(!Array.isArray(warnings) ||
+					!warnings.every((warning) => typeof warning === "string")))
+		) {
+			// This id becomes the durable ownership mapping. A truthy verdict or
+			// an unrelated returned id cannot establish what this publish wrote.
+			log.error("[commcare] import acknowledgement is malformed", undefined, {
+				domain,
+			});
+			return { success: false, status: 502 };
+		}
+
+		return {
+			success: true,
+			appId,
+			version: typeof version === "number" ? version : null,
+			warnings: warnings ?? [],
+		};
+	}, 60_000);
 }
 
 // ── Multimedia upload (bulk API) ───────────────────────────────────
@@ -699,8 +768,7 @@ export interface UnmatchedMediaFileReport {
  * detail behind `unmatched` (path + reason) so the caller can name what didn't
  * attach instead of a bare count; `errors` carries any processing errors HQ
  * reported. `timedOut` means we stopped polling before HQ finished — the ZIP
- * was accepted and is still processing server-side, so the media will appear
- * shortly even though we didn't confirm the match.
+ * was accepted, but we could not confirm the final attachment result.
  */
 export interface MediaBundleUploadResult {
 	readonly matched: number;
@@ -713,6 +781,7 @@ export interface MediaBundleUploadResult {
 /* Poll cadence + ceiling for the async bulk-upload processing. The bytes
  * are already accepted when polling starts, so this only confirms the match
  * result — bounded so a slow/stuck task can't hold the request open. */
+const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
 
@@ -747,13 +816,10 @@ export async function uploadAppMediaBundle(
 	appId: string,
 	zipBytes: Buffer,
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) {
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
-	const hqBase = baseUrl(creds);
-	const base = `${hqBase}/a/${domain}/apps/api/${appId}/multimedia`;
-	const uploadUrl = `${base}/`;
-
+	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
 	const formData = new FormData();
 	formData.append("waf_padding", WAF_PADDING);
 	formData.append(
@@ -761,91 +827,139 @@ export async function uploadAppMediaBundle(
 		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
 		"multimedia.zip",
 	);
-
-	const res = await fetch(uploadUrl, {
-		method: "POST",
-		headers: { Authorization: authHeader(creds) },
-		body: formData,
-	});
-	if (!res.ok) {
-		return logAndReturnError("media bundle upload failed", res);
-	}
-
-	const started = (await res.json()) as {
-		success?: boolean;
-		processing_id?: string;
-		error?: string;
-	};
-	if (!started.success || !started.processing_id) {
-		log.error("[commcare] media bundle upload rejected by HQ", undefined, {
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() => controller.abort(),
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+	);
+	let started: unknown;
+	try {
+		const response = await fetch(`${base}/`, {
+			method: "POST",
+			headers: { Authorization: authHeader(creds) },
+			body: formData,
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		if (!response.ok)
+			return await warnAndReturnError("media bundle upload refused", response);
+		try {
+			started = await response.json();
+		} catch {
+			return { success: false, status: controller.signal.aborted ? 503 : 502 };
+		}
+	} catch (error) {
+		log.warn("[commcare] media bundle upload could not be confirmed", {
 			domain,
 			appId,
-			error: started.error,
+			error,
 		});
-		return { success: false, status: 422 };
+		return { success: false, status: 503 };
+	} finally {
+		clearTimeout(timer);
 	}
-
+	if (!isHqObject(started)) return { success: false, status: 502 };
+	if (started.success === false) return { success: false, status: 422 };
+	if (
+		started.success !== true ||
+		typeof started.processing_id !== "string" ||
+		!/^[\w-]+$/.test(started.processing_id)
+	)
+		return { success: false, status: 502 };
 	return pollMediaBundleStatus(creds, base, started.processing_id);
 }
 
-/**
- * Poll HQ's `multimedia_status_api` until the bulk upload finishes or the
- * deadline passes. The bytes are already accepted, so a transient status
- * read (a non-200 between processing steps) is retried until the deadline
- * rather than failed. On timeout, `timedOut` signals the work is still
- * queued server-side. Status shape verified against
- * `commcare-hq/.../hqmedia/cache.py::BulkMultimediaStatusCache.get_response`
- * (`complete` / `errors` / `matched_count` / `unmatched_count`).
+/** One deadline owns all status fetches, their bodies and the waits between
+ * reads. HQ's cache can briefly be absent; HTTP failures are retried, whereas
+ * a disconnected or malformed answer returns an unconfirmed typed error.
+ * Expiry proves only that we stopped observing, never that HQ is still working.
+ * Wire fields come from hqmedia/cache.py::BulkMultimediaStatusCache.get_response.
  */
 async function pollMediaBundleStatus(
 	creds: CommCareCredentials,
 	base: string,
 	processingId: string,
-): Promise<MediaBundleUploadResult> {
-	const statusUrl = `${base}/status/${processingId}/`;
-	const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
-	const statusHeaders = { Authorization: authHeader(creds) };
-
-	// Check first, then sleep between checks — so a fast task (or, in tests,
-	// a mocked status) returns with no mandatory delay, and a transient 404
-	// right after the POST (processing_id not yet registered) just retries.
-	while (Date.now() < deadline) {
-		const res = await fetch(statusUrl, {
-			method: "GET",
-			headers: statusHeaders,
-		});
-		if (res.ok) {
-			const status = (await res.json()) as {
-				complete?: boolean;
-				errors?: string[];
-				matched_count?: number;
-				unmatched_count?: number;
-				// HQ's `BulkMultimediaStatusCache.get_response` records each
-				// unmatched ZIP entry as `{path, reason}` (`add_unmatched_path`).
-				unmatched_files?: { path?: string; reason?: string }[];
-			};
-			if (status.complete) {
-				return {
-					matched: status.matched_count ?? 0,
-					unmatched: status.unmatched_count ?? 0,
-					unmatchedFiles: (status.unmatched_files ?? []).map((f) => ({
-						path: f.path ?? "",
-						reason: f.reason ?? "",
-					})),
-					errors: status.errors ?? [],
-					timedOut: false,
-				};
+): Promise<MediaBundleUploadResult | CommCareApiError> {
+	return withHqRequestDeadline(async (signal) => {
+		const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
+		while (!signal.aborted && Date.now() < deadline) {
+			let response: Response;
+			try {
+				response = await fetch(`${base}/status/${processingId}/`, {
+					headers: {
+						Authorization: authHeader(creds),
+						Accept: "application/json",
+					},
+					redirect: "manual",
+					cache: "no-store",
+					signal,
+				});
+			} catch {
+				if (signal.aborted) break;
+				return { success: false, status: 503 };
 			}
+			if (response.status >= 300 && response.status < 400)
+				return await warnAndReturnError(
+					"media bundle status redirected",
+					response,
+				);
+			if (response.ok) {
+				let status: unknown;
+				try {
+					status = await response.json();
+				} catch {
+					if (signal.aborted) break;
+					return { success: false, status: 502 };
+				}
+				if (
+					!isHqObject(status) ||
+					status.success !== true ||
+					status.processing_id !== processingId ||
+					typeof status.complete !== "boolean" ||
+					typeof status.matched_count !== "number" ||
+					finiteIntOrNull(status.matched_count) === null ||
+					finiteIntOrNull(status.unmatched_count) === null ||
+					!Array.isArray(status.errors) ||
+					!status.errors.every((error) => typeof error === "string") ||
+					!Array.isArray(status.unmatched_files) ||
+					status.unmatched_files.length !== status.unmatched_count
+				)
+					return { success: false, status: 502 };
+				const unmatchedFiles: UnmatchedMediaFileReport[] = [];
+				for (const file of status.unmatched_files) {
+					if (
+						!isHqObject(file) ||
+						typeof file.path !== "string" ||
+						!file.path ||
+						typeof file.reason !== "string"
+					)
+						return { success: false, status: 502 };
+					unmatchedFiles.push({ path: file.path, reason: file.reason });
+				}
+				if (status.complete)
+					return {
+						matched: status.matched_count,
+						unmatched: unmatchedFiles.length,
+						unmatchedFiles,
+						errors: status.errors,
+						timedOut: false,
+					};
+			} else {
+				// Release even refused response bodies before another status request.
+				await response.body?.cancel();
+			}
+			const remaining = deadline - Date.now();
+			if (signal.aborted || remaining <= 0) break;
+			await delay(Math.min(MEDIA_BUNDLE_POLL_INTERVAL_MS, remaining));
 		}
-		await delay(MEDIA_BUNDLE_POLL_INTERVAL_MS);
-	}
-	return {
-		matched: 0,
-		unmatched: 0,
-		unmatchedFiles: [],
-		errors: [],
-		timedOut: true,
-	};
+		return {
+			matched: 0,
+			unmatched: 0,
+			unmatchedFiles: [],
+			errors: [],
+			timedOut: true,
+		};
+	}, MEDIA_BUNDLE_POLL_TIMEOUT_MS);
 }
 
 // ── Reading what CommCare HQ has done with an app ──────────────────
@@ -879,7 +993,7 @@ export interface HqAppBuild {
 }
 
 function finiteIntOrNull(value: unknown): number | null {
-	return typeof value === "number" && Number.isSafeInteger(value)
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 		? value
 		: null;
 }
@@ -902,37 +1016,28 @@ export async function readAppVersions(
 	domain: string,
 	hqAppId: string,
 ): Promise<HqAppVersions | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
+		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds), Accept: "application/json" },
-		});
-	} catch (err) {
-		log.warn("[commcare] current_version request failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { success: false, status: 503 };
-	}
-	if (!res.ok) return warnAndReturnError("current_version failed", res);
-	let data: {
-		currentVersion?: unknown;
-		latestBuild?: unknown;
-		latestReleasedBuild?: unknown;
-	};
-	try {
-		data = (await res.json()) as typeof data;
-	} catch {
+	const result = await readHqJson(creds, url, "app versions");
+	if ("success" in result) return result;
+	const data = result.data;
+	if (typeof data !== "object" || data === null || Array.isArray(data))
 		return { success: false, status: 502 };
-	}
-	const currentVersion = finiteIntOrNull(data.currentVersion);
-	if (currentVersion === null) return { success: false, status: 502 };
+	const record = data as Record<string, unknown>;
+	const currentVersion = finiteIntOrNull(record.currentVersion);
+	if (
+		currentVersion === null ||
+		(record.latestBuild !== null &&
+			finiteIntOrNull(record.latestBuild) === null) ||
+		(record.latestReleasedBuild !== null &&
+			finiteIntOrNull(record.latestReleasedBuild) === null)
+	)
+		return { success: false, status: 502 };
 	return {
 		currentVersion,
-		latestBuildVersion: finiteIntOrNull(data.latestBuild),
-		latestReleasedVersion: finiteIntOrNull(data.latestReleasedBuild),
+		latestBuildVersion: finiteIntOrNull(record.latestBuild),
+		latestReleasedVersion: finiteIntOrNull(record.latestReleasedBuild),
 	};
 }
 
@@ -956,35 +1061,35 @@ export async function listAppBuilds(
 	domain: string,
 	hqAppId: string,
 ): Promise<readonly HqAppBuild[] | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
+		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(hqAppId)}/`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds), Accept: "application/json" },
-		});
-	} catch (err) {
-		log.warn("[commcare] application resource request failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { success: false, status: 503 };
-	}
-	if (!res.ok) return warnAndReturnError("application resource failed", res);
-	let data: { versions?: unknown };
-	try {
-		data = (await res.json()) as typeof data;
-	} catch {
+	const result = await readHqJson(creds, url, "app builds");
+	if ("success" in result) return result;
+	const data = result.data;
+	if (
+		typeof data !== "object" ||
+		data === null ||
+		!("versions" in data) ||
+		!Array.isArray(data.versions)
+	)
 		return { success: false, status: 502 };
-	}
-	if (!Array.isArray(data.versions)) return { success: false, status: 502 };
 	const builds: HqAppBuild[] = [];
+	const ids = new Set<string>();
 	for (const entry of data.versions) {
-		if (typeof entry !== "object" || entry === null) continue;
+		if (!isHqObject(entry)) return { success: false, status: 502 };
 		const row = entry as Record<string, unknown>;
 		const id = typeof row.id === "string" ? row.id : null;
 		const version = finiteIntOrNull(row.version);
-		if (id === null || version === null) continue;
+		if (
+			id === null ||
+			!/^[\w-]+$/.test(id) ||
+			version === null ||
+			typeof row.is_released !== "boolean" ||
+			ids.has(id)
+		)
+			return { success: false, status: 502 };
+		ids.add(id);
 		builds.push({
 			id,
 			version,
@@ -1001,8 +1106,8 @@ export async function listAppBuilds(
  * Ask CommCare HQ for the profile a device installs one BUILD from.
  *
  * This is the strongest honest proof that a released build can be run: it
- * is the first request a real device makes, so a 200 means a device would
- * get one too.
+ * is the first request a real device makes. A successful response must contain
+ * a valid profile naming the exact selected build's remote suite.
  *
  * **It is a device install request, not a pure read, and the difference is
  * worth stating plainly.** Despite the URL, this does NOT reach
@@ -1039,50 +1144,22 @@ export async function probeBuildProfile(
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: "unavailable" | "not-installable" }
 > {
-	if (!isValidDomainSlug(domain)) return { ok: false, reason: "unavailable" };
-	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/profile.ccpr`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds) },
-			redirect: "manual",
-		});
-	} catch (err) {
-		log.warn("[commcare] build profile probe failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { ok: false, reason: "unavailable" };
-	}
-	if (res.status >= 300 && res.status < 400) {
-		log.warn("[commcare] build profile probe redirected", {
-			domain,
-			status: res.status,
-		});
-		try {
-			await res.body?.cancel();
-		} catch {}
-		return { ok: false, reason: "unavailable" };
-	}
-	if (!res.ok) {
-		await warnAndReturnError("build profile probe failed", res);
-		/* Only a 404 is a verdict on the BUILD: CommCare HQ served the
-		 * request and had no profile for it. Every other refusal is Nova
-		 * failing to ask — a 401 or 403 is the key's permissions, a 429 is
-		 * rate limiting, a 5xx is CommCare HQ being unwell — and reporting
-		 * those as `not-installable` tells somebody their release is broken
-		 * when nothing was learned about it at all. */
+	const result = await readBuildXml(creds, domain, buildId, "profile.ccpr");
+	if ("success" in result) {
+		// A missing profile is a verdict on this build. A redirect, denied
+		// request, interrupted body or timeout means we could not check it.
 		return {
 			ok: false,
-			reason: res.status === 404 ? "not-installable" : "unavailable",
+			reason: result.status === 404 ? "not-installable" : "unavailable",
 		};
 	}
-	// Drain the body so the connection is released; the bytes themselves
-	// are not what is being checked, only that CommCare HQ served them.
-	try {
-		await res.text();
-	} catch {}
-	return { ok: true };
+	return profileReferencesBuildSuite(result.xml, {
+		server: creds.server,
+		domain,
+		buildId,
+	})
+		? { ok: true }
+		: { ok: false, reason: "unavailable" };
 }
 
 /** Read an exact BUILD resource. Never resolves working apps or follows redirects. */
@@ -1113,11 +1190,31 @@ export async function readBuildXml(
 			await response.body?.cancel();
 			return { success: false, status: response.status };
 		}
-		const xml = await response.text();
-		// A HTML login page with status 200 is not a build resource.
-		if (!xml.trim() || xml.length > 20_000_000)
-			return { success: false, status: 502 };
-		return { xml };
+		if (!response.body) return { success: false, status: 502 };
+		const reader = response.body.getReader();
+		try {
+			const decoder = new TextDecoder();
+			const parts: string[] = [];
+			let bytes = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				bytes += value.byteLength;
+				// Fetch has already decompressed the HTTP body. Do not trust
+				// Content-Length or buffer the full resource before enforcing this.
+				if (bytes > 20_000_000) {
+					await reader.cancel();
+					return { success: false, status: 502 };
+				}
+				parts.push(decoder.decode(value, { stream: true }));
+			}
+			parts.push(decoder.decode());
+			const xml = parts.join("");
+			// The caller validates resource syntax and identity.
+			return xml.trim() ? { xml } : { success: false, status: 502 };
+		} finally {
+			reader.releaseLock();
+		}
 	} catch {
 		return { success: false, status: 503 };
 	} finally {

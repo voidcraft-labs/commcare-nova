@@ -1,169 +1,388 @@
-/**
- * Direct tests for `discoverAccessibleDomains` — the list-then-probe
- * orchestration that turns a key's membership list into the spaces it can
- * actually upload to.
- *
- * Mocks the HTTP boundary (`fetch`), not the sibling functions, so the real
- * `listDomains` + `testDomainAccess` wiring runs: a tautological mock of those
- * two couldn't catch a regression in how their results are combined, filtered,
- * or bounded.
- *
- * The bounded-concurrency window is the load-bearing safety property here — an
- * unscoped key on a heavily-shared account can list hundreds of spaces, and an
- * unbounded fan-out would self-inflict a 429 and fail the whole save. One test
- * asserts peak in-flight probes never exceed the window.
- */
+/** Membership and app-access discovery against the actual native HTTP path. */
+import { afterEach, expect, it, vi } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import {
+	discoverAccessibleDomains,
+	listDomains,
+	testDomainAccess,
+} from "../client";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { type CommCareApiError, discoverAccessibleDomains } from "../client";
+const CREDS = { username: "account", apiKey: "key", server: "eu" } as const;
+const HOST = "https://eu.commcarehq.org";
+const LIST = "/api/user_domains/v1/?limit=100";
+const AUTH = { authorization: "ApiKey account:key" };
+const memberships = (names: string[], meta: object = {}) => ({
+	meta: { total_count: names.length, ...meta },
+	objects: names.map((name) => ({
+		domain_name: name,
+		project_name: `${name} display`,
+	})),
+});
+const accessPath = (domain: string) => `/a/${domain}/apps/api/list_apps/`;
+afterEach(() => vi.useRealTimers());
 
-const CREDS = {
-	username: "alice@example.com",
-	apiKey: "key-xyz",
-	server: "production",
-} as const;
-
-/** A fetch Response stand-in carrying just what the client reads. */
-function res(status: number, body: unknown) {
-	return {
-		ok: status >= 200 && status < 300,
-		status,
-		json: async () => body,
-		text: async () => JSON.stringify(body),
-	} as unknown as Response;
-}
-
-/** Build a `/api/user_domains/` page body from a list of domain slugs. */
-function userDomainsBody(slugs: string[]) {
-	return {
-		meta: { total_count: slugs.length },
-		objects: slugs.map((s) => ({ domain_name: s, project_name: `${s} (HR)` })),
-	};
-}
-
-afterEach(() => {
-	vi.unstubAllGlobals();
+it("retains only accessible memberships with exact display names on the selected server", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET", headers: AUTH })
+			.reply(200, memberships(["alpha", "beta", "gamma", "delta"]));
+		for (const [domain, status] of [
+			["alpha", 200],
+			["beta", 401],
+			["gamma", 200],
+			["delta", 403],
+		] as const)
+			peer
+				.get(HOST)
+				.intercept({ path: accessPath(domain), method: "GET", headers: AUTH })
+				.reply(status, { status: "success", applications: [] });
+		expect(await discoverAccessibleDomains(CREDS)).toEqual([
+			{ name: "alpha", displayName: "alpha display" },
+			{ name: "gamma", displayName: "gamma display" },
+		]);
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual([
+			HOST + LIST,
+			...["alpha", "beta", "gamma", "delta"].map(
+				(name) => HOST + accessPath(name),
+			),
+		]);
+	});
 });
 
-describe("discoverAccessibleDomains", () => {
-	it("returns only the spaces whose app-level probe passes (200), dropping 401s", async () => {
-		const slugs = ["alpha", "beta", "gamma"];
-		/* beta 401s at the app level (membership without app access) — it must
-		 * be filtered out even though user_domains listed it. */
-		const probeStatus: Record<string, number> = {
-			alpha: 200,
-			beta: 401,
-			gamma: 200,
-		};
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((url: string) => {
-				if (url.includes("/api/user_domains/")) {
-					return Promise.resolve(res(200, userDomainsBody(slugs)));
-				}
-				const slug = url.match(/\/a\/([^/]+)\/apps\/api\/list_apps\//)?.[1];
-				return Promise.resolve(res(probeStatus[slug ?? ""] ?? 401, {}));
-			}),
-		);
-
-		const result = await discoverAccessibleDomains(CREDS);
-		expect(Array.isArray(result)).toBe(true);
-		expect((result as { name: string }[]).map((d) => d.name)).toEqual([
-			"alpha",
-			"gamma",
+it("reads current unpaginated membership and older same-endpoint pages without guessing a missing page", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(
+				200,
+				memberships(["alpha"], {
+					total_count: 2,
+					next: "?limit=100&offset=100",
+				}),
+			);
+		peer
+			.get(HOST)
+			.intercept({
+				path: "/api/user_domains/v1/?limit=100&offset=100",
+				method: "GET",
+			})
+			.reply(200, {
+				meta: { total_count: 2, next: null },
+				objects: [{ domain_name: "beta", project_name: null }],
+			});
+		expect(await listDomains(CREDS)).toEqual([
+			{ name: "alpha", displayName: "alpha display" },
+			{ name: "beta", displayName: "beta" },
 		]);
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships([]));
+		expect(await discoverAccessibleDomains(CREDS)).toEqual([]);
+		expect(peer.getCallHistory()?.calls()).toHaveLength(3);
 	});
+});
 
-	it("propagates a 5xx from a probe as a CommCareApiError instead of dropping the space", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((url: string) => {
-				if (url.includes("/api/user_domains/")) {
-					return Promise.resolve(res(200, userDomainsBody(["alpha", "beta"])));
-				}
-				const slug = url.match(/\/a\/([^/]+)\/apps\/api\/list_apps\//)?.[1];
-				return Promise.resolve(res(slug === "beta" ? 503 : 200, {}));
-			}),
-		);
-
-		const result = await discoverAccessibleDomains(CREDS);
-		expect(Array.isArray(result)).toBe(false);
-		expect((result as CommCareApiError).status).toBe(503);
+it("refuses malformed, duplicated, incomplete or unroutable memberships before app probes", async () => {
+	const invalid: unknown[] = [
+		null,
+		[],
+		{},
+		memberships(["alpha"], { total_count: 2 }),
+		memberships(["alpha"], { total_count: -1 }),
+		memberships(["alpha"], { total_count: 1.5 }),
+		memberships(["alpha", "alpha"]),
+		memberships([".."]),
+		memberships([""]),
+		memberships(["alpha/beta"]),
+		{ meta: { total_count: 1 }, objects: [{}] },
+	];
+	await withHttpPeer(async (peer) => {
+		for (const data of invalid) {
+			peer
+				.get(HOST)
+				.intercept({ path: LIST, method: "GET" })
+				.reply(200, JSON.stringify(data));
+			expect(
+				await discoverAccessibleDomains(CREDS),
+				JSON.stringify(data),
+			).toEqual({ success: false, status: 502 });
+		}
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual(Array(invalid.length).fill(HOST + LIST));
 	});
+});
 
-	it("propagates a listDomains failure (bad key) without probing", async () => {
-		const probe = vi.fn();
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((url: string) => {
-				if (url.includes("/api/user_domains/")) {
-					return Promise.resolve(res(401, {}));
-				}
-				probe();
-				return Promise.resolve(res(200, {}));
-			}),
-		);
-
-		const result = await discoverAccessibleDomains(CREDS);
-		expect((result as CommCareApiError).status).toBe(401);
-		/* No app-level probe should fire when the key itself is invalid. */
-		expect(probe).not.toHaveBeenCalled();
+it("refuses malformed or changed pagination targets and HTTP redirects without following them", async () => {
+	await withHttpPeer(async (peer) => {
+		const cursors = [
+			"http://[",
+			"https://outside.invalid/",
+			"/a/other/api/application/v1/",
+			"/api/user_domains/v1/?feature_flag=unrelated",
+			"/api/user_domains/v1/#fragment",
+			"https://user:pass@eu.commcarehq.org/api/user_domains/v1/",
+			"",
+		];
+		for (const next of cursors) {
+			peer
+				.get(HOST)
+				.intercept({ path: LIST, method: "GET" })
+				.reply(200, memberships(["alpha"], { next }));
+			expect(await listDomains(CREDS), next).toEqual({
+				success: false,
+				status: 502,
+			});
+		}
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(302, "Redirect", {
+				headers: { location: "/api/user_domains/v1/?feature_flag=unrelated" },
+			});
+		expect(await listDomains(CREDS)).toEqual({
+			success: false,
+			status: 302,
+			edgeRefusal: false,
+		});
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual(Array(cursors.length + 1).fill(HOST + LIST));
 	});
+});
 
-	it("sends every request to the credentials' server, not a fixed host", async () => {
-		const hosts: string[] = [];
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((url: string) => {
-				hosts.push(new URL(url).host);
-				if (url.includes("/api/user_domains/")) {
-					return Promise.resolve(res(200, userDomainsBody(["alpha"])));
-				}
-				return Promise.resolve(res(200, {}));
-			}),
-		);
-
-		const result = await discoverAccessibleDomains({ ...CREDS, server: "eu" });
-		expect((result as { name: string }[]).map((d) => d.name)).toEqual([
-			"alpha",
-		]);
-		/* An EU key must never be presented to another deployment — a wrong
-		 * host both fails auth (separate account DBs) and leaks the key. */
-		expect(hosts.length).toBeGreaterThan(0);
-		for (const host of hosts) expect(host).toBe("eu.commcarehq.org");
+it("returns transport, JSON, permission and throttle failures rather than incomplete membership", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const status of [401, 403, 429, 503]) {
+			peer
+				.get(HOST)
+				.intercept({ path: LIST, method: "GET" })
+				.reply(status, "Refused");
+			expect(await discoverAccessibleDomains(CREDS)).toEqual({
+				success: false,
+				status,
+				edgeRefusal: false,
+			});
+		}
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, "<html>Sign in</html>");
+		expect(await discoverAccessibleDomains(CREDS)).toEqual({
+			success: false,
+			status: 502,
+		});
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.replyWithError(new Error("reset"));
+		expect(await discoverAccessibleDomains(CREDS)).toEqual({
+			success: false,
+			status: 503,
+		});
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual(Array(6).fill(HOST + LIST));
 	});
+});
 
-	it("bounds peak in-flight probes to the concurrency window for a many-space key", async () => {
-		/* 30 spaces, all reachable — far past the window of 8. */
-		const slugs = Array.from({ length: 30 }, (_, i) => `space-${i}`);
-		let inFlight = 0;
-		let maxInFlight = 0;
+it("does not call a redirected or HTML login page successful app access", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(302, "Redirect", { headers: { location: "/accounts/login/" } });
+		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
+			success: false,
+			status: 302,
+			edgeRefusal: false,
+		});
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath("alpha"), method: "GET" })
+			.reply(200, "<html>Sign in</html>");
+		expect(await testDomainAccess(CREDS, "alpha")).toEqual({
+			success: false,
+			status: 502,
+		});
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual(Array(2).fill(HOST + accessPath("alpha")));
+	});
+});
 
-		vi.stubGlobal(
-			"fetch",
-			vi.fn((url: string) => {
-				if (url.includes("/api/user_domains/")) {
-					return Promise.resolve(res(200, userDomainsBody(slugs)));
-				}
-				/* Each probe overlaps with its window-mates: bump the counter,
-				 * yield a macrotask so the whole window is in flight at once,
-				 * then resolve. `maxInFlight` records the peak. */
-				inFlight += 1;
-				maxInFlight = Math.max(maxInFlight, inFlight);
-				return new Promise<Response>((resolve) => {
-					setTimeout(() => {
-						inFlight -= 1;
-						resolve(res(200, {}));
-					}, 0);
+it("owns and drains each eight-request window before starting another", async () => {
+	const names = Array.from({ length: 30 }, (_, i) => `space-${i}`);
+	const gates = Array.from({ length: 4 }, () => ({
+		reached: Promise.withResolvers<void>(),
+		release: Promise.withResolvers<void>(),
+		count: 0,
+	}));
+	let active = 0,
+		maximum = 0;
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships(names));
+		names.forEach((name, index) => {
+			const gate = gates[Math.floor(index / 8)];
+			peer
+				.get(HOST)
+				.intercept({ path: accessPath(name), method: "GET", headers: AUTH })
+				.reply(async () => {
+					active++;
+					maximum = Math.max(maximum, active);
+					gate.count++;
+					if (gate.count === (index < 24 ? 8 : 6)) gate.reached.resolve();
+					try {
+						await gate.release.promise;
+						return {
+							statusCode: 200,
+							data: JSON.stringify({ status: "success", applications: [] }),
+						};
+					} finally {
+						active--;
+					}
 				});
-			}),
-		);
-
-		const result = await discoverAccessibleDomains(CREDS);
-		expect((result as { name: string }[]).length).toBe(30);
-		/* The load-bearing assertion: never more than the window in flight. */
-		expect(maxInFlight).toBeLessThanOrEqual(8);
-		/* And the window was actually exercised (not accidentally serialized). */
-		expect(maxInFlight).toBeGreaterThan(1);
+		});
+		const pending = discoverAccessibleDomains(CREDS);
+		try {
+			for (let i = 0; i < gates.length; i++) {
+				await gates[i].reached.promise;
+				expect(active).toBe(i === 3 ? 6 : 8);
+				expect(peer.getCallHistory()?.calls()).toHaveLength(
+					1 + Math.min((i + 1) * 8, names.length),
+				);
+				gates[i].release.resolve();
+			}
+			expect(await pending).toEqual(
+				names.map((name) => ({ name, displayName: `${name} display` })),
+			);
+			expect(maximum).toBe(8);
+			expect(active).toBe(0);
+		} finally {
+			for (const gate of gates) gate.release.resolve();
+			await pending;
+		}
 	});
 });
+
+it("finishes in-flight probes but starts no next window after a transport failure", async () => {
+	const names = Array.from({ length: 9 }, (_, i) => `space-${i}`);
+	const reached = Promise.withResolvers<void>(),
+		release = Promise.withResolvers<void>();
+	let active = 0,
+		settled = false;
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: LIST, method: "GET" })
+			.reply(200, memberships(names));
+		peer
+			.get(HOST)
+			.intercept({ path: accessPath(names[0]), method: "GET" })
+			.replyWithError(new Error("reset"));
+		for (const name of names.slice(1, 8))
+			peer
+				.get(HOST)
+				.intercept({ path: accessPath(name), method: "GET" })
+				.reply(async () => {
+					active++;
+					if (active === 7) reached.resolve();
+					try {
+						await release.promise;
+						return {
+							statusCode: 200,
+							data: JSON.stringify({ status: "success", applications: [] }),
+						};
+					} finally {
+						active--;
+					}
+				});
+		const pending = discoverAccessibleDomains(CREDS).then(
+			(value) => {
+				settled = true;
+				return { value };
+			},
+			(error) => {
+				settled = true;
+				return { error };
+			},
+		);
+		try {
+			await reached.promise;
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(settled).toBe(false);
+			release.resolve();
+			expect(await pending).toEqual({ value: { success: false, status: 503 } });
+			expect(active).toBe(0);
+		} finally {
+			release.resolve();
+			await pending;
+		}
+		expect(peer.getCallHistory()?.calls()).toHaveLength(9);
+	});
+});
+
+it.each(["membership", "app access"] as const)(
+	"bounds an unanswered %s read and clears its timer",
+	async (kind) => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		await withHttpPeer(async (peer) => {
+			const reached = Promise.withResolvers<void>(),
+				release = Promise.withResolvers<void>();
+			peer
+				.get(HOST)
+				.intercept({
+					path: kind === "membership" ? LIST : accessPath("alpha"),
+					method: "GET",
+				})
+				.reply(async () => {
+					reached.resolve();
+					await release.promise;
+					return {
+						statusCode: 200,
+						data: JSON.stringify(
+							kind === "membership"
+								? memberships([])
+								: { status: "success", applications: [] },
+						),
+					};
+				});
+			const pending =
+				kind === "membership"
+					? listDomains(CREDS)
+					: testDomainAccess(CREDS, "alpha");
+			try {
+				await reached.promise;
+				await vi.advanceTimersByTimeAsync(30_000);
+				expect(await pending).toEqual({ success: false, status: 503 });
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				release.resolve();
+				await pending;
+			}
+		});
+	},
+);

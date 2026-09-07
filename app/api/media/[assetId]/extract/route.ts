@@ -38,7 +38,6 @@ import {
 	EXTRACT_MAX_BYTES,
 } from "@/lib/agent/documentExtraction";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
-import { normalizeExtractText } from "@/lib/agent/extractNormalization";
 import { ApiError, handleApiError } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { userInProject } from "@/lib/db/appAccess";
@@ -316,10 +315,7 @@ export async function GET(
 				404,
 			);
 		}
-		// Repair a double-escaped extract on the way out (`normalizeExtractText`, a
-		// no-op on a clean one), so an extract stored before that repair existed
-		// renders correctly in the preview without a re-extraction.
-		return new NextResponse(normalizeExtractText(text), {
+		return new NextResponse(text, {
 			headers: {
 				"Content-Type": "text/markdown; charset=utf-8",
 				"Cache-Control": "private, no-store",

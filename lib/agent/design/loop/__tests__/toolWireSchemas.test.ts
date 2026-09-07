@@ -1,188 +1,366 @@
-/**
- * The provider-facing grammar of the handle-widened design tools.
- *
- * These tools ship `strict: true`, so under constrained decoding the model
- * can only emit what the wire schema admits. The server requires every NEW
- * design identity to be declared as a `{ handle }` object and refuses raw
- * UUID declarations and references, so every design-ID slot must offer the
- * handle arm beside the raw-UUID string — a bare uuid-pattern slot would
- * make the server's handle requirement unsatisfiable: the grammar forces a
- * raw UUID the server always rejects, and no compliant call can exist.
- *
- * `designIdSchema` emits an identity-domain marker. The strict projection
- * spells a formerly-optional slot as `type: ["string", "null"]`; the audit
- * proves every marked node becomes one widened slot and that the private
- * marker never reaches the provider. UUIDs in other domains remain strings.
- */
-
+/** Complete semantic tool payloads through the strict handle grammar and the
+ * actual null/handle-to-canonical parse seam. Offline JSON-schema admission
+ * does not prove a provider's constrained decoder or durable workspace write. */
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
+import { makeContract } from "@/lib/agent/design/__tests__/fixtures";
 import {
 	designCollectionUpdateInputSchemas,
 	inspectDesignInputSchema,
 	setDesignRootInputSchema,
 	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
-import { DESIGN_IDENTITY_SCHEMA_MARKER } from "@/lib/agent/design/ids";
 import {
-	DESIGN_HANDLE_PATTERN,
 	designToolWireSchema,
 	inspectProjectDataInputSchema,
+	resolveDesignWorkspaceHandles,
 } from "@/lib/agent/design/loop/tools";
-import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
-import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import {
+	strictWireJsonSchema,
+	stripNullProperties,
+} from "@/lib/agent/strictStructuredOutput";
 
-const HANDLE_ARM = {
-	type: "object",
-	properties: {
-		handle: { type: "string", pattern: DESIGN_HANDLE_PATTERN.source },
-	},
-	required: ["handle"],
-	additionalProperties: false,
-};
-
-const NULL_ARM = { type: "null" };
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isRequiredUuidString(node: unknown): boolean {
-	return (
-		isJsonObject(node) &&
-		node.type === "string" &&
-		node.pattern === CANONICAL_UUID_PATTERN.source
-	);
-}
-
-/** A widened design-ID slot: `[uuid, handle]` for a required slot, or
- * `[uuid, handle, null]` where the slot was optional on the wire. */
-function isWidenedIdSlot(node: unknown): boolean {
-	if (!isJsonObject(node) || !Array.isArray(node.anyOf)) return false;
-	const [uuid, handle, nullArm, ...rest] = node.anyOf;
-	if (rest.length > 0) return false;
-	if (!isRequiredUuidString(uuid)) return false;
-	if (JSON.stringify(handle) !== JSON.stringify(HANDLE_ARM)) return false;
-	return (
-		nullArm === undefined ||
-		JSON.stringify(nullArm) === JSON.stringify(NULL_ARM)
-	);
-}
-
-function countDesignMarkers(node: unknown): number {
-	if (Array.isArray(node)) {
-		return node.reduce((total, entry) => total + countDesignMarkers(entry), 0);
-	}
-	if (!isJsonObject(node)) return 0;
-	return (
-		(node[DESIGN_IDENTITY_SCHEMA_MARKER] === true ? 1 : 0) +
-		countDesignMarkers(Object.values(node))
-	);
-}
-
-function countWidenedSlots(node: unknown): number {
-	if (Array.isArray(node))
-		return node.reduce((total, entry) => total + countWidenedSlots(entry), 0);
-	if (!isJsonObject(node)) return 0;
-	if (isWidenedIdSlot(node)) return 1;
-	return countWidenedSlots(Object.values(node));
-}
-
-function collectionArm(schemaName: "actors" | "records") {
-	return designToolWireSchema(
-		designCollectionUpdateInputSchemas[schemaName],
-	) as {
-		properties: {
-			upserts: { items: { properties: Record<string, unknown> } };
-		};
+const session = "00000000-0000-4000-8000-000000000002";
+const uuid = "00000000-0000-4000-8000-000000000010";
+const lookup = "018f0000-0000-7000-8000-000000000001";
+const handle = (name: string) => ({ handle: `@${name}` });
+const actor = { ...makeContract().actors[0], id: handle("worker") };
+function recordInput(
+	parentRecordId: unknown = null,
+	choiceSource: unknown = null,
+) {
+	return {
+		upserts: [
+			{
+				id: handle("patient"),
+				name: "Patient",
+				purpose: "Track care",
+				parentRecordId,
+				relationshipMeaning:
+					parentRecordId === null ? null : "Patient belongs to a household",
+				lifecycleStates: ["active"],
+				properties: [
+					{
+						id: handle("risk"),
+						name: "Risk",
+						meaning: "Patient priority",
+						dataShape: choiceSource === null ? "text" : "single-choice",
+						sensitivity: "ordinary",
+						requiredWhen: null,
+						choiceValues: null,
+						choiceSource,
+					},
+				],
+			},
+		],
+		removeIds: [],
 	};
 }
+function validate(schema: z.ZodType, input: unknown, handles = true) {
+	const json = handles
+		? designToolWireSchema(schema)
+		: strictWireJsonSchema(schema);
+	const checker = new Ajv({ strict: false }).compile(json as object);
+	const valid = checker(JSON.parse(JSON.stringify(input)));
+	return { valid, errors: checker.errors };
+}
+function expectWire(schema: z.ZodType, input: unknown, handles = true) {
+	const result = validate(schema, input, handles);
+	expect(result.valid, JSON.stringify(result.errors)).toBe(true);
+}
+function canonical<T>(schema: z.ZodType<T>, input: unknown): T {
+	return schema.parse(
+		stripNullProperties(resolveDesignWorkspaceHandles(input, session)),
+	);
+}
 
-describe("design tool wire schemas", () => {
-	it("keeps Project-data inspection on stable UUIDs and the shared row-page projection", () => {
-		expect(inspectProjectDataInputSchema.safeParse({}).success).toBe(true);
+describe("strict semantic design payloads", () => {
+	it("admits a complete actor update and removal, then resolves the same handle consistently", () => {
+		const input = { upserts: [actor], removeIds: [handle("former_worker")] };
+		expectWire(designCollectionUpdateInputSchemas.actors, input);
+		const result = canonical(designCollectionUpdateInputSchemas.actors, input);
+		expect(result.upserts[0]).toEqual({
+			...makeContract().actors[0],
+			id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+		});
+		expect(result.removeIds).toHaveLength(1);
+		expect(result.upserts[0].id).not.toBe(result.removeIds[0]);
 		expect(
-			inspectProjectDataInputSchema.safeParse({ cursor: "next-catalog-page" })
-				.success,
-		).toBe(true);
-		expect(
-			inspectProjectDataInputSchema.safeParse({
-				tableId: "01998765-4321-7abc-8def-0123456789ab",
-				choiceProjection: {
-					valueColumnId: "01998765-4321-7abc-8def-0123456789ac",
-					labelColumnId: "01998765-4321-7abc-8def-0123456789ad",
+			canonical(
+				designCollectionUpdateInputSchemas.actors,
+				JSON.parse(JSON.stringify(input)),
+			),
+		).toEqual(result);
+		expect(input.upserts[0].id).toEqual(handle("worker"));
+	});
+	it.each([null, uuid, handle("household")])(
+		"preserves optional parent reference %j alongside nested property identities",
+		(parent) => {
+			const input = recordInput(parent);
+			expectWire(designCollectionUpdateInputSchemas.records, input);
+			const result = canonical(
+				designCollectionUpdateInputSchemas.records,
+				input,
+			).upserts[0];
+			expect(result.parentRecordId).toEqual(
+				parent === null
+					? undefined
+					: typeof parent === "string"
+						? parent
+						: resolveDesignWorkspaceHandles(parent, session),
+			);
+			expect(result.properties).toEqual([
+				{
+					id: resolveDesignWorkspaceHandles(handle("risk"), session),
+					name: "Risk",
+					meaning: "Patient priority",
+					dataShape: "text",
+					sensitivity: "ordinary",
 				},
-				cursor: "next-page",
+			]);
+		},
+	);
+	it("expresses nullable root members and charter workflow references in one update", () => {
+		const input = {
+			schemaVersion: 1,
+			id: handle("contract"),
+			charter: {
+				...makeContract().charter,
+				includedWorkflowIds: [handle("register")],
+				initialWorkflowId: handle("register"),
+				localization: null,
+			},
+		};
+		expectWire(setDesignRootInputSchema, input);
+		const result = canonical(setDesignRootInputSchema, input);
+		expect(result.charter?.initialWorkflowId).toBe(
+			result.charter?.includedWorkflowIds[0],
+		);
+		expect(result.charter?.localization).toBeUndefined();
+		expectWire(setDesignRootInputSchema, {
+			schemaVersion: null,
+			id: handle("contract"),
+			charter: null,
+		});
+		expect(
+			canonical(setDesignRootInputSchema, {
+				schemaVersion: null,
+				id: handle("contract"),
+				charter: null,
+			}),
+		).toEqual({
+			id: resolveDesignWorkspaceHandles(handle("contract"), session),
+		});
+	});
+	it.each(["collection", "sourceCollection"])(
+		"admits bounded %s reads by semantic handle",
+		(kind) => {
+			const input = {
+				selection: {
+					kind,
+					collection: "records",
+					ids: [handle("patient")],
+					offset: 0,
+					limit: 20,
+				},
+			};
+			expectWire(inspectDesignInputSchema, input);
+			expect(canonical(inspectDesignInputSchema, input)).toEqual({
+				selection: {
+					...input.selection,
+					ids: [resolveDesignWorkspaceHandles(handle("patient"), session)],
+				},
+			});
+			expect(
+				validate(inspectDesignInputSchema, {
+					selection: { ...input.selection, limit: 21 },
+				}).valid,
+			).toBe(false);
+		},
+	);
+	it.each(["accepted", "rejected", "deferred"])(
+		"admits a %s finding disposition without workspace metadata",
+		(status) => {
+			const input = {
+				upserts: [
+					{
+						findingId: handle("finding"),
+						status,
+						rationale: "The recorded design explains this decision.",
+					},
+				],
+				removeIds: [],
+			};
+			expectWire(updateFindingDispositionsInputSchema, input);
+			expect(canonical(updateFindingDispositionsInputSchema, input)).toEqual({
+				...input,
+				upserts: [
+					{
+						...input.upserts[0],
+						findingId: resolveDesignWorkspaceHandles(
+							handle("finding"),
+							session,
+						),
+					},
+				],
+			});
+			for (const extra of [
+				{ expectedRevision: 1 },
+				{ artifactKind: "revision" },
+			])
+				expect(
+					validate(updateFindingDispositionsInputSchema, { ...input, ...extra })
+						.valid,
+				).toBe(false);
+		},
+	);
+	it.each([
+		null,
+		{ handle: "worker" },
+		{ handle: "@worker", extra: true },
+		[],
+		12,
+	])(
+		"rejects invalid required declaration %j in an otherwise valid payload",
+		(id) => {
+			const input = { upserts: [actor], removeIds: [] };
+			expectWire(designCollectionUpdateInputSchemas.actors, input);
+			expect(
+				validate(designCollectionUpdateInputSchemas.actors, {
+					...input,
+					upserts: [{ ...actor, id }],
+				}).valid,
+			).toBe(false);
+		},
+	);
+	it("rejects omitted strict fields although canonical input can omit optional fields", () => {
+		expect(setDesignRootInputSchema.parse({ id: uuid })).toEqual({ id: uuid });
+		expect(
+			validate(setDesignRootInputSchema, { id: handle("contract") }).valid,
+		).toBe(false);
+		const input = recordInput();
+		const { parentRecordId: _parent, ...missing } = input.upserts[0];
+		expect(
+			validate(designCollectionUpdateInputSchemas.records, {
+				...input,
+				upserts: [missing],
+			}).valid,
+		).toBe(false);
+	});
+	it("retains the canonical-only persisted schema after projection", () => {
+		designToolWireSchema(designCollectionUpdateInputSchemas.actors);
+		expect(
+			designCollectionUpdateInputSchemas.actors.safeParse({
+				upserts: [actor],
+				removeIds: [],
 			}).success,
-		).toBe(true);
+		).toBe(false);
+		const input = { upserts: [{ ...actor, id: uuid }], removeIds: [] };
+		expectWire(designCollectionUpdateInputSchemas.actors, input);
+		expect(designCollectionUpdateInputSchemas.actors.parse(input)).toEqual(
+			input,
+		);
+	});
+});
+
+describe("lookup identity domains", () => {
+	it("widens designed lookup IDs but keeps existing Project table and column UUIDs canonical", () => {
+		const designed = {
+			kind: "designed-project-lookup",
+			tableId: handle("risks"),
+			valueColumnId: handle("value"),
+			labelColumnId: handle("label"),
+		};
+		expectWire(
+			designCollectionUpdateInputSchemas.records,
+			recordInput(null, designed),
+		);
+		expect(
+			canonical(
+				designCollectionUpdateInputSchemas.records,
+				recordInput(null, designed),
+			).upserts[0].properties[0].choiceSource,
+		).toEqual(resolveDesignWorkspaceHandles(designed, session));
+		const existing = {
+			kind: "existing-project-lookup",
+			tableId: lookup,
+			valueColumnId: lookup,
+			labelColumnId: lookup,
+			inspection: {
+				tableRevision: "7",
+				tableName: "Risks",
+				valueColumnLabel: "Value",
+				labelColumnLabel: "Label",
+				rowCount: 2,
+				projectionDigest: "a".repeat(64),
+				distinctValueCount: 2,
+				invalidValueCount: 0,
+				blankLabelCount: 0,
+				duplicateValueCount: 0,
+			},
+		};
+		expectWire(
+			designCollectionUpdateInputSchemas.records,
+			recordInput(null, existing),
+		);
+		expect(
+			canonical(
+				designCollectionUpdateInputSchemas.records,
+				recordInput(null, existing),
+			).upserts[0].properties[0].choiceSource,
+		).toEqual(existing);
+		for (const key of ["tableId", "valueColumnId", "labelColumnId"])
+			expect(
+				validate(
+					designCollectionUpdateInputSchemas.records,
+					recordInput(null, { ...existing, [key]: handle("external") }),
+				).valid,
+			).toBe(false);
+	});
+	it("keeps Project inspection canonical and enforces semantic projection requirements after null normalization", () => {
+		const input = {
+			tableId: lookup,
+			query: null,
+			columnIds: null,
+			choiceProjection: { valueColumnId: lookup, labelColumnId: lookup },
+			cursor: "next-page",
+		};
+		expectWire(inspectProjectDataInputSchema, input, false);
+		expect(
+			inspectProjectDataInputSchema.parse(stripNullProperties(input)),
+		).toEqual({
+			tableId: lookup,
+			choiceProjection: input.choiceProjection,
+			cursor: "next-page",
+		});
+		expect(
+			validate(
+				inspectProjectDataInputSchema,
+				{ ...input, tableId: handle("table") },
+				false,
+			).valid,
+		).toBe(false);
 		expect(
 			inspectProjectDataInputSchema.safeParse({
-				tableId: "01998765-4321-7abc-8def-0123456789ab",
-				columnIds: ["01998765-4321-7abc-8def-0123456789ac"],
-				choiceProjection: {
-					valueColumnId: "01998765-4321-7abc-8def-0123456789ac",
-					labelColumnId: "01998765-4321-7abc-8def-0123456789ad",
-				},
+				tableId: lookup,
+				choiceProjection: input.choiceProjection,
+				columnIds: [lookup],
 			}).success,
 		).toBe(false);
 		expect(
 			inspectProjectDataInputSchema.safeParse({ query: "active" }).success,
 		).toBe(false);
-		expect(
-			inspectProjectDataInputSchema.safeParse({
-				tableId: { handle: "@not_a_project_uuid" },
-			}).success,
-		).toBe(false);
-	});
-
-	it.each([
-		["setDesignRoot", setDesignRootInputSchema],
-		["updateActors", designCollectionUpdateInputSchemas.actors],
-		["updateRecords", designCollectionUpdateInputSchemas.records],
-		["updateWorkflows", designCollectionUpdateInputSchemas.workflows],
-		["updateLookupTables", designCollectionUpdateInputSchemas.lookupTables],
-		["updateFindingDispositions", updateFindingDispositionsInputSchema],
-		["inspectDesign", inspectDesignInputSchema],
-	] as const)(
-		"%s widens every design-ID slot to uuid | { handle }",
-		(_name, schema) => {
-			const marked = countDesignMarkers(strictWireJsonSchema(schema));
-			const wire = designToolWireSchema(schema);
-			expect(marked).toBeGreaterThan(0);
-			expect(countWidenedSlots(wire)).toBe(marked);
-			expect(countDesignMarkers(wire)).toBe(0);
-		},
-	);
-
-	it("keeps workspace bookkeeping out of every provider-facing schema", () => {
-		for (const schema of [
-			setDesignRootInputSchema,
-			...Object.values(designCollectionUpdateInputSchemas),
-			updateFindingDispositionsInputSchema,
-			inspectDesignInputSchema,
-		]) {
-			const wire = JSON.stringify(designToolWireSchema(schema));
-			expect(wire).not.toContain("expectedRevision");
-			expect(wire).not.toContain("artifactKind");
-		}
-	});
-
-	it("offers the exact handle arm on a required declaration slot", () => {
-		const idSlot = collectionArm("actors").properties.upserts.items.properties
-			.id as { anyOf: unknown[] };
-		expect(isWidenedIdSlot(idSlot)).toBe(true);
-		expect(idSlot.anyOf).toHaveLength(2);
-		expect(idSlot.anyOf[1]).toEqual(HANDLE_ARM);
-	});
-
-	it("keeps the null arm on an optional reference slot", () => {
-		/* `parentRecordId` is `designIdSchema.optional()`: the strict projection
-		 * spells it `type: ["string", "null"]`, and the widening must keep the
-		 * handle expressible WITHOUT losing the null spelling of absence. */
-		const parentSlot = collectionArm("records").properties.upserts.items
-			.properties.parentRecordId as { anyOf: unknown[] };
-		expect(isWidenedIdSlot(parentSlot)).toBe(true);
-		expect(parentSlot.anyOf).toHaveLength(3);
-		expect(parentSlot.anyOf[1]).toEqual(HANDLE_ARM);
-		expect(parentSlot.anyOf[2]).toEqual(NULL_ARM);
+		expectWire(
+			inspectProjectDataInputSchema,
+			{
+				tableId: null,
+				query: null,
+				columnIds: null,
+				choiceProjection: null,
+				cursor: null,
+			},
+			false,
+		);
 	});
 });

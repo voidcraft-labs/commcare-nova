@@ -1,3 +1,5 @@
+// Registry projection only: schema-shaped carriers with synthetic lookup identities.
+// This test does not claim the synthetic document passes whole-app admission.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -7,6 +9,7 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
+import { caseOperationSchema } from "@/lib/domain";
 import {
 	eq,
 	literal,
@@ -15,7 +18,7 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { caseOperationProgramLookupTableIds } from "../caseDataBindingHelpers";
+import { caseOperationProgramLookupTableIds } from "../lookupTableReferences";
 
 const tableId = (suffix: string) =>
 	`00000000-0000-7000-8000-${suffix.padStart(12, "0")}` as LookupTableId;
@@ -128,6 +131,9 @@ describe("caseOperationProgramLookupTableIds", () => {
 			},
 		] satisfies CaseOperation[];
 
+		for (const form of Object.values(doc.forms))
+			for (const operation of form.caseOperations ?? [])
+				caseOperationSchema.parse(operation);
 		expect(
 			caseOperationProgramLookupTableIds(doc, [
 				linkOperationUuid,

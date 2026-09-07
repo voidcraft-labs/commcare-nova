@@ -1,104 +1,159 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	type Field,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
-import { MEDIA_VALIDATION_CODES } from "../errors";
-import {
-	classifyError,
-	evaluateBoundary,
-	evaluateCommit,
-	VALIDITY_CLASS_BY_CODE,
-} from "../gate";
+import { evaluateBoundary, evaluateCommit } from "../gate";
 import { runValidation } from "../runner";
+
+function valid(doc: BlueprintDoc): BlueprintDoc {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+
+function fieldNamed(doc: BlueprintDoc, id: string): Field {
+	const field = Object.values(doc.fields).find((field) => field.id === id);
+	if (field === undefined) throw new Error(`Missing fixture field ${id}`);
+	return field;
+}
+
+function codes(verdict: ReturnType<typeof evaluateCommit>) {
+	if (verdict.ok) throw new Error("Expected the candidate to be refused");
+	return verdict.findings.map(({ code }) => code);
+}
 
 // ── Fixtures ───────────────────────────────────────────────────────
 
 /** Minimal valid doc: one registration module/form writing "patient". */
 function minDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Test",
-		modules: [
-			{
-				name: "Mod",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Form",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							}),
-							// A second case-writing field, for a realistic registration
-							// form (a name-only create is also valid — see form.ts).
-							f({
-								kind: "text",
-								id: "village",
-								label: proseText("Village"),
-								caseWrite: { caseType: "patient", property: "village" },
-							}),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "village", label: proseText("Village") },
-				],
-			},
-		],
-	});
+	return valid(
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Form",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								// A second case-writing field, for a realistic registration
+								// form (a name-only create is also valid — see form.ts).
+								f({
+									kind: "text",
+									id: "village",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "village", label: proseText("Village") },
+					],
+				},
+			],
+		}),
+	);
 }
 
 /** Two valid top-level modules; tests reparent the second under a form-less
  * case-list-only root so the gate sees the topology change atomically. */
 function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
-	return buildDoc({
-		appName: "Nested case list",
-		caseTypes: [
-			{
-				name: "household",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-			...(childCaseType === "household"
-				? []
-				: [
-						{
-							name: "visit",
-							properties: [{ name: "case_name", label: proseText("Name") }],
-						},
+	return valid(
+		buildDoc({
+			appName: "Nested case list",
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+				...(childCaseType === "household"
+					? []
+					: [
+							{
+								name: "visit",
+								properties: [{ name: "case_name", label: proseText("Name") }],
+							},
+						]),
+			],
+			modules: [
+				{
+					name: "Households",
+					caseType: "household",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
 					]),
-		],
-		modules: [
-			{
-				name: "Households",
-				caseType: "household",
-				caseListOnly: true,
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [],
-			},
-			{
-				name: "Visits",
-				caseType: childCaseType,
+					forms: [],
+				},
+				{
+					name: "Visits",
+					caseType: childCaseType,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "notes",
+									label: proseText("Notes"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+}
+
+function peerWriters(property: string): BlueprintDoc {
+	return valid(
+		buildDoc({
+			appName: "Peer writers",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: property, label: proseText(property) },
+					],
+				},
+			],
+			modules: ["A", "B"].map((name) => ({
+				name,
+				caseType: "patient",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -108,16 +163,16 @@ function caseListRootDoc(childCaseType: "household" | "visit"): BlueprintDoc {
 						type: "followup",
 						fields: [
 							f({
-								kind: "text",
-								id: "notes",
-								label: proseText("Notes"),
+								kind: "int",
+								id: property,
+								caseWrite: { caseType: "patient", property },
 							}),
 						],
 					},
 				],
-			},
-		],
-	});
+			})),
+		}),
+	);
 }
 
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
@@ -134,7 +189,7 @@ function surveyForm(uuid: string, name: string) {
 function textField(
 	uuid: string,
 	id: string,
-	extra?: Record<string, unknown>,
+	extra?: Partial<Extract<Field, { kind: "text" }>>,
 ): Field {
 	return {
 		uuid: testUuid(uuid),
@@ -142,12 +197,13 @@ function textField(
 		id,
 		label: proseText(id),
 		...extra,
-	} as Field;
+	};
 }
 
 /** Run the full pipeline: apply, then validate the complete candidate. */
 function gateCommit(prevDoc: BlueprintDoc, mutations: Mutation[]) {
 	const nextDoc = apply(prevDoc, mutations);
+	blueprintDocSchema.parse(toPersistableDoc(nextDoc));
 	return evaluateCommit({
 		nextDoc,
 		lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
@@ -166,120 +222,6 @@ function docWithEmptyForm(formUuid = "form-e1"): BlueprintDoc {
 	]);
 }
 
-// ── Classification ─────────────────────────────────────────────────
-
-describe("classification table", () => {
-	it("covers every code declared in errors.ts (runtime audit of the union source)", () => {
-		// The Record type makes totality a compile error; this audit pins the
-		// runtime table against the union SOURCE so neither side can carry a
-		// stray code the other lost.
-		const errorsSource = readFileSync(
-			fileURLToPath(new URL("../errors.ts", import.meta.url)),
-			"utf8",
-		);
-		const declared = [
-			...errorsSource.matchAll(/\|\s+"([A-Z][A-Z0-9_]*)"/g),
-		].map((m) => m[1]);
-		expect(new Set(declared).size).toBe(declared.length);
-		expect([...new Set(declared)].sort()).toEqual(
-			Object.keys(VALIDITY_CLASS_BY_CODE).sort(),
-		);
-	});
-
-	it("pins the completeness classification set exactly", () => {
-		const completeness = Object.entries(VALIDITY_CLASS_BY_CODE)
-			.filter(([, cls]) => cls === "completeness")
-			.map(([code]) => code)
-			.sort();
-		expect(completeness).toEqual(
-			[
-				"NO_MODULES",
-				"EMPTY_FORM",
-				"MISSING_CASE_LIST_COLUMNS",
-				"CASE_CREATE_NAME_MISSING",
-				"MISSING_CHILD_CASE_MODULE",
-				"CONNECT_NO_PARTICIPATING_FORMS",
-			].sort(),
-		);
-	});
-
-	it("pins the environment classification set (asset/row-context rules + the export-budget and CommCare HQ push guards)", () => {
-		const environment = Object.entries(VALIDITY_CLASS_BY_CODE)
-			.filter(([, cls]) => cls === "environment")
-			.map(([code]) => code)
-			.sort();
-		expect(environment).toEqual([
-			"LOOKUP_FIXTURE_EXPORT_TOO_LARGE",
-			"LOOKUP_HQ_PUSH_TOO_LARGE",
-			"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
-			"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
-			"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
-			"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
-			"LOOKUP_TAG_RESERVED_BY_HQ",
-			"LOOKUP_TAG_TOO_LONG_FOR_HQ",
-			"MEDIA_ASSET_NOT_FOUND",
-			"MEDIA_ASSET_NOT_READY",
-			"MEDIA_EXPORT_TOO_LARGE",
-			"MEDIA_KIND_MISMATCH",
-		]);
-	});
-
-	it("classifies exactly the wire-oracle families as oracle", () => {
-		const mediaSuiteResourceFamily = new Set([
-			"MEDIA_NO_PATH",
-			"MEDIA_NO_RESOURCE",
-			"MEDIA_RESOURCE_NO_ID",
-			"MEDIA_RESOURCE_VERSION_NOT_INTEGER",
-			"MEDIA_RESOURCE_NO_LOCATION",
-			"MEDIA_LOCATION_NO_AUTHORITY",
-			"MEDIA_LOCATION_NO_PATH",
-			"MEDIA_LOCATION_UNKNOWN_AUTHORITY",
-			"MEDIA_RESOURCE_DUPLICATE_ID",
-			"MEDIA_LOCATION_PATH_NOT_BUNDLED",
-		]);
-		const oraclePrefix =
-			/^(XFORM_|SUITE_|HQJSON_|BINDING_RESOLUTION_|MEDIA_SUITE_)/;
-		for (const [code, cls] of Object.entries(VALIDITY_CLASS_BY_CODE)) {
-			const expected =
-				oraclePrefix.test(code) || mediaSuiteResourceFamily.has(code);
-			expect(cls === "oracle", `${code} oracle classification`).toBe(expected);
-		}
-	});
-
-	it("pins the shape backstops and the per-class tallies", () => {
-		const byClass = new Map<string, string[]>();
-		for (const [code, cls] of Object.entries(VALIDITY_CLASS_BY_CODE)) {
-			byClass.set(cls, [...(byClass.get(cls) ?? []), code]);
-		}
-		expect(byClass.get("shape")?.sort()).toEqual([
-			"CALCULATE_ON_VISIBLE_INPUT",
-			"FORM_LINK_EMPTY",
-			"INVALID_POST_SUBMIT",
-			"REQUIRED_ON_HIDDEN",
-			"SELECT_NO_OPTIONS",
-			"VALIDATION_ON_NON_INPUT_KIND",
-		]);
-		expect(byClass.get("completeness")).toHaveLength(6);
-		expect(byClass.get("environment")).toHaveLength(12);
-		expect(byClass.get("oracle")).toHaveLength(109);
-		expect(byClass.get("shape")).toHaveLength(6);
-		expect(byClass.get("soundness")).toHaveLength(222);
-		expect(Object.keys(VALIDITY_CLASS_BY_CODE)).toHaveLength(355);
-	});
-
-	it("keeps the structural image-map rule out of the environment class", () => {
-		// CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE is in MEDIA_VALIDATION_CODES (the
-		// media boundary surfaces it) but is doc-structural — it must gate
-		// commits as soundness, not defer to the boundary.
-		expect(
-			MEDIA_VALIDATION_CODES.has("CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE"),
-		).toBe(true);
-		expect(classifyError("CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE")).toBe(
-			"soundness",
-		);
-	});
-});
-
 // ── evaluateCommit ─────────────────────────────────────────────────
 
 describe("evaluateCommit", () => {
@@ -297,17 +239,11 @@ describe("evaluateCommit", () => {
 				after: null,
 			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						code: "NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
-						location: expect.objectContaining({ moduleUuid: childUuid }),
-					}),
-				]),
-			);
-		}
+		expect(codes(verdict)).toEqual([
+			"NESTED_MENU_CROSS_TYPE_ROOT_REQUIRES_FORM",
+		]);
+		if (verdict.ok) throw new Error("Expected the nested menu to be refused");
+		expect(verdict.findings[0].location.moduleUuid).toBe(childUuid);
 	});
 
 	it("accepts a same-case child under a form-less case-list root", () => {
@@ -337,10 +273,62 @@ describe("evaluateCommit", () => {
 				form: surveyForm("form-new", "New"),
 			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain("EMPTY_FORM");
-		}
+		expect(codes(verdict)).toEqual(["EMPTY_FORM"]);
+	});
+
+	it("accepts a new form together with the question that makes it complete", () => {
+		const doc = minDoc();
+		expect(
+			gateCommit(doc, [
+				{
+					kind: "addForm",
+					moduleUuid: doc.moduleOrder[0],
+					form: surveyForm("new", "Interview"),
+				},
+				{
+					kind: "addField",
+					parentUuid: testUuid("new"),
+					field: textField("answer", "answer"),
+				},
+			]),
+		).toEqual({ ok: true });
+	});
+
+	it("retains a shape backstop for a legacy hidden field carrying required", () => {
+		const doc = buildDoc({
+			appName: "Legacy",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Interview",
+							type: "survey",
+							fields: [
+								f({ kind: "text", id: "answer" }),
+								f({
+									kind: "hidden",
+									id: "computed",
+									calculate: "1",
+									required: "true()",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(blueprintDocSchema.safeParse(toPersistableDoc(doc)).success).toBe(
+			false,
+		);
+		expect(
+			codes(
+				evaluateCommit({
+					nextDoc: doc,
+					lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+				}),
+			),
+		).toEqual(["REQUIRED_ON_HIDDEN"]);
 	});
 
 	it("a new INVALID_REF (soundness) is rejected", () => {
@@ -352,17 +340,13 @@ describe("evaluateCommit", () => {
 				uuid: fieldUuid,
 				targetKind: "text",
 				patch: { relevant: xp("#form/does_not_exist = 'x'") },
-			} as Mutation,
+			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain("INVALID_REF");
-		}
+		expect(codes(verdict)).toEqual(["INVALID_REF"]);
 	});
 
 	it("rejects an unrelated edit when the complete candidate remains invalid", () => {
-		// The deliberately damaged candidate already carries an empty form and
-		// a bad reference.
+		// The deliberately damaged candidate carries a bad reference in another form.
 		const base = docWithEmptyForm("form-e1");
 		const broken = apply(base, [
 			{
@@ -376,20 +360,16 @@ describe("evaluateCommit", () => {
 		expect(
 			runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE).length,
 		).toBeGreaterThan(0);
-		const caseNameField = Object.values(broken.fields).find(
-			(x) => x.id === "case_name",
-		);
+		const caseNameField = fieldNamed(broken, "case_name");
 		const verdict = gateCommit(broken, [
 			{
 				kind: "updateField",
-				uuid: caseNameField?.uuid as Uuid,
+				uuid: caseNameField.uuid,
 				targetKind: "text",
 				patch: { id: "case_name" },
 			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (verdict.ok) return;
-		expect(verdict.findings.length).toBeGreaterThan(0);
+		expect(codes(verdict)).toEqual(["INVALID_REF"]);
 	});
 
 	it("fixing an error passes", () => {
@@ -408,10 +388,7 @@ describe("evaluateCommit", () => {
 		const doc = minDoc();
 		const mutations: Mutation[] = [{ kind: "setAppName", name: "" }];
 		const verdict = gateCommit(doc, mutations);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toEqual(["EMPTY_APP_NAME"]);
-		}
+		expect(codes(verdict)).toEqual(["EMPTY_APP_NAME"]);
 	});
 
 	it("never fires environment rules — commit runs carry no manifest", () => {
@@ -430,86 +407,30 @@ describe("evaluateCommit", () => {
 		expect(verdict).toEqual({ ok: true });
 	});
 
-	it("keeps field-id edits local when peer fields share an explicit case destination", () => {
-		// Two PATIENT modules contain fields with the same canonical
-		// `patient.age` destination. Changing F1's editable field id must not
-		// rewrite F2.
-		const doc = buildDoc({
-			appName: "Peers",
-			modules: [
-				{
-					name: "Patients A",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F1",
-							type: "followup",
-							fields: [
-								f({
-									kind: "int",
-									id: "age",
-									label: proseText("Age"),
-									caseWrite: { caseType: "patient", property: "age" },
-								}),
-							],
-						},
-					],
-				},
-				{
-					name: "Patients B",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F2",
-							type: "followup",
-							fields: [
-								f({
-									kind: "int",
-									id: "age",
-									label: proseText("Age"),
-									caseWrite: { caseType: "patient", property: "age" },
-								}),
-								f({ kind: "int", id: "weight", label: proseText("Weight") }),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("N") },
-						{ name: "age", label: proseText("Age") },
-					],
-				},
-			],
-		});
-		const age = Object.values(doc.fields).find((x) => x.id === "age");
-		const verdict = gateCommit(doc, [
+	it("renaming one field preserves a peer writer's identity and case destination", () => {
+		const doc = peerWriters("age");
+		const [first, second] = Object.values(doc.fields);
+		const nextDoc = apply(doc, [
 			{
 				kind: "updateField",
-				uuid: age?.uuid as Uuid,
+				uuid: first.uuid,
 				targetKind: "int",
 				patch: { id: "weight" },
 			},
 		]);
-		expect(verdict).toEqual({ ok: true });
+		blueprintDocSchema.parse(toPersistableDoc(nextDoc));
+		expect(
+			evaluateCommit({ nextDoc, lookupContext: LOOKUP_CONTEXT_UNAVAILABLE }),
+		).toEqual({ ok: true });
+		expect(nextDoc.fields[first.uuid]).toEqual({ ...first, id: "weight" });
+		expect(nextDoc.fields[second.uuid]).toEqual(second);
 	});
 
 	it("catches a search-input finding a new writer flips in a relation-walking module of another type", () => {
 		// The Households module's search input `via`-walks to the PATIENT
 		// type. Adding a date writer for `patient.age` types the property,
-		// flipping the module's UNKNOWN_PROPERTY finding into a
-		// MODE_PROPERTY_TYPE_MISMATCH (starts-with is text-only) — a NEW
-		// identity in a module whose own caseType never matches the written
-		// type. The derived scope must reach it.
+		// flipping UNKNOWN_PROPERTY to MODE_PROPERTY_TYPE_MISMATCH in another
+		// module. The complete-candidate gate must still refuse that app.
 		const doc = buildDoc({
 			appName: "Walk",
 			modules: [
@@ -582,7 +503,8 @@ describe("evaluateCommit", () => {
 		const prevCodes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
 			(e) => e.code,
 		);
-		expect(prevCodes).toContain("CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY");
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(prevCodes).toEqual(["CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY"]);
 		const verdict = gateCommit(doc, [
 			{
 				kind: "addField",
@@ -593,96 +515,29 @@ describe("evaluateCommit", () => {
 					id: "age",
 					label: proseText("Age"),
 					caseWrite: { caseType: "patient", property: "age" },
-				} as Field,
+				},
 			},
 		]);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			expect(verdict.findings.map((e) => e.code)).toContain(
-				"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
-			);
-		}
+		expect(codes(verdict)).toEqual([
+			"CASE_LIST_SEARCH_INPUT_MODE_PROPERTY_TYPE_MISMATCH",
+		]);
 	});
 
-	it("catches a writers-disagreement introduced by convertField on a case-bound field", () => {
-		// `convertField` is the single live kind-change path (`updateField`
-		// strips `kind` from patches). Two agreeing int writers of
-		// patient.score live in different modules; converting one to
-		// decimal introduces FIELD_KIND_WRITERS_DISAGREE on BOTH writers,
-		// and the derived scope must be full so the verdict carries every
-		// copy — a scope filter applied before the diff, or a location
-		// keying that collapses the two writers' findings into one, fails
-		// here.
-		const doc = buildDoc({
-			appName: "Writers",
-			modules: [
-				{
-					name: "Mod A",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F1",
-							type: "followup",
-							fields: [
-								f({
-									kind: "int",
-									id: "score",
-									label: proseText("Score"),
-									caseWrite: { caseType: "patient", property: "score" },
-								}),
-							],
-						},
-					],
-				},
-				{
-					name: "Mod B",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F2",
-							type: "followup",
-							fields: [
-								f({
-									kind: "int",
-									id: "score",
-									label: proseText("Score"),
-									caseWrite: { caseType: "patient", property: "score" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("N") }],
-				},
-			],
-		});
-		const firstScore = Object.values(doc.fields).find((x) => x.id === "score");
-		const mutations: Mutation[] = [
-			{
-				kind: "convertField",
-				uuid: firstScore?.uuid as Uuid,
-				toKind: "decimal",
-			},
-		];
-		const verdict = gateCommit(doc, mutations);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) {
-			const disagreements = verdict.findings.filter(
-				(e) => e.code === "FIELD_KIND_WRITERS_DISAGREE",
-			);
-			// One finding per writer — both sides of the conflict surface.
-			expect(disagreements).toHaveLength(2);
-		}
+	it("reports both conflicting writers after a kind change in one module", () => {
+		const doc = peerWriters("score");
+		const [first, second] = Object.values(doc.fields);
+		const verdict = gateCommit(doc, [
+			{ kind: "convertField", uuid: first.uuid, toKind: "decimal" },
+		]);
+		expect(codes(verdict)).toEqual([
+			"FIELD_KIND_WRITERS_DISAGREE",
+			"FIELD_KIND_WRITERS_DISAGREE",
+		]);
+		if (verdict.ok)
+			throw new Error("Expected conflicting writers to be refused");
+		expect(
+			verdict.findings.map(({ location }) => location.fieldUuid).sort(),
+		).toEqual([first.uuid, second.uuid].sort());
 	});
 });
 
@@ -705,8 +560,7 @@ describe("evaluateBoundary", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		const codes = findings.map((e) => e.code);
-		expect(codes).toContain("EMPTY_FORM");
-		expect(codes).toContain("MEDIA_ASSET_NOT_FOUND");
+		expect(codes.sort()).toEqual(["EMPTY_FORM", "MEDIA_ASSET_NOT_FOUND"]);
 	});
 
 	it("returns nothing for a valid doc", () => {

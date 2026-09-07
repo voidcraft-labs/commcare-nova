@@ -22,9 +22,11 @@ function projection(count: number) {
 
 describe("validateCaptureSubmissionProjection", () => {
 	it("accepts the exact bounded attachment-reference projection", () => {
-		expect(validateCaptureSubmissionProjection(projection(2))).toEqual(
-			projection(2),
-		);
+		expect(
+			validateCaptureSubmissionProjection(
+				projection(MAX_SUBMITTED_CAPTURE_COUNT),
+			),
+		).toEqual(projection(MAX_SUBMITTED_CAPTURE_COUNT));
 	});
 
 	it("accepts the narrow submitted-answer projection for a close condition", () => {
@@ -46,20 +48,41 @@ describe("validateCaptureSubmissionProjection", () => {
 		).toThrow(CaptureSubmissionRejectedError);
 	});
 
-	it("rejects malformed or over-posted structured references at runtime", () => {
-		const malformed = projection(1);
+	it.each([
+		{ fieldUuid: "not-a-uuid" },
+		{ untrusted: true },
+		{ attachmentName: "" },
+		{ attachmentName: "a".repeat(256) },
+		{ instancePath: "" },
+		{ instancePath: "a".repeat(1025) },
+	])("refuses an independently malformed attachment reference: %j", (patch) => {
+		const valid = projection(1);
 		expect(() =>
 			validateCaptureSubmissionProjection({
-				...malformed,
-				attachmentRefs: [
-					{
-						...malformed.attachmentRefs[0],
-						fieldUuid: "not-a-uuid",
-						untrusted: true,
-					},
-				],
+				...valid,
+				attachmentRefs: [{ ...valid.attachmentRefs[0], ...patch }],
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
+	});
+
+	it("rejects the retired name-only protocol even beside otherwise valid structured references", () => {
+		expect(() =>
+			validateCaptureSubmissionProjection({
+				...projection(1),
+				attachmentNames: [],
+			}),
+		).toThrow(CaptureSubmissionRejectedError);
+	});
+
+	it("projects only capture protocol fields out of the complete submission envelope", () => {
+		const valid = projection(0);
+		expect(
+			validateCaptureSubmissionProjection({
+				...valid,
+				kind: "survey",
+				properties: {},
+			}),
+		).toEqual(valid);
 	});
 
 	it("rejects malformed or over-posted close-condition answers", () => {

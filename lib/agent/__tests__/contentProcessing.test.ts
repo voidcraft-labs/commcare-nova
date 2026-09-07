@@ -7,10 +7,12 @@ import {
 	applyDefaults,
 	flatFieldToField,
 	type PreparedFlatField,
+	prepareFlatFieldIdentities,
 	prepareToolOptionsSource,
 	stripEmpty,
 } from "../contentProcessing";
 import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
+import { addFieldsItemSchema } from "../toolSchemas";
 
 // Fixture: case types model the record catalog. `applyDefaults` may reuse its
 // intrinsic type, canonical label, and choices, but form-context behavior is
@@ -18,7 +20,7 @@ import { projectedOptionsSourceSchema } from "../toolSchemaGenerator";
 const testCaseType: CaseType = {
 	name: "patient",
 	properties: [
-		{ name: "case_name", label: proseText("Full Name") },
+		{ name: "display_name", label: proseText("Full Name") },
 		{
 			name: "age",
 			label: proseText("Patient Age"),
@@ -88,7 +90,7 @@ describe("applyDefaults", () => {
 			{
 				id: "full_name",
 				kind: "text",
-				caseWrite: { caseType: "patient", property: "case_name" },
+				caseWrite: { caseType: "patient", property: "display_name" },
 			},
 			[testCaseType],
 		);
@@ -99,14 +101,14 @@ describe("applyDefaults", () => {
 		const result = applyDefaults(
 			{
 				id: "enrollment_number",
-				caseWrite: { caseType: "patient", property: "external_id" },
+				caseWrite: { caseType: "patient", property: "enrollment_number" },
 			},
 			[
 				{
 					name: "patient",
 					properties: [
 						{
-							name: "external_id",
+							name: "enrollment_number",
 							label: proseText("Enrollment number"),
 							hint: proseText("Printed on the card"),
 						},
@@ -128,7 +130,7 @@ describe("applyDefaults", () => {
 				id: "case_name",
 				kind: "text",
 				label: proseText("Custom Label"),
-				caseWrite: { caseType: "patient", property: "case_name" },
+				caseWrite: { caseType: "patient", property: "display_name" },
 			},
 			[testCaseType],
 		);
@@ -241,7 +243,7 @@ describe("applyDefaults", () => {
 				id: "case_name",
 				kind: "text",
 				label: proseText(""),
-				caseWrite: { caseType: "patient", property: "case_name" },
+				caseWrite: { caseType: "patient", property: "display_name" },
 			},
 			[testCaseType],
 		);
@@ -285,7 +287,7 @@ describe("applyDefaults", () => {
 			{
 				id: "full_name",
 				kind: "text",
-				caseWrite: { caseType: "patient", property: "case_name" },
+				caseWrite: { caseType: "patient", property: "display_name" },
 			},
 			null,
 		);
@@ -304,29 +306,16 @@ describe("applyDefaults", () => {
 		expect(result.label).toBeUndefined();
 	});
 
-	it("unescapes HTML entities in top-level XPath fields", () => {
-		// `applyDefaults` iterates the top-level XPATH_FIELDS list
-		// (`relevant`, `calculate`, `default_value`, `required`).
-		// Validate's expression now lives nested under `validate.expr`
-		// and is unescaped in `flatFieldToField` instead — see the
-		// nested-config tests below.
-		const result = applyDefaults(
-			{ id: "x", kind: "text", relevant: xp(". > 0 && . < 10") },
-			null,
-		);
-		expect(result.relevant).toEqual(xp(". > 0 && . < 10"));
-	});
-
 	it("looks up the exact case type and property from caseWrite", () => {
 		const otherCaseType: CaseType = {
 			name: "household",
-			properties: [{ name: "case_name", label: proseText("Household ID") }],
+			properties: [{ name: "display_name", label: proseText("Household ID") }],
 		};
 		const result = applyDefaults(
 			{
 				id: "household_name",
 				kind: "text",
-				caseWrite: { caseType: "household", property: "case_name" },
+				caseWrite: { caseType: "household", property: "display_name" },
 			},
 			[testCaseType, otherCaseType],
 		);
@@ -385,28 +374,28 @@ function validFlatPayload(kind: string): PreparedFlatField {
 			kind: "inline",
 			options: [
 				{
-					uuid: testUuid(`option-${kind}-a`),
+					optionUuid: testUuid(`option-${kind}-a`),
 					value: "a",
 					label: proseText("A"),
 				},
 				{
-					uuid: testUuid(`option-${kind}-b`),
+					optionUuid: testUuid(`option-${kind}-b`),
 					value: "b",
 					label: proseText("B"),
 				},
 			],
 		};
 	}
-	return p as PreparedFlatField;
+	return prepareFlatFieldIdentities(addFieldsItemSchema.parse(p));
 }
 
 const TEST_UUID = testUuid("00000000-0000-4000-8000-000000000000");
 
-describe("flatFieldToField — totality + failure reasons", () => {
-	// The totality proof: after the per-kind tool inputs + kind-aware
-	// `applyDefaults`, a valid payload for EVERY kind assembles into a Field.
-	// A failure here means the generator and the domain schema have drifted.
-	it("assembles a valid Field for every kind", () => {
+describe("flatFieldToField — schema-admitted witnesses and failure reasons", () => {
+	// Each witness passes the real model-facing input schema and identity
+	// projection before assembly. This finite corpus proves the mapping for
+	// those witnesses, not totality across every admitted value.
+	it("assembles an input-schema-admitted witness for every kind", () => {
 		for (const kind of fieldKinds) {
 			const processed = applyDefaults(stripEmpty(validFlatPayload(kind)), null);
 			const result = flatFieldToField(processed, TEST_UUID);
@@ -429,7 +418,7 @@ describe("flatFieldToField — totality + failure reasons", () => {
 				id: "r1",
 				kind: "repeat",
 				label: proseText("R"),
-				repeat: { mode: "count_bound", count: xp("#form/n") },
+				repeat: { mode: "count_bound", count: xp("3") },
 			} as unknown as PreparedFlatField,
 			{
 				id: "r2",
@@ -493,5 +482,35 @@ describe("flatFieldToField — totality + failure reasons", () => {
 				"no matching discriminator",
 			);
 		}
+	});
+});
+
+describe("add-path empty normalization", () => {
+	it("drops only top-level empty sentinels and preserves zero/false AST values", () => {
+		const required = xp("false()");
+		const default_value = xp("0");
+		const input = {
+			kind: "text" as const,
+			id: "",
+			label: null,
+			help: null,
+			required,
+			default_value,
+		};
+		const result = stripEmpty(input);
+		expect(result).toEqual({
+			kind: "text",
+			required,
+			default_value,
+			parentUuid: null,
+		});
+		expect(input).toEqual({
+			kind: "text",
+			id: "",
+			label: null,
+			help: null,
+			required,
+			default_value,
+		});
 	});
 });

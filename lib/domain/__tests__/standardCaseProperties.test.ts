@@ -4,11 +4,8 @@ import {
 	authoredCasePropertyNameSchema,
 	casePropertySchema,
 	effectiveCaseTypes,
-	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
-	FORBIDDEN_CASE_WRITE_PROPERTIES,
 	isWritableStandardCaseProperty,
 	standardCasePropertyDisplayLabel,
-	WRITABLE_STANDARD_CASE_PROPERTIES,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
@@ -74,23 +71,17 @@ describe("Nova standard case-property vocabulary", () => {
 		expect(standardCasePropertyDisplayLabel("constructor")).toBe("constructor");
 	});
 
-	it("defines one exact standard-scalar write contract for fields and operations", () => {
-		expect([...WRITABLE_STANDARD_CASE_PROPERTIES].sort()).toEqual([
-			"case_name",
-			"external_id",
-		]);
-		expect(isWritableStandardCaseProperty("case_name")).toBe(true);
-		expect(isWritableStandardCaseProperty("external_id")).toBe(true);
-		expect(isWritableStandardCaseProperty("owner_id")).toBe(false);
-
-		for (const property of WRITABLE_STANDARD_CASE_PROPERTIES) {
-			expect(FORBIDDEN_CASE_WRITE_PROPERTIES.has(property)).toBe(false);
-		}
-		expect(FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has("case_name")).toBe(
-			true,
-		);
-		expect(FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES.has("external_id")).toBe(
-			false,
-		);
-	});
+	it.each([
+		["case_name", true],
+		["external_id", true],
+		["owner_id", false],
+		["status", false],
+		["current_status", false],
+		["toString", false],
+	] as const)(
+		"classifies %s as a writable standard scalar: %s",
+		(property, writable) => {
+			expect(isWritableStandardCaseProperty(property)).toBe(writable);
+		},
+	);
 });

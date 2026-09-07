@@ -435,7 +435,11 @@ export function parsePathToLocation(
 		}
 		if (moduleUuid === undefined) return { kind: "home" };
 
-		if (parsedSecond.success && doc.fields[parsedSecond.data] !== undefined) {
+		if (
+			parsedSecond.success &&
+			doc.fields[parsedSecond.data] !== undefined &&
+			findFormForField(parsedSecond.data, doc)?.formUuid === first
+		) {
 			return {
 				kind: "form",
 				moduleUuid,
@@ -443,7 +447,7 @@ export function parsePathToLocation(
 				selectedUuid: parsedSecond.data,
 			};
 		}
-		/* Second segment doesn't resolve to a field — show the form
+		/* Second segment does not resolve to a field in this form — show the form
 		 * without selection rather than degrading to home. */
 		return { kind: "form", moduleUuid, formUuid: first };
 	}

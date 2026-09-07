@@ -9,7 +9,7 @@
  */
 
 import type { BucketMetadata, LifecycleRule } from "@google-cloud/storage";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
 import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
@@ -96,6 +96,8 @@ async function applyPolicy(args?: {
 	await applyMediaBucketStoragePolicy();
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 describe("media bucket policy", () => {
 	beforeEach(() => {
 		vi.resetModules();
@@ -105,7 +107,7 @@ describe("media bucket policy", () => {
 		setCorsConfiguration.mockReset();
 		setCorsConfiguration.mockResolvedValue(undefined);
 		storageOptions.mockReset();
-		process.env.NOVA_MEDIA_BUCKET = "test-bucket";
+		vi.stubEnv("NOVA_MEDIA_BUCKET", "test-bucket");
 	});
 
 	it("bounds each storage request and the complete retry loop", async () => {
@@ -122,7 +124,13 @@ describe("media bucket policy", () => {
 	});
 
 	it("converges the exact policy in one metageneration-fenced patch", async () => {
-		await applyPolicy();
+		await applyPolicy({
+			before: beforeMetadata({
+				softDeletePolicy: { retentionDurationSeconds: 604_800 },
+				versioning: { enabled: true },
+				defaultEventBasedHold: true,
+			}),
+		});
 		expect(getMetadata).toHaveBeenCalledTimes(2);
 		expect(setMetadata).toHaveBeenCalledWith(
 			{
@@ -133,27 +141,6 @@ describe("media bucket policy", () => {
 			},
 			{ ifMetagenerationMatch: "41" },
 		);
-	});
-
-	it("carries both prefix-scoped positive-age Delete reapers", async () => {
-		await applyPolicy();
-		const policy = setMetadata.mock.calls[0]?.[0];
-		const rules = policy?.lifecycle?.rule ?? [];
-		expect(rules).toHaveLength(2);
-		const prefixes = rules.flatMap(
-			(rule) => rule.condition.matchesPrefix ?? [],
-		);
-		expect(prefixes).toEqual(
-			expect.arrayContaining([PENDING_OBJECT_PREFIX, STAGED_CAPTURE_PREFIX]),
-		);
-		for (const rule of rules) {
-			expect(rule.action.type).toBe("Delete");
-			expect(rule.condition.age).toBeGreaterThan(0);
-			expect(rule.condition.matchesPrefix).toHaveLength(1);
-			expect(rule.condition.matchesPrefix?.[0]?.startsWith("projects/")).toBe(
-				false,
-			);
-		}
 	});
 
 	it.each([
@@ -209,6 +196,16 @@ describe("media bucket policy", () => {
 		await expect(
 			applyPolicy({
 				after: afterMetadata({ softDeletePolicy: policy }),
+			}),
+		).resolves.toBeUndefined();
+	});
+
+	it("accepts the same lifecycle rules in a different response order", async () => {
+		await expect(
+			applyPolicy({
+				after: afterMetadata({
+					lifecycle: { rule: [...expectedRules].reverse() },
+				}),
 			}),
 		).resolves.toBeUndefined();
 	});

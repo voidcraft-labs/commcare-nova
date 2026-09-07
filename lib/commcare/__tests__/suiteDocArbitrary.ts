@@ -934,7 +934,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					id: "case_name",
 					label: proseText("Case name"),
 					caseWrite: { caseType: caseTypeName, property: "case_name" },
-				} as Field;
+				};
 
 				const propUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(propUuid);
@@ -948,7 +948,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					id: "full_name",
 					label: proseText("Full name"),
 					caseWrite: { caseType: caseTypeName, property: "full_name" },
-				} as Field;
+				};
 			}
 
 			// Random root fields draw ids from the sibling pool — same cousin-

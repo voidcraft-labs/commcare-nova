@@ -14,6 +14,7 @@
 
 "use client";
 
+import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import type { Uuid } from "@/lib/doc/types";
 import type { FieldKind } from "@/lib/domain";
 import { useBlueprintDoc } from "./useBlueprintDoc";
@@ -42,4 +43,9 @@ export function useChildFieldCount(parentUuid: Uuid | undefined): number {
 	return useBlueprintDoc((s) =>
 		parentUuid ? (s.fieldOrder[parentUuid]?.length ?? 0) : 0,
 	);
+}
+
+/** The selected container and all descendants removed with it. */
+export function useSubtreeFieldCount(uuid: Uuid): number {
+	return useBlueprintDoc((state) => countFieldsUnder(state, uuid));
 }

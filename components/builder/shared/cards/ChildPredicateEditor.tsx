@@ -513,6 +513,14 @@ export function planPredicateTransition(
 		losses.push("the distance and unit");
 	}
 
+	if (
+		current.kind === "matches-pattern" &&
+		!containsReference(next, current) &&
+		(next.kind !== "matches-pattern" || next.pattern !== current.pattern)
+	) {
+		losses.push("the text pattern");
+	}
+
 	const uniqueLosses = [...new Set(losses)];
 	if (uniqueLosses.length === 0) return { next };
 	const consequence = formatConsequenceList(uniqueLosses);

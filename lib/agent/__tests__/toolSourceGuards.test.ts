@@ -7,45 +7,77 @@
  * writers, the commit kernel, or an external write service directly could
  * bypass both, so those imports fail here at source level. The narrow
  * exceptions are declared capability adapters: a file may import an external
- * service exactly when the registry policy grants its tools the matching
- * runtime capability.
+ * service at the explicitly reviewed adapter files below. The runtime registry tests
+ * separately exercise capability admission.
  *
+ * This is a direct-import rule, not a transitive module-graph proof.
  * TypeScript already keeps `recordMutations` off the invocation context;
  * `workspace/__tests__/canonicalWorkspace.test.ts` proves the runtime object
  * matches.
  */
 
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import path from "node:path";
+import {
+	isCallExpression,
+	isExportDeclaration,
+	isExternalModuleReference,
+	isIdentifier,
+	isImportDeclaration,
+	isNoSubstitutionTemplateLiteral,
+	isStringLiteral,
+	type Node,
+	SyntaxKind,
+} from "typescript/unstable/ast";
 import { describe, expect, it } from "vitest";
-import { SHARED_TOOL_REGISTRY } from "../sharedToolRegistry";
+import {
+	readTypeScriptSources,
+	visitTypeScript,
+	withTypeScriptSources,
+} from "@/__tests__/helpers/typescriptSources";
 
-const TOOLS_ROOT = join(__dirname, "..", "tools");
+const TOOLS_ROOT = "lib/agent/tools";
 
-/** Every non-test .ts file under lib/agent/tools/. */
-function toolSourceFiles(dir = TOOLS_ROOT): string[] {
-	const out: string[] = [];
-	for (const entry of readdirSync(dir, { withFileTypes: true })) {
-		if (entry.name === "__tests__") continue;
-		const full = join(dir, entry.name);
-		if (entry.isDirectory()) out.push(...toolSourceFiles(full));
-		else if (entry.name.endsWith(".ts")) out.push(full);
-	}
-	return out;
+/** Direct literal imports and re-exports only. The compiler owns JavaScript
+ * syntax, including quotes and escapes; runtime capability tests own invocation. */
+function importedSpecifier(node: Node): string | undefined {
+	const value =
+		isImportDeclaration(node) || isExportDeclaration(node)
+			? node.moduleSpecifier
+			: isExternalModuleReference(node)
+				? node.expression
+				: isCallExpression(node) &&
+						(node.expression.kind === SyntaxKind.ImportKeyword ||
+							(isIdentifier(node.expression) &&
+								node.expression.text === "require"))
+					? node.arguments[0]
+					: undefined;
+	return value &&
+		(isStringLiteral(value) || isNoSubstitutionTemplateLiteral(value))
+		? value.text
+		: undefined;
 }
 
-/** Every module specifier a source reaches — static `import`/`export from`,
- *  dynamic `import("...")`, and `require("...")`, so a runtime-loaded writer
- *  cannot slip past the ban. */
-function importedSpecifiers(source: string): string[] {
-	const specifiers: string[] = [];
-	const pattern =
-		/from\s+"([^"]+)"|\bimport\(\s*"([^"]+)"\s*\)|\brequire\(\s*"([^"]+)"\s*\)/g;
-	for (const match of source.matchAll(pattern)) {
-		const specifier = match[1] ?? match[2] ?? match[3];
-		if (specifier !== undefined) specifiers.push(specifier);
-	}
-	return specifiers;
+function directImports(sources: Record<string, string>): Map<string, string[]> {
+	return withTypeScriptSources(sources, (parsed) => {
+		const imports = new Map<string, string[]>();
+		for (const [file, source] of parsed) {
+			const names: string[] = [];
+			visitTypeScript(source, (node) => {
+				const specifier = importedSpecifier(node);
+				if (specifier === undefined) return;
+				const resolved = specifier.startsWith("@/")
+					? specifier.slice(2)
+					: specifier.startsWith(".")
+						? path.posix.normalize(
+								path.posix.join(path.posix.dirname(file), specifier),
+							)
+						: specifier;
+				names.push(resolved.replace(/\.[cm]?[jt]sx?$/, ""));
+			});
+			imports.set(file, names);
+		}
+		return imports;
+	});
 }
 
 interface ForbiddenImportRule {
@@ -53,12 +85,9 @@ interface ForbiddenImportRule {
 	readonly what: string;
 	readonly matches: (specifier: string) => boolean;
 	/**
-	 * Files (relative to lib/agent/tools) allowed to hold this import, each
-	 * justified by a registry capability its tool declares — checked below.
+	 * Files (relative to lib/agent/tools) reviewed as adapters for this import.
 	 */
 	readonly allowedFiles: readonly string[];
-	/** The capability that justifies the exception, per allowed file's tool. */
-	readonly justifyingCapability?: string;
 }
 
 const RULES: readonly ForbiddenImportRule[] = [
@@ -114,52 +143,51 @@ const RULES: readonly ForbiddenImportRule[] = [
 	},
 ];
 
-describe("shared tool source guards", () => {
-	const files = toolSourceFiles();
+function violations(sources: Record<string, string>): string[] {
+	const failures: string[] = [];
+	for (const [file, imports] of directImports(sources)) {
+		const relative = path.posix.relative(TOOLS_ROOT, file);
+		for (const rule of RULES) {
+			if (!rule.allowedFiles.includes(relative) && imports.some(rule.matches))
+				failures.push(`${relative}: ${rule.what}`);
+		}
+	}
+	return failures;
+}
 
-	it("finds the tool sources", () => {
-		expect(files.length).toBeGreaterThan(40);
+describe("shared tool direct-import architecture", () => {
+	it("has no undeclared direct persistence import", () => {
+		const sources = readTypeScriptSources([TOOLS_ROOT]);
+		expect(Object.keys(sources)).toContain("lib/agent/tools/common.ts");
+		expect(violations(sources)).toEqual([]);
 	});
 
-	for (const rule of RULES) {
-		it(`no undeclared tool module imports ${rule.what}`, () => {
-			const offenders: string[] = [];
-			for (const file of files) {
-				const rel = relative(TOOLS_ROOT, file).replaceAll("\\", "/");
-				if (rule.allowedFiles.includes(rel)) continue;
-				const source = readFileSync(file, "utf8");
-				if (importedSpecifiers(source).some(rule.matches)) {
-					offenders.push(rel);
-				}
-			}
-			expect(offenders).toEqual([]);
-		});
-	}
-
-	it("every external-writer exception belongs to a tool that declares the capability", () => {
-		/* organization.ts hosts the place-row writers (organization-write);
-		 * automations.ts only reads (organization-read); removeMediaAsset owns
-		 * media-write. A future exception must extend this map deliberately. */
-		const required: Record<string, string> = {
-			"organization.ts": "organization-write",
-			"automations.ts": "organization-read",
-			"media/removeMediaAsset.ts": "media-write",
-			"lookupTables.ts": "lookup-write",
-			"getLookupTables.ts": "lookup-read",
+	it("detects equivalent literal module syntax and ignores comments and prose", () => {
+		const sources = {
+			"lib/agent/tools/probe.ts": `
+    import '@\\x2flib/db/apps';
+    export { commit } from '../../db/canonicalCommitKernel.ts';
+    const a = import(\`../../db/applyBlueprintChange\`);
+    const b = require('../../log/writer');
+    // import "@/lib/db/mediaDeletion";
+    const prose = 'import "@/lib/db/mediaDeletion"';
+   `,
 		};
-		const byCapability = new Map<string, string[]>();
-		for (const entry of SHARED_TOOL_REGISTRY) {
-			for (const capability of entry.policy.capabilities) {
-				const names = byCapability.get(capability) ?? [];
-				names.push(entry.saName);
-				byCapability.set(capability, names);
-			}
-		}
-		for (const [file, capability] of Object.entries(required)) {
-			expect(
-				byCapability.get(capability),
-				`${file} imports an external service but no registry entry declares ${capability}`,
-			).toBeTruthy();
-		}
+		expect(violations(sources)).toEqual([
+			"probe.ts: the canonical commit kernel",
+			"probe.ts: applyBlueprintChange (the case-schema-coupled canonical writer)",
+			"probe.ts: lib/db/apps (canonical persistence + run lifecycle)",
+			"probe.ts: the event-log writer",
+		]);
+	});
+
+	it("keeps exceptions file-specific", () => {
+		const source = 'import { deleteMediaAsset } from "@/lib/db/mediaDeletion";';
+		expect(
+			violations({ "lib/agent/tools/media/removeMediaAsset.ts": source }),
+		).toEqual([]);
+		expect(violations({ "lib/agent/tools/media/shared.ts": source })).toEqual([
+			"media/shared.ts: the media deletion service (external writer)",
+		]);
 	});
 });

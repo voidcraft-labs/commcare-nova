@@ -86,13 +86,13 @@ export interface CaseTypeDrift {
  * emitted option-value enums carry `enum`, and reading it keeps a
  * legacy select row inverting to `single_select` — so the enum-drop
  * classifies as a refinement (spec re-sync) rather than a spurious
- * text→single_select retype. `text` and today's `single_select` both
- * emit a bare `{type:"string"}`; the inversion answers `text`, which
- * is cast-equivalent (both are Postgres text reads), so the retype
- * migration behaves identically. Returns `undefined` for a spec no
- * arm ever emitted.
+ * text→single_select retype. Current selects carry `x-novaDataType`;
+ * a bare string is text. This is diagnostic classification, not admission
+ * of a historical schema to the current runtime: the repair writer still
+ * requires its exact canonical stored-schema decoder. Returns `undefined`
+ * for a spec no arm ever emitted.
  */
-export function dataTypeFromSpec(
+function dataTypeFromSpec(
 	spec: CaseTypePropertyJsonSchema & { enum?: readonly string[] },
 ): CasePropertyDataType | undefined {
 	switch (spec.type) {
@@ -103,7 +103,8 @@ export function dataTypeFromSpec(
 		case "array":
 			return "multi_select";
 		case "string": {
-			if (spec.enum !== undefined) return "single_select";
+			if (spec["x-novaDataType"] === "single_select" || spec.enum !== undefined)
+				return "single_select";
 			if (spec.pattern !== undefined) return "geopoint";
 			switch (spec.format) {
 				case undefined:
@@ -188,11 +189,11 @@ export async function computeSchemaDrift(
 		const unresolvable: UnresolvableProperty[] = [];
 
 		for (const [name, desiredSpec] of Object.entries(desired.properties)) {
-			const storedSpec = storedProps[name];
-			if (storedSpec === undefined) {
+			if (!Object.hasOwn(storedProps, name)) {
 				added.push(name);
 				continue;
 			}
+			const storedSpec = storedProps[name];
 			const fromSpec = canonicalJson(storedSpec);
 			const toSpec = canonicalJson(desiredSpec);
 			if (fromSpec === toSpec) continue;
@@ -217,7 +218,7 @@ export async function computeSchemaDrift(
 			retyped.push({ property: name, fromType, toType, fromSpec, toSpec });
 		}
 		for (const name of Object.keys(storedProps)) {
-			if (!(name in desired.properties)) removed.push(name);
+			if (!Object.hasOwn(desired.properties, name)) removed.push(name);
 		}
 
 		if (

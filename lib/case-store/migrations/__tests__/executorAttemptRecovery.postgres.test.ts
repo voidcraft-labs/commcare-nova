@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import { up } from "@/lib/case-store/migrations/20260811000000_executor_attempt_recovery";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 
+import { checkConstraintVerdicts } from "./checkConstraint";
+
 const h = setupAppStateTestDb("executor_attempt_recovery_");
 
 describe("executor attempt recovery migration", () => {
@@ -39,40 +41,24 @@ describe("executor attempt recovery migration", () => {
 
 		await up(db as unknown as Kysely<unknown>);
 
-		const constraint = await sql<{ definition: string }>`
-			SELECT pg_get_constraintdef(oid) AS definition
-			FROM pg_constraint
-			WHERE conname = 'design_change_set_handles_entity_kind_check'
-				AND conrelid = 'design_change_set_handles'::regclass
-		`.execute(db);
-		expect(constraint.rows[0]?.definition).toContain("worker_property");
-		expect(constraint.rows[0]?.definition).toContain(
-			"automation_user_data_filter",
-		);
-
-		const counters = await sql<{ column_name: string }>`
-			SELECT column_name
-			FROM information_schema.columns
-			WHERE table_schema = 'public'
-				AND table_name = 'design_slice_attempts'
-				AND column_name IN (
-					'model_steps_used', 'mutation_calls_used',
-					'commit_attempts_used', 'blocker_reports_used',
-					'execution_run_ids', 'wire_invalid_count',
-					'private_mutation_rejected_count', 'validator_repair_count',
-					'outcome_evidence_state'
-				)
-		`.execute(db);
-		expect(counters.rows.map((row) => row.column_name).sort()).toEqual([
-			"blocker_reports_used",
-			"commit_attempts_used",
-			"execution_run_ids",
-			"model_steps_used",
-			"mutation_calls_used",
-			"outcome_evidence_state",
-			"private_mutation_rejected_count",
-			"validator_repair_count",
-			"wire_invalid_count",
+		expect(
+			await checkConstraintVerdicts(
+				db as unknown as Kysely<unknown>,
+				"design_change_set_handles",
+				"design_change_set_handles_entity_kind_check",
+				"entity_kind",
+				[
+					"module",
+					"worker_property",
+					"automation_user_data_filter",
+					"unknown_kind",
+				],
+			),
+		).toEqual([
+			{ value: "module", admitted: true },
+			{ value: "worker_property", admitted: true },
+			{ value: "automation_user_data_filter", admitted: true },
+			{ value: "unknown_kind", admitted: false },
 		]);
 		const migrated = await db
 			.selectFrom("design_slice_attempts")
@@ -100,12 +86,36 @@ describe("executor attempt recovery migration", () => {
 			validator_repair_count: 0,
 			outcome_evidence_state: "legacy-missing",
 		});
-		const requestStatus = await sql<{ definition: string }>`
-			SELECT pg_get_constraintdef(oid) AS definition
-			FROM pg_constraint
-			WHERE conname = 'design_change_set_requests_status_check'
-				AND conrelid = 'design_change_set_requests'::regclass
-		`.execute(db);
-		expect(requestStatus.rows[0]?.definition).toContain("noop");
+		expect(
+			await checkConstraintVerdicts(
+				db as unknown as Kysely<unknown>,
+				"design_change_set_requests",
+				"design_change_set_requests_status_check",
+				"status",
+				["staged", "noop", "rejected", "unknown_status"],
+			),
+		).toEqual([
+			{ value: "staged", admitted: true },
+			{ value: "noop", admitted: true },
+			{ value: "rejected", admitted: true },
+			{ value: "unknown_status", admitted: false },
+		]);
+		for (const column of [
+			"model_steps_used",
+			"mutation_calls_used",
+			"commit_attempts_used",
+			"blocker_reports_used",
+			"wire_invalid_count",
+			"private_mutation_rejected_count",
+			"validator_repair_count",
+		]) {
+			await expect(
+				sql`UPDATE design_slice_attempts SET ${sql.id(column)} = -1
+    WHERE id = ${lineage.attemptId}::uuid`.execute(db),
+			).rejects.toMatchObject({
+				code: "23514",
+				constraint: `design_slice_attempts_${column}_check`,
+			});
+		}
 	});
 });

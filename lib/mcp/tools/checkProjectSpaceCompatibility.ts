@@ -10,8 +10,10 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
+import { decrypt } from "@/lib/commcare/encryption";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
-import { getCredentialsForUpload } from "@/lib/db/settings";
+import { resolveUploadTarget } from "@/lib/db/settings";
+import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 import {
 	type HqToolErrorType,
 	type McpToolErrorResult,
@@ -87,7 +89,7 @@ export async function checkProjectSpaceCompatibility(
 		// a credential without HQ access learns nothing about the app id.
 		assertScope(ctx, SCOPES.hqRead, "check_project_space_compatibility");
 		const loaded = await loadAppBlueprint(appId, ctx.userId);
-		const credentials = await getCredentialsForUpload(ctx.userId, args.domain);
+		const credentials = await resolveUploadTarget(ctx.userId, args.domain);
 		if (!credentials.ok) {
 			if (credentials.error === "not_configured") {
 				return makeHqGateError(
@@ -106,11 +108,21 @@ export async function checkProjectSpaceCompatibility(
 			);
 		}
 
-		const compatibility = await probeHqProjectSpaceCompatibility(
-			credentials.creds,
-			credentials.domain.name,
-			projectSpaceCompatibilityProbePlan(loaded.doc),
-		);
+		const plan = projectSpaceCompatibilityProbePlan(loaded.doc);
+		const report =
+			plan.capabilities.length === 0 && plan.advisories.length === 0
+				? projectSpaceCompatibilityForTarget(credentials.domain.name, [], [])
+				: (
+						await probeHqProjectSpaceCompatibility(
+							{
+								username: credentials.username,
+								apiKey: await decrypt(credentials.encryptedApiKey),
+								server: credentials.server,
+							},
+							credentials.domain.name,
+							plan,
+						)
+					).report;
 		return {
 			content: [
 				{
@@ -118,7 +130,7 @@ export async function checkProjectSpaceCompatibility(
 					text: JSON.stringify({
 						app_id: appId,
 						app_name: loaded.app.app_name,
-						project_space_compatibility: compatibility.report,
+						project_space_compatibility: report,
 					}),
 				},
 			],

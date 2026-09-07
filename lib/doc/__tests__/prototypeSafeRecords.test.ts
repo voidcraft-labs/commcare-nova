@@ -1,146 +1,154 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
-import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import {
-	buildReferenceIndex,
-	declarersOf,
-	referencingCarrierUuids,
-} from "@/lib/doc/referenceIndex";
+	normalizeBlueprintOwnRecords,
+	toRscSerializableDoc,
+} from "@/lib/doc/ownRecords";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { Mutation } from "@/lib/doc/types";
 import { mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
-	entityTargetKey,
-	type Field,
-	type Form,
-	type Module,
-	printXPath,
-	xpathPrintContext,
+	blueprintDocSchema,
+	plainColumn,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-function emptyDoc(): BlueprintDoc {
-	return {
-		appId: "prototype-safe-records",
-		appName: "Prototype-safe records",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-}
+const MODULE = testUuid("prototype-module");
+const FORM = testUuid("prototype-form");
+const FIELD = testUuid("prototype-status");
+const PROPERTY = testUuid("prototype-property");
+const ROLE = testUuid("prototype-role");
+const PERSONA = testUuid("prototype-persona");
+const AUTOMATION = testUuid("prototype-automation");
 
-function module_(uuid: string): Module {
-	return { uuid: testUuid(uuid), id: "module", name: `Module ${uuid}` };
-}
-
-function form_(uuid: string): Form {
-	return {
-		uuid: testUuid(uuid),
-		id: "form",
-		name: `Form ${uuid}`,
-		type: "survey",
-	};
-}
-
-function textField(uuid: string, id = uuid): Field {
-	return {
-		uuid: testUuid(uuid),
-		kind: "text",
-		id,
-		label: proseText(id),
-	};
-}
-
-function parsed(raw: unknown[]): Mutation[] {
-	return raw.map((mutation) => mutationSchema.parse(mutation));
-}
-
-function fold(doc: BlueprintDoc, mutations: readonly Mutation[]): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
-}
-
-function expectNullPrototype(record: object | undefined): void {
-	expect(record).toBeDefined();
-	expect(Object.getPrototypeOf(record as object)).toBeNull();
-}
-
-const MODULE_UUID = testUuid("prototype-module");
-const FORM_UUID = testUuid("prototype-form");
-const GROUP_UUID = testUuid("prototype-group");
-const STATUS_UUID = testUuid("prototype-status");
-const WATCHER_UUID = testUuid("prototype-watcher");
-const USER_PROPERTY_UUID = testUuid("prototype-user-property");
-const USER_TYPE_UUID = testUuid("prototype-user-type");
-const PERSONA_UUID = testUuid("prototype-persona");
-const AUTOMATION_UUID = testUuid("prototype-automation");
-
-describe("prototype-safe normalized blueprint records", () => {
-	it("starts a fresh document store with normalized records", () => {
-		const state = createBlueprintDocStore().getState();
-		for (const record of [
-			state.modules,
-			state.forms,
-			state.fields,
-			state.formOrder,
-			state.fieldOrder,
-			state.fieldParent,
-		]) {
-			expectNullPrototype(record);
-		}
-	});
-
-	it("normalizes an in-process mutation's ordinary nested value bag", () => {
-		const values = Object.fromEntries([
-			["__proto__", "north"],
-			["constructor", "south"],
-		]);
-		expect(Object.getPrototypeOf(values)).toBe(Object.prototype);
-
-		const next = fold(emptyDoc(), [
+function fixture(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
 			{
-				kind: "addUserType",
-				userType: {
-					uuid: testUuid("direct-role"),
-					name: "Direct role",
-					values,
+				uuid: MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [
+						plainColumn(testUuid("prototype-column"), "case_name", "Name"),
+					],
+					listColumnOrder: [testUuid("prototype-column")],
+					detailColumnOrder: [testUuid("prototype-column")],
+					searchInputs: [],
 				},
+				forms: [
+					{
+						uuid: FORM,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								uuid: FIELD,
+								id: "visit_status",
+								kind: "text",
+								label: proseText("Status"),
+								caseWrite: { caseType: "patient", property: "visit_status" },
+							}),
+						],
+					},
+				],
 			},
-		]);
-
-		const stored = next.userTypes?.[testUuid("direct-role")]?.values;
-		expectNullPrototype(stored);
-		expect(Object.hasOwn(stored ?? {}, "__proto__")).toBe(true);
-		expect(Object.hasOwn(stored ?? {}, "constructor")).toBe(true);
+		],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "visit_status", label: proseText("Status") }],
+			},
+		],
 	});
+	doc.userProperties = {
+		[PROPERTY]: { uuid: PROPERTY, slug: "region", label: "Region" },
+	};
+	doc.userPropertyOrder = [PROPERTY];
+	doc.userTypes = {
+		[ROLE]: { uuid: ROLE, name: "Worker", values: { [PROPERTY]: "north" } },
+	};
+	doc.userTypeOrder = [ROLE];
+	doc.personas = {
+		[PERSONA]: {
+			uuid: PERSONA,
+			name: "Asha",
+			userTypeUuid: ROLE,
+			values: { [PROPERTY]: "south" },
+		},
+	};
+	doc.personaOrder = [PERSONA];
+	doc.automations = {
+		[AUTOMATION]: {
+			uuid: AUTOMATION,
+			kind: "case-update",
+			name: "Close completed cases",
+			caseType: "patient",
+			criteriaOperator: "all",
+			criteria: [],
+			setupOnlyCriteria: [],
+			updates: [],
+			closeCase: true,
+		},
+	};
+	doc.automationOrder = [AUTOMATION];
+	assertAdmittedDoc(doc);
+	return doc;
+}
 
-	it("seeds and rebuilds the derived parent record at a mutation boundary", () => {
-		const persisted = toPersistableDoc(emptyDoc());
-		const next = fold(persisted as unknown as BlueprintDoc, [
-			{ kind: "addModule", module: module_("module-without-fields") },
+function ownRecords(doc: BlueprintDoc): object[] {
+	return [
+		doc.modules,
+		doc.forms,
+		doc.fields,
+		doc.formOrder,
+		doc.fieldOrder,
+		doc.fieldParent,
+		doc.userProperties,
+		doc.userTypes,
+		doc.personas,
+		doc.automations,
+		doc.userTypes?.[ROLE]?.values,
+		doc.personas?.[PERSONA]?.values,
+	].map((record) => {
+		if (record === undefined) throw new Error("expected fixture record");
+		return record;
+	});
+}
+
+function expectOwnOnly(records: object[]): void {
+	for (const record of records) {
+		expect(Object.getPrototypeOf(record)).toBeNull();
+		expect("constructor" in record).toBe(false);
+		expect("toString" in record).toBe(false);
+	}
+}
+
+describe("prototype-safe document boundaries", () => {
+	it("starts a new store without inherited record membership", () => {
+		const doc = createBlueprintDocStore().getState();
+		expectOwnOnly([
+			doc.modules,
+			doc.forms,
+			doc.fields,
+			doc.formOrder,
+			doc.fieldOrder,
+			doc.fieldParent,
 		]);
-
-		expectNullPrototype(next.fieldParent);
-		expect(next.fieldParent).toEqual({});
 	});
 
 	it.each(["__proto__", "constructor", "toString"])(
-		"rejects the inherited-name identity %s before it can become a record key",
+		"refuses %s as an authored identity",
 		(uuid) => {
 			expect(() =>
 				mutationSchema.parse({
@@ -151,324 +159,103 @@ describe("prototype-safe normalized blueprint records", () => {
 		},
 	);
 
-	it("hydrates JSON records with own membership and derived parents intact", () => {
-		const mutations = parsed([
-			{ kind: "addModule", module: module_("prototype-module") },
-			{
-				kind: "addForm",
-				moduleUuid: MODULE_UUID,
-				form: form_("prototype-form"),
-			},
-			{
-				kind: "addField",
-				parentUuid: FORM_UUID,
-				field: textField("prototype-status", "status"),
-			},
-			{
-				kind: "addUserProperty",
-				property: {
-					uuid: USER_PROPERTY_UUID,
-					slug: "region",
-					label: "Region",
-				},
-			},
-			{
-				kind: "addUserType",
-				userType: {
-					uuid: USER_TYPE_UUID,
-					name: "Worker",
-					values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
-				},
-			},
-			{
-				kind: "addPersona",
-				persona: {
-					uuid: PERSONA_UUID,
-					name: "Asha",
-					userTypeUuid: USER_TYPE_UUID,
-					values: Object.fromEntries([[USER_PROPERTY_UUID, "south"]]),
-				},
-			},
-		]);
-		const applied = fold(emptyDoc(), mutations);
-		const persisted = JSON.parse(
-			JSON.stringify(toPersistableDoc(applied)),
-		) as ReturnType<typeof toPersistableDoc>;
-
+	it("hydrates actual JSON without mutating the stored snapshot and derives parent identity", () => {
+		const persisted = blueprintDocSchema.parse(
+			JSON.parse(JSON.stringify(toPersistableDoc(fixture()))),
+		);
+		const bytes = JSON.stringify(persisted);
 		const hydrated = hydratePersistedBlueprint(persisted);
+		assertAdmittedDoc(hydrated);
+		expectOwnOnly(ownRecords(hydrated));
+		expect(hydrated.fieldParent[FIELD]).toBe(FORM);
+		expect(hydrated.userTypes?.[ROLE]?.values?.[PROPERTY]).toBe("north");
+		expect(hydrated.personas?.[PERSONA]?.values?.[PROPERTY]).toBe("south");
+		expect(JSON.stringify(persisted)).toBe(bytes);
+		expect(hydrated.fields[FIELD]).not.toBe(persisted.fields[FIELD]);
+	});
 
-		expect(Object.hasOwn(hydrated.forms, FORM_UUID)).toBe(true);
-		expect(Object.hasOwn(hydrated.fields, STATUS_UUID)).toBe(true);
-		expect(Object.hasOwn(hydrated.fieldParent, STATUS_UUID)).toBe(true);
-		expect(hydrated.fieldParent[STATUS_UUID]).toBe(FORM_UUID);
-		expect(
-			Object.hasOwn(
-				hydrated.userTypes?.[USER_TYPE_UUID]?.values ?? {},
-				USER_PROPERTY_UUID,
-			),
-		).toBe(true);
-		expect(
-			Object.hasOwn(
-				hydrated.personas?.[PERSONA_UUID]?.values ?? {},
-				USER_PROPERTY_UUID,
-			),
-		).toBe(true);
+	it("projects ordinary transport records and restores own-only membership on client hydration", () => {
+		const normalized = hydratePersistedBlueprint(toPersistableDoc(fixture()));
+		const transport = toRscSerializableDoc(toPersistableDoc(normalized));
 		for (const record of [
-			hydrated.modules,
-			hydrated.forms,
-			hydrated.fields,
-			hydrated.formOrder,
-			hydrated.fieldOrder,
-			hydrated.fieldParent,
-			hydrated.userProperties,
-			hydrated.userTypes,
-			hydrated.personas,
-			hydrated.userTypes?.[USER_TYPE_UUID]?.values,
-			hydrated.personas?.[PERSONA_UUID]?.values,
+			transport.modules,
+			transport.forms,
+			transport.fields,
+			transport.formOrder,
+			transport.fieldOrder,
+			transport.userProperties,
+			transport.userTypes,
+			transport.personas,
+			transport.automations,
+			transport.userTypes?.[ROLE]?.values,
+			transport.personas?.[PERSONA]?.values,
 		]) {
-			expectNullPrototype(record);
+			expect(Object.getPrototypeOf(record)).toBe(Object.prototype);
 		}
+		expect(transport).toEqual(toPersistableDoc(normalized));
+		expect(transport.fields[FIELD]).not.toBe(normalized.fields[FIELD]);
+		expectOwnOnly(ownRecords(normalized));
+		expectOwnOnly(ownRecords(hydratePersistedBlueprint(transport)));
 	});
 
-	it("uses ordinary records across React Flight, then restores own-only records on hydration", () => {
-		const applied = fold(
-			emptyDoc(),
-			parsed([
-				{ kind: "addModule", module: module_("prototype-module") },
-				{
-					kind: "addAutomation",
-					automation: {
-						uuid: AUTOMATION_UUID,
-						kind: "case-update",
-						name: "Close completed cases",
-						caseType: "case",
-						criteriaOperator: "all",
-						criteria: [],
-						setupOnlyCriteria: [],
-						updates: [],
-						closeCase: true,
-					},
-				},
-				{
-					kind: "addUserProperty",
-					property: {
-						uuid: USER_PROPERTY_UUID,
-						slug: "region",
-						label: "Region",
-					},
-				},
-				{
-					kind: "addUserType",
-					userType: {
-						uuid: USER_TYPE_UUID,
-						name: "Worker",
-						values: Object.fromEntries([[USER_PROPERTY_UUID, "north"]]),
-					},
-				},
-			]),
-		);
-		const normalized = toPersistableDoc(applied);
-		const transport = toRscSerializableDoc(normalized);
-
-		expect(Object.getPrototypeOf(transport.modules)).toBe(Object.prototype);
-		expect(Object.getPrototypeOf(transport.formOrder)).toBe(Object.prototype);
-		expect(Object.getPrototypeOf(transport.userProperties ?? {})).toBe(
+	it("normalizes ordinary nested mutation payload records at actual admission and reduction", () => {
+		const doc = fixture();
+		const secondRole = testUuid("second-role");
+		const command = {
+			kind: "addUserType" as const,
+			userType: {
+				uuid: secondRole,
+				name: "Supervisor",
+				values: { [PROPERTY]: "east" },
+			},
+		};
+		expect(Object.getPrototypeOf(command.userType.values)).toBe(
 			Object.prototype,
 		);
-		expect(Object.getPrototypeOf(transport.userTypes ?? {})).toBe(
-			Object.prototype,
+		const verdict = mutationCommitVerdict(
+			doc,
+			[command],
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(Object.getPrototypeOf(transport.automations ?? {})).toBe(
-			Object.prototype,
-		);
-		expect(
-			Object.getPrototypeOf(
-				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
-			),
-		).toBe(Object.prototype);
-		expect(Object.hasOwn(transport.modules, MODULE_UUID)).toBe(true);
-		expect(
-			Object.hasOwn(transport.userProperties ?? {}, USER_PROPERTY_UUID),
-		).toBe(true);
-		expect(
-			Object.hasOwn(
-				transport.userTypes?.[USER_TYPE_UUID]?.values ?? {},
-				USER_PROPERTY_UUID,
-			),
-		).toBe(true);
-		expect(Object.hasOwn(transport.automations ?? {}, AUTOMATION_UUID)).toBe(
+		expect(verdict.ok, JSON.stringify(verdict.ok ? [] : verdict.findings)).toBe(
 			true,
 		);
-		expectNullPrototype(normalized.modules);
-		expectNullPrototype(normalized.automations);
-
-		const hydrated = hydratePersistedBlueprint(transport);
-		expectNullPrototype(hydrated.modules);
-		expectNullPrototype(hydrated.userProperties);
-		expectNullPrototype(hydrated.userTypes);
-		expectNullPrototype(hydrated.userTypes?.[USER_TYPE_UUID]?.values);
-		expectNullPrototype(hydrated.automations);
-		expect(Object.hasOwn(hydrated.automations ?? {}, AUTOMATION_UUID)).toBe(
-			true,
+		if (!verdict.ok)
+			throw new Error(JSON.stringify(verdict.ok ? [] : verdict.findings));
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, [command]);
+		});
+		assertAdmittedDoc(next);
+		expectOwnOnly(ownRecords(next));
+		expect(
+			Object.getPrototypeOf(next.userTypes?.[secondRole]?.values),
+		).toBeNull();
+		expect(next.userTypes?.[secondRole]?.values?.[PROPERTY]).toBe("east");
+		expect(Object.getPrototypeOf(command.userType.values)).toBe(
+			Object.prototype,
 		);
 	});
 
-	it("diffs and replays strict-identity structural additions", () => {
-		const mutations = parsed([
-			{ kind: "addModule", module: module_("prototype-module") },
-			{
-				kind: "addForm",
-				moduleUuid: MODULE_UUID,
-				form: form_("prototype-form"),
-			},
-			{
-				kind: "addField",
-				parentUuid: FORM_UUID,
-				field: textField("prototype-status", "prototype"),
-			},
-			{
-				kind: "addField",
-				parentUuid: FORM_UUID,
-				field: textField("prototype-watcher", "constructor"),
-			},
+	it("preserves hostile own keys at the lower-level normalizer while admission refuses them", () => {
+		// Deliberately malformed data exercises the generic record boundary; it is
+		// never presented as a reachable authored app or as a valid UUID fixture.
+		const doc = fixture();
+		const values = Object.fromEntries([
+			["__proto__", "north"],
+			["constructor", "south"],
 		]);
-		const before = emptyDoc();
-		const desired = fold(before, mutations);
-
-		const replayed = fold(before, diffDocsToMutations(before, desired));
-
-		expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(desired));
-		expect(Object.hasOwn(replayed.fields, STATUS_UUID)).toBe(true);
-		expect(Object.hasOwn(replayed.fields, WATCHER_UUID)).toBe(true);
-	});
-
-	it("prints the current field id and derived parent path after rename and move", () => {
-		const initial = fold(
-			emptyDoc(),
-			parsed([
-				{ kind: "addModule", module: module_("prototype-module") },
-				{
-					kind: "addForm",
-					moduleUuid: MODULE_UUID,
-					form: form_("prototype-form"),
-				},
-				{
-					kind: "addField",
-					parentUuid: FORM_UUID,
-					field: {
-						uuid: GROUP_UUID,
-						kind: "group",
-						id: "group",
-						label: proseText("Group"),
-					},
-				},
-				{
-					kind: "addField",
-					parentUuid: FORM_UUID,
-					field: textField("prototype-status", "status"),
-				},
-			]),
+		doc.userTypes = { [ROLE]: { uuid: ROLE, name: "Worker", values } };
+		expect(blueprintDocSchema.safeParse(toPersistableDoc(doc)).success).toBe(
+			false,
 		);
-		const moved = fold(
-			initial,
-			parsed([
-				{
-					kind: "updateField",
-					uuid: STATUS_UUID,
-					targetKind: "text",
-					patch: { id: "current_status" },
-				},
-				{
-					kind: "moveField",
-					uuid: STATUS_UUID,
-					toParentUuid: GROUP_UUID,
-					after: null,
-				},
-			]),
-		);
-		const printable = toPersistableDoc(moved);
-
+		normalizeBlueprintOwnRecords(doc);
+		const stored = doc.userTypes[ROLE].values;
+		expect(Object.getPrototypeOf(stored)).toBeNull();
+		expect(Object.hasOwn(stored ?? {}, "__proto__")).toBe(true);
 		expect(
-			printXPath(
-				{ parts: [{ kind: "field-ref", uuid: STATUS_UUID }] },
-				xpathPrintContext(printable),
-			),
-		).toBe("#form/group/current_status");
-	});
-
-	it("keeps rebuild and incremental reference-index buckets own-only", () => {
-		const next = fold(
-			emptyDoc(),
-			parsed([
-				{
-					kind: "addModule",
-					module: {
-						...module_("prototype-module"),
-						caseType: "patient",
-					},
-				},
-				{
-					kind: "addForm",
-					moduleUuid: MODULE_UUID,
-					form: form_("prototype-form"),
-				},
-				{
-					kind: "addField",
-					parentUuid: FORM_UUID,
-					field: {
-						...textField("prototype-status", "status"),
-						caseWrite: { caseType: "patient", property: "status" },
-					},
-				},
-				{
-					kind: "addField",
-					parentUuid: FORM_UUID,
-					field: {
-						...textField("prototype-watcher", "watcher"),
-						label: proseText("See #form/status and #patient/status"),
-						relevant: {
-							parts: [
-								{
-									kind: "field-ref",
-									uuid: STATUS_UUID,
-								},
-							],
-						},
-					},
-				},
-			]),
-		);
-
-		expect(declarersOf(next, "patient", "status")).toEqual([STATUS_UUID]);
-		expect(referencingCarrierUuids(next, entityTargetKey(STATUS_UUID))).toEqual(
-			[WATCHER_UUID],
-		);
-		const rebuilt = buildReferenceIndex(next);
-		expect(next.refIndex).toEqual(rebuilt);
-
-		for (const index of [next.refIndex, rebuilt]) {
-			expect(index).toBeDefined();
-			if (index === undefined) throw new Error("reference index missing");
-			for (const record of [index.in, index.out, index.decl, index.ctx]) {
-				expectNullPrototype(record);
-			}
-			for (const byCarrier of Object.values(index.in)) {
-				expectNullPrototype(byCarrier);
-				for (const slots of Object.values(byCarrier)) {
-					expectNullPrototype(slots);
-				}
-			}
-			for (const entry of Object.values(index.out)) {
-				expectNullPrototype(entry.edges);
-				for (const slots of Object.values(entry.edges)) {
-					expectNullPrototype(slots);
-				}
-			}
-			for (const bucket of [index.decl, index.ctx]) {
-				for (const members of Object.values(bucket)) {
-					expectNullPrototype(members);
-				}
-			}
-		}
+			Object.getOwnPropertyDescriptor(stored ?? {}, "__proto__")?.value,
+		).toBe("north");
+		expect(stored?.constructor).toBe("south");
+		expect(Object.getPrototypeOf(values)).toBe(Object.prototype);
 	});
 });

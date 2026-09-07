@@ -138,68 +138,6 @@ export type PreviewScreen =
 			cases?: readonly PreviewCaseChoice[];
 	  };
 
-/** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
-export function getParentScreen(
-	screen: PreviewScreen,
-): PreviewScreen | undefined {
-	switch (screen.type) {
-		case "module":
-		case "appSetup":
-			return { type: "home" };
-		case "caseList":
-		case "searchConfig":
-		case "detailConfig":
-		case "dataReview":
-		case "form":
-			return { type: "module", moduleUuid: screen.moduleUuid };
-		default:
-			return undefined;
-	}
-}
-
-export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
-	if (a.type !== b.type) return false;
-	if (a.type === "home") return true;
-	if (a.type === "projectData" && b.type === "projectData")
-		return a.tableId === b.tableId;
-	if (a.type === "module" && b.type === "module")
-		return a.moduleUuid === b.moduleUuid;
-	if (a.type === "caseList" && b.type === "caseList")
-		return a.moduleUuid === b.moduleUuid;
-	if (a.type === "searchConfig" && b.type === "searchConfig")
-		return a.moduleUuid === b.moduleUuid;
-	if (a.type === "detailConfig" && b.type === "detailConfig")
-		return a.moduleUuid === b.moduleUuid;
-	if (a.type === "dataReview" && b.type === "dataReview")
-		return a.moduleUuid === b.moduleUuid;
-	if (a.type === "appSetup" && b.type === "appSetup")
-		return a.section === b.section;
-	if (a.type === "form" && b.type === "form")
-		return (
-			a.moduleUuid === b.moduleUuid &&
-			a.formUuid === b.formUuid &&
-			previewScreenCasesEqual(a.cases, b.cases)
-		);
-	return false;
-}
-
-function previewScreenCasesEqual(
-	left: readonly PreviewCaseChoice[] | undefined,
-	right: readonly PreviewCaseChoice[] | undefined,
-): boolean {
-	return (
-		left === right ||
-		(left !== undefined &&
-			right !== undefined &&
-			left.length === right.length &&
-			left.every(
-				(choice, index) =>
-					choice.caseId === right[index]?.caseId &&
-					choice.caseName === right[index]?.caseName,
-			))
-	);
-}
-
 /** Stable string key for a PreviewScreen, suitable as a React key.
  *  Encodes the screen's type and stable entity identities so two screens at
  *  different navigation depths never collide, even if their labels match. */

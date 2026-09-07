@@ -9,8 +9,8 @@
  * predecessor identity, and per-kind payload all re-proved on every read.
  * The partial unique index on `(design_session_id, predecessor_event_id)`
  * makes two continuations structurally unable to advance the same state
- * (`OrchestrationForkError`), which is both process-death recovery and the
- * structural detector for "a required phase was skipped".
+ * (`OrchestrationForkError`). The chain proves predecessor identity and
+ * continuity; the design/build owners separately enforce phase semantics.
  *
  * Raw holder nonces never land here — the row carries a SHA-256 digest for
  * audit correlation; the design-session/app row remains the only nonce
@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { z } from "zod";
 import {
 	ORCHESTRATION_KIND_CLASSIFICATION,
@@ -129,8 +129,8 @@ export type BuildOrchestratorState = z.infer<
 /* Compile-time lockstep with `orchestrationKinds.ts`: the classification must
  * name every kind in this union, so adding an arm here without deciding
  * whether it releases the app freeze fails the build — the SQL gate, progress
- * fold, and interruption stamp all derive from that record. (The unit test
- * pins the reverse direction: no stale classified kind.) */
+ * fold, and interruption stamp all derive from that record. (The compiler test
+ * proves exact equality, including absence of stale classified kinds.) */
 const _everyOrchestrationKindIsClassified =
 	ORCHESTRATION_KIND_CLASSIFICATION satisfies Record<
 		BuildOrchestratorState["kind"],
@@ -222,6 +222,17 @@ async function insertPreparedOrchestrationEvent(
 	},
 	prepared: PreparedOrchestrationEvent,
 ): Promise<void> {
+	// The authority row is already locked. Re-prove the complete current chain
+	// before writing: uniqueness alone cannot reject a fabricated predecessor
+	// digest, an unrelated predecessor id, or a skipped revision.
+	const actualHead = await readOrchestrationHeadFrom(tx, args.designSessionId);
+	if (
+		actualHead?.revision !== args.expectedHead?.revision ||
+		actualHead?.eventId !== args.expectedHead?.eventId ||
+		actualHead?.digest !== args.expectedHead?.digest
+	) {
+		throw new OrchestrationForkError();
+	}
 	await tx
 		.insertInto("design_orchestration_events")
 		.values({
@@ -304,7 +315,10 @@ export async function appendOrchestrationEvent(args: {
 			await insertPreparedOrchestrationEvent(tx, args, prepared);
 		});
 	} catch (err) {
-		if ((err as { code?: unknown })?.code === "23505") {
+		if (
+			err instanceof OrchestrationForkError ||
+			(err as { code?: unknown })?.code === "23505"
+		) {
 			const winner = await readOrchestrationHead(args.designSessionId);
 			if (winnerMatchesPrepared(winner, prepared)) return winner;
 			throw new OrchestrationForkError();
@@ -377,7 +391,10 @@ export async function completeBuildOrchestration(args: {
 		 * authoritative response to adopt. */
 		const winner = await readOrchestrationHead(args.designSessionId);
 		if (winnerMatchesPrepared(winner, prepared)) return winner;
-		if ((err as { code?: unknown })?.code === "23505") {
+		if (
+			err instanceof OrchestrationForkError ||
+			(err as { code?: unknown })?.code === "23505"
+		) {
 			throw new OrchestrationForkError();
 		}
 		throw err;
@@ -393,7 +410,13 @@ export async function completeBuildOrchestration(args: {
 export async function readOrchestrationHead(
 	designSessionId: string,
 ): Promise<OrchestrationHead | null> {
-	const db = await getAppDb();
+	return readOrchestrationHeadFrom(await getAppDb(), designSessionId);
+}
+
+async function readOrchestrationHeadFrom(
+	db: Kysely<AppDatabase> | Transaction<AppDatabase>,
+	designSessionId: string,
+): Promise<OrchestrationHead | null> {
 	const rows = await db
 		.selectFrom("design_orchestration_events")
 		.select(["revision", "event_id", "predecessor_event_id", "kind"])

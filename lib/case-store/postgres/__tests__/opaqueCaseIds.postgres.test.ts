@@ -6,11 +6,7 @@
 // widened end state, and the default ordering is the durable
 // `(opened_on, case_id)` fact rather than any id-shape assumption.
 //
-// Same per-test-database idiom as `store.test.ts`: the store's
-// transaction-using methods need a real database with no outer
-// transaction, and `runCaseStoreMigrations` in `beforeEach` replays
-// the full chain — including the `opaque_case_ids` widening — so
-// these tests always run against the exact production schema.
+// Each test clones the production-migrated template and commits real transactions.
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -152,6 +148,11 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 			},
 		});
 		expect(caseId).toBe(AUTHORED_ID);
+		expect(
+			(await store.query({ appId: APP_ID, caseType: "patient" })).map(
+				(row) => row.case_id,
+			),
+		).toEqual([AUTHORED_ID]);
 
 		await store.update({
 			appId: APP_ID,
@@ -311,11 +312,23 @@ describe("opaque case ids — CRUD, relations, and parking", () => {
 				properties: { name: "Parked" },
 			},
 		});
-		await sql`
-			INSERT INTO public.parked_case_values
-				(app_id, case_id, case_type, property, original_value, reason)
-			VALUES (${APP_ID}, ${AUTHORED_ID}, 'patient', 'name', '"held"'::jsonb, 'test park')
-		`.execute(dbHandle.db);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			property: "name",
+			change: { kind: "retype", fromType: "text", toType: "int" },
+			caseTypeSchemas: new Map([
+				[
+					"patient",
+					{
+						name: "patient",
+						properties: [
+							{ name: "name", label: proseText("Name"), data_type: "int" },
+						],
+					},
+				],
+			]),
+		});
 
 		const held = await sql<{ case_id: string }>`
 			SELECT case_id FROM public.parked_case_values

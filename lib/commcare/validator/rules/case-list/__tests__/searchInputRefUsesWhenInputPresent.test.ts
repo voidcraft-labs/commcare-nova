@@ -1,501 +1,205 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-/**
- * Tests for `searchInputRefUsesWhenInputPresent`. The rule walks the
- * wire-emission-bound predicate slots (the always-on filter + every
- * advanced-arm search input's authored predicate) and rejects bare
- * `input(...)` Term refs that aren't inside an enclosing
- * `when-input-present` envelope. The assigned-case exclusion is a deliberate
- * exception: blank means "exclude nobody" on every runtime, so it may return a
- * Search answer directly.
- */
-
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	advancedSearchInputDef,
-	plainColumn,
+	type BlueprintDoc,
+	blueprintDocSchema,
+	type CaseListConfig,
+	calculatedColumn,
+	hiddenSearchInputDef,
+	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
 	and,
+	concat,
 	eq,
 	input,
 	literal,
+	type Predicate,
 	prop,
+	term,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../../runner";
+import {
+	admittedCaseListDoc,
+	findings,
+	withSearchInputs,
+} from "./caseListRuleFixture";
 
-const CODE = "CASE_LIST_BARE_SEARCH_INPUT_REF" as const;
-
-const standardForm = {
-	name: "Reg",
-	type: "registration" as const,
-	fields: [
-		f({
-			kind: "text" as const,
-			id: "case_name",
-			label: proseText("Name"),
-			caseWrite: { caseType: "patient", property: "case_name" },
-		}),
-	],
-};
-
-const standardCaseTypes = [
-	{
-		name: "patient",
-		properties: [
-			{
-				name: "case_name",
-				label: proseText("Name"),
-				data_type: "text" as const,
-			},
-		],
-	},
-];
-
-describe("searchInputRefUsesWhenInputPresent", () => {
-	it("fires when caseListConfig.filter has a bare input ref", () => {
-		const nameInputUuid = testUuid("si-1");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						filter: eq(prop("patient", "case_name"), input(nameInputUuid)),
-						searchInputs: [
-							simpleSearchInputDef(
-								nameInputUuid,
-								"name_q",
-								"Name",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
+const first = simpleSearchInputDef(
+	testUuid("first"),
+	"first",
+	"First",
+	"text",
+	"case_name",
+);
+const second = simpleSearchInputDef(
+	testUuid("second"),
+	"second",
+	"Second",
+	"text",
+	"case_name",
+);
+const bare = "CASE_LIST_BARE_SEARCH_INPUT_REF";
+function configured(
+	change: (config: CaseListConfig, module: Module) => void,
+): BlueprintDoc {
+	const doc = structuredClone(
+		withSearchInputs(admittedCaseListDoc(), [first, second]),
+	);
+	const module = doc.modules[doc.moduleOrder[0]];
+	const config = module.caseListConfig;
+	if (!config) throw new Error("Missing admitted config");
+	change(config, module);
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return doc;
+}
+const equal = (id = first.uuid) => eq(prop("patient", "case_name"), input(id));
+describe("search input envelope scope", () => {
+	it.each([
+		{ name: "bare", predicate: equal(), refs: [first.uuid] },
+		{
+			name: "matching guard",
+			predicate: whenInput(input(first.uuid), equal()),
+			refs: [],
+		},
+		{
+			name: "wrong guard",
+			predicate: whenInput(input(second.uuid), equal()),
+			refs: [first.uuid],
+		},
+		{
+			name: "guard trigger only",
+			predicate: whenInput(
+				input(first.uuid),
+				eq(prop("patient", "case_name"), literal("A")),
+			),
+			refs: [],
+		},
+		{
+			name: "sibling isolation",
+			predicate: and(whenInput(input(first.uuid), equal()), equal()),
+			refs: [first.uuid],
+		},
+		{
+			name: "nested same guard preserves outer scope",
+			predicate: whenInput(
+				input(first.uuid),
+				and(whenInput(input(first.uuid), equal()), equal()),
+			),
+			refs: [],
+		},
+		{
+			name: "two distinct refs",
+			predicate: and(equal(), equal(second.uuid)),
+			refs: [first.uuid, second.uuid],
+		},
+		{
+			name: "nested value ref",
+			predicate: eq(
+				prop("patient", "case_name"),
+				concat(term(input(first.uuid)), term(literal("x"))),
+			),
+			refs: [first.uuid],
+		},
+	] satisfies { name: string; predicate: Predicate; refs: string[] }[])(
+		"$name",
+		({ predicate, refs }) => {
+			const errors = findings(
+				configured((config) => {
+					config.filter = predicate;
+				}),
+			);
+			expect(
+				errors.map((error) => ({
+					code: error.code,
+					ref: error.details?.inputUuid,
+					slot: error.details?.slot,
+				})),
+			).toEqual(
+				refs.map((ref) => ({ code: bare, ref, slot: "caseListConfig.filter" })),
+			);
+		},
+	);
+	it("checks an advanced predicate at its exact input location", () => {
+		const errors = findings(
+			configured((config) => {
+				config.searchInputs.push(
+					advancedSearchInputDef(
+						testUuid("advanced"),
+						"advanced",
+						"Advanced",
+						"text",
+						equal(),
+					),
+				);
+			}),
 		);
-		expect(hits).toHaveLength(1);
-		// Slot identifier + input name surface in the message; the gating
-		// advice names the where-to-look UX slot.
-		expect(hits[0].message).toContain("caseListConfig.filter");
-		expect(hits[0].message).toContain('input("name_q")');
-		expect(hits[0].message).toContain("when-input-present");
+		expect(errors.map((error) => error.code)).toEqual([bare]);
+		expect(errors[0].details?.slot).toBe(
+			"caseListConfig.searchInputs[2].predicate",
+		);
 	});
-
-	it("is silent when the same ref is wrapped in whenInput against the right name", () => {
-		const nameInputUuid = testUuid("si-1");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						filter: whenInput(
-							input(nameInputUuid),
-							eq(prop("patient", "case_name"), input(nameInputUuid)),
-						),
-						searchInputs: [
-							simpleSearchInputDef(
-								nameInputUuid,
-								"name_q",
-								"Name",
-								"text",
-								"case_name",
+	it.each(["default", "hidden", "column", "button"] as const)(
+		"refuses declared inputs in the %s slot without an answer context",
+		(slot) => {
+			const errors = findings(
+				configured((config, module) => {
+					if (slot === "default")
+						config.searchInputs[1] = simpleSearchInputDef(
+							second.uuid,
+							"second",
+							"Second",
+							"text",
+							"case_name",
+							{ default: term(input(first.uuid)) },
+						);
+					if (slot === "hidden")
+						config.searchInputs.push(
+							hiddenSearchInputDef(
+								testUuid("hidden"),
+								"hidden",
+								"Hidden",
+								term(input(first.uuid)),
 							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("fires when whenInput gates input X but the body references input Y", () => {
-		// The envelope only gates the named trigger — a different input
-		// ref inside the clause is structurally just as bare as if no
-		// envelope existed at all.
-		const nameInputUuid = testUuid("si-1");
-		const otherInputUuid = testUuid("si-2");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						filter: whenInput(
-							input(nameInputUuid),
-							eq(prop("patient", "case_name"), input(otherInputUuid)),
-						),
-						searchInputs: [
-							simpleSearchInputDef(
-								nameInputUuid,
-								"name_q",
-								"Name",
-								"text",
-								"case_name",
+						);
+					if (slot === "column") {
+						const column = calculatedColumn(
+							testUuid("calc"),
+							"Echo",
+							term(input(first.uuid)),
+						);
+						config.columns.push(column);
+						config.listColumnOrder.push(column.uuid);
+						config.detailColumnOrder.push(column.uuid);
+					}
+					if (slot === "button")
+						module.caseSearchConfig = {
+							searchButtonDisplayCondition: whenInput(
+								input(first.uuid),
+								eq(literal("A"), literal("A")),
 							),
-							simpleSearchInputDef(
-								otherInputUuid,
-								"other_q",
-								"Other",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain('input("other_q")');
-	});
-
-	it("does not flag the whenInput trigger ref itself", () => {
-		// The trigger ref (`whenInput(input("X"), ...)`'s first arg) IS a
-		// SearchInputRef but it's the gate, not a bare consumer. The rule
-		// must skip it explicitly so we don't report the gate as if it
-		// were a bare ref.
-		const nameInputUuid = testUuid("si-1");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						filter: whenInput(
-							input(nameInputUuid),
-							// Body has NO input refs — just a property equality.
-							eq(prop("patient", "case_name"), literal("Alice")),
-						),
-						searchInputs: [
-							simpleSearchInputDef(
-								nameInputUuid,
-								"name_q",
-								"Name",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("fires inside advanced-arm search input predicate when ref is bare", () => {
-		const advancedInputUuid = testUuid("si-adv");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						searchInputs: [
-							advancedSearchInputDef(
-								advancedInputUuid,
-								"adv",
-								"Advanced",
-								"text",
-								eq(prop("patient", "case_name"), input(advancedInputUuid)),
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain('input("adv")');
-		expect(hits[0].message).toContain("searchInputs[0].predicate");
-	});
-
-	it("is silent when an advanced-arm predicate has zero input refs", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						searchInputs: [
-							advancedSearchInputDef(
-								testUuid("si-adv"),
-								"adv",
-								"Advanced",
-								"text",
-								eq(prop("patient", "case_name"), literal("Alice")),
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("reports two refs in one AND-chained filter as two separate errors", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-1")],
-						detailColumnOrder: [testUuid("col-1")],
-						filter: and(
-							eq(prop("patient", "case_name"), input(testUuid("first_q"))),
-							eq(prop("patient", "case_name"), input(testUuid("second_q"))),
-						),
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"first_q",
-								"First",
-								"text",
-								"case_name",
-							),
-							simpleSearchInputDef(
-								testUuid("si-2"),
-								"second_q",
-								"Second",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(2);
-	});
-
-	// ── No-input-context slots — forbid input refs outright ──────────
-
-	it("fires when a search input's default value expression references another input", () => {
-		// Default values fire at search-screen-open time, before any
-		// input is bound. The reference resolves to empty string
-		// regardless of envelope; flag every occurrence.
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							{
-								...simpleSearchInputDef(
-									testUuid("si-1"),
-									"primary_q",
-									"Primary",
-									"text",
-									"case_name",
-								),
-								default: { kind: "term", term: input(testUuid("primary_q")) },
-							},
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("default");
-		// `forbids-input-ref` mode message body names the wire-eval timing.
-		expect(hits[0].message).toContain("evaluates before the user has typed");
-	});
-
-	it("fires when a calculated column expression references an input", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("c-1"), "case_name", "Name"),
-							{
-								kind: "calculated",
-								uuid: testUuid("c-2"),
-								header: "Echo",
-								expression: { kind: "term", term: input(testUuid("query")) },
-							},
-						],
-						listColumnOrder: [testUuid("c-1"), testUuid("c-2")],
-						detailColumnOrder: [testUuid("c-1"), testUuid("c-2")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"query",
-								"Query",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("calculated column");
-	});
-
-	it("fires when the search-button display condition references an input (even wrapped)", () => {
-		// `forbids-input-ref` mode flags the trigger ref too — the
-		// envelope doesn't rescue a no-input-context slot.
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"query",
-								"Query",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					caseSearchConfig: {
-						searchButtonDisplayCondition: whenInput(
-							input(testUuid("query")),
-							eq(prop("patient", "case_name"), literal("Alice")),
-						),
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits.length).toBeGreaterThanOrEqual(1);
-		expect(hits[0].message).toContain("search-button display condition");
-	});
-
-	// ── excludedOwnerIds — blank is the safe identity ──
-
-	it("allows excludedOwnerIds to return a Search answer directly", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-1"),
-								"owner_q",
-								"Owner",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					caseSearchConfig: {
-						excludedOwnerIds: {
-							kind: "term",
-							term: input(testUuid("owner_q")),
-						},
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
+						};
+				}),
+			);
+			expect(errors.map((error) => error.code)).toEqual([bare]);
+			expect(errors[0].details).toMatchObject({
+				inputUuid: first.uuid,
+				mode: "forbids-input-ref",
+			});
+		},
+	);
+	it("allows a search answer as the assigned-case exclusion identity", () => {
+		expect(
+			findings(
+				configured((_config, module) => {
+					module.caseSearchConfig = {
+						excludedOwnerIds: term(input(first.uuid)),
+					};
+				}),
+			),
+		).toEqual([]);
 	});
 });

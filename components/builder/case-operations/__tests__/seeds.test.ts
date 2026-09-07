@@ -8,6 +8,7 @@
 // `mutationCommitVerdict` here for exactly that reason; a seed that
 // forgets a required facet fails this test rather than the author.
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -18,9 +19,11 @@ import {
 } from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
+	effectiveCaseTypes,
 	isCaseOperationIdentifier,
 	type Uuid,
 } from "@/lib/domain";
@@ -130,7 +133,15 @@ describe("case-operation seeds", () => {
 			formUuid,
 			seedCaseOperation({ kind: "create", caseType: "referral" }, new Set()),
 		);
-		expect(mutations.some((m) => m.kind === "declareCaseType")).toBe(true);
+		const next = produce(doc, (draft) => {
+			applyMutations(draft, mutations);
+		});
+		expect(
+			effectiveCaseTypes(next).find((type) => type.name === "referral"),
+		).toBeDefined();
+		expect(
+			effectiveCaseTypes(doc).find((type) => type.name === "referral"),
+		).toBeUndefined();
 	});
 
 	it("gives every change a distinct, readable id", () => {
@@ -392,6 +403,55 @@ describe("changing what a change does", () => {
 		expect(asClose.target).toEqual({ kind: "session" });
 		expect(asClose.name).toBeUndefined();
 		expect("name" in asClose).toBe(false);
+	});
+
+	it("closing preserves final writes while removing every forbidden authored facet", () => {
+		const writes = [
+			seedCaseOperationWrite("outcome", {
+				kind: "term",
+				term: { kind: "literal", value: "done" },
+			}),
+		];
+		const held: CaseOperation = {
+			uuid: testUuid("closing-update"),
+			id: "update_patient",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes,
+			rename: { kind: "term", term: { kind: "literal", value: "New name" } },
+			retype: "visit",
+			owner: { kind: "term", term: { kind: "literal", value: "worker" } },
+			links: [
+				{
+					identifier: "parent",
+					targetType: "patient",
+					target: null,
+					relationship: "child",
+				},
+			],
+		};
+		const next = reshapeForAction(
+			held,
+			"close",
+			{ kind: "session" },
+			"patient",
+		);
+		expect(next).toStrictEqual({
+			uuid: held.uuid,
+			id: held.id,
+			action: "close",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes,
+		});
+		expect(next.writes).toBe(writes);
+		expect(actionChangeLosses(held, "close")).toStrictEqual([
+			"the owner it sets",
+			"its links",
+			"the new name it gives the case",
+			"the type change",
+		]);
 	});
 
 	it("still passes the gate after the change of action", () => {

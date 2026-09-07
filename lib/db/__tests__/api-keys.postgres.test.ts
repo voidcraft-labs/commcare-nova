@@ -1,43 +1,13 @@
-/**
- * Integration tests for the api-key auth path against a real Postgres (the
- * testcontainer). The unit suite mocks `auth.api.{createApiKey, verifyApiKey,
- * deleteApiKey, updateApiKey}` at the boundary; the test author controls both
- * sides of those mocks, so a schema-boundary bug (a field rename in the plugin,
- * a Zod-validation rule we forgot, the `SERVER_ONLY_PROPERTY` rejection of
- * `permissions` when headers are passed) can't fail it. This file runs the
- * actual `@better-auth/api-key` plugin and reads back through our helpers, so
- * plugin-API drift fails loudly here instead of silently in production.
- *
- * What this proves that the unit tests can't:
- *   - The full mint → verify → revoke round-trip works end-to-end against the
- *     plugin's actual schema. A plugin version that renames `userId` to
- *     `principalId` or adds a required field would trip mint here.
- *   - `permissions` is accepted in server-only mode (no `headers` arg to
- *     `auth.api.createApiKey`) — the regression risk this defends against is a
- *     Server Action refactor that adds back the `headers` arg and silently
- *     fails with `SERVER_ONLY_PROPERTY`.
- *   - The `verifyApiKey` response shape carries `referenceId` and decoded
- *     `permissions.scope` exactly as the route's `handleApiKeyMcp` consumes them.
- *   - `lib/db/api-keys.ts::listUserApiKeys` reads what the plugin writes — pins
- *     the plugin's storage column names (`referenceId`, `permissions` as a JSON
- *     string, `start`) against our decoder.
- *
- * Runs on the per-test-database harness booted by the case-store testcontainer
- * `globalSetup`. The module functions reach the DB through the `getAuthDb`
- * singleton, pointed at the per-test pool via the `__setAuthDbForTests` seam.
- */
-
-import { apiKey } from "@better-auth/api-key";
-import { betterAuth } from "better-auth";
 import { getMigrations } from "better-auth/db/migration";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as authModule from "@/lib/auth";
 import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
+import { signSessionCookie } from "@/lib/auth/sessionCookie";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { NOVA_API_KEY_PREFIX } from "@/lib/auth-public";
-import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { log } from "@/lib/logger";
 
@@ -48,47 +18,27 @@ const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "auth_apikey_",
 	establishLocalMigrationAuthority: true,
+	prepareTemplate: async (db, pool) => {
+		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+		await runMigrations();
+		await runAuthAppMigrations(db);
+	},
 });
 
-/**
- * Mirrors the api-key plugin config in `lib/auth.ts` (the production-shape mount
- * the route actually exercises), plus the shared table-name map so the plugin
- * writes to the migrated `auth_apikey` table. Factored out so the inferred
- * return type carries the `auth.api.createApiKey` augmentation.
- */
-function createTestAuth(pool: typeof dbHandle.pool) {
-	return betterAuth({
-		secret: TEST_SECRET,
-		baseURL: "http://localhost:3000",
-		database: pool,
-		user: { modelName: AUTH_TABLE_NAMES.user },
-		session: { modelName: AUTH_TABLE_NAMES.session },
-		account: { modelName: AUTH_TABLE_NAMES.account },
-		verification: { modelName: AUTH_TABLE_NAMES.verification },
-		plugins: [
-			apiKey({
-				defaultPrefix: NOVA_API_KEY_PREFIX,
-				defaultKeyLength: 32,
-				startingCharactersConfig: {
-					shouldStore: true,
-					charactersLength: NOVA_API_KEY_PREFIX.length + 6,
-				},
-				requireName: true,
-				enableMetadata: false,
-				enableSessionForAPIKeys: false,
-				storage: "database",
-				rateLimit: { enabled: false },
-				keyExpiration: {
-					defaultExpiresIn: 365 * 24 * 60 * 60,
-					minExpiresIn: 1,
-					maxExpiresIn: 36500,
-				},
-				references: "user",
-				schema: { apikey: { modelName: AUTH_TABLE_NAMES.apikey } },
-			}),
-		],
-	});
-}
+const createTestAuth = authModule.createAuth;
+const actionBoundary = vi.hoisted(() => ({ headers: new Headers() }));
+vi.mock("next/headers", () => ({
+	headers: async () => actionBoundary.headers,
+}));
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("@/lib/auth-utils", async () => ({
+	...(await vi.importActual<typeof import("@/lib/auth-utils")>(
+		"@/lib/auth-utils",
+	)),
+	getSession: async () => ({
+		user: { id: "user-integration-test", email: "user@dimagi.com" },
+	}),
+}));
 
 /** Seed the key owner via Better Auth's own adapter (honoring the id). */
 async function seedUser(
@@ -116,11 +66,8 @@ describe("api-key integration", () => {
 	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
-		const { runMigrations } = await getMigrations(
-			authMigrateOptions(dbHandle.pool),
-		);
-		await runMigrations();
-		await runAuthAppMigrations(dbHandle.db);
+		vi.stubEnv("BETTER_AUTH_SECRET", TEST_SECRET);
+		vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
 		authDb = new Kysely<AuthDatabase>({
 			dialect: new PostgresDialect({
 				pool: dbHandle.pool as unknown as PostgresPool,
@@ -128,10 +75,14 @@ describe("api-key integration", () => {
 		});
 		__setAuthDbForTests(authDb);
 		auth = createTestAuth(dbHandle.pool);
+		vi.spyOn(authModule, "getAuth").mockResolvedValue(auth);
 	});
 
 	afterEach(() => {
 		__setAuthDbForTests(null);
+		vi.restoreAllMocks();
+		vi.unstubAllEnvs();
+		actionBoundary.headers = new Headers();
 	});
 
 	it("mint + verify round-trip works against the real plugin (server-only mode)", async () => {
@@ -198,7 +149,7 @@ describe("api-key integration", () => {
 		expect(afterDelete.error?.code).toBe("INVALID_API_KEY");
 	});
 
-	it("mintApiKey rejects `permissions` with SERVER_ONLY_PROPERTY when `headers` is passed", async () => {
+	it("plugin rejects `permissions` with SERVER_ONLY_PROPERTY when `headers` is passed", async () => {
 		await seedUser(auth);
 		/* Passing both `headers` and `permissions` makes the plugin's
 		 * `isClientRequest` check fire and reject `permissions` as a server-only
@@ -364,4 +315,157 @@ describe("api-key integration", () => {
 		const rows = await listUserApiKeys(TEST_USER_ID);
 		expect(rows.map((r) => r.name)).toEqual(["newer", "older"]);
 	});
+	it("actual settings actions mint, edit and revoke persisted plugin keys with owner authorization", async () => {
+		await seedUser(auth);
+		const context = await auth.$context;
+		const now = new Date();
+		await context.adapter.create({
+			model: "session",
+			data: {
+				token: "native-key-session",
+				userId: TEST_USER_ID,
+				createdAt: now,
+				updatedAt: now,
+				expiresAt: new Date(Date.now() + 60000),
+			},
+		});
+		actionBoundary.headers = new Headers({
+			cookie: `better-auth.session_token=${signSessionCookie("native-key-session", TEST_SECRET)}`,
+		});
+		const { mintApiKey, editApiKeyScopes, revokeApiKey } = await import(
+			"@/app/(app)/(site)/settings/api-key-actions"
+		);
+		const minted = await mintApiKey({
+			name: "Actual action",
+			expiry: "30d",
+			scopes: ["nova.read", "nova.write", "nova.projects.read"],
+		});
+		expect(minted.success).toBe(true);
+		if (!minted.success) throw new Error(minted.error);
+		expect(
+			(await auth.api.verifyApiKey({ body: { key: minted.key } })).key
+				?.permissions,
+		).toEqual({ scope: ["nova.read", "nova.write", "nova.projects.read"] });
+		expect(
+			await editApiKeyScopes(minted.keyId, [
+				"nova.read",
+				"nova.write",
+				"nova.hq.read",
+			]),
+		).toEqual({ success: true });
+		expect(
+			(await auth.api.verifyApiKey({ body: { key: minted.key } })).key
+				?.permissions,
+		).toEqual({ scope: ["nova.read", "nova.write", "nova.hq.read"] });
+		expect(await revokeApiKey(minted.keyId)).toEqual({ success: true });
+		expect(
+			(await auth.api.verifyApiKey({ body: { key: minted.key } })).valid,
+		).toBe(false);
+	});
+
+	it.each([false, true])(
+		"concurrent real mints resolve the last slot and preserve plaintext when compensation deletion fails=%s",
+		async (rejectDeletion) => {
+			await seedUser(auth);
+			const keyModule = await import("../api-keys");
+			const { PER_USER_KEY_LIMIT, countUserApiKeys } = keyModule;
+			for (let index = 0; index < PER_USER_KEY_LIMIT - 1; index++)
+				await auth.api.createApiKey({
+					body: { name: `existing-${index}`, userId: TEST_USER_ID },
+				});
+			await dbHandle.pool.query('UPDATE auth_apikey SET "createdAt" = $1', [
+				new Date("2026-01-01"),
+			]);
+			if (rejectDeletion)
+				await dbHandle.pool.query(
+					`CREATE FUNCTION reject_key_delete() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'native compensation deletion denied'; END $$; CREATE TRIGGER key_delete_failure BEFORE DELETE ON auth_apikey FOR EACH ROW EXECUTE FUNCTION reject_key_delete()`,
+				);
+			const preflights = Promise.withResolvers<void>();
+			let preflightCount = 0;
+			vi.spyOn(keyModule, "countUserApiKeys").mockImplementation(
+				async (userId) => {
+					const count = await countUserApiKeys(userId);
+					if (preflightCount < 2) {
+						preflightCount++;
+						if (preflightCount === 2) preflights.resolve();
+						await preflights.promise;
+					}
+					return count;
+				},
+			);
+			const originalCreate = auth.api.createApiKey;
+			const bothCommitted = Promise.withResolvers<void>();
+			const release = Promise.withResolvers<void>();
+			const created: Awaited<ReturnType<typeof originalCreate>>[] = [];
+			vi.spyOn(auth.api, "createApiKey").mockImplementation(async (input) => {
+				const result = await originalCreate(input);
+				created.push(result);
+				if (created.length === 2) bothCommitted.resolve();
+				await release.promise;
+				return result;
+			});
+			const { mintApiKey } = await import(
+				"@/app/(app)/(site)/settings/api-key-actions"
+			);
+			const tasks = [
+				mintApiKey({
+					name: "Concurrent A",
+					expiry: "30d",
+					scopes: ["nova.read", "nova.write"],
+				}),
+				mintApiKey({
+					name: "Concurrent B",
+					expiry: "30d",
+					scopes: ["nova.read", "nova.write"],
+				}),
+			];
+			try {
+				await Promise.race([
+					bothCommitted.promise,
+					Promise.all(tasks).then(() => {
+						throw new Error(
+							"Actions completed before both native writes committed",
+						);
+					}),
+				]);
+				// Both plugin writes have committed before either action can recount.
+				expect(await countUserApiKeys(TEST_USER_ID)).toBe(
+					PER_USER_KEY_LIMIT + 1,
+				);
+				release.resolve();
+				const results = await Promise.all(tasks);
+				const successes = results.filter((result) => result.success);
+				expect(successes).toHaveLength(rejectDeletion ? 2 : 1);
+				expect(await countUserApiKeys(TEST_USER_ID)).toBe(
+					rejectDeletion ? PER_USER_KEY_LIMIT + 1 : PER_USER_KEY_LIMIT,
+				);
+				for (const result of successes) {
+					if (!result.success) throw new Error("Expected success");
+					expect(
+						(await auth.api.verifyApiKey({ body: { key: result.key } })).valid,
+					).toBe(true);
+				}
+				if (!rejectDeletion) {
+					const rejected = created.find(
+						(row) =>
+							!successes.some(
+								(result) => result.success && result.keyId === row.id,
+							),
+					);
+					expect(rejected).toBeDefined();
+					expect(
+						(
+							await auth.api.verifyApiKey({
+								body: { key: rejected?.key ?? "" },
+							})
+						).valid,
+					).toBe(false);
+				}
+			} finally {
+				preflights.resolve();
+				release.resolve();
+				await Promise.all(tasks);
+			}
+		},
+	);
 });

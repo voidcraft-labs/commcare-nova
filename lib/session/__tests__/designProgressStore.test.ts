@@ -3,8 +3,8 @@
  * by scripted frame sequences exactly as the orchestrator writes them.
  *
  * The interesting cases are the ones a screenshot would never catch: the
- * FIRST slice commits as the materialization receipt (no `slice-committed`
- * frame at all), a replayed reconnect must be idempotent, and a frame naming
+ * legacy FIRST slice may commit only as the materialization receipt, while
+ * current roots emit committed progress too; reconnect is idempotent and a frame naming
  * another design session must be dropped rather than half-applied.
  */
 

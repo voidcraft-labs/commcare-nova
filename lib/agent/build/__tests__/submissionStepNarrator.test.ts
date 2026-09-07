@@ -1,47 +1,76 @@
-/**
- * The key-order sub-step narrator: advisory by contract: a hit yields the
- * honest label, a miss degrades to nothing, and nothing it does can
- * corrupt state. Strict-mode constrained decoding pins property order to
- * schema order, which is what makes watching for top-level keys truthful.
- */
-
 import { describe, expect, it } from "vitest";
-import {
-	CONTRACT_STEP_LABELS,
-	createSubmissionStepNarrator,
-} from "@/lib/agent/build/progress";
+import { createSubmissionStepNarrator } from "../progress";
 
-describe("createSubmissionStepNarrator", () => {
-	it("names each step as its key streams, in order", () => {
-		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"schemaVersion":1,"charter":{')).toBe(
+const LABELS = [
+	["charter", "Setting the app direction"],
+	["records", "Working out the records"],
+	["actors", "Understanding who does what"],
+	["workflows", "Shaping the workflows"],
+] as const;
+
+// Advisory streaming JSON key recognition only. Provider quality and ordering
+// are not assumed; labels follow keys actually observed at the root object.
+describe("submission narration", () => {
+	it("tracks only complete top-level keys, preserving the last known step", () => {
+		const narrator = createSubmissionStepNarrator(LABELS);
+		expect(narrator.feed('{"charter":{')).toBe("Setting the app direction");
+		expect(
+			narrator.feed(
+				'"objective":"records","records":[],"other":{"workflows":[]}}',
+			),
+		).toBe("Setting the app direction");
+		expect(narrator.feed(',"unknown":"workflows"')).toBe(
 			"Setting the app direction",
 		);
-		expect(narrator.feed('},"actors":[],"records":[{"name"')).toBe(
-			"Working out the records",
-		);
-		expect(narrator.feed('}],"workflows":[')).toBe("Shaping the workflows");
-	});
-
-	it("survives a key split across two deltas", () => {
-		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"rec')).toBeUndefined();
-		expect(narrator.feed('ords":[')).toBe("Working out the records");
-	});
-
-	it("reports the latest key when several land in one delta", () => {
-		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"actors":[],"records":[],"workflows":[')).toBe(
+		expect(narrator.feed(',"records"')).toBe("Setting the app direction");
+		expect(narrator.feed(" : [")).toBe("Working out the records");
+		expect(narrator.feed('],"workflows":[],"tail":true}')).toBe(
 			"Shaping the workflows",
 		);
 	});
 
-	it("degrades to the last known step on unknown keys", () => {
-		const narrator = createSubmissionStepNarrator(CONTRACT_STEP_LABELS);
-		expect(narrator.feed('{"unknownKey":1')).toBeUndefined();
-		expect(narrator.feed(',"charter":{')).toBe("Setting the app direction");
-		expect(narrator.feed(',"anotherUnknown":2')).toBe(
-			"Setting the app direction",
+	it("recognizes keys in actual arrival order across every two-chunk split", () => {
+		const text = JSON.stringify({
+			charter: { text: 'quote " and slash \\ and } [ :', workflows: [] },
+			records: [],
+			actors: [],
+		});
+		for (let split = 0; split <= text.length; split++) {
+			const narrator = createSubmissionStepNarrator(LABELS);
+			narrator.feed(text.slice(0, split));
+			expect(narrator.feed(text.slice(split)), `split ${split}`).toBe(
+				"Understanding who does what",
+			);
+		}
+		const single = createSubmissionStepNarrator(LABELS);
+		for (const char of text) single.feed(char);
+		expect(single.feed("")).toBe("Understanding who does what");
+	});
+
+	it("decodes escaped key characters and ignores quoted values and deeply nested keys", () => {
+		const narrator = createSubmissionStepNarrator(LABELS);
+		expect(
+			narrator.feed('{"value":"records","nested":[{"actors":{}}]'),
+		).toBeUndefined();
+		expect(narrator.feed(',"rec\\u006frds" : []}')).toBe(
+			"Working out the records",
 		);
+	});
+
+	it("recognizes the current patch tool's upserts after nested removals data", () => {
+		const narrator = createSubmissionStepNarrator([
+			["upserts", "Updating records"],
+		]);
+		expect(narrator.feed('{"context":{"upserts":[]},"up')).toBeUndefined();
+		expect(narrator.feed('serts":[')).toBe("Updating records");
+	});
+
+	it("handles no labels and large values without losing the next root key", () => {
+		expect(
+			createSubmissionStepNarrator([]).feed('{"records":[]}'),
+		).toBeUndefined();
+		const narrator = createSubmissionStepNarrator(LABELS);
+		expect(narrator.feed(`{"unknown":"${"x".repeat(100_000)}`)).toBeUndefined();
+		expect(narrator.feed('","records":[]}')).toBe("Working out the records");
 	});
 });

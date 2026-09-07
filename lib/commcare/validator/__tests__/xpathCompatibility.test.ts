@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import {
+	expectAdmittedDoc,
+	surveyFixture,
+} from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { lookupTableIdSchema, proseText } from "@/lib/domain";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { runValidation } from "../runner";
 import { validateXPath } from "../xpathValidator";
 
-describe("XPath executable-language admission", () => {
+// Exercises Nova's source validator and document admission, not a native JavaRosa execution.
+describe("XPath compatibility diagnostics", () => {
 	it.each([
 		"/data/x[p]/@id",
 		"../x",
@@ -13,7 +20,7 @@ describe("XPath executable-language admission", () => {
 		"child::*",
 		"attribute::id",
 		"self::node()",
-	])("admits JavaRosa-executable syntax: %s", (source) => {
+	])("accepts supported syntax: %s", (source) => {
 		expect(validateXPath(source)).toEqual([]);
 	});
 
@@ -25,11 +32,11 @@ describe("XPath executable-language admission", () => {
 		["@*", "XPATH_UNSUPPORTED_NODE_TEST"],
 		["a/../b", "XPATH_UNSUPPORTED_PATH"],
 		["$value", "XPATH_UNBOUND_VARIABLE"],
-	] as const)("rejects non-executable syntax: %s", (source, code) => {
+	] as const)("reports unsupported syntax: %s", (source, code) => {
 		expect(validateXPath(source)).toEqual([expect.objectContaining({ code })]);
 	});
 
-	it("admits JavaRosa nodeset overloads in Preview and wire carriers", () => {
+	it("accepts the nodeset overload under form carrier profiles", () => {
 		expect(validateXPath("concat(/data/items)")).toEqual([]);
 		expect(
 			validateXPath(
@@ -44,16 +51,28 @@ describe("XPath executable-language admission", () => {
 	});
 
 	it("gates catalog constraints through the canonical carrier inventory", () => {
-		const doc = buildDoc({
+		const doc = {
+			...expectAdmittedDoc(surveyFixture()),
 			caseTypes: [
 				{
 					name: "person",
 					properties: [
 						{
 							name: "age",
-							label: "Age",
-							validation: "left | right",
+							label: proseText("Age"),
+							validation: xp("left | right"),
 						},
+					],
+				},
+			],
+		};
+		expectAdmittedDoc({
+			...doc,
+			caseTypes: [
+				{
+					name: "person",
+					properties: [
+						{ name: "age", label: proseText("Age"), validation: xp(". >= 0") },
 					],
 				},
 			],
@@ -94,6 +113,7 @@ describe("XPath executable-language admission", () => {
 					},
 				],
 			});
+		expectAdmittedDoc(withInstance("commcaresession"));
 		expect(
 			runValidation(withInstance("missing"), LOOKUP_CONTEXT_UNAVAILABLE).some(
 				(finding) => finding.code === "XPATH_INSTANCE_UNAVAILABLE",
@@ -103,13 +123,13 @@ describe("XPath executable-language admission", () => {
 		const availableLookup = {
 			kind: "available" as const,
 			projectId: "project",
-			projectRevision: "1" as never,
+			projectRevision: parseLookupRevision("1"),
 			definitions: [
 				{
-					id: testUuid("lookup-table") as never,
+					id: lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001"),
 					name: "People",
 					tag: "people",
-					definitionRevision: "1" as never,
+					definitionRevision: parseLookupRevision("1"),
 					columns: [],
 				},
 			],
@@ -135,6 +155,8 @@ describe("XPath executable-language admission", () => {
 							{
 								name: "Source form",
 								type: "survey",
+								postSubmit: "app_home",
+								fields: [f({ kind: "text", id: "note", label: "Note" })],
 								formLinks: [
 									{
 										condition: `instance('${id}')/people_list/people[1]/enabled = 'yes'`,
@@ -147,9 +169,20 @@ describe("XPath executable-language admission", () => {
 							},
 						],
 					},
-					{ uuid: targetModuleUuid, name: "Target" },
+					{
+						uuid: targetModuleUuid,
+						name: "Target",
+						forms: [
+							{
+								name: "Target survey",
+								type: "survey",
+								fields: [f({ kind: "text", id: "note", label: "Note" })],
+							},
+						],
+					},
 				],
 			});
+		expectAdmittedDoc(withSessionInstance("commcaresession"), availableLookup);
 		expect(
 			runValidation(
 				withSessionInstance("item-list:people"),

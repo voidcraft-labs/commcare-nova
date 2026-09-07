@@ -108,7 +108,6 @@
 
 import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { normalizeRelationPropertyReads } from "@/lib/domain/predicate/normalizeRelationReads";
-import type { TypeContext as DomainTypeContext } from "@/lib/domain/predicate/typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -119,13 +118,16 @@ import {
 	emitCsqlExpressionSegments,
 	isNativeCsqlValueExpression,
 } from "../expression/csqlEmitter";
-import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
-import type { LookupWireNaming } from "../lookup/naming";
+import {
+	emitCsqlRuntimeExpression,
+	type CsqlEmissionContext as TypeContext,
+} from "../expression/csqlRuntimeExpression";
 import { assertCsqlQueryFunction } from "../xpath/functionCapabilities";
 import { normalizeCsqlPredicate } from "./csqlRepresentability";
 import {
 	type CsqlSegment,
 	dedupeRuntimeRejections,
+	groupCsqlArgument,
 	mergeAdjacentConstants,
 	quoteConstantSegmentForXPath,
 	type RuntimeCsqlRejection,
@@ -153,10 +155,6 @@ import {
 	serializeAncestorPath,
 	wrapTermAsSegmentList,
 } from "./termEmitter";
-
-interface TypeContext extends DomainTypeContext {
-	readonly lookupNaming?: LookupWireNaming;
-}
 
 /**
  * Output of the CSQL emission pipeline. `wrapper` is the on-device
@@ -824,7 +822,7 @@ function emitOperandSegments(
 			);
 			return [
 				{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
-				...filterSegments,
+				...groupCsqlArgument(filterSegments),
 				{ kind: "constant", text: ")" },
 			];
 		}
@@ -875,20 +873,7 @@ function inlineAsRuntimeOperand(
 	expr: ValueExpression,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
-	const xpath = emitOnDeviceExpression(
-		expr,
-		undefined,
-		typeContext ?? {},
-		undefined,
-		typeContext?.lookupNaming === undefined
-			? {}
-			: {
-					lookup: {
-						naming: typeContext.lookupNaming,
-						instanceScope: "suite",
-					},
-				},
-	);
+	const xpath = emitCsqlRuntimeExpression(expr, typeContext);
 	return quoteRuntimeCsqlValue(xpath, "double", [
 		...collectRuntimeCsqlStringExpressionInputNames(
 			expr,
@@ -1103,9 +1088,13 @@ function emitMatchSegments(
 	// Every other operand emission in this file routes runtime terms
 	// through the same wrap — the `match` arm was the lone bypass.
 	const valueSegments = emitOperandSegments(p.value, "value", typeContext);
+	const argument =
+		isNativeCsqlValueExpression(p.value) && p.value.kind !== "term"
+			? groupCsqlArgument(valueSegments)
+			: valueSegments;
 	return [
 		{ kind: "constant", text: `${wireFunction}(${propEmission.text}, ` },
-		...valueSegments,
+		...argument,
 		{ kind: "constant", text: ")" },
 	];
 }
@@ -1271,11 +1260,7 @@ function emitGeopointCenterSegments(
 			),
 		);
 	}
-	const rawCenter = emitOnDeviceExpression(
-		center,
-		undefined,
-		typeContext ?? {},
-	);
+	const rawCenter = emitCsqlRuntimeExpression(center, typeContext);
 	const normalized = normalizeOnDeviceGeopoint(rawCenter);
 	const inputNames = [...collectGeopointCenterInputNames(center)]
 		.map(
@@ -1445,7 +1430,7 @@ function emitAncestorExistsCall(
 			: ([{ kind: "constant", text: "match-all()" }] as const);
 	return [
 		{ kind: "constant", text: `ancestor-exists(${barePath}, ` },
-		...filterSegments,
+		...groupCsqlArgument(filterSegments),
 		{ kind: "constant", text: ")" },
 	];
 }
@@ -1477,7 +1462,7 @@ function emitQualifiedAncestorExistsChain(
 			kind: "constant",
 			text: `ancestor-exists(${step.identifier}, `,
 		},
-		...filter,
+		...groupCsqlArgument(filter),
 		{ kind: "constant", text: ")" },
 	];
 }
@@ -1529,7 +1514,7 @@ function emitSubcaseExistsCall(
 	);
 	return [
 		{ kind: "constant", text: `subcase-exists(${identifierLiteral}, ` },
-		...filterSegments,
+		...groupCsqlArgument(filterSegments),
 		{ kind: "constant", text: ")" },
 	];
 }

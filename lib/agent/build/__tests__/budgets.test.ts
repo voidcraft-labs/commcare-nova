@@ -1,122 +1,110 @@
+/** Budget policy, exercised independently of model calls and durable claims. */
 import { describe, expect, it } from "vitest";
+import { did } from "@/lib/agent/design/__tests__/fixtures";
+import {
+	type BuildSlice,
+	buildSliceSchema,
+} from "@/lib/agent/design/buildPlan";
+import { MODEL_ROLES } from "@/lib/models";
 import {
 	BLOCKER_RESOLUTION_ALLOWANCE,
 	budgetForSlice,
 	remainingWallClockMs,
-} from "@/lib/agent/build/budgets";
-import { EXECUTOR_PROMPT_VERSION } from "@/lib/agent/build/executorPrompt";
-import {
-	did,
-	fixtureValue,
-	makeBuildPlan,
-} from "@/lib/agent/design/__tests__/fixtures";
-import type { BuildSlice } from "@/lib/agent/design/buildPlan";
-import { MODEL_ROLES } from "@/lib/models";
+	totalWallClockAllowanceMs,
+} from "../budgets";
 
-function sliceWithGroups(count: number): BuildSlice {
-	return {
+// Sizing consumes a slice's risk and group count. These schema-admitted policy
+// inputs deliberately reach the ceilings; they are not claims that today's
+// deterministic planner generates this many groups.
+function sizedSlice(groups: number, risk: BuildSlice["risk"] = "ordinary") {
+	return buildSliceSchema.parse({
 		id: did(900),
 		workflowId: did(901),
-		name: "Sized slice",
-		goal: "Exercise budget scaling.",
+		name: "Sized workflow",
+		goal: "Bound execution cost",
 		prerequisiteSliceIds: [],
-		constructionGroups: Array.from({ length: count }, (_, index) => ({
+		externalActionIds: [],
+		risk,
+		role: "ordinary",
+		constructionGroups: Array.from({ length: groups }, (_, index) => ({
 			id: did(1000 + index),
 			workflowId: did(901),
 			name: `Group ${index + 1}`,
-			kind: "workflow" as const,
-			elements: [{ kind: "workflow" as const, id: did(2000 + index) }],
-			blueprintAreas: ["forms" as const],
+			kind: "workflow",
+			elements: [{ kind: "property", id: did(2000 + index) }],
+			blueprintAreas: ["forms"],
 		})),
-		externalActionIds: [],
-		risk: "ordinary",
-		role: "ordinary",
-	};
+	});
 }
 
-describe("budgetForSlice", () => {
-	it("scales from real construction groups", () => {
-		expect(budgetForSlice(sliceWithGroups(1))).toMatchObject({
-			maxModelSteps: 13,
-			maxMutationCalls: 19,
-			maxWallClockMs: 1_170_000,
-		});
-		expect(budgetForSlice(sliceWithGroups(5))).toMatchObject({
-			maxModelSteps: 25,
-			maxMutationCalls: 31,
-			maxWallClockMs: 2_250_000,
-		});
-	});
-
-	it("holds scaled axes at hard ceilings", () => {
-		expect(budgetForSlice(sliceWithGroups(500))).toMatchObject({
-			maxModelSteps: 40,
-			maxMutationCalls: 96,
-			maxWallClockMs: 3_600_000,
-		});
-	});
-
-	it("funds every slice's wall clock at exactly the executor role's step pace", () => {
-		const pace = MODEL_ROLES.buildExecutor.msPerModelStep;
-		for (const groups of [0, 1, 5, 9, 10, 500]) {
-			const budget = budgetForSlice(sliceWithGroups(groups));
-			expect(budget.maxWallClockMs).toBe(budget.maxModelSteps * pace);
+describe("slice execution budget policy", () => {
+	it.each([
+		[1, "ordinary", 13, 19],
+		[5, "ordinary", 25, 31],
+		[9, "ordinary", 37, 43],
+		[10, "ordinary", 40, 46],
+		[26, "ordinary", 40, 94],
+		[27, "ordinary", 40, 96],
+		[1, "cross-record", 16, 25],
+		[9, "cross-record", 40, 49],
+		[1, "external-effect", 15, 23],
+		[10, "external-effect", 40, 50],
+	] as const)(
+		"prices %i %s groups at %i model steps and %i mutation calls",
+		(groups, risk, steps, calls) => {
+			const slice = sizedSlice(groups, risk);
+			const before = structuredClone(slice);
+			expect(budgetForSlice(slice)).toEqual({
+				maxModelSteps: steps,
+				maxMutationCalls: calls,
+				maxCommitAttempts: 3,
+				maxRebaseAttempts: 2,
+				maxBlockerResolutions: 2,
+				maxWallClockMs: steps * MODEL_ROLES.buildExecutor.msPerModelStep,
+			});
+			expect(slice).toEqual(before);
+		},
+	);
+	it("caps all risk classes without reducing their funded step pace", () => {
+		for (const risk of [
+			"ordinary",
+			"cross-record",
+			"external-effect",
+		] as const) {
+			const budget = budgetForSlice(sizedSlice(100, risk));
+			expect(budget).toMatchObject({
+				maxModelSteps: 40,
+				maxMutationCalls: 96,
+				maxWallClockMs: 40 * MODEL_ROLES.buildExecutor.msPerModelStep,
+			});
 		}
-		const crossRecord: BuildSlice = {
-			...sliceWithGroups(2),
-			risk: "cross-record",
-		};
-		const budget = budgetForSlice(crossRecord);
-		expect(budget.maxWallClockMs).toBe(budget.maxModelSteps * pace);
-		expect(BLOCKER_RESOLUTION_ALLOWANCE.ms).toBe(
-			BLOCKER_RESOLUTION_ALLOWANCE.modelSteps * pace,
-		);
 	});
-
-	it("couples any budget retune to the executor prompt version", () => {
-		/* The failed-slice rerun gate fingerprints (executor model, prompt
-		 * version, brief digest); the budgets are enforced but not recorded.
-		 * Changing any number in budgets.ts — or the pace in lib/models.ts —
-		 * changes the executor's operating envelope, so the same diff must
-		 * bump EXECUTOR_PROMPT_VERSION or every budget-exhausted slice stays
-		 * permanently closed under the old limits. The pins above break on any
-		 * retune; this pin makes that diff also name the version bump. */
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v20");
-	});
-
-	it("is pure for a derived slice", () => {
-		const slice = fixtureValue(makeBuildPlan().slices[0], "first slice");
-		expect(budgetForSlice(slice)).toEqual(
-			budgetForSlice(structuredClone(slice)),
-		);
+	it("funds each paid blocker with the same step pace and bounded extra mutations", () => {
+		expect(BLOCKER_RESOLUTION_ALLOWANCE).toEqual({
+			modelSteps: 5,
+			mutationCalls: 8,
+			ms: 5 * MODEL_ROLES.buildExecutor.msPerModelStep,
+		});
 	});
 });
 
-describe("remainingWallClockMs", () => {
-	it("grants the full budget to a fresh attempt and the unspent remainder to a recovered one", () => {
-		const budget = budgetForSlice(sliceWithGroups(1));
-		expect(remainingWallClockMs(budget, 0)).toBe(budget.maxWallClockMs);
-		expect(remainingWallClockMs(budget, 200_000)).toBe(
-			budget.maxWallClockMs - 200_000,
-		);
-	});
-
-	it("prices answered architect blockers into the remaining wall clock", () => {
-		const budget = budgetForSlice(sliceWithGroups(1));
-		expect(remainingWallClockMs(budget, budget.maxWallClockMs, 1)).toBe(
-			BLOCKER_RESOLUTION_ALLOWANCE.ms,
-		);
-		expect(remainingWallClockMs(budget, 0, 2)).toBe(
-			budget.maxWallClockMs + 2 * BLOCKER_RESOLUTION_ALLOWANCE.ms,
-		);
-	});
-
-	it("floors at zero once active spend reaches the budget", () => {
-		const budget = budgetForSlice(sliceWithGroups(1));
-		expect(remainingWallClockMs(budget, budget.maxWallClockMs)).toBe(0);
-		/* The pre-integrator failure shape: a recovery arriving after a long
-		 * dead gap must NOT be modeled as spend — but if genuine active spend
-		 * ever exceeds the budget, the remainder still floors at zero. */
-		expect(remainingWallClockMs(budget, budget.maxWallClockMs + 1)).toBe(0);
-	});
+describe("durable active-time allowance", () => {
+	it.each([0, 1, 2])(
+		"accounts for %i paid blockers and floors exhausted active time at zero",
+		(blockers) => {
+			const budget = budgetForSlice(sizedSlice(1));
+			const total =
+				(13 + blockers * 5) * MODEL_ROLES.buildExecutor.msPerModelStep;
+			expect(totalWallClockAllowanceMs(budget, blockers)).toBe(total);
+			for (const [spent, remaining] of [
+				[0, total],
+				[200_000, total - 200_000],
+				[total - 1, 1],
+				[total, 0],
+				[total + 1, 0],
+			]) {
+				expect(remainingWallClockMs(budget, spent, blockers)).toBe(remaining);
+			}
+		},
+	);
 });

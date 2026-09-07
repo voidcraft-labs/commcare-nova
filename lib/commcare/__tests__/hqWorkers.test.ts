@@ -1,432 +1,354 @@
-/**
- * Fetch-level tests for the CommCare HQ mobile-worker driver
- * (`lib/commcare/hq/workers.ts`).
- *
- * Every wire fact asserted here was read in CommCare HQ's own source or
- * pinned by its own tests, never inferred from Nova's side:
- *
- *   - the write path is `/a/{domain}/api/user/v1/`
- *     (`api/urls.py`: `v0_5.CommCareUserResource.get_urlpattern('v1')`);
- *   - a create answers **201** with `{"id": "<user_id>"}` and nothing else,
- *     because `::serialize` collapses a POST's bundle to exactly that
- *     (`api/tests/test_user_resources.py::TestCommCareUserResource.test_create`
- *     asserts the 201);
- *   - an update is a PUT on the `user_id`, and every field's complaint is
- *     gathered into ONE 400 `{"error": "The request resulted in the
- *     following errors: ..."}` (`::obj_update`, pinned verbatim by
- *     `::test_update_fails`);
- *   - the username is create-only — `::test_update_fails` proves sending
- *     it on a PUT is `"Attempted to update unknown or non-editable field
- *     'username'"`;
- *   - `primary_location` and `locations` travel together
- *     (`api/user_updates.py::CommcareUserUpdates._validate_locations`), and
- *     an empty `locations` alone reaches `::_remove_all_locations`;
- *   - and the only username filter anywhere is the Elasticsearch-backed
- *     `bulk-user` resource, because `v0_1.py::CommCareUserResource.obj_get_list`
- *     supports `group` and `archived` and nothing else.
- */
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+/** Native request/response tests against the HQ worker resource wire contract. */
+import { afterEach, expect, it, vi } from "vitest";
+import {
+	readHttpRequestBody,
+	withHttpPeer,
+} from "@/__tests__/helpers/httpPeer";
+import { log } from "@/lib/logger";
 import {
 	createHqMobileWorker,
 	findHqMobileWorkers,
 	updateHqMobileWorker,
 } from "../hq/workers";
 
-const CREDS = {
-	username: "user@example.org",
-	apiKey: "abc123",
-	server: "production",
-} as const;
-const DOMAIN = "myproject";
-const BASE = "https://www.commcarehq.org";
-
-function jsonResponse(body: unknown, status = 200): Response {
-	return new Response(JSON.stringify(body), {
-		status,
-		headers: { "Content-Type": "application/json" },
+const CREDS = { username: "account", apiKey: "key", server: "india" } as const;
+const HOST = "https://india.commcarehq.org",
+	PATH = "/a/clinic/api/user/v1/",
+	SEARCH = "/a/clinic/api/bulk-user/v1/";
+const username = "amina@clinic.commcarehq.org";
+const worker = {
+	username: "amina",
+	password: "Generated-fixture-credential",
+	firstName: "Amina",
+	lastName: "Osei",
+	email: "amina@example.org",
+	userData: { cadre: "community" },
+};
+const create = () => createHqMobileWorker(CREDS, "clinic", worker);
+const update = () =>
+	updateHqMobileWorker(CREDS, "clinic", "worker-1", {
+		userData: { cadre: "community" },
 	});
-}
+const unknownWrite = {
+	success: false,
+	status: 502,
+	message: "",
+	mayHaveLanded: true,
+};
+afterEach(() => vi.useRealTimers());
 
-let fetchMock: ReturnType<typeof vi.spyOn>;
-beforeEach(() => {
-	fetchMock = vi.spyOn(globalThis, "fetch");
-});
-afterEach(() => {
-	fetchMock.mockRestore();
-});
-
-function lastCall(): [string, RequestInit] {
-	return fetchMock.mock.calls.at(-1) as [string, RequestInit];
-}
-
-function lastBody(): Record<string, unknown> {
-	return JSON.parse(String(lastCall()[1].body));
-}
-
-describe("findHqMobileWorkers", () => {
-	it("asks the Elasticsearch resource and keeps only exact matches", async () => {
-		// `q` goes straight into an ES `query_string`
-		// (`v0_5.py::user_es_call`), so a near miss is a real possibility
-		// and trusting the answer would report somebody else's account as
-		// this persona's.
-		fetchMock.mockResolvedValue(
-			jsonResponse({
+it("searches several exact usernames through the native ES query and excludes near misses", async () => {
+	await withHttpPeer(async (peer) => {
+		const names = [username, "joseph@clinic.commcarehq.org"];
+		peer
+			.get(HOST)
+			.intercept({ path: (path) => path.startsWith(SEARCH), method: "GET" })
+			.reply(200, {
 				objects: [
-					{ id: "u1", username: `amina@${DOMAIN}.commcarehq.org` },
-					{ id: "u2", username: `amina.b@${DOMAIN}.commcarehq.org` },
+					{ id: "worker-1", username },
+					{ id: "worker-2", username: "amina.b@clinic.commcarehq.org" },
 				],
-			}),
-		);
-
-		const result = await findHqMobileWorkers(CREDS, DOMAIN, [
-			`amina@${DOMAIN}.commcarehq.org`,
+			});
+		expect(await findHqMobileWorkers(CREDS, "clinic", names)).toEqual([
+			{ userId: "worker-1", username },
 		]);
-		expect(result).toEqual([
-			{ userId: "u1", username: `amina@${DOMAIN}.commcarehq.org` },
+		const calls = peer.getCallHistory()?.calls();
+		expect(calls).toHaveLength(1);
+		const url = new URL(calls?.[0]?.fullUrl ?? "");
+		expect(url.origin + url.pathname).toBe(HOST + SEARCH);
+		expect([...url.searchParams]).toEqual([
+			[
+				"q",
+				'username:"amina@clinic.commcarehq.org" OR username:"joseph@clinic.commcarehq.org"',
+			],
+			["fields", "id"],
+			["fields", "username"],
+			["limit", "8"],
 		]);
-
-		const url = new URL(String(lastCall()[0]));
-		expect(url.pathname).toBe(`/a/${DOMAIN}/api/bulk-user/v1/`);
-		expect(url.searchParams.getAll("fields")).toEqual(["id", "username"]);
-		expect(url.searchParams.get("q")).toContain(
-			`username:"amina@${DOMAIN}.commcarehq.org"`,
-		);
-		expect(
-			(lastCall()[1].headers as Record<string, string>).Authorization,
-		).toBe(`ApiKey ${CREDS.username}:${CREDS.apiKey}`);
-	});
-
-	it("asks one question for several usernames", async () => {
-		fetchMock.mockResolvedValue(jsonResponse({ objects: [] }));
-		await findHqMobileWorkers(CREDS, DOMAIN, [
-			`amina@${DOMAIN}.commcarehq.org`,
-			`joseph@${DOMAIN}.commcarehq.org`,
-		]);
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-		expect(new URL(String(lastCall()[0])).searchParams.get("q")).toBe(
-			`username:"amina@${DOMAIN}.commcarehq.org" OR username:"joseph@${DOMAIN}.commcarehq.org"`,
-		);
-	});
-
-	it("asks nothing when there is nothing to ask about", async () => {
-		expect(await findHqMobileWorkers(CREDS, DOMAIN, [])).toEqual([]);
-		expect(fetchMock).not.toHaveBeenCalled();
-	});
-
-	it("refuses rather than reporting every username as free", async () => {
-		// `BulkUserResource` needs `edit_commcare_users`
-		// (`RequirePermissionAuthentication`). Reading that refusal as "no
-		// accounts exist" would send a create for every name and write over
-		// whoever holds them.
-		fetchMock.mockResolvedValue(new Response("", { status: 403 }));
-		const result = await findHqMobileWorkers(CREDS, DOMAIN, [
-			`amina@${DOMAIN}.commcarehq.org`,
-		]);
-		expect(result).toEqual({
-			success: false,
-			status: 403,
-			edgeRefusal: false,
-		});
 	});
 });
 
-describe("createHqMobileWorker", () => {
-	it("posts the bare username with a password and reads the id back", async () => {
-		fetchMock.mockResolvedValue(jsonResponse({ id: "u9" }, 201));
-
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-			userData: { cadre: "community" },
-		});
-		expect(result).toEqual({ userId: "u9" });
-
-		expect(String(lastCall()[0])).toBe(`${BASE}/a/${DOMAIN}/api/user/v1/`);
-		expect(lastCall()[1].method).toBe("POST");
-		expect(lastBody()).toEqual({
-			// Bare: `users/util.py::generate_mobile_username` appends the
-			// project space's own suffix, and sending a complete one would
-			// have to match `cc_user_domain` exactly to be accepted.
-			username: "amina",
-			password: "Sup3r-secret!x",
-			user_data: { cadre: "community" },
-		});
-	});
-
-	it("sends a place assignment only as a pair", async () => {
-		fetchMock.mockResolvedValue(jsonResponse({ id: "u9" }, 201));
-		await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-			locations: { primaryLocationId: "l1", locationIds: ["l1", "l2"] },
-		});
-		expect(lastBody()).toMatchObject({
-			primary_location: "l1",
-			locations: ["l1", "l2"],
-		});
-	});
-
-	it("passes CommCare HQ's own refusal through, verbatim", async () => {
-		fetchMock.mockResolvedValue(
-			jsonResponse(
-				{
-					error:
-						"Username 'amina@myproject.commcarehq.org' is already taken or reserved.",
-				},
-				400,
-			),
-		);
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toEqual({
-			success: false,
-			status: 400,
-			message:
-				"Username 'amina@myproject.commcarehq.org' is already taken or reserved.",
-			edgeRefusal: false,
-			/* A 400 is the one status that settles it: every `BadRequest` in
-			 * `v0_5.py::CommCareUserResource.obj_create` is raised BEFORE
-			 * `CommCareUser.create`, so nothing was made. */
-			mayHaveLanded: false,
-		});
-	});
-
-	it("refuses an answer that carries no id", async () => {
-		// Without an id there is nothing to record, and recording nothing
-		// would make the next call create a second account for the same
-		// persona.
-		fetchMock.mockResolvedValue(jsonResponse({}, 201));
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		/* Not `mayHaveLanded: false` — CommCare HQ answered 201, so the
-		 * account is there. Only which account is unknown. */
-		expect(result).toEqual({
-			success: false,
-			status: 502,
-			message: "",
-			mayHaveLanded: true,
-		});
-	});
-});
-
-/**
- * Whether a refusal rules out a write.
- *
- * This is the whole reason `mayHaveLanded` exists.
- * `v0_5.py::CommCareUserResource.obj_create` wraps its creation in
- * `except Exception:` and retires whatever it made before re-raising, but
- * the account is committed before tastypie serializes the answer, so a
- * failure past that point is a live worker AND a 5xx. A real project
- * space handed Nova exactly that, and the caller holds the only copy of
- * that account's password.
- */
-describe("what a refusal rules out", () => {
-	it("cannot rule out a create that answered 5xx", async () => {
-		fetchMock.mockResolvedValue(jsonResponse({}, 500));
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toMatchObject({ status: 500, mayHaveLanded: true });
-	});
-
-	it("rules out a permission refusal, which never reaches the view", async () => {
-		fetchMock.mockResolvedValue(jsonResponse({ error: "no" }, 403));
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toMatchObject({ status: 403, mayHaveLanded: false });
-	});
-
-	it("cannot rule out a gateway that gave up waiting", async () => {
-		/* An edge answer is NOT evidence nothing happened. A proxy refusing
-		 * is a 4xx; a proxy answering 502 or 504 means it forwarded the
-		 * request and then stopped waiting, so CommCare HQ most likely ran
-		 * it. Reading nginx's own page as "never arrived" would discard the
-		 * password for a live account, which is the one outcome this whole
-		 * path exists to prevent. */
-		fetchMock.mockResolvedValue(
-			new Response(
-				"<html><head><title>504 Gateway Time-out</title></head><body><center>nginx</center></body></html>",
-				{ status: 504, headers: { "Content-Type": "text/html" } },
-			),
-		);
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toMatchObject({
-			status: 504,
-			/* Still reported, because the status says nothing about the key
-			 * or the account's permissions. It just does not settle this. */
-			edgeRefusal: true,
-			mayHaveLanded: true,
-		});
-	});
-
-	it("rules out the statuses raised before the view runs", async () => {
-		/* `resources.py::dispatch` runs `method_check`, `is_authenticated`
-		 * and `throttle_check` before it calls the method, so each of these
-		 * provably never reached `obj_create`. Reporting a password for an
-		 * account CommCare HQ certainly did not make would send somebody
-		 * hunting through their project space for nothing, and teach them
-		 * to skip the warning next time. */
-		for (const status of [405, 413, 429, 501]) {
-			fetchMock.mockResolvedValue(jsonResponse({}, status));
+it("refuses malformed and ambiguous search evidence instead of treating it as an available name", async () => {
+	await withHttpPeer(async (peer) => {
+		const found = { id: "worker-1", username };
+		for (const data of [
+			null,
+			{},
+			{ objects: null },
+			{ objects: [null] },
+			{ objects: [{ username }] },
+			{ objects: [{ id: "../other", username }] },
+			{ objects: [found, found] },
+			{ objects: [found, { id: "worker-2", username }] },
+		]) {
+			peer
+				.get(HOST)
+				.intercept({ path: (path) => path.startsWith(SEARCH), method: "GET" })
+				.reply(200, JSON.stringify(data));
 			expect(
-				await createHqMobileWorker(CREDS, DOMAIN, {
+				await findHqMobileWorkers(CREDS, "clinic", [username]),
+				JSON.stringify(data),
+			).toEqual({ success: false, status: 502 });
+		}
+		peer
+			.get(HOST)
+			.intercept({ path: (path) => path.startsWith(SEARCH), method: "GET" })
+			.reply(200, { objects: [] });
+		expect(await findHqMobileWorkers(CREDS, "clinic", [username])).toEqual([]);
+		expect(await findHqMobileWorkers(CREDS, "clinic", [])).toEqual([]);
+		expect(
+			await findHqMobileWorkers(CREDS, "clinic", Array(101).fill(username)),
+		).toEqual({ success: false, status: 400 });
+		expect(peer.getCallHistory()?.calls()).toHaveLength(9);
+	});
+});
+
+it("serializes create-only credentials and paired location assignment, then reads the acknowledged identity", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({
+				path: PATH,
+				method: "POST",
+				headers: {
+					authorization: "ApiKey account:key",
+					"content-type": "application/json",
+				},
+			})
+			.reply(async (request) => {
+				expect(
+					JSON.parse((await readHttpRequestBody(request)).toString()),
+				).toEqual({
 					username: "amina",
-					password: "Sup3r-secret!x",
+					password: worker.password,
+					first_name: "Amina",
+					last_name: "Osei",
+					email: "amina@example.org",
+					user_data: { cadre: "community" },
+					primary_location: "place-1",
+					locations: ["place-1", "place-2"],
+				});
+				return { statusCode: 201, data: JSON.stringify({ id: "worker-1" }) };
+			});
+		expect(
+			await createHqMobileWorker(CREDS, "clinic", {
+				...worker,
+				locations: {
+					primaryLocationId: "place-1",
+					locationIds: ["place-1", "place-2"],
+				},
+			}),
+		).toEqual({ userId: "worker-1" });
+	});
+});
+
+it("updates by identity, omits credentials even if present in the input object, and distinguishes clearing from leaving assignments alone", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const [locations, expected] of [
+			[undefined, {}],
+			[null, { locations: [] }],
+			[
+				{ primaryLocationId: "place-1", locationIds: ["place-1", "place-2"] },
+				{ primary_location: "place-1", locations: ["place-1", "place-2"] },
+			],
+		] as const) {
+			peer
+				.get(HOST)
+				.intercept({ path: `${PATH}worker-1/`, method: "PUT" })
+				.reply(async (request) => {
+					expect(
+						JSON.parse((await readHttpRequestBody(request)).toString()),
+					).toEqual({
+						first_name: "Amina",
+						last_name: "Osei",
+						email: "amina@example.org",
+						user_data: { cadre: "community" },
+						...expected,
+					});
+					return { statusCode: 200, data: JSON.stringify({ id: "worker-1" }) };
+				});
+			expect(
+				await updateHqMobileWorker(CREDS, "clinic", "worker-1", {
+					...worker,
+					locations,
 				}),
-			).toMatchObject({ status, mayHaveLanded: false });
+			).toEqual({ userId: "worker-1" });
 		}
 	});
+});
 
-	it("rules out an edge that refused, and only when it refused", async () => {
-		/* The two halves of an edge answer point opposite ways. A 4xx from
-		 * the proxy is a refusal, so CommCare HQ never saw the request. */
-		const page = (title: string) =>
-			`<html><head><title>${title}</title></head><body><center>nginx</center></body></html>`;
-		fetchMock.mockResolvedValue(
-			new Response(page("403 Forbidden"), {
-				status: 403,
-				headers: { "Content-Type": "text/html" },
-			}),
-		);
+it.each([
+	{ method: "POST", path: PATH, write: create, good: 201 },
+	{ method: "PUT", path: `${PATH}worker-1/`, write: update, good: 200 },
+])(
+	"requires $method's exact acknowledgement status and worker identity",
+	async ({ method, path, write, good }) => {
+		await withHttpPeer(async (peer) => {
+			for (const data of [
+				null,
+				{},
+				{ id: "" },
+				{ id: ".." },
+				{ id: 2 },
+				...(method === "PUT" ? [{ id: "another-worker" }] : []),
+			]) {
+				peer
+					.get(HOST)
+					.intercept({ path, method })
+					.reply(good, JSON.stringify(data));
+				expect(await write(), JSON.stringify(data)).toEqual(unknownWrite);
+			}
+			for (const status of [202, good === 200 ? 201 : 200]) {
+				peer
+					.get(HOST)
+					.intercept({ path, method })
+					.reply(status, { id: "worker-1" });
+				expect(await write()).toEqual(unknownWrite);
+			}
+		});
+	},
+);
+
+it("carries known refusal complaints and distinguishes refusal from lost acknowledgements without logging credentials", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const status of [
+			400, 401, 403, 405, 413, 429, 501, 404, 406, 500, 502, 504,
+		]) {
+			const error = `Peer complaint containing ${worker.password}`;
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST" })
+				.reply(status, { error });
+			expect(await create()).toEqual({
+				success: false,
+				status,
+				message: error,
+				edgeRefusal: false,
+				mayHaveLanded: [404, 406, 500, 502, 504].includes(status),
+			});
+		}
+		for (const status of [403, 404, 504]) {
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST" })
+				.reply(
+					status,
+					`<html><head><title>${status} Gateway</title></head><body><center>nginx</center></body></html>`,
+				);
+			expect(await create()).toEqual({
+				success: false,
+				status,
+				message: "",
+				edgeRefusal: true,
+				mayHaveLanded: status >= 500,
+			});
+		}
 		expect(
-			await createHqMobileWorker(CREDS, DOMAIN, {
-				username: "amina",
-				password: "Sup3r-secret!x",
-			}),
-		).toMatchObject({ edgeRefusal: true, mayHaveLanded: false });
-
-		/* A 404 from the proxy did not route it either — which the status
-		 * alone cannot say, because tastypie raises 404 over a live
-		 * account. Only `edgeRefusal` separates the two. */
-		fetchMock.mockResolvedValue(
-			new Response(page("404 Not Found"), {
-				status: 404,
-				headers: { "Content-Type": "text/html" },
-			}),
-		);
-		expect(
-			await createHqMobileWorker(CREDS, DOMAIN, {
-				username: "amina",
-				password: "Sup3r-secret!x",
-			}),
-		).toMatchObject({ edgeRefusal: true, mayHaveLanded: false });
-	});
-
-	it("cannot rule out a 404, which tastypie raises over a live account", async () => {
-		/* `Meta.always_return_data` is true, so `resources.py::post_list`
-		 * runs `full_dehydrate` AFTER `obj_create` committed, and
-		 * `::get_response_class_for_exception` turns an `ObjectDoesNotExist`
-		 * raised there into a 404 over a worker that already exists. */
-		fetchMock.mockResolvedValue(jsonResponse({}, 404));
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toMatchObject({ status: 404, mayHaveLanded: true });
-	});
-
-	it("cannot rule out a request that never got an answer", async () => {
-		fetchMock.mockRejectedValue(new Error("socket hang up"));
-		const result = await createHqMobileWorker(CREDS, DOMAIN, {
-			username: "amina",
-			password: "Sup3r-secret!x",
-		});
-		expect(result).toMatchObject({ status: 503, mayHaveLanded: true });
-	});
-
-	it("cannot rule out an update that answered 5xx", async () => {
-		// The account is not in doubt here; how much of the change took is.
-		fetchMock.mockResolvedValue(jsonResponse({}, 502));
-		const result = await updateHqMobileWorker(CREDS, DOMAIN, "u9", {
-			userData: { cadre: "chw" },
-		});
-		expect(result).toMatchObject({ status: 502, mayHaveLanded: true });
+			JSON.stringify([
+				vi.mocked(log.error).mock.calls,
+				vi.mocked(log.warn).mock.calls,
+			]),
+		).not.toContain(worker.password);
 	});
 });
 
-describe("updateHqMobileWorker", () => {
-	it("puts on the user id and never carries a password", async () => {
-		// A password on a PUT resets the account of somebody who is using
-		// it, and an update is exactly what an adopted account gets. The
-		// type has no field for one; this proves the wire agrees.
-		fetchMock.mockResolvedValue(jsonResponse({}, 200));
-
-		const result = await updateHqMobileWorker(CREDS, DOMAIN, "u9", {
-			userData: { cadre: "community" },
+it.each([
+	{ method: "POST", path: PATH, write: create },
+	{ method: "PUT", path: `${PATH}worker-1/`, write: update },
+])(
+	"does not lose $method uncertainty on disconnected or unreadable replies",
+	async ({ method, path, write }) => {
+		await withHttpPeer(async (peer) => {
+			peer
+				.get(HOST)
+				.intercept({ path, method })
+				.replyWithError(new Error("Peer disconnected"));
+			expect(await write()).toEqual({ ...unknownWrite, status: 503 });
+			peer
+				.get(HOST)
+				.intercept({ path, method })
+				.reply(method === "POST" ? 201 : 200, "<html>Bad gateway</html>");
+			expect(await write()).toEqual(unknownWrite);
 		});
-		expect(result).toEqual({ userId: "u9" });
+	},
+);
 
-		expect(String(lastCall()[0])).toBe(`${BASE}/a/${DOMAIN}/api/user/v1/u9/`);
-		expect(lastCall()[1].method).toBe("PUT");
-		expect(lastBody()).toEqual({ user_data: { cadre: "community" } });
-		expect("password" in lastBody()).toBe(false);
-		expect("username" in lastBody()).toBe(false);
-	});
-
-	it("clears every place with an empty list and no primary", async () => {
-		// `::_update_location` reaches `_remove_all_locations` only when
-		// both are falsy; supplying one alone raises "Both primary_location
-		// and locations must be provided together."
-		fetchMock.mockResolvedValue(jsonResponse({}, 200));
-		await updateHqMobileWorker(CREDS, DOMAIN, "u9", { locations: null });
-		expect(lastBody()).toEqual({ locations: [] });
-	});
-
-	it("leaves places alone when it has nothing to say about them", async () => {
-		// Both keys absent makes `::_update_location` return before doing
-		// anything, which is what an app with no organization means.
-		fetchMock.mockResolvedValue(jsonResponse({}, 200));
-		await updateHqMobileWorker(CREDS, DOMAIN, "u9", { userData: {} });
-		const body = lastBody();
-		expect("locations" in body).toBe(false);
-		expect("primary_location" in body).toBe(false);
-	});
-
-	it("passes the one gathered sentence through", async () => {
-		fetchMock.mockResolvedValue(
-			jsonResponse(
-				{
-					error:
-						"The request resulted in the following errors: Could not find location ids: l7.",
-				},
-				400,
-			),
-		);
-		const result = await updateHqMobileWorker(CREDS, DOMAIN, "u9", {
-			locations: { primaryLocationId: "l7", locationIds: ["l7"] },
+it.each([
+	{ method: "POST", path: PATH, run: create },
+	{ method: "PUT", path: `${PATH}worker-1/`, run: update },
+	{
+		method: "GET",
+		path: SEARCH,
+		run: () => findHqMobileWorkers(CREDS, "clinic", [username]),
+	},
+])(
+	"keeps $method on the selected endpoint and owns its 30-second deadline",
+	async ({ method, path, run }) => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		await withHttpPeer(async (peer) => {
+			const match =
+				method === "GET" ? (value: string) => value.startsWith(path) : path;
+			peer
+				.get(HOST)
+				.intercept({ path: match, method })
+				.reply(307, "Moved", {
+					headers: { location: path.replace("clinic", "other") },
+				});
+			expect(await run()).toEqual({
+				success: false,
+				status: 307,
+				edgeRefusal: false,
+				...(method === "GET" ? {} : { message: "", mayHaveLanded: true }),
+			});
+			expect(vi.getTimerCount()).toBe(0);
+			const reached = Promise.withResolvers<void>(),
+				release = Promise.withResolvers<void>();
+			peer
+				.get(HOST)
+				.intercept({ path: match, method })
+				.reply(async () => {
+					reached.resolve();
+					await release.promise;
+					return { statusCode: 200, data: "{}" };
+				});
+			const pending = run();
+			try {
+				await reached.promise;
+				await vi.advanceTimersByTimeAsync(30_000);
+				expect(await pending).toEqual({
+					success: false,
+					status: 503,
+					...(method === "GET" ? {} : { message: "", mayHaveLanded: true }),
+				});
+				expect(vi.getTimerCount()).toBe(0);
+			} finally {
+				release.resolve();
+				await pending;
+			}
+			expect(peer.getCallHistory()?.calls()).toHaveLength(2);
 		});
-		expect(result).toEqual({
-			success: false,
-			status: 400,
-			message:
-				"The request resulted in the following errors: Could not find location ids: l7.",
-			edgeRefusal: false,
-			/* `obj_update` raises its gathered errors before
-			 * `bundle.obj.save()`, and the two fields Nova sends are both
-			 * in memory until that call, so the worker is as it was. */
-			mayHaveLanded: false,
-		});
-	});
+	},
+);
 
-	it("refuses an id it cannot put in a path", async () => {
-		const result = await updateHqMobileWorker(CREDS, DOMAIN, "../admin", {});
-		expect(result).toEqual({
+it("rejects invalid domains and path-shaped worker IDs before any remote write", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const id of ["..", ".", "", "../other", "worker?x=y", "worker#hash"])
+			expect(await updateHqMobileWorker(CREDS, "clinic", id, {})).toEqual({
+				success: false,
+				status: 400,
+				message: "",
+				mayHaveLanded: false,
+			});
+		expect(await createHqMobileWorker(CREDS, "..", worker)).toEqual({
 			success: false,
 			status: 400,
 			message: "",
 			mayHaveLanded: false,
 		});
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(await findHqMobileWorkers(CREDS, "..", [username])).toEqual({
+			success: false,
+			status: 400,
+		});
+		expect(peer.getCallHistory()?.calls()).toHaveLength(0);
 	});
 });

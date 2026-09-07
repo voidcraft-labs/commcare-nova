@@ -395,10 +395,12 @@ async function proveMembershipWins(
 	const before = await writerSnapshot(operation);
 	const mutator = new Client({ connectionString: h.uri() });
 	const observer = new Client({ connectionString: h.uri() });
-	await Promise.all([mutator.connect(), observer.connect()]);
+
 	let operationOutcome: Promise<Outcome<unknown>> | undefined;
 	let membershipCommitted = false;
 	try {
+		await mutator.connect();
+		await observer.connect();
 		await mutator.query("BEGIN");
 		await downgradeMembership(mutator, operation.actor);
 		const mutatorPid = await backendPid(mutator);
@@ -467,17 +469,16 @@ async function proveWriterWins(
 	const controller = new Client({ connectionString: h.uri() });
 	const mutator = new Client({ connectionString: h.uri() });
 	const observer = new Client({ connectionString: h.uri() });
-	await Promise.all([
-		controller.connect(),
-		mutator.connect(),
-		observer.connect(),
-	]);
+
 	let operationOutcome: Promise<Outcome<unknown>> | undefined;
 	let membershipOutcome:
 		| Promise<Outcome<Awaited<ReturnType<typeof downgradeMembership>>>>
 		| undefined;
 	let controllerCommitted = false;
 	try {
+		await controller.connect();
+		await mutator.connect();
+		await observer.connect();
 		await controller.query("BEGIN");
 		await controller.query(
 			"SELECT id FROM nova_test_app_update_pause WHERE id = 1 FOR UPDATE",

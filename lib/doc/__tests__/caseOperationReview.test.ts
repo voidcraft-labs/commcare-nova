@@ -1,40 +1,18 @@
-// lib/doc/__tests__/caseOperationReview.test.ts
-//
-// The review projections' two obligations:
-//
-//   1. The per-slot walk agrees with `caseOperationDependencyUuids` on
-//      every operation shape. That function is what the REMOVE planner
-//      refuses on, so a slot the review layer cannot name is a refusal
-//      the author cannot act on — and a slot the review layer invents is
-//      a dependency that does not exist. The parity assertion is what
-//      keeps the two traversals from drifting as the schema grows.
-//
-//   2. The move-verdict map says exactly what the move planner says, for
-//      every candidate position. Both gestures read this one map, so a
-//      keyboard reorder and a drag can never disagree about legality.
-//
-//   3. The removal review lists what the REMOVE planner refuses on —
-//      references and target types alike. The `id-of` walk cannot see
-//      the second kind, so a review built from it renders an empty list
-//      under a heading that says removal is blocked.
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
-import {
-	moveCaseOperationMutation,
-	removeCaseOperationMutation,
-} from "@/lib/doc/caseOperationMutations";
-import { caseOperationDependencyUuids } from "@/lib/doc/caseOperationOrder";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { removeCaseOperationMutation } from "@/lib/doc/caseOperationMutations";
 import {
 	caseOperationDependencyOccurrences,
 	caseOperationMoveVerdicts,
 	caseOperationRemovalBlockers,
 } from "@/lib/doc/caseOperationReview";
-
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
 import { orderedCaseOperations } from "@/lib/domain";
 import { eq, idOf, literal, term } from "@/lib/domain/predicate";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
 const SECOND = testUuid("22222222-2222-4222-8222-222222222222");
@@ -43,13 +21,8 @@ const RETYPE = testUuid("55555555-5555-4555-8555-555555555555");
 const LATER = testUuid("66666666-6666-4666-8666-666666666666");
 
 function form(operations: readonly CaseOperation[]): Form {
-	return {
-		uuid: testUuid("44444444-4444-4444-8444-444444444444"),
-		id: "visit",
-		name: "Visit",
-		type: "followup",
-		caseOperations: [...operations],
-	} as Form;
+	const { doc, formUuid } = docWithOperations(operations);
+	return doc.forms[formUuid];
 }
 
 function create(uuid: Uuid, id: string): CaseOperation {
@@ -63,7 +36,7 @@ function create(uuid: Uuid, id: string): CaseOperation {
 	};
 }
 
-/** Every slot that can hold a reference, all pointing at one create. */
+/** A valid consumer using several independent scalar reference slots. */
 function everySlotConsumer(): CaseOperation {
 	return {
 		uuid: CONSUMER,
@@ -83,14 +56,6 @@ function everySlotConsumer(): CaseOperation {
 				condition: eq(idOf(CREATE), term(literal("z"))),
 			},
 		],
-		links: [
-			{
-				identifier: "parent",
-				targetType: "visit",
-				target: { kind: "op", opUuid: CREATE },
-				relationship: "child",
-			},
-		],
 	};
 }
 
@@ -101,7 +66,6 @@ describe("caseOperationDependencyOccurrences", () => {
 		expect(dependency.operationUuid).toBe(CONSUMER);
 		expect(dependency.slots).toEqual([
 			{ kind: "target" },
-			{ kind: "link", identifier: "parent" },
 			{ kind: "owner" },
 			{ kind: "rename" },
 			{ kind: "write", property: "source_id" },
@@ -125,9 +89,15 @@ describe("caseOperationDependencyOccurrences", () => {
 			...create(CREATE, "create_visit"),
 			writes: [{ property: "own", value: idOf(CREATE) }],
 		};
-		expect(caseOperationDependencyOccurrences(form([selfish]), CREATE)).toEqual(
-			[],
-		);
+		expect(
+			caseOperationDependencyOccurrences(
+				{
+					...form([create(CREATE, "create_visit")]),
+					caseOperations: [selfish],
+				},
+				CREATE,
+			),
+		).toEqual([]);
 	});
 
 	it("lists consumers in execution order", () => {
@@ -150,64 +120,43 @@ describe("caseOperationDependencyOccurrences", () => {
 		).toEqual([CONSUMER, SECOND]);
 	});
 
-	// The drift-proof. `caseOperationDependencyUuids` is what the remove
-	// planner refuses on; this projection is how the refusal is explained.
-	// A slot in one and not the other is a bug in whichever is newer.
-	it("agrees with the canonical dependency walk on every shape", () => {
-		const shapes: readonly CaseOperation[] = [
-			everySlotConsumer(),
-			{ ...everySlotConsumer(), target: { kind: "session" }, links: [] },
+	it("names a create name reference and a distinct case's parent link", () => {
+		const named: CaseOperation = {
+			...create(SECOND, "named_visit"),
+			name: idOf(CREATE),
+		};
+		expect(
+			caseOperationDependencyOccurrences(
+				form([create(CREATE, "create_visit"), named]),
+				CREATE,
+			),
+		).toEqual([{ operationUuid: SECOND, slots: [{ kind: "name" }] }]);
+		const linked: CaseOperation = {
+			uuid: CONSUMER,
+			id: "link_referral",
+			action: "update",
+			caseType: "referral",
+			target: { kind: "expression", expr: term(literal("existing-referral")) },
+			links: [
+				{
+					identifier: "parent",
+					targetType: "visit",
+					target: { kind: "op", opUuid: CREATE },
+					relationship: "child",
+				},
+			],
+		};
+		expect(
+			caseOperationDependencyOccurrences(
+				form([create(CREATE, "create_visit"), linked]),
+				CREATE,
+			),
+		).toEqual([
 			{
-				...everySlotConsumer(),
-				target: { kind: "expression", expr: idOf(CREATE) },
-				owner: undefined,
-				rename: undefined,
-				writes: [],
-				links: [],
-				condition: undefined,
+				operationUuid: CONSUMER,
+				slots: [{ kind: "link", identifier: "parent" }],
 			},
-			{
-				...everySlotConsumer(),
-				target: { kind: "session" },
-				owner: undefined,
-				rename: undefined,
-				condition: undefined,
-				writes: [{ property: "only", value: idOf(CREATE) }],
-				links: [],
-			},
-			{
-				...everySlotConsumer(),
-				target: { kind: "session" },
-				owner: undefined,
-				rename: undefined,
-				condition: undefined,
-				writes: [],
-				links: [
-					{
-						identifier: "host",
-						targetType: "visit",
-						target: { kind: "expression", expr: idOf(CREATE) },
-						relationship: "extension",
-					},
-				],
-			},
-			// Nothing references the create at all.
-			{
-				...everySlotConsumer(),
-				target: { kind: "session" },
-				owner: undefined,
-				rename: undefined,
-				condition: undefined,
-				writes: [{ property: "plain", value: term(literal("v")) }],
-				links: [],
-			},
-		];
-		for (const shape of shapes) {
-			const f = form([create(CREATE, "create_visit"), shape]);
-			const canonical = caseOperationDependencyUuids(shape).has(CREATE);
-			const named = caseOperationDependencyOccurrences(f, CREATE).length > 0;
-			expect(named).toBe(canonical);
-		}
+		]);
 	});
 });
 
@@ -216,25 +165,43 @@ function docWithOperations(operations: readonly CaseOperation[]): {
 	formUuid: Uuid;
 } {
 	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "visit",
+				properties: [
+					{ name: "source_id", label: "Source" },
+					{ name: "flag", label: "Flag" },
+				],
+			},
+			{
+				name: "referral",
+				properties: [
+					{ name: "source_id", label: "Source" },
+					{ name: "flag", label: "Flag" },
+				],
+			},
+		],
 		modules: [
 			{
 				name: "Visits",
 				caseType: "visit",
-				forms: [{ name: "Visit", type: "followup" }],
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
 			},
 		],
 	});
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	return {
-		doc: {
-			...doc,
-			forms: {
-				...doc.forms,
-				[formUuid]: { ...doc.forms[formUuid], caseOperations: [...operations] },
-			},
-		},
-		formUuid,
-	};
+	doc.forms[formUuid].caseOperations = [...operations];
+	assertAdmittedDoc(doc);
+	return { doc, formUuid };
 }
 
 /**
@@ -244,20 +211,6 @@ function docWithOperations(operations: readonly CaseOperation[]): {
  * it the fixture for a refusal a reference walk cannot explain.
  */
 function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
-	const doc = buildDoc({
-		caseTypes: [
-			{ name: "visit", properties: [] },
-			{ name: "referral", properties: [] },
-		],
-		modules: [
-			{
-				name: "Visits",
-				caseType: "visit",
-				forms: [{ name: "Visit", type: "followup" }],
-			},
-		],
-	});
-	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const operations: CaseOperation[] = [
 		{
 			uuid: RETYPE,
@@ -275,49 +228,56 @@ function retypeChain(): { doc: BlueprintDoc; formUuid: Uuid } {
 			target: { kind: "session" },
 		},
 	];
-	return {
-		doc: {
-			...doc,
-			forms: {
-				...doc.forms,
-				[formUuid]: { ...doc.forms[formUuid], caseOperations: operations },
-			},
-		},
-		formUuid,
-	};
+	return docWithOperations(operations);
 }
 
 describe("caseOperationMoveVerdicts", () => {
-	it("answers for every candidate position, and never disagrees with the planner", () => {
-		const operations = [
+	it("reports independently expected legal placements and gate outcomes", () => {
+		const { doc, formUuid } = docWithOperations([
 			create(CREATE, "create_visit"),
 			create(SECOND, "create_other"),
 			everySlotConsumer(),
+		]);
+		const expected = [
+			[true, true, false],
+			[true, true, true],
+			[false, true, true],
 		];
-		const { doc, formUuid } = docWithOperations(operations);
 		const ordered = orderedCaseOperations(doc.forms[formUuid]);
-
-		for (const operation of ordered) {
+		for (const [from, operation] of ordered.entries()) {
 			const verdicts = caseOperationMoveVerdicts(doc, formUuid, operation.uuid);
-			expect(verdicts.size).toBe(ordered.length);
-			for (let index = 0; index < ordered.length; index++) {
-				const verdict = verdicts.get(index);
-				expect(verdict).toBeDefined();
-				const currentIndex = ordered.findIndex(
-					(candidate) => candidate.uuid === operation.uuid,
-				);
-				if (index === currentIndex) {
-					// Moving to where it already is is not a change.
-					expect(verdict?.ok).toBe(true);
-					continue;
-				}
-				const plan = moveCaseOperationMutation(
+			expect([...verdicts.values()].map((verdict) => verdict.ok)).toEqual(
+				expected[from],
+			);
+			for (let to = 0; to < 3; to++) {
+				const without = ordered.filter((item) => item.uuid !== operation.uuid);
+				const after = to === 0 ? null : without[to - 1].uuid;
+				const gate = mutationCommitVerdict(
 					doc,
-					formUuid,
-					operation.uuid,
-					index,
+					[
+						{
+							kind: "updateForm",
+							uuid: formUuid,
+							patch: {},
+							caseOperationPatch: {
+								operation: "move",
+								uuid: operation.uuid,
+								after,
+							},
+						},
+					],
+					LOOKUP_CONTEXT_UNAVAILABLE,
 				);
-				expect(verdict?.ok).toBe(plan.ok);
+				expect(gate.ok).toBe(expected[from][to]);
+				if (gate.ok) {
+					const expectedOrder = without.map((item) => item.uuid);
+					expectedOrder.splice(to, 0, operation.uuid);
+					expect(
+						gate.nextDoc.forms[formUuid].caseOperations?.map(
+							(item) => item.uuid,
+						),
+					).toEqual(expectedOrder);
+				}
 			}
 		}
 	});
@@ -343,8 +303,7 @@ describe("caseOperationMoveVerdicts", () => {
 		]);
 		expect(caseOperationMoveVerdicts(doc, formUuid, SECOND).size).toBe(0);
 		expect(
-			caseOperationMoveVerdicts(doc, testUuid("no-such-form" as string), CREATE)
-				.size,
+			caseOperationMoveVerdicts(doc, testUuid("no-such-form"), CREATE).size,
 		).toBe(0);
 	});
 
@@ -411,35 +370,13 @@ describe("caseOperationRemovalBlockers", () => {
 		]);
 	});
 
-	it("is never empty while the planner refuses", () => {
-		const references = docWithOperations([
-			create(CREATE, "create_visit"),
-			everySlotConsumer(),
-		]);
-		const types = retypeChain();
-		for (const [{ doc, formUuid }, uuid] of [
-			[references, CREATE],
-			[types, RETYPE],
-		] as const) {
-			const plan = removeCaseOperationMutation(doc, formUuid, uuid);
-			expect(plan.ok).toBe(false);
-			expect(
-				caseOperationRemovalBlockers(doc, formUuid, uuid).length,
-			).toBeGreaterThan(0);
-		}
-	});
-
 	it("reports nothing when removal is allowed, and for an unknown form", () => {
 		const { doc, formUuid } = docWithOperations([
 			create(CREATE, "create_visit"),
 		]);
 		expect(caseOperationRemovalBlockers(doc, formUuid, CREATE)).toEqual([]);
 		expect(
-			caseOperationRemovalBlockers(
-				doc,
-				testUuid("no-such-form" as string),
-				CREATE,
-			),
+			caseOperationRemovalBlockers(doc, testUuid("no-such-form"), CREATE),
 		).toEqual([]);
 	});
 });

@@ -1,21 +1,14 @@
-// components/builder/case-list-config/__tests__/tileMutationPlan.test.ts
-//
-// The batches behind the arrangement switch. Two invariants carry the
-// whole feature: turning the tile on lands its placements in the SAME
-// batch as the switch (so the grid an author arrives at works), and
-// turning it off touches nothing but the layout slot (so the drawing
-// comes back intact).
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
 	type Column,
-	emptyCaseListConfig,
 	plainColumn,
 	tileCell,
 } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	planTileGrouping,
 	planTileLayoutDisable,
@@ -23,415 +16,220 @@ import {
 	planTilePersistOnForms,
 	planTilePlaceField,
 	planTilePreset,
+	type TilePlanOutcome,
 	tileCellMutations,
 } from "../tile/tileMutationPlan";
 import { TILE_PRESETS } from "../tile/tilePresets";
+import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
 
-const MODULE = testUuid("module-1");
-
-function column(
-	id: string,
-	header: string,
-	slots: Partial<Column> = {},
-): Column {
-	return { ...plainColumn(testUuid(id), id, header), ...slots } as Column;
+function column(id: string, slots: Parameters<typeof plainColumn>[3] = {}) {
+	return plainColumn(testUuid(id), id, id, slots);
 }
-
-/**
- * A case list showing exactly these columns, in the order written.
- *
- * The plans read a whole `CaseListConfig` because Results order is the
- * config's `listColumnOrder`, not a per-column slot, so a fixture that
- * wants a particular arrangement writes the columns in that arrangement.
- */
-function config(columns: readonly Column[]): CaseListConfig {
+function workspace(columns: Column[], tile?: CaseListConfig["tile"]) {
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.columns = columns;
+	config.listColumnOrder = columns.map((c) => c.uuid);
+	config.detailColumnOrder = columns.map((c) => c.uuid);
+	if (tile) config.tile = tile;
+	const fixture = admittedWorkspace(
+		[
+			{
+				name: "patient",
+				properties: columns.map((c) => ({
+					name: c.kind === "calculated" ? "case_name" : c.field,
+					label: proseText(c.header),
+					data_type: "text",
+				})),
+			},
+		],
+		config,
+	);
+	let doc = fixture.doc;
 	return {
-		...emptyCaseListConfig(),
-		columns: [...columns],
-		listColumnOrder: columns.map((entry) => entry.uuid),
-		detailColumnOrder: columns.map((entry) => entry.uuid),
+		moduleUuid: fixture.moduleUuid,
+		get config() {
+			const saved = doc.modules[fixture.moduleUuid].caseListConfig;
+			if (!saved) throw new Error("missing config");
+			return saved;
+		},
+		commit(mutations: readonly Mutation[]) {
+			doc = commitWorkspace(doc, mutations);
+		},
+		apply(plan: TilePlanOutcome) {
+			expect(plan).toMatchObject({ ok: true });
+			if (!plan.ok) throw new Error(plan.reason);
+			doc = commitWorkspace(doc, plan.mutations);
+		},
 	};
 }
 
-/** The placement each `updateColumn` in a batch writes, keyed by field. */
-function placements(mutations: readonly Mutation[]) {
-	const written = new Map<string, unknown>();
-	for (const mutation of mutations) {
-		if (mutation.kind !== "updateColumn") continue;
-		written.set(mutation.uuid, mutation.tilePatch);
-	}
-	return written;
-}
-
-function layoutWrites(mutations: readonly Mutation[]) {
-	return mutations.filter((mutation) => mutation.kind === "setCaseListMeta");
-}
-
-describe("planTileLayoutEnable", () => {
-	it("seeds every field and switches the layout on in one batch", () => {
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name"),
-				column("village", "Village"),
-			]),
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-
-		expect(placements(plan.mutations)).toEqual(
-			new Map([
-				[testUuid("case_name"), tileCell(0, 0, 12, 1)],
-				[testUuid("village"), tileCell(0, 1, 12, 1)],
-			]),
-		);
-		// The layout switch lands last, so the doc is never momentarily a
-		// tile with nothing on it.
-		const layout = layoutWrites(plan.mutations);
-		expect(layout).toHaveLength(1);
-		expect(plan.mutations.at(-1)).toBe(layout[0]);
-		expect(layout[0]).toEqual({
-			kind: "setCaseListMeta",
-			uuid: MODULE,
-			patch: { tile: {} },
-		});
-	});
-
-	it("keeps places an author already drew and only fills the gaps", () => {
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name", {
-					tile: tileCell(0, 3, 6, 2, { fontSize: "large" }),
-				}),
-				column("village", "Village"),
-			]),
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		const written = placements(plan.mutations);
-		expect(written.has(testUuid("case_name"))).toBe(false);
-		expect(written.get(testUuid("village"))).toEqual(tileCell(0, 0, 12, 1));
-	});
-
-	it("leaves a hidden default-order field unplaced — it draws nothing", () => {
-		// It reaches the wire as CommCare's reserved zero-width carrier, so
-		// it needs no square on the tile.
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name"),
-				column("registered", "Registered on", {
-					visibleInList: false,
-					sort: { direction: "asc", priority: 1 },
-				}),
-			]),
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual([
-			testUuid("case_name"),
-		]);
-	});
-
-	it("leaves a Details-only field alone — the tile does not carry it", () => {
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name"),
-				column("notes", "Notes", { visibleInList: false }),
-			]),
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		expect([...placements(plan.mutations).keys()]).toEqual([
-			testUuid("case_name"),
-		]);
-	});
-
-	it("refuses an empty Results screen with a reason, not an empty grid", () => {
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: emptyCaseListConfig(),
-		});
-		expect(plan.ok).toBe(false);
-		expect(plan.ok === false && plan.reason).toBe(
-			"Add information to Results before turning on the tile: a tile needs at least one field to lay out.",
-		);
-	});
-
-	it("refuses more fields than a tile can hold, and says how many", () => {
-		const columns = Array.from({ length: 145 }, (_unused, index) =>
-			column(`c${index}`, `Field ${index}`),
-		);
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config(columns),
-		});
-		expect(plan.ok).toBe(false);
-		expect(plan.ok === false && plan.reason).toBe(
-			"A tile has room for 144 fields, and Results shows 145. Hide some information from Results first.",
-		);
-	});
-
-	it("refuses to squeeze a field into a tile a prior drawing already filled", () => {
-		const plan = planTileLayoutEnable({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name", {
-					tile: tileCell(0, 0, 12, 12),
-				}),
-				column("village", "Village"),
-			]),
-		});
-		expect(plan.ok).toBe(false);
-		expect(plan.ok === false && plan.reason).toBe(
-			"There is no room left on the tile for Village. Make another field smaller, or hide this one from Results.",
-		);
-	});
-});
-
-describe("planTileLayoutDisable", () => {
-	it("clears the layout and touches nothing else, so every cell survives", () => {
-		expect(planTileLayoutDisable(MODULE)).toEqual([
-			{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: null } },
-		]);
-	});
-});
-
-describe("planTilePersistOnForms", () => {
-	it("stores the only value the slot has, and clears by omission", () => {
-		expect(planTilePersistOnForms(MODULE, true, {})).toEqual([
-			{
-				kind: "setCaseListMeta",
-				uuid: MODULE,
-				patch: { tile: { persistOnForms: true } },
-			},
-		]);
-		expect(
-			planTilePersistOnForms(MODULE, false, { persistOnForms: true }),
-		).toEqual([{ kind: "setCaseListMeta", uuid: MODULE, patch: { tile: {} } }]);
-	});
-
-	it("rebuilds the layout it was given rather than replacing it", () => {
-		// `tilePatch` is a wholesale replace, so anything the layout gains
-		// later would vanish on every toggle if this wrote a bare object.
-		const withFutureSlot = {
-			persistOnForms: true,
-			futureSlot: "kept",
-		} as unknown as Parameters<typeof planTilePersistOnForms>[2];
-		const [off] = planTilePersistOnForms(MODULE, false, withFutureSlot);
-		const [on] = planTilePersistOnForms(MODULE, true, withFutureSlot);
-		expect(off).toMatchObject({ patch: { tile: { futureSlot: "kept" } } });
-		expect(on).toMatchObject({
-			patch: {
-				tile: { futureSlot: "kept", persistOnForms: true },
-			},
-		});
-	});
-});
-
-describe("planTileGrouping", () => {
-	it("stores the grouping beside the layout's other slots", () => {
-		expect(
-			planTileGrouping(
-				MODULE,
-				{ identifier: "parent", headerRows: 2 },
-				{ persistOnForms: true },
-			),
-		).toEqual([
-			{
-				kind: "setCaseListMeta",
-				uuid: MODULE,
-				patch: {
-					tile: {
-						persistOnForms: true,
-						grouping: { identifier: "parent", headerRows: 2 },
-					},
-				},
-			},
-		]);
-	});
-
-	it("removes the slot rather than storing a switched-off grouping", () => {
-		// `Module.has_grouped_tiles` reads the identifier's presence and
-		// `<group>` is emitted or it is not, so there is no off value to
-		// store. A dormant one would also bring an author's old header depth
-		// back on a later toggle without them choosing it again.
-		expect(
-			planTileGrouping(MODULE, undefined, {
-				persistOnForms: true,
-				grouping: { identifier: "parent", headerRows: 2 },
+describe("tile plans commit real document transitions", () => {
+	it("enables, disables and restores placements while preserving hidden and Details-only information", () => {
+		const original = [
+			column("case_name"),
+			column("village"),
+			column("sorter", {
+				visibleInList: false,
+				sort: { direction: "asc", priority: 0 },
 			}),
-		).toEqual([
-			{
-				kind: "setCaseListMeta",
-				uuid: MODULE,
-				patch: { tile: { persistOnForms: true } },
-			},
+			column("notes", { visibleInList: false }),
+		];
+		const w = workspace(original);
+		w.apply(planTileLayoutEnable(w));
+		expect(w.config.tile).toEqual({});
+		expect(w.config.columns.map((c) => c.tile)).toEqual([
+			tileCell(0, 0, 12, 1),
+			tileCell(0, 1, 12, 1),
+			undefined,
+			undefined,
 		]);
+		const drawn = structuredClone(w.config.columns);
+		w.commit(planTileLayoutDisable(w.moduleUuid));
+		expect(w.config.tile).toBeUndefined();
+		expect(w.config.columns).toEqual(drawn);
+		w.apply(planTileLayoutEnable(w));
+		expect(w.config.columns).toEqual(drawn);
+		expect(w.config.tile).toEqual({});
 	});
-
-	it("keeps the keep-on-screen switch through a grouping edit, and back", () => {
-		// The two settings live in one wholesale-replaced object, so each
-		// planner has to rebuild from the current layout. Toggling either one
-		// must never be how the other disappears.
-		const persistOn = planTilePersistOnForms(MODULE, true, {
+	it("keeps authored geometry and presentation while placing only missing members", () => {
+		const first = column("case_name", {
+			tile: tileCell(0, 3, 6, 2, { fontSize: "large", showBorder: true }),
+		});
+		const w = workspace([first, column("village")]);
+		w.apply(planTileLayoutEnable(w));
+		expect(w.config.columns[0]).toEqual(first);
+		expect(w.config.columns[1].tile).toEqual(tileCell(0, 0, 12, 1));
+	});
+	it("refuses a reachable rows layout with more members than a tile can hold without a partial edit", () => {
+		const w = workspace(
+			Array.from({ length: 145 }, (_, i) => column(`field_${i}`)),
+		);
+		const before = structuredClone(w.config);
+		expect(planTileLayoutEnable(w)).toEqual({
+			ok: false,
+			reason:
+				"A tile has room for 144 fields, and Results shows 145. Hide some information from Results first.",
+		});
+		expect(w.config).toEqual(before);
+	});
+	it("refuses when the retained drawing fills the grid and names the unplaced member", () => {
+		const w = workspace([
+			column("case_name", { tile: tileCell(0, 0, 12, 12) }),
+			column("village"),
+		]);
+		expect(planTileLayoutEnable(w)).toEqual({
+			ok: false,
+			reason:
+				"There is no room left on the tile for village. Make another field smaller, or hide this one from Results.",
+		});
+	});
+	it("keeps grouping and form persistence through independent toggles", () => {
+		const w = workspace(
+			[
+				column("case_name", { tile: tileCell(0, 0, 12, 1) }),
+				column("village", { tile: tileCell(0, 1, 12, 1) }),
+			],
+			{},
+		);
+		w.commit(
+			planTileGrouping(
+				w.moduleUuid,
+				{ identifier: "parent", headerRows: 1 },
+				w.config.tile,
+			),
+		);
+		w.commit(planTilePersistOnForms(w.moduleUuid, true, w.config.tile));
+		expect(w.config.tile).toEqual({
+			grouping: { identifier: "parent", headerRows: 1 },
+			persistOnForms: true,
+		});
+		w.commit(planTilePersistOnForms(w.moduleUuid, false, w.config.tile));
+		expect(w.config.tile).toEqual({
 			grouping: { identifier: "parent", headerRows: 1 },
 		});
-		expect(persistOn).toEqual([
+		w.commit(planTilePersistOnForms(w.moduleUuid, true, w.config.tile));
+		w.commit(planTileGrouping(w.moduleUuid, undefined, w.config.tile));
+		expect(w.config.tile).toEqual({ persistOnForms: true });
+	});
+	it("applies a preset in Results order and preserves all presentation and Details ordering", () => {
+		const first = column("first", {
+				tile: tileCell(0, 4, 3, 1, {
+					fontSize: "large",
+					horizontalAlign: "center",
+					showBorder: true,
+				}),
+			}),
+			second = column("second");
+		const w = workspace([second, first]);
+		w.commit([
 			{
-				kind: "setCaseListMeta",
-				uuid: MODULE,
-				patch: {
-					tile: {
-						grouping: { identifier: "parent", headerRows: 1 },
-						persistOnForms: true,
-					},
-				},
+				kind: "moveColumn",
+				moduleUuid: w.moduleUuid,
+				uuid: first.uuid,
+				surface: "list",
+				after: null,
 			},
 		]);
-	});
-});
-
-describe("planTilePreset", () => {
-	const preset = TILE_PRESETS[1];
-
-	it("rearranges every member and keeps each cell's presentation", () => {
-		expect(preset).toBeDefined();
-		if (preset === undefined) return;
-		const plan = planTilePreset({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name", {
-					tile: tileCell(0, 4, 3, 1, {
-						fontSize: "large",
-						horizontalAlign: "center",
-					}),
-				}),
-				column("village", "Village"),
-			]),
-			preset,
+		const before = structuredClone(w.config);
+		const preset = TILE_PRESETS.find((p) => p.id === "two-columns");
+		if (!preset) throw new Error("missing preset");
+		w.apply(planTilePreset({ ...w, preset }));
+		expect(w.config.columns.find((c) => c.uuid === first.uuid)).toEqual({
+			...first,
+			tile: tileCell(0, 0, 6, 1, {
+				fontSize: "large",
+				horizontalAlign: "center",
+				showBorder: true,
+			}),
 		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		expect(placements(plan.mutations)).toEqual(
-			new Map([
-				[
-					testUuid("case_name"),
-					tileCell(0, 0, 6, 1, {
-						fontSize: "large",
-						horizontalAlign: "center",
-					}),
-				],
-				[testUuid("village"), tileCell(6, 0, 6, 1)],
-			]),
-		);
-		expect(layoutWrites(plan.mutations)).toHaveLength(0);
-	});
-
-	it("arranges in Results order, not Details order", () => {
-		expect(preset).toBeDefined();
-		if (preset === undefined) return;
-		const second = column("second", "Village");
-		const first = column("first", "Patient name");
-		const plan = planTilePreset({
-			moduleUuid: MODULE,
-			config: {
-				...config([second, first]),
-				// Results shows first then second; Details disagrees, and the
-				// preset must not hear it.
-				listColumnOrder: [first.uuid, second.uuid],
-				detailColumnOrder: [second.uuid, first.uuid],
-			},
-			preset,
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		expect(placements(plan.mutations).get(testUuid("first"))).toEqual(
-			tileCell(0, 0, 6, 1),
-		);
-		expect(placements(plan.mutations).get(testUuid("second"))).toEqual(
+		expect(w.config.columns.find((c) => c.uuid === second.uuid)?.tile).toEqual(
 			tileCell(6, 0, 6, 1),
 		);
+		expect(w.config.detailColumnOrder).toEqual(before.detailColumnOrder);
+		expect(w.config.listColumnOrder).toEqual([first.uuid, second.uuid]);
+		expect(w.config.tile).toBeUndefined();
 	});
-
-	it("refuses a preset that has no room, naming it", () => {
-		expect(preset).toBeDefined();
-		if (preset === undefined) return;
-		const plan = planTilePreset({
-			moduleUuid: MODULE,
-			config: config([column("only", "Patient name")]),
-			preset,
-		});
-		expect(plan.ok).toBe(false);
-		expect(plan.ok === false && plan.reason).toBe(
-			"Two columns has no room for 1 field.",
-		);
-	});
-});
-
-describe("planTilePlaceField", () => {
-	it("drops the field into the first free space", () => {
-		const plan = planTilePlaceField({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name", {
-					tile: tileCell(0, 0, 12, 1),
-				}),
-				column("village", "Village"),
-			]),
-			uuid: testUuid("village"),
-		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		expect(placements(plan.mutations).get(testUuid("village"))).toEqual(
-			tileCell(0, 1, 12, 1),
-		);
-	});
-
-	it("refuses when the tile is full", () => {
-		const plan = planTilePlaceField({
-			moduleUuid: MODULE,
-			config: config([
-				column("case_name", "Patient name", {
-					tile: tileCell(0, 0, 12, 12),
-				}),
-				column("village", "Village"),
-			]),
-			uuid: testUuid("village"),
-		});
-		expect(plan.ok).toBe(false);
-		expect(plan.ok === false && plan.reason).toBe(
-			"There is no room left on the tile. Make another field smaller first.",
-		);
-	});
-});
-
-describe("tileCellMutations", () => {
-	it("writes a placement as its own mergeable slot", () => {
-		const source = column("case_name", "Patient name");
-		const [mutation] = tileCellMutations(MODULE, source, tileCell(1, 2, 3, 4));
-		expect(mutation).toMatchObject({
-			kind: "updateColumn",
-			moduleUuid: MODULE,
-			uuid: source.uuid,
-			tilePatch: tileCell(1, 2, 3, 4),
+	it("refuses an unavailable preset without proposing an invalid mutation batch", () => {
+		const w = workspace([column("case_name")]);
+		const preset = TILE_PRESETS.find((p) => p.id === "two-columns");
+		if (!preset) throw new Error("missing preset");
+		expect(planTilePreset({ ...w, preset })).toEqual({
+			ok: false,
+			reason: "Two columns has no room for 1 field.",
 		});
 	});
-
-	it("clears a placement with an explicit null so the clear survives JSON", () => {
-		const source = column("case_name", "Patient name", {
-			tile: tileCell(0, 0, 6, 1),
+	it("places one field then clears it through the JSON mutation protocol without changing its other slots", () => {
+		const target = column("village", {
+			sort: { direction: "desc", priority: 0 },
+			visibleInDetail: false,
 		});
-		const [mutation] = tileCellMutations(MODULE, source, undefined);
-		expect(mutation).toMatchObject({ kind: "updateColumn", tilePatch: null });
+		const w = workspace([
+			column("case_name", { tile: tileCell(0, 0, 12, 1) }),
+			target,
+		]);
+		w.apply(planTilePlaceField({ ...w, uuid: target.uuid }));
+		expect(w.config.columns[1]).toEqual({
+			...target,
+			tile: tileCell(0, 1, 12, 1),
+		});
+		w.commit(tileCellMutations(w.moduleUuid, w.config.columns[1], undefined));
+		expect(w.config.columns[1]).toEqual(target);
+		expect(tileCellMutations(w.moduleUuid, target, undefined)).toEqual([]);
 	});
-
-	it("plans nothing when the placement is unchanged", () => {
-		const source = column("case_name", "Patient name", {
-			tile: tileCell(0, 0, 6, 1),
+	it("refuses a full grid and a stale removed field at the planner boundary", () => {
+		const w = workspace([
+			column("case_name", { tile: tileCell(0, 0, 12, 12) }),
+			column("village"),
+		]);
+		expect(planTilePlaceField({ ...w, uuid: testUuid("village") })).toEqual({
+			ok: false,
+			reason:
+				"There is no room left on the tile. Make another field smaller first.",
 		});
-		expect(tileCellMutations(MODULE, source, tileCell(0, 0, 6, 1))).toEqual([]);
+		expect(planTilePlaceField({ ...w, uuid: testUuid("removed") })).toEqual({
+			ok: false,
+			reason:
+				"That field is no longer in this case list. Reopen Results to see what it shows now.",
+		});
 	});
 });

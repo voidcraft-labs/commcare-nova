@@ -1,28 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+/** Canonical commands over admitted documents and a controlled workspace host.
+ * The actual gate and reducer run; persistence and SA/MCP transport are separate boundaries. */
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import {
-	makeMcpTestContext,
-	makeToolWorkspaceHarness,
-} from "@/lib/agent/__tests__/fixtures";
-import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
+import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
-import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {
 	configureConnectInputSchema,
 	configureConnectTool,
 } from "../configureConnect";
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
 
 const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
 const FIRST = testUuid("20000000-0000-4000-8000-000000000000");
@@ -143,7 +134,7 @@ describe("configureConnect exact target-state tool", () => {
 
 	it("enables Connect atomically and derives omitted wire ids exactly once", async () => {
 		const doc = fixture();
-		const harness = makeToolWorkspaceHarness(doc);
+		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const outcome = await harness.runTool(configureConnectTool, {
 			mode: "learn",
 			participants: [
@@ -172,7 +163,7 @@ describe("configureConnect exact target-state tool", () => {
 
 	it("explains that clearing an already-disabled target is not a list or form operation", async () => {
 		const doc = fixture();
-		const harness = makeToolWorkspaceHarness(doc);
+		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const outcome = await harness.runTool(configureConnectTool, { mode: null });
 
 		expect(outcome).toMatchObject({
@@ -357,13 +348,10 @@ describe("configureConnect exact target-state tool", () => {
 		},
 	])("rejects $label before persistence", async ({ participants, error }) => {
 		const doc = fixture();
-		const harness = makeToolWorkspaceHarness(doc);
+		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const outcome = await harness.runTool(configureConnectTool, {
 			mode: "learn",
-			participants: participants as Array<{
-				formUuid: Uuid;
-				connect: ReturnType<typeof learnModule>;
-			}>,
+			participants,
 		});
 
 		expect(outcome.result).toEqual({
@@ -374,52 +362,23 @@ describe("configureConnect exact target-state tool", () => {
 		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("is one shared SA/MCP implementation with identical accepted mutations", async () => {
-		const doc = fixture();
-		const input = {
-			mode: "learn" as const,
+	it("emits an independently executable closed Connect schema", async () => {
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const validate = ajv.compile(
+			await wireToolSchema(configureConnectInputSchema).jsonSchema,
+		);
+		const valid = {
+			mode: "learn",
 			participants: [{ formUuid: FIRST, connect: learnModule() }],
 		};
-		const saHarness = makeToolWorkspaceHarness(doc);
-		const sa = await saHarness.runTool(configureConnectTool, input);
-		const { ctx: mcpContext } = makeMcpTestContext({ initialDoc: doc });
-		const mcpRecord = vi.spyOn(mcpContext, "recordMutations");
-		// MCP drives the same shared tool through its own canonical workspace —
-		// the per-call host is `McpContext` itself.
-		const mcpWorkspace = new CanonicalMutationWorkspace({
-			host: mcpContext,
-			initialDoc: doc,
-		});
-		const mcp = await mcpWorkspace.invoke({
-			toolName: "configure_connect",
-			execute: (ctx) => configureConnectTool.execute(input, ctx),
-		});
-
-		expect(mcpRecord).toHaveBeenCalledTimes(1);
-		expect(mcp.result).not.toHaveProperty("error");
-		expect(mcp.mutations).toEqual(sa.mutations);
-		expect(mcpWorkspace.currentSnapshot().doc).toEqual(saHarness.currentDoc());
-		expect(mcp.result).toEqual(sa.result);
-
-		const entry = SHARED_TOOL_REGISTRY.find(
-			(candidate) => candidate.saName === "configureConnect",
-		);
-		expect(entry).toEqual({
-			saName: "configureConnect",
-			mcpName: "configure_connect",
-			tool: configureConnectTool,
-			requires: "edit",
-			// The entry's exact execution policy is pinned once, for every tool,
-			// in `sharedToolRegistryPolicy.test.ts`; this assertion stays about
-			// the registration itself while remaining exhaustive over the keys.
-			policy: expect.anything(),
-		});
-
-		const wire = wireToolSchema(configureConnectInputSchema);
-		expect(wire.jsonSchema).toMatchObject({
-			type: "object",
-			required: ["mode"],
-			additionalProperties: false,
-		});
+		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+		expect(
+			validate({
+				...valid,
+				participants: [{ ...valid.participants[0], typo: true }],
+			}),
+		).toBe(false);
+		expect(validate({ ...valid, mode: "unknown" })).toBe(false);
 	});
 });

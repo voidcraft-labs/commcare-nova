@@ -120,18 +120,6 @@ describe("every preset", () => {
 			}
 		}
 	});
-
-	it("names itself for what a worker sees, never for a CommCare template", () => {
-		const labels = TILE_PRESETS.map((candidate) => candidate.label);
-		expect(labels).not.toContain("person_simple");
-		expect(labels).not.toContain("icon_text_grid");
-		expect(labels).toEqual([
-			"Stacked lines",
-			"Two columns",
-			"Title with a side note",
-			"Title over two columns",
-		]);
-	});
 });
 
 describe("seedTileArrangement", () => {

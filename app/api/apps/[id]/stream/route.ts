@@ -228,12 +228,14 @@ function openStream(args: {
 	/* `start` populates this so `cancel` can tear down too: see the `cancel`
 	 * handler at the bottom. `teardown` is idempotent, so a double invocation
 	 * (abort + cancel) is safe. */
-	const teardownRef: { current: (() => void) | null } = { current: null };
+	const teardownRef: { current: (() => Promise<void>) | null } = {
+		current: null,
+	};
 
 	let stream: ReadableStream<Uint8Array>;
 	try {
 		stream = new ReadableStream<Uint8Array>({
-			start(controller) {
+			async start(controller) {
 				/* Set on teardown (client abort). Every enqueue/close checks it first,
 				 * so a poke-driven pump or a cadence tick that resolves AFTER teardown is
 				 * a no-op: no enqueue on a closed controller, no leaked timer or
@@ -242,11 +244,6 @@ function openStream(args: {
 				/* The highest seq delivered so far. The first `mutation` frame must be
 				 * `cursor + 1`; any hole means the browser missed entries → reload. */
 				let deliveredThrough = cursor;
-				/* The same single-flight coalescing for the roster emit: the initial
-				 * emit, the connect-time catch-up poke, presence pokes, and the
-				 * freshness interval must never launch two racing presence SELECTs. */
-				let rosterInFlight = false;
-				let rosterPending = false;
 				/* Pump, subscription, and interval holders: nullable so `teardown` is safe to
 				 * call BEFORE they attach (the retention-overrun early return below
 				 * reloads-and-closes before any subscribe). */
@@ -262,6 +259,11 @@ function openStream(args: {
 				let deploymentPump: ReturnType<
 					typeof createCoalescedStreamPump
 				> | null = null;
+				let rosterPump: ReturnType<typeof createCoalescedStreamPump> | null =
+					null;
+				let cadencePump: ReturnType<typeof createCoalescedStreamPump> | null =
+					null;
+				let teardownDone: Promise<void> | null = null;
 				let unsubscribeApp: (() => void) | null = null;
 				let unsubscribeOrganization: (() => void) | null = null;
 				let unsubscribeLookup: (() => void) | null = null;
@@ -288,14 +290,18 @@ function openStream(args: {
 					}
 				}
 
-				function teardown(): void {
-					if (closed) return;
+				function teardown(): Promise<void> {
+					if (closed) return teardownDone ?? Promise.resolve();
 					closed = true;
-					mutationPump?.close();
-					lookupPump?.close();
-					organizationPump?.close();
-					statusPump?.close();
-					deploymentPump?.close();
+					const reads = [
+						mutationPump,
+						lookupPump,
+						organizationPump,
+						statusPump,
+						deploymentPump,
+						rosterPump,
+						cadencePump,
+					].map((pump) => pump?.close());
 					unsubscribeApp?.();
 					unsubscribeOrganization?.();
 					unsubscribeLookup?.();
@@ -305,11 +311,14 @@ function openStream(args: {
 						req.signal.removeEventListener("abort", teardown);
 						abortListenerAttached = false;
 					}
-					try {
-						controller.close();
-					} catch {
-						/* Already closed by the platform (client gone): nothing to do. */
-					}
+					teardownDone = Promise.all(reads).then(() => {
+						try {
+							controller.close();
+						} catch {
+							/* Already cancelled by the consumer. */
+						}
+					});
+					return teardownDone;
 				}
 				/* Expose teardown to `cancel` (a consumer/platform `cancel()` that does
 				 * not also abort `req.signal`). */
@@ -494,34 +503,16 @@ function openStream(args: {
 					send("presence", projectPresenceRoster(rows as PresenceRosterRow[]));
 				}
 
-				/* Coalesce overlapping roster emits into one follow-up query, a poke or
-				 * interval tick arriving mid-emit re-runs it once at the end, never a
-				 * racing presence SELECT on the pool (two concurrent identical roster
-				 * queries churn fresh pool connections needlessly). */
-				async function emitRoster(): Promise<void> {
-					if (closed) return;
-					if (rosterInFlight) {
-						rosterPending = true;
-						return;
-					}
-					rosterInFlight = true;
-					try {
-						do {
-							rosterPending = false;
-							await emitRosterOnce();
-						} while (rosterPending && !closed);
-					} catch (err) {
-						/* Transient read fault: warn; the interval / next poke re-queries. */
-						log.warn("[stream] presence roster error", {
-							appId,
-							err: err instanceof Error ? err.message : String(err),
-						});
-					} finally {
-						rosterInFlight = false;
-					}
-				}
-
 				try {
+					rosterPump = createCoalescedStreamPump({
+						run: emitRosterOnce,
+						onError(err) {
+							log.warn("[stream] presence roster error", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
 					/* Both durable readers share the same headless single-flight contract:
 					 * pokes coalesce, a failed SELECT retries for the lifetime of the stream
 					 * with a capped delay, and teardown cancels any unref'ed retry timer.
@@ -652,7 +643,7 @@ function openStream(args: {
 							mutationPump?.poke();
 						},
 						() => {
-							void emitRoster();
+							rosterPump?.poke();
 						},
 						() => {
 							statusPump?.poke();
@@ -677,7 +668,7 @@ function openStream(args: {
 					/* The connect-time resolution: converges a tab whose SSR
 					 * predates a publish that landed before the stream opened. */
 					deploymentPump.poke();
-					void emitRoster();
+					rosterPump?.poke();
 
 					/* The connect-time status snapshot. The completion notify (the
 					 * status pump above) and the cadence below re-emit on change.
@@ -707,8 +698,8 @@ function openStream(args: {
 					 * re-checks; a real loss confirms then. This keeps the cadence at least as
 					 * forgiving as the connect path, which lets EventSource auto-reconnect
 					 * through a transient 500. */
-					cadence = setInterval(() => {
-						void (async () => {
+					cadencePump = createCoalescedStreamPump({
+						async run() {
 							if (closed) return;
 							const live = await getSessionSafe(req);
 							if (closed) return;
@@ -755,15 +746,25 @@ function openStream(args: {
 								}
 								// else transient: leave open, re-check next tick.
 							}
-						})();
-					}, REVOCATION_CADENCE_MS);
+						},
+						onError(err) {
+							log.warn("[stream] reauthorization error", {
+								appId,
+								err: err instanceof Error ? err.message : String(err),
+							});
+						},
+					});
+					cadence = setInterval(
+						() => cadencePump?.poke(),
+						REVOCATION_CADENCE_MS,
+					);
 					cadence.unref?.();
 
 					/* Re-emit the roster periodically so an expired-but-un-DELETEd peer drops
 					 * off the client's view (their `expire_at` lapsed with no write to poke
 					 * us). */
 					rosterInterval = setInterval(() => {
-						void emitRoster();
+						rosterPump?.poke();
 					}, PRESENCE_ROSTER_INTERVAL_MS);
 					rosterInterval.unref?.();
 
@@ -780,7 +781,7 @@ function openStream(args: {
 					/* `ReadableStream` may convert a thrown `start` into an errored body
 					 * instead of propagating it through the constructor. Teardown must happen
 					 * here, while the partial subscription holders are still reachable. */
-					teardown();
+					await teardown();
 					throw err;
 				}
 			},
@@ -789,7 +790,7 @@ function openStream(args: {
 			 * Runs the same idempotent teardown, so an abort+cancel pair is a no-op the
 			 * second time. */
 			cancel() {
-				teardownRef.current?.();
+				return teardownRef.current?.();
 			},
 		});
 	} catch (err) {

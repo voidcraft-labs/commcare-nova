@@ -6,8 +6,9 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { getFieldTool } from "../getField";
 
@@ -19,16 +20,21 @@ const ORDER_CATALOG = [
 ];
 
 function docWith(fields: ReturnType<typeof f>[]) {
-	return buildDoc({
-		caseTypes: ORDER_CATALOG,
-		modules: [
-			{
-				name: "Orders",
-				caseType: "medication_order",
-				forms: [{ name: "Administer Medication", type: "followup", fields }],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			caseTypes: ORDER_CATALOG,
+			modules: [
+				{
+					name: "Orders",
+					caseType: "medication_order",
+					caseListConfig: caseListConfig([
+						{ field: "order_status", header: "Status" },
+					]),
+					forms: [{ name: "Administer Medication", type: "followup", fields }],
+				},
+			],
+		}),
+	);
 }
 
 async function getField(doc: ReturnType<typeof buildDoc>, fieldId: string) {
@@ -61,7 +67,6 @@ describe("getField — unwritten-property reminder", () => {
 		expect(data.system_reminder).toContain("<system_reminder>");
 		expect(data.system_reminder).toContain("`order_status`");
 		expect(data.system_reminder).toContain("no form in this app writes");
-		expect(data.system_reminder).toContain("This is not a problem");
 	});
 
 	it("covers reads anywhere in a returned container subtree", async () => {

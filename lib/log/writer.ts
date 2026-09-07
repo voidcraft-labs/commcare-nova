@@ -20,7 +20,7 @@ import { getAppDb } from "@/lib/db/pg";
 import { log } from "@/lib/logger";
 import type { Event } from "./types";
 
-/** Batch size beyond which the writer flushes synchronously. A plain
+/** Batch size at which the writer schedules an immediate flush. A plain
  *  bound on how many rows one INSERT carries — coalescing SSE bursts
  *  without letting a single flush grow unbounded. */
 const DEFAULT_MAX_BATCH = 450;
@@ -113,7 +113,7 @@ export class LogWriter {
 
 	/**
 	 * Enqueue an event for persistence. Never throws. When the buffer
-	 * reaches `maxBatch`, flushes synchronously; otherwise arms a
+	 * reaches `maxBatch`, schedules a flush immediately; otherwise arms a
 	 * `flushMs` timer (idempotent — re-arming during an existing window
 	 * is a no-op).
 	 *

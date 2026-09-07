@@ -1,15 +1,12 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { casePropertyRenameImpact } from "@/lib/doc/casePropertyRenameImpact";
-import {
-	applyCasePropertyRenamePlan,
-	casePropertyCarrierNames,
-	planCasePropertyRenames,
-} from "@/lib/doc/casePropertyRenames";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("51000000-0000-4000-8000-000000000000");
 const FORM = testUuid("52000000-0000-4000-8000-000000000000");
@@ -19,7 +16,7 @@ const OPERATION = testUuid("54000000-0000-4000-8000-000000000000");
 const COLUMN = testUuid("55000000-0000-4000-8000-000000000000");
 
 function fixture(): BlueprintDoc {
-	return {
+	const doc: BlueprintDoc = {
 		appId: "impact-app",
 		appName: "Impact",
 		connectType: null,
@@ -66,7 +63,10 @@ function fixture(): BlueprintDoc {
 						id: "update_patient",
 						action: "update",
 						caseType: "patient",
-						target: { kind: "session" },
+						target: {
+							kind: "expression",
+							expr: term(literal("other-patient")),
+						},
 						writes: [{ property: "a", value: term(literal("value")) }],
 					},
 				],
@@ -93,6 +93,8 @@ function fixture(): BlueprintDoc {
 		fieldOrder: { [FORM]: [FIELD_A, FIELD_B] },
 		fieldParent: { [FIELD_A]: FORM, [FIELD_B]: FORM },
 	};
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("casePropertyRenameImpact", () => {
@@ -121,29 +123,37 @@ describe("casePropertyRenameImpact", () => {
 		});
 	});
 
-	it("keeps simultaneous swap totals in parity with the apply walker", () => {
+	it("counts six independently observed leaves in an admitted simultaneous swap", () => {
 		const doc = fixture();
 		const renames = [
 			{ caseType: "patient", from: "a", to: "b" },
 			{ caseType: "patient", from: "b", to: "a" },
 		] as const;
 		const impact = casePropertyRenameImpact(doc, renames);
-		const planned = planCasePropertyRenames(doc, {
-			kind: "renameCaseProperties",
-			renames: [...renames],
-		});
-		if (!planned.ok) throw new Error("Expected a valid swap.");
-		const next = produce(doc, (draft) => {
-			applyCasePropertyRenamePlan(draft, planned.plan);
-		});
-		const before = new Map(
-			casePropertyCarrierNames(doc).map((entry) => [entry.path, entry.value]),
+		const verdict = mutationCommitVerdict(
+			doc,
+			[{ kind: "renameCaseProperties", renames: [...renames] }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		const changed = casePropertyCarrierNames(next).filter(
-			(entry) => before.get(entry.path) !== entry.value,
-		);
-
-		expect(impact.totalOccurrences).toBe(changed.length);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		const next = verdict.nextDoc;
+		expect(next.fields[FIELD_A]).toMatchObject({
+			id: "question_a",
+			caseWrite: { caseType: "patient", property: "b" },
+		});
+		expect(next.fields[FIELD_B]).toMatchObject({
+			id: "question_b",
+			caseWrite: { caseType: "patient", property: "a" },
+		});
+		expect(next.forms[FORM].caseOperations?.[0].writes?.[0].property).toBe("b");
+		expect(next.modules[MODULE].caseListConfig?.columns[0]).toMatchObject({
+			field: "b",
+		});
+		expect(
+			next.caseTypes?.[0].properties.map((property) => property.name),
+		).toEqual(["b", "a"]);
+		expect(impact.totalOccurrences).toBe(6);
+		expect(impact.totalCarriers).toBe(6);
 		expect(impact.groups).toEqual([
 			{ key: "field-writers", occurrences: 2, carriers: 2 },
 			{ key: "case-operation-writes", occurrences: 1, carriers: 1 },

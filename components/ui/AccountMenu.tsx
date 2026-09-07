@@ -158,10 +158,13 @@ function UserAvatar({
 
 export function AccountMenu({
 	canManageFiles,
+	appId,
 }: {
 	/** Active Project edit capability for the standalone site header. Omitted
 	 *  in the builder, where MediaPickerDialog reads the live session tuple. */
 	canManageFiles?: boolean;
+	/** Builder Files resolves the app's Project rather than the active site Project. */
+	appId?: string;
 } = {}) {
 	const { user, isAuthenticated, isPending, signOut } = useAuth();
 	const [open, setOpen] = useState(false);
@@ -369,6 +372,7 @@ export function AccountMenu({
 				kinds={ASSET_KINDS}
 				iconLibrary="all"
 				canWrite={canManageFiles}
+				appId={appId}
 			/>
 		</>
 	);

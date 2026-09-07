@@ -88,7 +88,12 @@ describe("GET /api/dev/login", () => {
 	});
 
 	it("rejects an absolute / protocol-relative `next` (no open redirect)", async () => {
-		for (const next of ["https://evil.example", "//evil.example/x"]) {
+		for (const next of [
+			"https://evil.example",
+			"//evil.example/x",
+			"/\\evil.example/x",
+			"/\t/evil.example/x",
+		]) {
 			const res = await GET(loginReq(`?next=${encodeURIComponent(next)}`));
 			expect(res.status).toBe(400);
 			await res.text();
@@ -96,7 +101,7 @@ describe("GET /api/dev/login", () => {
 		expect(createMock).not.toHaveBeenCalled();
 	});
 
-	it("mints a session row and sets its signSessionCookie-signed cookie", async () => {
+	it("dispatches a session write before returning its signed cookie", async () => {
 		const res = await GET(loginReq("?next=/build/new"));
 		expect(res.status).toBe(303);
 		expect(res.headers.get("location")).toBe("/build/new");

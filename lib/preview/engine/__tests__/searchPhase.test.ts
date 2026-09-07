@@ -2,10 +2,21 @@ import { describe, expect, it } from "vitest";
 import type { CaseRowWithCalculated } from "../caseDataBindingTypes";
 import { searchOutcomeFromLoad } from "../searchPhase";
 
-const row = {
+const row: CaseRowWithCalculated = {
 	case_id: "c1",
+	case_type: "patient",
+	case_name: "One",
+	properties: {},
+	parent_case_id: null,
+	external_id: null,
+	status: "open",
+	opened_on: null,
+	modified_on: null,
+	closed_on: null,
+	owner_id: "worker",
+	app_id: "app",
 	calculated: {},
-} as unknown as CaseRowWithCalculated;
+};
 
 describe("searchOutcomeFromLoad", () => {
 	it("completes with the full population count when the server reports it", () => {

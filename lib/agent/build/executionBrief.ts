@@ -10,7 +10,10 @@ import type {
 	BuildSlice,
 	ExternalAction,
 } from "@/lib/agent/design/buildPlan";
-import { buildCapabilityCatalog } from "@/lib/agent/design/capabilityCatalog";
+import {
+	buildCapabilityCatalog,
+	EXTERNAL_PREREQUISITES,
+} from "@/lib/agent/design/capabilityCatalog";
 import type {
 	AccessPolicy,
 	AppCharter,
@@ -307,26 +310,36 @@ function deriveRecordRealizations(
 			? `${identifier}_record`
 			: identifier;
 	});
-	const unsuffixedKeys = bases.map((base) =>
-		base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH),
-	);
-	const duplicateBases = new Set(
-		unsuffixedKeys.filter(
-			(base, index) => unsuffixedKeys.indexOf(base) !== index,
-		),
-	);
+	const suffixRequired = new Set<DesignId>();
 	const keyByRecordId = new Map<DesignId, string>();
-	for (const [index, record] of records.entries()) {
-		const base = bases[index] ?? "record";
-		const suffix = duplicateBases.has(
-			base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH),
-		)
-			? `_${record.id.replaceAll("-", "")}`
-			: "";
-		keyByRecordId.set(
-			record.id,
-			`${base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH - suffix.length)}${suffix}`,
-		);
+	// A generated UUID-suffixed key can itself be another record's display-name
+	// slug. Resolve the complete catalog to a fixed point: suffix every member
+	// of a collision, retaining ordinary keys where no collision exists.
+	// Fully suffixed keys are distinct because each carries its complete UUID.
+	for (;;) {
+		const ownersByKey = new Map<string, DesignId[]>();
+		for (const [index, record] of records.entries()) {
+			const base = bases[index] ?? "record";
+			const suffix = suffixRequired.has(record.id)
+				? `_${record.id.replaceAll("-", "")}`
+				: "";
+			const key = `${base.slice(0, MAX_BLUEPRINT_CASE_TYPE_LENGTH - suffix.length)}${suffix}`;
+			keyByRecordId.set(record.id, key);
+			const owners = ownersByKey.get(key) ?? [];
+			owners.push(record.id);
+			ownersByKey.set(key, owners);
+		}
+		let changed = false;
+		for (const owners of ownersByKey.values()) {
+			if (owners.length < 2) continue;
+			for (const id of owners) {
+				if (!suffixRequired.has(id)) {
+					suffixRequired.add(id);
+					changed = true;
+				}
+			}
+		}
+		if (!changed) break;
 	}
 	return records.map((record) => ({
 		recordId: record.id,
@@ -940,12 +953,12 @@ export function deriveSliceExecutionBrief(args: {
 						(areaSet.has("organization-shape") || areaSet.has("users"))),
 			),
 			externalPrerequisites: catalog.externalPrerequisites.filter(
-				(_entry, index) =>
-					(index === 0 && areaSet.has("media-references")) ||
-					(index === 1 && areaSet.has("lookup-references")) ||
-					(index === 2 &&
+				(entry) =>
+					(entry === EXTERNAL_PREREQUISITES.media &&
+						areaSet.has("media-references")) ||
+					(entry === EXTERNAL_PREREQUISITES.provisioning &&
 						(areaSet.has("organization-shape") || areaSet.has("users"))) ||
-					(index === 3 &&
+					(entry === EXTERNAL_PREREQUISITES.deployment &&
 						args.contract.externalRequirements.some(
 							(requirement) =>
 								requirementIds.has(requirement.id) &&

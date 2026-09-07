@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 /**
  * `POST /api/commcare/upload` — the route's own contract.
  *
@@ -16,8 +17,9 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
-import { resolveAppAccess } from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import {
@@ -25,12 +27,16 @@ import {
 	publishAppToHq,
 } from "@/lib/deployment/service";
 import { NO_DEPLOYMENT_PHASE_OUTCOMES } from "@/lib/deployment/types";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema } from "@/lib/domain";
 import { POST } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
 	resolveAppAccess: vi.fn(),
-	AppAccessError: class AppAccessError extends Error {},
 }));
 vi.mock("@/lib/db/settings", () => ({ getCommCareSettings: vi.fn() }));
 /* Both service functions the route imports. A factory that names only
@@ -45,9 +51,6 @@ vi.mock("@/lib/deployment/service", () => ({
  * see whether the app is now live on more than one space. */
 vi.mock("@/lib/deployment/previewSpace", () => ({
 	previewProjectSpaceFor: vi.fn(async () => "acme"),
-}));
-vi.mock("@/lib/doc/fieldParent", () => ({
-	hydratePersistedBlueprint: (doc: unknown) => doc,
 }));
 
 const SESSION = { user: { id: "u1" } };
@@ -67,11 +70,11 @@ async function read(res: Response): Promise<{ status: number; body: unknown }> {
 
 /** `readJsonBody` caps the body before parsing, so it reads real bytes. */
 function req(body: unknown) {
-	const bytes = new TextEncoder().encode(JSON.stringify(body));
-	return {
-		headers: new Headers({ "content-length": String(bytes.byteLength) }),
-		arrayBuffer: async () => bytes.buffer,
-	} as never;
+	return new NextRequest("http://localhost/api/test", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
 }
 
 function deploymentView(state: string, resumePhase: string | null = null) {
@@ -99,7 +102,7 @@ beforeEach(() => {
 	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: {}, mutation_seq: 7 },
+		app: { blueprint: uploadBlueprint(), mutation_seq: 7 },
 		projectId: "proj-1",
 		role: "owner",
 		actorUserId: "u1",
@@ -224,7 +227,6 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		 * mapping while leaving nothing there, so only the server, which can
 		 * read what each table is called NOW, can tell the two apart. */
 		vi.mocked(publishAppToHq).mockResolvedValue({
-			...(await vi.mocked(publishAppToHq).mock.results[0]?.value),
 			landed: true,
 			hqAppAction: "updated",
 			deployment: {
@@ -417,4 +419,64 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.deployment.deployment.resumePhase).toBe("preflight");
 		expect(body.preflight[0]?.status).toBe("blocked");
 	});
+});
+
+function uploadBlueprint() {
+	const doc = buildDoc({
+		appName: "Upload",
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Survey",
+						type: "survey",
+						fields: [f({ id: "name", kind: "text" })],
+					},
+				],
+			},
+		],
+	});
+	const wire = toPersistableDoc(doc);
+	blueprintDocSchema.parse(wire);
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	return wire;
+}
+it.each([{ domain: 42 }, { domain: {} }, { appName: 42 }, { appName: [] }])(
+	"refuses nonstring publish names at the HTTP boundary: %j",
+	async (changes) => {
+		const response = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1", ...changes }),
+		);
+		expect(response.status).toBe(400);
+		await response.json();
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	},
+);
+it.each([{}, [3], "table-1"])(
+	"refuses malformed adoption list %j before publish",
+	async (adopt_resources) => {
+		const response = await POST(
+			req({ domain: DOMAIN, appName: "App", appId: "app-1", adopt_resources }),
+		);
+		expect(response.status).toBe(400);
+		await response.json();
+		expect(publishAppToHq).not.toHaveBeenCalled();
+	},
+);
+
+it("refuses inaccessible apps before credentials or publishing", async () => {
+	vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+		new AppAccessError("not_found"),
+	);
+	const response = await POST(
+		req({ domain: DOMAIN, appName: "App", appId: "a1" }),
+	);
+	expect(await read(response)).toMatchObject({
+		status: 404,
+		body: { error: "App not found" },
+	});
+	expect(getCommCareSettings).not.toHaveBeenCalled();
+	expect(publishAppToHq).not.toHaveBeenCalled();
 });

@@ -54,7 +54,7 @@ async function readApp(
 	id: string,
 ): Promise<{ status: string; error_type: string | null }> {
 	const result = (await client.query(
-		"SELECT status, error_type, awaiting_input FROM apps WHERE id = $1",
+		"SELECT *, xmin::text AS row_version FROM apps WHERE id = $1",
 		[id],
 	)) as { rows: Array<{ status: string; error_type: string | null }> };
 	const row = result.rows[0];
@@ -71,7 +71,7 @@ describe("clear legacy null-nonce holders migration", () => {
 		await seedApp(pgClient, {
 			id: "stale-build",
 			status: "generating",
-			ageHours: 5,
+			ageHours: 61 / 60,
 			nonce: null,
 		});
 		await seedApp(pgClient, {
@@ -118,7 +118,27 @@ describe("clear legacy null-nonce holders migration", () => {
 			resSettled: false,
 		});
 
+		await seedApp(pgClient, {
+			id: "recent-build",
+			status: "generating",
+			ageHours: 59 / 60,
+			nonce: null,
+		});
+		const untouchedIds = [
+			"fresh-build",
+			"recent-build",
+			"nonce-build",
+			"idle-app",
+			"unsettled-reservation",
+		];
+		const readUntouched = () =>
+			pgClient.query(
+				"SELECT *, xmin::text AS row_version FROM apps WHERE id = ANY($1::text[]) ORDER BY id",
+				[untouchedIds],
+			);
+		const untouched = await readUntouched();
 		await clearLegacyNullNonceHolders(db as unknown as MigrationDb);
+		expect((await readUntouched()).rows).toEqual(untouched.rows);
 
 		// A crashed build reads `internal`; a paused one reads `paused_timeout`,
 		// exactly as `refundStaleGeneration` would have written them.
@@ -134,19 +154,6 @@ describe("clear legacy null-nonce holders migration", () => {
 		expect(await readApp(pgClient, "stale-edit-lock")).toMatchObject({
 			status: "error",
 		});
-
-		for (const id of [
-			"fresh-build",
-			"nonce-build",
-			"unsettled-reservation",
-		] as const) {
-			expect(await readApp(pgClient, id)).toMatchObject({
-				status: "generating",
-			});
-		}
-		expect(await readApp(pgClient, "idle-app")).toMatchObject({
-			status: "complete",
-		});
 	});
 
 	test("is idempotent — a second run retires nothing further", async ({
@@ -156,7 +163,7 @@ describe("clear legacy null-nonce holders migration", () => {
 		await seedApp(pgClient, {
 			id: "stale-build",
 			status: "generating",
-			ageHours: 5,
+			ageHours: 61 / 60,
 			nonce: null,
 		});
 

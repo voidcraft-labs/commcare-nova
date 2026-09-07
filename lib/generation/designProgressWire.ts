@@ -5,7 +5,7 @@
  * writes these frames from `lib/agent/build/orchestrator.ts`. The shapes are
  * RESTATED here rather than imported because that module's type graph reaches
  * `lib/db/designSessions` and the design-artifact schemas, and this leaf is
- * imported by the chat client. `__tests__/designProgressWire.test.ts` pins the
+ * imported by the chat client. `__tests__/designProgressWire.test-d.ts` pins the
  * restatement against the server declarations, so the two cannot drift.
  *
  * Every parser FAILS CLOSED: an unknown `eventVersion`, a frame naming a

@@ -6,8 +6,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { afterSubmitPlan } from "@/lib/doc/formLinkMutations";
-import { type FormLink, formLinkDestination } from "@/lib/domain";
+import {
+	type FormLink,
+	formLinkDestination,
+	projectXPath,
+	xpathPrintContext,
+} from "@/lib/domain";
 import {
 	afterSubmitSummary,
 	carriedAutomaticallyDetail,
@@ -34,7 +40,9 @@ const context: LinkSentenceContext = {
 				: undefined
 			: { kind: "module", name: "Care" },
 	conditionText: (link) =>
-		link.condition === undefined ? "" : "#patient/mood = 'low'",
+		link.condition === undefined
+			? ""
+			: projectXPath(link.condition, xpathPrintContext(fixture())).text,
 };
 
 const link = (overrides: Partial<FormLink>): FormLink => ({
@@ -58,10 +66,10 @@ describe("linkSentence", () => {
 	it("reads the condition and the carried values as details", () => {
 		const sentence = linkSentence(
 			link({
-				condition: { parts: [] },
+				condition: xp("#patient/mood = 'low'"),
 				datums: [
-					{ name: "case_id", xpath: { parts: [] } },
-					{ name: "case_id_household", xpath: { parts: [] } },
+					{ name: "case_id", xpath: xp("'external-case'") },
+					{ name: "case_id_household", xpath: xp("'external-case'") },
 				],
 			}),
 			context,

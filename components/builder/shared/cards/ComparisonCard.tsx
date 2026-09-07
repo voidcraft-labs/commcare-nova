@@ -18,12 +18,12 @@ import {
 	type Predicate,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { replaceComparisonSubject } from "../comparisonModel";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import { appendSlot, type EditorPath } from "../path";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { KIND_BUILDERS } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
-import { reseedValueForConstraint, resolveExpressionType } from "./reseed";
 
 export { comparisonDefault, KIND_BUILDERS } from "./comparisonSeed";
 
@@ -62,28 +62,8 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 	const subjectType = useResolvedType(value.left);
 	const objectConstraint = comparisonObjectConstraint(value.kind, subjectType);
 
-	const setLeft = (left: ValueExpression) => {
-		const builder = KIND_BUILDERS[value.kind];
-		// Cascade-reseed: a new subject can tighten the right slot's
-		// accept-set. When the existing right resolves to a type the new
-		// subject no longer accepts, reseed it (carrying the typed
-		// content where the new type allows) in the SAME onChange so the
-		// committed comparison is never transiently type-wrong.
-		const accepts = comparisonObjectConstraint(
-			value.kind,
-			resolveExpressionType(left, ctx),
-		).accepts;
-		if (accepts === "any") {
-			onChange(builder(left, value.right));
-			return;
-		}
-		const rightType = resolveExpressionType(value.right, ctx);
-		const right =
-			rightType !== undefined && !accepts.has(rightType)
-				? reseedValueForConstraint(value.right, accepts)
-				: value.right;
-		onChange(builder(left, right));
-	};
+	const setLeft = (left: ValueExpression) =>
+		onChange(replaceComparisonSubject(value, left, ctx));
 
 	const setRight = (right: Parameters<typeof eq>[1]) => {
 		const builder = KIND_BUILDERS[value.kind];

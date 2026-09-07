@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
 /**
@@ -42,9 +43,9 @@ import {
 	isValidDomainSlug,
 	logAndReturnError,
 	WAF_PADDING,
-	warnAndReturnError,
 	writeMayHaveLanded,
 } from "./http";
+import { isHqObject, readHqCollection } from "./readCollection";
 
 /** One lookup table as CommCare HQ reports it. */
 export interface HqLookupTable {
@@ -55,17 +56,6 @@ export interface HqLookupTable {
 	readonly isGlobal: boolean;
 	/** Field names in CommCare HQ's stored order. */
 	readonly fields: readonly string[];
-}
-
-/** Tastypie's list envelope, only the parts Nova reads. */
-interface LookupTableListResponse {
-	readonly meta?: { readonly next?: string | null };
-	readonly objects?: readonly {
-		readonly id?: unknown;
-		readonly tag?: unknown;
-		readonly is_global?: unknown;
-		readonly fields?: unknown;
-	}[];
 }
 
 /**
@@ -87,13 +77,15 @@ const LOOKUP_TABLE_PAGE_SIZE = 100;
  */
 const MAX_LOOKUP_TABLE_PAGES = 20;
 
-function toHqLookupTable(raw: {
-	readonly id?: unknown;
-	readonly tag?: unknown;
-	readonly is_global?: unknown;
-	readonly fields?: unknown;
-}): HqLookupTable | null {
-	if (typeof raw.id !== "string" || typeof raw.tag !== "string") return null;
+function toHqLookupTable(raw: unknown): HqLookupTable | null {
+	if (
+		!isHqObject(raw) ||
+		typeof raw.id !== "string" ||
+		raw.id.trim() === "" ||
+		typeof raw.tag !== "string" ||
+		raw.tag.trim() === ""
+	)
+		return null;
 	/* `dehydrate_fields` answers `[{field_name, properties}]`; older rows
 	 * and the XML serializer spell it `name`. Reading both is not an alias
 	 * layer — Nova stores neither, it only needs enough to compare shape
@@ -130,63 +122,25 @@ export async function listHqLookupTables(
 ): Promise<readonly HqLookupTable[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 
+	const rows = await readHqCollection(
+		creds,
+		`${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
+		"lookup table list",
+		MAX_LOOKUP_TABLE_PAGES,
+	);
+	if ("success" in rows) return rows;
 	const tables: HqLookupTable[] = [];
-	let url = `${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`;
-	for (let page = 0; page < MAX_LOOKUP_TABLE_PAGES; page += 1) {
-		let res: Response;
-		try {
-			res = await fetch(url, {
-				headers: { Authorization: authHeader(creds) },
-			});
-		} catch (error) {
-			log.warn("[commcare] lookup table list unreachable", {
-				domain,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return { success: false, status: 503 };
-		}
-		if (!res.ok) {
-			/* Warn rather than error: a project space without the API
-			 * privilege answers this on every publish of a table-bearing
-			 * app, and it is a state a person resolves in CommCare HQ
-			 * rather than a fault in Nova. */
-			return warnAndReturnError("lookup table list failed", res);
-		}
-		let body: LookupTableListResponse;
-		try {
-			body = (await res.json()) as LookupTableListResponse;
-		} catch {
-			log.error("[commcare] lookup table list returned non-JSON", undefined, {
+	for (const raw of rows) {
+		const table = toHqLookupTable(raw);
+		if (table === null) {
+			log.error("[commcare] lookup table identity is malformed", undefined, {
 				domain,
 			});
 			return { success: false, status: 502 };
 		}
-		for (const raw of body.objects ?? []) {
-			const table = toHqLookupTable(raw);
-			if (table !== null) tables.push(table);
-		}
-		const next = body.meta?.next;
-		if (typeof next !== "string" || next === "") return tables;
-		/* Resolve against the server's own base so a rewritten `next`
-		 * cannot walk this request off CommCare HQ. */
-		const resolved = new URL(next, baseUrl(creds));
-		if (resolved.origin !== new URL(baseUrl(creds)).origin) {
-			log.error(
-				"[commcare] lookup table pagination left CommCare HQ",
-				undefined,
-				{
-					domain,
-				},
-			);
-			return { success: false, status: 502 };
-		}
-		url = resolved.toString();
+		tables.push(table);
 	}
-	log.error("[commcare] lookup table list did not terminate", undefined, {
-		domain,
-		pages: MAX_LOOKUP_TABLE_PAGES,
-	});
-	return { success: false, status: 508 };
+	return tables;
 }
 
 /** What CommCare HQ said about a workbook it accepted. */
@@ -218,12 +172,8 @@ const FIXTURE_UPLOAD_SUCCESS_CODE = 200;
  * (405) is the opposite — `validate_fixture_file_format` raised before
  * anything was written.
  */
-const FIXTURE_UPLOAD_PARTIAL_CODE = 402;
-
-interface FixtureUploadResponse {
-	readonly message?: unknown;
-	readonly code?: unknown;
-}
+export const FIXTURE_UPLOAD_PARTIAL_CODE = 402;
+const FIXTURE_UPLOAD_FORMAT_FAILURE_CODE = 405;
 
 /**
  * A refusal that keeps CommCare HQ's own sentence.
@@ -299,64 +249,96 @@ export async function uploadLookupTableWorkbook(
 	);
 	form.append("replace", options.replace ? "true" : "false");
 
-	let res: Response;
-	try {
-		res = await fetch(`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`, {
-			method: "POST",
-			headers: { Authorization: authHeader(creds) },
-			body: form,
-		});
-	} catch (error) {
-		log.error("[commcare] lookup table upload unreachable", undefined, {
-			domain,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		/* The request went out and no answer came back, so what CommCare HQ
-		 * did with the workbook is unknown. */
-		return { success: false, status: 503, message: "", mayHaveLanded: true };
-	}
-	if (!res.ok) {
-		/* No verdict body, so no sentence to keep. Whether anything landed
-		 * is the shared rule: the permission layer answers before
-		 * `_run_upload` can run, while anything else means it may have run
-		 * and stopped somewhere unknown. That deliberately includes a
-		 * gateway's own 502 or 504, which says the request was forwarded
-		 * and then waited on, not that it never arrived. */
-		const refusal = await logAndReturnError("lookup table upload failed", res);
-		return {
-			...refusal,
-			message: "",
-			mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
-		};
-	}
-	let body: FixtureUploadResponse;
-	try {
-		body = (await res.json()) as FixtureUploadResponse;
-	} catch {
-		log.error("[commcare] lookup table upload returned non-JSON", undefined, {
-			domain,
-		});
-		/* CommCare HQ answered something Nova cannot read, which says
-		 * nothing about what it did with the workbook. */
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
-	}
-	const message = typeof body.message === "string" ? body.message : "";
-	if (body.code !== FIXTURE_UPLOAD_SUCCESS_CODE) {
-		log.error("[commcare] lookup table upload refused", undefined, {
-			domain,
-			code: typeof body.code === "number" ? body.code : null,
-			message: message.substring(0, 200),
-		});
-		/* A warning is a refusal here. CommCare HQ warns when some rows
-		 * landed and others did not, and Nova pushes whole tables: a
-		 * partial result is a project space whose data no longer matches
-		 * the app that was about to be sent to it. */
-		return {
-			success: false,
-			status: typeof body.code === "number" ? body.code : 502,
-			message,
-			mayHaveLanded: body.code === FIXTURE_UPLOAD_PARTIAL_CODE,
-		};
-	}
-	return { success: true, message };
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`, {
+				method: "POST",
+				headers: { Authorization: authHeader(creds) },
+				body: form,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.error("[commcare] lookup table upload unreachable", undefined, {
+				domain,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			/* The request went out and no answer came back, so what CommCare HQ
+			 * did with the workbook is unknown. */
+			return { success: false, status: 503, message: "", mayHaveLanded: true };
+		}
+		if (!res.ok) {
+			/* No verdict body, so no sentence to keep. Whether anything landed
+			 * is the shared rule: the permission layer answers before
+			 * `_run_upload` can run, while anything else means it may have run
+			 * and stopped somewhere unknown. That deliberately includes a
+			 * gateway's own 502 or 504, which says the request was forwarded
+			 * and then waited on, not that it never arrived. */
+			const refusal = await logAndReturnError(
+				"lookup table upload failed",
+				res,
+			);
+			return {
+				...refusal,
+				message: "",
+				mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
+			};
+		}
+		let body: unknown;
+		try {
+			body = await res.json();
+		} catch {
+			log.error("[commcare] lookup table upload returned non-JSON", undefined, {
+				domain,
+			});
+			/* CommCare HQ answered something Nova cannot read, which says
+			 * nothing about what it did with the workbook. */
+			return {
+				success: false,
+				status: signal.aborted ? 503 : 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		if (
+			!isHqObject(body) ||
+			(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&
+				body.code !== FIXTURE_UPLOAD_PARTIAL_CODE &&
+				body.code !== FIXTURE_UPLOAD_FORMAT_FAILURE_CODE)
+		) {
+			log.error(
+				"[commcare] lookup table upload verdict is malformed",
+				undefined,
+				{ domain },
+			);
+			// Only HQ's explicit pre-write format refusal proves nothing landed.
+			// An unknown verdict cannot authorize dropping the ownership evidence.
+			return {
+				success: false,
+				status: 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		const message = typeof body.message === "string" ? body.message : "";
+		if (body.code !== FIXTURE_UPLOAD_SUCCESS_CODE) {
+			log.error("[commcare] lookup table upload refused", undefined, {
+				domain,
+				code: typeof body.code === "number" ? body.code : null,
+				message: message.substring(0, 200),
+			});
+			/* A warning is a refusal here. CommCare HQ warns when some rows
+			 * landed and others did not, and Nova pushes whole tables: a
+			 * partial result is a project space whose data no longer matches
+			 * the app that was about to be sent to it. */
+			return {
+				success: false,
+				status: typeof body.code === "number" ? body.code : 502,
+				message,
+				mayHaveLanded: body.code === FIXTURE_UPLOAD_PARTIAL_CODE,
+			};
+		}
+		return { success: true, message };
+	}, 60_000);
 }

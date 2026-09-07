@@ -36,7 +36,15 @@ export function toArtifactResult<T>(
 	result: SubGenerationObjectResult<T>,
 	signal: AbortSignal,
 ): ArtifactResult<T> {
-	if (result.object !== null) {
+	if (signal.aborted) {
+		return { kind: "not-produced", reason: "cancelled", usage: result.usage };
+	}
+	if (result.finishReason === "length") {
+		return { kind: "not-produced", reason: "length", usage: result.usage };
+	}
+	// A complete JSON value can arrive before the provider truncates or refuses
+	// the response. Parsing alone does not authorize an actionable artifact.
+	if (result.object !== null && result.finishReason === "stop") {
 		return {
 			kind: "produced",
 			artifact: result.object,
@@ -46,12 +54,6 @@ export function toArtifactResult<T>(
 				reasoningText: result.reasoningText,
 			}),
 		};
-	}
-	if (signal.aborted) {
-		return { kind: "not-produced", reason: "cancelled", usage: result.usage };
-	}
-	if (result.finishReason === "length") {
-		return { kind: "not-produced", reason: "length", usage: result.usage };
 	}
 	return {
 		kind: "not-produced",

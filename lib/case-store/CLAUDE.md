@@ -41,6 +41,16 @@ the column required for every future writer.
 
 ## The atomic submission envelope — `applySubmission`
 
+A worker-record write resolves exactly one open `commcare-user` row by
+`hq_user_id` inside the bound app and Project before any submission effects.
+Its owner must match the acting worker. Missing, closed, wrong-owner or duplicate
+records refuse; an ordinary case whose id equals the worker id is never a
+substitute. The resolved case id, which may be historical, also identifies the
+worker row in the transaction-captured device patch and durable replay. No
+submission reconstructs it from the acting user id or creates a missing record.
+
+Arithmetic operands are explicitly cast to `numeric`, including bound form answers, so PostgreSQL cannot select a text operator such as pg_trgm `%`. Declared integer division uses `trunc` to preserve the domain's truncation toward zero without imposing an int4/int8 limit on intermediate expressions. The committed form supplies `formFieldTypes` with its operation program; expressions retain the current case scope and lookup-column definitions. Native numeric precision and zero-division errors remain PostgreSQL behavior, independently of Core's floating-point runtime.
+
 Every `applySubmission` transaction first claims the
 `(app, Project, actor, entry_key)` idempotency row under the entry advisory
 lock, independently of attachment presence. A new claim checks the committed
@@ -105,6 +115,13 @@ cannot assert it, and the envelope persists the canonical `parent` edge as
 Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer storage plan describes exact retained JSON properties, casts, parking, and missing requirements; scalar row metadata such as `case_name` is excluded because it survives independently of the JSON schema. Its `safe` verdict means Nova can execute that plan atomically, while `wirePortable` is deliberately stricter: no conversion and no parking. Authored operations are admitted only under `wirePortable`, because CommCare's case XML retype changes `case_type` without casting or removing old property values, and the authoritative submission transaction executes exactly that subset (`postgres/submissionEnvelope.ts::applyRetypeEffect`). Conversion/parking retypes stay dormant until a shared wire representation can make the device and Nova projection agree; if that representation lands, execute the complete plan as one transaction and surface parked values through Data to review. Never implement a richer retype as a bare `case_type` update around the schema store.
 
 **Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
+
+The drift report preserves current select identity through `x-novaDataType` and
+compares owned property keys, including names such as `constructor`. Its legacy
+enum recognition is diagnostic only: a repair still passes the writer's exact
+canonical stored-schema decoder. Real Postgres scan tests cover type reporting,
+JSONB key ordering, app scope, and additions/removals; versioned repair and
+retirement remain covered by the index-convergence tests.
 
 Historical ordinary extension edges follow the same scan-then-migrate rule.
 Before automations, ordinary parent writes always persisted `child`; advanced
@@ -373,7 +390,11 @@ type's ACTIVE JSON Schema (the row in `case_type_schemas` with
 `is_active = true`) via `ajv`
 BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
-`(appId, caseType, schemaContent)`.
+`(appId, caseType, schemaContent)`. Numeric strictness stays enabled even
+though AJV permits annotation keywords: `NaN` and infinities are refused
+before JSON serialization could turn them into null. This includes numeric
+JSON tokens such as `1e400` that overflow JavaScript during parsing. The same
+validator configuration owns parked-value and cast conformance.
 
 `update` merges the patch over the row's existing document and,
 before validating, SHEDS inherited keys the current schema no
@@ -706,11 +727,11 @@ set. Missing or invalid indexes degrade query performance but
 never correctness — the term compiler's emitted SQL falls back
 to a sequential scan over the case-type partition.
 
-The chat-completion boundary calls `applySchemaChange` once per
-case type via the sibling helper at
-`lib/db/materializeCaseStoreSchemas.ts` to close the gap the SA's
-inline chat-side commits leave open (the freshly-generated case
-types have no `case_type_schemas` row until that helper lands).
+Genesis admits every storable case type, including the built-in worker case,
+in the app's transaction. The chat-completion boundary calls
+`applySchemaChange` once per type through `lib/db/materializeCaseStoreSchemas.ts`
+to converge subsequent schema changes and drain pending index work. Ordinary
+worker-changing commits synchronize their schemas before writing worker rows.
 Its failure contract splits on fault class (`lib/db/schemaSyncRetry.ts`
 `isTransientDbError`): each per-type sync retries a TRANSIENT blip,
 then **swallows** a still-transient terminal (`warn`; the
@@ -857,6 +878,13 @@ the connector's IAM-authenticated path is the only way in; Cloud Run
 keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`). That
 central `--prod` helper authoritatively declares the `operator`
 workload, whose pool max is the residual ordinary-login connection.
+
+The runtime pool owns both idle pool errors and checked-out client errors.
+One failed physical connection produces one structured diagnostic; affected
+queries still reject, and a new checkout replaces the unusable client. Shutdown
+waits for initialization and existing checkouts, including direct Better Auth
+pool use before Kysely initialized. Concurrent closes share the drain, and a
+replacement pool waits until the old pool and connector are closed.
 
 Every non-local process must declare its pool workload exactly:
 `service` = 3 pooled connections, `migration` = 1,
@@ -1226,15 +1254,17 @@ The harness pins to two non-negotiable rules:
    Each test clones a closed template built once using the real migrations,
    then drops its private database in teardown. Do not replay migrations in
    behavior-test hooks. Migration tests omit `schema` to get extensions without
-   application tables. `databaseTemplates.postgres.test.ts` proves committed-write
+   application tables. Historical exact-catalog tests prepare the actual migration
+   prefix, not the latest schema with selected columns removed. Before asserting
+   rejection after corruption, prove that the unmodified historical state is
+   admitted; otherwise later DDL can make every rejection pass for the wrong
+   reason. `databaseTemplates.postgres.test.ts` proves committed-write
    isolation and the distinction between the two templates. See `docs/testing.md`.
 
-The `harness-isolation.postgres.test.ts` sibling file exists specifically
-to catch a regression that splits one of these two rules: it
-inserts sentinel UUIDs in `harness.postgres.test.ts`, rolls them back, then
-asserts in the sibling file that those same UUIDs return zero
-rows. A regression to per-file containers OR per-test commits
-surfaces as a failing sibling test, not a silent leak.
+`harness.postgres.test.ts` checks that Kysely and raw queries share the same
+uncommitted transaction, that a subsequent test cannot see the previous
+write, and that a separate observer sees no sentinel rows after fixture
+teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual Predicate AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
 
 ### Image and extensions
 

@@ -5,13 +5,9 @@ import { describe, expect, it } from "vitest";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import {
 	APP_CHANGE_FOLD_BASELINES_PROJECT_FOREIGN_KEY,
-	APP_CHANGE_FOLD_BASELINES_PROJECT_FOREIGN_KEY_DEFINITION,
 	APP_CHANGES_FROM_PROJECT_FOREIGN_KEY,
-	APP_CHANGES_FROM_PROJECT_FOREIGN_KEY_DEFINITION,
 	APP_CHANGES_TO_PROJECT_FOREIGN_KEY,
-	APP_CHANGES_TO_PROJECT_FOREIGN_KEY_DEFINITION,
 	APPS_PROJECT_FOREIGN_KEY,
-	APPS_PROJECT_FOREIGN_KEY_DEFINITION,
 	down,
 	up as installAppsProjectTenancy,
 } from "@/lib/auth/migrations/20260728010000_apps_project_tenancy";
@@ -38,22 +34,26 @@ const AUTH_PROJECT_FOREIGN_KEYS = [
 	{
 		relation: "app_change_fold_baselines",
 		name: APP_CHANGE_FOLD_BASELINES_PROJECT_FOREIGN_KEY,
-		definition: APP_CHANGE_FOLD_BASELINES_PROJECT_FOREIGN_KEY_DEFINITION,
+		definition:
+			"FOREIGN KEY (project_id) REFERENCES auth_organization(id) ON UPDATE RESTRICT ON DELETE RESTRICT",
 	},
 	{
 		relation: "app_changes",
 		name: APP_CHANGES_FROM_PROJECT_FOREIGN_KEY,
-		definition: APP_CHANGES_FROM_PROJECT_FOREIGN_KEY_DEFINITION,
+		definition:
+			"FOREIGN KEY (from_project_id) REFERENCES auth_organization(id) ON UPDATE RESTRICT ON DELETE RESTRICT",
 	},
 	{
 		relation: "app_changes",
 		name: APP_CHANGES_TO_PROJECT_FOREIGN_KEY,
-		definition: APP_CHANGES_TO_PROJECT_FOREIGN_KEY_DEFINITION,
+		definition:
+			"FOREIGN KEY (to_project_id) REFERENCES auth_organization(id) ON UPDATE RESTRICT ON DELETE RESTRICT",
 	},
 	{
 		relation: "apps",
 		name: APPS_PROJECT_FOREIGN_KEY,
-		definition: APPS_PROJECT_FOREIGN_KEY_DEFINITION,
+		definition:
+			"FOREIGN KEY (project_id) REFERENCES auth_organization(id) ON UPDATE RESTRICT ON DELETE RESTRICT",
 	},
 ] as const;
 const APPS_PROJECT_FOREIGN_KEY_SPEC = AUTH_PROJECT_FOREIGN_KEYS[3];
@@ -169,22 +169,23 @@ describe("Project-reference auth-app exact cutover", () => {
 			Object.keys(roleEnv).map((key) => [key, process.env[key]]),
 		);
 		Object.assign(process.env, roleEnv);
-		await sql`
+		try {
+			await sql`
 			GRANT SELECT, INSERT, UPDATE, DELETE
 			ON TABLE public.apps, public.auth_organization
 			TO pg_monitor
 		`.execute(dbHandle.db);
-		await sql`
+			await sql`
 			GRANT SELECT, INSERT
 			ON TABLE public.app_changes
 			TO pg_monitor
 		`.execute(dbHandle.db);
-		await sql`
+			await sql`
 			GRANT SELECT
 			ON TABLE public.app_change_fold_baselines
 			TO pg_monitor
 		`.execute(dbHandle.db);
-		await sql`
+			await sql`
 			GRANT SELECT
 			ON TABLE
 				public.app_change_fold_baselines,
@@ -194,7 +195,6 @@ describe("Project-reference auth-app exact cutover", () => {
 			TO pg_read_all_settings
 		`.execute(dbHandle.db);
 
-		try {
 			const before = await constraintDefinitions();
 			await installAppsProjectTenancy(dbHandle.db);
 			expect(await constraintDefinitions()).toEqual(before);

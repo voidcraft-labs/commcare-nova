@@ -54,21 +54,13 @@ import {
 /**
  * OAuth scopes Nova's authorization server can grant.
  *
- * Referenced three times in the oauth-provider config below:
- *   - `scopes` — the authoritative list the AS advertises + enforces.
- *   - `clientRegistrationDefaultScopes` — what a newly registered client
- *     gets when it doesn't send an explicit `scope` param during DCR.
- *   - `clientRegistrationAllowedScopes` — the complete allowlist a dynamic
- *     client may request explicitly.
- *
- * Defaults deliberately exclude the HQ and Projects scopes. A public DCR
- * client omitting `scope` should get the MCP baseline, not delegated
- * CommCare HQ powers or Project-membership management. Both pairs stay
- * requestable via `clientRegistrationAllowedScopes`, so a client that
- * needs deployment or Project management can ask for them explicitly and
- * the consent screen can make that grant visible. Better Auth treats the
- * registration allowlist as the full valid set, so it includes the
- * baseline scopes too.
+ * `scopes` is the server's authoritative advertised vocabulary. Registration
+ * stores the union of `clientRegistrationDefaultScopes` and
+ * `clientRegistrationAllowedScopes` as the client's capability set. A subset in
+ * registration metadata is validated but does not narrow that stored set.
+ * Registration creates no user grant. Authorization requests and the consent
+ * screen determine the scopes the user grants; clients needing only app access
+ * can request the baseline explicitly at `/oauth2/authorize`.
  *
  * The OIDC trio (`openid`, `profile`, `email`) + `offline_access` is the
  * standard set clients expect for refresh-token flows. The Nova scopes
@@ -253,18 +245,15 @@ export const NOVA_ORGANIZATION_HOOKS = {
 >["organizationHooks"];
 
 /**
- * Creates the Better Auth instance. Async because it acquires the shared
- * Cloud SQL pool. Named (not inlined) so `Awaited<ReturnType<typeof createAuth>>`
+ * Creates the Better Auth instance over its caller-owned shared Postgres pool. Named (not inlined) so `Awaited<ReturnType<typeof createAuth>>`
  * (the exported `Auth` type) captures the full config-specific instance type —
  * needed by the client's `inferAdditionalFields` plugin to pick up plugin-added
  * fields (admin plugin's `role` on user, etc.).
  */
-async function createAuth() {
+export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 	// Better Auth runs its own Kysely on the case-store's shared `pg.Pool`; one
 	// pool per instance keeps the connection budget intact. Passing a `pg.Pool`
 	// lets Better Auth detect the Postgres dialect itself.
-	const pool = await getCaseStorePool();
-
 	return betterAuth({
 		secret: process.env.BETTER_AUTH_SECRET,
 		baseURL: process.env.BETTER_AUTH_URL,
@@ -336,7 +325,7 @@ async function createAuth() {
 		 * Extend the auth user model with app-level fields.
 		 *
 		 * `lastActiveAt` — most recent authenticated interaction. Updated
-		 * fire-and-forget on every request by `touchUser()` in auth-utils.ts.
+		 * before request completion by `touchUser()` in auth-utils.ts.
 		 * `required: false` because pre-migration users lack this field.
 		 */
 		user: {
@@ -409,21 +398,11 @@ async function createAuth() {
 				 * above tool-call cadence even from concurrent worktrees
 				 * (each worktree gets its own per-IP counter).
 				 *
-				 * Important: this is a SUSTAINED-rate cap, not an
-				 * atomic concurrency bound. Better Auth checks the
-				 * counter in `onRequest` and increments it in
-				 * `onResponse`, so a cold/reset IP can fire through
-				 * up to Cloud Run's per-instance request concurrency
-				 * (default 80) before any response-side increment
-				 * lands. Each burst request still hits `verifyApiKey`
-				 * and the Postgres lookup. The rate limiter starts
-				 * blocking on the next sustained window, so over time
-				 * the cap holds — but it does not protect against
-				 * single-burst abuse. Edge-level rate limiting (Cloud
-				 * Armor on the Cloud Run load balancer, or whatever
-				 * fronts the service in your deployment) is the right
-				 * tool for the burst case; the in-app cap is the
-				 * second line. */
+				 * Better Auth atomically checks and increments the Postgres counter
+				 * in the request phase through storage.consume. Concurrent requests
+				 * share this admission decision: when one request remains, only one
+				 * caller proceeds to the verifier. The native MCP Postgres suite pins
+				 * this behavior at the configured 120-request boundary. */
 				"/mcp": { window: 60, max: 120 },
 			},
 		},
@@ -933,8 +912,7 @@ async function createAuth() {
 
 /**
  * Full auth instance type — used by the client's `inferAdditionalFields`
- * plugin. `createAuth` is async (it awaits the shared pool), so unwrap the
- * promise to recover the instance type.
+ * plugin. Derived from the production configuration factory.
  */
 export type Auth = Awaited<ReturnType<typeof createAuth>>;
 
@@ -956,7 +934,7 @@ let _authInFlight: Promise<Auth> | null = null;
 export async function getAuth(): Promise<Auth> {
 	if (_auth) return _auth;
 	if (_authInFlight === null) {
-		_authInFlight = createAuth();
+		_authInFlight = getCaseStorePool().then(createAuth);
 		try {
 			_auth = await _authInFlight;
 		} finally {

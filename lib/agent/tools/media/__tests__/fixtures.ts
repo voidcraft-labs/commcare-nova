@@ -1,18 +1,7 @@
-/**
- * Shared test fixtures for the dedicated media SA tools.
- *
- * The doc carries enough surface to exercise every media carrier the
- * tools target: one case-carrying module, one form, a `text` field (which
- * carries label / hint / help / validate_msg media slots), a
- * `single_select` field (which carries options), and a `hidden` field
- * (which carries NO message-media slot beyond identity — the negative
- * case for the slot-availability guard). `makeMediaFixture` bundles the
- * doc with a canonical workspace over the chat-side stub host;
- * `makeMediaMcpFixture` is the MCP-surface sibling for cross-surface parity —
- * the same workspace over an `McpContext` host, exactly as the shared MCP
- * adapter builds it.
- */
-
+/** Admitted domain fixtures with controlled asset-reader rows and canonical
+ * workspace receipts. Actual SQL tenancy, storage and MCP transport live in
+ * their native boundary suites. */
+import { vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import {
@@ -28,15 +17,12 @@ import type {
 	MediaAssetStatus,
 } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
 import {
-	type MakeMcpTestContextHandles,
 	type MakeToolWorkspaceHarnessOptions,
-	makeMcpTestContext,
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "../../../__tests__/fixtures";
-import { CanonicalMutationWorkspace } from "../../../workspace/canonicalWorkspace";
-import type { ToolInvocationContext } from "../../../workspace/types";
 
 // ── In-memory asset table behind the `@/lib/db/mediaAssets` mock ─────
 //
@@ -98,17 +84,18 @@ export function resetTestAssets(): void {
 }
 resetTestAssets();
 
-/** Mock implementation of `loadAssetsByIds` — Project-filtered like the
- *  real one (a foreign-Project row reads as missing). */
-export async function loadAssetsByIdsMock(
-	ids: readonly MediaAssetId[],
-	projectId: string,
-): Promise<TestAssetRow[]> {
-	return [...new Set(ids)]
-		.map((id) => testAssetRows.get(id))
-		.filter((row): row is TestAssetRow => row !== undefined)
-		.filter((row) => row.project_id === projectId);
-}
+/** Controlled reader deliberately returns requested foreign rows too, so the
+ * real preflight Project check must refuse them. This does not simulate SQL. */
+export const loadAssetsByIdsMock = vi.fn(
+	async (
+		ids: readonly MediaAssetId[],
+		_projectId: string,
+	): Promise<TestAssetRow[]> => {
+		return [...new Set(ids)]
+			.map((id) => testAssetRows.get(id))
+			.filter((row): row is TestAssetRow => row !== undefined);
+	},
+);
 
 /* Stable uuids the per-tool tests reference against the post-mutation
  * doc. */
@@ -153,7 +140,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		kind: "text",
 		label: proseText("Patient name"),
 		caseWrite: { caseType: "patient", property: "case_name" },
-	} as Field;
+	};
 	const selectField: Field = {
 		uuid: SELECT_FIELD,
 		id: "symptom",
@@ -174,13 +161,13 @@ export function makeMediaDoc(): BlueprintDoc {
 				},
 			],
 		},
-	} as Field;
+	};
 	const hiddenField: Field = {
 		uuid: HIDDEN_FIELD,
 		id: "computed_score",
 		kind: "hidden",
 		calculate: xp("0"),
-	} as Field;
+	};
 	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic Intake",
@@ -188,7 +175,7 @@ export function makeMediaDoc(): BlueprintDoc {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Full name") }],
+				properties: [],
 			},
 		],
 		modules: { [MOD_A]: mod },
@@ -207,7 +194,7 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
-	return doc;
+	return expectAdmittedDoc(doc);
 }
 
 /** Bundle of doc + a canonical workspace over the lightweight chat-surface
@@ -215,22 +202,6 @@ export function makeMediaDoc(): BlueprintDoc {
  *  doc as the committed doc). */
 export interface MediaFixture extends ToolWorkspaceHarness {
 	doc: BlueprintDoc;
-}
-
-/** Bundle of doc + MCP `McpContext` and the canonical workspace over it. */
-export interface MediaMcpFixture extends MakeMcpTestContextHandles {
-	doc: BlueprintDoc;
-	workspace: CanonicalMutationWorkspace;
-	/** Run one shared tool through the MCP-host workspace — the same `invoke`
-	 * path `sharedToolAdapter` uses. */
-	runTool<T>(
-		tool: {
-			execute(input: never, ctx: ToolInvocationContext): Promise<T>;
-		},
-		input: unknown,
-	): Promise<T>;
-	/** The workspace's CURRENT document. */
-	currentDoc(): BlueprintDoc;
 }
 
 /** Build a `{ doc, runTool, ... }` bundle for the chat surface. `doc` seeds the
@@ -241,27 +212,12 @@ export function makeMediaFixture({
 }: MakeToolWorkspaceHarnessOptions & {
 	doc?: BlueprintDoc;
 } = {}): MediaFixture {
-	return { ...makeToolWorkspaceHarness(doc, opts), doc };
-}
-
-/** Build a `{ doc, runTool, ... }` bundle for the MCP surface. */
-export function makeMediaMcpFixture(): MediaMcpFixture {
-	const doc = makeMediaDoc();
-	const handles = makeMcpTestContext({ initialDoc: doc });
-	const workspace = new CanonicalMutationWorkspace({
-		host: handles.ctx,
-		initialDoc: doc,
-	});
 	return {
-		...handles,
+		...makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
+			projectId: "project-1",
+			...opts,
+		}),
 		doc,
-		workspace,
-		runTool: (tool, input) =>
-			workspace.invoke({
-				toolName: "test-tool",
-				execute: (ctx) => tool.execute(input as never, ctx),
-			}),
-		currentDoc: () => workspace.currentSnapshot().doc,
 	};
 }
 

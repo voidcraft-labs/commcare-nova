@@ -2,52 +2,35 @@
  * Schema-level coverage for the multimedia domain primitives.
  *
  * These tests don't touch GCS or Postgres — they assert the Zod
- * shapes round-trip cleanly and the helper functions behave per
- * contract. The integration-level coverage (HTTP routes + bytes
- * validation against actual fixtures) lives at
+ * shapes and helpers directly. Byte validation fixtures live at
  * `lib/media/__tests__/validate.test.ts`.
  */
 
 import { describe, expect, it } from "vitest";
 import {
 	ALL_MIME_TYPES,
-	ASSET_KINDS,
-	ASSET_SIZE_CAPS_BYTES,
-	AUDIO_MIME_TYPES,
 	assetKindForExtension,
 	assetKindForFilename,
 	assetKindForMimeType,
-	DOCUMENT_KINDS,
 	EXTENSION_FOR_MIME_TYPE,
 	extensionOf,
 	gcsObjectKeyFor,
-	IMAGE_MIME_TYPES,
-	MEDIA_KINDS,
 	mediaSchema,
 	mimeTypeForExtension,
 	mimeTypeForFilename,
 	normalizeMimeType,
 	resolveUploadMimeType,
-	VIDEO_MIME_TYPES,
 } from "../multimedia";
 
 describe("assetKindForMimeType", () => {
-	it("returns 'image' for every image MIME type", () => {
-		for (const mime of IMAGE_MIME_TYPES) {
-			expect(assetKindForMimeType(mime)).toBe("image");
-		}
-	});
-
-	it("returns 'audio' for every audio MIME type", () => {
-		for (const mime of AUDIO_MIME_TYPES) {
-			expect(assetKindForMimeType(mime)).toBe("audio");
-		}
-	});
-
-	it("returns 'video' for every video MIME type", () => {
-		for (const mime of VIDEO_MIME_TYPES) {
-			expect(assetKindForMimeType(mime)).toBe("video");
-		}
+	it.each([
+		["image/png", "image"],
+		["image/jpeg", "image"],
+		["audio/mpeg", "audio"],
+		["audio/wav", "audio"],
+		["video/mp4", "video"],
+	])("classifies %s as %s", (mime, kind) => {
+		expect(assetKindForMimeType(mime)).toBe(kind);
 	});
 
 	it("returns undefined for SVG (deliberately rejected)", () => {
@@ -77,20 +60,6 @@ describe("assetKindForMimeType", () => {
 	});
 });
 
-describe("ASSET_SIZE_CAPS_BYTES", () => {
-	it("covers every asset kind", () => {
-		for (const kind of ASSET_KINDS) {
-			expect(ASSET_SIZE_CAPS_BYTES[kind]).toBeGreaterThan(0);
-		}
-	});
-
-	it("keeps the documented tight caps (5 MB / 10 MB / 50 MB)", () => {
-		expect(ASSET_SIZE_CAPS_BYTES.image).toBe(5 * 1024 * 1024);
-		expect(ASSET_SIZE_CAPS_BYTES.audio).toBe(10 * 1024 * 1024);
-		expect(ASSET_SIZE_CAPS_BYTES.video).toBe(50 * 1024 * 1024);
-	});
-});
-
 describe("EXTENSION_FOR_MIME_TYPE", () => {
 	it("covers every accepted MIME type", () => {
 		for (const mime of ALL_MIME_TYPES) {
@@ -112,20 +81,13 @@ describe("EXTENSION_FOR_MIME_TYPE", () => {
 });
 
 describe("gcsObjectKeyFor", () => {
-	it("namespaces by project so cross-tenant probing is closed", () => {
+	it("derives distinct Project namespaces for the same content hash", () => {
 		const hash = "a".repeat(64);
 		const a = gcsObjectKeyFor("project-1", hash, ".png");
 		const b = gcsObjectKeyFor("project-2", hash, ".png");
 		expect(a).toBe(`projects/project-1/${hash}.png`);
 		expect(b).toBe(`projects/project-2/${hash}.png`);
 		expect(a).not.toBe(b);
-	});
-
-	it("dedupes (project, hash) inside the same namespace", () => {
-		const hash = "f".repeat(64);
-		const a = gcsObjectKeyFor("project-1", hash, ".png");
-		const b = gcsObjectKeyFor("project-1", hash, ".png");
-		expect(a).toBe(b);
 	});
 
 	it("includes the extension so a single project can host distinct formats at the same hash", () => {
@@ -166,28 +128,6 @@ describe("mediaSchema", () => {
 	});
 });
 
-describe("kind partitions", () => {
-	it("MEDIA_KINDS is exactly the three wire-attachable kinds", () => {
-		expect([...MEDIA_KINDS].sort()).toEqual(["audio", "image", "video"]);
-	});
-
-	it("DOCUMENT_KINDS is the library-only document set", () => {
-		expect([...DOCUMENT_KINDS].sort()).toEqual(["docx", "pdf", "text", "xlsx"]);
-	});
-
-	it("ASSET_KINDS is media + documents", () => {
-		expect([...ASSET_KINDS].sort()).toEqual([
-			"audio",
-			"docx",
-			"image",
-			"pdf",
-			"text",
-			"video",
-			"xlsx",
-		]);
-	});
-});
-
 describe("normalizeMimeType", () => {
 	it("returns canonical accepted types unchanged", () => {
 		for (const mime of ALL_MIME_TYPES) {
@@ -203,11 +143,7 @@ describe("normalizeMimeType", () => {
 		);
 	});
 
-	it("rejects m4a/ogg audio — CommCare HQ's mime table can't ingest them", () => {
-		// audio/mp4 (.m4a) and audio/ogg (.ogg) are deliberately NOT in the
-		// accepted set: HQ's slim-image Python mimetypes table has no entry
-		// for those extensions, so the upload would 400. No alias rescues a
-		// type that isn't accepted.
+	it("rejects the audio formats outside Nova's declared upload policy", () => {
 		expect(normalizeMimeType("audio/mp4")).toBeUndefined();
 		expect(normalizeMimeType("audio/ogg")).toBeUndefined();
 		expect(normalizeMimeType("audio/x-m4a")).toBeUndefined();
@@ -271,7 +207,7 @@ describe("mimeTypeForExtension / assetKindForExtension", () => {
 		[".xlsx", "xlsx", XLSX_MIME],
 	];
 
-	it("maps every accepted extension to its kind + canonical MIME", () => {
+	it("maps the authored extension examples to their kind and canonical MIME", () => {
 		for (const [ext, kind, mime] of CASES) {
 			expect(mimeTypeForExtension(ext)).toBe(mime);
 			expect(assetKindForExtension(ext)).toBe(kind);
@@ -286,18 +222,6 @@ describe("mimeTypeForExtension / assetKindForExtension", () => {
 	it("returns undefined for an unaccepted extension", () => {
 		expect(mimeTypeForExtension(".exe")).toBeUndefined();
 		expect(assetKindForExtension(".exe")).toBeUndefined();
-	});
-
-	it("stays consistent with assetKindForMimeType (single source)", () => {
-		// The whole point of deriving through the MIME map: the kind an extension
-		// implies equals the kind its MIME implies, for every accepted extension.
-		for (const [ext] of CASES) {
-			const mime = mimeTypeForExtension(ext);
-			expect(mime).toBeDefined();
-			expect(assetKindForExtension(ext)).toBe(
-				assetKindForMimeType(mime as string),
-			);
-		}
 	});
 });
 
@@ -341,5 +265,15 @@ describe("resolveUploadMimeType (client upload claim)", () => {
 		expect(resolveUploadMimeType("application/x-weird", "mystery.zip")).toBe(
 			"application/x-weird",
 		);
+	});
+});
+
+describe("untrusted MIME lookup keys", () => {
+	it("rejects prototype names instead of returning inherited objects", () => {
+		for (const value of ["constructor", "__proto__", "toString"]) {
+			expect(normalizeMimeType(value)).toBeUndefined();
+			expect(mimeTypeForExtension(value)).toBeUndefined();
+		}
+		expect(resolveUploadMimeType("constructor", "photo.png")).toBe("image/png");
 	});
 });

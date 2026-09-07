@@ -363,30 +363,30 @@ export function productionExecutorStep(
 				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
-		/* The result promises are getters minting a fresh instance per
-		 * access; observe one instance of each NOW so a stream-stopping
-		 * error rejects promises that already have handlers instead of
-		 * escaping as an unhandled rejection. The drain's own throw is what
-		 * the caller classifies. */
-		const pending: PromiseLike<unknown>[] = [
+		/* Result getters start SDK readers. Capture each once, immediately
+		 * observe rejections, and join the same readers on every exit path. */
+		const pending = [
 			result.toolCalls,
 			result.text,
 			result.reasoningText,
 			result.usage,
 			result.responseMessages,
-		];
-		for (const p of pending) void Promise.resolve(p).catch(() => {});
-		for await (const _part of result.stream) {
-			// Drain — generation advances only by consumption.
+		] as const;
+		const settled = Promise.allSettled(pending);
+		try {
+			for await (const part of result.stream) {
+				// SDK failures can be stream events rather than iterator throws.
+				if (part.type === "error") throw part.error;
+				if (part.type === "abort") {
+					signal.throwIfAborted();
+					throw new DOMException("The model call was aborted.", "AbortError");
+				}
+			}
+		} finally {
+			await settled;
 		}
 		const [toolCalls, text, reasoningText, usage, responseMessages] =
-			await Promise.all([
-				result.toolCalls,
-				result.text,
-				result.reasoningText,
-				result.usage,
-				result.responseMessages,
-			]);
+			await Promise.all(pending);
 		return {
 			toolCalls: toolCalls.map((call) => ({
 				toolCallId: call.toolCallId,
@@ -537,35 +537,6 @@ function pendingExecutorStep(
 		}
 	}
 	return null;
-}
-
-/** Pair a commit call whose canonical transaction succeeded before its model
- * output was persisted. The caller appends this before any later slice brief
- * or provider request. */
-export function recoverCommittedExecutorToolResult(args: {
-	readonly context: ExecutorConversationContext;
-	readonly attemptId: string;
-	readonly receipt: CommittedSliceReceipt;
-}): { readonly appendKey: string; readonly message: ModelMessage } | null {
-	const pending = pendingExecutorStep(args.context, args.attemptId);
-	if (pending === null) return null;
-	if (
-		pending.toolCalls.length !== 1 ||
-		pending.toolCalls[0]?.toolName !== FINISH_TOOL
-	) {
-		throw new Error(
-			`Committed slice attempt ${args.attemptId} has a pending non-finalizer executor call.`,
-		);
-	}
-	const call = pending.toolCalls[0];
-	return {
-		appendKey: `step:${args.attemptId}:${pending.modelStep}:tool:${call.toolCallId}`,
-		message: toolMessage(call.toolCallId, call.toolName, {
-			status: "committed",
-			code: "WORKFLOW_COMMITTED",
-			receipt: args.receipt,
-		}),
-	};
 }
 
 /**
@@ -1038,7 +1009,6 @@ export async function runSliceExecutor(
 		);
 		deadlineTimer.unref?.();
 	};
-	armDeadlineTimer();
 	const deadlineExceeded = () =>
 		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
 
@@ -1486,9 +1456,12 @@ export async function runSliceExecutor(
 		}
 	};
 
-	args.onProgress?.("building");
 	let consecutiveEmptySteps = 0;
 	try {
+		// Setup can fail before any work starts. Arm only inside the lifetime
+		// that owns cancellation, using the original absolute deadline.
+		armDeadlineTimer();
+		args.onProgress?.("building");
 		for (;;) {
 			await persistence;
 			const compacted = projectModelHistoryFromNewestCompaction(messages);
@@ -2259,8 +2232,8 @@ export async function runSliceExecutor(
 			}
 		}
 	} finally {
-		await persistence;
 		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		await persistence;
 	}
 }
 

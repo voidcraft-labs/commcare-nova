@@ -42,12 +42,8 @@ import type { ResolvedSortDirective } from "./sortKeys";
  * block, or a complete `<detail>` block at the top level).
  * `strings` collects the per-detail locale-id → display-string
  * pairs the caller writes into `app_strings.txt`. The detail
- * title doesn't contribute to `strings` because CCHQ ships
- * `cchq.case` as a built-in locale registered with
- * `default="Case"` (see
- * `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`)
- * — the runtime falls back to the registered default and the
- * emitter doesn't need to register the value itself.
+ * title is registered once by the compiler under cchq.case; Core requires
+ * an actual app-string mapping for that id.
  */
 export interface CaseListEmission {
 	readonly xml: string;

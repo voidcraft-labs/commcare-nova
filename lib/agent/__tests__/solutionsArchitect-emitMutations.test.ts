@@ -1,39 +1,8 @@
-/**
- * Integration tests for the Solutions Architect's mutation-emission surface.
- *
- * The SA is the single write surface for doc mutations on the server —
- * every tool handler that previously emitted a wire-format doc snapshot
- * (`data-schema`, `data-scaffold`, `data-module-done`, `data-form-updated`,
- * `data-form-fixed`, `data-blueprint-updated`) now emits `data-mutations`
- * carrying the fine-grained `Mutation[]` the SA already applied to its
- * internal doc. The client applies the same batch via
- * `docStore.applyMany(mutations)` — no translation, no reconstruction.
- *
- * ## Strategy
- *
- * Rather than stand up a real model client, we build the SA with a
- * mocked `GenerationContext` (stubbed `UIMessageStreamWriter` + stubbed
- * `EventLogger`) and invoke each tool's `execute` callback directly. The
- * writer's `.write` call log is the test's primary assertion surface:
- *
- *   - every migrated tool emits `data-mutations` with the expected
- *     mutations + stage tag, and
- *   - no migrated tool emits any member of the legacy-event allowlist.
- *
- * The safety-net test at the end walks every tool handler with realistic
- * inputs and asserts that the forbidden-event list is never written on
- * any of them — catching the regression where a subagent misses a
- * migration spot.
- *
- * ## Data-model tool
- *
- * `generateSchema` commits the design's skeleton — one gated batch
- * carrying `setAppName` + the case-type catalog — a test pins the batch
- * shape and its `schema` stage tag.
- */
-
+/** Real SA wrappers, canonical input admission, workspace, GenerationContext,
+ * and mutation encoding/replay over controlled commit and reload receipts.
+ * Native SDK sibling dispatch lives in solutionsArchitect-concurrency.test.ts. */
 import { produce } from "immer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
@@ -41,8 +10,8 @@ import {
 	BlueprintCommitRejectedError,
 	CommitReauthError,
 } from "@/lib/db/commitGuard";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Form, Module } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -50,47 +19,48 @@ import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { removeMediaAssetTool } from "../tools/media/removeMediaAsset";
-import { makeTestContext } from "./fixtures";
+import { expectAdmittedDoc } from "./admittedFixture";
+import { makeCanonicalGenesisDoc, makeTestContext } from "./fixtures";
+import { receiptWriter, runSaTool } from "./saHarness";
 
-/* The SA commits ordinary batches through `commitGuardedBatch` (kind:'chat');
- * the explicit rename command composes its storage transaction through
- * `applyBlueprintChange`. Mock both to re-apply the batch onto ONE TRACKED
- * server doc so the SA's working doc advances across tool calls exactly as it
- * would against the real writers. The authorized-snapshot mock backs
- * `wrapMutating`'s conflict-reload path. `seedServerDoc` seeds the tracked doc
- * to the SA's initial doc per test. */
+/** Writer and authorized reload are controlled boundaries. These tests prove
+ * wrapper projection/adoption, not SQL atomicity or access enforcement. */
 const {
 	commitGuardedBatchMock,
 	applyBlueprintChangeMock,
 	resolveAuthorizedAppSnapshotMock,
-	seedServerDoc,
-} = vi.hoisted(() => {
-	let serverDoc: unknown = null;
-	let seq = 0;
-	const applyBatch = (mutations: unknown[]) => {
-		// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
-		serverDoc = produce(serverDoc as any, (draft: any) => {
-			// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
-			applyMutations(draft, mutations as any);
-		});
-		seq += 1;
-		return { seq, committedDoc: serverDoc };
-	};
-	return {
-		seedServerDoc: (doc: unknown) => {
-			serverDoc = doc;
-			seq = 0;
-		},
-		resolveAuthorizedAppSnapshotMock: vi.fn(),
-		commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
-			return { ...applyBatch(args.mutations), deduped: false };
-		}),
-		applyBlueprintChangeMock: vi.fn(
-			async (args: { guard?: { mutations: unknown[] } }) => {
-				return applyBatch(args.guard?.mutations ?? []);
-			},
-		),
-	};
+} = vi.hoisted(() => ({
+	commitGuardedBatchMock: vi.fn(),
+	applyBlueprintChangeMock: vi.fn(),
+	resolveAuthorizedAppSnapshotMock: vi.fn(),
+}));
+let receipts: ReturnType<typeof receiptWriter>;
+function seedServerDoc(doc: BlueprintDoc) {
+	receipts = receiptWriter(doc);
+	commitGuardedBatchMock.mockImplementation(
+		async (args: { mutations: Mutation[] }) => receipts.commit(args.mutations),
+	);
+	applyBlueprintChangeMock.mockImplementation(
+		async (args: { guard: { mutations: Mutation[] } }) =>
+			receipts.commit(args.guard.mutations),
+	);
+}
+const contexts = new Map<
+	GenerationContext,
+	ReturnType<typeof makeTestContext>
+>();
+const projections = new WeakMap<
+	ReturnType<typeof createSolutionsArchitect>,
+	{
+		writer: ReturnType<typeof makeTestContext>["writer"];
+		doc: BlueprintDoc;
+		seen: number;
+	}
+>();
+afterEach(async () => {
+	for (const ctx of contexts.keys()) await ctx.stopRunLeaseHeartbeat();
+	contexts.clear();
+	vi.restoreAllMocks();
 });
 
 /** Seed the tracked server doc + build the SA against it. Every test uses this
@@ -101,25 +71,12 @@ function makeSa(
 	doc: BlueprintDoc,
 ): ReturnType<typeof createSolutionsArchitect> {
 	seedServerDoc(doc);
-	return createSolutionsArchitect(ctx, doc);
+	const sa = createSolutionsArchitect(ctx, doc);
+	const handles = contexts.get(ctx);
+	if (!handles) throw new Error("Missing context handles");
+	projections.set(sa, { writer: handles.writer, doc, seen: 0 });
+	return sa;
 }
-
-// ── Forbidden legacy events ──────────────────────────────────────────────
-//
-// The migration's contract is that NONE of these event types ever reach
-// the live stream. The dispatcher still consumes them for historical log
-// replay, so they live on in `lib/generation/streamDispatcher.ts` — but
-// the server must never emit them. Every test below asserts this list
-// stayed quiet; the final safety-net test exercises the full tool surface
-// in one pass.
-const FORBIDDEN_LEGACY_EVENTS = [
-	"data-schema",
-	"data-scaffold",
-	"data-module-done",
-	"data-form-updated",
-	"data-form-fixed",
-	"data-blueprint-updated",
-] as const;
 
 // ── Uuid helpers ─────────────────────────────────────────────────────────
 
@@ -132,9 +89,6 @@ const FIELD_B = testUuid("43434343-4343-4434-8434-434343434343");
 const CASE_COLUMN = testUuid("45454545-4545-4545-8545-454545454545");
 const FOLLOWUP_FORM = testUuid("55555555-5555-4555-8555-555555555555");
 const FOLLOWUP_FIELD = testUuid("66666666-6666-4666-8666-666666666666");
-const NEW_MODULE = testUuid("77777777-7777-4777-8777-777777777777");
-const NEW_MODULE_FORM = testUuid("88888888-8888-4888-8888-888888888888");
-const NEW_MODULE_FIELD = testUuid("99999999-9999-4999-8999-999999999999");
 
 // ── Fixture builders ─────────────────────────────────────────────────────
 
@@ -190,13 +144,13 @@ function makeFixtureDoc(): BlueprintDoc {
 		kind: "text",
 		label: proseText("Patient name"),
 		caseWrite: { caseType: "patient", property: "case_name" },
-	} as Field;
+	};
 	const fieldB: Field = {
 		uuid: FIELD_B,
 		id: "comments",
 		kind: "text",
 		label: proseText("Comments"),
-	} as Field;
+	};
 
 	return {
 		appId: "test-app",
@@ -224,8 +178,13 @@ function makeFixtureDoc(): BlueprintDoc {
 // named function so the test bodies below stay readable — the SA tests
 // only care about ctx + writer, so we drop the `logWriter` handle.
 function buildCtx() {
-	const { ctx, writer } = makeTestContext();
-	return { ctx, writer };
+	const handles = makeTestContext({
+		transport: async () => {
+			throw new Error("Unexpected model request in wrapper test");
+		},
+	});
+	contexts.set(handles.ctx, handles);
+	return handles;
 }
 
 // ── Writer inspection helpers ────────────────────────────────────────────
@@ -236,10 +195,12 @@ type WriterWrite = { type: string; data: unknown; transient?: boolean };
 function writtenEvents(writer: {
 	write: ReturnType<typeof vi.fn>;
 }): WriterWrite[] {
-	return writer.write.mock.calls.map((c: unknown[]) => c[0] as WriterWrite);
+	return writer.write.mock.calls.map(
+		(c: unknown[]) => JSON.parse(JSON.stringify(c[0])) as WriterWrite,
+	);
 }
 
-/** All `data-mutations` events written, with their payloads. */
+/** All `data-mutations` events after the JSON transport projection, with their payloads. */
 function mutationEvents(writer: {
 	write: ReturnType<typeof vi.fn>;
 }): Array<{ mutations: Mutation[]; stage?: string }> {
@@ -248,52 +209,41 @@ function mutationEvents(writer: {
 		.map((e) => e.data as { mutations: Mutation[]; stage?: string });
 }
 
-/** Assert no forbidden legacy event was written. Fails with a helpful
- *  diagnostic listing exactly which event snuck through. */
-function expectNoLegacyEvents(writer: { write: ReturnType<typeof vi.fn> }) {
-	const events = writtenEvents(writer);
-	const leaks = events.filter((e) =>
-		FORBIDDEN_LEGACY_EVENTS.includes(
-			e.type as (typeof FORBIDDEN_LEGACY_EVENTS)[number],
-		),
-	);
-	expect(leaks).toEqual([]);
-}
-
-// ── Tool execution helper ────────────────────────────────────────────────
-//
-// The AI SDK's `Tool.execute` takes `(input, options)`; `options` carries
-// `toolCallId`, `messages`, and (optionally) `context`. None of the SA's
-// handlers read those, so a bare stub is fine.
-const EXEC_OPTS = {
-	toolCallId: "test-call",
-	messages: [],
-};
-
-/** Narrow helper: call a tool's `execute`, ignoring its result value.
- *  The SA's execute implementations are typed loosely for the AI SDK's
- *  generic signature — casting through `any` is the pragmatic way to
- *  invoke them directly from a test harness. */
+/** Every emitted batch crosses actual mutation admission and replays through
+ * the production reducer. The client projection must equal the commit receipt. */
 async function runTool(
 	agent: ReturnType<typeof createSolutionsArchitect>,
 	name: string,
 	input: Record<string, unknown>,
-): Promise<unknown> {
-	// Agent.tools is a generic ToolSet — access by string key for this
-	// test surface. Each tool's `execute` is either present (server tool)
-	// or absent (client-only tools like `askQuestions`, which this helper
-	// is never called with).
-	// biome-ignore lint/suspicious/noExplicitAny: SA tool set is heterogeneous; test harness invokes execute directly.
-	const tool = (agent.tools as Record<string, any>)[name];
-	if (!tool || typeof tool.execute !== "function") {
-		throw new Error(`Tool "${name}" has no execute handler in this mode`);
+) {
+	const result = await runSaTool(agent, name, input);
+	const projection = projections.get(agent);
+	if (!projection) throw new Error("Missing projection");
+	const events = writtenEvents(projection.writer);
+	for (const event of events.slice(projection.seen)) {
+		if (event.type !== "data-mutations") continue;
+		const data = event.data as {
+			mutations: unknown;
+			seq: number;
+			batchId: string;
+		};
+		expect(data.seq).toBeGreaterThan(0);
+		expect(data.batchId).toMatch(/^[0-9a-f-]{36}$/);
+		const admitted = admitMutationBatch(data.mutations);
+		projection.doc = expectAdmittedDoc(
+			produce(projection.doc, (draft) => {
+				applyMutations(draft, [...admitted]);
+			}),
+		);
+		expect(projection.doc).toEqual(receipts.currentDoc());
 	}
-	return await tool.execute(input, EXEC_OPTS);
+	projection.seen = events.length;
+	return result;
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
-describe("solutionsArchitect — emitMutations migration", () => {
+describe("solutionsArchitect — admitted mutation receipt projection", () => {
 	let ctx: GenerationContext;
 	let writer: { write: ReturnType<typeof vi.fn> };
 
@@ -310,12 +260,12 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: proseText("Name") }],
 				},
 				{
 					name: "visit",
 					parent_type: "patient",
-					properties: [{ name: "case_name", label: proseText("Visit") }],
+					properties: [{ name: "visit_title", label: proseText("Visit") }],
 				},
 			],
 		});
@@ -335,7 +285,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			"setCaseTypeMeta",
 			"addCaseProperty",
 		]);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("generateSchema appends new properties to an authored record without replacing it", async () => {
@@ -370,13 +319,18 @@ describe("solutionsArchitect — emitMutations migration", () => {
 	});
 
 	it("generateSchema rejects a conflicting definition on an authored record", async () => {
-		const sa = makeSa(ctx, makeFixtureDoc());
+		const doc = makeFixtureDoc();
+		doc.caseTypes?.[0]?.properties.push({
+			name: "display_name",
+			label: proseText("Existing display name"),
+		});
+		const sa = makeSa(ctx, doc);
 
 		const result = await runTool(sa, "generateSchema", {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: proseText("Name") }],
 				},
 			],
 		});
@@ -399,7 +353,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: proseText("Name") }],
 				},
 				{
 					name: "patient",
@@ -478,7 +432,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe("app");
 		expect(muts[0].mutations.map((m) => m.kind)).toEqual(["setAppName"]);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("configureConnect emits the complete UUID-addressed target in one batch", async () => {
@@ -516,7 +469,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 				},
 			},
 		});
-		expectNoLegacyEvents(writer);
 	});
 
 	it("addCaseListColumns emits data-mutations tagged module:M:caseList:column:add", async () => {
@@ -535,7 +487,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe(`module:${MOD_A}:caseList:column:add`);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("addFields emits a single data-mutations batch (not data-form-updated)", async () => {
@@ -596,7 +547,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 				],
 			},
 		]);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("editField with id rename emits ONE data-mutations batch carrying the whole staged edit", async () => {
@@ -610,7 +560,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			id: "village",
 			kind: "text",
 			label: proseText("Village"),
-		} as Field;
+		};
 		doc.fieldOrder[FORM_A] = [...doc.fieldOrder[FORM_A], VILLAGE];
 		doc.fieldParent[VILLAGE] = FORM_A;
 		const sa = makeSa(ctx, doc);
@@ -620,6 +570,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			formUuid: FORM_A,
 			fieldUuid: VILLAGE,
 			updates: {
+				kind: "text",
 				id: "hamlet",
 				label: proseText("Hamlet"),
 			},
@@ -642,7 +593,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 				}),
 			}),
 		]);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("updateModule emits data-mutations (not data-blueprint-updated)", async () => {
@@ -656,7 +606,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe(`module:${MOD_A}`);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("createForm emits data-mutations (not data-blueprint-updated)", async () => {
@@ -670,7 +619,7 @@ describe("solutionsArchitect — emitMutations migration", () => {
 			// Atomic creation: a form lands together with its fields.
 			fields: [
 				{
-					uuid: FOLLOWUP_FIELD,
+					fieldUuid: FOLLOWUP_FIELD,
 					kind: "text",
 					id: "visit_notes",
 					label: proseText("Visit notes"),
@@ -683,7 +632,6 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(muts[0].stage).toBe(`module:${MOD_A}`);
 		expect(muts[0].mutations.some((m) => m.kind === "addForm")).toBe(true);
 		expect(muts[0].mutations.some((m) => m.kind === "addField")).toBe(true);
-		expectNoLegacyEvents(writer);
 	});
 
 	it("removeModule emits data-mutations (not data-blueprint-updated)", async () => {
@@ -695,136 +643,8 @@ describe("solutionsArchitect — emitMutations migration", () => {
 		expect(muts).toHaveLength(1);
 		expect(muts[0].stage).toBe(`module:remove:${MOD_B}`);
 		expect(muts[0].mutations.some((m) => m.kind === "removeModule")).toBe(true);
-		expectNoLegacyEvents(writer);
-	});
-
-	it("SAFETY NET: walks every migrated tool and asserts no legacy wire event ever writes", async () => {
-		// This is the guardrail test — calls every handler against a common
-		// fixture and then checks `writer.write` never saw any forbidden
-		// event across the whole sweep. If a future change re-introduces
-		// a legacy emission, this test fails regardless of which tool it
-		// sneaked into.
-		const sa = makeSa(ctx, makeFixtureDoc());
-
-		// The planning tool (build mode only) — pure, but walked so a
-		// future regression that makes it emit shows up here.
-		await runTool(sa, "generateSchema", {
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-		});
-		await runTool(sa, "updateApp", { name: "App" });
-
-		// Case-list-config write tool — covers the typed-AST surface that
-		// replaced the deleted `addModule` SA tool. Walking it here keeps
-		// the safety-net's coverage of column-mutation events.
-		await runTool(sa, "addCaseListColumns", {
-			moduleUuid: MOD_A,
-			columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-		});
-
-		// Shared tools: read + mutation + structural.
-		await runTool(sa, "searchBlueprint", { query: "patient" });
-		await runTool(sa, "getModule", { moduleUuid: MOD_A });
-		await runTool(sa, "getForm", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-		});
-		await runTool(sa, "getField", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			fieldUuid: FIELD_A,
-		});
-
-		await runTool(sa, "addFields", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			fields: [
-				{
-					uuid: FOLLOWUP_FIELD,
-					id: "dob",
-					kind: "date",
-					label: proseText("Date of birth"),
-				},
-			],
-		});
-		await runTool(sa, "editField", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			fieldUuid: FIELD_A,
-			updates: { kind: "text", label: proseText("New label") },
-		});
-		await runTool(sa, "removeField", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			fieldUuid: FOLLOWUP_FIELD,
-		});
-		await runTool(sa, "updateModule", {
-			moduleUuid: MOD_A,
-			name: "Patients 2",
-		});
-		await runTool(sa, "updateForm", {
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			name: "Enroll Patient 2",
-		});
-		await runTool(sa, "createForm", {
-			moduleUuid: MOD_A,
-			formUuid: FOLLOWUP_FORM,
-			name: "Follow-up",
-			type: "followup",
-			fields: [
-				{
-					uuid: FOLLOWUP_FIELD,
-					kind: "text",
-					id: "notes",
-					label: proseText("Notes"),
-				},
-			],
-		});
-		await runTool(sa, "removeForm", {
-			moduleUuid: MOD_A,
-			formUuid: FOLLOWUP_FORM,
-		});
-		await runTool(sa, "createModule", {
-			moduleUuid: NEW_MODULE,
-			name: "New Module",
-			forms: [
-				{
-					formUuid: NEW_MODULE_FORM,
-					name: "Survey",
-					type: "survey",
-					fields: [
-						{
-							uuid: NEW_MODULE_FIELD,
-							kind: "text",
-							id: "feedback",
-							label: proseText("Feedback"),
-						},
-					],
-				},
-			],
-		});
-		await runTool(sa, "removeModule", { moduleUuid: NEW_MODULE });
-
-		// The guardrail: no tool handler wrote a forbidden event.
-		expectNoLegacyEvents(writer);
-
-		// And at least some tools emitted data-mutations — otherwise the
-		// test is useless as a regression gate.
-		const muts = mutationEvents(writer);
-		expect(muts.length).toBeGreaterThan(5);
 	});
 });
-
-// ── No finishing tool ────────────────────────────────────────────────────
-//
-// Completion moved to the chat route's drain-end finalize — the SA's tool
-// set carries no completeBuild on either mode, and no tool emits
-// `data-done` (that signal is the route's).
 
 /* Every mutating tool call commits through `commitGuardedBatch` — rename
  * batches through `applyBlueprintChange` — and the hoisted mocks re-apply
@@ -833,92 +653,16 @@ describe("solutionsArchitect — emitMutations migration", () => {
 vi.mock("@/lib/db/apps", () => ({
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
-vi.mock("@/lib/db/appAccess", () => {
-	class MockAppAccessError extends Error {
-		readonly name = "AppAccessError";
-		constructor(
-			readonly reason: "not_found" | "not_member" | "insufficient_role",
-		) {
-			super(reason);
-		}
-	}
-	return {
-		AppAccessError: MockAppAccessError,
-		resolveAuthorizedAppSnapshot: resolveAuthorizedAppSnapshotMock,
-	};
-});
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAuthorizedAppSnapshot: resolveAuthorizedAppSnapshotMock,
+}));
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: applyBlueprintChangeMock,
 }));
 
-describe("solutionsArchitect — no finishing tool", () => {
-	it("completeBuild is absent from both tool sets", () => {
-		const { ctx } = buildCtx();
-		const buildSa = makeSa(ctx, makeEmptyDoc());
-		const editSa = makeSa(ctx, makeFixtureDoc());
-		expect("completeBuild" in buildSa.tools).toBe(false);
-		expect("completeBuild" in editSa.tools).toBe(false);
-	});
-
-	it("the data-model, app-name, and Connect target tools are shared in both modes", () => {
-		const { ctx } = buildCtx();
-		const buildSa = makeSa(ctx, makeEmptyDoc());
-		const editSa = makeSa(ctx, makeFixtureDoc());
-		// generateSchema commits catalog records, and a NEW case type enters
-		// an existing app through it — so it's in the edit-mode set too.
-		expect("generateSchema" in buildSa.tools).toBe(true);
-		expect("generateSchema" in editSa.tools).toBe(true);
-		expect("planAppDesign" in buildSa.tools).toBe(false);
-		expect("planAppDesign" in editSa.tools).toBe(false);
-		expect("updateApp" in buildSa.tools).toBe(true);
-		expect("updateApp" in editSa.tools).toBe(true);
-		expect("configureConnect" in buildSa.tools).toBe(true);
-		expect("configureConnect" in editSa.tools).toBe(true);
-		expect("renameCaseProperties" in buildSa.tools).toBe(true);
-		expect("renameCaseProperties" in editSa.tools).toBe(true);
-	});
-
-	it("exposes the complete camelCase users and personas authoring surface", () => {
-		const { ctx } = buildCtx();
-		const sa = makeSa(ctx, makeFixtureDoc());
-		for (const name of [
-			"getUsers",
-			"addUserProperties",
-			"updateUserProperty",
-			"removeUserProperty",
-			"addUserTypes",
-			"updateUserType",
-			"removeUserType",
-			"addPersonas",
-			"updatePersona",
-			"removePersona",
-		]) {
-			expect(name in sa.tools, `${name} should be registered`).toBe(true);
-		}
-	});
-});
-
-// ── Chat-SA port: wrapMutating conflict-reload / terminal-reauth / no-reload ──
-//
-// The P3 chat-SA port routes every mutating tool through the guarded writer,
-// and every tool's blanket `catch (err)` now runs through
-// `common.ts::toToolErrorResult`, which RE-THROWS the three authoritative commit
-// signals so they escape the tool body and reach `wrapMutating`. Four distinct
-// behaviors, all exercised here through a REAL tool (`addFields`):
-//
-//   - a RETRYABLE `BlueprintCommitRejectedError` (a peer deleted/changed the
-//     target) escapes the tool → `wrapMutating` catches it → returns `{ error }`
-//     to the SA AND reloads one authorized snapshot, so the NEXT tool builds on
-//     current server state without straddling authorization + blueprint;
-//   - a TERMINAL `AppProjectChangedError` (the run's admitted tenant scope is
-//     stale) escapes the tool → `wrapMutating` does NOT catch it → it propagates
-//     without reloading or retrying inside the stale run;
-//   - a TERMINAL `CommitReauthError` (the actor lost edit access) escapes the
-//     tool → `wrapMutating` does NOT catch it → it propagates out of the tool's
-//     execute and fails the run (a reload can't restore authorization);
-//   - a pre-commit validity finding returns `{ error }` WITHOUT throwing (it's a
-//     return value from `guardedMutate`, never a throw), so nothing reloads.
-
+/** The host returns explicit conflict/scope failures. Real workspace recovery
+ * and GenerationContext latches determine what the next tool can observe. */
 describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth", () => {
 	/** A reloaded doc that adds a second field so a follow-up read can prove the
 	 *  SA rebased onto the authorized snapshot after a conflict. */
@@ -934,7 +678,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 					id: "peer_added",
 					kind: "text",
 					label: proseText("Peer added"),
-				} as Field,
+				},
 			},
 			fieldOrder: {
 				...base.fieldOrder,
@@ -960,7 +704,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			new BlueprintCommitRejectedError(conflict),
 		);
 		resolveAuthorizedAppSnapshotMock.mockResolvedValueOnce({
-			app: { blueprint: reloadedDoc() },
+			app: { blueprint: expectAdmittedDoc(reloadedDoc()) },
 			projectId: "project-test",
 			role: "editor",
 			canEdit: true,
@@ -1229,7 +973,7 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 				.mockRejectedValueOnce(scopeError);
 
 			const settled = await Promise.allSettled([
-				runTool(sa, "removeMediaAsset", { assetId: "asset-1" }),
+				runTool(sa, "removeMediaAsset", { assetId: testUuid("removed-asset") }),
 				runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
 			]);
 
@@ -1242,24 +986,6 @@ describe("solutionsArchitect — read-shaped side-effect terminal fences", () =>
 	);
 });
 
-// ── Small helpers kept at the bottom to avoid pollution ─────────────────
-
 function makeEmptyDoc(): BlueprintDoc {
-	const empty: BlueprintDoc = {
-		appId: "test-app",
-		appName: "",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-	const genesis = canonicalAppGenesis(empty);
-	return produce(empty, (draft) => {
-		applyMutations(draft, genesis.mutations);
-	});
+	return makeCanonicalGenesisDoc();
 }

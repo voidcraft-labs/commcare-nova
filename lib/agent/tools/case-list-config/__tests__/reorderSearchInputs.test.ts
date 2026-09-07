@@ -1,16 +1,6 @@
-/**
- * Behavioral tests for `reorderSearchInputs`.
- *
- * Coverage:
- *
- *   1. Effect on the doc — search-inputs reordered to match the
- *      supplied uuid sequence.
- *   2. Length mismatch / duplicate uuid / unknown uuid surface
- *      distinct Elm-style errors.
- *   3. Module-not-found surfaces an Elm-style error.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Admitted shared-tool state transitions with controlled host receipts;
+ * the schema, planner, workspace gate, and reducer remain real. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
@@ -20,23 +10,6 @@ import {
 } from "@/lib/domain";
 import { reorderSearchInputsTool } from "../reorderSearchInputs";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const A = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const B = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -78,7 +51,14 @@ describe("reorderSearchInputs", () => {
 
 		const inputs =
 			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs ?? [];
-		expect(inputs.map((i) => i.uuid)).toEqual([C, A, B]);
+		expect(inputs).toEqual(
+			[C, A, B].map((uuid) =>
+				fixtureWithThreeInputs().modules[
+					MOD_A
+				]?.caseListConfig?.searchInputs.find((input) => input.uuid === uuid),
+			),
+		);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(result.mutations.every((m) => m.kind === "moveSearchInput")).toBe(
 			true,
 		);

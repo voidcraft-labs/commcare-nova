@@ -10,7 +10,7 @@
  * every envelope that flows through it.
  *
  * Diverges from `GenerationContext` in three ways:
- *   - No Anthropic client. The MCP server does not reason; the client does.
+ *   - No model client. The MCP server does not reason; the client does.
  *   - No `UsageAccumulator`. There are no LLM tokens to bill on this surface
  *     (no SA-style step aggregation happens here).
  *   - Progress goes out as MCP `notifications/progress` events, not SSE.
@@ -74,14 +74,12 @@ import type { ToolContext } from "./types";
 /**
  * Constructor options for `McpContext`.
  *
- * Exported alongside the class so adapters and tests can type collaborators
- * (e.g. `mockLogWriter()` in tests) without having to re-derive this shape
- * from the constructor signature.
+ * Request identity, progress and persistence collaborators.
  */
 export interface McpContextOptions {
 	/** App id the tool call is targeting. Already ownership-checked. */
 	appId: string;
-	/** Better Auth user id from the verified JWT's `sub` claim. */
+	/** Better Auth user id from the authenticated OAuth or API-key principal. */
 	userId: string;
 	/** Project captured by the adapter's authorized app load. */
 	projectId: string;
@@ -95,7 +93,7 @@ export interface McpContextOptions {
 	progress: ProgressEmitter;
 	/** The retype-impact lookup behind `ToolInvocationContext.conversionImpact`
 	 * — `initMcpCall` binds the schema store's `conversionImpact` to this
-	 * app; tests stub it so no tool test touches Postgres. */
+	 * app. */
 	conversionImpact: ConversionImpactFn;
 }
 
@@ -159,18 +157,11 @@ export class McpContext implements CanonicalMutationHost {
 	/**
 	 * Persist a batch of mutations to the event log + the blueprint.
 	 *
-	 * 1. Builds one `MutationEvent` envelope per mutation, inline-stamping
-	 *    `source: "mcp"` so the in-memory return value is schema-valid
-	 *    (the `LogWriter` re-stamps it authoritatively on its way to
-	 *    the sink — this inline value is defense-in-depth).
-	 * 2. Emits each envelope to the log writer (fire-and-forget batched
-	 *    write to the event log — see `LogWriter.flush` for drain semantics).
-	 * 3. Awaits the blueprint save so the tool cannot return success before
-	 *    the write is durably committed (fail-closed persistence
-	 *    guarantee). If the blueprint save rejects, `recordMutations`
-	 *    propagates the rejection to its caller. This class does not
-	 *    swallow persistence errors — callers are responsible for mapping
-	 *    them to their surface's error shape.
+	 * First awaits the guarded blueprint commit. Only accepted mutations become
+	 * log envelopes, with one shared per-request sequence across conversation
+	 * and mutation events. The returned document is the authoritative committed
+	 * snapshot, including any concurrent changes the writer merged.
+	 * A commit rejection propagates without enqueueing mutation events.
 	 *
 	 * No-op on empty batches — callers may route an unconditional call
 	 * through here without an upstream length check.
@@ -371,12 +362,11 @@ export interface InitMcpCallResult {
  * Narrow shape the adapter consumes from the SDK's per-request handler
  * context (`ServerContext`).
  *
- * `mcpReq._meta.progressToken` (the client's opt-in, RFC 6802 types it
- * `string | number`) and `mcpReq.notify` (the request-scoped
+ * `mcpReq._meta.progressToken` (the client's `string | number` opt-in) and `mcpReq.notify` (the request-scoped
  * notification sender the progress emitter dispatches through) are the
  * only fields we read. Declaring the shape locally — every field
- * optional, so the SDK's context is structurally assignable and tests
- * can pass `{}` — keeps the import surface small without forcing a
+ * optional, matching requests without progress opt-in — keeps the import
+ * surface small without forcing a
  * deep import of the SDK's context types.
  */
 interface McpCallExtra {

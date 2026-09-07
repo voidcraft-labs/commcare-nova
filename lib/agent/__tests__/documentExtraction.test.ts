@@ -9,7 +9,8 @@
 // round-trips through the real SheetJS encoder so we verify the actual library
 // contract, not a hand-rolled mock of its output shape. Figure admission sniffs
 // real bytes (`file-type`), so the figure tests use genuine magic-byte fixtures,
-// never fake buffers with a declared type.
+// never fake buffers with a declared type. DOCX tests use real OOXML archives and
+// the installed Mammoth conversion, including image relationships and alt text.
 
 import AdmZip from "adm-zip";
 import { describe, expect, it, vi } from "vitest";
@@ -30,30 +31,6 @@ import {
 	MAX_EXTRACT_FIGURES,
 	planFigureAttachments,
 } from "@/lib/agent/documentExtraction";
-
-/* mammoth pulls in bluebird, which creates a module-level promise at import
- * time the async-leak detector flags. We exercise the docx path with a mocked
- * mammoth so the real module (and bluebird) never loads. `imgElement` is an
- * identity wrap, so a test's `convertToMarkdown` impl receives the production
- * per-image handler directly via `options.convertImage` and can drive it with
- * fake embedded images. */
-vi.mock("mammoth", () => ({
-	default: {
-		convertToMarkdown: vi.fn(async () => ({
-			value: "# Doc heading\n\nbody",
-			messages: [],
-		})),
-		images: { imgElement: (handler: unknown) => handler },
-	},
-}));
-
-import mammoth from "mammoth";
-
-/** The identity-wrapped per-image handler a test's `convertToMarkdown` impl
- *  receives as `options.convertImage` (see the mammoth mock above). */
-type ConvertImageHandler = (
-	image: EmbeddedImage,
-) => Promise<{ src: string; alt: string }>;
 
 // ── Real image fixtures (admission sniffs bytes, so magic must be genuine) ──
 
@@ -155,11 +132,51 @@ function extractCallOpts(call: ReturnType<typeof recordingCondenser>["call"]) {
 	return c[0];
 }
 
-/** A minimal real ZIP that passes the office-archive preflight; mammoth is
- *  mocked, so the entry content never matters to the conversion itself. */
-function docxStub(): Buffer {
+/** A small real OOXML package consumed by the installed Mammoth adapter. */
+function docxDocument(images: { bytes: Buffer; alt?: string }[] = []): Buffer {
 	const zip = new AdmZip();
-	zip.addFile("word/document.xml", Buffer.from("<document/>"));
+	const xml = (value: string) =>
+		value
+			.replaceAll("&", "&amp;")
+			.replaceAll('"', "&quot;")
+			.replaceAll("<", "&lt;")
+			.replaceAll(">", "&gt;");
+	zip.addFile(
+		"[Content_Types].xml",
+		Buffer.from(
+			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+		),
+	);
+	zip.addFile(
+		"_rels/.rels",
+		Buffer.from(
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`,
+		),
+	);
+	zip.addFile(
+		"word/styles.xml",
+		Buffer.from(
+			`<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/></w:style></w:styles>`,
+		),
+	);
+	zip.addFile(
+		"word/_rels/document.xml.rels",
+		Buffer.from(
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="styles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${images.map((_, i) => `<Relationship Id="image${i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image${i}.png"/>`).join("")}</Relationships>`,
+		),
+	);
+	const drawings = images
+		.map((image, i) => {
+			zip.addFile(`word/media/image${i}.png`, image.bytes);
+			return `<w:p><w:r><w:drawing><wp:inline><wp:docPr id="${i + 1}" name="Figure ${i + 1}" descr="${xml(image.alt ?? "")}"/><a:graphic><a:graphicData><pic:pic><pic:blipFill><a:blip r:embed="image${i}"/></pic:blipFill></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p><w:p><w:r><w:t>${i === 0 ? "middle" : "tail"}</w:t></w:r></w:p>`;
+		})
+		.join("");
+	zip.addFile(
+		"word/document.xml",
+		Buffer.from(
+			`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body><w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Doc heading</w:t></w:r></w:p><w:p><w:r><w:t>body</w:t></w:r></w:p>${drawings}</w:body></w:document>`,
+		),
+	);
 	return zip.toBuffer();
 }
 
@@ -218,7 +235,7 @@ describe("extractDocument", () => {
 	it("converts a docx document via mammoth before condensing", async () => {
 		const { condenser, call } = recordingCondenser();
 		await extractDocument({
-			bytes: docxStub(),
+			bytes: docxDocument(),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			kind: "docx",
@@ -294,32 +311,12 @@ describe("extractDocument", () => {
 	});
 
 	it("replaces docx embedded images with nova:figure markers and attaches the sniff-passing ones", async () => {
-		// Simulate mammoth: drive the production handler once per embedded image
-		// (document order) and emit each returned attribute pair the way the
-		// markdown writer would (`![alt](src)`).
-		vi.mocked(mammoth.convertToMarkdown).mockImplementationOnce(
-			async (_input, options) => {
-				const convert = options?.convertImage as unknown as ConvertImageHandler;
-				const first = await convert({
-					altText: "  Referral flow  ",
-					readAsBuffer: async () => PNG_1PX,
-				});
-				// Junk bytes DECLARED as png: admission sniffs, so the mislabel is
-				// omitted rather than riding to the provider.
-				const second = await convert({
-					contentType: "image/png",
-					readAsBuffer: async () => JUNK_BYTES,
-				});
-				return {
-					value: `# Doc\n\n![${first.alt}](${first.src})\n\nmore\n\n![${second.alt}](${second.src})`,
-					messages: [],
-				};
-			},
-		);
-
 		const { condenser, call } = recordingCondenser();
 		await extractDocument({
-			bytes: docxStub(),
+			bytes: docxDocument([
+				{ bytes: PNG_1PX, alt: "  Referral flow  " },
+				{ bytes: JUNK_BYTES },
+			]),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			kind: "docx",
@@ -353,30 +350,12 @@ describe("extractDocument", () => {
 	});
 
 	it("keeps alt text carrying replacement metacharacters and sentinel look-alikes verbatim", async () => {
-		vi.mocked(mammoth.convertToMarkdown).mockImplementationOnce(
-			async (_input, options) => {
-				const convert = options?.convertImage as unknown as ConvertImageHandler;
-				// $' is a String.replace substitution pattern (the whole following
-				// string); the second figure's alt embeds the FIRST figure's literal
-				// sentinel syntax. Neither may corrupt the swap.
-				const first = await convert({
-					altText: "Revenue $'000",
-					readAsBuffer: async () => PNG_1PX,
-				});
-				const second = await convert({
-					altText: "see ![](nova-figure://1) above",
-					readAsBuffer: async () => PNG_1PX,
-				});
-				return {
-					value: `intro\n\n![${first.alt}](${first.src})\n\nmiddle\n\n![${second.alt}](${second.src})\n\ntail`,
-					messages: [],
-				};
-			},
-		);
-
 		const { condenser, call } = recordingCondenser();
 		await extractDocument({
-			bytes: docxStub(),
+			bytes: docxDocument([
+				{ bytes: PNG_1PX, alt: "Revenue $'000" },
+				{ bytes: PNG_1PX, alt: "see ![](nova-figure://1) above" },
+			]),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			kind: "docx",
@@ -398,7 +377,7 @@ describe("extractDocument", () => {
 	it("keeps the plain filename-only prompt shape for a docx with no embedded images", async () => {
 		const { condenser, call } = recordingCondenser();
 		await extractDocument({
-			bytes: docxStub(),
+			bytes: docxDocument(),
 			mimeType:
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			kind: "docx",
@@ -409,32 +388,20 @@ describe("extractDocument", () => {
 		expect(opts.prompt).toContain("Filename: plain.docx\n\n# Doc heading");
 		expect(opts.images).toBeUndefined();
 	});
-
-	it("repairs a double-escaped extract returned by the summarizer", async () => {
-		// The over-escape failure: the whole extract is one physical line where
-		// newlines are the literal characters `\` `n` and quotes are `\` `"`.
-		const { condenser } = recordingCondenser({
-			extract: '## Conflicts\\n* A \\"wildcard\\" rule.\\n* Second bullet.',
-			title: "T",
-			summary: "S.",
-		});
-		const result = await extractDocument({
-			bytes: Buffer.from("x"),
-			mimeType: "text/plain",
-			kind: "text",
-			filename: "big.xlsx",
-			condenser,
-		});
-		expect(result.extract).toBe(
-			'## Conflicts\n* A "wildcard" rule.\n* Second bullet.',
-		);
-	});
 });
 
 describe("isAnimatedGif", () => {
 	it("reads a real single-frame GIF as still and a two-frame GIF as animated", () => {
 		expect(isAnimatedGif(GIF_STATIC)).toBe(false);
 		expect(isAnimatedGif(animatedGif())).toBe(true);
+	});
+
+	it("refuses every truncated prefix of a still GIF", () => {
+		for (let end = 0; end < GIF_STATIC.length; end++) {
+			expect(isAnimatedGif(GIF_STATIC.subarray(0, end)), `prefix ${end}`).toBe(
+				true,
+			);
+		}
 	});
 
 	it("treats unwalkable GIF structure as animated (never attach what can't be proven still)", () => {

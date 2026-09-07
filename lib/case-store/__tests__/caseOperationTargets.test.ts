@@ -6,7 +6,6 @@ import {
 	validateCaseOperationTargetDescriptor,
 	validateResolvedCaseOperationTypeSequence,
 } from "@/lib/case-store";
-import type { Form } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -37,7 +36,7 @@ describe("case-operation runtime target descriptors", () => {
 		for (const [request, resolved] of [
 			[
 				{ caseId: "case-1" },
-				{ caseId: "case-1", caseType: "patient", projectId: "project-b" },
+				{ caseId: "case-1", caseType: "visit", projectId: "project-b" },
 			],
 			[
 				{ caseId: "case-1" },
@@ -60,7 +59,7 @@ describe("case-operation runtime target descriptors", () => {
 					caseType: "patient",
 					projectId: "project-a",
 				},
-				null,
+				{ caseId: "case-1", caseType: "patient", projectId: "project-a" },
 				expected,
 			),
 		).toEqual({ ok: false, reason: "not-found-or-out-of-scope" });
@@ -74,6 +73,39 @@ describe("case-operation runtime target descriptors", () => {
 				expected,
 			),
 		).toEqual({ ok: false, reason: "case-type-mismatch" });
+	});
+
+	it("accepts a retyped target and links using its rolling type", () => {
+		expect(
+			validateResolvedCaseOperationTypeSequence([
+				{
+					operationUuid: "promote",
+					action: "update",
+					target: { caseId: "patient-1", snapshotCaseType: "patient" },
+					expectedCaseType: "patient",
+					resultCaseType: "visit",
+				},
+				{
+					operationUuid: "update-promoted",
+					action: "update",
+					target: { caseId: "patient-1", snapshotCaseType: "patient" },
+					expectedCaseType: "visit",
+				},
+				{
+					operationUuid: "link-promoted",
+					action: "create",
+					target: { caseId: "new-patient" },
+					expectedCaseType: "patient",
+					links: [
+						{
+							slot: "related",
+							target: { caseId: "patient-1", snapshotCaseType: "patient" },
+							expectedCaseType: "visit",
+						},
+					],
+				},
+			]),
+		).toEqual({ ok: true });
 	});
 
 	it("folds resolved ids so runtime aliases cannot bypass a prior retype", () => {
@@ -212,7 +244,7 @@ describe("case-operation schema materialization", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: testUuid("11111111-1111-4111-8111-111111111111"),
 				id: "score_patient",

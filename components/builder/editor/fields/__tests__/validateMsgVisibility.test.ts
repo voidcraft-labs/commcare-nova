@@ -6,7 +6,7 @@
  * path owns the optional `validate_msg` UX. These rules decide which
  * of the editor / pill / nothing occupies the slot beneath the XPath
  * input. `XPathEditor` is a thin renderer over these helpers plus
- * `EditableText` for the message itself; the XPath editing UX lives
+ * `RefLabelInput` for the message itself; the XPath editing UX lives
  * in `XPathField`'s tests + Playwright.
  */
 

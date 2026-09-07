@@ -199,6 +199,7 @@ function toDeploymentResource(
 		adoptedBy: row.adopted_by,
 		pushedRevision: numberOrNull(row.pushed_revision),
 		pushedAt: isoOrNull(row.pushed_at),
+		pushToken: row.push_token,
 		remoteRevision: numberOrNull(row.remote_revision),
 		remoteObservedAt: isoOrNull(row.remote_observed_at),
 		supersededAt: isoOrNull(row.superseded_at),
@@ -827,14 +828,10 @@ export async function recordPushedResources(
 export interface ApplyObservationInput {
 	/** The CommCare HQ app the observation asked about. */
 	readonly observedRemoteId: string;
-	/**
-	 * The active mapping's `pushedAt` as the caller read it before asking
-	 * CommCare HQ — the per-publish staleness token. A republish updates
-	 * the app in place and keeps the remote id, so the id alone can no
-	 * longer tell "the publish I read" from "a publish that landed while I
-	 * was asking"; `pushed_at` changes on every publish and does.
-	 */
-	readonly observedPushedAt: string | null;
+	/** The accepted push identity read before asking CommCare HQ. A republish
+	 * keeps the remote id and may share its timestamp and source revision,
+	 * but always gets a fresh token. */
+	readonly observedPushToken: string;
 	/** In phase order, ready for the state machine to fold. */
 	readonly outcomes: readonly (readonly [
 		DeploymentPhase,
@@ -854,7 +851,7 @@ export interface ApplyObservationInput {
  * writing them would overwrite the fresh record with stale facts. So the
  * write re-reads the active mapping under the row lock and discards the
  * observation unless both the remote id AND the publish token
- * (`observedPushedAt`) still match, returning the fresh view either way;
+ * (`observedPushToken`) still match, returning the fresh view either way;
  * `applied` says which happened.
  */
 export async function applyDeploymentObservation(
@@ -873,29 +870,16 @@ export async function applyDeploymentObservation(
 			const now = new Date();
 			const active = await tx
 				.selectFrom("app_deployment_resources")
-				.select(["remote_id", "pushed_at"])
+				.select(["remote_id", "push_token"])
 				.where("deployment_id", "=", row.id)
 				.where("kind", "=", "app")
 				.where("nova_resource_id", "=", scope.appId)
 				.where("superseded_at", "is", null)
 				.executeTakeFirst();
-			/* The column is timestamptz(3) and JS Dates carry milliseconds, so
-			 * the epoch-ms comparison is lossless in both directions. Null on
-			 * both sides matches — a mapping that never recorded a push has one
-			 * spelling. Two publishes landing inside the same millisecond would
-			 * share a token; accepted as negligible. */
-			const activePushedAtMs =
-				active === undefined || active.pushed_at === null
-					? null
-					: active.pushed_at.getTime();
-			const observedPushedAtMs =
-				input.observedPushedAt === null
-					? null
-					: new Date(input.observedPushedAt).getTime();
 			if (
 				active === undefined ||
 				active.remote_id !== input.observedRemoteId ||
-				activePushedAtMs !== observedPushedAtMs
+				active.push_token !== input.observedPushToken
 			) {
 				return {
 					view: await loadWithinTransaction(tx, row.id),

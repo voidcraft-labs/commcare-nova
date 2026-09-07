@@ -1,0 +1,251 @@
+{
+	"doc_type": "Application",
+	"application_version": "2.0",
+	"name": "App ￿ label",
+	"langs": ["en"],
+	"build_spec": {
+		"doc_type": "BuildSpec",
+		"version": "2.54.0",
+		"build_number": null
+	},
+	"multimedia_map": {},
+	"translations": {
+		"en": {
+			"homescreen.title": "App ￿ label",
+			"app.display.name": "App ￿ label",
+			"en": "English"
+		}
+	},
+	"auto_gps_capture": false,
+	"add_ons": {
+		"advanced_itemsets": true,
+		"calc_xpaths": true,
+		"case_detail_overwrite": true,
+		"case_list_menu_item": true,
+		"conditional_enum": true,
+		"conditional_form_actions": true,
+		"display_conditions": true,
+		"enum_image": true,
+		"subcases": true,
+		"register_from_case_list": true
+	},
+	"modules": [
+		{
+			"doc_type": "Module",
+			"module_type": "basic",
+			"unique_id": "35003fb143048db2878b086a9d46f605854ae7e9",
+			"name": { "en": "Surveys" },
+			"case_type": "",
+			"put_in_root": false,
+			"root_module_id": null,
+			"forms": [
+				{
+					"doc_type": "Form",
+					"form_type": "module_form",
+					"unique_id": "19459da29dd9dac12c5ec8e25c0882c30157f234",
+					"name": { "en": "Survey" },
+					"xmlns": "http://openrosa.org/formdesigner/be7e551ebe4ba944",
+					"requires": "none",
+					"version": null,
+					"actions": {
+						"doc_type": "FormActions",
+						"open_case": {
+							"doc_type": "OpenCaseAction",
+							"name_update": { "question_path": "" },
+							"external_id": null,
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"update_case": {
+							"doc_type": "UpdateCaseAction",
+							"update": {},
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"close_case": {
+							"doc_type": "FormAction",
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"case_preload": {
+							"doc_type": "PreloadAction",
+							"preload": {},
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"subcases": [],
+						"usercase_preload": {
+							"doc_type": "PreloadAction",
+							"preload": {},
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"usercase_update": {
+							"doc_type": "UpdateCaseAction",
+							"update": {},
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						},
+						"load_from_form": {
+							"doc_type": "PreloadAction",
+							"preload": {},
+							"condition": {
+								"type": "never",
+								"question": null,
+								"answer": null,
+								"operator": null,
+								"doc_type": "FormActionCondition"
+							}
+						}
+					},
+					"case_references_data": {
+						"load": {},
+						"save": {},
+						"doc_type": "CaseReferences"
+					},
+					"form_filter": null,
+					"post_form_workflow": "default",
+					"post_form_workflow_fallback": null,
+					"no_vellum": false,
+					"media_image": {},
+					"media_audio": {},
+					"custom_icons": [],
+					"custom_assertions": [],
+					"custom_instances": [],
+					"form_links": [],
+					"comment": "",
+					"session_endpoint_id": "",
+					"respect_relevancy": true
+				}
+			],
+			"case_details": {
+				"doc_type": "DetailPair",
+				"short": {
+					"doc_type": "Detail",
+					"display": "short",
+					"columns": [],
+					"sort_elements": [],
+					"tabs": [],
+					"filter": null,
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_display_results": false,
+					"lookup_name": null,
+					"lookup_image": null,
+					"lookup_action": null,
+					"lookup_field_template": null,
+					"lookup_field_header": {},
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"persist_tile_on_forms": null,
+					"persistent_case_tile_from_module": null,
+					"pull_down_tile": null,
+					"case_tile_template": null,
+					"custom_xml": null,
+					"custom_variables": null
+				},
+				"long": {
+					"doc_type": "Detail",
+					"display": "long",
+					"columns": [],
+					"sort_elements": [],
+					"tabs": [],
+					"filter": null,
+					"lookup_enabled": false,
+					"lookup_autolaunch": false,
+					"lookup_display_results": false,
+					"lookup_name": null,
+					"lookup_image": null,
+					"lookup_action": null,
+					"lookup_field_template": null,
+					"lookup_field_header": {},
+					"lookup_extras": [],
+					"lookup_responses": [],
+					"persist_case_context": null,
+					"persistent_case_context_xml": "case_name",
+					"persist_tile_on_forms": null,
+					"persistent_case_tile_from_module": null,
+					"pull_down_tile": null,
+					"case_tile_template": null,
+					"custom_xml": null,
+					"custom_variables": null
+				}
+			},
+			"case_list": {
+				"doc_type": "CaseList",
+				"show": false,
+				"label": {},
+				"media_image": {},
+				"media_audio": {},
+				"custom_icons": []
+			},
+			"case_list_form": {
+				"doc_type": "CaseListForm",
+				"form_id": null,
+				"label": {}
+			},
+			"search_config": {
+				"doc_type": "CaseSearch",
+				"search_button_label": { "en": "Search All Cases" },
+				"properties": [],
+				"auto_launch": false,
+				"default_search": false,
+				"inline_search": false,
+				"include_all_related_cases": false,
+				"default_properties": [],
+				"title_label": {},
+				"description": {}
+			},
+			"display_style": "list",
+			"media_image": {},
+			"media_audio": {},
+			"custom_icons": [],
+			"is_training_module": false,
+			"module_filter": null,
+			"auto_select_case": false,
+			"parent_select": {
+				"active": false,
+				"relationship": "parent",
+				"module_id": null
+			},
+			"comment": "",
+			"session_endpoint_id": "",
+			"case_list_session_endpoint_id": ""
+		}
+	],
+	"_attachments": {
+		"19459da29dd9dac12c5ec8e25c0882c30157f234.xml": "<?xml version=\"1.0\"?>\n<h:html xmlns:h=\"http://www.w3.org/1999/xhtml\" xmlns:orx=\"http://openrosa.org/jr/xforms\" xmlns=\"http://www.w3.org/2002/xforms\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\" xmlns:jr=\"http://openrosa.org/javarosa\" xmlns:vellum=\"http://commcarehq.org/xforms/vellum\"><h:head><h:title>Survey</h:title><model><instance><data xmlns=\"http://openrosa.org/formdesigner/be7e551ebe4ba944\" xmlns:jrm=\"http://dev.commcarehq.org/jr/xforms\" uiVersion=\"1\" version=\"1\" name=\"survey\"><answer/></data></instance><bind vellum:nodeset=\"#form/answer\" nodeset=\"/data/answer\" type=\"xsd:string\"/><itext><translation lang=\"en\" default=\"\"><text id=\"answer-label\"><value>Start &#xffff; end</value><value form=\"markdown\">Start &#xffff; end</value></text></translation></itext></model></h:head><h:body><input ref=\"/data/answer\"><label ref=\"jr:itext(&apos;answer-label&apos;)\"/></input></h:body></h:html>"
+	}
+}

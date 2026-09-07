@@ -172,8 +172,6 @@ export interface ProvisionWorkersInput {
 	 * by taking the existing account over. Absent means adopt nothing.
 	 */
 	readonly adoptPersonaUuids?: readonly string[];
-	/** Called after each account lands, for a caller that reports progress. */
-	readonly onWorkerProvisioned?: (done: number, total: number) => void;
 }
 
 /**
@@ -353,7 +351,6 @@ export async function provisionWorkers(
 				adopted: push.ownership === "adopted",
 				password: written.landed.password,
 			});
-			input.onWorkerProvisioned?.(provisioned.length, plan.pushes.length);
 		}
 		/* Collected before the refusal is read, for the same reason a
 		 * landing is: this password is the only copy of a credential for an

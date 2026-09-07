@@ -164,7 +164,6 @@ function deferred<T>(): {
 
 beforeEach(async () => {
 	await h.pool().query(`
-		DELETE FROM auth_member;
 		INSERT INTO auth_member (id, "userId", "organizationId", role)
 		VALUES ('membership-row', '${USER}', '${PROJECT}', 'editor');
 	`);
@@ -250,12 +249,14 @@ describe("Project membership advisory gate", () => {
 		);
 		const writer = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([writer.connect(), observer.connect()]);
+
 		let snapshot:
 			| Promise<Awaited<ReturnType<typeof resolveAuthorizedAppSnapshot>>>
 			| undefined;
 		let committed = false;
 		try {
+			await writer.connect();
+			await observer.connect();
 			await writer.query("BEGIN");
 			await writer.query(
 				`UPDATE apps
@@ -312,11 +313,13 @@ describe("Project membership advisory gate", () => {
 		);
 		const writer = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([writer.connect(), observer.connect()]);
+
 		let write:
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
 		try {
+			await writer.connect();
+			await observer.connect();
 			const writerPid = await backendPid(writer);
 			await h
 				.db()
@@ -374,13 +377,15 @@ describe("Project membership advisory gate", () => {
 		async ({ userId, beforeRole, afterRole, statement, params }) => {
 			const mutator = new Client({ connectionString: h.uri() });
 			const observer = new Client({ connectionString: h.uri() });
-			await Promise.all([mutator.connect(), observer.connect()]);
+
 			let mutation:
 				| Promise<
 						{ ok: true; error: undefined } | { ok: false; error: unknown }
 				  >
 				| undefined;
 			try {
+				await mutator.connect();
+				await observer.connect();
 				const mutatorPid = await backendPid(mutator);
 				await h
 					.db()
@@ -432,7 +437,7 @@ describe("Project membership advisory gate", () => {
 		async ({ userId, afterRole, statement, params }) => {
 			const mutator = new Client({ connectionString: h.uri() });
 			const observer = new Client({ connectionString: h.uri() });
-			await Promise.all([mutator.connect(), observer.connect()]);
+
 			const readerPid = deferred<number>();
 			let read:
 				| Promise<
@@ -441,6 +446,8 @@ describe("Project membership advisory gate", () => {
 				| undefined;
 			let committed = false;
 			try {
+				await mutator.connect();
+				await observer.connect();
 				await mutator.query("BEGIN");
 				await mutator.query(statement, [...params]);
 				const mutatorPid = await backendPid(mutator);
@@ -481,8 +488,8 @@ describe("Project membership advisory gate", () => {
 
 	it("rejects TRUNCATE without waiting on the shared advisory gate", async () => {
 		const truncater = new Client({ connectionString: h.uri() });
-		await truncater.connect();
 		try {
+			await truncater.connect();
 			await truncater.query("SET statement_timeout = '1s'");
 			await h
 				.db()
@@ -512,11 +519,7 @@ describe("Project membership advisory gate", () => {
 		const mutator = new Client({ connectionString: h.uri() });
 		const contender = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([
-			mutator.connect(),
-			contender.connect(),
-			observer.connect(),
-		]);
+
 		let guardedWrite:
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
@@ -525,6 +528,9 @@ describe("Project membership advisory gate", () => {
 			| undefined;
 		let membershipCommitted = false;
 		try {
+			await mutator.connect();
+			await contender.connect();
+			await observer.connect();
 			await mutator.query("BEGIN");
 			await mutator.query(
 				`UPDATE auth_member
@@ -537,7 +543,7 @@ describe("Project membership advisory gate", () => {
 			guardedWrite = commitGuardedBatch({
 				appId,
 				batchId: crypto.randomUUID(),
-				mutations: [],
+				mutations: [{ kind: "setAppName", name: "Authorized change" }],
 				actorUserId: USER,
 				kind: "autosave",
 				expectedProjectId: PROJECT,
@@ -588,13 +594,15 @@ describe("Project membership advisory gate", () => {
 		});
 		const mutator = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([mutator.connect(), observer.connect()]);
+
 		let sideEffect:
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
 		let membershipCommitted = false;
 		let effectCalled = false;
 		try {
+			await mutator.connect();
+			await observer.connect();
 			await mutator.query("BEGIN");
 			await mutator.query(
 				`UPDATE auth_member
@@ -608,7 +616,7 @@ describe("Project membership advisory gate", () => {
 				{
 					appId,
 					batchId: crypto.randomUUID(),
-					mutations: [],
+					mutations: [{ kind: "setAppName", name: "Authorized change" }],
 					actorUserId: USER,
 					kind: "autosave",
 					expectedProjectId: PROJECT,
@@ -672,7 +680,7 @@ describe("Project membership advisory gate", () => {
 						runId: "stale-build",
 						nonce: HOLDER_NONCE,
 					},
-					mutations: [],
+					mutations: [{ kind: "setAppName", name: "Authorized change" }],
 					actorUserId: USER,
 					kind: "chat",
 					expectedProjectId: PROJECT,
@@ -717,14 +725,17 @@ describe("Project membership advisory gate", () => {
 		});
 		const mutator = new Client({ connectionString: h.uri() });
 		const observer = new Client({ connectionString: h.uri() });
-		await Promise.all([mutator.connect(), observer.connect()]);
+
 		const phaseAStarted = deferred<number>();
 		const releasePhaseA = deferred<void>();
 		let membershipMutation:
 			| Promise<{ ok: true } | { ok: false; error: unknown }>
 			| undefined;
+		let sideEffect: ReturnType<typeof commitGuardedBatch> | undefined;
 		try {
-			const sideEffect = commitGuardedBatch(
+			await mutator.connect();
+			await observer.connect();
+			sideEffect = commitGuardedBatch(
 				{
 					appId,
 					batchId: crypto.randomUUID(),
@@ -756,7 +767,12 @@ describe("Project membership advisory gate", () => {
 				},
 			);
 
-			const holderPid = await phaseAStarted.promise;
+			const holderPid = await Promise.race([
+				phaseAStarted.promise,
+				sideEffect.then(() => {
+					throw new Error("Commit ended before Phase A");
+				}),
+			]);
 			const mutatorPid = await backendPid(mutator);
 			membershipMutation = mutator
 				.query(
@@ -784,6 +800,7 @@ describe("Project membership advisory gate", () => {
 		} finally {
 			releasePhaseA.resolve();
 			await Promise.allSettled([
+				sideEffect,
 				membershipMutation,
 				mutator.query("ROLLBACK"),
 				observer.query("ROLLBACK"),

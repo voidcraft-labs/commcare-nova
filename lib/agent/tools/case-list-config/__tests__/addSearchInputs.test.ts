@@ -1,44 +1,12 @@
-/**
- * Behavioral tests for `addSearchInputs` (the plural, list-taking tool —
- * there is no singular search-input-add tool; one input is a length-1 array).
- *
- * Coverage:
- *
- *   1. Effect on the doc — the supplied inputs are appended to
- *      `caseListConfig.searchInputs` (in order) with a freshly minted uuid
- *      each.
- *   2. A multi-input call lands all inputs in one mutation batch.
- *   3. Surfaces uuids in result.uuids + the message.
- *   4. Both `simple` and `advanced` arms round-trip cleanly.
- *   5. Surrounding columns + filter survive.
- *   6. Module-not-found surfaces an Elm-style error.
- *   7. Initializes the caseListConfig when the module has none.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Schema-admitted shared tool calls through the real workspace and reducer.
+ * Controlled host receipts prove local state transitions, not SQL commits. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
 import { addSearchInputsTool } from "../addSearchInputs";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const RESULTS_COLUMN = plainColumn(
 	testUuid("add-search-inputs-results-column"),
@@ -89,7 +57,7 @@ describe("addSearchInputs", () => {
 		}
 	});
 
-	it("adds multiple inputs in one call, in order, in a single mutation", async () => {
+	it("adds multiple inputs in one call, in order, in one host batch", async () => {
 		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
 		const result = await h.runTool(addSearchInputsTool, {
 			moduleUuid: MOD_A,
@@ -111,6 +79,7 @@ describe("addSearchInputs", () => {
 			],
 		});
 
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		// First search authoring also creates the one empty chrome config that
 		// makes the search surface real on export, followed by one granular add
 		// per input.
@@ -157,7 +126,7 @@ describe("addSearchInputs", () => {
 		}
 	});
 
-	it("surfaces each new uuid in the structured result and the message", async () => {
+	it("surfaces each new uuid in the structured result", async () => {
 		const h = makeCaseListFixture(withCaseList(makeCaseListDoc()));
 		const result = await h.runTool(addSearchInputsTool, {
 			moduleUuid: MOD_A,

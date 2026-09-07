@@ -196,18 +196,7 @@ const ORDER_SLOT = {
 	personas: "personaOrder",
 } as const;
 
-/**
- * Place `uuid` immediately after `after` — `null` meaning first, and an anchor
- * that is no longer present meaning append.
- *
- * TOTAL by construction, because historical replay must never block: a batch
- * whose anchor a peer removed still applies, landing the entity at the end
- * rather than throwing. The authoritative commit guard is what rejects a batch
- * whose anchor genuinely vanished; this reducer only has to stay reducible.
- *
- * Idempotent on the uuid: an entity already in the sequence is moved rather
- * than duplicated, so replaying a batch twice cannot double an entry.
- */
+/** Remove the record entry and its matching membership element together. */
 function dropEntry(
 	draft: Draft<BlueprintDoc>,
 	slot: "userProperties" | "userTypes" | "personas",

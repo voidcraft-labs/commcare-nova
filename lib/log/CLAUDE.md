@@ -18,7 +18,7 @@ local edits stay implicit in the AppDoc.
 
 ## Storage + ordering
 
-Two event families (mutation + conversation), one row per event in the
+Three event families (mutation, archived mutation, and conversation), one row per event in the
 `events` table (`lib/db/pg.ts` owns the table type; DDL in
 `lib/case-store/migrations/20260708000000_app_state.ts`). The `id`
 identity column carries no ordering — reads order by `(ts, seq)` for a
@@ -73,9 +73,22 @@ design can resume after a deploy. `designSessionId`, `runId`, `errorType`, and
 
 Fire-and-forget. `LogWriter.logEvent(event)` enqueues; a 100ms timer (or
 a 450-event buffer threshold — a plain bound on how many rows one INSERT
-carries) triggers one batched INSERT into `events`. `flush()` drains on
-request end (finally block, onFinish, abort handler). Errors log but never
+carries) triggers one batched INSERT into `events`. `flush()` is awaited by the producer
+at request completion. Chat also awaits it in its outer cleanup after attempting
+exact-holder lock release, even if the ordinary finalizer or release throws. Errors log but never
 throw — observability failures must not block generation. Multiple
 requests sharing a `runId` (the normal edit-thread case) cannot overwrite
 each other's events because the `id` identity column is server-assigned
 per row.
+
+
+## Test boundaries
+
+The batcher tests use controlled sink completion and virtual time. They own and
+join pending promises, drain every writer, and verify that no timer remains.
+Database tests use the migrated production schema: independent rows establish
+app/run filters and ordering, two real writers establish collision-free inserts,
+and a rejecting trigger establishes whole-batch failure and subsequent recovery.
+Schema fixtures enumerate the supported conversation payload families and test
+strict nested audit boundaries. Request handlers own producer completion and the
+final awaited `flush()`; a batcher test alone cannot prove handler finalization.

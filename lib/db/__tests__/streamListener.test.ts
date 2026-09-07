@@ -79,13 +79,6 @@ async function waitForClientCount(count: number): Promise<void> {
 	});
 }
 
-async function settleMicrotasks(): Promise<void> {
-	/* A reconnect crosses the old client's end promise, config resolution,
-	 * connect, five sequential LISTEN queries, and the connecting-promise
-	 * cleanup. Drain that whole deterministic chain without a real timer. */
-	for (let i = 0; i < 50; i += 1) await Promise.resolve();
-}
-
 function notify(
 	client: RecordedClient,
 	channel: string,
@@ -101,6 +94,11 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+	// Release fake transport shutdown even if an assertion failed before releaseEnd.
+	for (const client of fakePg.instances) {
+		client.deferEnd = false;
+		client.releaseEnd();
+	}
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
 	vi.useRealTimers();
@@ -244,7 +242,9 @@ describe("shared stream listener", () => {
 		expect(onLookup).not.toHaveBeenCalled();
 
 		first.releaseEnd();
-		await settleMicrotasks();
+		await vi.waitFor(() =>
+			expect(onLookup).toHaveBeenCalledExactlyOnceWith("0"),
+		);
 		expect(fakePg.instances).toHaveLength(2);
 		const replacement = fakePg.instances[1];
 		expect(replacement?.connect).toHaveBeenCalledOnce();

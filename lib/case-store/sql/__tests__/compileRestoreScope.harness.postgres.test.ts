@@ -101,8 +101,8 @@ async function restoreScope(
 test("the closure reproduces every CommCare HQ restore fixture", async ({
 	db,
 }) => {
-	// One transaction per file, so each graph gets its own case-id namespace
-	// by prefix rather than by rollback.
+	// One test exercises the acceptance table in a single query. Prefixes
+	// keep the graphs disconnected inside this test transaction.
 	for (const fixture of CASE_RELATIONSHIP_FIXTURES) {
 		const scoped: CaseRelationshipFixture = {
 			...fixture,
@@ -156,7 +156,10 @@ const OTHER_APP = "app-restore-scope-other";
 const OTHER_PROJECT = "project-restore-scope-other";
 
 /** One `cases` row in the closure's tenant, open and owned by the worker. */
-function ours(caseId: string, overrides: Record<string, unknown> = {}) {
+function ours(
+	caseId: string,
+	overrides: Parameters<typeof makeCaseRow>[0] = {},
+) {
 	return makeCaseRow({
 		case_id: caseId,
 		app_id: APP_ID,
@@ -183,37 +186,38 @@ function edge(
 	};
 }
 
-test("a cross-tenant edge neither relays liveness nor makes a case an extension", async ({
-	db,
-}) => {
-	await db
-		.insertInto("cases")
-		.values([
-			// Owned, open, and its ONLY extension edge points into another
-			// tenant. `case_indices` carries no tenant columns and no foreign
-			// key, so the join to `cases` is the only thing that can refuse it.
-			ours("ext"),
-			// The foreign host, closed — so if the edge were honored at all, the
-			// availability walk would terminate and `ext` would drop out.
-			makeCaseRow({
-				case_id: "foreign-host",
-				app_id: OTHER_APP,
-				project_id: OTHER_PROJECT,
-				case_name: "foreign-host",
-				owner_id: WORKER,
-				status: "closed",
-			}),
-		])
-		.execute();
-	await db
-		.insertInto("case_indices")
-		.values([edge("ext", "foreign-host", "extension")])
-		.execute();
-
-	// `is_extension` asks about edges to cases that EXIST in this tenant, so
-	// `ext` is not an extension case here and seeds the fixpoint on its own.
-	expect(await restoreScope(db)).toEqual(["ext"]);
-});
+for (const foreign of [{ app_id: OTHER_APP }, { project_id: OTHER_PROJECT }]) {
+	test(`a foreign ${Object.keys(foreign)[0]} cannot relay liveness or classify extensions`, async ({
+		db,
+		pgClient,
+	}) => {
+		// Deliberately bypass the storage tenant FK to test the compiler's own
+		// tenant defense independently. These rows are always rolled back.
+		await pgClient.query(
+			"SET CONSTRAINTS cases_project_app_tenant_fk DEFERRED",
+		);
+		await db
+			.insertInto("cases")
+			.values([
+				ours("ext"),
+				ours("foreign-host", { ...foreign, status: "closed" }),
+				ours("foreign-extension", { ...foreign, owner_id: STRANGER }),
+				ours("unreachable", { owner_id: STRANGER }),
+			])
+			.execute();
+		await db
+			.insertInto("case_indices")
+			.values([
+				edge("ext", "foreign-host", "extension"),
+				edge("foreign-extension", "ext", "extension"),
+				edge("foreign-extension", "unreachable", "child"),
+			])
+			.execute();
+		// A foreign closed host must not suppress our owned seed, and a
+		// foreign extension must not bridge back to an otherwise unowned case.
+		expect(await restoreScope(db)).toEqual(["ext"]);
+	});
+}
 
 test("a dangling index row names no case and changes nothing", async ({
 	db,
@@ -244,7 +248,6 @@ test("only depth-1 edges are walked", async ({ db }) => {
 		.insertInto("case_indices")
 		.values([
 			edge("child", "parent", "child"),
-			edge("parent", "grandparent", "child"),
 			// A materialized transitive edge. `compileRelationPath` pins
 			// `depth = 1` for the same reason: the read strategy stays
 			// materialization-agnostic, so a transitive row that happens to be
@@ -260,10 +263,9 @@ test("only depth-1 edges are walked", async ({ db }) => {
 		])
 		.execute();
 
-	// `grandparent` still arrives — but through two depth-1 hops, and it would
-	// arrive either way. What the depth-2 row must not do is make `child` look
-	// like an extension case or shortcut a closed intermediate.
-	expect(await restoreScope(db)).toEqual(["child", "grandparent", "parent"]);
+	// There is no direct-edge path to grandparent: accepting depth 2 would
+	// now change the result instead of duplicating an already reachable row.
+	expect(await restoreScope(db)).toEqual(["child", "parent"]);
 });
 
 test("a depth-2 extension edge does not make a case an extension case", async ({
@@ -271,7 +273,7 @@ test("a depth-2 extension edge does not make a case an extension case", async ({
 }) => {
 	await db
 		.insertInto("cases")
-		.values([ours("a"), ours("b")])
+		.values([ours("a"), ours("b", { status: "closed" })])
 		.execute();
 	await db
 		.insertInto("case_indices")
@@ -287,9 +289,9 @@ test("a depth-2 extension edge does not make a case an extension case", async ({
 		])
 		.execute();
 
-	// Were the depth-2 row honored, `a` would be an extension case with no
-	// child edge and could only become live through `b`'s availability.
-	expect(await restoreScope(db)).toEqual(["a", "b"]);
+	// Honoring the depth-2 edge would classify a as an extension whose
+	// closed host prevents it from becoming live.
+	expect(await restoreScope(db)).toEqual(["a"]);
 });
 
 test("an absent status is open, on both the seed and the walk", async ({
@@ -301,18 +303,27 @@ test("an absent status is open, on both the seed and the walk", async ({
 			// `cases.status` is nullable with no default and optional on insert,
 			// so `status = 'open'` would erase both of these from restore scope.
 			ours("owned-null-status", { status: null }),
-			ours("ext", { owner_id: STRANGER }),
+			ours("ext"),
+			ours("null-extension", { owner_id: STRANGER, status: null }),
 			ours("host-null-status", { owner_id: STRANGER, status: null }),
 		])
 		.execute();
 	await db
 		.insertInto("case_indices")
-		.values([edge("ext", "host-null-status", "extension")])
+		.values([
+			edge("ext", "host-null-status", "extension"),
+			edge("null-extension", "owned-null-status", "extension"),
+		])
 		.execute();
 
-	// The NULL-status owned case seeds; the NULL-status host relays
-	// availability to nothing here, and stays out because nobody owns it.
-	expect(await restoreScope(db)).toEqual(["owned-null-status"]);
+	// NULL status must work at the owned seed, upward availability, and
+	// downward propagation to an unowned extension.
+	expect(await restoreScope(db)).toEqual([
+		"ext",
+		"host-null-status",
+		"null-extension",
+		"owned-null-status",
+	]);
 });
 
 test("a NULL owner and the unowned sentinel are not the worker", async ({
@@ -377,11 +388,6 @@ test("the closure crosses case types", async ({ db }) => {
 });
 
 test("an empty owner set is refused, not answered", async ({ db }) => {
-	await db
-		.insertInto("cases")
-		.values([ours("mine")])
-		.execute();
-
 	// Every worker owns at least their own id, so an empty set is a broken
 	// derivation upstream. Answering it with an empty restore would look
 	// exactly like a worker who genuinely holds nothing.

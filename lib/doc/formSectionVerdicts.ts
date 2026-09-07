@@ -126,7 +126,7 @@ export type FieldPlacementVerdict =
 			readonly message: string;
 	  };
 
-/** The three sentences, one home. */
+/** The four refusal messages, one home. */
 export const FIELD_PLACEMENT_MESSAGES: Readonly<
 	Record<FieldPlacementRefusal, string>
 > = {
@@ -159,6 +159,7 @@ export interface FieldPlacementArgs {
 }
 
 /**
+ * Checks section constraints only; the commit gate owns all other rules.
  * May a field of `kind` (an existing `uuid`, or one being added) land under
  * `toParentUuid`? Sibling position is never the question — only the parent
  * decides — so a drag's placeholder, a keyboard move, the inspector, and a

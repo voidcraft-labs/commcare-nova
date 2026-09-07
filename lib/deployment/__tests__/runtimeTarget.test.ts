@@ -55,3 +55,24 @@ it("selects the matching server among deployed spaces and aligns attachments", (
 		kind: "none",
 	});
 });
+
+it("keeps a selected server portable when two of its spaces hold the app", () => {
+	const deployment = {
+		kind: "ambiguous" as const,
+		targets: [
+			{ server: "india" as const, domain: "north" },
+			{ server: "india" as const, domain: "south" },
+			{ server: "eu" as const, domain: "clinic" },
+		],
+	};
+	expect(downloadRuntimeTarget(deployment, "india")).toEqual({
+		server: "india",
+	});
+	expect(downloadDeploymentTarget(deployment, "india")).toEqual({
+		kind: "ambiguous",
+		targets: deployment.targets.slice(0, 2),
+	});
+	expect(downloadRuntimeTarget({ kind: "none" }, "production")).toEqual({
+		server: "production",
+	});
+});

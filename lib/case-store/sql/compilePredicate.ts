@@ -1225,7 +1225,12 @@ function compileAbsenceCheck(
 		return compilePropertyAbsenceCheck(left.term, ctx);
 	}
 
-	const operand = compileValueExprOperand(left, ctx);
+	// Blank is a text/absence test even when the expression resolves to a
+	// number, timestamp, or boolean. Comparing a typed result directly with
+	// '' asks PostgreSQL to cast the empty string to that type and throws.
+	// Casting both uses also gives otherwise-untyped runtime bindings a type
+	// in the IS NULL arm. NULL stays NULL; nonempty values stay nonblank.
+	const operand = eb.cast(compileValueExprOperand(left, ctx), "text");
 	return eb.or([eb(operand, "is", null), eb(operand, "=", eb.val(""))]);
 }
 

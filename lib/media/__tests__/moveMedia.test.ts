@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
@@ -32,15 +32,13 @@ const {
 	getStoredObjectSize: vi.fn<() => Promise<number | null>>(() =>
 		Promise.resolve(100),
 	),
-	withMediaObjectKeyLocks: vi.fn(
-		async (_keys: string[], body: (lockedDb: unknown) => Promise<unknown>) =>
-			body({
-				transaction: () => ({
-					execute: (callback: (tx: unknown) => Promise<unknown>) =>
-						callback({ pinned: true }),
-				}),
-			}),
-	),
+	withMediaObjectKeyLocks:
+		vi.fn<
+			(
+				keys: string[],
+				body: (lockedDb: unknown) => Promise<unknown>,
+			) => Promise<unknown>
+		>(),
 	cleanupUnpublishedAssetObject: vi.fn(() => Promise.resolve()),
 	cleanupUnpublishedExtractObject: vi.fn(() => Promise.resolve()),
 }));
@@ -95,11 +93,13 @@ function arrangeLoadedAssets(rows: MediaAssetRecord[]): void {
 	loadAssetsByIds.mockResolvedValue(rows);
 }
 
+const PINNED_TX = Symbol("pinned transaction");
+
 function fakeLockedDb() {
 	return {
 		transaction: () => ({
 			execute: (callback: (tx: unknown) => Promise<unknown>) =>
-				callback({ pinned: true }),
+				callback(PINNED_TX),
 		}),
 	};
 }
@@ -132,7 +132,9 @@ function installContentLockMutex(): void {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	vi.resetAllMocks();
+	vi.useFakeTimers();
+	loadAssetsByIds.mockResolvedValue([]);
 	freshSourceRows = new Map();
 	withMediaObjectKeyLocks.mockImplementation(
 		async (_keys: string[], body: (lockedDb: unknown) => Promise<unknown>) =>
@@ -161,24 +163,44 @@ beforeEach(() => {
 	}));
 });
 
+afterEach(() => {
+	vi.useRealTimers();
+});
+
+async function expectCopyFailure(
+	operation: Promise<unknown>,
+	assetId?: MediaAssetId,
+) {
+	// Attach the rejection assertion before advancing retry timers.
+	const assertion = expect(operation).rejects.toMatchObject({
+		name: "MediaCopyFailedError",
+		...(assetId === undefined ? {} : { assetId }),
+	});
+	try {
+		await vi.runAllTimersAsync();
+	} finally {
+		await assertion;
+	}
+}
+
 describe("copyAssetsIntoProject", () => {
-	it("fails closed when a required blueprint asset is missing or unready", async () => {
+	it("fails closed when required blueprint and thread assets are missing", async () => {
 		const requiredMissing = testMediaAssetId("required-missing");
 		const historicalMissing = testMediaAssetId("historical-missing");
 		arrangeLoadedAssets([]);
 
-		await expect(
+		await expectCopyFailure(
 			copyAssetsIntoProject({
 				assetIds: [requiredMissing, historicalMissing],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
+		);
 		expect(copyAssetObject).not.toHaveBeenCalled();
 	});
 
-	it("copies every live kind, including a document and its ready extract", async () => {
+	it("copies an image and a document with its ready extract", async () => {
 		const image = asset("image-source");
 		const document = asset("document-source", {
 			contentHash: "d".repeat(64),
@@ -206,8 +228,20 @@ describe("copyAssetsIntoProject", () => {
 			actorUserId: "actor-1",
 		});
 
-		expect(result.get(image.id)).toBeDefined();
-		expect(result.get(document.id)).toBeDefined();
+		expect(result.size).toBe(2);
+		expect(new Set(result.values()).size).toBe(2);
+		for (const source of [image, document]) {
+			expect(result.get(source.id)).toBeDefined();
+			expect(createReadyAsset).toHaveBeenCalledWith(
+				expect.objectContaining({
+					owner: "actor-1",
+					project_id: TO,
+					contentHash: source.contentHash,
+					kind: source.kind,
+				}),
+				expect.anything(),
+			);
+		}
 		expect(copyAssetObject).toHaveBeenCalledWith(
 			document.gcsObjectKey,
 			`projects/${TO}/${"d".repeat(64)}.pdf`,
@@ -274,7 +308,7 @@ describe("copyAssetsIntoProject", () => {
 			[initial.gcsObjectKey, `projects/${TO}/${contentHash}.pdf`],
 			expect.any(Function),
 		);
-		expect(getAssetsInTransaction).toHaveBeenCalledWith(expect.anything(), [
+		expect(getAssetsInTransaction).toHaveBeenCalledWith(PINNED_TX, [
 			initial.id,
 		]);
 		expect(getStoredObjectSize).toHaveBeenCalledWith(
@@ -293,7 +327,7 @@ describe("copyAssetsIntoProject", () => {
 		);
 	});
 
-	it("waits for a source publication winner, then copies its exact refreshed pair", async () => {
+	it("waits for the lock client before reading a source publication winner", async () => {
 		installContentLockMutex();
 		const contentHash = "6".repeat(64);
 		const initial = asset("document-source", {
@@ -323,37 +357,45 @@ describe("copyAssetsIntoProject", () => {
 			},
 		});
 		arrangeLoadedAssets([initial]);
-		const publisherEntered = deferred();
 		const releasePublisher = deferred();
 		const sourcePublication = withMediaObjectKeyLocks(
 			[initial.gcsObjectKey],
 			async () => {
-				freshSourceRows = new Map([[refreshed.id, refreshed]]);
-				publisherEntered.resolve();
 				await releasePublisher.promise;
+				freshSourceRows = new Map([[refreshed.id, refreshed]]);
 			},
 		);
-		await publisherEntered.promise;
-
+		const publicationSettled = Promise.allSettled([sourcePublication]);
 		const move = copyAssetsIntoProject({
 			assetIds: [initial.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
 		});
-		await Promise.resolve();
-		expect(getAssetsInTransaction).not.toHaveBeenCalled();
-
-		releasePublisher.resolve();
-		await Promise.all([sourcePublication, move]);
-
-		expect(createReadyAsset).toHaveBeenCalledWith(
-			expect.objectContaining({ extract: refreshed.extract }),
-			expect.anything(),
-		);
+		const moveSettled = Promise.allSettled([move]);
+		try {
+			await vi.waitFor(() =>
+				expect(withMediaObjectKeyLocks).toHaveBeenCalledTimes(2),
+			);
+			expect(getAssetsInTransaction).not.toHaveBeenCalled();
+			releasePublisher.resolve();
+			expect(await publicationSettled).toEqual([
+				{ status: "fulfilled", value: undefined },
+			]);
+			expect(await moveSettled).toEqual([
+				{ status: "fulfilled", value: expect.any(Map) },
+			]);
+			expect(createReadyAsset).toHaveBeenCalledWith(
+				expect.objectContaining({ extract: refreshed.extract }),
+				expect.anything(),
+			);
+		} finally {
+			releasePublisher.resolve();
+			await Promise.all([publicationSettled, moveSettled]);
+		}
 	});
 
-	it("holds the source pair stable until a waiting publication can replace it", async () => {
+	it("keeps the lock client held through copying and metadata publication", async () => {
 		installContentLockMutex();
 		const contentHash = "5".repeat(64);
 		const initial = asset("document-source", {
@@ -383,41 +425,58 @@ describe("copyAssetsIntoProject", () => {
 			},
 		});
 		arrangeLoadedAssets([initial]);
-		const baseCopyStarted = deferred();
 		const releaseBaseCopy = deferred();
+		const events: string[] = [];
 		copyAssetObject.mockImplementation(async (sourceKey: string) => {
-			if (sourceKey === initial.gcsObjectKey) {
-				baseCopyStarted.resolve();
-				await releaseBaseCopy.promise;
-			}
+			if (sourceKey === initial.gcsObjectKey) await releaseBaseCopy.promise;
 		});
-
+		createReadyAsset.mockImplementation(async () => {
+			events.push("metadata");
+			return { assetId: testMediaAssetId("destination") };
+		});
 		const move = copyAssetsIntoProject({
 			assetIds: [initial.id],
 			fromProjectId: FROM,
 			toProjectId: TO,
 			actorUserId: "actor-1",
 		});
-		await baseCopyStarted.promise;
-		let sourcePublisherRan = false;
-		const sourcePublication = withMediaObjectKeyLocks(
-			[initial.gcsObjectKey],
-			async () => {
-				sourcePublisherRan = true;
-				freshSourceRows = new Map([[refreshed.id, refreshed]]);
-			},
-		);
-		await Promise.resolve();
-		expect(sourcePublisherRan).toBe(false);
-
-		releaseBaseCopy.resolve();
-		await Promise.all([move, sourcePublication]);
-
-		expect(createReadyAsset).toHaveBeenCalledWith(
-			expect.objectContaining({ extract: initial.extract }),
-			expect.anything(),
-		);
-		expect(sourcePublisherRan).toBe(true);
+		const moveSettled = Promise.allSettled([move]);
+		let publicationSettled:
+			| Promise<PromiseSettledResult<unknown>[]>
+			| undefined;
+		try {
+			await vi.waitFor(() =>
+				expect(copyAssetObject).toHaveBeenCalledWith(
+					initial.gcsObjectKey,
+					`projects/${TO}/${contentHash}.pdf`,
+				),
+			);
+			const sourcePublication = withMediaObjectKeyLocks(
+				[initial.gcsObjectKey],
+				async () => {
+					events.push("publish");
+					freshSourceRows = new Map([[refreshed.id, refreshed]]);
+				},
+			);
+			publicationSettled = Promise.allSettled([sourcePublication]);
+			expect(events).toEqual([]);
+			releaseBaseCopy.resolve();
+			expect(await moveSettled).toEqual([
+				{ status: "fulfilled", value: expect.any(Map) },
+			]);
+			expect(await publicationSettled).toEqual([
+				{ status: "fulfilled", value: undefined },
+			]);
+			expect(createReadyAsset).toHaveBeenCalledWith(
+				expect.objectContaining({ extract: initial.extract }),
+				expect.anything(),
+			);
+			expect(events).toEqual(["metadata", "publish"]);
+		} finally {
+			releaseBaseCopy.resolve();
+			await moveSettled;
+			await publicationSettled;
+		}
 	});
 
 	it("cleans copied base and extract objects when destination metadata insertion fails", async () => {
@@ -440,14 +499,14 @@ describe("copyAssetsIntoProject", () => {
 		arrangeLoadedAssets([source]);
 		createReadyAsset.mockRejectedValue(new Error("insert failed"));
 
-		await expect(
+		await expectCopyFailure(
 			copyAssetsIntoProject({
 				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
+		);
 
 		expect(cleanupUnpublishedAssetObject).toHaveBeenCalledTimes(3);
 		expect(cleanupUnpublishedAssetObject).toHaveBeenCalledWith(
@@ -492,14 +551,14 @@ describe("copyAssetsIntoProject", () => {
 		findReadyAssetByProjectAndHash.mockResolvedValue(existing);
 		installCopiedReadyExtract.mockRejectedValue(new Error("install failed"));
 
-		await expect(
+		await expectCopyFailure(
 			copyAssetsIntoProject({
 				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
+		);
 
 		expect(cleanupUnpublishedAssetObject).not.toHaveBeenCalled();
 		expect(cleanupUnpublishedExtractObject).toHaveBeenCalledTimes(3);
@@ -572,14 +631,14 @@ describe("copyAssetsIntoProject", () => {
 		getStoredObjectSize.mockResolvedValue(null);
 		copyAssetObject.mockRejectedValue(new Error("source object missing"));
 
-		await expect(
+		await expectCopyFailure(
 			copyAssetsIntoProject({
 				assetIds: [source.id],
 				fromProjectId: FROM,
 				toProjectId: TO,
 				actorUserId: "actor-1",
 			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
+		);
 
 		expect(copyAssetObject).toHaveBeenCalledTimes(3);
 		expect(createReadyAsset).not.toHaveBeenCalled();
@@ -965,40 +1024,61 @@ describe("copyAssetsIntoProject", () => {
 		);
 	});
 
-	it("fails closed when a thread attachment is deleted during pre-copy", async () => {
-		const historical = asset("historical-race");
-		freshSourceRows = new Map([[historical.id, historical]]);
-		loadAssetsByIds
-			.mockResolvedValueOnce([historical])
-			.mockResolvedValueOnce([]);
-		copyAssetObject.mockRejectedValue(new Error("source object vanished"));
+	it.each([
+		"deleted",
+		"foreign",
+		"pending",
+		"hash changed",
+		"key changed",
+	] as const)(
+		"refuses a source that is %s at the locked reread before copying bytes",
+		async (change) => {
+			const source = asset("source-race");
+			arrangeLoadedAssets([source]);
+			const changed = { ...source };
+			if (change === "deleted") freshSourceRows.clear();
+			else {
+				if (change === "foreign") changed.project_id = "another-project";
+				if (change === "pending") changed.status = "pending";
+				if (change === "hash changed") changed.contentHash = "0".repeat(64);
+				if (change === "key changed") changed.gcsObjectKey = "another-key";
+				freshSourceRows.set(source.id, changed);
+			}
+			await expectCopyFailure(
+				copyAssetsIntoProject({
+					assetIds: [source.id],
+					fromProjectId: FROM,
+					toProjectId: TO,
+					actorUserId: "actor-1",
+				}),
+				source.id,
+			);
+			expect(copyAssetObject).not.toHaveBeenCalled();
+			expect(createReadyAsset).not.toHaveBeenCalled();
+		},
+	);
 
-		await expect(
-			copyAssetsIntoProject({
-				assetIds: [historical.id],
-				fromProjectId: FROM,
-				toProjectId: TO,
-				actorUserId: "actor-1",
-			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
-	});
-
-	it("still fails when a historical asset row remains ready but its bytes cannot be copied", async () => {
-		const historical = asset("historical-corrupt");
-		freshSourceRows = new Map([[historical.id, historical]]);
-		loadAssetsByIds
-			.mockResolvedValueOnce([historical])
-			.mockResolvedValueOnce([historical]);
-		copyAssetObject.mockRejectedValue(new Error("source object unavailable"));
-
-		await expect(
-			copyAssetsIntoProject({
-				assetIds: [historical.id],
-				fromProjectId: FROM,
-				toProjectId: TO,
-				actorUserId: "actor-1",
-			}),
-		).rejects.toBeInstanceOf(MediaCopyFailedError);
+	it("retries unavailable bytes and preserves the failed asset identity and cause", async () => {
+		const source = asset("unavailable-source");
+		arrangeLoadedAssets([source]);
+		const cause = new Error("source object unavailable");
+		copyAssetObject.mockRejectedValue(cause);
+		const operation = copyAssetsIntoProject({
+			assetIds: [source.id],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+		const outcome = Promise.allSettled([operation]);
+		await expectCopyFailure(operation, source.id);
+		expect(await outcome).toEqual([
+			{
+				status: "rejected",
+				reason: expect.objectContaining({ assetId: source.id, cause }),
+			},
+		]);
+		expect(copyAssetObject).toHaveBeenCalledTimes(3);
+		expect(createReadyAsset).not.toHaveBeenCalled();
 	});
 
 	it("exposes a typed error for callers that need an actionable move refusal", () => {

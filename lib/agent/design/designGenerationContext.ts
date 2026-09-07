@@ -33,6 +33,8 @@ export interface DesignGenerationContextOptions {
 	/** Server-shared OpenAI API key — the one credential behind every model
 	 *  this context resolves. */
 	apiKey: string;
+	/** Optional HTTP transport for scoped callers; provider/schema adapters stay unchanged. */
+	transport?: typeof globalThis.fetch;
 	userId: string;
 	projectId: string;
 	runId: string;
@@ -53,7 +55,7 @@ export class DesignGenerationContext implements StructuredModelRunContext {
 	private readonly usagePhase: DesignBuildCostPhase | undefined;
 
 	constructor(opts: DesignGenerationContextOptions) {
-		this.openai = createNovaOpenAI(opts.apiKey);
+		this.openai = createNovaOpenAI(opts.apiKey, opts.transport);
 		this.userId = opts.userId;
 		this.projectId = opts.projectId;
 		this.runId = opts.runId;

@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { describe, it } from "vitest";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeCanonicalGenesisDoc } from "../../__tests__/fixtures";
 import { makeCaseListDoc } from "../case-list-config/__tests__/fixtures";
 import { makeCaseSearchDoc } from "../case-search-config/__tests__/fixtures";
@@ -8,7 +7,7 @@ import { makeMediaDoc } from "../media/__tests__/fixtures";
 
 /**
  * Shared tool fixtures are persisted-state seeds, not partial builders. Pin
- * them through the same absolute gate every mutating tool uses so an unrelated
+ * them through stored schema admission and the same absolute gate every mutating tool uses so an unrelated
  * tool test cannot start failing (or pass vacuously) when validation tightens.
  */
 describe("shared agent-tool fixture validity", () => {
@@ -19,14 +18,7 @@ describe("shared agent-tool fixture validity", () => {
 		["media tools", makeMediaDoc],
 	] as const) {
 		it(`${name} is a complete valid persisted seed`, () => {
-			const verdict = mutationCommitVerdict(
-				makeDoc(),
-				[],
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			);
-			expect(
-				verdict.ok ? [] : verdict.findings.map((finding) => finding.code),
-			).toEqual([]);
+			expectAdmittedDoc(makeDoc());
 		});
 	}
 });

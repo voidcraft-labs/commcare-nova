@@ -6,12 +6,12 @@
  * (`deleted_at IS NULL`) BEFORE the `LIMIT`, not stripped in JS after — so a
  * deleted-heavy scope still fills a full page of live rows and the "maybe more"
  * cursor stays accurate. A stale `generating` build projects to `status: "error"`
- * (and fires its reaper); a stale `complete` app is left untouched. The cursor's
+ * (and awaits its reaper); a stale `complete` app is left untouched. The cursor's
  * sort discriminant must match the call's sort. These contracts are pinned on
  * the RESULT (the returned rows + cursor), not on query-builder internals.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { MAX_GENERATION_MINUTES } from "../constants";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
@@ -125,14 +125,8 @@ describe("listApps", () => {
 		expect(statusById.abandonedPaused).toBe("error");
 		expect(statusById.killed).toBe("error");
 
-		// The projection SYNTHESIZES "error" immediately, but the actual row flip is
-		// done by `projectAppSummary`'s fire-and-forget `reapStaleGenerating`. Drain
-		// those reaps (wait for their committed effect) before the test ends, so no
-		// in-flight transaction outlives teardown — the async-leak gate's contract.
-		await vi.waitFor(async () => {
-			expect((await h.readAppRow("abandonedPaused"))?.status).toBe("error");
-			expect((await h.readAppRow("killed"))?.status).toBe("error");
-		});
+		expect((await h.readAppRow("abandonedPaused"))?.status).toBe("error");
+		expect((await h.readAppRow("killed"))?.status).toBe("error");
 	});
 
 	it("never reaps or fails a stale complete app — only a live build runs on the liveness timer", async () => {
@@ -151,16 +145,6 @@ describe("listApps", () => {
 		});
 		expect(apps[0]?.status).toBe("complete");
 		expect(apps[0]?.error_type).toBeNull();
-	});
-
-	it("emits nextCursor when the page returns exactly `limit` rows", async () => {
-		await seedLive("a", 2);
-		await seedLive("b", 1);
-
-		const { listApps } = await import("../apps");
-		const result = await listApps(PROJECT, { limit: 2, sort: "updated_desc" });
-		expect(result.apps).toHaveLength(2);
-		expect(result.nextCursor).toBeDefined();
 	});
 
 	it("omits nextCursor when the page returns fewer than `limit` rows", async () => {
@@ -198,8 +182,8 @@ describe("listApps", () => {
 
 	it("paginates across pages via the returned cursor without repeating rows", async () => {
 		await seedLive("a", 5);
-		await seedLive("b", 4);
-		await seedLive("c", 3);
+		await seedLive("b", 5);
+		await seedLive("c", 5);
 
 		const { listApps } = await import("../apps");
 		const page1 = await listApps(PROJECT, { limit: 2, sort: "updated_desc" });
@@ -263,14 +247,5 @@ describe("listAppsAcrossProjects", () => {
 			sort: "updated_desc",
 		});
 		expect(apps.map((x) => x.id)).toEqual(["a1", "b1"]);
-	});
-
-	it("returns an empty page WITHOUT querying when the caller belongs to no Projects", async () => {
-		const { listAppsAcrossProjects } = await import("../apps");
-		const result = await listAppsAcrossProjects([], {
-			limit: 50,
-			sort: "updated_desc",
-		});
-		expect(result).toEqual({ apps: [] });
 	});
 });

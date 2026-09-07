@@ -38,6 +38,18 @@ function row(
 }
 
 describe("exportBudgetExcess", () => {
+	it("accepts exactly the byte and asset limits", () => {
+		expect(
+			exportBudgetExcess([row({ sizeBytes: MAX_MEDIA_EXPORT_BYTES })]),
+		).toBeNull();
+		expect(
+			exportBudgetExcess(
+				Array.from({ length: MAX_MEDIA_EXPORT_ASSETS }, () =>
+					row({ sizeBytes: 1 }),
+				),
+			),
+		).toBeNull();
+	});
 	it("returns null within budget and counts only ready media rows", () => {
 		expect(
 			exportBudgetExcess([
@@ -53,9 +65,12 @@ describe("exportBudgetExcess", () => {
 	it("trips on the byte ceiling and names the standing total", () => {
 		const excess = exportBudgetExcess([
 			row({ sizeBytes: MAX_MEDIA_EXPORT_BYTES }),
-			row({ sizeBytes: 1 * MB }),
+			row({ sizeBytes: 1 }),
 		]);
-		expect(excess).not.toBeNull();
+		expect(excess).toMatchObject({
+			exportableCount: 2,
+			totalBytes: MAX_MEDIA_EXPORT_BYTES + 1,
+		});
 		expect(excess?.reasons).toHaveLength(1);
 		expect(excess?.reasons[0]).toContain("MB of media");
 		expect(excess?.reasons[0]).toContain("the limit is");
@@ -66,6 +81,10 @@ describe("exportBudgetExcess", () => {
 			row({ sizeBytes: 1 }),
 		);
 		const excess = exportBudgetExcess(rows);
+		expect(excess).toMatchObject({
+			exportableCount: MAX_MEDIA_EXPORT_ASSETS + 1,
+			totalBytes: MAX_MEDIA_EXPORT_ASSETS + 1,
+		});
 		expect(excess?.reasons).toHaveLength(1);
 		expect(excess?.reasons[0]).toContain(
 			`${MAX_MEDIA_EXPORT_ASSETS + 1} attachments`,
@@ -116,7 +135,7 @@ describe("postAttachBudgetError", () => {
 		expect(error).toContain("MB of media");
 	});
 
-	it("treats an unknown referenced id as absent (matching the server's owner-filtered load)", () => {
+	it("treats an unknown referenced id as absent (matching the server's Project-filtered load)", () => {
 		const error = postAttachBudgetError({
 			referencedIds: ["gone-1", "gone-2"],
 			rowsById: new Map(),
@@ -129,7 +148,7 @@ describe("postAttachBudgetError", () => {
 		// 150 MB referenced + re-attaching the SAME 150 MB asset elsewhere:
 		// one asset, one set of bytes — under budget.
 		const error = postAttachBudgetError({
-			referencedIds: ["a"],
+			referencedIds: ["a", "a"],
 			rowsById: new Map([["a", row({ sizeBytes: 150 * MB })]]),
 			candidate: { id: "a", ...row({ sizeBytes: 150 * MB }) },
 		});

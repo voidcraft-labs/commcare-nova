@@ -45,8 +45,7 @@ interface SectionActivation<F extends Field> {
 	/**
 	 * Notify the hook that the user committed `value` for `key`. When the
 	 * value is `undefined` AND the entry was pending, activation clears so
-	 * the editor unmounts and the Add Property pill returns. Returns the
-	 * value unchanged so callers can chain it through their writer.
+	 * the editor unmounts and the Add Property pill returns. Callers notify it only after an accepted write.
 	 */
 	onCommit: (key: string, value: unknown) => void;
 }

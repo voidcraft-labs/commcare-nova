@@ -9,7 +9,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import { searchInputFormFieldDependencies } from "@/lib/doc/searchInputMutations";
 import {
 	planSearchInputRemovalFieldDependents,
@@ -31,6 +34,8 @@ import {
 } from "@/lib/domain/lookupIds";
 import { now } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("00000000-0000-4000-8000-0000000c0010");
 const VISIT = testUuid("00000000-0000-4000-8000-0000000c0011");
@@ -66,7 +71,8 @@ function fixture(
 			value: now(),
 		},
 	];
-	return buildDoc({
+	const hasEntry = options.entry !== false && options.searchFirst !== false;
+	const doc = buildDoc({
 		appName: "Registry",
 		modules: [
 			{
@@ -77,7 +83,8 @@ function fixture(
 				...(options.caseListOnly === undefined
 					? {}
 					: { caseListOnly: options.caseListOnly }),
-				...(options.searchFirst === false
+				...(options.searchFirst === false ||
+				(options.entry === false && options.register !== false)
 					? {}
 					: { caseSearchConfig: { searchFirst: true } }),
 				forms: [
@@ -100,7 +107,7 @@ function fixture(
 									uuid: REGISTER,
 									name: "Register patient",
 									type: "registration" as const,
-									...(options.entry === false
+									...(!hasEntry
 										? {}
 										: { entry: { kind: "search-no-matches" as const } }),
 									fields: [
@@ -110,14 +117,18 @@ function fixture(
 											id: "case_name",
 											label: proseText("Name"),
 											caseWrite: { caseType: "patient", property: "case_name" },
-											default_value: {
-												parts: [
-													{
-														kind: "search-answer-ref",
-														searchInputUuid: NAME_INPUT,
-													},
-												],
-											},
+											...(hasEntry
+												? {
+														default_value: {
+															parts: [
+																{
+																	kind: "search-answer-ref",
+																	searchInputUuid: NAME_INPUT,
+																},
+															],
+														},
+													}
+												: {}),
 										}),
 									],
 								},
@@ -132,6 +143,8 @@ function fixture(
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("searchAnswerFieldDependents", () => {
@@ -198,17 +211,17 @@ describe("planSearchInputRemovalFieldDependents", () => {
 
 describe("searchFirstOnMutations", () => {
 	it("turns Search first on only when it is off", () => {
-		expect(searchFirstOnMutations(fixture(), MODULE)).toEqual([]);
-		expect(
-			searchFirstOnMutations(fixture({ searchFirst: false }), MODULE),
-		).toEqual([
-			{
-				kind: "updateModule",
-				uuid: MODULE,
-				patch: {},
-				caseSearchConfigPatch: { searchFirst: true },
-			},
-		]);
+		const before = fixture({ searchFirst: false, register: false });
+		const verdict = mutationCommitVerdict(
+			before,
+			searchFirstOnMutations(before, MODULE),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(verdict.nextDoc.modules[MODULE].caseSearchConfig).toEqual({
+			searchFirst: true,
+		});
+		expect(searchFirstOnMutations(verdict.nextDoc, MODULE)).toEqual([]);
 	});
 });
 
@@ -371,14 +384,25 @@ describe("noMatchesRegistrationFormMutations", () => {
 	});
 
 	it("declines a module without a case type", () => {
-		const doc = fixture();
-		const mod = doc.modules[MODULE];
-		expect(
-			noMatchesRegistrationFormMutations(
-				{ ...doc, modules: { [MODULE]: { ...mod, caseType: undefined } } },
-				MODULE,
-			),
-		).toBeNull();
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: MODULE,
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{ kind: "text", id: "notes", label: proseText("Notes") },
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		expect(noMatchesRegistrationFormMutations(doc, MODULE)).toBeNull();
 	});
 
 	it("keeps a formless case list a case list, since the new form is not a menu form", () => {
@@ -405,7 +429,7 @@ describe("noMatchesRegistrationFormMutations", () => {
 		expect(verdict.nextDoc.modules[MODULE]?.caseListOnly).toBe(true);
 	});
 
-	it("carries a choice prompt on the name as its own field rather than seeding the name writer", () => {
+	it("keeps an option token out of the name writer and skips a duplicate property writer", () => {
 		const doc = fixture({ searchFirst: false, register: false });
 		const config = doc.modules[MODULE].caseListConfig;
 		if (config === undefined) throw new Error("no case list");
@@ -432,6 +456,38 @@ describe("noMatchesRegistrationFormMutations", () => {
 				},
 			},
 		];
+		const lookupContext: LookupValidationContext = {
+			kind: "available",
+			projectId: "project",
+			projectRevision: parseLookupRevision("1"),
+			definitions: [
+				{
+					id: lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001"),
+					name: "Names",
+					tag: "names",
+					definitionRevision: parseLookupRevision("1"),
+					columns: [
+						{
+							id: lookupColumnIdSchema.parse(
+								"01912d68-783e-7000-8000-00000000c001",
+							),
+							wireName: "code",
+							label: "Code",
+							dataType: "text",
+						},
+						{
+							id: lookupColumnIdSchema.parse(
+								"01912d68-783e-7000-8000-00000000c002",
+							),
+							wireName: "name",
+							label: "Name",
+							dataType: "text",
+						},
+					],
+				},
+			],
+		};
+		assertAdmittedDoc(doc, lookupContext);
 		const planned = noMatchesRegistrationFormMutations(doc, MODULE);
 		if (planned === null) throw new Error("no plan");
 		const fields = planned.mutations.flatMap((mutation) =>
@@ -442,6 +498,12 @@ describe("noMatchesRegistrationFormMutations", () => {
 		// The prompt's own field is skipped too: the name writer already
 		// carries `case_name`, and a choice token is not a name.
 		expect(fields.map((field) => field.id)).toEqual(["case_name"]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			planned.mutations,
+			lookupContext,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 });
 
@@ -525,7 +587,7 @@ describe("searchAnswerFields", () => {
 	});
 
 	it("keeps a hidden value off the case when its name cannot be a property", () => {
-		const doc = fixture();
+		const doc = fixture({ register: false });
 		const mod = doc.modules[MODULE];
 		const config = mod.caseListConfig;
 		if (config === undefined) throw new Error("no case list");
@@ -538,6 +600,7 @@ describe("searchAnswerFields", () => {
 				value: now(),
 			},
 		];
+		assertAdmittedDoc(doc);
 		const [field] = searchAnswerFields(doc, MODULE, new Set());
 		expect(field).toMatchObject({ kind: "hidden", id: "case_id" });
 		expect(field).not.toHaveProperty("caseWrite");
@@ -563,6 +626,7 @@ describe("searchAnswerFields", () => {
 				"case_name",
 			),
 		];
+		assertAdmittedDoc(doc);
 		const occupiedProperties = new Set<string>();
 		const fields = searchAnswerFields(
 			doc,
@@ -592,6 +656,7 @@ it("creates a multiple-selection no-matches form only with explicit App home", (
 		...config,
 		selection: { kind: "multiple", maximum: 5 },
 	};
+	assertAdmittedDoc(doc);
 	const implicit = noMatchesRegistrationFormMutations(doc, MODULE);
 	const explicit = noMatchesRegistrationFormMutations(doc, MODULE, {
 		postSubmit: "app_home",

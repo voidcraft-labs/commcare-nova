@@ -1,6 +1,6 @@
 /**
  * The WorkflowChatTransport ↔ resume-route CONTRACT, end-to-end with the real
- * client class: the test that proves a broken chat POST actually resumes.
+ * client class consuming a controlled interrupted POST response.
  *
  * The transport under test is the real `@ai-sdk/workflow` client Nova ships
  * in `ChatContainer`. Its `fetch` is swapped for a router:
@@ -15,7 +15,7 @@
  * The transport must detect the missing `finish`, reconnect with
  * `startIndex = chunks received`, and deliver ONE seamless chunk sequence:
  * no gap, no overlap, terminated by the `finish` the log carries. This pins
- * the whole resumability story: SSE encoding compatibility, cursor math,
+ * resume compatibility: SSE decoding, cursor math,
  * header contract, and close semantics, against the transport's real parser
  * rather than this suite's idea of it.
  */
@@ -23,39 +23,15 @@
 import type { UIMessageChunk } from "ai";
 import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import {
-	createPerTestAppDb,
-	type PerTestAppDb,
-} from "@/lib/db/__tests__/perTestAppDb";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 
-const {
-	requireSessionMock,
-	getSessionSafeMock,
-	resolveAppScopeMock,
-	isUserActiveMock,
-} = vi.hoisted(() => ({
+const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	getSessionSafeMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
-	isUserActiveMock: vi.fn(),
 }));
-
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	getSessionSafe: getSessionSafeMock,
-}));
-vi.mock("@/lib/db/appAccess", () => ({
-	resolveAppScope: resolveAppScopeMock,
-	AppAccessError: class extends Error {},
-}));
-vi.mock("@/lib/db/api-keys", () => ({
-	isUserActive: isUserActiveMock,
-}));
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: vi.fn(async () => "editor"),
-	projectRoleForInTransaction: vi.fn(async () => "editor"),
 }));
 
 const { GET } = await import("../route");
@@ -65,45 +41,47 @@ const { __setListenerConfigForTests, closeStreamListener } = await import(
 	"@/lib/db/streamListener"
 );
 const { createExplicitBlankApp } = await import("@/lib/db/appGenesis");
-const { persistResponseSnapshot, upsertThreadTurn } = await import(
+const { loadThread, persistResponseSnapshot, upsertThreadTurn } = await import(
 	"@/lib/db/threads"
 );
 
 const USER = "user-1";
-const dbHandle = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "chat_tport_",
+const h = setupAppStateTestDb("chat_tport_", {
+	authSchema: "migrated",
+	poolMax: 4,
 });
-
-let appDb: Kysely<AppDatabase>;
-let harness: PerTestAppDb;
-
+let appDb: Kysely<import("@/lib/db/pg").AppDatabase>;
 beforeEach(async () => {
-	harness = createPerTestAppDb(dbHandle.uri);
-	appDb = harness.appDb;
-	__setAppDbForTests(appDb);
-	__setListenerConfigForTests(dbHandle.uri);
-
+	appDb = h.db();
+	__setListenerConfigForTests(h.uri());
+	await h.seedProjectMember(USER, "project-1", "editor");
+	await h.seedApp({
+		id: "app-1",
+		owner: USER,
+		project_id: "project-1",
+		status: "complete",
+	});
 	requireSessionMock.mockReset();
 	requireSessionMock.mockResolvedValue({ user: { id: USER } });
 	getSessionSafeMock.mockReset();
 	getSessionSafeMock.mockResolvedValue({ user: { id: USER } });
-	isUserActiveMock.mockReset();
-	isUserActiveMock.mockResolvedValue(true);
-	resolveAppScopeMock.mockReset();
-	resolveAppScopeMock.mockResolvedValue({
-		projectId: "project-1",
-		role: "editor",
-		actorUserId: USER,
-	});
 });
-
 afterEach(async () => {
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
-	__setAppDbForTests(null);
-	await harness.destroy();
 });
+async function readAll<T>(stream: ReadableStream<T> | null): Promise<T[]> {
+	if (!stream) throw new Error("Expected resumed stream");
+	const received: T[] = [];
+	await stream.pipeTo(
+		new WritableStream<T>({
+			write(chunk) {
+				received.push(chunk);
+			},
+		}),
+	);
+	return received;
+}
 
 /** Encode chunks the way `createUIMessageStreamResponse` does (SSE frames). */
 function sseBody(chunks: unknown[], opts: { done?: boolean } = {}): string {
@@ -126,12 +104,12 @@ async function holderNonceFor(appId: string): Promise<string> {
 
 /** The run's full chunk sequence: what an unbroken POST would have carried. */
 const FULL: UIMessageChunk[] = [
-	{ type: "start" } as UIMessageChunk,
-	{ type: "text-start", id: "0" } as UIMessageChunk,
-	{ type: "text-delta", id: "0", delta: "hel" } as UIMessageChunk,
-	{ type: "text-delta", id: "0", delta: "lo" } as UIMessageChunk,
-	{ type: "text-end", id: "0" } as UIMessageChunk,
-	{ type: "finish" } as UIMessageChunk,
+	{ type: "start" },
+	{ type: "text-start", id: "0" },
+	{ type: "text-delta", id: "0", delta: "hel" },
+	{ type: "text-delta", id: "0", delta: "lo" },
+	{ type: "text-end", id: "0" },
+	{ type: "finish" },
 ];
 
 describe("WorkflowChatTransport against the real resume route", () => {
@@ -168,7 +146,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			}
 			// Everything else is the real route.
 			const streamId = url.pathname.split("/")[3];
-			return GET(new Request(url), {
+			return GET(new Request(url, init), {
 				params: Promise.resolve({ streamId }),
 			});
 		};
@@ -194,13 +172,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			body: undefined,
 		});
 
-		const received: UIMessageChunk[] = [];
-		const reader = stream.getReader();
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			received.push(value);
-		}
+		const received = await readAll(stream);
 
 		// One seamless sequence: no gap, no overlap, finish included.
 		expect(received).toEqual(FULL);
@@ -239,10 +211,10 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			terminal: true,
 		});
 
-		const routedFetch: typeof fetch = async (input) => {
+		const routedFetch: typeof fetch = async (input, init) => {
 			const url = new URL(String(input), "http://localhost");
 			const streamId = url.pathname.split("/")[3];
-			return GET(new Request(url), {
+			return GET(new Request(url, init), {
 				params: Promise.resolve({ streamId }),
 			});
 		};
@@ -262,13 +234,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		});
 		expect(stream).not.toBeNull();
 
-		const received: UIMessageChunk[] = [];
-		const reader = (stream as ReadableStream<UIMessageChunk>).getReader();
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			received.push(value);
-		}
+		const received = await readAll(stream);
 		expect(received).toEqual(FULL);
 	});
 
@@ -335,12 +301,23 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			],
 		};
 
+		await persistResponseSnapshot({
+			target: { kind: "app", appId },
+			threadId: "thread-3",
+			streamId: "stream-midrun",
+			expectedProjectId: "project-1",
+			clearMarker: false,
+			responseMessage: seeded,
+		});
+		const hydrated = await loadThread({ kind: "app", appId }, "thread-3", USER);
+		if (!hydrated) throw new Error("Missing persisted thread");
+		expect(hydrated.messages.at(-1)).toMatchObject(seeded);
 		const requests: string[] = [];
-		const routedFetch: typeof fetch = async (input) => {
+		const routedFetch: typeof fetch = async (input, init) => {
 			const url = new URL(String(input), "http://localhost");
 			requests.push(`GET ${url.pathname}${url.search}`);
 			const streamId = url.pathname.split("/")[3];
-			return GET(new Request(url), {
+			return GET(new Request(url, init), {
 				params: Promise.resolve({ streamId }),
 			});
 		};
@@ -351,7 +328,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 				api: "/api/chat",
 				fetch: routedFetch,
 			},
-			() => [{ id: "m1", role: "user", parts: [] }, seeded],
+			() => hydrated.messages,
 		);
 		const stream = await transport.reconnectToStream({
 			chatId: "thread-3",
@@ -362,13 +339,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		expect(stream).not.toBeNull();
 		expect(requests).toEqual(["GET /api/chat/thread-3/stream?startIndex=0"]);
 
-		const received: UIMessageChunk[] = [];
-		const reader = (stream as ReadableStream<UIMessageChunk>).getReader();
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			received.push(value);
-		}
+		const received = await readAll(stream);
 
 		/* The transient receipts and the identity-bearing `start` replayed from
 		 * chunk 0; step 1's content — the hydrated step — did not. */
@@ -391,12 +362,13 @@ describe("WorkflowChatTransport against the real resume route", () => {
 				controller.close();
 			},
 		});
-		for await (const snapshot of readUIMessageStream({
-			message: seeded,
-			stream: refeed,
-		})) {
-			folded = snapshot as typeof folded;
-		}
+		await readUIMessageStream({ message: seeded, stream: refeed }).pipeTo(
+			new WritableStream({
+				write(snapshot) {
+					folded = snapshot;
+				},
+			}),
+		);
 
 		/* One "Step one." (from the seed), one "Step two" (from the replay) —
 		 * nothing duplicated, nothing lost. */
@@ -431,10 +403,10 @@ describe("WorkflowChatTransport against the real resume route", () => {
 			responseMessage: null,
 		});
 
-		const routedFetch: typeof fetch = async (input) => {
+		const routedFetch: typeof fetch = async (input, init) => {
 			const url = new URL(String(input), "http://localhost");
 			const streamId = url.pathname.split("/")[3];
-			return GET(new Request(url), {
+			return GET(new Request(url, init), {
 				params: Promise.resolve({ streamId }),
 			});
 		};
@@ -452,13 +424,7 @@ describe("WorkflowChatTransport against the real resume route", () => {
 		});
 		expect(stream).not.toBeNull();
 
-		const received: UIMessageChunk[] = [];
-		const reader = (stream as ReadableStream<UIMessageChunk>).getReader();
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			received.push(value);
-		}
+		const received = await readAll(stream);
 		expect(received).toEqual([{ type: "finish" }]);
 	});
 });

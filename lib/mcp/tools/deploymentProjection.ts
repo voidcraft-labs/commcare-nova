@@ -124,13 +124,12 @@ export function describeDeployment(
 		remote_revision: remote?.remoteRevision ?? null,
 		last_checked_at: record.lastObservedAt,
 		phases,
-		left_behind: (currentIdentities === null
-			? view.superseded.filter((resource) => resource.kind === "app")
-			: leftBehindResources(view, currentIdentities)
-		).map((resource) => ({
-			kind: resource.kind,
-			hq_id: resource.remoteId,
-			hq_name: resource.pushedIdentity,
-		})),
+		left_behind: leftBehindResources(view, currentIdentities).map(
+			(resource) => ({
+				kind: resource.kind,
+				hq_id: resource.remoteId,
+				hq_name: resource.pushedIdentity,
+			}),
+		),
 	};
 }

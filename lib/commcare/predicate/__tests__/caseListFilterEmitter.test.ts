@@ -1,26 +1,10 @@
 // lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts
 //
-// Acceptance tests for the on-device case-list-filter emitter — the
-// dialect that produces XPath strings usable in both the case-list
-// `<detail nodeset>` slot and the post-ES `<search_filter>` slot
-// (both run on the same on-device XPath evaluator).
-//
-// Each test pins the exact wire string the emitter produces against
-// CCHQ HQ's query-function grammar. CCHQ wire-syntax citations live
-// in the source file alongside each operator arm.
-//
-// Coverage organizes around four shells: (1) shared-operator
-// emissions (comparison, logical, term, string-literal escape, in,
-// is-blank, when-input-present); (2) operators with on-device
-// emissions specific to this visitor (sentinels, between,
-// multi-select expansions, every match mode, within-distance,
-// is-null collapsing to is-blank's wire form, exists / missing
-// across all four relation kinds, and same-row relation quantification);
-// (3) defensive throws for the structural-bypass
-// shape `between` with both bounds absent; (4) ValueExpression
-// operand integration — happy-path term arms plus the predicate ↔
-// value-expression emitter handoff for non-term arms (`arith`, `if`,
-// `today`, `now`).
+// Private predicate-emitter shape tests. These parse Predicate schemas and
+// exercise operator dispatch, binding, quoting and defensive refusals. They do
+// not establish whole-app admission or native compatibility. PredicateRuntimeTest
+// independently executes current emitted programs, including false neighbors,
+// same-row relation scope, absent inputs and malformed GPS short-circuiting.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -65,6 +49,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate/builders";
+import { predicateSchema } from "@/lib/domain/predicate/types";
 import { emitCaseListFilter as emitCaseListFilterRaw } from "../caseListFilterEmitter";
 
 const TEST_SEARCH_INPUTS = [
@@ -82,6 +67,7 @@ function emitCaseListFilter(
 	...args: Parameters<typeof emitCaseListFilterRaw>
 ): string {
 	const [predicate, root, context, anchor, termContext] = args;
+	predicateSchema.parse(predicate);
 	return emitCaseListFilterRaw(
 		predicate,
 		root,
@@ -136,9 +122,9 @@ describe("emitCaseListFilter — comparison operators", () => {
 		expect(emitCaseListFilter(p)).toBe("ratio = 0.0000001");
 	});
 
-	it("emits very large numeric literals without scientific notation", () => {
-		const p = eq(prop("patient", "big"), literal(1.5e21));
-		expect(emitCaseListFilter(p)).toBe("big = 1500000000000000000000");
+	it("emits the largest schema-admitted integer without losing digits", () => {
+		const p = eq(prop("patient", "big"), literal(Number.MAX_SAFE_INTEGER));
+		expect(emitCaseListFilter(p)).toBe("big = 9007199254740991");
 	});
 
 	it("emits negative numeric literals with the leading minus sign", () => {
@@ -699,7 +685,7 @@ describe("emitCaseListFilter — relational property node sets", () => {
 	// in one leaf evaluate on one related row, while the two `between` bounds
 	// remain independently quantified by the AST's contract.
 
-	it("emits an ancestor walk as an inline relational path", () => {
+	it("emits an ancestor walk as immediate-scope ID membership", () => {
 		const p = eq(
 			prop("patient", "region", ancestorPath(relationStep("parent"))),
 			literal("south"),
@@ -755,7 +741,7 @@ describe("emitCaseListFilter — relational property node sets", () => {
 		);
 	});
 
-	it("emits any-relation as a node-set union of both directions", () => {
+	it("emits any-relation as membership in either direction", () => {
 		const p = eq(
 			prop("any", "region", anyRelationPath("parent")),
 			literal("south"),
@@ -772,7 +758,7 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 	// the current row's eager index/@case_id value is checked against the IDs
 	// produced by the destination filter.
 
-	it("emits ancestor exists as count(.../case[@case_id=current()/index/<rel>][filter]) > 0", () => {
+	it("emits ancestor exists as filtered destination ID membership", () => {
 		const p = exists(
 			ancestorPath(relationStep("parent")),
 			eq(prop("household", "region"), literal("south")),
@@ -809,7 +795,7 @@ describe("emitCaseListFilter — exists / missing (relational quantifiers)", () 
 		);
 	});
 
-	it("emits missing as the count-equals-zero form", () => {
+	it("emits missing as negated destination ID membership", () => {
 		const p = missing(
 			ancestorPath(relationStep("parent")),
 			eq(prop("household", "region"), literal("south")),
@@ -960,7 +946,8 @@ describe("emitCaseListFilter — defensive throws on structural-bypass shapes", 
 			lowerInclusive: true,
 			upperInclusive: true,
 		};
-		expect(() => emitCaseListFilter(bypassed)).toThrow(/between/i);
+		expect(predicateSchema.safeParse(bypassed).success).toBe(false);
+		expect(() => emitCaseListFilterRaw(bypassed)).toThrow(/between/i);
 	});
 });
 
@@ -973,17 +960,19 @@ describe("emitCaseListFilter — defensive throws on structural-bypass shapes", 
 // emitter at `lib/commcare/expression/onDeviceEmitter.ts`. This shell
 // pins the happy-path delegations across the operand-bearing
 // predicate sites so a regression in either emitter surfaces against
-// these acceptance tests rather than in a downstream consumer.
+// these projection tests rather than in a downstream consumer.
 
 describe("emitCaseListFilter — term-arm operand (happy path)", () => {
 	it("emits a property reference in a comparison's left operand", () => {
 		const p = eq(prop("patient", "full_name"), literal("Alice"));
-		expect(emitCaseListFilter(p)).toMatch(/^full_name = /);
+		expect(emitCaseListFilter(p)).toBe("full_name = 'Alice'");
 	});
 
 	it("emits a search-input reference in a comparison's right operand", () => {
 		const p = eq(prop("patient", "phone"), input(testUuid("phone_query")));
-		expect(emitCaseListFilter(p)).toMatch(/instance\('search-input:results'\)/);
+		expect(emitCaseListFilter(p)).toBe(
+			"phone = instance('search-input:results')/input/field[@name='phone_query']",
+		);
 	});
 });
 
@@ -1008,14 +997,16 @@ describe("emitCaseListFilter — non-term ValueExpression operands delegate to e
 		expect(emitCaseListFilter(p)).toBe(`today() = ''`);
 	});
 
-	it("emits a now() constant in within-distance's center", () => {
-		// `within-distance.center` is a `ValueExpression` slot; the
-		// expression emitter handles every arm of the union, so a
-		// `now()` constant flows through cleanly.
-		const p = within(prop("clinic", "location"), now(), 50, "miles");
+	it("emits a derived text center in within-distance", () => {
+		const p = within(
+			prop("clinic", "location"),
+			ifExpr(matchAll(), term(literal("40.7,-74.0")), term(literal("0,0"))),
+			50,
+			"miles",
+		);
 		expectGuardedDistance(emitCaseListFilter(p), {
 			property: "location",
-			rawCenter: "now()",
+			rawCenter: "if(true(), '40.7,-74.0', '0,0')",
 			meters: "80467.2",
 		});
 	});

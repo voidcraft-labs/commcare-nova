@@ -72,8 +72,13 @@ definitions for both the snapshot's table and the candidate's, on `applyBatch`
 and `applyStages` alike), adoption, conflict recovery (with and without a
 host reload), and the no-persistence-methods introspection. Semantic parity
 of the whole surface lives in the existing tool/adapter suites
-(`lib/agent/tools/__tests__`, `lib/mcp/__tests__/sharedToolAdapter.test.ts`,
-`lib/mcp/__tests__/stagedToolTransactionalCommit.test.ts`);
+(`lib/agent/tools/__tests__`, `lib/mcp/__tests__/sharedToolAdapter.postgres.test.ts`,
+`lib/mcp/__tests__/context.postgres.test.ts`);
 `lib/agent/tools/__tests__/lookupCarrierMutation.test.ts` is the tool-level
 home for mutations on a doc that carries a lookup reference and for mutations
 that introduce one.
+
+MCP persistence proofs use real SDK calls and migrated Postgres. They inspect
+complete durable changes and logs, reject the patch stage with a native trigger,
+and hold actual app/event locks to prove the request awaits its writes. Pure
+result-projection tests cover chat-summary stripping and saved-value notes.

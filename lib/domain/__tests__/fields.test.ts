@@ -1,231 +1,215 @@
-// lib/domain/__tests__/fields.test.ts
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { proseText } from "@/lib/domain/prose";
-import { fieldKinds, fieldRegistry, fieldSchema, isContainer } from "../fields";
-
+import {
+	fieldKinds,
+	fieldSchema,
+	isContainer,
+	isContainerKindName,
+	pickFieldKeysForKind,
+} from "../fields";
 import { opaqueXPathExpression } from "../xpath";
 
-describe("fieldSchema", () => {
-	it("accepts a valid text field", () => {
-		const f = fieldSchema.parse({
-			kind: "text",
-			uuid: testUuid("abc-123"),
-			id: "age",
-			label: proseText("Age"),
-		});
-		expect(f.kind).toBe("text");
-	});
+const identity = { uuid: testUuid("field"), id: "answer" };
+const label = proseText("Answer");
+const optionsSource = {
+	kind: "inline",
+	options: [
+		{ uuid: testUuid("yes"), value: "yes", label: proseText("Yes") },
+		{ uuid: testUuid("no"), value: "no", label: proseText("No") },
+	],
+};
+const leafKinds = [
+	"text",
+	"int",
+	"decimal",
+	"date",
+	"time",
+	"datetime",
+	"geopoint",
+	"image",
+	"audio",
+	"video",
+	"file",
+	"barcode",
+	"signature",
+	"label",
+	"secret",
+];
+const fixtures = [
+	...leafKinds.map((kind) => ({ ...identity, kind, label })),
+	...["single_select", "multi_select"].map((kind) => ({
+		...identity,
+		kind,
+		label,
+		optionsSource,
+	})),
+	{ ...identity, kind: "hidden" },
+	{ ...identity, kind: "group" },
+	{ ...identity, kind: "section" },
+	{ ...identity, kind: "repeat", repeat_mode: "user_controlled" },
+	{
+		...identity,
+		kind: "repeat",
+		repeat_mode: "count_bound",
+		repeat_count: opaqueXPathExpression("2"),
+	},
+	{
+		...identity,
+		kind: "repeat",
+		repeat_mode: "query_bound",
+		data_source: { ids_query: opaqueXPathExpression("''") },
+	},
+];
 
-	it("rejects a text field missing kind", () => {
-		expect(() =>
-			fieldSchema.parse({ uuid: testUuid("abc"), id: "age", label: "Age" }),
-		).toThrow();
-	});
-
-	it("rejects unknown kind", () => {
-		expect(() =>
-			fieldSchema.parse({
-				kind: "likert_scale",
-				uuid: testUuid("abc"),
-				id: "x",
-				label: "X",
-			}),
-		).toThrow();
-	});
-
-	it("rejects single_select with <2 options", () => {
-		expect(() =>
-			fieldSchema.parse({
-				kind: "single_select",
-				uuid: testUuid("abc"),
-				id: "x",
-				label: proseText("X"),
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: testUuid("option-a"),
-							value: "a",
-							label: proseText("A"),
-						},
-					],
-				},
-			}),
-		).toThrow();
-	});
-
-	it("accepts a valid single_select with options", () => {
-		const f = fieldSchema.parse({
-			kind: "single_select",
-			uuid: testUuid("abc"),
-			id: "x",
-			label: proseText("X"),
-			optionsSource: {
-				kind: "inline",
-				options: [
-					{
-						uuid: testUuid("option-a"),
-						value: "a",
-						label: proseText("A"),
-					},
-					{
-						uuid: testUuid("option-b"),
-						value: "b",
-						label: proseText("B"),
-					},
-				],
-			},
-		});
-		expect(f.kind).toBe("single_select");
-	});
-
-	it("rejects a group field carrying options (group has no options slot)", () => {
-		// Group fields extend `containerFieldBase` (no options slot).
-		// Every field schema is `.strict()` (inherited from
-		// `structuralFieldBase`), so a payload carrying `options` on a
-		// group field fails to parse rather than stripping silently.
-		const parsed = fieldSchema.safeParse({
-			kind: "group",
-			uuid: testUuid("abc"),
-			id: "g",
-			label: proseText("G"),
-			options: [{ value: "a", label: "A" }],
-		});
-		expect(parsed.success).toBe(false);
-	});
-
-	it("accepts a hidden field set by either calculate or default_value (both optional)", () => {
-		// A hidden field's value comes from `calculate` (computed) OR
-		// `default_value` (a one-shot seed) — both optional at the schema
-		// level. The "must have at least one" rule is the HIDDEN_NO_VALUE
-		// validator's job, not the schema's.
-		expect(
-			fieldSchema.safeParse({
-				kind: "hidden",
-				uuid: testUuid("abc"),
-				id: "computed",
-				calculate: opaqueXPathExpression("today()"),
-			}).success,
-		).toBe(true);
-		expect(
-			fieldSchema.safeParse({
-				kind: "hidden",
-				uuid: testUuid("abc"),
-				id: "seeded",
-				default_value: opaqueXPathExpression("today()"),
-			}).success,
-		).toBe(true);
-	});
-
-	it("accepts a group with absent label (transparent structural container)", () => {
-		// Container kinds extend `containerFieldBase` (label optional) so
-		// empty-label groups can express invisible structural folders —
-		// matches CommCare's runtime behavior for unlabeled <group>.
-		const f = fieldSchema.parse({
-			kind: "group",
-			uuid: testUuid("abc"),
-			id: "structural_only",
-		});
-		expect(f.kind).toBe("group");
-		expect((f as { label?: string }).label).toBeUndefined();
-	});
-
-	it("accepts a group with empty-string label", () => {
-		const f = fieldSchema.parse({
-			kind: "group",
-			uuid: testUuid("abc"),
-			id: "structural_only",
-			label: proseText(""),
-		});
-		expect(f.kind).toBe("group");
-		if (f.kind !== "group") throw new Error("fixture: expected group");
-		expect(f.label).toEqual(proseText(""));
-	});
-
-	it("accepts a repeat with absent label", () => {
-		// Same contract as group: container kinds allow empty/absent
-		// labels via `containerFieldBase`. Repeat additionally requires
-		// `repeat_mode` (the mode discriminator); user_controlled is the
-		// no-extra-fields variant that pairs naturally with this test's
-		// "minimal valid repeat" intent.
-		const f = fieldSchema.parse({
-			kind: "repeat",
-			uuid: testUuid("abc"),
-			id: "data_loop",
-			repeat_mode: "user_controlled",
-		});
-		expect(f.kind).toBe("repeat");
-		expect((f as { label?: string }).label).toBeUndefined();
-	});
-
-	it("rejects a text field missing label (input fields still require labels)", () => {
-		// Regression check: opening up labels on container kinds must not
-		// leak into input kinds. `text` extends `inputFieldBaseSchema` →
-		// `fieldBaseSchema` where `label` stays required.
-		expect(() =>
-			fieldSchema.parse({
-				kind: "text",
-				uuid: testUuid("abc"),
-				id: "name",
-			}),
-		).toThrow();
-	});
-
-	it("rejects a hidden field carrying a label (hidden fields have no label)", () => {
-		// Hidden fields extend `structuralFieldBase`, NOT `fieldBaseSchema`
-		// — CommCare hidden fields display nothing and carry no label.
-		// Every field schema is `.strict()`, so a payload carrying
-		// `label` on a hidden field fails to parse rather than stripping
-		// silently. Callers must omit `label` for hidden fields.
-		const parsed = fieldSchema.safeParse({
-			kind: "hidden",
-			uuid: testUuid("abc"),
-			id: "h",
-			label: proseText("should be rejected"),
-			calculate: opaqueXPathExpression("today()"),
-		});
-		expect(parsed.success).toBe(false);
-	});
-});
-
-describe("fieldRegistry", () => {
-	it("has an entry for every kind in fieldKinds", () => {
-		for (const kind of fieldKinds) {
-			expect(fieldRegistry[kind]).toBeDefined();
-			expect(fieldRegistry[kind].kind).toBe(kind);
+describe("field schema admission", () => {
+	it("admits every field variant without changing its authored properties", () => {
+		expect([...new Set(fixtures.map((value) => value.kind))].sort()).toEqual(
+			[...fieldKinds].sort(),
+		);
+		for (const value of fixtures) {
+			const field = fieldSchema.parse(value);
+			expect(field).toEqual(value);
+			expect(isContainer(field)).toBe(
+				["group", "repeat", "section"].includes(value.kind),
+			);
+			expect(isContainerKindName(value.kind)).toBe(isContainer(field));
+			expect(fieldSchema.safeParse({ ...value, obsolete: true }).success).toBe(
+				false,
+			);
 		}
 	});
+
+	it("rejects missing or unknown discriminants on an otherwise admitted input", () => {
+		const valid = { ...identity, kind: "text", label };
+		expect(fieldSchema.parse(valid)).toEqual(valid);
+		const { kind, ...missingKind } = valid;
+		expect(kind).toBe("text");
+		for (const value of [
+			missingKind,
+			{ ...valid, kind: "likert_scale" },
+			{ ...valid, uuid: "not-a-uuid" },
+		])
+			expect(fieldSchema.safeParse(value).success).toBe(false);
+	});
+
+	it.each(["single_select", "multi_select"])(
+		"requires at least two inline options for %s",
+		(kind) => {
+			const valid = { ...identity, kind, label, optionsSource };
+			expect(fieldSchema.parse(valid)).toEqual(valid);
+			for (const count of [0, 1])
+				expect(
+					fieldSchema.safeParse({
+						...valid,
+						optionsSource: {
+							...optionsSource,
+							options: optionsSource.options.slice(0, count),
+						},
+					}).success,
+				).toBe(false);
+		},
+	);
+
+	it("distinguishes required, optional and forbidden labels", () => {
+		for (const kind of [...leafKinds, "single_select", "multi_select"]) {
+			const value = {
+				...identity,
+				kind,
+				label,
+				...(kind.endsWith("select") ? { optionsSource } : {}),
+			};
+			expect(fieldSchema.parse(value)).toEqual(value);
+			const { label: _label, ...withoutLabel } = value;
+			expect(fieldSchema.safeParse(withoutLabel).success).toBe(false);
+		}
+		for (const kind of ["group", "section", "repeat"]) {
+			const value = {
+				...identity,
+				kind,
+				...(kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
+			};
+			expect(fieldSchema.parse(value)).toEqual(value);
+			expect(fieldSchema.parse({ ...value, label: proseText("") })).toEqual({
+				...value,
+				label: proseText(""),
+			});
+		}
+		const hidden = { ...identity, kind: "hidden" };
+		expect(fieldSchema.parse(hidden)).toEqual(hidden);
+		expect(fieldSchema.safeParse({ ...hidden, label }).success).toBe(false);
+	});
+
+	it("admits either hidden-value slot; requiring a value belongs to the document gate", () => {
+		for (const value of [
+			{ ...identity, kind: "hidden", calculate: opaqueXPathExpression("2") },
+			{
+				...identity,
+				kind: "hidden",
+				default_value: opaqueXPathExpression("2"),
+			},
+		])
+			expect(fieldSchema.parse(value)).toEqual(value);
+	});
+
+	it.each([undefined, null, "missing", "constructor", "__proto__", "toString"])(
+		"does not recognize %s as a container kind",
+		(kind) => {
+			expect(isContainerKindName(kind)).toBe(false);
+		},
+	);
 });
 
-describe("isContainer", () => {
-	it("returns true for group and repeat", () => {
-		const g = fieldSchema.parse({
-			kind: "group",
-			uuid: testUuid("abc"),
-			id: "g",
-			label: proseText("G"),
-		});
-		expect(isContainer(g)).toBe(true);
-
-		const r = fieldSchema.parse({
-			kind: "repeat",
-			uuid: testUuid("abc"),
-			id: "r",
-			label: proseText("R"),
-			repeat_mode: "user_controlled",
-		});
-		expect(isContainer(r)).toBe(true);
+describe("repeat candidate projection before schema admission", () => {
+	it("selects each admitted mode's own keys and drops only stale sibling-mode slots", () => {
+		for (const repeat_mode of [
+			"user_controlled",
+			"count_bound",
+			"query_bound",
+		]) {
+			const repeat_count = opaqueXPathExpression("2");
+			const data_source = { ids_query: opaqueXPathExpression("''") };
+			const value = {
+				...identity,
+				kind: "repeat",
+				repeat_mode,
+				repeat_count,
+				data_source,
+				obsolete: true,
+			};
+			const before = structuredClone(value);
+			const expected = {
+				...identity,
+				kind: "repeat",
+				repeat_mode,
+				...(repeat_mode === "count_bound" ? { repeat_count } : {}),
+				...(repeat_mode === "query_bound" ? { data_source } : {}),
+			};
+			expect(pickFieldKeysForKind(value, "repeat")).toEqual(expected);
+			expect(fieldSchema.parse(expected)).toEqual(expected);
+			expect(value).toEqual(before);
+		}
 	});
-
-	it("returns false for input kinds", () => {
-		const t = fieldSchema.parse({
-			kind: "text",
-			uuid: testUuid("abc"),
-			id: "t",
-			label: proseText("T"),
-		});
-		expect(isContainer(t)).toBe(false);
-	});
+	it.each([undefined, "missing", "constructor", "__proto__", "toString"])(
+		"preserves invalid mode %s for a normal schema refusal",
+		(repeat_mode) => {
+			const value = {
+				...identity,
+				kind: "repeat",
+				repeat_mode,
+				repeat_count: opaqueXPathExpression("2"),
+				obsolete: true,
+			};
+			const before = structuredClone(value);
+			const projected = pickFieldKeysForKind(value, "repeat");
+			expect(projected).toEqual({
+				...identity,
+				kind: "repeat",
+				repeat_mode,
+				repeat_count: opaqueXPathExpression("2"),
+			});
+			expect(fieldSchema.safeParse(projected).success).toBe(false);
+			expect(value).toEqual(before);
+		},
+	);
 });

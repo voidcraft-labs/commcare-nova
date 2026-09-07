@@ -1,5 +1,6 @@
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FormAttachmentWriteRejectedError } from "@/lib/db/formAttachments";
 import { DELETE, PATCH, POST } from "../route";
 
 const mocks = vi.hoisted(() => ({
@@ -22,12 +23,12 @@ vi.mock("@/lib/db/appAccess", () => ({
 	resolveAppScope: mocks.resolveAppScope,
 }));
 
-vi.mock("@/lib/db/formAttachments", () => ({
+vi.mock("@/lib/db/formAttachments", async (original) => ({
+	...(await original<typeof import("@/lib/db/formAttachments")>()),
 	confirmFormAttachment: mocks.confirm,
 	deleteUnsubmittedFormAttachment: mocks.remove,
 	loadFormAttachmentForEdit: mocks.load,
 	retargetStagedFormAttachment: mocks.retarget,
-	FormAttachmentWriteRejectedError: class extends Error {},
 }));
 
 vi.mock("@/lib/storage/media", () => ({
@@ -40,7 +41,7 @@ function request(
 	method: "POST" | "PATCH" | "DELETE",
 	body?: unknown,
 ): NextRequest {
-	return new Request(
+	return new NextRequest(
 		"http://localhost/api/apps/app-b/attachments/attachment-from-app-a",
 		{
 			method,
@@ -51,7 +52,7 @@ function request(
 						body: JSON.stringify(body),
 					}),
 		},
-	) as NextRequest;
+	);
 }
 
 const params = {
@@ -159,9 +160,53 @@ describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 				expectedAppId: "app-b",
 			}),
 		);
-		await response.json();
+		expect(await response.json()).toEqual({
+			ok: true,
+			attachmentId: "attachment-from-app-a",
+			attachmentName: "attachment-from-app-a.png",
+			originalFilename: "photo.png",
+			sizeBytes: 3,
+		});
 	});
 
+	it("returns the durable preparation refusal as a conflict", async () => {
+		mocks.retarget.mockRejectedValueOnce(
+			new FormAttachmentWriteRejectedError("already preparing"),
+		);
+		const response = await PATCH(
+			request("PATCH", {
+				expectedInstancePath: "/data/visits[1]/photo",
+				instancePath: "/data/visits[0]/photo",
+			}),
+			params,
+		);
+		expect(response.status).toBe(409);
+		expect(await response.json()).toEqual({ error: "already preparing" });
+	});
+	it("removes only the mismatched generation and never confirms it", async () => {
+		mocks.load.mockResolvedValue({
+			gcsObjectKey: "captures-staged/project-1/attachment.png",
+			sizeBytes: 3,
+			contentType: "image/png",
+		});
+		mocks.getStoredObjectMetadata.mockResolvedValue({
+			size: 4,
+			contentType: "image/png",
+			generation: "17",
+			checksum: "checksum",
+		});
+		const response = await POST(request("POST"), params);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toMatchObject({
+			error: expect.stringContaining("does not match"),
+		});
+		expect(mocks.deleteAssetGeneration).toHaveBeenCalledWith(
+			"captures-staged/project-1/attachment.png",
+			"17",
+		);
+		expect(mocks.deleteAsset).not.toHaveBeenCalled();
+		expect(mocks.confirm).not.toHaveBeenCalled();
+	});
 	it("binds idempotent delete to the URL app without revealing a foreign row", async () => {
 		mocks.remove.mockResolvedValue(null);
 
