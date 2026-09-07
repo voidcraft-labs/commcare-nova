@@ -179,6 +179,19 @@ after every projection.
 
 `fieldProps.ts::readFieldString(field, key, doc)` is the one expression-reading helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects typed AST storage to text against `doc` — identity references resolve to CURRENT names at every read. It accepts only the registry's expression-slot IDs; non-expression data uses typed domain accessors. Case bindings use `fieldCaseWrite(field)` and remain independent from the field's friendly id.
 
+### Hidden fields carry one value source
+
+`validator/rules/field.ts::hiddenValueBothSources` (`HIDDEN_VALUE_BOTH_SOURCES`,
+soundness, located at the field's `default_value`) refuses a hidden field
+holding both a `calculate` and a `default_value`. JavaRosa runs the
+`xforms-ready` seeds first and then re-evaluates every calculate
+(`commcare-core` `FormDef::initialize`), so the default is overwritten before
+anyone could read it: schema-legal (both slots are optional so history
+hydrates) and a contradiction. With `hiddenNoValue` it partitions the hidden
+state space; the shared recognizer is `lib/domain/fields/hidden.ts`. The same
+ordering is why the case preload below beats a `default_value` but never a
+`calculate` on a hidden writer.
+
 ### Worker-information identity projection
 
 Custom worker information has one stable document identity and two authored AST

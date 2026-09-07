@@ -746,6 +746,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_NO_VALUE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden but has no value, so it'll always stay blank. Give it a default or a calculated value.`,
+	HIDDEN_VALUE_BOTH_SOURCES: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default, and the calculation always wins, so the default never shows. Remove the default, or drop the calculation if you wanted a fixed value.`,
 	REQUIRED_ON_HIDDEN: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} is hidden, so it can't be required, no one can fill it in. Turn off required, or make the field visible.`,
 	CALCULATE_ON_VISIBLE_INPUT: (e) =>

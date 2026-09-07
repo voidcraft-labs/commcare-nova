@@ -22,6 +22,7 @@ import type { BlueprintDoc, Field, FieldKind, Uuid } from "@/lib/domain";
 import {
 	expressionInspectionSource,
 	fieldRegistry,
+	hiddenFieldCarriesBothValueSources,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
 	proseTemplateText,
@@ -251,6 +252,39 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
 				fieldUuid: field.uuid,
 				fieldId: field.id,
 			},
+		),
+	];
+}
+
+/**
+ * A hidden field holding both a `calculate` and a `default_value`. JavaRosa
+ * runs the `xforms-ready` seeds first and then re-evaluates every calculate
+ * (`FormDef::initialize`), so the default is overwritten before anyone could
+ * read it: schema-legal, and a contradiction. Together with `hiddenNoValue`
+ * this partitions the hidden state space (neither, both, exactly one), and
+ * the shared recognizer is the one the tool boundary and the historical
+ * repair used to clear the fleet before this rule shipped.
+ */
+function hiddenValueBothSources(
+	field: Field,
+	ctx: FieldContext,
+): ValidationError[] {
+	if (!hiddenFieldCarriesBothValueSources(field)) return [];
+	return [
+		validationError(
+			"HIDDEN_VALUE_BOTH_SOURCES",
+			"field",
+			`Field "${field.id}" in "${ctx.formName}" is a hidden field with both a calculate and a default_value. The form evaluates every calculate after it seeds defaults, so the default is overwritten before anyone could read it and only the calculate ever takes effect. Keep the one that matches what the value should do: a calculate for a value that tracks other fields, a default_value for a value fixed at form load. Clear the other.`,
+			{
+				moduleUuid: ctx.moduleUuid,
+				moduleName: ctx.moduleName,
+				formUuid: ctx.formUuid,
+				formName: ctx.formName,
+				fieldUuid: field.uuid,
+				fieldId: field.id,
+				field: "default_value",
+			},
+			{ field: field.id },
 		),
 	];
 }
@@ -506,6 +540,7 @@ const FIELD_RULES = [
 	selectTooFewOptions,
 	selectOptionValueInvalid,
 	hiddenNoValue,
+	hiddenValueBothSources,
 	requiredOnHidden,
 	calculateOnVisibleInput,
 	unquotedStringLiteral,
