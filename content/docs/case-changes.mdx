@@ -11,6 +11,38 @@ survey that updates one case per row someone filled in.
 **Case changes** are how a form says what else happens. Each one creates a case,
 updates a case, or closes a case, and they happen in the order you put them in.
 
+## Forms that open an existing case
+
+When a form opens one case someone picked from a list, every question that
+saves to that case starts out showing the value the case already holds, and
+that includes the case's name. The worker edits the value in place: leaving a
+question alone keeps what was there, and clearing it is a real change. Because
+the case supplies the opening value, Nova does not offer a starting value on
+those questions; the properties pane says so on the question instead.
+
+A question that saves to a child case type works differently. Each submission
+creates a new child case, so there is nothing to show yet and the question
+starts blank every time.
+
+That difference is how you choose where information belongs:
+
+- **Something the case has**, such as a phone number, an address, or a status,
+  is a property of the case itself. The worker sees the current value and
+  updates it when it changes.
+- **Something that happens to the case again and again**, such as a visit, a
+  meeting, or a delivery, is its own child case created from the followup form.
+  Every occurrence is kept, nothing is overwritten, and the parent case carries
+  only summaries such as the latest visit date, written by hidden calculated
+  values. Writing a visit's answers straight onto the parent would replace the
+  previous visit and open pre-filled with it next time.
+
+Child case types and how a form creates them are described under
+[Connections to other cases](#connections-to-other-cases). Forms that work with
+several cases at once open blank instead; see
+[Let people work with several cases at once](/docs/case-workspace#let-people-work-with-several-cases-at-once).
+The preview runs the real form against your real case data, so what you see
+there is what a worker sees.
+
 ## Where to find them
 
 Open a form, choose the settings gear, and pick **Edit case changes**. The
