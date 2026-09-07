@@ -554,3 +554,11 @@ plus unrelated rows and a wrong-type row. The retained pre-fix form raises the
 actual missing-instance exception during initialization. Ordinary CI checks the
 complete declared instance set; structural collector tests cover union across
 both AST families, scoped naming and source refusal without claiming execution.
+
+Durable build tests persist real source/review/accepted-plan envelopes through
+the artifact boundary. Concurrency checks use multiple pool connections and
+observe database lock waiters before releasing the controller; `Promise.all`
+on a one-connection pool proves only queued execution. Completion and attempt
+cleanup have native rollback controls, including a database-triggered late
+failure. Stored orchestration kinds reach the actual app-freeze SQL query;
+exact schema/classification equality belongs in the compiler test.

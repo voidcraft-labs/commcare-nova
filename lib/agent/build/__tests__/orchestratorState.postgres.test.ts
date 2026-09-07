@@ -5,15 +5,22 @@
  */
 
 import { sql } from "kysely";
+import type { Client } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
+import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
 import { beginGenesisChangeSet } from "@/lib/agent/change-set/store";
+import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { reapStaleGenerating } from "@/lib/db/apps";
+import { hasUnfinishedMaterializedDesignInTransaction } from "@/lib/db/unfinishedMaterializedDesign";
+import { briefDigest, deriveSliceExecutionBrief } from "../executionBrief";
 import {
 	__setCompletionCommitFaultHookForTests,
 	appendOrchestrationEvent as appendOrchestrationEventAuthorized,
 	type BuildOrchestratorState,
+	buildOrchestratorStateSchema,
 	completeBuildOrchestration,
 	OrchestrationForkError,
 	readOrchestrationHead,
@@ -30,7 +37,10 @@ import {
 	supersedeSliceAttempt,
 } from "../sliceAttempts";
 
-const h = setupAppStateTestDb("orchestrator_state_");
+const h = setupAppStateTestDb("orchestrator_state_", {
+	poolMax: 3,
+	authSchema: "migrated",
+});
 
 const RUN = "run-orch";
 const NONCE = "6a0a35a4-1111-4222-8333-944445555666";
@@ -75,6 +85,22 @@ function seedHeldSession(): Promise<string> {
 
 function designing(designSessionId: string): BuildOrchestratorState {
 	return { kind: "designing", designSessionId, sourcePackageDigest: DIGEST };
+}
+
+async function observeWaitingWriters(controller: Client, count: number) {
+	const deadline = Date.now() + 2_000;
+	for (;;) {
+		await controller.query("SELECT pg_stat_clear_snapshot()");
+		const result = await controller.query<{ count: number }>(
+			"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'",
+		);
+		if (result.rows[0].count >= count) return;
+		if (Date.now() >= deadline)
+			throw new Error(
+				`Only ${result.rows[0].count} of ${count} writers reached PostgreSQL lock waits`,
+			);
+		await new Promise<void>((resolve) => setImmediate(resolve));
+	}
 }
 
 describe("orchestration event chain", () => {
@@ -198,6 +224,72 @@ describe("orchestration event chain", () => {
 		).toEqual({ status: "complete", res_settled: true });
 	});
 
+	it.each(["app-sequence", "predecessor"] as const)(
+		"rolls completion and settlement back on a false %s",
+		async (fault) => {
+			const appId = await h.seedApp({
+				id: crypto.randomUUID(),
+				owner: ACTOR,
+				project_id: PROJECT,
+				status: "generating",
+				run_id: RUN,
+				run_holder_nonce: NONCE,
+				reservation: {
+					period: "2026-08",
+					reserved: 1,
+					settled: false,
+					userId: ACTOR,
+					runId: RUN,
+				},
+			});
+			// This suite isolates control-row completion at an existing canonical
+			// app revision; publication of the revision is owned by commit tests.
+			await h
+				.db()
+				.updateTable("apps")
+				.set({ mutation_seq: 1 })
+				.where("id", "=", appId)
+				.execute();
+			const designSessionId = await h.seedDesignSession({
+				owner_user_id: ACTOR,
+				project_id: PROJECT,
+				proposed_app_id: appId,
+				app_id: appId,
+				state: "materialized",
+			});
+			const first = await appendOrchestrationEvent({
+				designSessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				state: designing(designSessionId),
+				expectedHead: null,
+			});
+			const before = await h.readAppRow(appId);
+			await expect(
+				completeBuildOrchestration({
+					designSessionId,
+					runId: RUN,
+					holderNonce: NONCE,
+					actorUserId: ACTOR,
+					expectedProjectId: PROJECT,
+					appId,
+					expectedSeq: fault === "app-sequence" ? 2 : 1,
+					expectedHead:
+						fault === "predecessor"
+							? { ...first, digest: "f".repeat(64) }
+							: first,
+				}),
+			).rejects.toMatchObject({
+				name:
+					fault === "predecessor"
+						? "OrchestrationForkError"
+						: "RunHolderLostError",
+			});
+			expect(await h.readAppRow(appId)).toEqual(before);
+			expect(await readOrchestrationHead(designSessionId)).toEqual(first);
+		},
+	);
+
 	it("refuses a stale holder before it can consume the next revision", async () => {
 		const sessionId = await seedHeldSession();
 		await expect(
@@ -282,54 +374,206 @@ describe("orchestration event chain", () => {
 		expect(head?.digest).toBe(second.digest);
 	});
 
-	it("adopts an identical transition that won the predecessor race", async () => {
-		const sessionId = await seedHeldSession();
-		const state = designing(sessionId);
-		const [left, right] = await Promise.all([
-			appendOrchestrationEvent({
-				designSessionId: sessionId,
-				runId: RUN,
-				holderNonce: NONCE,
-				state,
-				expectedHead: null,
-			}),
-			appendOrchestrationEvent({
-				designSessionId: sessionId,
-				runId: RUN,
-				holderNonce: NONCE,
-				state,
-				expectedHead: null,
-			}),
-		]);
-		expect(right).toEqual(left);
-		expect((await readOrchestrationHead(sessionId))?.revision).toBe(1);
-	});
+	it.each([true, false])(
+		"observes competing appenders before releasing the authority lock (identical=%s)",
+		async (identical) => {
+			const designSessionId = await seedHeldSession();
+			const states = [
+				designing(designSessionId),
+				{
+					...designing(designSessionId),
+					sourcePackageDigest: identical ? DIGEST : "b".repeat(64),
+				},
+			];
+			const outcomes = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+						designSessionId,
+					]),
+				() =>
+					Promise.allSettled(
+						states.map((state) =>
+							appendOrchestrationEvent({
+								designSessionId,
+								runId: RUN,
+								holderNonce: NONCE,
+								state,
+								expectedHead: null,
+							}),
+						),
+					),
+				async (settled, controller) => {
+					expect(settled).toBe(false);
+					await observeWaitingWriters(controller, 2);
+				},
+			);
+			const successes = outcomes.filter(
+				(outcome) => outcome.status === "fulfilled",
+			);
+			const failures = outcomes.filter(
+				(outcome) => outcome.status === "rejected",
+			);
+			expect(successes).toHaveLength(identical ? 2 : 1);
+			expect(failures).toHaveLength(identical ? 0 : 1);
+			if (identical) expect(successes[0]).toEqual(successes[1]);
+			else expect(failures[0]?.reason).toBeInstanceOf(OrchestrationForkError);
+			expect(await readOrchestrationHead(designSessionId)).toEqual(
+				successes[0]?.value,
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_orchestration_events")
+					.select("event_id")
+					.where("design_session_id", "=", designSessionId)
+					.execute(),
+			).toHaveLength(1);
+		},
+	);
 
-	it("the fold fails closed on a tampered payload", async () => {
-		const sessionId = await seedHeldSession();
+	it.each(["digest", "eventId", "revision"] as const)(
+		"refuses a false predecessor %s before persisting a poisoned chain",
+		async (field) => {
+			const designSessionId = await seedHeldSession();
+			const first = await appendOrchestrationEvent({
+				designSessionId,
+				runId: RUN,
+				holderNonce: NONCE,
+				state: designing(designSessionId),
+				expectedHead: null,
+			});
+			const expectedHead = {
+				...first,
+				...(field === "digest"
+					? { digest: "f".repeat(64) }
+					: field === "eventId"
+						? { eventId: crypto.randomUUID() }
+						: { revision: 4 }),
+			};
+			await expect(
+				appendOrchestrationEvent({
+					designSessionId,
+					runId: RUN,
+					holderNonce: NONCE,
+					state: {
+						kind: "planning",
+						designRevisionId: crypto.randomUUID(),
+						designRevisionDigest: DIGEST,
+					},
+					expectedHead,
+				}),
+			).rejects.toBeInstanceOf(OrchestrationForkError);
+			expect(await readOrchestrationHead(designSessionId)).toEqual(first);
+		},
+	);
+
+	it.each([
+		"kind",
+		"payload",
+		"predecessor-digest",
+		"predecessor-id",
+		"revision-gap",
+		"unknown-payload-field",
+	] as const)("fails closed on stored %s corruption", async (corruption) => {
+		const designSessionId = await seedHeldSession();
 		const first = await appendOrchestrationEvent({
-			designSessionId: sessionId,
+			designSessionId,
 			runId: RUN,
 			holderNonce: NONCE,
-			state: designing(sessionId),
+			state: designing(designSessionId),
 			expectedHead: null,
 		});
-		await h
-			.db()
-			.updateTable("design_orchestration_events")
-			.set({ kind: "planning" })
-			.where("design_session_id", "=", sessionId)
-			.where("event_id", "=", first.eventId)
-			.execute();
-		await expect(readOrchestrationHead(sessionId)).rejects.toThrow(
-			/folds to designing/,
+		const second = await appendOrchestrationEvent({
+			designSessionId,
+			runId: RUN,
+			holderNonce: NONCE,
+			state: {
+				kind: "planning",
+				designRevisionId: crypto.randomUUID(),
+				designRevisionDigest: DIGEST,
+			},
+			expectedHead: first,
+		});
+		let expected: RegExp;
+		if (corruption === "kind") {
+			await h
+				.db()
+				.updateTable("design_orchestration_events")
+				.set({ kind: "planning" })
+				.where("event_id", "=", first.eventId)
+				.execute();
+			expected = /folds to designing/;
+		} else if (
+			corruption === "payload" ||
+			corruption === "unknown-payload-field"
+		) {
+			const payload =
+				corruption === "payload"
+					? { ...first.state, sourcePackageDigest: "f".repeat(64) }
+					: { ...first.state, unexpected: true };
+			await h
+				.db()
+				.updateTable("design_orchestration_events")
+				.set({ payload: JSON.stringify(payload) })
+				.where("event_id", "=", first.eventId)
+				.execute();
+			expected =
+				corruption === "payload" ? /pins predecessor digest/ : /unexpected/;
+		} else if (corruption === "predecessor-digest") {
+			await h
+				.db()
+				.updateTable("design_orchestration_events")
+				.set({ predecessor_digest: "f".repeat(64) })
+				.where("event_id", "=", second.eventId)
+				.execute();
+			expected = /pins predecessor digest/;
+		} else if (corruption === "predecessor-id") {
+			await h
+				.db()
+				.updateTable("design_orchestration_events")
+				.set({ predecessor_event_id: crypto.randomUUID() })
+				.where("event_id", "=", second.eventId)
+				.execute();
+			expected = /names predecessor/;
+		} else {
+			await h
+				.db()
+				.updateTable("design_orchestration_events")
+				.set({ revision: 3 })
+				.where("event_id", "=", second.eventId)
+				.execute();
+			expected = /not contiguous/;
+		}
+		await expect(readOrchestrationHead(designSessionId)).rejects.toThrow(
+			expected,
 		);
 	});
 });
 
 describe("slice attempts", () => {
 	async function attemptArgs(sessionId: string) {
-		const lineage = await h.seedDesignLineage({ existingSessionId: sessionId });
+		const persisted = await persistAcceptedDesignFixture({
+			designSessionId: sessionId,
+			authority: {
+				actorUserId: ACTOR,
+				runId: RUN,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+			},
+		});
+		const plan = persisted.plan.envelope.payload;
+		const slice = plan.slices[0];
+		if (!slice) throw new Error("Fixture plan has no slice");
+		const brief = deriveSliceExecutionBrief({
+			contract: persisted.accepted.envelope.payload,
+			revision: {
+				id: persisted.accepted.id,
+				digest: persisted.accepted.artifactDigest,
+			},
+			plan,
+			sliceId: slice.id,
+		});
 		const session = await h
 			.db()
 			.selectFrom("design_sessions")
@@ -345,19 +589,19 @@ describe("slice attempts", () => {
 			runId: RUN,
 			holderNonce: NONCE,
 			expectedProjectId: PROJECT,
-			designRevisionId: lineage.designRevisionId,
-			designRevisionDigest: lineage.designRevisionDigest,
-			buildPlanId: lineage.buildPlanId,
-			buildPlanDigest: lineage.buildPlanDigest,
-			sliceId: asDesignId(crypto.randomUUID()) as string,
+			designRevisionId: persisted.accepted.id,
+			designRevisionDigest: persisted.accepted.artifactDigest,
+			buildPlanId: persisted.plan.id,
+			buildPlanDigest: persisted.plan.planDigest,
+			sliceId: slice.id,
 			baseTarget: {
 				kind: "empty-genesis" as const,
 				proposedAppId: session.proposed_app_id,
-				digest: DIGEST,
+				digest: emptyGenesisBase(session.proposed_app_id).digest,
 			},
 			executorModel: "test-model",
 			promptVersion: "build-executor-v1",
-			briefDigest: DIGEST,
+			briefDigest: briefDigest(brief),
 		};
 	}
 
@@ -389,6 +633,227 @@ describe("slice attempts", () => {
 			},
 		});
 	}
+
+	it("serializes two attempt births into one durable attempt", async () => {
+		const designSessionId = await seedHeldSession();
+		const args = await attemptArgs(designSessionId);
+		const outcomes = await whileBlocked(
+			h,
+			(pg) =>
+				pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+					designSessionId,
+				]),
+			() =>
+				Promise.all([
+					beginOrRecoverSliceAttempt(args),
+					beginOrRecoverSliceAttempt(args),
+				]),
+			async (settled, controller) => {
+				expect(settled).toBe(false);
+				await observeWaitingWriters(controller, 2);
+			},
+		);
+		expect(outcomes.map((outcome) => outcome.recovered).sort()).toEqual([
+			false,
+			true,
+		]);
+		expect(outcomes[0].attempt.id).toBe(outcomes[1].attempt.id);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select("id")
+				.where("design_session_id", "=", designSessionId)
+				.execute(),
+		).toEqual([{ id: outcomes[0].attempt.id }]);
+	});
+
+	it.each(["same-key", "different-keys"] as const)(
+		"serializes a final budget unit for %s",
+		async (mode) => {
+			const designSessionId = await seedHeldSession();
+			const args = await attemptArgs(designSessionId);
+			const { attempt } = await beginOrRecoverSliceAttempt(args);
+			const claim = (claimKey: string) =>
+				claimSliceAttemptBudget({
+					...args,
+					attemptId: attempt.id,
+					counter: "modelSteps",
+					limit: 1,
+					claimKey,
+				});
+			const outcomes = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+						designSessionId,
+					]),
+				() =>
+					Promise.all([
+						claim("call-1"),
+						claim(mode === "same-key" ? "call-1" : "call-2"),
+					]),
+				async (settled, controller) => {
+					expect(settled).toBe(false);
+					await observeWaitingWriters(controller, 2);
+				},
+			);
+			expect(outcomes.sort()).toEqual(
+				mode === "same-key"
+					? ["claimed", "replayed"]
+					: ["claimed", "exhausted"],
+			);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_slice_attempts")
+					.select("model_steps_used")
+					.where("id", "=", attempt.id)
+					.executeTakeFirstOrThrow(),
+			).toEqual({ model_steps_used: 1 });
+			expect(
+				await h
+					.db()
+					.selectFrom("design_slice_attempt_budget_claims")
+					.select("claim_key")
+					.where("attempt_id", "=", attempt.id)
+					.execute(),
+			).toHaveLength(1);
+		},
+	);
+
+	it("rechecks the holder after waiting, before birthing an attempt", async () => {
+		const designSessionId = await seedHeldSession();
+		const args = await attemptArgs(designSessionId);
+		await expect(
+			whileBlocked(
+				h,
+				(pg) =>
+					pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+						designSessionId,
+					]),
+				() => beginOrRecoverSliceAttempt(args),
+				async (settled, controller) => {
+					expect(settled).toBe(false);
+					await controller.query(
+						"UPDATE design_sessions SET run_holder_nonce=$1 WHERE id=$2",
+						[crypto.randomUUID(), designSessionId],
+					);
+				},
+				undefined,
+				"COMMIT",
+			),
+		).rejects.toMatchObject({ name: "RunHolderLostError" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select("id")
+				.where("design_session_id", "=", designSessionId)
+				.execute(),
+		).toEqual([]);
+	});
+
+	it("rolls private-set closure back when the attempt's terminal write fails", async () => {
+		const designSessionId = await seedHeldSession();
+		const args = await attemptArgs(designSessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		const changeSet = await openGenesisForAttempt(args, attempt.id);
+		await h
+			.pool()
+			.query(`CREATE FUNCTION reject_test_attempt_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected attempt write failure'; END $$;
+            CREATE TRIGGER test_attempt_failure BEFORE UPDATE ON design_slice_attempts FOR EACH ROW WHEN (NEW.status = 'failed') EXECUTE FUNCTION reject_test_attempt_failure();`);
+		await expect(
+			markSliceAttempt({
+				...args,
+				attemptId: attempt.id,
+				to: "failed",
+				failureCode: "budget-exhausted",
+			}),
+		).rejects.toThrow("injected attempt write failure");
+		expect(
+			await h
+				.db()
+				.selectFrom("design_change_sets")
+				.select("status")
+				.where("id", "=", changeSet.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "open" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["status", "failure_code"])
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ status: "running", failure_code: null });
+	});
+
+	it("admits each budget counter independently and refuses cross-counter replay without writes", async () => {
+		const designSessionId = await seedHeldSession();
+		const args = await attemptArgs(designSessionId);
+		const { attempt } = await beginOrRecoverSliceAttempt(args);
+		for (const counter of [
+			"modelSteps",
+			"mutationCalls",
+			"commitAttempts",
+			"blockerReports",
+		] as const) {
+			expect(
+				await claimSliceAttemptBudget({
+					...args,
+					attemptId: attempt.id,
+					counter,
+					limit: 0,
+					claimKey: counter,
+				}),
+			).toBe("exhausted");
+			expect(
+				await claimSliceAttemptBudget({
+					...args,
+					attemptId: attempt.id,
+					counter,
+					limit: 1,
+					claimKey: counter,
+				}),
+			).toBe("claimed");
+		}
+		const before = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.selectAll()
+			.where("id", "=", attempt.id)
+			.executeTakeFirstOrThrow();
+		await expect(
+			claimSliceAttemptBudget({
+				...args,
+				attemptId: attempt.id,
+				counter: "blockerReports",
+				limit: 2,
+				claimKey: "modelSteps",
+			}),
+		).rejects.toMatchObject({ name: "SliceAttemptStateError" });
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.selectAll()
+				.where("id", "=", attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual(before);
+		const claims = await h
+			.db()
+			.selectFrom("design_slice_attempt_budget_claims")
+			.select(["counter", "claim_key"])
+			.where("attempt_id", "=", attempt.id)
+			.orderBy("counter")
+			.execute();
+		expect(claims).toEqual(
+			["blockerReports", "commitAttempts", "modelSteps", "mutationCalls"].map(
+				(counter) => ({ counter, claim_key: counter }),
+			),
+		);
+	});
 
 	it("opens and binds a change set under the exact holder in one transaction", async () => {
 		const sessionId = await seedHeldSession();
@@ -537,8 +1002,6 @@ describe("slice attempts", () => {
 	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {
 		const sessionId = await seedHeldSession();
 		const args = await attemptArgs(sessionId);
-		/* seedDesignLineage already minted a running attempt for its own slice;
-		 * this test's slice id is fresh, so its lifecycle is isolated. */
 		const first = await beginOrRecoverSliceAttempt(args);
 		expect(first.recovered).toBe(false);
 		expect(first.attempt.attempt).toBe(1);
@@ -767,10 +1230,9 @@ describe("slice attempts", () => {
 			.executeTakeFirst();
 		expect(row?.status).toBe("failed");
 		expect(row?.failure_code).toBe("budget-exhausted");
-		/* seedDesignLineage's own attempt for its slice is still running; this
-		 * slice has none. */
+		/* The only persisted attempt is terminal. */
 		const running = await loadRunningSliceAttempt(sessionId);
-		expect(running?.sliceId).not.toBe(args.sliceId);
+		expect(running).toBeNull();
 	});
 
 	it("does not rerun a deterministic budget-exhausted attempt under a new holder", async () => {
@@ -871,4 +1333,129 @@ describe("slice attempts", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({ status: "running" });
 	});
+});
+
+// Stored-reader fixtures isolate the freeze query's classification and scoping.
+// App completion and its settlement transaction are exercised above.
+describe("materialized build freeze in PostgreSQL", () => {
+	const id = "11111111-1111-4111-8111-111111111111";
+	const cases: Array<[BuildOrchestratorState | null, boolean]> = [
+		[null, true],
+		[
+			{ kind: "designing", designSessionId: id, sourcePackageDigest: DIGEST },
+			true,
+		],
+		[
+			{ kind: "planning", designRevisionId: id, designRevisionDigest: DIGEST },
+			true,
+		],
+		[
+			{
+				kind: "awaiting-user",
+				designSessionId: id,
+				designRevisionId: id,
+				blockingQuestionIds: [asDesignId(id)],
+			},
+			true,
+		],
+		[
+			{
+				kind: "awaiting-user-questions",
+				designSessionId: id,
+				designRevisionId: null,
+			},
+			true,
+		],
+		[
+			{
+				kind: "executing-slice",
+				designRevisionId: id,
+				buildPlanId: id,
+				sliceId: asDesignId(id),
+				changeSetId: id,
+				attempt: 1,
+			},
+			true,
+		],
+		[
+			{
+				kind: "translating",
+				designRevisionId: id,
+				buildPlanId: id,
+				appId: "app",
+				sourceSeq: 1,
+			},
+			true,
+		],
+		[
+			{
+				kind: "failed",
+				failureId: id,
+				recoverable: true,
+				errorType: "provider",
+			},
+			true,
+		],
+		[
+			{
+				kind: "failed",
+				failureId: id,
+				recoverable: false,
+				errorType: "compiler",
+			},
+			true,
+		],
+		[{ kind: "finished", appId: "app", appSeq: 1 }, false],
+		[{ kind: "accepted-partial", appId: "app", appSeq: 1 }, false],
+	];
+	it.each(cases)(
+		"classifies stored head %j with frozen=%s",
+		async (state, frozen) => {
+			const appId = await h.seedApp();
+			const designSessionId = await h.seedDesignSession({
+				app_id: appId,
+				proposed_app_id: appId,
+				state: "materialized",
+			});
+			if (state !== null) {
+				const parsed = buildOrchestratorStateSchema.parse(state);
+				await h
+					.db()
+					.insertInto("design_orchestration_events")
+					.values({
+						design_session_id: designSessionId,
+						revision: 1,
+						event_id: crypto.randomUUID(),
+						predecessor_event_id: null,
+						predecessor_digest: null,
+						run_id: RUN,
+						holder_nonce_digest: DIGEST,
+						kind: parsed.kind,
+						payload: JSON.stringify(parsed),
+					})
+					.execute();
+			}
+			expect(
+				await h.withTransaction((tx) =>
+					hasUnfinishedMaterializedDesignInTransaction(tx, appId),
+				),
+			).toBe(frozen);
+			expect(
+				await h.withTransaction((tx) =>
+					hasUnfinishedMaterializedDesignInTransaction(tx, "unrelated-app"),
+				),
+			).toBe(false);
+			await h
+				.db()
+				.updateTable("design_sessions")
+				.set({ state: "abandoned", app_id: null })
+				.where("id", "=", designSessionId)
+				.execute();
+			expect(
+				await h.withTransaction((tx) =>
+					hasUnfinishedMaterializedDesignInTransaction(tx, appId),
+				),
+			).toBe(false);
+		},
+	);
 });

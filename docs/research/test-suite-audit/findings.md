@@ -2193,3 +2193,35 @@ expired, failed, abandoned and waiting session evidence. Outline/plan assertions
 cover the actual safe projection, and pulse tests observe immediate step changes,
 retained labels, throttled cumulative counts, updated durable-head stamps and
 absence of scheduled background work.
+
+## Orchestration persistence: real lineage, contention and rollback
+
+The old PostgreSQL suite wrote empty artifact envelopes with invented digests
+and queued its supposed competing operations through a one-connection pool.
+The replacement persists an authorized source package, schema-admitted draft,
+controlled independent review, accepted revision and derived plan through the
+actual artifact writers. Its three-connection pool and separate controller
+observe both workers waiting on PostgreSQL locks before releasing each race.
+These fixtures prove stored metadata integrity; they do not claim model review
+quality or complete build execution.
+
+Three validly typed but false expected heads (digest, event identity, revision)
+were accepted and poisoned the stored event chain. Orchestration writes now
+re-read and verify the complete chain under the already-held authority lock,
+then compare the caller's expected head before inserting. Identical concurrent
+replays still adopt the winner. Completion performs the same check inside its
+transaction, so a mismatch also rolls back app completion and charge settlement.
+
+The 45-case native suite covers real append/attempt/budget contention, a holder
+replaced while its writer waits, all four budget counters and cross-counter
+claim-key refusal, schema/payload/predecessor corruption, completion rollback,
+and a PostgreSQL trigger that fails attempt cleanup after its private change set
+would have closed. Every stored phase also reaches the actual app-freeze SQL
+query with app-scope and abandoned-session controls. The copied runtime kind
+inventory is replaced by a compiler equality obligation; chain continuity is
+explicitly distinguished from the separate phase-transition semantics.
+
+Validation: `/tmp/nova-root-orchestrator-before-pg.log` records the three real
+pre-fix failures; `/tmp/nova-root-orchestrator-final.log` records 45 passing tests
+with the async detector and no diagnostics. The combined typecheck still has
+in-flight diagnostics assigned to their respective owners.

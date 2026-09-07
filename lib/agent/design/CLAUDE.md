@@ -220,6 +220,12 @@ valid direct Builder or MCP edit.
   discarded, artifact orchestration releases that materialization's temporary
   lookup protections but never guesses that the accepted Project data itself is
   safe to delete.
+- The build orchestration event chain re-proves its stored payloads and
+  predecessor links under the session authority lock before each append, then
+  requires the caller's exact head identity, revision and digest. Identical
+  concurrent replays may adopt the persisted winner. Terminal app completion,
+  charge settlement and the final event commit atomically. Chain continuity
+  does not replace the design/build owners' phase-transition rules.
 - `sourcePackage.ts` is the one caller-authorized source boundary. It renders
   bounded transcript messages, Project-authorized attachment extracts, and
   digest-bound images for the model while persisting references and

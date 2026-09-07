@@ -2280,7 +2280,10 @@
 			"file": "lib/agent/build/__tests__/orchestrationKinds.test.ts",
 			"lines": 40,
 			"ciMs": 1434,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "46b3ead116c51f0eec0f43b8e7f5bc2aa922b12bfa88f471b3beb493bd9d209e",
+			"review": "Removed runtime copies of classification inventories. Exact schema-kind equality is a compiler obligation in orchestrationKinds.test-d.ts; actual SQL app-freeze behavior runs for every stored kind in migrated Postgres and terminal progress behavior runs against the real fold. Typecheck reached this file without diagnostics but the combined in-flight workspace still has unrelated owner diagnostics.",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/agent/build/__tests__/orchestratorPresentation.test.ts",
@@ -2292,7 +2295,10 @@
 			"file": "lib/agent/build/__tests__/orchestratorState.postgres.test.ts",
 			"lines": 874,
 			"ciMs": 7454,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "035c8c9be3e4f3053916322459172dcd1a74feedf2c8001f6d857c68ebb77c3f",
+			"review": "Read full orchestration, attempt and SQL-freeze owners. Replaced empty artifact envelopes with actual persisted source, draft, independent controlled review, accepted revision and derived plan. Three fabricated expected-head cases reproduced a poisoned event chain; writes now re-prove the current chain under authority lock. Native migrated Postgres covers 45 cases: observed competing writers through a three-connection pool, replay/fork and attempt exclusivity, final-budget races, stale-holder wakeup, all four budget counters, payload/chain corruption, all stored freeze kinds and app scope, completion rollback and trigger-injected attempt rollback. The prior one-connection Promise.all did not establish contention. Metadata fixtures and SQL classification are not live model or complete phase-progression proof.",
+			"reviewedSha256": "d6f11db3a0cb7b3a209a2ad692319456e9e3fc9f1ed9d642c0d6a714a3581ec6"
 		},
 		{
 			"file": "lib/agent/build/__tests__/progress.test.ts",
