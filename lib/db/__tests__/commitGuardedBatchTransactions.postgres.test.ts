@@ -1362,6 +1362,39 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 	});
 
+	it("repairs a soft-deleted app like a live one, because a restored app must load", async () => {
+		const doc = minDoc();
+		const appId = await seedApp(doc);
+		await h
+			.db()
+			.updateTable("apps")
+			.set({ deleted_at: new Date(), recoverable_until: new Date() })
+			.where("id", "=", appId)
+			.execute();
+
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: 0,
+			targetDoc: toPersistableDoc({ ...doc, appId, appName: "Repaired" }),
+			authority: {
+				kind: "system",
+				actorId: "system:test-migration",
+				reason: "Integration test migration of a soft-deleted app",
+			},
+		});
+
+		expect(await readSeq(appId)).toBe(1);
+		const stream = await readStream(appId);
+		expect(stream).toHaveLength(1);
+		expect(stream[0]).toMatchObject({
+			seq: 1,
+			mutations: [{ kind: "setAppName", name: "Repaired" }],
+			kind: "blueprint-migration",
+		});
+		const row = await h.readAppRow(appId);
+		expect(row?.deleted_at).not.toBeNull();
+	});
+
 	it("lets a named system repair replace a gate-invalid historical source with a gate-clean target", async () => {
 		const doc = minDoc();
 		if (doc.caseTypes === null) throw new Error("missing case types");
