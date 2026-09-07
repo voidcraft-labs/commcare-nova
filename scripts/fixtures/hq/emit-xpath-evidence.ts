@@ -94,7 +94,7 @@ for (const source of refusedNativePaths) {
 writeFileSync(resolve(output, "xpath-corpus.tsv"), `${rows.join("\n")}\n`);
 writeFileSync(
 	resolve(output, "native-functions.txt"),
-	[...JAVAROSA_NATIVE_FUNCTIONS].sort().join("\n") + "\n",
+	`${[...JAVAROSA_NATIVE_FUNCTIONS].sort().join("\n")}\n`,
 );
 console.log(output);
 
@@ -113,5 +113,5 @@ for (const [name, spec] of FUNCTION_REGISTRY) {
 }
 writeFileSync(
 	resolve(output, "native-signatures.tsv"),
-	signatures.join("\n") + "\n",
+	`${signatures.join("\n")}\n`,
 );

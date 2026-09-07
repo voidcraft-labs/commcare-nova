@@ -26,7 +26,7 @@ const selected = datum(
 );
 export const cleanSuiteWire = suiteWire(
 	detailWire(fieldWire()) +
-		entryWire(cases + `<session>${selected}</session>`) +
+		entryWire(`${cases}<session>${selected}</session>`) +
 		'<menu id="m"><text>Patients</text><command id="c"/></menu>',
 );
 export interface SuiteOracleCase {
@@ -309,7 +309,7 @@ export const suiteOracleCases: readonly SuiteOracleCase[] = [
 	),
 	fixture(
 		"menu-missing-command",
-		entryWire() + '<menu id="m"><text>Menu</text><command id="ghost"/></menu>',
+		`${entryWire()}<menu id="m"><text>Menu</text><command id="ghost"/></menu>`,
 		["SUITE_MENU_COMMAND_UNRESOLVED"],
 		true,
 		"static-join",

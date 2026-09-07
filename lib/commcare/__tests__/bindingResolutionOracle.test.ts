@@ -20,7 +20,7 @@ describe("static form and suite reference joins", () => {
 	])
 		it(`joins the ${attr} expression to its actual entry datum`, () => {
 			const xml = wireForm(
-				data + session + `<bind nodeset="/data/q" ${attr}="${expression}"/>`,
+				`${data + session}<bind nodeset="/data/q" ${attr}="${expression}"/>`,
 			);
 			expect(codes(xml, ["case_id"])).toEqual([]);
 			expect(codes(xml)).toEqual([
@@ -55,7 +55,7 @@ describe("static form and suite reference joins", () => {
 	it("requires the session instance declaration even when the suite declares its datum", () => {
 		expect(
 			codes(
-				wireForm(data + `<bind nodeset="/data/q" calculate="${expression}"/>`),
+				wireForm(`${data}<bind nodeset="/data/q" calculate="${expression}"/>`),
 				["case_id"],
 			),
 		).toEqual(["BINDING_RESOLUTION_INSTANCE_UNDECLARED"]);
@@ -126,7 +126,7 @@ describe("static form and suite reference joins", () => {
 		).toEqual([]);
 		expect(
 			codes(
-				wireForm(data + '<bind nodeset="/data/q" calculate="/data/absent"/>'),
+				wireForm(`${data}<bind nodeset="/data/q" calculate="/data/absent"/>`),
 			),
 		).toEqual([]);
 	});

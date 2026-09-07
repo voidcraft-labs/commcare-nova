@@ -282,7 +282,7 @@ probe(
 	true,
 	"0.01 0",
 );
-writeFileSync(resolve(output, "predicate-corpus.tsv"), rows.join("\n") + "\n");
+writeFileSync(resolve(output, "predicate-corpus.tsv"), `${rows.join("\n")}\n`);
 writeFileSync(
 	resolve(output, "predicate-corpus-count.txt"),
 	String(rows.length),
