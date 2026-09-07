@@ -2167,3 +2167,29 @@ standard and extended boundaries replace enum-membership and duplicated invalid
 workflow assertions. Budget tests cover each risk arm and saturation boundary;
 the unrelated prompt-version pin was removed because it did not enforce the
 claimed coupling between a budget retune and a compiler-version bump.
+
+
+### Progress and accepted navigation use their real projection boundaries
+
+Accepted endpoint and module-placement fixtures now pass the complete document
+schema and commit gate. Equal-name destinations, wrong entity kinds, missing
+handles, parent/sibling placement, host/name mismatches, extra endpoints and
+visibility bypass are independently checked. These suites prove parity against
+the accepted brief; native navigation and persisted construction remain separate
+obligations. Fixture admission validates an exact cloned snapshot so hand-built
+fixture changes cannot reuse a stale identity-keyed validation cache.
+
+The submission narrator previously searched all streamed text for quoted keys.
+Nested keys and quoted source values could announce and consume a later section
+before its root key arrived. Two counterexamples fail under the old recognizer.
+The production recognizer now tracks container depth, string escaping and a
+bounded root-key token until its colon arrives. Tests cover all two-chunk splits,
+single-character delivery, escaped keys, large values and the patch tool's
+`upserts` key. Removed an unused historical contract label inventory. This is
+advisory key recognition, not JSON validation or model quality evidence.
+
+Progress tests use admitted orchestration states and fixed time across live,
+expired, failed, abandoned and waiting session evidence. Outline/plan assertions
+cover the actual safe projection, and pulse tests observe immediate step changes,
+retained labels, throttled cumulative counts, updated durable-head stamps and
+absence of scheduled background work.

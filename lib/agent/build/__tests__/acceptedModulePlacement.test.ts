@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { changeSetHandleSchema } from "@/lib/agent/change-set/schemas";
 import {
 	fixtureValue,
 	ids,
 	makeNestedMenuContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { asUuid } from "@/lib/domain";
 import {
 	acceptedModulePlacementIssues,
 	realizedModuleUuid,
@@ -30,6 +34,7 @@ function fixture(shape: "nested" | "duplicate-roots" = "nested") {
 		childComposition.name = parentComposition.name;
 		childComposition.parentModuleCompositionId = undefined;
 	}
+	appDesignContractSchema.parse(contract);
 	const plan = deriveBuildPlan({
 		contract,
 		revision: { id: ids.revisionId, digest: "b".repeat(64) },
@@ -51,12 +56,18 @@ function fixture(shape: "nested" | "duplicate-roots" = "nested") {
 				name: parentComposition.name,
 				caseType: "patient",
 				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [],
 			},
 			{
 				name: childComposition.name,
 				caseType: "patient",
 				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [],
 			},
 		],
@@ -69,6 +80,7 @@ function fixture(shape: "nested" | "duplicate-roots" = "nested") {
 			parentModuleUuid: parentUuid,
 		};
 	}
+	assertAdmittedDoc(doc);
 	const handles = brief.moduleRealizations.map((realization) => ({
 		handle: realization.blueprintModuleHandle,
 		uuid:
@@ -81,6 +93,7 @@ function fixture(shape: "nested" | "duplicate-roots" = "nested") {
 describe("accepted module placement", () => {
 	it("resolves a module only in its accepted parent menu", () => {
 		const { brief, childUuid, doc, handles } = fixture();
+		assertAdmittedDoc(doc);
 		expect(realizedModuleUuid(doc, brief, ids.moduleVisits, handles)).toBe(
 			childUuid,
 		);
@@ -93,6 +106,7 @@ describe("accepted module placement", () => {
 		expect(realizedModuleUuid(doc, brief, ids.modulePatients, handles)).toBe(
 			parentUuid,
 		);
+		assertAdmittedDoc(doc);
 		expect(realizedModuleUuid(doc, brief, ids.moduleVisits, handles)).toBe(
 			childUuid,
 		);
@@ -115,6 +129,7 @@ describe("accepted module placement", () => {
 			...fixtureValue(doc.modules[childUuid], "child module body"),
 			parentModuleUuid: undefined,
 		};
+		assertAdmittedDoc(doc);
 		expect(realizedModuleUuid(doc, brief, ids.moduleVisits, handles)).toBe(
 			childUuid,
 		);
@@ -129,7 +144,9 @@ describe("accepted module placement", () => {
 	it("reports an accepted child composition that was never materialized", () => {
 		const { brief, childUuid, doc, handles } = fixture();
 		delete doc.modules[childUuid];
+		delete doc.formOrder[childUuid];
 		doc.moduleOrder = doc.moduleOrder.filter((uuid) => uuid !== childUuid);
+		assertAdmittedDoc(doc);
 		const survivingHandles = handles.filter(
 			(binding) => binding.uuid !== childUuid,
 		);
@@ -144,5 +161,65 @@ describe("accepted module placement", () => {
 				}),
 			],
 		);
+	});
+	it.each([
+		"missing-handle",
+		"wrong-kind",
+		"missing-entity",
+		"wrong-name",
+		"wrong-host",
+		"missing-parent-handle",
+	] as const)("refuses %s without repairing the admitted app", (fault) => {
+		const { brief, doc, handles, childUuid, parentUuid } = fixture(
+			fault === "wrong-host" ? "duplicate-roots" : "nested",
+		);
+		const child = fixtureValue(doc.modules[childUuid], "child");
+		const bindings = handles.map((binding) => ({ ...binding }));
+		const childHandle = fixtureValue(
+			bindings.find((binding) => binding.uuid === childUuid),
+			"child handle",
+		);
+		if (fault === "missing-handle")
+			childHandle.handle = changeSetHandleSchema.parse("@unrelated");
+		if (fault === "wrong-kind") childHandle.entityKind = "form";
+		if (fault === "missing-entity")
+			childHandle.uuid = asUuid("00000000-0000-4000-8000-000000008888");
+		if (fault === "wrong-name") child.name = "Different accepted name";
+		if (fault === "wrong-host") {
+			doc.caseTypes?.push({
+				...fixtureValue(doc.caseTypes?.[0], "patient catalog"),
+				name: "household",
+			});
+			child.caseType = "household";
+		}
+		if (fault === "missing-parent-handle")
+			fixtureValue(
+				bindings.find((binding) => binding.uuid === parentUuid),
+				"parent handle",
+			).handle = changeSetHandleSchema.parse("@unrelated");
+		assertAdmittedDoc(doc);
+		const before = structuredClone(doc);
+		expect(
+			acceptedModulePlacementIssues(doc, brief, bindings).map(
+				(issue) => issue.details.moduleCompositionId,
+			),
+		).toContain(ids.moduleVisits);
+		expect(doc).toEqual(before);
+	});
+
+	it("refuses a reordered pair of equal-name root siblings using actual sibling order", () => {
+		const { brief, doc, handles, childUuid, parentUuid } =
+			fixture("duplicate-roots");
+		doc.moduleOrder = [childUuid, parentUuid];
+		assertAdmittedDoc(doc);
+		expect(
+			acceptedModulePlacementIssues(doc, brief, handles).map((issue) => ({
+				id: issue.details.moduleCompositionId,
+				after: issue.details.realizedAfterSiblingModuleUuid,
+			})),
+		).toEqual([
+			{ id: ids.modulePatients, after: childUuid },
+			{ id: ids.moduleVisits, after: null },
+		]);
 	});
 });

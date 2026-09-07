@@ -2169,13 +2169,19 @@
 			"file": "lib/agent/build/__tests__/acceptedEntryPoints.test.ts",
 			"lines": 160,
 			"ciMs": 1896,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "5567a2989a4824fdf4c53a31d7b5888010b2bd15c3c63973f12e601ad1498044",
+			"review": "Read full parity owner and actual realization/entry projection dependencies. Replaced incomplete cast BlueprintDoc with strict-schema and full-gate admitted modules/forms. All three endpoint kinds, exact identities vs same display names, wrong kind/missing handles, actual form membership, accepted/extra IDs, bypass behavior and absence-vs-empty intent covered. Real brief/plan projection retained; not full construction or native navigation proof.",
+			"reviewedSha256": "1b32bd82a27c7734922bc7250a78ca5789ae2f75eb1da8b172fd328f8f4f2178"
 		},
 		{
 			"file": "lib/agent/build/__tests__/acceptedModulePlacement.test.ts",
 			"lines": 148,
 			"ciMs": 2058,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "ccf0b9f5c11f6a086d6ea98fb32bd77703134073d98075b9bb01d595bcbd363c",
+			"review": "Read full placement owner and sibling semantics. Rebuilt nested/equal-root fixtures with admitted case list configuration and reparse accepted contracts; snapshot gate avoids mutable fixture cache. Covers exact handles, wrong kinds/entities, missing parent, names/record hosts and independently reordered equal-name siblings. Pure accepted placement parity, not complete workflow materialization.",
+			"reviewedSha256": "aa22490c50fbe22a410c0ad741f8f37a051beb34881248f8e01936c5739ca6f6"
 		},
 		{
 			"file": "lib/agent/build/__tests__/authoritativeCompletion.test.ts",
@@ -2211,7 +2217,10 @@
 			"file": "lib/agent/build/__tests__/designPulseEmitter.test.ts",
 			"lines": 97,
 			"ciMs": 80,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "224b7088070847b2804423dad85b29d6d97ebe691a5810ea96acabc30f739871",
+			"review": "Read entire progress owner and real design runner pulse caller. Retained actual-clock throttle boundary checks and added independent step/phase transitions, cumulative suppressed volume, durable head changes, exact full frames, retained label and zero background timer work. Fake clock controls time only; no stream/DB persistence claim.",
+			"reviewedSha256": "4a2fa9226b6deef402a572b605e4cdfbdc9518621db01215e5542ca297f85b1c"
 		},
 		{
 			"file": "lib/agent/build/__tests__/executionBlocker.test.ts",
@@ -2289,13 +2298,19 @@
 			"file": "lib/agent/build/__tests__/progress.test.ts",
 			"lines": 136,
 			"ciMs": 45,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "cd67f94311ae742af4b55c889e72ba3957b8d7a0e7a41bec58a46199ea34fe0e",
+			"review": "Read full progress fold/projections and lease derivation. Schema-admitted orchestration states cover every phase with live/dead/equal-expiry lease, failure, abandoned/waiting precedence and materialized app. Actual admitted contract/review and plan prove safe field projection, source privacy and head/no-head envelopes. Fixed clock replaces Date.now-relative nondeterminism; PostgreSQL freeze separately owned.",
+			"reviewedSha256": "a83b35d46871dcee027c52fa3013f62e879300b0022c42964a0ae94d13e1ddf7"
 		},
 		{
 			"file": "lib/agent/build/__tests__/submissionStepNarrator.test.ts",
 			"lines": 47,
 			"ciMs": 43,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "437a0aefd39d126dab70dd8e25b736c423a125761f69d939b9fdd358c7c718d3",
+			"review": "Replaced assumed strict-order key substring method. Nested keys and quoted values demonstrated false step announcements before fix. Real bounded recognizer now tracks JSON depth/escaping and waits for top-level colon; tests all two-delta splits, character stream, actual patch upserts key, escaped keys and large values. Removed unused source label inventory. Advisory recognition only, no schema acceptance or model claim.",
+			"reviewedSha256": "4a78c0c7e29b09d735c9da4c8a65997fb79589c5de38031dccf88162c2538ad7"
 		},
 		{
 			"file": "lib/agent/change-set/__tests__/changeSetRuntime.postgres.test.ts",

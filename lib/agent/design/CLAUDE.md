@@ -480,3 +480,8 @@ author/review/revision protocol and performs no database writes.
 inspector. It reconstructs open workspace readiness and usage even before an
 immutable revision exists; `--reasoning` includes model reasoning summaries and
 payload-free tool outcomes from the run event log.
+
+Progress narration recognizes completed top-level JSON keys across streamed
+deltas, including split escapes. Nested keys and source prose do not announce
+submission steps. It retains only a bounded candidate key; submission schemas
+still own validation, and progress labels never imply artifact acceptance.
