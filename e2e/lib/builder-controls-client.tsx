@@ -1,8 +1,10 @@
 import { StrictMode, useEffect, useState } from "react";
+import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ValueField } from "@/components/builder/app-setup/ValueField";
 import { WorkerInformationSubsection } from "@/components/builder/app-setup/WorkerInformationSubsection";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
+import { FieldEditorPanel } from "@/components/builder/editor/FieldEditorPanel";
 import { FieldEditorSection } from "@/components/builder/editor/FieldEditorSection";
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
 import { OptionsEditor } from "@/components/builder/editor/fields/OptionsEditor";
@@ -81,6 +83,7 @@ import {
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
 import { useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
@@ -146,6 +149,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { runHistoryStep } from "@/lib/routing/historyStep";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import {
 	AccessFixture,
@@ -1080,6 +1084,192 @@ function CaseWriteFixture() {
 		</BlueprintDocProvider>
 	);
 }
+/**
+ * The field inspector on a one-case followup form: what the rail says and
+ * shows for each destination class, and how the hidden field's single Value
+ * control moves between its two modes. Legacy both-slot hidden fields are
+ * not seeded here because the commit gate refuses them; the pure model test
+ * owns that state.
+ */
+const PRELOAD_PHONE_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a001",
+);
+const PRELOAD_EMAIL_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a002",
+);
+const PRELOAD_VISIT_NAME_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a003",
+);
+const PRELOAD_VISIT_NOTES_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a004",
+);
+const PRELOAD_LAST_SEEN_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a005",
+);
+const PRELOAD_SCRATCH_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000a006",
+);
+const PRELOAD_FIELDS = {
+	phone: PRELOAD_PHONE_ID,
+	email: PRELOAD_EMAIL_ID,
+	"visit name": PRELOAD_VISIT_NAME_ID,
+	"last seen": PRELOAD_LAST_SEEN_ID,
+	scratch: PRELOAD_SCRATCH_ID,
+} as const;
+type PreloadFieldName = keyof typeof PRELOAD_FIELDS;
+const PRELOAD_SOURCE = buildDoc({
+	caseTypes: [
+		{
+			name: "patient",
+			properties: [
+				{ name: "phone", label: proseText("Phone"), data_type: "text" },
+				{ name: "email", label: proseText("Email"), data_type: "text" },
+				{ name: "last_seen", label: proseText("Last seen"), data_type: "date" },
+			],
+		},
+		{
+			name: "visit",
+			parent_type: "patient",
+			properties: [
+				{ name: "notes", label: proseText("Notes"), data_type: "text" },
+			],
+		},
+	],
+	modules: [
+		{
+			name: "Visits",
+			caseType: "visit",
+			caseListOnly: true,
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [],
+		},
+		{
+			name: "Clients",
+			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "phone", header: "Phone" }]),
+			forms: [
+				{
+					name: "Follow up",
+					type: "followup",
+					fields: [
+						{
+							kind: "text",
+							id: "phone",
+							uuid: PRELOAD_PHONE_ID,
+							label: proseText("Phone"),
+							caseWrite: { caseType: "patient", property: "phone" },
+						},
+						{
+							kind: "text",
+							id: "email",
+							uuid: PRELOAD_EMAIL_ID,
+							label: proseText("Email"),
+							caseWrite: { caseType: "patient", property: "email" },
+							default_value: "'none'",
+						},
+						{
+							kind: "text",
+							id: "visit_name",
+							uuid: PRELOAD_VISIT_NAME_ID,
+							label: proseText("Visit name"),
+							caseWrite: { caseType: "visit", property: "case_name" },
+						},
+						{
+							kind: "text",
+							id: "visit_notes",
+							uuid: PRELOAD_VISIT_NOTES_ID,
+							label: proseText("Visit notes"),
+							caseWrite: { caseType: "visit", property: "notes" },
+						},
+						{
+							kind: "hidden",
+							id: "last_seen",
+							uuid: PRELOAD_LAST_SEEN_ID,
+							calculate: "today()",
+							caseWrite: { caseType: "patient", property: "last_seen" },
+						},
+						{
+							kind: "hidden",
+							id: "scratch",
+							uuid: PRELOAD_SCRATCH_ID,
+							calculate: "''",
+						},
+					],
+				},
+			],
+		},
+	],
+});
+const preloadAdmission = evaluateCommit({
+	nextDoc: structuredClone(PRELOAD_SOURCE),
+	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+});
+if (!preloadAdmission.ok) throw new Error(JSON.stringify(preloadAdmission));
+const PRELOAD_DOC = toPersistableDoc(PRELOAD_SOURCE);
+blueprintDocSchema.parse(PRELOAD_DOC);
+function PreloadFixtureContent() {
+	const [selected, setSelected] = useState<PreloadFieldName>("phone");
+	const field = useField(PRELOAD_FIELDS[selected]);
+	const api = useBlueprintDocApi();
+	const canUndo = useCanUndo();
+	if (field === undefined) throw new Error("Missing preload fixture field");
+	return (
+		<>
+			<nav aria-label="Fields">
+				{(Object.keys(PRELOAD_FIELDS) as PreloadFieldName[]).map((name) => (
+					<Button
+						key={name}
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => setSelected(name)}
+					>
+						Select {name}
+					</Button>
+				))}
+			</nav>
+			<section aria-label="Field inspector" style={{ width: 300 }}>
+				<FieldEditorPanel field={field} />
+			</section>
+			<Button
+				onMouseDown={(event) => event.preventDefault()}
+				onClick={() => {
+					const result = runHistoryStep(
+						api.getState(),
+						"undo",
+						{
+							canEdit: true,
+							lookupCommitState: {
+								kind: "unmanaged",
+								lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+							},
+						},
+						flushSync,
+					);
+					if (result.kind === "refused") throw new Error(result.message);
+				}}
+			>
+				Undo
+			</Button>
+			<output aria-label="Saved field">{JSON.stringify(field)}</output>
+			<output aria-label="Can undo">{String(canUndo)}</output>
+		</>
+	);
+}
+function PreloadFixture() {
+	return (
+		<BlueprintDocProvider
+			initialDoc={PRELOAD_DOC}
+			appId="native-preload"
+			canEdit
+		>
+			<BuilderSessionProvider init={{ canEdit: true }}>
+				<EditGuardProvider>
+					<PreloadFixtureContent />
+				</EditGuardProvider>
+			</BuilderSessionProvider>
+		</BlueprintDocProvider>
+	);
+}
+
 function OptionsFixtureContent() {
 	const field = useField(OPTIONS_FIELD_ID);
 	const mutations = useBlueprintMutations();
@@ -1818,6 +2008,12 @@ if (scenario === "case-write")
 		"",
 		`/build/native-case-write/${Object.keys(CASE_WRITE_DOC.forms)[0]}`,
 	);
+if (scenario === "preload")
+	window.history.replaceState(
+		null,
+		"",
+		`/build/native-preload/${Object.keys(PRELOAD_DOC.forms)[0]}`,
+	);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing fixture root");
@@ -1844,6 +2040,8 @@ createRoot(root).render(
 			<CarryFixture multiple={scenario === "carry-multiple"} />
 		) : scenario === "setup-worker" || scenario === "setup-values" ? (
 			<SetupFixture values={scenario === "setup-values"} />
+		) : scenario === "preload" ? (
+			<PreloadFixture />
 		) : scenario === "case-write" ? (
 			<CaseWriteFixture />
 		) : scenario === "activation" ? (

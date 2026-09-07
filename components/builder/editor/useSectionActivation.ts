@@ -25,7 +25,7 @@
 "use client";
 import { useCallback, useEffect } from "react";
 import type { Field } from "@/lib/domain";
-import type { FieldEditorEntry } from "@/lib/domain/kinds";
+import type { FieldEditorContext, FieldEditorEntry } from "@/lib/domain/kinds";
 import {
 	type PartitionedEntries,
 	partitionEditorEntries,
@@ -54,10 +54,11 @@ export function useSectionActivation<F extends Field>(
 	field: F,
 	section: EditorSectionName,
 	entries: readonly FieldEditorEntry<F>[],
+	context: FieldEditorContext,
 ): SectionActivation<F> {
 	const activation = useEntryActivation(field.uuid, section);
 
-	const partition = partitionEditorEntries(field, entries, (key) =>
+	const partition = partitionEditorEntries(field, entries, context, (key) =>
 		activation.pending(key),
 	);
 

@@ -8,6 +8,8 @@
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { ComponentType } from "react";
 import type { Field, FieldKind } from "./fields";
+import type { Form } from "./forms";
+import type { Module } from "./modules";
 import type { ProseTemplate } from "./prose";
 import type { XPathExpression } from "./xpath";
 
@@ -178,16 +180,32 @@ export type XPathExpressionKeys<F extends Field> = {
 	string;
 
 /**
+ * Where the edited field lives: the module and form the selection resolved
+ * to, or `null` when the editor is mounted without a form location (a
+ * fixture, a detached preview). Entry predicates whose answer depends on
+ * the form's kind or the module's case type read it; the field alone
+ * cannot say, for example, whether the property it writes is read back
+ * out of the loaded case when the form opens.
+ */
+export type FieldEditorContext = {
+	module: Pick<Module, "caseType" | "caseListConfig">;
+	form: Pick<Form, "type">;
+} | null;
+
+/**
  * One entry in a kind's declarative editor schema.
  *
  * `label` is required — used as the editor's header text and as the
  * display string when the entry is offered as an add-affordance instead of
  * an active editor.
  *
- * `visible(field)` decides whether the entry's editor should render.
- * Default is "always visible." Falsy `visible` + `addable=true` means the
- * section renders the entry as an affordance to add it (clicking activates
- * the editor with `autoFocus`) rather than as an active editor.
+ * `visible(field, context)` decides whether the entry's editor should
+ * render. Default is "always visible." Falsy `visible` + `addable=true`
+ * means the section renders the entry as an affordance to add it (clicking
+ * activates the editor with `autoFocus`) rather than as an active editor.
+ * `context` is the module and form the field is selected in, or `null`
+ * when the panel is mounted without a form location; a predicate that
+ * reads only the field ignores it.
  *
  * `addable` is opt-in. Required-by-spec keys (e.g. `calculate` on hidden)
  * stay always-visible and never collapse into an add-affordance.
@@ -206,7 +224,7 @@ export type FieldEditorEntry<F extends Field> = {
 		key: K;
 		component: FieldEditorComponent<F, K>;
 		label: string;
-		visible?: (field: F) => boolean;
+		visible?: (field: F, context: FieldEditorContext) => boolean;
 		addable?: boolean;
 		valueOnAdd?: F[K];
 	};

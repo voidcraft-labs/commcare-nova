@@ -4,9 +4,11 @@
  *
  * Reads its entries from the schema (passed in by the panel, which
  * knows the kind → schema mapping). For each entry:
- *   - If `visible(field)` returns true (or is undefined), OR the
- *     entry is currently pending activation, render the entry's
- *     `component` with the typed value + onChange.
+ *   - If `visible(field, context)` returns true (or is undefined), OR
+ *     the entry is currently pending activation, render the entry's
+ *     `component` with the typed value + onChange. `context` is the
+ *     module + form the field is selected in; the panel supplies it and
+ *     a fixture mounting the section alone may leave it `null`.
  *   - Otherwise, if `entry.addable === true`, queue the entry for
  *     the Add Property pill row below the editors.
  *   - Otherwise, the entry stays hidden silently (e.g. a kind
@@ -29,7 +31,7 @@ import { useCallback } from "react";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import type { CommitOutcome, Field, FieldPatchFor } from "@/lib/domain";
-import type { FieldEditorEntry } from "@/lib/domain/kinds";
+import type { FieldEditorContext, FieldEditorEntry } from "@/lib/domain/kinds";
 import { AddPropertyButton } from "./AddPropertyButton";
 import type { EditorSectionName } from "./useEntryActivation";
 import { useSectionActivation } from "./useSectionActivation";
@@ -44,12 +46,16 @@ interface FieldEditorSectionProps<F extends Field> {
 	field: F;
 	section: EditorSectionName;
 	entries: readonly FieldEditorEntry<F>[];
+	/** The module + form the field is selected in; `null` (the default)
+	 *  when the section is mounted without a form location. */
+	context?: FieldEditorContext;
 }
 
 export function FieldEditorSection<F extends Field>({
 	field,
 	section,
 	entries,
+	context = null,
 }: FieldEditorSectionProps<F>) {
 	/* Inline flavor: every per-key editor mounted in this section renders
 	 * the returned outcome contextually (the XPath tooltip, the text
@@ -66,6 +72,7 @@ export function FieldEditorSection<F extends Field>({
 		field,
 		section,
 		entries,
+		context,
 	);
 
 	// Generic setter: write exactly one key on this field, then notify

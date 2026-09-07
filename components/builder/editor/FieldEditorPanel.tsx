@@ -19,7 +19,12 @@
 import { fieldEditorSchemas } from "@/components/builder/editor/fieldEditorSchemas";
 import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
 import type { Field } from "@/lib/domain";
-import type { FieldEditorEntry, FieldEditorSchema } from "@/lib/domain/kinds";
+import type {
+	FieldEditorContext,
+	FieldEditorEntry,
+	FieldEditorSchema,
+} from "@/lib/domain/kinds";
+import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { FieldEditorSection } from "./FieldEditorSection";
 import { sectionHasContent } from "./partitionEditorEntries";
 import type { EditorSectionName } from "./useEntryActivation";
@@ -59,6 +64,10 @@ interface FieldEditorPanelProps {
 
 export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 	const schema = schemaFor(field);
+	// Read once here and hand down: every entry predicate that depends on
+	// where the field lives (a followup form in a one-case module) sees the
+	// same module + form the URL selection resolved to.
+	const context = useSelectedFormContext();
 	// A fragment, not a wrapper div: the sections become direct children of
 	// the InspectorSurface body, so they inherit the same `space-y-4` rhythm
 	// and `first:` divider treatment the case-list inspector's sections do.
@@ -69,18 +78,21 @@ export function FieldEditorPanel({ field }: FieldEditorPanelProps) {
 				section="data"
 				entries={schema.data}
 				field={field}
+				context={context}
 			/>
 			<Section
 				title="Logic"
 				section="logic"
 				entries={schema.logic}
 				field={field}
+				context={context}
 			/>
 			<Section
 				title="Appearance"
 				section="ui"
 				entries={schema.ui}
 				field={field}
+				context={context}
 			/>
 		</>
 	);
@@ -91,6 +103,7 @@ interface SectionProps<F extends Field> {
 	section: EditorSectionName;
 	entries: readonly FieldEditorEntry<F>[];
 	field: F;
+	context: FieldEditorContext;
 }
 
 /**
@@ -111,11 +124,17 @@ function Section<F extends Field>({
 	section,
 	entries,
 	field,
+	context,
 }: SectionProps<F>) {
-	if (!sectionHasContent(field, entries)) return null;
+	if (!sectionHasContent(field, entries, context)) return null;
 	return (
 		<InspectorSection label={title}>
-			<FieldEditorSection field={field} section={section} entries={entries} />
+			<FieldEditorSection
+				field={field}
+				section={section}
+				entries={entries}
+				context={context}
+			/>
 		</InspectorSection>
 	);
 }

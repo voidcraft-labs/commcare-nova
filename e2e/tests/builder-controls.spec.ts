@@ -19,6 +19,11 @@ test.beforeAll(async () => {
 				"e2e/lib/builder-workflows-boundary.ts",
 			),
 			"@/lib/lookup/actions": resolve("e2e/lib/builder-workflows-boundary.ts"),
+			// The field inspector's convert dialog is on the panel's lazy graph;
+			// its Server Action would otherwise drag the case store into the peer.
+			"@/lib/preview/engine/caseDataBinding": resolve(
+				"e2e/lib/builder-workflows-boundary.ts",
+			),
 		},
 	);
 });
@@ -1849,6 +1854,175 @@ test("case storage describes several-case writes and commits a worker-admitted d
 			exact: true,
 		}),
 	).toBeVisible();
+});
+
+test("the inspector says what a case-bound field does when a one-case form opens", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=preload`);
+	const inspector = page.getByRole("region", {
+		name: "Field inspector",
+		exact: true,
+	});
+	const saved = page.getByLabel("Saved field");
+	const defaultRow = inspector.locator('[data-field-id="default_value"]');
+	const defaultPill = inspector.getByRole("button", {
+		name: "Default value",
+		exact: true,
+	});
+	const removeExpression = inspector.getByRole("button", {
+		name: "Remove expression",
+		exact: true,
+	});
+	async function describedText(chooser: Locator) {
+		const described = await chooser.getAttribute("aria-describedby");
+		expect(described).toBeTruthy();
+		return page.locator(`[id="${described}"]`);
+	}
+
+	// An own-type writer opens with the case's value: the destination line
+	// says so, and the default row is a forced read-only row, never a pill or
+	// an editor.
+	const phone = inspector.getByRole("combobox", { name: /#patient\/phone$/ });
+	await expect(phone).toBeVisible();
+	await expect(await describedText(phone)).toHaveText(
+		"Opens with this case's current value.",
+	);
+	await expect(defaultRow).toContainText(
+		"Opens with this case's current value",
+	);
+	await expect(defaultPill).toHaveCount(0);
+	await expect(defaultRow.getByRole("button")).toHaveCount(0);
+	await expect(defaultRow.locator(".cm-content")).toHaveCount(0);
+
+	// A stored expression on such a writer is shown read-only as dead, and
+	// removing it is one undoable step.
+	await page.getByRole("button", { name: "Select email", exact: true }).click();
+	await expect(defaultRow.locator(".cm-content")).toContainText("'none'");
+	await expect(defaultRow).toContainText("This expression never runs here");
+	await expect(
+		defaultRow.locator('.cm-content[contenteditable="true"]'),
+	).toHaveCount(0);
+	await removeExpression.click();
+	await expect(saved).not.toContainText('"default_value"');
+	await expect(defaultRow.locator(".cm-content")).toHaveCount(0);
+	await expect(removeExpression).toHaveCount(0);
+	await expect(defaultRow).toContainText(
+		"Opens with this case's current value",
+	);
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(saved).toContainText("'none'");
+	await expect(defaultRow.locator(".cm-content")).toContainText("'none'");
+
+	// A child-type writer creates a case per submission and opens blank, so
+	// its default value is an ordinary addable pill.
+	await page
+		.getByRole("button", { name: "Select visit name", exact: true })
+		.click();
+	const visitName = inspector.getByRole("combobox", {
+		name: /#visit\/case_name$/,
+	});
+	await expect(await describedText(visitName)).toHaveText(
+		"Creates a new Visit case on each submission.",
+	);
+	await expect(defaultPill).toBeVisible();
+	await expect(defaultRow).toHaveCount(0);
+
+	// A hidden calculated writer: the destination line names the calculation,
+	// and the single Value control opens in keep-in-step. Switching to set
+	// once moves the expression across as one write, shown read-only because
+	// the case supplies the value there; one Undo restores both slots.
+	await page
+		.getByRole("button", { name: "Select last seen", exact: true })
+		.click();
+	const lastSeen = inspector.getByRole("combobox", {
+		name: /#patient\/last_seen$/,
+	});
+	await expect(await describedText(lastSeen)).toHaveText(
+		"The calculation sets this value.",
+	);
+	const modeRow = inspector.locator('[data-field-id="value_mode"]');
+	const keepInStep = modeRow.getByRole("button", {
+		name: "Keep in step",
+		exact: true,
+	});
+	const setOnce = modeRow.getByRole("button", {
+		name: "Set once",
+		exact: true,
+	});
+	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
+	await expect(
+		inspector.locator('[data-field-id="calculate"] .cm-content'),
+	).toContainText("today()");
+	await setOnce.click();
+	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
+	await expect(saved).toContainText('"default_value"');
+	await expect(saved).not.toContainText('"calculate"');
+	await expect(defaultRow).toContainText(
+		"Opens with this case's current value",
+	);
+	await expect(defaultRow.locator(".cm-content")).toContainText("today()");
+	await expect(
+		defaultRow.locator('.cm-content[contenteditable="true"]'),
+	).toHaveCount(0);
+	await expect(removeExpression).toBeVisible();
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
+	await expect(saved).toContainText('"calculate"');
+	await expect(saved).not.toContainText('"default_value"');
+	await expect(
+		inspector.locator('[data-field-id="calculate"] .cm-content'),
+	).toContainText("today()");
+
+	// A hidden field that saves nowhere: the expression rides along on every
+	// mode switch, each switch is one undo step, and the body's data-field-id
+	// follows the active slot.
+	await page
+		.getByRole("button", { name: "Select scratch", exact: true })
+		.click();
+	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
+	await inspector
+		.locator('[data-field-id="calculate"]')
+		.getByRole("button")
+		.first()
+		.click();
+	const code = inspector.locator('.cm-content[contenteditable="true"]');
+	await code.press("ControlOrMeta+A");
+	await code.press("Backspace");
+	await expect(code).toHaveText("");
+	await code.pressSequentially("1 + 1");
+	await code.press("ControlOrMeta+Enter");
+	await expect(saved).toContainText(
+		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
+	);
+	await setOnce.click();
+	await expect(saved).toContainText(
+		'"default_value":{"parts":[{"kind":"text","text":"1 + 1"}]}',
+	);
+	await expect(saved).not.toContainText('"calculate"');
+	await expect(
+		inspector.locator('[data-field-id="default_value"] .cm-content'),
+	).toContainText("1 + 1");
+	await expect(inspector.locator('[data-field-id="calculate"]')).toHaveCount(0);
+	await keepInStep.click();
+	await expect(saved).toContainText(
+		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
+	);
+	await expect(saved).not.toContainText('"default_value"');
+	await expect(
+		inspector.locator('[data-field-id="default_value"]'),
+	).toHaveCount(0);
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
+	await expect(saved).toContainText(
+		'"default_value":{"parts":[{"kind":"text","text":"1 + 1"}]}',
+	);
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");
+	await expect(saved).toContainText(
+		'"calculate":{"parts":[{"kind":"text","text":"1 + 1"}]}',
+	);
+	await expect(saved).not.toContainText('"default_value"');
 });
 
 test("worker information preserves refused drafts across disclosure and guards shared edits and references", async ({
