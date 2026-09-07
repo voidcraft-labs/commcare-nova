@@ -259,3 +259,8 @@ restoration errors fail teardown.
 For animation-interruption checks, control the browser animation clock and observe
 the rendered result. Require settlement before the uninterrupted animation would
 finish; a fixed number of real animation frames is not a React/Motion commit barrier.
+
+Replace CodeMirror drafts with native Select All, Backspace, and keyboard input,
+observing the empty editor between deletion and typing. For syntax-refusal cases,
+use an incomplete expression such as `1 +`: inserting `(` can legitimately wrap
+the selected expression or insert its closing partner through auto-bracketing.

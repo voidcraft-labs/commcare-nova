@@ -1486,3 +1486,8 @@ Changing the device setting while a content-frame glide is active settles that
 frame immediately; the installed Motion hook only snapshots the initial setting.
 App-tree chevrons and delete triggers are independent buttons, so they let Escape
 reach their containing modal drawer. They do not swallow all keyboard events.
+
+XPath refusal notices preserve the active editor's keyboard focus and selection.
+Their informational popup opts out of both initial and return focus; a native
+blur-event check covers the entire refusal and recovery interaction, including
+brief transfers that an eventual focused assertion would miss.
