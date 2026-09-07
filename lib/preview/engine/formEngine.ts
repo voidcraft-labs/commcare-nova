@@ -3634,11 +3634,27 @@ export class FormEngine {
 		states: EngineStoreState,
 		tree: FieldTreeNode[],
 		prefix = "/data",
+		preloadedWriters:
+			| ReadonlyMap<Uuid, CaseWriteField>
+			| undefined = this.shouldPreloadPrimaryCase()
+			? this.primaryCaseWritesByField()
+			: undefined,
 	): void {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const value = this.computeDefault(f, path);
+			/* On the device both the field's own `default_value` and the case
+			 * preload are `xforms-ready` setvalues, and the preload is spliced
+			 * after the default in document order, so the loaded case's value
+			 * wins for every primary writer, even when the case holds no such
+			 * property yet (an empty nodeset seeds an empty string). A default
+			 * on a preloaded writer therefore never shows on a device, and
+			 * Preview must not show it either. `lib/domain/casePreload.ts` is
+			 * the shared statement of which writers those are; the inventory's
+			 * primary bucket is the same set with capture writers dropped. */
+			const value = preloadedWriters?.has(f.uuid)
+				? undefined
+				: this.computeDefault(f, path);
 			if (value !== undefined) {
 				this.instance.set(path, value);
 				const state = states[path];
@@ -3653,10 +3669,15 @@ export class FormEngine {
 						index < this.instance.getRepeatCount(path);
 						index += 1
 					) {
-						this.applyDefaultsInto(states, node.children, `${path}[${index}]`);
+						this.applyDefaultsInto(
+							states,
+							node.children,
+							`${path}[${index}]`,
+							preloadedWriters,
+						);
 					}
 				} else {
-					this.applyDefaultsInto(states, node.children, path);
+					this.applyDefaultsInto(states, node.children, path, preloadedWriters);
 				}
 			}
 		}
