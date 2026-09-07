@@ -337,9 +337,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_WRITE_UNKNOWN_TYPE: "soundness",
 	HIDDEN_NO_VALUE: "soundness",
 	// Schema-legal (both slots are optional so history hydrates) but
-	// contradictory: JavaRosa evaluates every calculate after the
-	// xforms-ready seeds, so the default is overwritten before anyone reads
-	// it. Every authoring surface already refuses to write the pair.
+	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
 	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
