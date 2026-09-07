@@ -2418,7 +2418,9 @@
 			"file": "lib/agent/design/__tests__/contractStorageNormalization.test.ts",
 			"lines": 163,
 			"ciMs": 717,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole storage normalizer and actual artifact/lookup consumers. Replaced partial checks and cast-driven fixtures with full schema/graph-admitted expected outputs, JSON roundtrips, idempotence, input immutability, omitted versus malformed collections, all legacy consumers, parent-queue versus child selection and lookup identity refusal. Actual malformed nonarray moduleCompositions became []; owner now defaults only omitted values and preserves invalid types for rejection. Fourteen tests pass; historical raw digest proof remains native artifact-store owned.",
+			"reviewedSha256": "989bff2fb240a18b3f1e2afd1cb26ce4560af3d04cc55028f355a3d83bf2adab"
 		},
 		{
 			"file": "lib/agent/design/__tests__/designGraph.test.ts",
@@ -2442,7 +2444,9 @@
 			"file": "lib/agent/design/__tests__/directCaseWrite.test.ts",
 			"lines": 118,
 			"ciMs": 707,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read whole test and planner, searched every production/test/doc reference. Planner had no production consumers: its only caller was this test, so these passing cases did not prove actual lowering. Removed entire dead production helper and its test, retaining actual build/executor audit as construction owner.",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/agent/design/__tests__/lookupMaterialization.postgres.test.ts",
@@ -2469,7 +2473,9 @@
 			"file": "lib/agent/design/__tests__/sourcePackage.test.ts",
 			"lines": 257,
 			"ciMs": 150,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole builder, deps, evidence, production caller and reconstruction. Replaced partial cast assets and invalid image/digest restatements with complete metadata, exact coordinates/order/bounds/citations/persistence and extension proof families. New actual Postgres+production adapter suite hashes real PNG, reads real stored extracts and persists/rebuilds source packages; four pre-fix cases expose ready/kind omission and late-reattachment prefix drift. Fixed both; changed/missing sources still fail closed. Native12 plus pure21 pass; native import-only Bluebird PROMISE diagnostic remains explicitly recorded.",
+			"reviewedSha256": "748c2957acc94fc3ec5270367094517fa01f28132889efa736c2f2f60ac17fe3"
 		},
 		{
 			"file": "lib/agent/design/loop/__tests__/claimSeeding.test.ts",

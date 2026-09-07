@@ -1,163 +1,176 @@
-import { describe, expect, it } from "vitest";
+/** Stored JSON compatibility: full admitted endpoints and exact projection.
+ * Sealed raw digest verification remains in the native artifact-store suite. */
+import { expect, it } from "vitest";
 import {
+	type AppDesignContract,
 	appDesignContractSchema,
 	normalizeStoredAppDesignContract,
-} from "@/lib/agent/design/contract";
+} from "../contract";
 import {
 	addPatientReviewWorkflow,
-	fixtureValue,
+	did,
 	ids,
 	makeContract,
+	makeNestedMenuContract,
 } from "./fixtures";
 
-describe("stored Design Contract normalization", () => {
-	it("fills omitted additive collections only at the storage boundary", () => {
-		const stored = structuredClone(makeContract()) as unknown as Record<
-			string,
-			unknown
-		>;
-		delete stored.moduleCompositions;
-		delete stored.formCompositions;
-		delete stored.lookupTables;
+function legacy(current: AppDesignContract, hint = ids.taskVisit) {
+	return {
+		...current,
+		moduleCompositions: current.moduleCompositions.map(
+			({ selection: _selection, ...module }) => module,
+		),
+		lists: current.lists.map((list) => ({
+			...list,
+			selectionWorkflowId: hint,
+		})),
+	};
+}
+function roundTrip(stored: unknown, expected: AppDesignContract) {
+	const before = JSON.stringify(stored);
+	const parsed = JSON.parse(before);
+	const normalized = normalizeStoredAppDesignContract(parsed);
+	expect(normalized).toEqual(appDesignContractSchema.parse(expected));
+	expect(normalizeStoredAppDesignContract(normalized)).toEqual(normalized);
+	expect(JSON.stringify(stored)).toBe(before);
+	expect(parsed).toEqual(JSON.parse(before));
+	return normalized;
+}
 
-		expect(appDesignContractSchema.safeParse(stored).success).toBe(false);
-		const normalized = normalizeStoredAppDesignContract(stored);
-		expect(normalized).toMatchObject({
-			schemaVersion: 1,
+it("preserves the whole current graph and is idempotent without mutating input", () => {
+	const current = makeContract();
+	roundTrip(current, current);
+});
+it("fills only omitted additive collections at the stored boundary", () => {
+	const current = makeContract();
+	const {
+		moduleCompositions: _modules,
+		formCompositions: _forms,
+		lookupTables: _lookups,
+		...stored
+	} = current;
+	expect(appDesignContractSchema.safeParse(stored).success).toBe(false);
+	roundTrip(stored, {
+		...current,
+		moduleCompositions: [],
+		formCompositions: [],
+		lookupTables: [],
+	});
+});
+it.each(["moduleCompositions", "formCompositions", "lookupTables"] as const)(
+	"does not repair malformed %s into an empty collection",
+	(key) => {
+		const current = appDesignContractSchema.parse({
+			...makeContract(),
 			moduleCompositions: [],
 			formCompositions: [],
 			lookupTables: [],
 		});
-		expect(() =>
-			normalizeStoredAppDesignContract({ ...stored, lookupTables: null }),
-		).toThrow();
-	});
-
-	it("moves historical workflow-only list selection to its module", () => {
-		const stored = structuredClone(makeContract()) as unknown as Record<
-			string,
-			unknown
-		>;
-		const lists = stored.lists as Array<Record<string, unknown>>;
-		const list = fixtureValue(lists[0], "patient list");
-		const modules = stored.moduleCompositions as Array<Record<string, unknown>>;
-		delete fixtureValue(modules[0], "patient module").selection;
-		list.selectionWorkflowId = ids.taskVisit;
-
+		for (const invalid of [null, {}, "", false, 1]) {
+			const stored = { ...current, [key]: invalid };
+			expect(appDesignContractSchema.safeParse(stored).success).toBe(false);
+			expect(() => normalizeStoredAppDesignContract(stored)).toThrow();
+		}
+	},
+);
+it.each([ids.taskVisit, ids.taskRegister])(
+	"derives actual selected consumers rather than trusting legacy usage hint %s",
+	(hint) => {
+		const current = makeContract();
+		const stored = legacy(current, hint);
 		expect(appDesignContractSchema.safeParse(stored).success).toBe(false);
-		expect(
-			normalizeStoredAppDesignContract(stored).moduleCompositions[0]?.selection,
-		).toEqual({
-			workflowIds: [ids.taskVisit],
-			cases: "one",
-		});
-	});
-
-	it("derives complete current coverage instead of preserving a legacy usage hint", () => {
-		const stored = structuredClone(makeContract()) as unknown as Record<
-			string,
-			unknown
-		>;
-		const lists = stored.lists as Array<Record<string, unknown>>;
-		const list = fixtureValue(lists[0], "patient list");
-		const modules = stored.moduleCompositions as Array<Record<string, unknown>>;
-		delete fixtureValue(modules[0], "patient module").selection;
-		/* The former schema proved only that this workflow existed. It did not
-		 * require its selected context or form placement to match the list. */
-		list.selectionWorkflowId = ids.taskRegister;
-
-		const currentSpelling = structuredClone(stored);
-		delete fixtureValue(
-			(currentSpelling.lists as Array<Record<string, unknown>>)[0],
-			"patient list",
-		).selectionWorkflowId;
-		fixtureValue(
-			(currentSpelling.moduleCompositions as Array<Record<string, unknown>>)[0],
-			"patient module",
-		).selection = {
-			workflowIds: [ids.taskRegister],
-			cases: "one",
-		};
-		expect(appDesignContractSchema.safeParse(currentSpelling).success).toBe(
-			false,
-		);
-
-		expect(
-			normalizeStoredAppDesignContract(stored).moduleCompositions[0]?.selection,
-		).toEqual({
-			workflowIds: [ids.taskVisit],
-			cases: "one",
-		});
-	});
-
-	it("derives every module consumer from one legacy list hint", () => {
-		const contract = makeContract();
-		addPatientReviewWorkflow(contract);
-		const stored = structuredClone(contract) as unknown as Record<
-			string,
-			unknown
-		>;
-		const module = fixtureValue(
-			(stored.moduleCompositions as Array<Record<string, unknown>>)[0],
-			"patient module",
-		);
-		delete module.selection;
-		fixtureValue(
-			(stored.lists as Array<Record<string, unknown>>)[0],
-			"patient list",
-		).selectionWorkflowId = ids.taskVisit;
-
-		expect(
-			normalizeStoredAppDesignContract(stored).moduleCompositions[0]?.selection,
-		).toEqual({
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		});
-	});
-
-	it("restores implicit one-case semantics for a legacy form-host without a list", () => {
-		const stored = structuredClone(makeContract()) as unknown as Record<
-			string,
-			unknown
-		>;
-		const module = fixtureValue(
-			(stored.moduleCompositions as Array<Record<string, unknown>>)[0],
-			"patient module",
-		);
-		module.role = "form-host";
-		module.listIds = [];
-		delete module.selection;
-		stored.lists = [];
-		stored.access = [];
-		fixtureValue(
-			(stored.navigation as Array<Record<string, unknown>>)[0],
-			"patient navigation",
-		).listIds = [];
-
-		expect(
-			normalizeStoredAppDesignContract(stored).moduleCompositions[0]?.selection,
-		).toEqual({
-			workflowIds: [ids.taskVisit],
-			cases: "one",
-		});
-	});
-
-	it("does not synthesize a missing stable lookup identity", () => {
-		const stored = structuredClone(makeContract()) as unknown as ReturnType<
-			typeof makeContract
-		>;
-		const risk = fixtureValue(
-			stored.records[0]?.properties.find(
-				(property) => property.id === ids.factRisk,
-			),
-			"risk property",
-		) as unknown as Record<string, unknown>;
-		delete risk.choiceValues;
-		risk.choiceSource = {
-			kind: "existing-project-lookup",
-			valueColumnId: "018f0000-0000-7000-8000-000000000102",
-			labelColumnId: "018f0000-0000-7000-8000-000000000103",
-		};
-		expect(() => normalizeStoredAppDesignContract(stored)).toThrow();
-	});
+		roundTrip(stored, current);
+	},
+);
+it("derives all consumers in workflow order while leaving nonconsumers unselected", () => {
+	const current = makeContract();
+	addPatientReviewWorkflow(current);
+	current.moduleCompositions[0].selection = {
+		workflowIds: [ids.taskVisit, ids.taskReview],
+		cases: "one",
+	};
+	const admitted = appDesignContractSchema.parse(current);
+	const stored = legacy(admitted);
+	stored.formCompositions = [...stored.formCompositions].reverse();
+	roundTrip(stored, { ...admitted, formCompositions: stored.formCompositions });
+});
+it("preserves explicit current many-case selection rather than defaulting it", () => {
+	const current = makeContract();
+	current.moduleCompositions[0].selection = {
+		workflowIds: [ids.taskVisit],
+		cases: "several",
+		maximum: 12,
+	};
+	const admitted = appDesignContractSchema.parse(current);
+	roundTrip(
+		{
+			...admitted,
+			lists: admitted.lists.map((list) => ({
+				...list,
+				selectionWorkflowId: ids.taskVisit,
+			})),
+		},
+		admitted,
+	);
+});
+it("recovers a child form-host's own selection when the parent is not a queue-only carrier", () => {
+	const current = makeNestedMenuContract();
+	roundTrip(legacy(current), current);
+});
+it("recovers parent queue selection without synthesizing a duplicate child carrier", () => {
+	const current = makeNestedMenuContract();
+	const [parent, child] = current.moduleCompositions;
+	parent.role = "queue-only";
+	parent.selection = { workflowIds: [ids.taskVisit], cases: "one" };
+	delete child.selection;
+	child.workflowIds = [ids.taskRegister, ids.taskVisit];
+	current.formCompositions = current.formCompositions.map((form) => ({
+		...form,
+		moduleCompositionId: child.id,
+	}));
+	const admitted = appDesignContractSchema.parse(current);
+	roundTrip(legacy(admitted), admitted);
+});
+it("restores implicit one-case selection for a form-host without a list", () => {
+	const current = makeContract();
+	current.moduleCompositions[0].role = "form-host";
+	current.moduleCompositions[0].listIds = [];
+	current.lists = [];
+	current.access = [];
+	current.navigation[0].listIds = [];
+	const admitted = appDesignContractSchema.parse(current);
+	roundTrip(legacy(admitted), admitted);
+});
+it("refuses missing legacy workflows and unknown current vocabulary", () => {
+	const current = makeContract();
+	expect(() =>
+		normalizeStoredAppDesignContract(legacy(current, did(9999))),
+	).toThrow();
+	expect(() =>
+		normalizeStoredAppDesignContract({ ...current, unexpected: true }),
+	).toThrow();
+	for (const invalid of [null, [], "contract", 12])
+		expect(() => normalizeStoredAppDesignContract(invalid)).toThrow();
+});
+it("does not synthesize a missing stable lookup table identity", () => {
+	const current = makeContract();
+	const stored = {
+		...current,
+		records: current.records.map((record) => ({
+			...record,
+			properties: record.properties.map((property) => {
+				if (property.id !== ids.factRisk) return property;
+				const { choiceValues: _choiceValues, ...rest } = property;
+				return {
+					...rest,
+					choiceSource: {
+						kind: "existing-project-lookup",
+						valueColumnId: "018f0000-0000-7000-8000-000000000102",
+						labelColumnId: "018f0000-0000-7000-8000-000000000103",
+					},
+				};
+			}),
+		})),
+	};
+	expect(() => normalizeStoredAppDesignContract(stored)).toThrow();
 });

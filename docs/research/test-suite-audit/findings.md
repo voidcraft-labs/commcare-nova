@@ -2265,3 +2265,48 @@ two pre-fix failures respectively. `/tmp/nova-root-artifact-orchestration-final.
 passes 96 tests across both native suites;
 `/tmp/nova-root-artifact-workspace-method.log` passes 16 pure tests. All used the
 async detector without diagnostics.
+
+## Source projection and reconstruction use actual stored media
+
+The former seven-test source suite supplied incomplete cast media records,
+invalid placeholder image transports and an unchanged invented digest. Its
+assertion about changed image content was therefore not evidence of hashing.
+The replacement separates pure projection rules from the actual Postgres media
+lookup, ready stored-extract adapter, production image hashing, source-row
+persistence and point-in-time reconstruction. Only object-storage bytes are
+controlled; no provider or GCS-service claim is made.
+
+Four native failures reproduced two defects: pending or differently typed media
+rows reached image projection, and later duplicate attachments enlarged the
+reconstruction prefix to include new request text. The builder now checks ready
+status and exact kind; reconstruction uses the earliest occurrence of each
+original asset together with the original message coordinates. Full digest
+comparison still refuses changed text, extracts or image bytes, missing messages
+and deleted assets. A trailing attachment-only message remains part of the old
+package. This proves the source boundary, not a bypass of earlier chat-request
+validation.
+
+Pure checks now assert exact part coordinates/order, first labels, deduplication,
+whole citable grouping, UTF-8 persistence accounting, exact per-part/document
+and aggregate limits, pre-download count/size refusal, seeded claim coordinates,
+all extension-proof families and untouched input. The actual image digest is
+proved by the production adapter over real PNG bytes.
+
+Stored-contract normalization now compares full admitted current graphs,
+legacy projections and idempotent JSON replay, including queue-parent versus
+independent child selection. A counterexample showed malformed nonarray
+`moduleCompositions` was silently normalized to an empty array when forms were
+absent. Only omitted collections now acquire defaults; malformed values remain
+invalid. One newly authored test initially used the nonexistent cardinality
+`many`; its schema refusal correctly identified a fixture error, corrected to
+`several` with its required maximum. The unused direct-case-write planner and
+its sole consumer, its test, were removed after a repository-wide caller search;
+those tests never exercised actual app construction.
+
+Evidence: `/tmp/nova-root-source-before.log` has the four native failures;
+`/tmp/nova-root-source-native-final.log` passes 12 native tests. The latter reports
+Bluebird's import-time native-Promise probe from mammoth and is not described as
+leak-clean. `/tmp/nova-root-normalization-before.log` records the malformed-value
+failure separately from the invalid fixture. The final pure projection and
+normalization run passes 35 tests in `/tmp/nova-root-source-normalization-final.log`
+without async diagnostics.

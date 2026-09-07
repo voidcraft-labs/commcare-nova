@@ -570,3 +570,12 @@ the original stored digest. Semantic workspace tests reconstruct a complete
 contract through persisted operations and separately exercise partial replay,
 identity ordering, disposition updates, combined operation counts and UTF-8
 byte limits. They do not claim model quality or database authority.
+
+Source-package projection tests use complete asset metadata and real image
+bytes. Native tests retain the actual Project-filtered media lookup, stored
+extract adapter, persisted source rows and reconstruction; only object-storage
+bytes are controlled. They prove rejection of pending or mismatched assets,
+first-occurrence attachment replay, and refusal after source changes. They do
+not prove GCS service behavior or live model interpretation. Importing the
+office extractor currently reports Bluebird's inert native-Promise probe under
+the async detector; record that diagnostic rather than calling the run clean.

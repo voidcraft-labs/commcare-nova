@@ -469,11 +469,16 @@ export async function buildDesignSourcePackage(
 	const assetIds = [...documentRefs, ...imageRefs].map((ref) => ref.assetId);
 	const assets = await args.deps.loadAssets(assetIds, args.projectId);
 	const assetById = new Map(assets.map((asset) => [asset.id as string, asset]));
-	const requireAsset = (assetId: string, filename: string) => {
+	const requireAsset = (assetId: string, filename: string, kind: string) => {
 		const asset = assetById.get(assetId);
 		if (!asset) {
 			throw new SourcePackageError(
 				`The attachment "${filename}" is no longer available in this Project, so it cannot ground the design. Remove it from the request or re-attach it.`,
+			);
+		}
+		if (asset.status !== "ready" || asset.kind !== kind) {
+			throw new SourcePackageError(
+				`The attachment "${filename}" is not ready or no longer matches the attached file type. Re-attach it so its content can ground the design.`,
 			);
 		}
 		return asset;
@@ -481,7 +486,7 @@ export async function buildDesignSourcePackage(
 
 	const attachments: AuthorizedAttachmentProjection[] = [];
 	for (const ref of documentRefs) {
-		const asset = requireAsset(ref.assetId, ref.filename);
+		const asset = requireAsset(ref.assetId, ref.filename, ref.kind);
 		const extract = await args.deps.readExtract(asset, ref.kind);
 		const text = extract.text.trim();
 		if (text.length === 0) {
@@ -517,7 +522,7 @@ export async function buildDesignSourcePackage(
 
 	const images: AuthorizedImage[] = [];
 	for (const ref of imageRefs) {
-		const asset = requireAsset(ref.assetId, ref.filename);
+		const asset = requireAsset(ref.assetId, ref.filename, "image");
 		const image = await args.deps.loadImage(asset);
 		images.push({
 			assetId: ref.assetId,

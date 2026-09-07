@@ -1258,7 +1258,11 @@ export function normalizeStoredAppDesignContract(
 	const normalized = {
 		...value,
 		moduleCompositions:
-			value.moduleCompositions === undefined ? [] : normalizedModules,
+			value.moduleCompositions === undefined
+				? []
+				: Array.isArray(value.moduleCompositions)
+					? normalizedModules
+					: value.moduleCompositions,
 		formCompositions:
 			value.formCompositions === undefined ? [] : value.formCompositions,
 		lookupTables: value.lookupTables === undefined ? [] : value.lookupTables,

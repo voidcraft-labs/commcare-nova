@@ -239,6 +239,10 @@ valid direct Builder or MCP edit.
   content-free proof hashes rather than copied source bodies. Historical
   answered-question claims remain source-package reconstruction metadata; they
   are not part of the Design Contract or build coverage model.
+  Asset metadata must be ready and match the attached kind before projection.
+  Package reconstruction uses the earliest prefix containing the original
+  source coordinates, so later reattachments do not pull new text into an
+  older design. The recomputed digest still refuses changed or missing content.
 - `capabilityCatalog.ts` generates the design-time capability boundary from
   the shared tools and domain vocabularies. One session builds one app in the
   current Project. The catalog and bounded Project-data inspector expose current

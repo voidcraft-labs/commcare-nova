@@ -46,15 +46,14 @@ export async function rebuildPackageForDigest(args: {
 		}
 	}
 
-	/* The prefix boundary: the last message that contributed anything to the
-	 * persisted package: a text block (its id is a message ref) or an
-	 * attachment (an asset the package projected). Everything after it
-	 * arrived later and is exactly what the rebuild must exclude. */
+	/* The builder projects each asset at its first occurrence. Find the
+	 * shortest prefix containing every original message and first asset
+	 * occurrence; a later reattachment must not pull new text into old evidence. */
 	let boundary = -1;
 	args.messages.forEach((message, index) => {
 		if (referencedMessageIds.has(message.id)) {
 			boundary = index;
-			return;
+			referencedMessageIds.delete(message.id);
 		}
 		if (message.role !== "user") return;
 		const attachments = (
@@ -62,18 +61,23 @@ export async function rebuildPackageForDigest(args: {
 				| { attachments?: Array<{ assetId?: unknown }> }
 				| undefined
 		)?.attachments;
-		if (
-			Array.isArray(attachments) &&
-			attachments.some(
-				(ref) =>
+		if (Array.isArray(attachments)) {
+			for (const ref of attachments) {
+				if (
 					typeof ref?.assetId === "string" &&
-					referencedAssetIds.has(ref.assetId),
-			)
-		) {
-			boundary = index;
+					referencedAssetIds.delete(ref.assetId)
+				) {
+					boundary = index;
+				}
+			}
 		}
 	});
-	if (boundary < 0) return null;
+	if (
+		boundary < 0 ||
+		referencedMessageIds.size > 0 ||
+		referencedAssetIds.size > 0
+	)
+		return null;
 
 	try {
 		const rebuilt = await buildDesignSourcePackage({
