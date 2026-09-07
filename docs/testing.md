@@ -331,6 +331,9 @@ runner CPU totals do not establish that target. Smoke has two explicit lanes:
 component peers in real Chromium without an app server/database, and app journeys
 against the production server with one database per job. Each authenticated test,
 repeat and retry owns separate accounts, sessions, Projects and mutable data.
+The case store coordinates index DDL on the shared physical `cases` relation;
+its native concurrency regression queues two apps' index work and proves both
+finish with valid indexes and cleared durable pending markers.
 Managed local browser contexts also own a distinct client network identity through
 the production proxy contract; the real auth limiter remains enabled.
 The public Playwright reporter supplies exact attempt identities; the ordinary

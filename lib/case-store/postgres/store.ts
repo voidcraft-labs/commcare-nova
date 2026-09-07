@@ -149,6 +149,7 @@ import {
 	indexScopeTag,
 	propertyIndexTag,
 } from "./indexIdentity";
+import { withCaseSchemaIndexDdlLock } from "./schemaIndexLock";
 import { retireCaseTypeSchemasPhaseA } from "./schemaRetirement";
 import {
 	executeSubmissionEnvelope,
@@ -2896,101 +2897,98 @@ export class PostgresCaseStore implements CaseStore {
 		caseType: string,
 	): Promise<void> {
 		await this.db.connection().execute(async (connection) => {
-			const scope = caseSchemaIndexLockScope(appId, caseType);
-			await sql`
-				SELECT pg_advisory_lock(hashtextextended(${scope}, 0))
-			`.execute(connection);
-			try {
-				const latest = await connection
-					.selectFrom("case_type_schemas")
-					.select(["schema", "is_active", "synced_seq", "index_pending_seq"])
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.executeTakeFirst();
-				const pendingDeletion = await connection
-					.selectFrom("case_schema_index_deletions")
-					.select("case_type")
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.executeTakeFirst();
-				if (latest === undefined) {
-					if (pendingDeletion === undefined) return;
+			await withCaseSchemaIndexDdlLock(
+				connection,
+				appId,
+				caseType,
+				async () => {
+					const latest = await connection
+						.selectFrom("case_type_schemas")
+						.select(["schema", "is_active", "synced_seq", "index_pending_seq"])
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.executeTakeFirst();
+					const pendingDeletion = await connection
+						.selectFrom("case_schema_index_deletions")
+						.select("case_type")
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.executeTakeFirst();
+					if (latest === undefined) {
+						if (pendingDeletion === undefined) return;
+						await this.syncExpressionIndexes({
+							db: connection,
+							appId,
+							caseType,
+							desired: new Map(),
+						});
+						await connection
+							.deleteFrom("case_schema_index_deletions")
+							.where("app_id", "=", appId)
+							.where("case_type", "=", caseType)
+							.execute();
+						return;
+					}
+					if (pendingDeletion !== undefined) {
+						// A schema recreated after a drop is authoritative. Phase A
+						// normally removed this tombstone under the same lock; this
+						// branch also converges a stale Phase-B owner that observed
+						// the recreation after it began.
+						await connection
+							.deleteFrom("case_schema_index_deletions")
+							.where("app_id", "=", appId)
+							.where("case_type", "=", caseType)
+							.execute();
+					}
+					if (latest.is_active && latest.index_pending_seq === null) return;
+					const pendingSeq =
+						latest.index_pending_seq === null
+							? undefined
+							: safePersistedSequence(
+									latest.index_pending_seq,
+									`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+								);
 					await this.syncExpressionIndexes({
 						db: connection,
 						appId,
 						caseType,
-						desired: new Map(),
+						desired: latest.is_active
+							? desiredIndexesFromStoredSchema(appId, caseType, latest.schema)
+							: new Map(),
 					});
-					await connection
-						.deleteFrom("case_schema_index_deletions")
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.execute();
-					return;
-				}
-				if (pendingDeletion !== undefined) {
-					// A schema recreated after a drop is authoritative. Phase A
-					// normally removed this tombstone under the same lock; this
-					// branch also converges a stale Phase-B owner that observed
-					// the recreation after it began.
-					await connection
-						.deleteFrom("case_schema_index_deletions")
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.execute();
-				}
-				if (latest.is_active && latest.index_pending_seq === null) return;
-				const pendingSeq =
-					latest.index_pending_seq === null
-						? undefined
-						: safePersistedSequence(
-								latest.index_pending_seq,
-								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-							);
-				await this.syncExpressionIndexes({
-					db: connection,
-					appId,
-					caseType,
-					desired: latest.is_active
-						? desiredIndexesFromStoredSchema(appId, caseType, latest.schema)
-						: new Map(),
-				});
-				if (pendingSeq !== undefined) {
-					await connection
-						.updateTable("case_type_schemas")
-						.set({
-							index_pending_seq: null,
-							index_synced_seq: pendingSeq,
-						})
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.where("index_pending_seq", "=", String(pendingSeq))
-						.execute();
-				} else if (!latest.is_active) {
-					// Forced retirement reconciliation can arrive after an older
-					// application revision consumed the marker while retaining the old
-					// desired indexes. The current reconciler has now observed the empty
-					// set, so advance the durable convergence watermark as well as the
-					// physical catalog state.
-					const syncedSeq = safePersistedSequence(
-						latest.synced_seq,
-						`case_type_schemas.synced_seq for forced index convergence ${appId}/${caseType}`,
-					);
-					await connection
-						.updateTable("case_type_schemas")
-						.set({ index_synced_seq: syncedSeq })
-						.where("app_id", "=", appId)
-						.where("case_type", "=", caseType)
-						.where("is_active", "=", false)
-						.where("synced_seq", "=", String(syncedSeq))
-						.where("index_pending_seq", "is", null)
-						.execute();
-				}
-			} finally {
-				await sql`
-					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))
-				`.execute(connection);
-			}
+					if (pendingSeq !== undefined) {
+						await connection
+							.updateTable("case_type_schemas")
+							.set({
+								index_pending_seq: null,
+								index_synced_seq: pendingSeq,
+							})
+							.where("app_id", "=", appId)
+							.where("case_type", "=", caseType)
+							.where("index_pending_seq", "=", String(pendingSeq))
+							.execute();
+					} else if (!latest.is_active) {
+						// Forced retirement reconciliation can arrive after an older
+						// application revision consumed the marker while retaining the old
+						// desired indexes. The current reconciler has now observed the empty
+						// set, so advance the durable convergence watermark as well as the
+						// physical catalog state.
+						const syncedSeq = safePersistedSequence(
+							latest.synced_seq,
+							`case_type_schemas.synced_seq for forced index convergence ${appId}/${caseType}`,
+						);
+						await connection
+							.updateTable("case_type_schemas")
+							.set({ index_synced_seq: syncedSeq })
+							.where("app_id", "=", appId)
+							.where("case_type", "=", caseType)
+							.where("is_active", "=", false)
+							.where("synced_seq", "=", String(syncedSeq))
+							.where("index_pending_seq", "is", null)
+							.execute();
+					}
+				},
+			);
 		});
 	}
 

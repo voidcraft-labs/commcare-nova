@@ -670,6 +670,14 @@ reactivation sequence fence.
 
 ### Phase B (no transaction; runs after Phase A commits)
 
+Phase B coordinates the physical `cases` relation across apps. Its session
+advisory lock uses the search-path-resolved relation OID, then the existing
+app/type lifecycle lock. Runtime and maintenance retirement use the same owner.
+Lock contenders call `pg_try_advisory_lock` and wait outside a SQL statement:
+a blocking advisory SELECT retains an old snapshot that a concurrent partial
+index build can itself be waiting to retire. Only index DDL is serialized;
+Phase A keeps its existing transaction locks and ordinary case writes continue.
+
 4. **Per-property expression-index DDL** — always runs. Computes
    the desired index set from the blueprint's property
    declarations, reads the live index set from `pg_index` +
@@ -1307,6 +1315,9 @@ The `db` fixture is the transactional Kysely handle; `pgClient` is the escape ha
 
 Pending-index drains at the app-state boundary use the same bounded transient
 retry as additive schema updates. Separate apps still build indexes on the shared
-`cases` table, so concurrent DDL can deadlock. Recovery rereads durable pending
+`cases` table, so Phase B coordinates that physical resource through
+`postgres/schemaIndexLock.ts`. A native regression holds the table until two
+apps reach DDL, then proves both converge without an invalid index or pending
+marker. Recovery from other transient failures rereads durable pending
 work and rebuilds invalid indexes; exhausted transient failures and deterministic
 faults still propagate to the caller. It never retries a case-data write.

@@ -188,7 +188,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 
 CI runs separate browser and app lanes, with their job and worker counts in
 `config/smoke-execution.json`. Workers control machine load; isolation does not
-rely on a one-worker limit. `scripts/ci/smoke-matrix.mjs` allocates four or six jobs
+rely on a one-worker limit. The case store owns coordination of shared physical
+index DDL; scenario fixtures continue to own their accounts, Projects, apps and
+data independently. `scripts/ci/smoke-matrix.mjs` allocates four or six jobs
 proportionally to measured lane costs, with at least one job per lane. Each lane
 uses `SMOKE_PARTITION` to select a balanced native test list, then verifies that
 Playwright selected exactly those logical identities before seeding. Native
