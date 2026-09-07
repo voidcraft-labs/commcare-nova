@@ -459,7 +459,6 @@ describe("expandDoc", () => {
 								f({
 									kind: "hidden",
 									id: "status",
-									calculate: "'pending'",
 									default_value: "'pending'",
 								}),
 							],
@@ -1740,7 +1739,6 @@ describe("#form/ hashtag expansion", () => {
 									kind: "hidden",
 									id: "text_value",
 									uuid: textValueUuid,
-									calculate: "'Text'",
 									default_value: "'Text'",
 								}),
 								f({
@@ -1787,7 +1785,6 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "hidden",
 									id: "total",
-									calculate: "#form/score_a + #form/score_b",
 									default_value: "#form/score_a + #form/score_b",
 								}),
 							],
@@ -1884,7 +1881,6 @@ describe("#form/ hashtag expansion", () => {
 								f({
 									kind: "hidden",
 									id: "ts",
-									calculate: "now()",
 									default_value: "now()",
 								}),
 							],
@@ -2682,7 +2678,6 @@ describe("jr-insert for repeat defaults", () => {
 										f({
 											kind: "hidden",
 											id: "status",
-											calculate: "'pending'",
 											default_value: "'pending'",
 										}),
 									],
@@ -2714,7 +2709,6 @@ describe("jr-insert for repeat defaults", () => {
 								f({
 									kind: "hidden",
 									id: "status",
-									calculate: "'pending'",
 									default_value: "'pending'",
 								}),
 							],
@@ -2869,7 +2863,6 @@ describe("unquoted string literal detection", () => {
 		const question = f({
 			kind,
 			id: "q",
-			...(kind === "hidden" && { calculate: "1" }),
 			[slot]: expression,
 		} as Parameters<typeof f>[0]);
 		return buildDoc({

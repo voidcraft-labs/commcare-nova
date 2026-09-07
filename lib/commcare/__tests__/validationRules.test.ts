@@ -430,6 +430,20 @@ describe("strict field shape and semantic backstops", () => {
 			["HIDDEN_NO_VALUE"],
 		);
 	});
+	it("admits a hidden field with only a default and rejects one carrying both value sources at the default", () => {
+		assertAdmittedDoc(
+			survey([{ ...plain, kind: "hidden", default_value: "today()" }]),
+		);
+		const doc = candidate(hidden(), (d) => {
+			fieldPatch(d, { default_value: xp("today()") });
+		});
+		/* Schema-legal: both slots are optional so historical documents
+		 * hydrate. The rule is what refuses the pair. */
+		expect(fieldSchema.safeParse(doc.fields[q]).success).toBe(true);
+		const [error] = findings(doc, ["HIDDEN_VALUE_BOTH_SOURCES"]);
+		expect(error?.location.fieldId).toBe("answer");
+		expect(error?.location.field).toBeUndefined();
+	});
 	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
 		"admits a complete %s repeat",
 		(mode) => {

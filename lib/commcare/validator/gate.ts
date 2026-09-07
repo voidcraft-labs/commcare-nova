@@ -336,6 +336,9 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// when a peer concurrently retires the type the field was declared against.
 	CASE_WRITE_UNKNOWN_TYPE: "soundness",
 	HIDDEN_NO_VALUE: "soundness",
+	// Schema-legal (both slots are optional so history hydrates) but
+	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
+	HIDDEN_VALUE_BOTH_SOURCES: "soundness",
 	REQUIRED_ON_HIDDEN: "shape",
 	CALCULATE_ON_VISIBLE_INPUT: "shape",
 	UNQUOTED_STRING_LITERAL: "soundness",

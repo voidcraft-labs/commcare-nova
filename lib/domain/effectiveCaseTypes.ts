@@ -567,8 +567,9 @@ function collectFormFieldTypes(
  * Structural type inference for a hidden writer — see the module
  * header for the exact (deliberately closed) shape vocabulary. The
  * `calculate` slot wins over `default_value` when both are present,
- * mirroring the wire semantic (a bind calculate re-evaluates over
- * the setvalue seed).
+ * mirroring the wire semantic (a bind calculate re-evaluates over the
+ * setvalue seed); the validator's `HIDDEN_VALUE_BOTH_SOURCES` refuses that
+ * pair at commit.
  */
 function inferHiddenWriterType(
 	field: HiddenField,

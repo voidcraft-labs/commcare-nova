@@ -31,20 +31,17 @@ serving. The execute report must show `blockedApps: []` and the closing
 `--prod` scan must print `CLEAN` with exit code 0; paste both into the
 release N+1 pull request. A blocked app needs its own owned repair first.
 
-## Release N+1
+## Release N+1 (this stack's second PR)
 
-- Add the validator rule `HIDDEN_VALUE_BOTH_SOURCES`
-  (`lib/commcare/validator/errors.ts`, class `soundness` in
-  `gate.ts::VALIDITY_CLASS_BY_CODE`, `rules/field.ts::hiddenValueBothSources`
-  registered after `hiddenNoValue`, location `field: "default_value"`), its
-  builder copy in `lib/doc/userFacingErrors.ts`, and its tests.
-- Convert the expander fixtures that carry both slots to `default_value`-only.
-- Upgrade the SA prompt's "Hidden Values" sentence to state the refusal, and
-  the `hidden.ts` header, `lib/domain/CLAUDE.md`, and `lib/commcare/CLAUDE.md`
-  to name the rule.
-- Re-run the `--prod` scan immediately before merge. A straggler fails N+1 at
-  the migrate probe, fail-closed; recovery is re-executing the Job from N's
-  maintenance image and re-triggering the build.
+- The validator rule `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/errors.ts`,
+  class `soundness`, `rules/field.ts::hiddenValueBothSources`, located at the
+  field), its builder copy, and its tests.
+- The expander fixtures that carried both slots now carry `default_value`
+  only; the SA prompt, `hidden.ts`, `lib/domain/CLAUDE.md`, and
+  `lib/commcare/CLAUDE.md` name the rule.
+- Merge gate: re-run the `--prod` scan immediately before merge. A straggler
+  fails N+1 at the migrate probe, fail-closed; recovery is re-executing the
+  Job from N's maintenance image and re-triggering the build.
 
 ## Release N+2
 

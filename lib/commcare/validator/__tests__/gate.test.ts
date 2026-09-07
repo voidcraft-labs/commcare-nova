@@ -331,6 +331,45 @@ describe("evaluateCommit", () => {
 		).toEqual(["REQUIRED_ON_HIDDEN"]);
 	});
 
+	it("a hidden field carrying both value sources is schema-legal and refused as soundness; clearing one slot is admitted", () => {
+		// Both slots are optional so historical documents hydrate; the gate is
+		// what makes the pair unrepresentable. A commit that introduces it is
+		// refused, and the clearing commit (the shape the one-off repair wrote)
+		// is admitted.
+		const doc = minDoc();
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const hidden: Field = {
+			uuid: testUuid("fld-hidden-both"),
+			kind: "hidden",
+			id: "computed",
+			calculate: xp("1"),
+			default_value: xp("today()"),
+		};
+		const both = apply(doc, [
+			{ kind: "addField", parentUuid: formUuid, field: hidden },
+		]);
+		expect(blueprintDocSchema.safeParse(toPersistableDoc(both)).success).toBe(
+			true,
+		);
+		expect(
+			codes(
+				gateCommit(doc, [
+					{ kind: "addField", parentUuid: formUuid, field: hidden },
+				]),
+			),
+		).toEqual(["HIDDEN_VALUE_BOTH_SOURCES"]);
+		expect(
+			gateCommit(both, [
+				{
+					kind: "updateField",
+					uuid: hidden.uuid,
+					targetKind: "hidden",
+					patch: { default_value: null },
+				},
+			]),
+		).toEqual({ ok: true });
+	});
+
 	it("a new INVALID_REF (soundness) is rejected", () => {
 		const doc = minDoc();
 		const fieldUuid = Object.values(doc.fields)[0].uuid;
