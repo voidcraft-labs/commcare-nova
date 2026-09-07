@@ -1,6 +1,7 @@
 // Pure display/SSR projection. Native focus and popover interaction live in
 // e2e/tests/case-workspace-audit.spec.ts; wire dates have their native Core suite.
 
+import { DomUtils, parseDocument } from "htmlparser2";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
@@ -543,9 +544,9 @@ describe("case-list Preview cell formatting", () => {
 	});
 });
 
-/** Controlled scalar SSR outputs here contain no authored markup or entities. */
+/** Read SSR text through an HTML parser; this is not an HTML sanitizer. */
 function visibleText(html: string): string {
-	return html.replace(/<[^>]*>/g, "");
+	return DomUtils.textContent(parseDocument(html));
 }
 
 function makeRow(

@@ -155,7 +155,9 @@ describe("initial-build localization finalizer", () => {
 							peerErrors.push(error);
 							response.writeHead(400);
 							response.end(
-								JSON.stringify({ error: { message: String(error) } }),
+								JSON.stringify({
+									error: { message: "Invalid translation fixture request" },
+								}),
 							);
 						}
 					});

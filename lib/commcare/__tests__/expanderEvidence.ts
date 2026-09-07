@@ -47,7 +47,12 @@ export function captureExpanderEvidence(
 			!entry.entryName.endsWith(".xml")
 		)
 			continue;
-		const filename = `${id}.${entry.entryName.replaceAll("/", ".")}`;
+		const formPath = /^modules-(\d+)\/forms-(\d+)\.xml$/.exec(entry.entryName);
+		if (!formPath)
+			throw new Error(`Unexpected form archive path: ${entry.entryName}`);
+		// Construct the output name from numeric coordinates; archive paths
+		// never become filesystem paths, even in the optional evidence producer.
+		const filename = `${id}.modules-${Number(formPath[1])}.forms-${Number(formPath[2])}.xml`;
 		localForms.push(filename);
 		writeFileSync(resolve(destination, filename), entry.getData());
 	}

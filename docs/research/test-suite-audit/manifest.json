@@ -1008,8 +1008,10 @@
 			"status": "revised",
 			"baselineSha256": "c32e46ee89ac28a7b8f1a3c51cecb8a9a66a8040237578cc449079223aa791be",
 			"review": "Read entire renderer and Quick Filter actual consumer plus case row contract. Removed fake happy-dom click/CSS tap-target claims; native keyboard/popover and measured target proof now passes. Node-only pure display/SSR tests keep date/calendar/boundary/mapping/structured fallback checks, typed JSON rows without casts. Three admitted link-fallback regressions failed before fix, now Quick Filter matches visible raw invalid URL and ignores blank data/authored hidden label. 25 pass tiles-cells-final.log.",
-			"reviewedSha256": "7403d01446529af17a493265e9ca19c5602e476a6f8b01dc0226e03bebde5f32",
-			"evidenceReport": "reviews/doc-original.json"
+			"reviewedSha256": "6195b4a419f653297b8320e62eb30883d40710fb27a4e4d846089ae2da37ebc2",
+			"evidenceReport": "reviews/doc-original.json",
+			"priorCodeqlReviewedSha256": "7403d01446529af17a493265e9ca19c5602e476a6f8b01dc0226e03bebde5f32",
+			"codeqlIntegrationEvidenceReport": "root-codeql-followon.json"
 		},
 		{
 			"file": "components/builder/case-list-config/__tests__/columnEditorSchemas.test.ts",
@@ -4571,8 +4573,10 @@
 			"status": "revised",
 			"baselineSha256": "f4edc27a3ebdf73f950a1786e0c36cecc8d1e28f28c2c772be15d8b2575fac9f",
 			"review": "Read full baseline, finalizer/store/translator, canonical sidecar, run claim and genesis writer. Replaced manually stamped mutation_seq=1 without history with real createExplicitBlankApp and claimAndReserveRun. Added real production DesignGenerationContext/Responses adapter over owned HTTP peer paired completed/incomplete status. Reproduced parsed incomplete output wrongly committed; fixed finalizer to persist terminal truncated failure with usage, intact source and no rebill on retry. Added late native receipt-insert fault after app seq/history/attempt flip were visible, proving atomic rollback and successful retry. Eight native tests pass; FK-valid accepted artifact lineage and policy runners remain controlled fixtures, not actual design review or translation quality.",
-			"reviewedSha256": "42ce9c30de221309e76424a4ed195399ce5e80367fe04bc3f117a4e5086240ab",
-			"evidenceReport": "reviews/domain-original.json"
+			"reviewedSha256": "1c7246985aed1d8aede9c2a5fe71644bde1998c443ec7bf299483f1c771d79ef",
+			"evidenceReport": "reviews/domain-original.json",
+			"priorCodeqlReviewedSha256": "42ce9c30de221309e76424a4ed195399ce5e80367fe04bc3f117a4e5086240ab",
+			"codeqlIntegrationEvidenceReport": "root-codeql-followon.json"
 		},
 		{
 			"file": "lib/agent/translation/__tests__/finalizer.test.ts",
