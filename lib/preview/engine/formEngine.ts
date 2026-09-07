@@ -54,7 +54,6 @@ import type {
 } from "@/lib/domain";
 import {
 	asUuid,
-	CASE_LOADING_FORM_TYPES,
 	type CaseWriteField,
 	type ContainerField,
 	caseDataTypeForFieldKind,
@@ -62,6 +61,7 @@ import {
 	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
+	formOpensWithOneCase,
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
@@ -3483,8 +3483,7 @@ export class FormEngine {
 	 */
 	private shouldPreloadPrimaryCase(): boolean {
 		return (
-			isCaseLoadingFormType(this.formType) &&
-			this.caseSelectionCardinality === "single" &&
+			formOpensWithOneCase(this.formType, this.caseSelectionCardinality) &&
 			this.caseData.size > 0
 		);
 	}
@@ -4083,11 +4082,6 @@ interface ChildBucket {
 	caseName?: string;
 	externalId?: string;
 	properties: JsonObject;
-}
-
-/** Domain-typed membership check for the engine's active form type. */
-function isCaseLoadingFormType(formType: FormType): boolean {
-	return CASE_LOADING_FORM_TYPES.has(formType);
 }
 
 /**

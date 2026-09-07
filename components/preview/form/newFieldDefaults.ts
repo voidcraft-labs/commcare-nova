@@ -18,7 +18,7 @@ import {
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
-	HIDDEN_INERT_DEFAULT_VALUE,
+	HIDDEN_INERT_VALUE,
 	proseText,
 } from "@/lib/domain";
 
@@ -82,18 +82,18 @@ export const NEW_FIELD_BUILDERS: {
 		repeat_mode: "user_controlled",
 	}),
 	// Hidden carries NO label (it's never shown): passing one would not
-	// compile, which is the whole point. It starts with `default_value:
-	// "''"` (the empty-string literal: a one-shot <setvalue> seed) so the
-	// fresh field is immediately valid: a hidden field must carry a value
-	// source (`HIDDEN_NO_VALUE` is soundness, so the commit gate rejects a
-	// bare one in every phase). `default_value`, not `calculate`, is the
-	// seed because it stays inert if the user then adds a calculate (the
-	// computed value simply wins), whereas a seeded calculate would
-	// continuously clobber any default the user typed until removed.
+	// compile, which is the whole point. It is born in keep-in-step mode
+	// with the inert `''` calculation so the fresh field is immediately
+	// valid: a hidden field must carry exactly one value source
+	// (`HIDDEN_NO_VALUE` is soundness, so the commit gate rejects a bare
+	// one in every phase), and most hidden values track other answers, so
+	// the user types the real calculation into the slot that is already
+	// active. The inspector's Value control moves the expression to
+	// `default_value` when they choose set-once instead.
 	hidden: (id) => ({
 		kind: "hidden",
 		id,
-		default_value: HIDDEN_INERT_DEFAULT_VALUE,
+		calculate: HIDDEN_INERT_VALUE,
 	}),
 };
 

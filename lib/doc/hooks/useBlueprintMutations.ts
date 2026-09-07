@@ -125,7 +125,7 @@ import {
 	type FormType,
 	fieldRegistry,
 	findAuthoredBlueprintIdentity,
-	HIDDEN_INERT_DEFAULT_VALUE,
+	HIDDEN_INERT_VALUE,
 	type LocationProperty,
 	type MediaAssetId,
 	type ModuleIconRef,
@@ -1099,25 +1099,20 @@ export function createBlueprintMutations(
 				}
 				const batch: Mutation[] = [];
 				// Converting to hidden must land with a value source or the
-				// gate rejects on HIDDEN_NO_VALUE — and this gesture has no
-				// authoring step. Seed the same inert `''` default a
-				// picker-inserted hidden is born with (the user authors the
-				// real calculate in the inspector right after); the seed
-				// lands on the SOURCE field pre-convert (its kind declares
-				// `default_value`) and carries through the kind swap. A
-				// field that already has a default keeps it.
-				if (
+				// gate rejects on HIDDEN_NO_VALUE, and this gesture has no
+				// authoring step. A field that already carries a default or a
+				// calculation keeps it (a carried default is a set-once
+				// value). Otherwise the converted field is born the way a
+				// picker-inserted hidden is: in keep-in-step mode, with the
+				// inert `''` calculation the user replaces in the inspector.
+				// The seed is pushed AFTER the conversion plan because the
+				// source kind declares no `calculate` slot; the gate judges
+				// the batch's end state, so the valueless intermediate is
+				// never seen.
+				const seedHiddenCalculate =
 					toKind === "hidden" &&
 					!("default_value" in field && field.default_value) &&
-					!("calculate" in field && field.calculate)
-				) {
-					batch.push({
-						kind: "updateField",
-						uuid,
-						targetKind: field.kind,
-						patch: { default_value: HIDDEN_INERT_DEFAULT_VALUE },
-					} as Mutation);
-				}
+					!("calculate" in field && field.calculate);
 				// The property-centric plan (shared with the SA's editField):
 				// a case-bound string-scalar conversion carries the
 				// property's other writers across in the same batch and
@@ -1149,6 +1144,14 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
+				if (seedHiddenCalculate) {
+					batch.push({
+						kind: "updateField",
+						uuid,
+						targetKind: "hidden",
+						patch: { calculate: HIDDEN_INERT_VALUE },
+					});
+				}
 				return toOutcome(guardedApply(batch));
 			},
 

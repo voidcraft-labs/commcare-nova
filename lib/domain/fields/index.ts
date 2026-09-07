@@ -46,6 +46,7 @@ import {
 import { type GroupField, groupFieldMetadata, groupFieldSchema } from "./group";
 import {
 	type HiddenField,
+	hiddenFieldCarriesBothValueSources,
 	hiddenFieldMetadata,
 	hiddenFieldSchema,
 } from "./hidden";
@@ -707,7 +708,7 @@ export type { SelectOption } from "./base";
 // and by the SA tool schema generator for the `options` field on select tools).
 export {
 	DEFAULT_SELECT_OPTIONS,
-	HIDDEN_INERT_DEFAULT_VALUE,
+	HIDDEN_INERT_VALUE,
 	isMintedSelectOptionPlaceholder,
 	mintSelectOptionPlaceholder,
 	selectOptionSchema,
@@ -718,7 +719,6 @@ export {
 	type SelectOptionsSource,
 	selectOptionsSourceSchema,
 } from "./selectOptionsSource";
-
 // Re-export individual kind types for downstream switch blocks.
 export type {
 	AudioField,
@@ -746,3 +746,4 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
+export { hiddenFieldCarriesBothValueSources };

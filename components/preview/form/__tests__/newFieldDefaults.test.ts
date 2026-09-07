@@ -30,6 +30,17 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 		expect("label" in built).toBe(false);
 	});
 
+	it("births a hidden field in keep-in-step mode with exactly one value source", () => {
+		// The inert `''` lands in `calculate`, never beside a default: a
+		// hidden field carries one value source, and most hidden values track
+		// other answers, so the slot the user types into is already active.
+		const built = NEW_FIELD_BUILDERS.hidden("new_hidden", "ignored");
+		expect(built.kind === "hidden" ? built.calculate : undefined).toEqual({
+			parts: [{ kind: "text", text: "''" }],
+		});
+		expect("default_value" in built).toBe(false);
+	});
+
 	it("births a page's repeat count-bound at one, schema-valid", () => {
 		const built = newPageRepeat("new_repeat", "New Repeat");
 		expect(built.repeat_mode).toBe("count_bound");

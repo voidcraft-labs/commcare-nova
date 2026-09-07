@@ -15,6 +15,7 @@ export * from "./casePropertyName";
 export * from "./casePropertyTypes";
 export * from "./caseRetype";
 export * from "./caseScalarText";
+export * from "./casePreload";
 export * from "./caseTypes";
 export * from "./caseWriteInventory";
 export * from "./columnApplicability";
