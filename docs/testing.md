@@ -629,3 +629,10 @@ UUIDv5 output, replay and cumulative extension; malformed completed cards pass
 through the real metadata gate before the defensive seeder is exercised.
 This is source projection, not proof that an authenticated POST or model
 correctly interprets the answer.
+
+Review vocabulary and strict review-result tests use the actual source-package
+producer, including request, document, image and answered-question evidence.
+An independent JSON Schema validator checks complete wire payloads before the
+actual canonical parser. Exact grounding, disposition, decision and correction
+coordinates have separate cases. These prove schema and projection behavior;
+native persisted review and model-loop tests own authority and execution.

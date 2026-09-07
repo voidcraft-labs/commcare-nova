@@ -2490,3 +2490,26 @@ All 22 final cases pass without async diagnostics in
 root errors; its six contemporaneous collaborator-fixture errors were routed
 to the owning lanes. Authenticated POST and live model interpretation remain
 separate methods.
+
+### Review vocabulary and complete review grammar
+
+Read both complete original suites, the review vocabulary, review schema,
+review-result and disposition owners, source projection and prompt callers.
+The shared fixture now calls the actual source-package producer with controlled
+authorized asset bytes and a real flat answered-question card. It provides
+request, document, image and answer coordinates. Defensive duplicate/reference
+cases remain explicitly projection-only.
+
+Replaced shape and phrase checks with exact symbol maps, complete admitted
+contract projections, immutable replay and positional finding identities.
+Complete strict review payloads pass an independent AJV validator and then the
+actual canonical parser. Separate matrices exercise grounding/severity,
+disposition closure, user decisions, correction sensitivity and invalid
+coordinates. Existing domain-reference guards receive complete tool payloads.
+No production behavior change was needed for these two methods.
+
+All 62 cases pass without async diagnostics in
+`/tmp/nova-root-design-review-full.log`; the helper's message type was then
+corrected to the actual Nova metadata type identified by integration typecheck.
+These are offline grammar and projection proofs. They do not claim live model
+judgment or persisted review authority.

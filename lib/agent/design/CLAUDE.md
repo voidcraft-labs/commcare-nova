@@ -29,15 +29,14 @@ valid direct Builder or MCP edit.
   resolve before the unchanged UUID-only schemas parse, and the reserved
   `@f<N>` namespace can never enter a design reference. State and
   inspection project every bound identity back through its handle. The
-  semantic update and inspect tools ship `strict: true`, so their provider wire schemas widen
-  every design-ID slot to `uuid | { handle }` — `designIdSchema` emits its
-  admission rule as the canonical UUID `pattern` (a required slot as
-  `type: "string"`, a formerly-optional slot as the strict projection's
-  `type: ["string", "null"]`, which widens with its null arm kept), the
-  widening keys on that exact pattern, and
-  `loop/__tests__/toolWireSchemas.test.ts` audits every node carrying the
-  pattern so no slot remains pinned to raw UUIDs the server would then
-  refuse. Review findings carry the third symbol family: positional
+  semantic update and inspect tools ship `strict: true`. Their provider grammar
+  widens explicitly marked DesignId slots to `uuid | { handle }`, keeping the
+  null arm where the slot was optional. The `x-nova-design-identity` marker is
+  consumed before provider serialization; Project lookup, source and media
+  UUIDs retain their own canonical identity semantics even in same-named slots.
+  `loop/__tests__/toolWireSchemas.test.ts` admits complete payloads through an
+  independent JSON Schema validator and the actual canonical parse seam.
+  Review findings carry the third symbol family: positional
   `@f1..@fN` handles (`reviewVocabulary.ts::deriveFindingHandleBindings`),
   server projections derived on demand from the head draft's reviews — never
   ledger rows. A disposition's `findingId` takes the printed `@f` handle,
@@ -247,7 +246,7 @@ valid direct Builder or MCP edit.
 - `sourcePackage.ts` is the one caller-authorized source boundary. It renders
   bounded transcript messages, Project-authorized attachment extracts, and
   digest-bound images for the model while persisting references and
-  content-free proof hashes rather than copied source bodies. Historical
+  content-free proof hashes rather than copied source bodies.
   Answered-question claims require the actual question input shape and a
   nonempty string answer for every question in the flat client result map.
   Malformed or unfinished cards seed nothing; complete cards retain their

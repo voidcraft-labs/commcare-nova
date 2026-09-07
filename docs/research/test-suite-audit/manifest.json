@@ -2448,7 +2448,9 @@
 			"file": "lib/agent/design/__tests__/designReview.test.ts",
 			"lines": 565,
 			"ciMs": 857,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete review result schema, reviewer grammar, disposition and reference owners. Real source-package fixture plus independent AJV complete strict payloads through actual canonical parse; exact grounding/severity, closure, user-decision and correction-sensitivity matrices. All52 tests pass without async diagnostics. Offline grammar and projection only; no live judgment or persisted review authority claim.",
+			"reviewedSha256": "2b0f5e77673eefc4ce50087fdd50502d486dff15e03820c2e17dc1dd66e6f227"
 		},
 		{
 			"file": "lib/agent/design/__tests__/directCaseWrite.test.ts",
@@ -2477,7 +2479,9 @@
 			"file": "lib/agent/design/__tests__/reviewVocabulary.test.ts",
 			"lines": 152,
 			"ciMs": 587,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete vocabulary, source projection and prompt callers. Real source-package producer supplies request/document/image/answered-card evidence. Exact symbols, admitted contract projection, immutable JSON including own __proto__, defensive citation identity, positional finding continuity and complete guarded tool payloads replace shape checks. Ten offline projection cases pass; no model or persisted authority claim.",
+			"reviewedSha256": "c86a0f56ad30fd961ba45191ed05fcb93369ebe09fc7d06059ee1e42fb07fc53"
 		},
 		{
 			"file": "lib/agent/design/__tests__/sourcePackage.test.ts",

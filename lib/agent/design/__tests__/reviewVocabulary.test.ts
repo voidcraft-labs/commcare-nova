@@ -1,152 +1,240 @@
-/**
- * The reviewer's symbol derivations — tag numbering over the citable set,
- * the bare-handle projection, positional finding handles, and the reserved
- * prefix. These are render-time projections, so what matters is that one
- * derivation is deterministic, deduped, and junk-tolerant; the lockstep with
- * the schema and the prompt is pinned in `designReview.test.ts`.
- */
-
 import { describe, expect, it } from "vitest";
+import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import { sourceRefKey } from "@/lib/agent/design/evidence";
+import {
+	designReservedHandleIssue,
+	designReservedReferenceIssue,
+} from "@/lib/agent/design/loop/tools";
 import {
 	deriveFindingHandleBindings,
 	projectBoundIdsToHandles,
-	RESERVED_FINDING_HANDLE_PATTERN,
 	sourceTagByRefKey,
 	taggedCitableSourceRefs,
 } from "@/lib/agent/design/reviewVocabulary";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { did, imageRef, messageRef } from "./fixtures";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { did, fixtureValue, ids, makeContract } from "./fixtures";
+import { reviewSourceFixture } from "./reviewSourceFixture";
+import {
+	SOURCE_DOCUMENT,
+	SOURCE_IMAGE,
+	SOURCE_PNG,
+	SOURCE_THREAD,
+	sourceDigest,
+} from "./sourcePackageFixtures";
 
-const ATTACHMENT_REF = {
-	kind: "attachment-extract" as const,
-	assetId: "00000000-0000-4000-8000-000000000860" as never,
-	extractorVersion: 3,
-	sectionPath: [],
-};
-
-function pkg(
-	overrides: Partial<DesignSourcePackage> = {},
-): DesignSourcePackage {
-	return {
-		schemaVersion: 1,
-		designSessionId: "00000000-0000-4000-8000-000000000700",
-		projectId: "project-1",
-		packageDigest: "a".repeat(64),
-		request: {
-			blocks: [{ ref: messageRef(), text: "Track visits.", truncated: false }],
-		},
-		claims: [],
-		attachments: [],
-		images: [],
-		platformConstraints: [],
-		sources: [{ ref: messageRef() }],
-		...overrides,
-	};
-}
-
-describe("taggedCitableSourceRefs", () => {
-	it("numbers the citable set in order, dedups, and skips platform refs", () => {
-		const tagged = taggedCitableSourceRefs(
-			pkg({
-				sources: [
-					{ ref: messageRef() },
-					{ ref: ATTACHMENT_REF },
-					{ ref: imageRef() },
-				],
-				claims: [
-					{
-						id: did(700),
-						statement: "The user answered the pilot questions.",
-						sourceRefs: [
-							// A duplicate of the projected block, a platform fact, and
-							// one genuinely new coordinate.
-							messageRef(),
-							{
-								kind: "platform-constraint",
-								code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
-								sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
-							},
-							messageRef(9),
-						],
-					},
-				],
-			}),
-		);
-		expect(tagged.map(({ tag, ref }) => [tag, ref.kind])).toEqual([
-			["S1", "message"],
-			["S2", "attachment-extract"],
-			["S3", "image"],
-			["S4", "message"],
-		]);
-	});
-
-	it("keys the lookup by citation identity", () => {
-		const tags = sourceTagByRefKey(pkg({ sources: [{ ref: messageRef() }] }));
-		expect(tags.get("message:00000000-0000-4000-8000-999999999999:m1:0")).toBe(
-			"S1",
-		);
-	});
-});
-
-describe("projectBoundIdsToHandles", () => {
-	const bindings = [{ handle: "@patient", designId: did(20) as string }];
-
-	it("replaces bound id strings with bare handles at any depth", () => {
-		expect(
-			projectBoundIdsToHandles(
-				{
-					id: did(20),
-					nested: { list: [did(20), "keep-me"] },
+describe("review symbol projection", () => {
+	it("assigns exact tags to the produced message, extract, image and answered-card coordinates", async () => {
+		const pkg = await reviewSourceFixture();
+		const before = structuredClone(pkg);
+		const expected = [
+			{
+				tag: "S1",
+				ref: {
+					kind: "message",
+					threadId: SOURCE_THREAD,
+					messageId: "request",
+					partIndex: 0,
 				},
-				bindings,
-			),
-		).toEqual({
-			id: "@patient",
-			nested: { list: ["@patient", "keep-me"] },
+			},
+			{
+				tag: "S2",
+				ref: {
+					kind: "attachment-extract",
+					assetId: SOURCE_DOCUMENT,
+					extractorVersion: EXTRACTOR_VERSION,
+					sectionPath: [],
+				},
+			},
+			{
+				tag: "S3",
+				ref: {
+					kind: "image",
+					assetId: SOURCE_IMAGE,
+					bytesDigest: sourceDigest(SOURCE_PNG),
+				},
+			},
+			{
+				tag: "S4",
+				ref: {
+					kind: "message",
+					threadId: SOURCE_THREAD,
+					messageId: "answers",
+					partIndex: 1,
+				},
+			},
+		];
+		expect(taggedCitableSourceRefs(pkg)).toEqual(expected);
+		expect([...sourceTagByRefKey(pkg)]).toEqual([
+			[`message:${SOURCE_THREAD}:request:0`, "S1"],
+			[`attachment:${SOURCE_DOCUMENT}:${EXTRACTOR_VERSION}`, "S2"],
+			[`image:${SOURCE_IMAGE}:${sourceDigest(SOURCE_PNG)}`, "S3"],
+			[`message:${SOURCE_THREAD}:answers:1`, "S4"],
+		]);
+		expect(pkg).toEqual(before);
+		expect(taggedCitableSourceRefs(JSON.parse(JSON.stringify(pkg)))).toEqual(
+			expected,
+		);
+	});
+
+	it("deduplicates citation identity while retaining first coordinates in a defensive source projection", async () => {
+		const pkg = await reviewSourceFixture();
+		const original = taggedCitableSourceRefs(pkg);
+		// The source-reference schema permits narrowed coordinates and platform refs.
+		// The current answered-card producer only creates message claims.
+		pkg.sources.push({
+			ref: {
+				kind: "attachment-extract",
+				assetId: SOURCE_DOCUMENT,
+				extractorVersion: EXTRACTOR_VERSION,
+				sectionPath: ["Requirements"],
+				figureMarker: '<nova:figure index="1"/>',
+			},
 		});
-	});
-
-	it("passes unbound ids through raw", () => {
-		expect(projectBoundIdsToHandles(did(21), bindings)).toBe(did(21));
-	});
-
-	it("walks junk without assuming a contract shape", () => {
-		expect(projectBoundIdsToHandles({}, bindings)).toEqual({});
-		expect(projectBoundIdsToHandles(null, bindings)).toBe(null);
-		expect(projectBoundIdsToHandles([1, true, "x"], bindings)).toEqual([
-			1,
-			true,
-			"x",
+		pkg.sources.push({
+			ref: {
+				kind: "platform-constraint",
+				code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
+				sourceAnchor: "lib/commcare/suite/case-search/remoteRequest.ts",
+			},
+		});
+		pkg.sources.push({
+			ref: {
+				kind: "image",
+				assetId: SOURCE_IMAGE,
+				bytesDigest: "f".repeat(64),
+			},
+		});
+		expect(taggedCitableSourceRefs(pkg)).toEqual([
+			...original.slice(0, 3),
+			{
+				tag: "S4",
+				ref: {
+					kind: "image",
+					assetId: SOURCE_IMAGE,
+					bytesDigest: "f".repeat(64),
+				},
+			},
+			{ tag: "S5", ref: original[3]?.ref },
 		]);
+		expect(
+			sourceTagByRefKey(pkg).get(
+				sourceRefKey(
+					fixtureValue(
+						fixtureValue(pkg.claims[0], "claim").sourceRefs[0],
+						"claim source",
+					),
+				),
+			),
+		).toBe("S5");
 	});
-});
 
-describe("deriveFindingHandleBindings", () => {
-	it("numbers findings continuously across reviews in the given order", () => {
-		const bindings = deriveFindingHandleBindings([
-			{ findings: [{ id: did(300) }, { id: did(301) }] },
-			{ findings: [{ id: did(310) }] },
-		]);
-		expect(bindings).toEqual([
+	it("projects complete admitted contract references while preserving unrelated text and source data", () => {
+		const contract = makeContract();
+		const before = structuredClone(contract);
+		const bindings = [
+			{ handle: "@patient", designId: ids.recPatient },
+			{ handle: "@patient_name", designId: ids.factName },
+		];
+		const result = projectBoundIdsToHandles(contract, bindings);
+		const expected = JSON.parse(
+			JSON.stringify(contract)
+				.replaceAll(JSON.stringify(ids.recPatient), '"@patient"')
+				.replaceAll(JSON.stringify(ids.factName), '"@patient_name"'),
+		);
+		expect(result).toEqual(expected);
+		expect(contract).toEqual(before);
+		expect(appDesignContractSchema.parse(contract)).toEqual(before);
+	});
+
+	it("handles defensive JSON values without losing own prototype-like keys or interpreting text fragments", () => {
+		const input = JSON.parse(
+			`{"__proto__":{"id":"${ids.recPatient}"},"constructor":[null,true,2,"${ids.recPatient}","prefix:${ids.recPatient}"],"unbound":"${ids.recVisit}"}`,
+		);
+		const before = JSON.stringify(input);
+		expect(
+			projectBoundIdsToHandles(input, [
+				{ handle: "@patient", designId: ids.recPatient },
+			]),
+		).toEqual(
+			JSON.parse(
+				`{"__proto__":{"id":"@patient"},"constructor":[null,true,2,"@patient","prefix:${ids.recPatient}"],"unbound":"${ids.recVisit}"}`,
+			),
+		);
+		expect(JSON.stringify(input)).toBe(before);
+	});
+
+	it("keeps positional findings continuous across empty reviews and later review appends", () => {
+		const reviews = [
+			{ findings: [{ id: did(300) }] },
+			{ findings: [] },
+			{ findings: [{ id: did(301) }, { id: did(302) }] },
+		];
+		expect(deriveFindingHandleBindings(reviews)).toEqual([
 			{ handle: "@f1", designId: did(300), entityKind: "finding" },
 			{ handle: "@f2", designId: did(301), entityKind: "finding" },
-			{ handle: "@f3", designId: did(310), entityKind: "finding" },
+			{ handle: "@f3", designId: did(302), entityKind: "finding" },
+		]);
+		expect(
+			deriveFindingHandleBindings([
+				...reviews,
+				{ findings: [{ id: did(303) }] },
+			]),
+		).toEqual([
+			...deriveFindingHandleBindings(reviews),
+			{ handle: "@f4", designId: did(303), entityKind: "finding" },
 		]);
 	});
 
-	it("derives nothing from an empty review set", () => {
-		expect(deriveFindingHandleBindings([])).toEqual([]);
-	});
-});
-
-describe("RESERVED_FINDING_HANDLE_PATTERN", () => {
-	it("reserves exactly the server's finding numbering", () => {
-		expect(RESERVED_FINDING_HANDLE_PATTERN.test("@f1")).toBe(true);
-		expect(RESERVED_FINDING_HANDLE_PATTERN.test("@f27")).toBe(true);
-		expect(RESERVED_FINDING_HANDLE_PATTERN.test("@f0")).toBe(false);
-		expect(RESERVED_FINDING_HANDLE_PATTERN.test("@follow_up_visit")).toBe(
-			false,
-		);
-		expect(RESERVED_FINDING_HANDLE_PATTERN.test("@form_intake")).toBe(false);
-	});
+	it.each(["@f1", "@f27"])(
+		"refuses the reserved finding symbol %s at actual declaration and reference entry points",
+		(handle) => {
+			expect(
+				designReservedHandleIssue(
+					{
+						collections: [
+							{
+								collection: "records",
+								upserts: [
+									{
+										...fixtureValue(makeContract().records[0], "record"),
+										id: { handle },
+									},
+								],
+								removeIds: [],
+							},
+						],
+					},
+					"session",
+				),
+			).toContain(handle);
+			expect(designReservedReferenceIssue({ recordId: { handle } })).toContain(
+				handle,
+			);
+		},
+	);
+	it.each(["@f0", "@follow_up_visit", "@form_intake"])(
+		"admits ordinary element symbol %s at those entry points",
+		(handle) => {
+			expect(
+				designReservedHandleIssue(
+					{
+						collections: [
+							{
+								collection: "records",
+								upserts: [
+									{
+										...fixtureValue(makeContract().records[0], "record"),
+										id: { handle },
+									},
+								],
+								removeIds: [],
+							},
+						],
+					},
+					"session",
+				),
+			).toBeNull();
+			expect(designReservedReferenceIssue({ recordId: { handle } })).toBeNull();
+		},
+	);
 });
