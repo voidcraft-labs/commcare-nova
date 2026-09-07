@@ -14,8 +14,8 @@
 // schemas reject it in one call, `editField` clears the held slot when the
 // other is set, and the builder's Value control names both slots on every
 // write. `hiddenFieldCarriesBothValueSources` is the one recognizer of the
-// pair, shared by the rule, the tool boundary, and the one-off scan of
-// historical documents. Maps to CommCare <input> with xsd:string.
+// pair, shared by the rule and the tool boundary. Maps to CommCare <input>
+// with xsd:string.
 //
 // Extends `structuralFieldBase` (uuid + id), NOT `fieldBaseSchema` —
 // hidden fields have no `label` (nothing to display) and no `hint`.
@@ -56,8 +56,8 @@ export type HiddenField = z.infer<typeof hiddenFieldSchema>;
  * The refused pair: a hidden field carrying both a calculation and a
  * starting value. Presence is object presence, the same test
  * `HIDDEN_NO_VALUE` uses, so the two rules partition the hidden state space
- * (neither slot, both slots, exactly one). Shared by the validator rule, the
- * tool-boundary refinement, and the one-off scan so they cannot drift.
+ * (neither slot, both slots, exactly one). Shared by the validator rule and
+ * the tool-boundary refinement so they cannot drift.
  */
 export function hiddenFieldCarriesBothValueSources(field: {
 	kind: string;
