@@ -332,11 +332,16 @@ The CI wall-time target is five minutes from workflow start to completion,
 including setup and fan-in jobs. Compare actual hosted runs; local timings and
 runner CPU totals do not establish that target. Smoke shards use separate
 Postgres instances so destructive browser scenarios cannot race across shards.
-The smoke harness partitions the complete native discovery list round-robin,
+The smoke harness balances the complete native discovery list by measured cost,
 then asks Playwright to rediscover each selected list and checks exact identities
 before seeding. Long full-app journeys are spread across six jobs, each with
 one worker. Discovery remains authoritative for fixture repeats and retries.
 Flaky browser results fail CI even when a diagnostic retry passes.
+The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
+select tests. New or renamed tests get a five-second estimate. Refresh timings
+from passing first attempts in each uploaded browser report's `timings.json`,
+retaining earlier measurements for tests that did not pass on their first attempt.
+Never turn the timing file into a fixed discovery list.
 
 CodeQL is a separate workflow with its own timing. Its official action declines
 incremental analysis when GitHub's compare response reaches its 300-file cap.

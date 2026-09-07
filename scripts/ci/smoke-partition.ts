@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import type { JSONReport, JSONReportSuite } from "@playwright/test/reporter";
+import { durationsMs } from "../../e2e/smoke-timings.json";
 
 /** Use native discovery identities, never a hand-maintained list of scenarios. */
 export function discoveredTests(report: JSONReport) {
@@ -15,7 +16,10 @@ export function discoveredTests(report: JSONReport) {
 						"A test title cannot be represented by Playwright --test-list",
 					);
 				rows.push({
-					identity: `${test.projectId}:${spec.id}`,
+					// JSON groups one spec across projects; its single opaque id
+					// can change when selection removes the first project. The
+					// qualified path is the public CLI's stable test identity.
+					identity: JSON.stringify([test.projectId, ...parts]),
 					selector: `[${test.projectName}] › ${parts.join(" › ")}`,
 				});
 			}
@@ -34,7 +38,11 @@ export function discoveredTests(report: JSONReport) {
 	return rows;
 }
 
-export function partitionTests(report: JSONReport, partition: string) {
+export function partitionTests(
+	report: JSONReport,
+	partition: string,
+	timings: Record<string, number> = durationsMs,
+) {
 	const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(partition);
 	if (!match)
 		throw new Error("Smoke partition must be current/total, for example 2/5");
@@ -43,10 +51,27 @@ export function partitionTests(report: JSONReport, partition: string) {
 	const rows = discoveredTests(report);
 	if (current > total || total > rows.length)
 		throw new Error("Smoke partition would be invalid or empty");
-	// Native contiguous sharding concentrates the long full-app journeys in
-	// authed.spec.ts. Round-robin keeps their declaration order within each
-	// job while spreading that cost. Every newly discovered test is included.
-	return rows.filter((_, index) => index % total === current - 1);
+	// Long full-app journeys dominate file/count-based shards. Assign the
+	// longest measured tests first, then preserve declaration order within a
+	// job. Timings affect placement only: new tests always enter discovery.
+	const ranked = rows
+		.map((row, index) => {
+			const cost = timings[row.selector] ?? 5_000;
+			if (!Number.isFinite(cost) || cost <= 0)
+				throw new Error(`Invalid smoke timing for ${row.selector}`);
+			return { index, cost };
+		})
+		.sort((a, b) => b.cost - a.cost || a.index - b.index);
+	const loads = Array<number>(total).fill(0);
+	const assignments = new Map<number, number>();
+	for (const { index, cost } of ranked) {
+		let slot = 0;
+		for (let candidate = 1; candidate < total; candidate++)
+			if (loads[candidate] < loads[slot]) slot = candidate;
+		assignments.set(index, slot);
+		loads[slot] += cost;
+	}
+	return rows.filter((_, index) => assignments.get(index) === current - 1);
 }
 
 if (

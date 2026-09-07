@@ -1,0 +1,47 @@
+{
+	"kind": "independent-weighted-smoke-review",
+	"reviewer": "commcare",
+	"findingCount": 0,
+	"scope": "Read-only bounded review of measured-cost smoke placement, Reporter API timing artifact, baseline data and associated contracts. Earlier CI follow-on report remains historical and unchanged.",
+	"sourceHashes": {
+		"scripts/ci/smoke-partition.ts": "858f40abf481362965cc131383adbde6420bf109cbf85edb87dc7576b9aeb162",
+		"scripts/ci/smoke-timings.ts": "ef9d4035a82766a2af3a54fc653e61f9e423ab627891f49d6f071fcf9da3028d",
+		"playwright.config.ts": "d4e7913a41cebf35968a8142c270d90e9a0dd8871d0052a92ad087799a109eef",
+		"e2e/smoke-timings.json": "472bd22a25d7b732153a09b5c1f00a194baca489c07d8127791698d82f89faa0",
+		"e2e/CLAUDE.md": "7ecff57289ea5ba27442e67aa2c5f7635e7d55f76bf11f670a3c09f90b787072",
+		"docs/testing.md": "ff24ef3fc0fd44ea12e6242c3e98acbc7f9056ae0563bd4a9db7d68527f7926e",
+		"scripts/ci/__tests__/smokePartition.test.ts": "52c5b27e7868b6f84635fbbd58ca80bd3e46f3a3b16d492633d70b8475d5a513"
+	},
+	"evidence": [
+		"partitionTests starts from every native discovered identity, now JSON.stringify([projectId,file,...describeTitles,testTitle]), assigns one slot to each original index, and filters original rows by assigned slot. Ranking changes placement only; new selectors receive 5000ms. Complete and selected discovery use stable public CLI-qualified paths, not the JSON reporter merged-spec opaque ID. Raw selected discovery stays untouched for existing seed processing.",
+		"Sorting breaks cost ties by original index; slot ties choose the first minimum. All jobs reading the same discovery and checked-in data compute identical deterministic partitions. Positive costs and total <= row count ensure each slot receives a test. Final filtering restores native declaration order within each partition.",
+		"The unchanged complete-list write/native rediscovery/verify sequence remains before seeding; seed keys continue deriving from verified selected spec IDs with native retry/repeat metadata. Public/authed use independent CI databases and one worker per partition.",
+		"CORRECTED FOLLOW-ON: SmokeTimings records passed retry-0 results and now obtains project from public test.parent.project()?.name, walks only public Suite.type=describe parents for nested titles, and derives file relative to config.rootDir. Installed public Suite contract explicitly defines root/project/file/describe hierarchy (testReporter.d.ts:386-449), and TeleSuite.project() inherits the nearest owning project (runner/index.js:424). This avoids root-empty/file elements in public titlePath. Its onEnd does not override run status; data remains diagnostic. The reporter now stores Math.max(1,result.duration), so instantaneous native tests produce positive scheduler costs.",
+		"Installed Playwright Multiplexer awaits reporter onEnd sequentially (node_modules/playwright/lib/runner/index.js:1626). HTML removes/rebuilds its output folder in onEnd (line3430); timings is configured afterward, so timings.json is written after that deletion and included in the existing uploaded report directory.",
+		"Contracts retain complete native discovery, six jobs, per-attempt fixture ownership, fail-on-flaky behavior and the requirement to judge the five-minute target from hosted workflow elapsed time. Timing refresh preserves prior first-pass measurements when a scenario lacks a new first-pass result."
+	],
+	"ownerReportedEvidence": [
+		"Root verified 228 native identities exactly once across six weighted partitions with counts 36/38/38/38/38/40 and forecast loads 75.8-76.1 seconds. This reviewer did not rerun discovery.",
+		"Root first weighted CI-mode browser run: 36 tests passed, then exact reporter-key comparison failed and prompted the reporter correction. Root is rerunning the complete 36-test partition to verify actual corrected keys; no current pass claim for that artifact comparison.",
+		"Root native scheduler/reporter contract suite: 2 passed in 2.32 seconds, including overlapping-project identity and real reporter output checks. Reviewer read source but did not rerun.",
+		"Root complete weighted partition: 36 browser tests passed in 43.9 seconds; exact timing keys and HTML presence verified after public reporter fix. This preceded identity-tuple change, which does not change selected lists for current disjoint projects."
+	],
+	"limits": [
+		"Native contract and weighted browser results above are root-run evidence, not reviewer reruns. The new native contract proves scheduler/reporter behavior and does not claim a multi-project browser/seed integration run. Current CI public/authed test files are disjoint.",
+		"Historical duration estimates do not establish the next hosted workflow wall-clock duration. Full CI remains the timing gate."
+	],
+	"priorReviewedReporterSha256": "0d1ac9ee7c6962c00141e7bd18ca0068d6cbd78ed8caed7bd1202e93d5f89084",
+	"reviewCorrection": "The initial independent review incorrectly assumed the runner-internal titlePath shape matched the public Reporter TestCase shape and therefore wrongly affirmed selector construction. Root native output comparison exposed [] plus duplicated filename keys despite all 36 runtime tests passing. This was a diagnostic artifact-key defect, not selection loss. The corrected source now uses documented public project and suite-type APIs; reviewed above at the new hash. The prior source hash is retained explicitly.",
+	"identityFollowonPriorHashes": {
+		"scripts/ci/smoke-partition.ts": "072f720a89b58bcf0bb5a100be8bc5d8acc43f2318d4c64cb652b556d91fe550",
+		"scripts/ci/smoke-timings.ts": "c4f5a84a5dbebc17bcab3342d3d61f69c3e6fd776616d4b3820d00604ada23f5"
+	},
+	"identityFollowonReview": "Explicit correction to another prior unverified assumption: JSONReport merges one spec across projects and exposes a single spec.id whose value can change when filtering removes the first project. The original projectId:spec.id verifier therefore could falsely reject valid selection for overlapping projects. Current Nova public/authed matches are disjoint, so previous 228-test proofs were unaffected. The new project-qualified file/describe/test tuple follows the public CLI identity and rejects duplicates without depending on that merged ID.",
+	"nativeContractTestReview": "Read all scripts/ci/__tests__/smokePartition.test.ts. It launches the actual installed Playwright in an owned temporary directory with two projects, nested duplicate leaf names, skipped tests and an intentionally retried test; collection expects eight explicit selectors. Three weighted partitions use a 50000ms heavy sample plus default costs, and each is rediscovered natively with exact sequence equality and aggregate exact-once identity equality. A real no-browser execution loads the production timing reporter and expects exactly four explicit first-attempt passing keys; skips and retried passes are absent, durations are finite and >=1. The child processes are synchronous, bounded, and joined; afterAll removes the owned directory.",
+	"reviewedNativeEvidenceArtifacts": {
+		"/tmp/nova-root-native-scheduler-contract-green.log": "5a263fce0fcce852cd939b80801fa5b6617d64c061879e5837d3d691debac7d0",
+		"/tmp/nova-root-native-scheduler-contract.log": "3ba92383a27c98c27fa48070c5ef0b8079e32e88e43db6c3d6140a64401ab5e7",
+		"/tmp/nova-root-weighted-native-final.log": "6f00079060741e2839a10166918b5b4776ecfa04f5daad33fd3d95c8e6b4b4a4"
+	},
+	"artifactInspection": "Read native contract fail-before ID mismatch log, green 2-test/2.32s log, and 36-pass/43.9s browser completion log. Independently compared stored timings.json keys to /tmp/nova-browser-weighted-1.txt: exact set equality for 36 keys; checked HTML index exists. No tests rerun."
+}

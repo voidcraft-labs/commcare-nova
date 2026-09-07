@@ -218,10 +218,13 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 
 CI runs six smoke partitions against separate production servers and databases.
 Each retains one worker because tests within it share seeded data. The harness
-distributes native discovery identities round-robin with `SMOKE_PARTITION=1/6`,
+distributes native discovery identities by measured cost with `SMOKE_PARTITION=1/6`,
 then verifies the installed Playwright `--test-list` selects exactly that subset
 before seeding. This spreads the long full-app journeys instead of concentrating
-them in one contiguous shard. New tests are included automatically; do not add
+them in one contiguous shard. `e2e/smoke-timings.json` affects placement only;
+new or renamed tests receive a conservative default and are included automatically.
+Each report artifact contains `timings.json` with passing first-attempt durations
+for refreshing that baseline. Keep native discovery authoritative; do not add
 serial suites that depend on a prior test. CI fails on flaky results even when a
 diagnostic retry passes. Read `docs/testing.md` for boundary selection and
 asynchronous ownership.

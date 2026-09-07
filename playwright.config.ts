@@ -116,6 +116,7 @@ export default defineConfig({
 				["github"],
 				["html", { open: "never", outputFolder: "e2e/playwright-report" }],
 				["list"],
+				["./scripts/ci/smoke-timings.ts"],
 			]
 		: [
 				["list"],

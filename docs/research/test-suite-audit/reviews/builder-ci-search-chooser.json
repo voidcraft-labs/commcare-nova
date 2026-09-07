@@ -1,0 +1,57 @@
+{
+	"owner": "builder",
+	"scope": "Bounded second-CI PR 572 follow-on review of one native Search chooser journey; preserve prior whole-file review and all remaining case-workspace journeys.",
+	"priorWholeFileReview": {
+		"file": "e2e/tests/case-workspace-surface.spec.ts",
+		"commit": "05d99ca493486886a45e956824da651e380317fc",
+		"reviewedSha256": "b51a5d4ca48aae12d4ba9488b16acfbe3042cb9613776ecea3367808d811b979"
+	},
+	"files": [
+		{
+			"file": "e2e/tests/case-workspace-surface.spec.ts",
+			"status": "revised",
+			"reviewedSha256": "c1cc32632aee26d9a413d6e7461d71438b44532b9dd40e9afe8c69a1f037c35c",
+			"review": "The second opening previously sent page-wide Escape immediately after a click, without observing native focus handoff. It now requires the actual search input to receive focus, sends one native Escape, requires the popup input to unmount and trigger aria-expanded to become false, and retains the original trigger-focus requirement. All earlier filter, no-match, clear-search focus, selected typed-property mutation, inspector, and new-row focus obligations are unchanged."
+		}
+	],
+	"changedPaths": ["e2e/tests/case-workspace-surface.spec.ts"],
+	"productionChanges": [],
+	"reviewedProductionSha256": {
+		"components/builder/case-list-config/SearchableChoiceCombobox.tsx": "0543603b7282d5305db06706e10bc989d9c608015328d414f22d1abfa637a518",
+		"components/builder/case-list-config/canvas/SearchCanvas.tsx": "b319a2e127250271b3ad03b2faadef5c5d6aee6a416094f2d599b01eda5f90a4",
+		"components/shadcn/combobox.tsx": "a2aa666ced44cf420ae09741ce2e4363d2ea48f59c0b62b21451d0f62cee0a33",
+		"node_modules/@base-ui/react/combobox/root/AriaCombobox.js": "2026d8172256f04097e9aa456a3058b2838c2ead6a31223c524da58118578738",
+		"node_modules/@base-ui/react/combobox/trigger/ComboboxTrigger.js": "c6edfbd9216ed207cef97dc045e556ae4ad31a1951c85fbaaedecc2858cd4713",
+		"node_modules/@base-ui/react/combobox/popup/ComboboxPopup.js": "2d38a20a928ebbd62c8ca79496fd64badc5202f74324553676b1a1e7eb372473",
+		"node_modules/@base-ui/react/floating-ui-react/hooks/useDismiss.js": "6a743d8fe391a1ccc38549c07ad27bf61b60a585489aba5374521a3213b977e5"
+	},
+	"finding": {
+		"kind": "missing native opening readiness",
+		"observed": "CI first-attempt screenshot and error context show the chooser still open, trigger aria-expanded=true, and search input focused after the lone Escape; this is not evidence of a closed popup failing to return focus. The same journey already required input focus after its first opening, but omitted this prerequisite on reopening.",
+		"sourceEvidence": "SearchableChoiceCombobox owns controlled open state and delegates keyboard/focus behavior to Base UI. Installed useDismiss closes only for committed open state and installs document listeners in an open-dependent effect. ComboboxPopup supplies its input as initial focus to FloatingFocusManager. The correction waits for this actual observable focus handoff rather than animation duration or a timer.",
+		"limits": "A diagnostic run of the unchanged journey with native focus/Escape observation and 6x Chromium CPU throttle passed. Thus local red reproduction was attempted but not obtained; the failed first CI attempt is the failure evidence. No new production defect was established."
+	},
+	"checks": [
+		{
+			"log": "/tmp/nova-ci-second-smoke4.log",
+			"result": "Second CI 34088608308 first attempt failed this journey; retry passed, and fail-on-flaky-tests correctly failed the shard. Actual first-attempt screenshot/context inspected under /tmp/nova-ci-second-browser4-artifact."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-chooser-red.log",
+			"result": "Diagnostic unchanged-source journey passed with 6x CPU throttle; captured native Escape reaching the focused search input. Despite the historical log name, this is not a red reproduction."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-chooser-throttle.log",
+			"result": "Corrected native journey passed under the same 6x CPU throttle with retries=0, 4.4 seconds total. Diagnostic CPU throttling was removed from final source."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-chooser-final.log",
+			"result": "All three scoped native chooser/reordering/removal journeys passed on final source with retries=0, 3.6 seconds total."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-chooser-final-biome.log",
+			"result": "Passed: 1 file checked, no fixes or diagnostics."
+		}
+	],
+	"blockedBy": []
+}

@@ -223,7 +223,11 @@ test("native Search chooser filters, recovers focus, and creates the selected ty
 		page.locator(`[data-case-search-field="${saved[1].uuid}"]`),
 	).toBeFocused();
 	await trigger.click();
+	// Opening hands native keyboard ownership to the popup's search input.
+	await expect(search).toBeFocused();
 	await page.keyboard.press("Escape");
+	await expect(search).toHaveCount(0);
+	await expect(trigger).toHaveAttribute("aria-expanded", "false");
 	await expect(trigger).toBeFocused();
 });
 test("native Search keyboard reordering and removal preserve field identity and move focus", async ({
