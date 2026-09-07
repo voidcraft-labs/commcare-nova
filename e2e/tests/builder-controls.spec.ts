@@ -2457,50 +2457,47 @@ test("native content frames settle a running glide when the device enables reduc
 }) => {
 	await page.setViewportSize({ width: 1280, height: 700 });
 	await page.emulateMedia({ reducedMotion: "no-preference" });
+	await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
 	await page.goto(`${peer.origin}/?scenario=frame`);
-	await expect(
-		page.getByRole("button", { name: "Toggle frame preview" }),
-	).toBeVisible();
-	const started = await page.evaluate(async () => {
-		const button = [...document.querySelectorAll("button")].find(
-			(element) => element.textContent === "Toggle frame preview",
+	const toggle = page.getByRole("button", { name: "Toggle frame preview" });
+	await expect(toggle).toBeVisible();
+	await page.clock.pauseAt(new Date("2026-01-01T01:00:00Z"));
+	const readOffsets = () =>
+		page.evaluate(() =>
+			["wide", "small"].map((name) => {
+				const frame = document.querySelector(
+					`[data-frame-marker="${name}"]`,
+				)?.parentElement;
+				if (!frame) throw new Error("Missing frame");
+				const transform = getComputedStyle(frame).transform;
+				return transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
+			}),
 		);
-		const frame = document.querySelector(
-			'[data-frame-marker="wide"]',
-		)?.parentElement;
-		if (!button || !frame) throw new Error("Missing frame fixture");
-		button.click();
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => resolve()),
-		);
-		return Math.abs(
-			new DOMMatrixReadOnly(getComputedStyle(frame).transform).m41,
-		);
-	});
-	expect(started).toBeGreaterThan(1);
-	const afterChange = page.evaluate(async () => {
-		const media = window.matchMedia("(prefers-reduced-motion: reduce)");
-		if (!media.matches)
-			await new Promise<void>((resolve) =>
-				media.addEventListener("change", () => resolve(), { once: true }),
-			);
-		await new Promise<void>((resolve) =>
-			requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-		);
-		return ["wide", "small"].map((name) => {
-			const frame = document.querySelector(
-				`[data-frame-marker="${name}"]`,
-			)?.parentElement;
-			if (!frame) throw new Error("Missing frame");
-			const transform = getComputedStyle(frame).transform;
-			return transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m41;
-		});
-	});
-	const [after] = await Promise.all([
-		afterChange,
-		page.emulateMedia({ reducedMotion: "reduce" }),
-	]);
-	expect(after).toEqual([0, 0]);
+	// Dispatch with the animation clock paused, then observe the actual React
+	// commit before advancing Motion. Browser actionability itself needs frames.
+	await toggle.evaluate((element: HTMLButtonElement) => element.click());
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+	await page.clock.runFor(32);
+	expect((await readOffsets()).every((offset) => Math.abs(offset) > 1)).toBe(
+		true,
+	);
+
+	await page.emulateMedia({ reducedMotion: "reduce" });
+	let elapsed = 32;
+	await expect
+		.poll(
+			async () => {
+				await page.clock.runFor(16);
+				elapsed += 16;
+				return readOffsets();
+			},
+			{ intervals: [0, 20, 50] },
+		)
+		.toEqual([0, 0]);
+	// Event delivery, React commits and Motion renders need not occupy exactly
+	// two frames. Still require interruption: merely waiting out the ordinary
+	// 200ms glide must fail, even when a slow CI worker delays the assertion.
+	expect(elapsed).toBeLessThan(100);
 });
 
 test("native breadcrumb overflow and compact paths preserve complete names, focus, and independent peer targets", async ({

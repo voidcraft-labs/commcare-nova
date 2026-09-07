@@ -255,3 +255,7 @@ allocate separate Projects, apps, users and sessions for every repeat and retry.
 Manual multiplayer retains its single shared fixture. Contexts are owned as soon
 as they are created, partial parallel openings are joined, and membership
 restoration errors fail teardown.
+
+For animation-interruption checks, control the browser animation clock and observe
+the rendered result. Require settlement before the uninterrupted animation would
+finish; a fixed number of real animation frames is not a React/Motion commit barrier.
