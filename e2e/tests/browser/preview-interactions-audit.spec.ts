@@ -125,6 +125,12 @@ for (const finish of ["Escape", "outside", "placeholder"] as const) {
 			await expect(
 				page.getByRole("region", { name: "Drag canvas" }),
 			).toHaveAttribute("data-landing-ready", "true");
+			// Native dragover is frame-throttled. The placeholder preserves the
+			// last observed landing, so wait for the intended final-row position
+			// before leaving that row for the gap or cancelling the drag.
+			await expect(
+				page.getByRole("region", { name: "Drag canvas" }),
+			).toHaveAttribute("data-landing-at-end", "true");
 			if (finish === "Escape") await page.keyboard.press("Escape");
 			else if (finish === "outside") await page.mouse.move(3, 3, { steps: 5 });
 			else {

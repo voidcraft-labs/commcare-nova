@@ -206,6 +206,10 @@ draft before saving. `fill("")` selects only the DOM range; ProseMirror's delaye
 focus selection can replace it before Playwright sends Delete. Native input
 elements can still use `fill`.
 
+Native dragover callbacks are frame-throttled. Before moving into a placeholder
+that retains the previous landing, observe the intended landing position;
+the presence of any placeholder does not establish the final drop location.
+
 CI installs only Chromium headless shell (`playwright install --with-deps
 --only-shell chromium`), the browser its headless public/authed projects use.
 A future channel override or headed CI project must update that installation
