@@ -441,8 +441,8 @@ describe("strict field shape and semantic backstops", () => {
 		 * hydrate. The rule is what refuses the pair. */
 		expect(fieldSchema.safeParse(doc.fields[q]).success).toBe(true);
 		const [error] = findings(doc, ["HIDDEN_VALUE_BOTH_SOURCES"]);
-		expect(error?.location.field).toBe("default_value");
-		expect(error?.details).toEqual({ field: "answer" });
+		expect(error?.location.fieldId).toBe("answer");
+		expect(error?.location.field).toBeUndefined();
 	});
 	it.each(["count_bound", "query_bound", "user_controlled"] as const)(
 		"admits a complete %s repeat",

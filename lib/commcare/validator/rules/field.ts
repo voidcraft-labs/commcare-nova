@@ -261,9 +261,10 @@ function hiddenNoValue(field: Field, ctx: FieldContext): ValidationError[] {
  * runs the `xforms-ready` seeds first and then re-evaluates every calculate
  * (`FormDef::initialize`), so the default is overwritten before anyone could
  * read it: schema-legal, and a contradiction. Together with `hiddenNoValue`
- * this partitions the hidden state space (neither, both, exactly one), and
- * the shared recognizer is the one the tool boundary and the historical
- * repair used to clear the fleet before this rule shipped.
+ * this partitions the hidden state space (neither, both, exactly one); the
+ * recognizer is shared with the tool-boundary refinement so the two cannot
+ * drift. The finding lands on the field, not on one slot, because the
+ * message leaves the choice of which slot to keep with the author.
  */
 function hiddenValueBothSources(
 	field: Field,
@@ -282,9 +283,7 @@ function hiddenValueBothSources(
 				formName: ctx.formName,
 				fieldUuid: field.uuid,
 				fieldId: field.id,
-				field: "default_value",
 			},
-			{ field: field.id },
 		),
 	];
 }

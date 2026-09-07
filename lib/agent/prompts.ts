@@ -511,7 +511,7 @@ A hidden field carries its value through one of two mechanisms, and they differ 
 
 The test: the moment a hidden value must read another field that can change, it's a \`calculate\`; a fixed value or a load-stamp is a \`default_value\`. Reaching for \`calculate\` on a constant puts it in the recalculation graph for no reason — extra work the platform redoes on every change, on top of being the wrong semantic for a value that was never going to change.
 
-A hidden field carries exactly ONE of the two, never both: the form re-evaluates every \`calculate\` after it seeds defaults, so a \`default_value\` beside a \`calculate\` could never be seen. The validator refuses the pair (\`HIDDEN_VALUE_BOTH_SOURCES\`), \`addFields\` rejects it in one call, and \`editField\` setting one slot clears the other and says so in its result.
+A hidden field carries exactly ONE of the two, never both: the form re-evaluates every \`calculate\` after it seeds defaults, so a \`default_value\` beside a \`calculate\` could never be seen. \`addFields\` refuses the pair in one call, and \`editField\` setting one slot clears the other and says so in its result.
 
 ### Forms that open existing cases — how saved fields behave
 

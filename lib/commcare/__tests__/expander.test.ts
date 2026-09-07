@@ -2863,12 +2863,6 @@ describe("unquoted string literal detection", () => {
 		const question = f({
 			kind,
 			id: "q",
-			/* A hidden field carries exactly one value source, so the seed
-			 * calculation is present only when the slot under test is not the
-			 * default. */
-			...(kind === "hidden" &&
-				slot !== "default_value" &&
-				slot !== "calculate" && { calculate: "1" }),
 			[slot]: expression,
 		} as Parameters<typeof f>[0]);
 		return buildDoc({

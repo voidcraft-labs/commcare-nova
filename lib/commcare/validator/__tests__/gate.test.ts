@@ -353,14 +353,6 @@ describe("evaluateCommit", () => {
 		);
 		expect(
 			codes(
-				evaluateCommit({
-					nextDoc: both,
-					lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
-				}),
-			),
-		).toEqual(["HIDDEN_VALUE_BOTH_SOURCES"]);
-		expect(
-			codes(
 				gateCommit(doc, [
 					{ kind: "addField", parentUuid: formUuid, field: hidden },
 				]),

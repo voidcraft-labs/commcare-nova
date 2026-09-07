@@ -182,7 +182,7 @@ after every projection.
 ### Hidden fields carry one value source
 
 `validator/rules/field.ts::hiddenValueBothSources` (`HIDDEN_VALUE_BOTH_SOURCES`,
-soundness, located at the field's `default_value`) refuses a hidden field
+soundness, located at the field) refuses a hidden field
 holding both a `calculate` and a `default_value`. JavaRosa runs the
 `xforms-ready` seeds first and then re-evaluates every calculate
 (`commcare-core` `FormDef::initialize`), so the default is overwritten before

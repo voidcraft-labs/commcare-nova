@@ -35,7 +35,7 @@ release N+1 pull request. A blocked app needs its own owned repair first.
 
 - The validator rule `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/errors.ts`,
   class `soundness`, `rules/field.ts::hiddenValueBothSources`, located at the
-  field's `default_value`), its builder copy, and its tests.
+  field), its builder copy, and its tests.
 - The expander fixtures that carried both slots now carry `default_value`
   only; the SA prompt, `hidden.ts`, `lib/domain/CLAUDE.md`, and
   `lib/commcare/CLAUDE.md` name the rule.
