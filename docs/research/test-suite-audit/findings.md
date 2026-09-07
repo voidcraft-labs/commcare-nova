@@ -2513,3 +2513,26 @@ All 62 cases pass without async diagnostics in
 corrected to the actual Nova metadata type identified by integration typecheck.
 These are offline grammar and projection proofs. They do not claim live model
 judgment or persisted review authority.
+
+### Native design ancestry and repair accounting
+
+Read the complete gate suite and implementation, envelope producers, relevant
+artifact writers and all repair-accounting call sites. Replaced fake partial
+records and a cast plan with a migrated PostgreSQL suite that writes actual
+source packages, reviewed revisions, dispositions and derived plans. Four
+review/correction rounds prove that history does not confer acceptance; other
+cases cover newer input, current versus historical plans, memoized callers,
+explicit invalidation and recovery after a digest-corrupted read fails.
+
+An admitted accepted design with a blocking question and a newly produced
+answer source package exposed a contradiction: `submitContract` was legal but
+the server state message still told the agent to ask the same question again.
+`/tmp/nova-root-gates-native-before.log` records that failure. Next-action
+guidance now honors reopened authoring while retaining the historical question
+as context. This is a deterministic guidance defect, not evidence of any
+particular live model response.
+
+The pure tracker cases independently exercise diagnostic sets, validation
+stages, per-tool counters, sequence resets, staging progress, retained fatal
+errors and trimmed/deduplicated user questions. All 33 final cases pass without
+async diagnostics in `/tmp/nova-root-gates-final.log`.

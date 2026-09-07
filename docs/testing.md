@@ -636,3 +636,10 @@ An independent JSON Schema validator checks complete wire payloads before the
 actual canonical parser. Exact grounding, disposition, decision and correction
 coordinates have separate cases. These prove schema and projection behavior;
 native persisted review and model-loop tests own authority and execution.
+
+Design-gate transitions and ancestry caching use actual source, revision,
+review and plan writers against migrated PostgreSQL. Repeated review cycles,
+new input, historical plans and rejected-load recovery must observe the rows
+those owners produce. Pure repair-accounting tests separately cover exact
+diagnostic-set equality, independent budgets, reset boundaries and fatal-state
+retention.

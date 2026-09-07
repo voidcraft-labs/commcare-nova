@@ -2515,7 +2515,9 @@
 			"file": "lib/agent/design/loop/__tests__/gates.test.ts",
 			"lines": 319,
 			"ciMs": 1739,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete gate/tracker and envelope/source owners plus repair call sites. Replaced partial record/plan casts with gates.postgres.test.ts using actual admitted source, revision, review/disposition and plan writers; historical rounds, fresh source, plan deactivation, cache coalescing/invalidation and rejected-read recovery. Real persisted accepted question plus new answer source exposed next-action guidance asking again despite reopened authoring; fixed guidance. Pure tracker covers exact diagnostic sets, independent/reset budgets and fatal retention. All33 native/pure cases pass without async diagnostics; no live model response claim.",
+			"reviewedSha256": "7bd0f4595ca866a81fed00a436926ea33b223c5ddf5536dd026ccd21e0097913"
 		},
 		{
 			"file": "lib/agent/design/loop/__tests__/toolWireSchemas.test.ts",

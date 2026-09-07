@@ -474,6 +474,10 @@ non-convergence honestly rather than converting it into acceptance. Answered
 blocking questions reopen design work only before construction freezes the
 accepted revision and plan. `packageRebuild.ts` refuses continuation when the
 authorized sources cannot reproduce the bound package.
+When new source evidence reopens an accepted design, its old blocking questions
+remain context, while the server's next-action message directs authoring to
+incorporate the new evidence. It must not demand the same answer again merely
+because the historical accepted artifact still contains the question.
 
 Tool lifecycle diagnostics contain only opaque call identity, tool name,
 duration, character count, outcome code, validation stage, and issue count.
