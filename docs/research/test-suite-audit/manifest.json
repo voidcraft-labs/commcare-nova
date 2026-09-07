@@ -6130,7 +6130,9 @@
 			"status": "revised",
 			"review": "Read full suite corpus and all 1060 lines of suite generator with shared field generator. One expansion/archive per 400 workflow samples feeds HQ, suite, media, XForm and identity-joined binding checks. Preserved all original coverage floors in same test as local census, including nested menus and active case actions. Strict schema rejects invalid capture/label fixtures; real bytes verify dedup and archive contents. Shrinking enabled; both production corruption controls fail decisively.",
 			"baselineSha256": "7a67ea69572b10f7d80b2c4105652e378e3591d7e87d34b1725718942c8c4d52",
-			"reviewedSha256": "5d5650c065947479c75dd1d410f27d1aba61b9f375db8d1d04751f1bb90c076c"
+			"reviewedSha256": "84eeb47034192f954b23147537d8921acc9b993a12bf800b6a55aa58007230d7",
+			"priorCiReviewedSha256": "5d5650c065947479c75dd1d410f27d1aba61b9f375db8d1d04751f1bb90c076c",
+			"ciIntegrationEvidenceReport": "root-ci-followon.json"
 		},
 		{
 			"file": "lib/commcare/__tests__/suiteOracle.test.ts",
@@ -6209,7 +6211,9 @@
 			"status": "revised",
 			"review": "Read complete field corpus, duplicate companion corpora, and both constructive generators. Consolidated expansion/archive once per 500 samples with strict schema plus semantic guard, all wire oracles, namespace-joined form bindings, real media bytes and actual SHA-256. Local census in same synchronous property; shrinking enabled; markup-named data IDs exercise scope. Generator label/capture schema violations fixed at construction; removed unchecked Field casts. Empty-media and absent-form production negative controls fail both corpora and shrink.",
 			"baselineSha256": "167f440a8b0ec806490532928dbfa04d315b17e5720422ce7ab11777c1a088de",
-			"reviewedSha256": "894ea8f4d50ef99447d4baa5b2fd2917db4331a9addd805181f070be4ad1e4e0"
+			"reviewedSha256": "5d6e544affdf940c14e5f912a6b16ec6a5aae74de0590ca86281518bedaa5b0e",
+			"priorCiReviewedSha256": "894ea8f4d50ef99447d4baa5b2fd2917db4331a9addd805181f070be4ad1e4e0",
+			"ciIntegrationEvidenceReport": "root-ci-followon.json"
 		},
 		{
 			"file": "lib/commcare/__tests__/xformOracle.test.ts",

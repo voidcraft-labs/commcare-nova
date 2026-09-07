@@ -12,7 +12,9 @@ import {
 } from "./suiteDocArbitrary";
 
 it("compiles 400 workflow samples with valid schema, HQ import, bindings, and archived resources", {
-	timeout: 30_000,
+	// The complete synchronous corpus took 45s on a shared CI runner before
+	// native media-byte comparison. Keep all 400 samples and scheduling margin.
+	timeout: 60_000,
 }, () => {
 	const census = {
 		total: 0,

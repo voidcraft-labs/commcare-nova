@@ -1,0 +1,51 @@
+{
+	"scope": "First PR 572 CI corrections, complete prior method reviews preserved",
+	"baselineCommit": "557d6f24d91fd44fe469ac3f3f6e6f0bc6fdbc65",
+	"files": [
+		{
+			"file": "lib/commcare/__tests__/suiteOracle.fuzz.test.ts",
+			"previousReviewedSha256": "5d5650c065947479c75dd1d410f27d1aba61b9f375db8d1d04751f1bb90c076c",
+			"reviewedSha256": "84eeb47034192f954b23147537d8921acc9b993a12bf800b6a55aa58007230d7",
+			"review": "Kept the complete fixed-seed corpus, shrinking, census thresholds and all wire/archive checks. Raised the per-corpus synchronous limit from 30 to 60 seconds after CI measured 45/34 seconds; shared evidence now compares complete media buffers with native Buffer.equals after explicit byte-presence validation. CPU profile identified generic deep equality as the largest avoidable cost."
+		},
+		{
+			"file": "lib/commcare/__tests__/xformOracle.fuzz.test.ts",
+			"previousReviewedSha256": "894ea8f4d50ef99447d4baa5b2fd2917db4331a9addd805181f070be4ad1e4e0",
+			"reviewedSha256": "5d6e544affdf940c14e5f912a6b16ec6a5aae74de0590ca86281518bedaa5b0e",
+			"review": "Kept the complete fixed-seed corpus, shrinking, census thresholds and all wire/archive checks. Raised the per-corpus synchronous limit from 30 to 60 seconds after CI measured 45/34 seconds; shared evidence now compares complete media buffers with native Buffer.equals after explicit byte-presence validation. CPU profile identified generic deep equality as the largest avoidable cost."
+		}
+	],
+	"helper": {
+		"file": "lib/commcare/__tests__/compilerEvidence.ts",
+		"previousReviewedSha256": "de0e4c1631a4c73d9f4311e3bc86694493b672ee9519699c4c7c3060af04f176",
+		"reviewedSha256": "ad94abd4554dc75738bc4c60e47c6e5fc3641491954b77ceae34e9c4aca5fd1f"
+	},
+	"checks": [
+		"Both complete generated corpora passed on final source in 22.27 seconds total (20.73 seconds of test bodies). All 900 samples retained.",
+		"Installed Playwright discovery/selection verified all 228 public/authed identities occur exactly once across six lists of 38 tests.",
+		"A complete 46-test partition passed with retries disabled in 49.8 seconds, exercising the actual harness, selected manifest, seeding and production artifact.",
+		"Three native TipTap clear journeys passed without retries; diagnostic reproduction and final provenance are in builder-ci-validation-focus.json.",
+		"Full TypeScript check passed; bash syntax check passed."
+	],
+	"ciRunBefore": "https://github.com/voidcraft-labs/commcare-nova/actions/runs/34086767619",
+	"partitionCostEvidence": {
+		"sourceRun": "34086767619",
+		"beforeSeconds": [236.8, 83.5, 141.5],
+		"sixRoundRobinProjectionSeconds": [88.6, 97.2, 65.1, 61.9, 100.4, 63.1],
+		"limit": "Projection uses actual first-attempt test durations; setup, hooks, jitter and fan-in require a hosted run. Five jobs left insufficient margin near the five-minute ceiling."
+	},
+	"newFileFollowons": [
+		{
+			"file": "e2e/tests/preview-shell-audit.spec.ts",
+			"previousReviewedSha256": "85b33600d49cef236ba384c663ee1dcdd6ea9f73bf2cef50223ecec23ce490ac",
+			"reviewedSha256": "55f34771570534f9d80638aa280d38df0db238c5d684a5c40ca8c30dd2bb60fd",
+			"review": "The actual Users Add persona button now owns the readiness wait. React streaming can briefly stage a second hidden catalog marker, which caused a strict-locator failure before the app finished rendering. Complete peer-removal/recovery assertions remain and the 46-test partition passed without retries."
+		},
+		{
+			"file": "scripts/ci/smoke-partition.ts",
+			"previousReviewedSha256": null,
+			"reviewedSha256": "bcf2b3e6987a3b6c71ebf0e85e86896c29c31d9abceed64f26f9e9375edbead2",
+			"review": "Partition native discovery, verify exact selected identities using the installed Playwright parser before seeding, and keep new tests automatically included."
+		}
+	]
+}

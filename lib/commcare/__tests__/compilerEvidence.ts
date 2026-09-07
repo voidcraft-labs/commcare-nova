@@ -131,8 +131,14 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	expect(validateMediaSuite(read("media_suite.xml"), manifestPaths)).toEqual(
 		[],
 	);
-	for (const asset of manifest.values())
-		expect(zip.getEntry(asset.wirePath)?.getData()).toEqual(asset.bytes);
+	for (const asset of manifest.values()) {
+		if (!asset.bytes)
+			throw new Error(`Fixture has no media bytes: ${asset.wirePath}`);
+		// Compare the complete byte buffers natively. Generic deep equality walks
+		// each indexed byte in JavaScript and dominates the generated corpus.
+		const archived = zip.getEntry(asset.wirePath)?.getData();
+		expect(archived?.equals(asset.bytes), asset.wirePath).toBe(true);
+	}
 
 	const suite = readXmlEvidence(suiteXml);
 	const forms = new Map<string, { path: string; xml: string }>();

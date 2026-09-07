@@ -106,5 +106,22 @@ smoke_discovery_dir="$(mktemp -d "${TMPDIR:-/tmp}/nova-smoke-discovery.XXXXXX")"
 trap 'rm -rf "$smoke_discovery_dir"' EXIT
 export NOVA_E2E_DISCOVERY_MANIFEST="$smoke_discovery_dir/tests.json"
 node_modules/.bin/playwright test "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
+if [ -n "${SMOKE_PARTITION:-}" ]; then
+  for smoke_arg in "$@"; do
+    case "$smoke_arg" in
+      --shard*|--test-list*)
+        echo "[smoke] SMOKE_PARTITION cannot be combined with another partition filter." >&2
+        exit 1
+        ;;
+    esac
+  done
+  smoke_complete_manifest="$smoke_discovery_dir/complete.json"
+  cp "$NOVA_E2E_DISCOVERY_MANIFEST" "$smoke_complete_manifest"
+  smoke_test_list="$smoke_discovery_dir/partition.txt"
+  node_modules/.bin/tsx scripts/ci/smoke-partition.ts write "$smoke_complete_manifest" "$SMOKE_PARTITION" "$smoke_test_list"
+  set -- "$@" --test-list "$smoke_test_list"
+  node_modules/.bin/playwright test "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
+  node_modules/.bin/tsx scripts/ci/smoke-partition.ts verify "$smoke_complete_manifest" "$SMOKE_PARTITION" "$NOVA_E2E_DISCOVERY_MANIFEST"
+fi
 node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 node_modules/.bin/playwright test "$@"

@@ -1,0 +1,65 @@
+{
+	"owner": "builder",
+	"scope": "PR 572 first-CI native validation-message clearing integration supplement; preserve the original whole-file review and all prior native coverage.",
+	"priorWholeFileReview": {
+		"file": "e2e/tests/builder-controls.spec.ts",
+		"commit": "557d6f24d91fd44fe469ac3f3f6e6f0bc6fdbc65",
+		"reviewedSha256": "23a7ad34bab53768e29f99c3e565af58b25aa1f3a86525db83448fe1a4b4d2fc"
+	},
+	"files": [
+		{
+			"file": "e2e/tests/builder-controls.spec.ts",
+			"status": "revised",
+			"reviewedSha256": "2e93475f7edbb5df60d5fdb1c74dbbcee8efcddc2104df593c4b515d6754cd4a",
+			"review": "Replaced DOM-only fill-empty selection with actual editor keyboard Select All and Backspace in three TipTap clear journeys; observe the empty draft before Enter. Validation-message refusal still requires unchanged stored prose, retained empty draft, native focus, one inline refusal, and a successful retry only after restoring authority. No retries, sleeps, increased timeouts, test models, or production callbacks were added."
+		}
+	],
+	"changedPaths": ["e2e/tests/builder-controls.spec.ts"],
+	"productionChanges": [],
+	"reviewedProductionSha256": {
+		"components/builder/RefLabelInput.tsx": "169afa5c137a5d6be7df316ffca2d2de85fbffac2c19a199e6c43f0ffc675459",
+		"node_modules/prosemirror-view/src/input.ts": "172ed1e4ab16942e3289f8d4a110ecc2df861ff6b1f43a3c9db6d3b7f9210858",
+		"node_modules/@tiptap/core/src/extensions/focusEvents.ts": "b871d52d315a330521c4f5905cba2ef2799dab0233971527f827052b0b15c484",
+		"node_modules/@tiptap/core/src/commands/focus.ts": "29c11be4950538a8857ce3b9d7757989c96c42d0484730fc49fbbab43a46222d",
+		"node_modules/playwright-core/lib/coreBundle.js": "9393fa79e1c67c74edc26b610d65a4f7ed73d345a762465cc88340a33a2454ac",
+		"components/builder/editor/fields/XPathEditor.tsx": "e3da1d39cc7aa5177150a7e50786e925d8523f165cdb63c6b97c4f40b3f00cdf",
+		"components/builder/editor/fields/TextEditor.tsx": "6d8162bcd0b8a6b31948558b8051c696b1a62897c3ae08773355cfb14b6d6f20"
+	},
+	"finding": {
+		"kind": "test input selection race",
+		"cause": "Playwright fill(\"\") calls selectText, which focuses the contenteditable and selects its DOM range, then separately sends native Delete. ProseMirror input.ts focus handler schedules selectionToDOM at 20 ms and may replace that DOM-only range with its model selection before Delete. The CI screenshot and local native event trace both showed saved text still present and no refusal; subsequent Enter correctly took the unchanged-success path and blurred.",
+		"correction": "Send the actual editor Select All command followed by Backspace, allowing ProseMirror to own the selected range; assert the clear completed before changing permission. Apply the same correction to two existing Hint clear journeys in the same spec; plain native-input clears are unchanged.",
+		"productionHypothesisExcluded": "Instrumented native reproduction recorded no prop-sync content write. A speculative live-focus guard was fully removed; RefLabelInput and CLAUDE bytes match the frozen commit."
+	},
+	"checks": [
+		{
+			"log": "/tmp/nova-ci-smoke2.log",
+			"result": "CI shard 2 first attempt failed validation-message focus; its retry passed. Downloaded actual first-attempt screenshot/context to ci-smoke2-artifacts."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-diagnostic.log",
+			"result": "Unchanged production and original input gesture failed on first native run at Chromium 6x CPU throttle, no retries; native focus/input trace captured the failed clear."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-cause.log",
+			"result": "A second first-attempt native reproduction failed identically with no content-sync write, excluding the provisional production hypothesis."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-native.log",
+			"result": "Unchanged production with native keyboard selection passed the same 6x CPU throttle, no retries. Throttle and diagnostic listeners removed from final spec."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-final.log",
+			"result": "4 native option/prose/validation journeys passed without retry before the two adjacent Hint clear corrections."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-final-three.log",
+			"result": "All 3 changed journeys passed on final source, no retries, 4.5 seconds total."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/builder/ci-focus-final-biome.log",
+			"result": "Passed: 1 file checked, no fixes or diagnostics."
+		}
+	],
+	"blockedBy": []
+}

@@ -1506,7 +1506,9 @@ test("refused prose commits keep the real editor draft until permission is resto
 		"Helpful wording",
 	);
 	await expect(page.getByRole("alert")).toHaveCount(0);
-	await hint.fill("");
+	await hint.press("ControlOrMeta+A");
+	await hint.press("Backspace");
+	await expect(hint).toHaveText("");
 	await hint.press("Enter");
 	await expect(page.getByLabel("Saved prose field")).not.toContainText(
 		'"hint"',
@@ -1547,7 +1549,12 @@ test("validation messages stage empty slots, persist prose and retain a refused 
 	await message.fill("Check the answer");
 	await message.press("Enter");
 	await expect(saved).toContainText("Check the answer");
-	await message.fill("");
+	// Use the editor's native selection command. fill("") selects only the DOM,
+	// which ProseMirror's delayed focus selection can replace before Delete.
+	await message.press("ControlOrMeta+A");
+	await message.press("Backspace");
+	await expect(message).toHaveText("");
+	await expect(message).toBeFocused();
 	await page.evaluate(() =>
 		window.dispatchEvent(
 			new CustomEvent("native-editor-access", { detail: false }),
@@ -1804,7 +1811,9 @@ test("field activation is one-shot through empty cancellation, saved values and 
 	await editor.fill("Keep this hint");
 	await editor.press("Enter");
 	await expect(editor).toHaveText("Keep this hint");
-	await editor.fill("");
+	await editor.press("ControlOrMeta+A");
+	await editor.press("Backspace");
+	await expect(editor).toHaveText("");
 	await editor.press("Enter");
 	await expect(add).toBeVisible();
 	await expect(editor).toHaveCount(0);

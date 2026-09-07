@@ -19,13 +19,15 @@ test(
 		const guard = await attachErrorGuard(peer, baseURL);
 		try {
 			await peer.goto(`/build/${appId}/setup/users`);
-			await expect(
-				peer.locator('[data-builder-resource="lookup-catalog"]'),
-			).toHaveAttribute("data-state", "ready");
 			const personas = peer.getByRole("region", { name: "Personas" });
-			await personas
-				.getByRole("button", { name: "Add persona", exact: true })
-				.click();
+			// The actual write control waits for admission. Streamed hidden
+			// boundaries may briefly contain a second catalog diagnostic marker.
+			const addPersona = personas.getByRole("button", {
+				name: "Add persona",
+				exact: true,
+			});
+			await expect(addPersona).toBeEnabled();
+			await addPersona.click();
 			const name = personas.getByLabel("Name", { exact: true });
 			await expect(name).toBeFocused();
 			await name.fill("Shell recovery worker");

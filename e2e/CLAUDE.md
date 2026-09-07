@@ -216,9 +216,20 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   reloads, launches the exact real case into the target form, and removes the
   point with route recovery. No endpoint, case read, or Preview launch is stubbed.
 
-CI runs three smoke shards against separate production servers and databases. Each
-shard retains one worker because tests within it share seeded data. Read
-`docs/testing.md` for boundary selection and asynchronous ownership.
+CI runs six smoke partitions against separate production servers and databases.
+Each retains one worker because tests within it share seeded data. The harness
+distributes native discovery identities round-robin with `SMOKE_PARTITION=1/6`,
+then verifies the installed Playwright `--test-list` selects exactly that subset
+before seeding. This spreads the long full-app journeys instead of concentrating
+them in one contiguous shard. New tests are included automatically; do not add
+serial suites that depend on a prior test. CI fails on flaky results even when a
+diagnostic retry passes. Read `docs/testing.md` for boundary selection and
+asynchronous ownership.
+
+Clear TipTap content with native Select All and Backspace, then observe the empty
+draft before saving. `fill("")` selects only the DOM range; ProseMirror's delayed
+focus selection can replace it before Playwright sends Delete. Native input
+elements can still use `fill`.
 
 CI installs only Chromium headless shell (`playwright install --with-deps
 --only-shell chromium`), the browser its headless public/authed projects use.

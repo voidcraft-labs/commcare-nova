@@ -332,6 +332,17 @@ The CI wall-time target is five minutes from workflow start to completion,
 including setup and fan-in jobs. Compare actual hosted runs; local timings and
 runner CPU totals do not establish that target. Smoke shards use separate
 Postgres instances so destructive browser scenarios cannot race across shards.
+The smoke harness partitions the complete native discovery list round-robin,
+then asks Playwright to rediscover each selected list and checks exact identities
+before seeding. Long full-app journeys are spread across six jobs, each with
+one worker. Discovery remains authoritative for fixture repeats and retries.
+Flaky browser results fail CI even when a diagnostic retry passes.
+
+CodeQL is a separate workflow with its own timing. Its official action declines
+incremental analysis when GitHub's compare response reaches its 300-file cap.
+The broad test-audit PR therefore receives a full scan. Report that cost
+separately from the testing workflow; do not claim the five-minute target for
+all checks or reduce security coverage to make the timing look better.
 
 CI installs only the headless shell used by its smoke projects. Full Chromium
 is required for local headed/profiling workflows, but downloading it for a
