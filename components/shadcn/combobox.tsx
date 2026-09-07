@@ -23,6 +23,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const Combobox = ComboboxPrimitive.Root;
+/** Builds the root's `items` collection so selection uses a stable primitive
+ *  id while rendering and filtering still receive the source records. */
+const createComboboxItems = ComboboxPrimitive.createItems;
 
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props) {
 	return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />;
@@ -383,5 +386,6 @@ export {
 	ComboboxSeparator,
 	ComboboxTrigger,
 	ComboboxValue,
+	createComboboxItems,
 	useComboboxAnchor,
 };

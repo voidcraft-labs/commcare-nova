@@ -15,6 +15,7 @@ import {
 	ComboboxLabel,
 	ComboboxList,
 	ComboboxTrigger,
+	createComboboxItems,
 } from "@/components/shadcn/combobox";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +82,9 @@ export function SearchableChoiceCombobox<T>({
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const keepOpenAfterChoiceRef = useRef(false);
-	const groups = useMemo<readonly SearchableChoiceGroup<T>[]>(() => {
+	/* Groups keep first-appearance order; the collection selects by choice id
+	 * while rendering and filtering still see the choice records. */
+	const items = useMemo(() => {
 		const groupOrder: string[] = [];
 		const grouped = new Map<string, SearchableChoice<T>[]>();
 		for (const choice of choices) {
@@ -91,15 +94,14 @@ export function SearchableChoiceCombobox<T>({
 			}
 			grouped.get(choice.group)?.push(choice);
 		}
-		return groupOrder.map((value) => ({
-			value,
-			items: grouped.get(value) ?? [],
-		}));
+		const groups: readonly SearchableChoiceGroup<T>[] = groupOrder.map(
+			(value) => ({ value, items: grouped.get(value) ?? [] }),
+		);
+		return createComboboxItems(groups, {
+			getValue: (choice) => choice.id,
+			getLabel: (choice) => choice.label,
+		});
 	}, [choices]);
-	const selectedChoice =
-		selectedId === undefined
-			? null
-			: (choices.find((choice) => choice.id === selectedId) ?? null);
 
 	const close = () => {
 		setQuery("");
@@ -109,8 +111,8 @@ export function SearchableChoiceCombobox<T>({
 
 	return (
 		<Combobox
-			items={groups}
-			value={selectedChoice}
+			items={items}
+			value={selectedId ?? null}
 			open={open}
 			onOpenChange={(nextOpen) => {
 				if (nextOpen) {
@@ -128,16 +130,14 @@ export function SearchableChoiceCombobox<T>({
 			onInputValueChange={(nextQuery, details) => {
 				setQuery(details.reason === "item-press" ? "" : nextQuery);
 			}}
-			onValueChange={(choice) => {
-				if (choice === null) return;
+			onValueChange={(id) => {
+				const choice = choices.find((candidate) => candidate.id === id);
+				if (choice === undefined) return;
 				if (choice.keepOpen) keepOpenAfterChoiceRef.current = true;
 				setQuery("");
 				onChoose(choice);
 			}}
 			autoHighlight
-			itemToStringLabel={(choice: SearchableChoice<T>) => choice.label}
-			itemToStringValue={(choice: SearchableChoice<T>) => choice.id}
-			isItemEqualToValue={(choice, value) => choice.id === value.id}
 			filter={(choice: SearchableChoice<T>, currentQuery) => {
 				const normalized = currentQuery.trim().toLocaleLowerCase();
 				if (normalized === "") return true;
@@ -212,7 +212,7 @@ export function SearchableChoiceCombobox<T>({
 									{(choice: SearchableChoice<T>) => (
 										<ComboboxItem
 											key={choice.id}
-											value={choice}
+											value={choice.id}
 											className={cn(
 												"min-w-0 whitespace-normal",
 												choice.quiet && "text-nova-text-secondary",
