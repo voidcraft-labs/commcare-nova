@@ -33,7 +33,7 @@ export async function persistAcceptedDesignFixture(args: {
 		threadId: FIXTURE_THREAD_ID,
 		messages: [
 			{
-				id: "m-1",
+				id: "m1",
 				role: "user",
 				parts: [{ type: "text", text: "Track patients and their visits." }],
 			},

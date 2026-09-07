@@ -2225,3 +2225,43 @@ Validation: `/tmp/nova-root-orchestrator-before-pg.log` records the three real
 pre-fix failures; `/tmp/nova-root-orchestrator-final.log` records 45 passing tests
 with the async detector and no diagnostics. The combined typecheck still has
 in-flight diagnostics assigned to their respective owners.
+
+## Artifact records: verify both representations of authority
+
+The artifact-store suite now builds its source through the actual transcript
+projector, its reviews/plans through the production envelope producers, and its
+superseded attempt/change set through the actual brief and persistence owners.
+A wrong source-message ID in the new fixture was refused by lookup authorization;
+the fixture was corrected rather than weakening that boundary.
+
+Seventeen native counterexamples exposed missing comparisons between intact
+sealed envelopes and altered relational identity/digest columns, plus review
+and plan envelopes naming the wrong predecessor, revision or source. Three
+further failures showed that a disposition could name an absent finding and
+that disposition reads accepted mismatched finding/status columns. The store
+now verifies those bindings. Historical contract and plan bodies retain their
+original raw digest before normalization; current schemas do not replace the
+stored bytes used for verification. The unused plan-workspace finalization
+branch was removed after verifying that only contract/revision workspaces exist
+and both real callers finalize those kinds.
+
+All four writer families recheck a member changed to viewer. Source, review and
+revision races use three pool connections and observe both contenders waiting
+in PostgreSQL; identical sources converge, review ordinals serialize, and only
+one competing revision persists. Real workspace finalization rejects a stale
+revision with the entire workspace and artifact collection unchanged, then
+commits both together at the correct revision. Ordered reads, missing/batched
+review keys, exact acceptance and lookup receipt binding remain native checks.
+
+The pure workspace suite separately reconstructs a full admitted contract from
+serialized semantic steps, exercises identity replacement/removal/order and
+disposition replay, and checks combined mutation limits and exact UTF-8 bytes.
+It preserves legacy selection replay controls and distinguishes partial staged
+candidates from final graph admission. It makes no database or model claim.
+
+Evidence: `artifact-integrity-before`, `artifact-expanded-before`, and
+`artifact-dispositions-before` logs under `/tmp/nova-root-` record 17, one and
+two pre-fix failures respectively. `/tmp/nova-root-artifact-orchestration-final.log`
+passes 96 tests across both native suites;
+`/tmp/nova-root-artifact-workspace-method.log` passes 16 pure tests. All used the
+async detector without diagnostics.

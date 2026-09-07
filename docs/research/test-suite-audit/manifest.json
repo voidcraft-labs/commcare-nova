@@ -2376,13 +2376,19 @@
 			"file": "lib/agent/design/__tests__/artifactStore.postgres.test.ts",
 			"lines": 1025,
 			"ciMs": 11301,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "2fa132da89fe7dc44da046d7d23f11a67c2cf74bba20e7d5da337edf54c0b1e5",
+			"review": "Read full store, envelopes, real source/plan producers and disposition/workspace/attempt callers. Native migrated Postgres fixtures now build actual source packages, producer envelopes, derived plans, attempt briefs and private change sets instead of cast records and raw invented attempt digests. Twenty counterexamples reproduced missing relational identity/digest checks, false review/plan predecessor metadata, an invented disposition finding, and disposition read disagreement; fixed at the store. 51 cases cover exact raw-digest legacy normalization, all four writer permission rechecks, observed competing source/review/revision writers, exact workspace finalization rollback, lookup receipt binding, scoped ordered reads, acceptance and corruption. Removed unused plan-workspace finalization path (current deterministic planner has no workspace). Controlled review content does not prove LLM judgment; actual runtime DML privileges are separately owned.",
+			"reviewedSha256": "bd87d413da2fbb11b8c8cb2a7aba2a6caf232639d2fa95427c5f91f8109946af"
 		},
 		{
 			"file": "lib/agent/design/__tests__/artifactWorkspaceOperations.test.ts",
 			"lines": 368,
 			"ciMs": 836,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "ba146cbe63b4906f984f232459399601ae98bf30361ff82da69f3bd3faa86281",
+			"review": "Read whole semantic grammar, storage normalization, replay, bound and inspection owner plus actual stage/finalization callers. Replaced root/catalog partial pins and disposition length-only check with full schema-admitted contract reconstruction through serialized storage operations, exact identity/order/removal updates and unchanged inputs, actual disposition replay, combined root/collection/disposition cap and exact UTF-8 byte boundary. Retained marker-bearing historical selection replay and nonmutation controls; added current/source projection, filter-before-page, absence, kind mismatch and ambiguity refusals. Sixteen pure tests pass; staged candidates may intentionally be partial and are not claims of final graph admission or database persistence.",
+			"reviewedSha256": "b9567134d1852076fad398bd280ba3185542c3a0ab07a5e6c2cb55079f3ad430"
 		},
 		{
 			"file": "lib/agent/design/__tests__/buildPlan.test.ts",

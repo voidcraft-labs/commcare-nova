@@ -5,9 +5,9 @@
  *
  * The discipline (plan §6.12, §18.2–18.3):
  *
- *  - INSERT-ONLY. Nothing here updates or deletes; acceptance is a new
- *    accepted revision row, supersession is the session's active pointer
- *    (the design-session unit) plus ancestry.
+ *  - INSERT-ONLY ARTIFACTS. Acceptance is a new accepted revision row.
+ *    Mutable authoring workspaces and uncommitted execution carriers may
+ *    finalize or supersede atomically with that artifact write.
  *  - DIGEST-BOUND. Every envelope is verified before insert and after every
  *    read (`envelope.ts::verifyArtifactEnvelope`); every insert proves its
  *    exact predecessors exist with matching digests, so a later state
@@ -16,10 +16,9 @@
  *    through `parsePersistedJsonText`, then the exact producer schema —
  *    a contract revision re-proves its whole design graph on every read.
  *  - APPEND-ONLY AT THE PRIVILEGE LEVEL. These tables are never row-locked
- *    (`privilegeConvergence.ts`); the unique constraints are the race
- *    fences, and a violated one is a loud protocol error — the pipeline is
- *    single-flight per session by construction, so a race is corruption to
- *    surface, not contention to retry.
+ *    (`privilegeConvergence.ts`). The mutable session authority lock
+ *    serializes holder checks and ordinal allocation. Unique constraints
+ *    reserve identities; source-package retries converge on their digest.
  */
 
 import { type Kysely, sql, type Transaction } from "kysely";
@@ -82,7 +81,7 @@ export interface DesignArtifactWriteAuthority {
 export interface DesignArtifactWorkspaceFinalization {
 	readonly workspaceId: string;
 	readonly expectedRevision: number;
-	readonly artifactKind: "contract" | "revision" | "plan";
+	readonly artifactKind: "contract" | "revision";
 }
 
 function contractRequiresLookupMaterialization(
@@ -325,9 +324,13 @@ async function readSourcePackageInTx(
 			`design_source_packages.payload for session ${designSessionId}`,
 		),
 	);
-	if (payload.packageDigest !== row.package_digest) {
+	if (
+		payload.packageDigest !== row.package_digest ||
+		payload.designSessionId !== row.design_session_id ||
+		payload.projectId !== row.project_id
+	) {
 		throw new DesignArtifactStoreError(
-			"A stored source package's payload names a different digest than its row — the two were written together and can only disagree through corruption.",
+			"A stored source package's payload names a different identity or digest than its row. The two were written together and disagree through corruption.",
 		);
 	}
 	return {
@@ -465,6 +468,7 @@ export async function insertDesignRevision(args: {
 					"This revision's parent does not exist in its session — a later state cannot exist without its exact predecessor.",
 				);
 			}
+			revisionRecordFromRow(parent);
 			if (!parsed.inputArtifactDigests.includes(parent.artifact_digest)) {
 				throw new DesignArtifactStoreError(
 					"This revision's inputs do not include its parent's digest — the predecessor binding is broken.",
@@ -537,11 +541,23 @@ export async function insertDesignRevision(args: {
 					);
 				}
 			}
-			const knownReviewIds = new Set(reviews.map((review) => review.id));
+			const knownReviews = new Map(
+				reviews.map((review) => [review.id, review]),
+			);
 			for (const entry of args.dispositions ?? []) {
-				if (!knownReviewIds.has(entry.reviewId)) {
+				const review = knownReviews.get(entry.reviewId);
+				if (review === undefined) {
 					throw new DesignArtifactStoreError(
 						"A disposition names a review that does not belong to the parent revision.",
+					);
+				}
+				if (
+					!review.envelope.payload.findings.some(
+						(finding) => finding.id === entry.disposition.findingId,
+					)
+				) {
+					throw new DesignArtifactStoreError(
+						"A disposition must name a finding from its exact persisted review.",
 					);
 				}
 			}
@@ -580,11 +596,6 @@ export async function insertDesignRevision(args: {
 		}
 
 		if (args.workspaceFinalization !== undefined) {
-			if (args.workspaceFinalization.artifactKind === "plan") {
-				throw new DesignArtifactStoreError(
-					"A Design Contract revision cannot finalize a plan workspace.",
-				);
-			}
 			await finalizeArtifactWorkspaceInTransaction(tx, {
 				designSessionId: parsed.designSessionId,
 				artifactId: parsed.artifactId,
@@ -725,6 +736,13 @@ function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.artifactId !== row.id ||
 		envelope.designSessionId !== row.design_session_id ||
+		envelope.revision !==
+			safePersistedSequence(
+				row.revision,
+				`design_revisions.revision for ${row.id}`,
+			) ||
+		envelope.parentArtifactId !== row.parent_revision_id ||
+		envelope.sourcePackageDigest !== row.source_package_digest ||
 		storedContractDigest !== row.contract_digest
 	) {
 		throw new DesignArtifactStoreError(
@@ -786,6 +804,15 @@ export async function insertDesignReview(args: {
 		if (!revision || revision.design_session_id !== parsed.designSessionId) {
 			throw new DesignArtifactStoreError(
 				"A review must name an existing revision of its own session — this one does not.",
+			);
+		}
+		const verifiedRevision = revisionRecordFromRow(revision);
+		if (
+			parsed.parentArtifactId !== verifiedRevision.id ||
+			parsed.revision !== verifiedRevision.revision
+		) {
+			throw new DesignArtifactStoreError(
+				"The artifact must name its exact predecessor revision and sequence.",
 			);
 		}
 		if (!parsed.inputArtifactDigests.includes(revision.artifact_digest)) {
@@ -900,7 +927,10 @@ function reviewRecordFromRow(row: ReviewRow): DesignReviewRecord {
 	verifyArtifactEnvelope(envelope);
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
-		envelope.artifactId !== row.id
+		envelope.artifactId !== row.id ||
+		envelope.designSessionId !== row.design_session_id ||
+		envelope.parentArtifactId !== row.design_revision_id ||
+		!envelope.inputArtifactDigests.includes(row.reviewed_revision_digest)
 	) {
 		throw new DesignArtifactStoreError(
 			`The stored review ${row.id} disagrees with its own envelope — corruption.`,
@@ -933,7 +963,13 @@ export async function readDispositions(
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("design_review_dispositions")
-		.select(["review_id", "finding_id", "resulting_revision_id", "created_at"])
+		.select([
+			"review_id",
+			"finding_id",
+			"status",
+			"resulting_revision_id",
+			"created_at",
+		])
 		.select(
 			sql<string>`${sql.ref("design_review_dispositions.payload")}::text`.as(
 				"payload_text",
@@ -942,18 +978,29 @@ export async function readDispositions(
 		.where("review_id", "=", reviewId)
 		.orderBy("finding_id", "asc")
 		.execute();
-	return rows.map((row) => ({
-		reviewId: row.review_id,
-		findingId: row.finding_id,
-		resultingRevisionId: row.resulting_revision_id,
-		disposition: findingDispositionSchema.parse(
+	return rows.map((row) => {
+		const disposition = findingDispositionSchema.parse(
 			parsePersistedJsonText(
 				row.payload_text,
 				`design_review_dispositions.payload for review ${reviewId}, finding ${row.finding_id}`,
 			),
-		),
-		createdAt: row.created_at,
-	}));
+		);
+		if (
+			disposition.findingId !== row.finding_id ||
+			disposition.status !== row.status
+		) {
+			throw new DesignArtifactStoreError(
+				"A stored finding disposition disagrees with its relational identity or status.",
+			);
+		}
+		return {
+			reviewId: row.review_id,
+			findingId: row.finding_id,
+			resultingRevisionId: row.resulting_revision_id,
+			disposition,
+			createdAt: row.created_at,
+		};
+	});
 }
 
 /* ------------------------------------------------------------------ */
@@ -968,7 +1015,6 @@ export async function readDispositions(
 export async function insertDesignBuildPlan(args: {
 	envelope: DesignArtifactEnvelope<BuildPlan>;
 	authority: DesignArtifactWriteAuthority;
-	workspaceFinalization?: DesignArtifactWorkspaceFinalization;
 }): Promise<DesignBuildPlanRecord> {
 	const parsed = buildPlanEnvelopeSchema.parse(args.envelope);
 	verifyArtifactEnvelope(parsed);
@@ -997,12 +1043,26 @@ export async function insertDesignBuildPlan(args: {
 				"The plan's revision digest does not match the stored accepted revision — the plan was derived from something else.",
 			);
 		}
+		const verifiedRevision = revisionRecordFromRow(revision);
+		if (
+			parsed.parentArtifactId !== verifiedRevision.id ||
+			parsed.revision !== verifiedRevision.revision
+		) {
+			throw new DesignArtifactStoreError(
+				"The artifact must name its exact predecessor revision and sequence.",
+			);
+		}
 		if (!parsed.inputArtifactDigests.includes(revision.artifact_digest)) {
 			throw new DesignArtifactStoreError(
 				"This plan's inputs do not include the accepted revision's digest.",
 			);
 		}
-		const acceptedContract = revisionRecordFromRow(revision).envelope.payload;
+		if (parsed.sourcePackageDigest !== verifiedRevision.sourcePackageDigest) {
+			throw new DesignArtifactStoreError(
+				"The plan must carry the accepted revision's exact source package.",
+			);
+		}
+		const acceptedContract = verifiedRevision.envelope.payload;
 		if (
 			contractRequiresLookupMaterialization(acceptedContract) &&
 			plan.lookupMaterialization === null
@@ -1078,20 +1138,6 @@ export async function insertDesignBuildPlan(args: {
 			})
 			.execute();
 
-		if (args.workspaceFinalization !== undefined) {
-			if (args.workspaceFinalization.artifactKind !== "plan") {
-				throw new DesignArtifactStoreError(
-					"A build plan can finalize only a plan workspace.",
-				);
-			}
-			await finalizeArtifactWorkspaceInTransaction(tx, {
-				designSessionId: parsed.designSessionId,
-				artifactId: plan.id,
-				runId: args.authority.runId,
-				workspace: args.workspaceFinalization,
-			});
-		}
-
 		const record = await readBuildPlanRecordInTx(tx, plan.id);
 		if (!record) {
 			throw new DesignArtifactStoreError(
@@ -1164,7 +1210,13 @@ async function readBuildPlanRecordInTx(
 	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
-		envelope.payload.id !== row.id
+		envelope.payload.id !== row.id ||
+		envelope.designSessionId !== row.design_session_id ||
+		envelope.parentArtifactId !== row.design_revision_id ||
+		envelope.payload.designRevisionId !== row.design_revision_id ||
+		envelope.payload.designRevisionDigest !== row.design_revision_digest ||
+		!envelope.inputArtifactDigests.includes(row.design_revision_digest) ||
+		canonicalJsonDigest(storedEnvelope.payload) !== row.plan_digest
 	) {
 		throw new DesignArtifactStoreError(
 			`The stored build plan ${id} disagrees with its own envelope — corruption.`,

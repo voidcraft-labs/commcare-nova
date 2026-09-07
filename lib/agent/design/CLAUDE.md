@@ -212,7 +212,14 @@ valid direct Builder or MCP edit.
   checked, strict-parsed on read, and written only after locking the exact live
   session/app holder and proving current Project edit membership. An accepted
   revision requires its persisted independent review and complete blocker
-  dispositions. A plan belongs to the same session and exact accepted revision.
+  dispositions. Each disposition names a finding in its exact persisted review;
+  reads also compare its relational finding/status with the payload. Artifact
+  readers compare relational identity, predecessor and source/digest metadata
+  with the sealed body before returning a record. A plan belongs to the same
+  session, source package and exact accepted revision. Its raw payload digest
+  is verified before historical additive fields are normalized. Private
+  workspace finalization belongs only to contract/revision authoring; the
+  deterministic planner has no workspace.
   Lookup materialization receipts retain every minted table, column, and row
   binding under their full result digest. The BuildPlan binds the exact receipt
   to execution authority, but the execution brief does not expose that mapping.

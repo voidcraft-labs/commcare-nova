@@ -562,3 +562,11 @@ on a one-connection pool proves only queued execution. Completion and attempt
 cleanup have native rollback controls, including a database-triggered late
 failure. Stored orchestration kinds reach the actual app-freeze SQL query;
 exact schema/classification equality belongs in the compiler test.
+
+Artifact integrity tests alter relational metadata independently of sealed
+envelopes and require refusal; re-hashing an unchanged payload cannot prove
+those joins. Legacy payload normalization must preserve verification against
+the original stored digest. Semantic workspace tests reconstruct a complete
+contract through persisted operations and separately exercise partial replay,
+identity ordering, disposition updates, combined operation counts and UTF-8
+byte limits. They do not claim model quality or database authority.
