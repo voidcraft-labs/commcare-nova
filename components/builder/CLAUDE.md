@@ -642,6 +642,12 @@ One global Preview toggle (centered in the BuilderHeader — directly above the 
 
 Below the narrow builder breakpoint, both 56px destination rails remain in flow and the expanded structure/chat/properties surface opens as a contained shadcn/Base UI modal drawer over a scrim. Under 560px, the rails become a labeled 56px bottom panel dock so a 320px handset gives the canvas its full width; the same drawers remain one tap away and reserve the dock's vertical space instead of covering authored controls. Base UI owns initial focus, focus containment, document inertness, outside/Escape dismissal, and focus return to the retained rail or dock trigger; do not recreate those behaviors with listeners or a decorative overlay. The chat drawer uses `keepMounted` because its stream, draft, and attachments must survive every open/close and viewport transition.
 
+The persistent right drawer animates its full `transform` so Base UI can observe
+the exit through `element.getAnimations()` before applying `hidden`. Motion's
+independent `x` animation does not participate in that browser lifecycle. A
+viewport change keeps the same popup element, and reopening retained properties
+must bring its controls back on screen.
+
 ## Flipbook (edit ↔ live) invariants
 
 - Scroll sync captures the topmost visible field BEFORE the mode change and corrects `scrollTop` in a layout effect after; the anchor must be React state (the effect depends on it). If the anchor is hidden in the new mode, search outward from its index backward first. A ResizeObserver re-corrects during the ~200ms sidebar animation, then clears after 250ms.

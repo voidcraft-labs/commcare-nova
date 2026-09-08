@@ -4936,6 +4936,9 @@ test.describe("authenticated builder", () => {
 		await page.setViewportSize({ width: 1280, height: 900 });
 		await page.getByRole("button", { name: "Review row work" }).click();
 		await expect(destination).toHaveValue("  District hospital  ");
+		await expect(
+			page.getByRole("button", { name: "Save row" }),
+		).toBeInViewport();
 		await page.getByRole("button", { name: "Save row" }).click();
 		await expect(
 			page.getByRole("status").filter({ hasText: "Saved." }),
