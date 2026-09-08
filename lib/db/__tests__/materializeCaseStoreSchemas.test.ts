@@ -125,9 +125,12 @@ describe("schema materialization orchestration", () => {
 			code: "ECONNRESET",
 		});
 		drain.mockRejectedValue(fault);
-		await expect(
+		const completed = expect(
 			materializeCaseStoreSchemas({ appId: "app", blueprint }),
 		).rejects.toBe(fault);
+		await vi.runAllTimersAsync();
+		await completed;
+		expect(drain).toHaveBeenCalledTimes(3);
 		expect(applySchemaChange).not.toHaveBeenCalled();
 	});
 });

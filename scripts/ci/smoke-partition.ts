@@ -4,7 +4,7 @@ import type { JSONReport, JSONReportSuite } from "@playwright/test/reporter";
 import { durationsMs } from "../../e2e/smoke-timings.json";
 
 /** Use native discovery identities, never a hand-maintained list of scenarios. */
-export function discoveredTests(report: JSONReport) {
+export function discoveredTests(report: Pick<JSONReport, "errors" | "suites">) {
 	if (report.errors.length) throw new Error("Playwright discovery failed");
 	const rows: { identity: string; selector: string }[] = [];
 	function visit(suite: JSONReportSuite, titles: string[]) {
@@ -28,14 +28,11 @@ export function discoveredTests(report: JSONReport) {
 			visit(child, [...titles, child.title]);
 	}
 	for (const suite of report.suites) visit(suite, []);
-	if (
-		!rows.length ||
-		new Set(rows.map((row) => row.identity)).size !== rows.length
-	)
+	if (!rows.length)
 		throw new Error(
-			"Playwright discovery must contain unique, nonempty test identities",
+			"Playwright discovery must contain nonempty test identities",
 		);
-	return rows;
+	return [...new Map(rows.map((row) => [row.identity, row])).values()];
 }
 
 export function partitionTests(

@@ -14,8 +14,7 @@
  *
  * The journey mutates the blueprint (it authors the link) and the saved row
  * (it submits twice), so every Playwright attempt gets its own app and row:
- * `FORM_LINKS_FIXTURE_COUNT` in `e2e/lib/config.ts`, selected by
- * `seed.formLinks[testInfo.retry]`.
+ * the native attempt selects its own `form-links` profile.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";

@@ -14,13 +14,30 @@
  * by the form screen.
  */
 "use client";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { Uuid } from "@/lib/doc/types";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import { useAccessPhase, useAppId, useProjectId } from "@/lib/session/hooks";
+
+/** A list row and its later detail read can supply identical preloads through
+ * different Map instances. They do not represent a new engine input. */
+function sameCasePreloads(
+	a: CaseDataByType | undefined,
+	b: CaseDataByType | undefined,
+): boolean {
+	if (a === b) return true;
+	if (a === undefined || b === undefined || a.size !== b.size) return false;
+	for (const [type, properties] of a) {
+		const other = b.get(type);
+		if (other === undefined || other.size !== properties.size) return false;
+		for (const [property, value] of properties)
+			if (!other.has(property) || other.get(property) !== value) return false;
+	}
+	return true;
+}
 
 export function useFormEngine(
 	formUuid: Uuid | undefined,
@@ -34,6 +51,7 @@ export function useFormEngine(
 	const accessPhase = useAccessPhase();
 	const appId = useAppId();
 	const projectId = useProjectId();
+	const appliedPreloads = useRef<CaseDataByType | undefined>(undefined);
 
 	/* A form transition is a genuinely new entry. Access refreshes are not:
 	 * `beginAccessRefresh()` deliberately pauses write authority before the
@@ -48,6 +66,7 @@ export function useFormEngine(
 			return;
 		}
 		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
+		appliedPreloads.current = caseData;
 		const activation = controller.activateFormAsync(
 			formUuid,
 			caseData,
@@ -80,12 +99,15 @@ export function useFormEngine(
 		}
 		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
 		if (controller.formUuid !== formUuid) {
+			appliedPreloads.current = caseData;
 			controller
 				.activateFormAsync(formUuid, caseData, caseDatabase, searchAnswers)
 				.catch(() => undefined);
 			return;
 		}
 		if (caseData === undefined) return;
+		if (sameCasePreloads(appliedPreloads.current, caseData)) return;
+		appliedPreloads.current = caseData;
 		controller
 			.rebuildActiveFormAsync(formUuid, caseData)
 			.catch(() => undefined);

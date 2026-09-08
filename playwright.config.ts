@@ -19,11 +19,17 @@ import { urlHost } from "./e2e/lib/url";
  *     the cheapest thing that would have caught every auth outage we've shipped.
  *
  * Auth is bypassed entirely — no Google account, no real OAuth. The `authed`
- * project consumes `e2e/.auth/state.json`, a storageState carrying a
+ * project resolves a per-attempt storageState carrying a
  * forged-but-valid session cookie minted by `e2e/seed.ts`.
  */
 const BASE_URL = process.env.SMOKE_BASE_URL ?? "http://localhost:3000";
 const isCI = !!process.env.CI;
+const lane = process.env.SMOKE_LANE;
+if (lane !== undefined && lane !== "browser" && lane !== "app")
+	throw new Error("SMOKE_LANE must be browser or app");
+const smokeWorkers = Number(process.env.SMOKE_WORKERS ?? 1);
+if (![1, 2].includes(smokeWorkers))
+	throw new Error("SMOKE_WORKERS must be 1 or 2");
 /**
  * Watch-mode knobs for the two-user multiplayer suite (`npm run mp:watch`):
  * `MP_SLOWMO` inserts a pause (ms) between every Playwright action so a human
@@ -99,11 +105,10 @@ export default defineConfig({
 	outputDir: "./e2e/test-results",
 	fullyParallel: true,
 	forbidOnly: isCI,
-	// Single-sourced with the seed's throwaway-app count (e2e/lib/config.ts).
+	// Native discovery records each selected test's actual retry budget.
 	retries: SMOKE_RETRIES,
-	// One worker: the suite shares a single Postgres + seeded dataset; the delete
-	// test mutates app rows, so parallel workers could race the app list.
-	workers: 1,
+	// Data is scenario-owned. This limit controls machine load, not correctness.
+	workers: smokeWorkers,
 	// Generous headroom for a full page load + assertions. The standalone server
 	// serves pre-compiled routes, so this isn't covering a cold compile. Watch mode
 	// scales the budget with its action delay: slowMo pauses every real action
@@ -130,17 +135,20 @@ export default defineConfig({
 	},
 	projects: [
 		{
+			name: "browser",
+			testMatch: /browser\/.*\.spec\.ts/,
+			use: { ...devices["Desktop Chrome"] },
+		},
+		{
 			name: "public",
-			testMatch: /public\.spec\.ts/,
+			testMatch: /app\/public\.spec\.ts/,
 			use: { ...devices["Desktop Chrome"] },
 		},
 		{
 			name: "authed",
-			testMatch:
-				/(?:authed|deep-links|localization|error-guard|reconciler-lifetime|media-extraction|media-transport|media-library|worker-credentials|builder-controls|builder-layout-audit|builder-automations|builder-data|builder-tree|builder-session-controls|builder-users-readiness|publishing|preview-interactions-audit|chat-controls-audit|preview-geopoint-audit|preview-repeats-audit|preview-shell-audit|preview-form-lifecycle-audit|preview-attachments-audit|preview-search-audit|preview-cases-audit|case-workspace-audit|case-workspace-surface|manual-session-audit|preview-xpath-worker-audit|codemirror-audit)\.spec\.ts/,
+			testMatch: /app\/(?!public\.spec\.ts$).*\.spec\.ts/,
 			use: {
 				...devices["Desktop Chrome"],
-				storageState: "e2e/.auth/state.json",
 			},
 		},
 		{
@@ -149,7 +157,7 @@ export default defineConfig({
 			// storageState })` per user (Ada + Grace), each carrying that user's
 			// seeded session cookie (`e2e/.auth/state-mp-{a,b}.json`).
 			name: "multiplayer",
-			testMatch: /multiplayer\.spec\.ts/,
+			testMatch: /multiplayer\/multiplayer\.spec\.ts/,
 			use: {
 				// The tiled watch mode (`mp:watch`) deliberately KEEPS this fixed
 				// viewport: headed Chromium scales an emulated viewport down to fit
@@ -168,7 +176,7 @@ export default defineConfig({
 		// MP_MANUAL=1 (see `mp:manual`); its lone "test" waits until the human
 		// closes both windows, which must never run in an unattended suite.
 		...(MP_MANUAL
-			? [{ name: "mp-manual", testMatch: /mp-manual\.spec\.ts/ }]
+			? [{ name: "mp-manual", testMatch: /manual\/mp-manual\.spec\.ts/ }]
 			: []),
 		// Single-user case-workspace review, also opt-in so CI never waits for a
 		// human to close the browser. It reuses the ordinary forged smoke session.
@@ -176,7 +184,7 @@ export default defineConfig({
 			? [
 					{
 						name: "case-workspace-manual",
-						testMatch: /case-workspace-manual\.spec\.ts/,
+						testMatch: /manual\/case-workspace-manual\.spec\.ts/,
 						use: {
 							...devices["Desktop Chrome"],
 							storageState: "e2e/.auth/state.json",
@@ -188,7 +196,7 @@ export default defineConfig({
 	// Manage our own server only when smoke.sh is driving a localhost run.
 	// Against a deployed URL (or any already-running server) we test what's there.
 	webServer:
-		manageServer && isLocalTarget
+		manageServer && isLocalTarget && lane !== "browser"
 			? {
 					// Build + serve the PRODUCTION artifact, not `next dev`. Two reasons:
 					// (1) fidelity — the smoke then exercises what actually deploys

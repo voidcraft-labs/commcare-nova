@@ -21,8 +21,10 @@
 
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { BlueprintEditableContext } from "@/lib/doc/provider";
 import {
 	type CaseOperation,
 	type CasePropertyDataType,
@@ -169,16 +171,26 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 	 * an operation that reads a data table could never be retargeted at all,
 	 * and the picker would disable every choice with "lookup data hasn't
 	 * finished reconnecting" that nothing would ever resolve. */
-	const { lookupContext } = useLookupCommitState();
+	const lookupCommitState = useLookupCommitState();
+	const { lookupContext } = lookupCommitState;
+	const canEdit = useContext(BlueprintEditableContext);
+	const writeRefusal = useMemo(() => {
+		const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+		return admission.ok
+			? undefined
+			: { ok: false as const, reason: admission.messages.join(" ") };
+	}, [canEdit, lookupCommitState]);
 	const editVerdict = useCallback(
 		(operation: CaseOperation) =>
+			writeRefusal ??
 			caseOperationEditVerdict(doc, formUuid, operation, lookupContext),
-		[doc, formUuid, lookupContext],
+		[doc, formUuid, lookupContext, writeRefusal],
 	);
 	const addVerdict = useCallback(
 		(operation: CaseOperation, index?: number) =>
+			writeRefusal ??
 			caseOperationAddVerdict(doc, formUuid, operation, index, lookupContext),
-		[doc, formUuid, lookupContext],
+		[doc, formUuid, lookupContext, writeRefusal],
 	);
 
 	const writeValueType = useCallback(

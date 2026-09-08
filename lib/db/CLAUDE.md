@@ -1179,3 +1179,9 @@ Read `docs/testing.md` before adding or substantially changing tests. Test obser
 behavior at the smallest boundary that can catch the defect. Own and await async
 work through teardown, including failure paths; never copy sleeps or blanket
 cleanup from an existing test.
+
+Pending-index drains at the app-state boundary use the same bounded transient
+retry as additive schema updates. Separate apps still build indexes on the shared
+`cases` table, so concurrent DDL can deadlock. Recovery rereads durable pending
+work and rebuilds invalid indexes; exhausted transient failures and deterministic
+faults still propagate to the caller. It never retries a case-data write.

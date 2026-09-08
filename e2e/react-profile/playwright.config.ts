@@ -2,6 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
 	testDir: ".",
+	projects: [{ name: "react-profile" }],
 	testMatch: "*.spec.ts",
 	fullyParallel: false,
 	workers: 1,

@@ -47,6 +47,9 @@ input change. Prospective validation and the next submission resolve hidden
 values against the latest identity and lookup data, even when authored input
 shapes and visible defaults have not changed. Editing a draft preserves the
 submitted map identity so it does not reload Results.
+An admitted draft command preserves its input Map identity when no foreign keys
+need filtering. SearchInputForm uses that identity to recognize its own debounced
+acknowledgement; cloning it could overwrite a newer local answer with an older echo.
 
 The Search screen has its OWN worker runtime beside the form's. A runtime
 admits one active worker scope `(entryKey, profile)` and retires the active
@@ -88,6 +91,12 @@ before queuing worker validation. A
 same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared
 value. Never defer the ownership mark until the validation Promise settles.
+
+`useFormEngine` compares case-preload maps by their type/property/value content
+before rebuilding. A list row and the later full case read may be separate Map
+instances with identical values; that cold arrival must retain open controls,
+focus and browser-local drafts. Changed values or ancestor additions still
+rebuild the same entry, and confirmed scope changes still activate a new entry.
 
 Each controller revision owns one worker evaluation world. Its first request
 copies the main structure plus the engine-lifetime secondary snapshots; later

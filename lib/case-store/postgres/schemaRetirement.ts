@@ -6,6 +6,7 @@ import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import type { Database, JsonObject } from "../sql/database";
 import type { ApplyCaseTypeSchemaRetirementArgs } from "../store";
 import { caseSchemaIndexLockScope, indexScopeTag } from "./indexIdentity";
+import { withCaseSchemaIndexDdlLock } from "./schemaIndexLock";
 
 /**
  * Mark schemas inactive on the caller's app-locked transaction. Retained case
@@ -118,32 +119,32 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 ): Promise<void> {
 	for (const caseType of [...new Set(caseTypes)].sort()) {
 		await db.connection().execute(async (connection) => {
-			const scope = caseSchemaIndexLockScope(appId, caseType);
-			await sql`
-				SELECT pg_advisory_lock(hashtextextended(${scope}, 0))
-			`.execute(connection);
-			try {
-				const row = await connection
-					.selectFrom("case_type_schemas")
-					.select(["is_active", "synced_seq", "index_pending_seq"])
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.executeTakeFirst();
-				if (row === undefined || row.is_active) {
-					return;
-				}
-				const pendingSeq =
-					row.index_pending_seq === null
-						? undefined
-						: safePersistedSequence(
-								row.index_pending_seq,
-								`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
-							);
-				const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
-				const indexes = await sql<{
-					index_name: string;
-					index_schema: string;
-				}>`
+			await withCaseSchemaIndexDdlLock(
+				connection,
+				appId,
+				caseType,
+				async () => {
+					const row = await connection
+						.selectFrom("case_type_schemas")
+						.select(["is_active", "synced_seq", "index_pending_seq"])
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.executeTakeFirst();
+					if (row === undefined || row.is_active) {
+						return;
+					}
+					const pendingSeq =
+						row.index_pending_seq === null
+							? undefined
+							: safePersistedSequence(
+									row.index_pending_seq,
+									`case_type_schemas.index_pending_seq for ${appId}/${caseType}`,
+								);
+					const prefix = `cases\\_${indexScopeTag(appId, caseType)}\\_%`;
+					const indexes = await sql<{
+						index_name: string;
+						index_schema: string;
+					}>`
 				SELECT index_relation.relname AS index_name,
 				       namespace.nspname AS index_schema
 				FROM pg_index AS index_row
@@ -155,35 +156,32 @@ export async function drainRetiredCaseTypeSchemaIndexes(
 				  AND index_relation.relname LIKE ${prefix} ESCAPE '\\'
 				ORDER BY namespace.nspname, index_relation.relname
 			`.execute(connection);
-				for (const index of indexes.rows) {
-					await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(index.index_schema, index.index_name)}`.execute(
-						connection,
-					);
-				}
-				const convergedSeq =
-					pendingSeq ??
-					safePersistedSequence(
-						row.synced_seq,
-						`case_type_schemas.synced_seq for forced retirement drain ${appId}/${caseType}`,
-					);
-				let update = connection
-					.updateTable("case_type_schemas")
-					.set({ index_pending_seq: null, index_synced_seq: convergedSeq })
-					.where("app_id", "=", appId)
-					.where("case_type", "=", caseType)
-					.where("is_active", "=", false);
-				update =
-					pendingSeq === undefined
-						? update
-								.where("synced_seq", "=", String(convergedSeq))
-								.where("index_pending_seq", "is", null)
-						: update.where("index_pending_seq", "=", String(pendingSeq));
-				await update.execute();
-			} finally {
-				await sql`
-					SELECT pg_advisory_unlock(hashtextextended(${scope}, 0))
-				`.execute(connection);
-			}
+					for (const index of indexes.rows) {
+						await sql`DROP INDEX CONCURRENTLY IF EXISTS ${sql.id(index.index_schema, index.index_name)}`.execute(
+							connection,
+						);
+					}
+					const convergedSeq =
+						pendingSeq ??
+						safePersistedSequence(
+							row.synced_seq,
+							`case_type_schemas.synced_seq for forced retirement drain ${appId}/${caseType}`,
+						);
+					let update = connection
+						.updateTable("case_type_schemas")
+						.set({ index_pending_seq: null, index_synced_seq: convergedSeq })
+						.where("app_id", "=", appId)
+						.where("case_type", "=", caseType)
+						.where("is_active", "=", false);
+					update =
+						pendingSeq === undefined
+							? update
+									.where("synced_seq", "=", String(convergedSeq))
+									.where("index_pending_seq", "is", null)
+							: update.where("index_pending_seq", "=", String(pendingSeq));
+					await update.execute();
+				},
+			);
 		});
 	}
 }

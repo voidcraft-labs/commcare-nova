@@ -108,6 +108,7 @@ function DragCanvas() {
 			aria-label="Drag canvas"
 			data-drag-active={drag.dragActive}
 			data-landing-ready={drag.placeholderIndex !== null}
+			data-landing-at-end={drag.placeholderIndex === rows.length - 1}
 		>
 			{current.fieldOrder[FORM].map((uuid, index) => (
 				<Row key={uuid} uuid={uuid} index={index} />

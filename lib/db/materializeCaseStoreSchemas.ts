@@ -123,7 +123,7 @@ export async function drainPendingCaseSchemaIndexes(
 	appId: string,
 ): Promise<void> {
 	const store = await withSchemaContext();
-	await store.drainPendingIndexConvergence({ appId });
+	await withTransientRetry(() => store.drainPendingIndexConvergence({ appId }));
 }
 
 /**
@@ -156,7 +156,9 @@ export async function materializeCaseStoreSchemas(
 	args: MaterializeCaseStoreSchemasArgs,
 ): Promise<void> {
 	const store = await withSchemaContext();
-	await store.drainPendingIndexConvergence({ appId: args.appId });
+	await withTransientRetry(() =>
+		store.drainPendingIndexConvergence({ appId: args.appId }),
+	);
 	// Every app gets the worker's own case, INCLUDING a survey-only one. HQ
 	// gives every worker a usercase whatever the app collects, `#user/<prop>`
 	// reads it through a `casedb` join rather than a projection, and a persona

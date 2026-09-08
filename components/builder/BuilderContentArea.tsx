@@ -722,7 +722,13 @@ export function BuilderContentArea({
 							render={
 								<motion.div
 									initial={false}
-									animate={{ x: !isCentered && chatParked ? "100%" : 0 }}
+									// Base UI observes browser animations before hiding this
+									// persistent drawer. Motion's independent x animation is
+									// invisible to that lifecycle and can be cut off mid-exit.
+									animate={{
+										transform:
+											!isCentered && chatParked ? "translateX(100%)" : "none",
+									}}
 									transition={
 										isCentered || reduceMotion
 											? { duration: 0 }

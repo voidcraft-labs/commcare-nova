@@ -9,6 +9,7 @@ invisible to Sentry, catchable only by a real request. This suite is that reques
 
 | Project    | Auth                    | Checks |
 |------------|-------------------------|--------|
+| `browser` | per-test local peer | native component interactions with production CSS and XPath worker; no app server or database |
 | `public`   | none                    | home page renders the Google sign-in button; `GET /api/auth/get-session` is 200 (not 500); `POST /api/auth/sign-in/social` returns a Google URL |
 | `authed`   | seeded session cookie   | app list renders, opens an app in the builder; `/build/new` renders; `get-session` returns the seeded user; delete an app through the UI |
 
@@ -55,17 +56,27 @@ same signer, dev-only route.
 
 ## Run it locally
 
-Requires **Docker** (the local Postgres).
+The app lane requires **Docker** for local Postgres. The browser lane requires
+Chromium and the production build, and starts no app server or database.
 
 ```bash
 npx playwright install chromium   # one-time
-npm run test:smoke                # full suite (public + authed)
+npm run test:smoke                # complete suite, browser then app lane
 npm run test:smoke -- --project=public   # just the credential-free checks
 npm run test:smoke:headed         # watch it run
 npx playwright show-report e2e/playwright-report
 ```
 
-`scripts/smoke.sh` boots local Postgres (compose) + migrations, seeds, then runs
+`scripts/smoke.sh` discovers the exact native selection first. Mixed runs execute
+the browser lane and then the app lane, reusing only the unchanged build. Use
+`SMOKE_LANE=browser` or `SMOKE_LANE=app` to select a lane, and `--workers=2` to
+run independent scenarios concurrently. Authenticated tests declare a typed
+`@seed:` profile and own separate accounts, sessions, Projects and data for every
+repeat and retry. Filters and shards allocate only their selected fixtures. Native `--shard`
+applies independently within each selected lane; the union of shards preserves
+every selected repeat exactly once.
+
+For the app lane the harness boots local Postgres (compose) + migrations, seeds, then runs
 Playwright, which builds the isolated XPath worker and starts Next's generated
 standalone server through `scripts/start-standalone.mjs`. The launcher fails if the
 production build or worker is missing, places `public` and `.next/static` under

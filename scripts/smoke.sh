@@ -10,7 +10,7 @@
 # No real GCP project, no prod credentials, no LLM spend. Extra args are passed
 # through to Playwright, e.g.:
 #   scripts/smoke.sh --project=public          # public checks only
-#   scripts/smoke.sh e2e/tests/authed.spec.ts  # one file
+#   scripts/smoke.sh e2e/tests/app/authed.spec.ts  # one file
 #
 # Requires: docker.
 set -euo pipefail
@@ -50,6 +50,92 @@ export NEXT_TELEMETRY_DISABLED="${NEXT_TELEMETRY_DISABLED:-1}"
 # never be returned to a seedable state. Recreating it each run is what CI's
 # fresh volume already gives us.
 export NOVA_DB_LOCAL_URL="${NOVA_DB_LOCAL_URL:-postgres://nova:nova@127.0.0.1:5432/nova_smoke?sslmode=disable}"
+
+# Explicit lanes have useful defaults while preserving an explicit project filter.
+if [ -n "${SMOKE_LANE:-}" ]; then
+  smoke_has_project=0
+  for smoke_arg in "$@"; do
+    case "$smoke_arg" in --project|--project=*) smoke_has_project=1 ;; esac
+  done
+  if [ "$smoke_has_project" = 0 ]; then
+    if [ "$SMOKE_LANE" = browser ]; then
+      set -- "$@" --project=browser
+    else
+      set -- "$@" --project=public --project=authed --project=multiplayer
+    fi
+  fi
+fi
+
+# Discover and validate the exact selection before starting any database.
+smoke_discovery_dir="$(mktemp -d "${TMPDIR:-/tmp}/nova-smoke-discovery.XXXXXX")"
+trap 'rm -rf "$smoke_discovery_dir"' EXIT
+export NOVA_E2E_DISCOVERY_MANIFEST="$smoke_discovery_dir/tests.json"
+smoke_discovery_args=("$@")
+if [ -z "${SMOKE_LANE:-}" ]; then
+  # Native sharding applies once within each lane. The parent discovers the
+  # complete filtered selection so its lane list cannot apply the shard twice.
+  smoke_discovery_args=()
+  smoke_skip_arg=0
+  for smoke_arg in "$@"; do
+    if [ "$smoke_skip_arg" = 1 ]; then smoke_skip_arg=0; continue; fi
+    case "$smoke_arg" in
+      --shard) smoke_skip_arg=1 ;;
+      --shard=*) ;;
+      *) smoke_discovery_args+=("$smoke_arg") ;;
+    esac
+  done
+fi
+# The guarded array expansion also supports macOS Bash 3 with nounset and no args.
+node_modules/.bin/playwright test ${smoke_discovery_args[@]+"${smoke_discovery_args[@]}"} --list --reporter=json,./scripts/ci/smoke-discovery-reporter.ts > "$NOVA_E2E_DISCOVERY_MANIFEST"
+if [ -n "${SMOKE_PARTITION:-}" ]; then
+  for smoke_arg in "$@"; do
+    case "$smoke_arg" in
+      --shard*|--test-list*)
+        echo "[smoke] SMOKE_PARTITION cannot be combined with another partition filter." >&2
+        exit 1
+        ;;
+    esac
+  done
+  smoke_complete_manifest="$smoke_discovery_dir/complete.json"
+  cp "$NOVA_E2E_DISCOVERY_MANIFEST" "$smoke_complete_manifest"
+  smoke_test_list="$smoke_discovery_dir/partition.txt"
+  node_modules/.bin/tsx scripts/ci/smoke-partition.ts write "$smoke_complete_manifest" "$SMOKE_PARTITION" "$smoke_test_list"
+  set -- "$@" --test-list "$smoke_test_list"
+  node_modules/.bin/playwright test "$@" --list --reporter=json,./scripts/ci/smoke-discovery-reporter.ts > "$NOVA_E2E_DISCOVERY_MANIFEST"
+  node_modules/.bin/tsx scripts/ci/smoke-partition.ts verify "$smoke_complete_manifest" "$SMOKE_PARTITION" "$NOVA_E2E_DISCOVERY_MANIFEST"
+fi
+
+node_modules/.bin/tsx scripts/ci/smoke-discovery.ts "$NOVA_E2E_DISCOVERY_MANIFEST" "$smoke_discovery_dir"
+if [ ! -f "$smoke_discovery_dir/browser.txt" ] && [ ! -f "$smoke_discovery_dir/app.txt" ]; then
+  echo "[smoke] native selection is empty; no fixtures or services needed."
+  exit 0
+fi
+
+# Mixed local runs use the same explicit lanes as CI, one at a time on the
+# developer's machine. They share only the unchanged production build.
+if [ -z "${SMOKE_LANE:-}" ]; then
+  smoke_reuse="${SMOKE_REUSE_BUILD:-0}"
+  for smoke_lane in browser app; do
+    if [ -f "$smoke_discovery_dir/$smoke_lane.txt" ]; then
+      env -u SMOKE_PARTITION SMOKE_LANE="$smoke_lane" SMOKE_REUSE_BUILD="$smoke_reuse" \
+        bash scripts/smoke.sh "$@" --test-list "$smoke_discovery_dir/$smoke_lane.txt"
+      smoke_reuse=1
+    fi
+  done
+  exit 0
+fi
+
+if [ "$SMOKE_LANE" = browser ]; then
+  # The peers consume real production CSS, Next's emitted browser config and
+  # the XPath worker. No Nova server, database or auth fixture is needed.
+  if [ "${SMOKE_REUSE_BUILD:-0}" != 1 ]; then
+    node_modules/.bin/fumadocs-mdx
+    npm run build:xpath-worker
+    node_modules/.bin/next build
+  fi
+  node_modules/.bin/playwright test "$@"
+  exit 0
+fi
 
 # ── 1+2. Case-store Postgres (compose) + migrations ──────────────────
 # Not `npm run db:dev` — that script hardcodes a `localhost` URL for the migrate
@@ -94,34 +180,6 @@ for attempt in $(seq 1 8); do
   sleep 2
 done
 
-# ── 3+4. Seed → Playwright ───────────────────────────────────────────
-# Seed the local Postgres, then run Playwright (which builds + starts the
-# production server). Extra args pass straight through to Playwright via "$@".
-echo "[smoke] seeding local Postgres, running Playwright…"
-# The seed is a server-side fixture writer and intentionally reaches
-# `server-only` persistence services (for example, lookup-table creation).
-# Resolve that marker to its no-op server condition instead of Node's
-# client-import guard.
-smoke_discovery_dir="$(mktemp -d "${TMPDIR:-/tmp}/nova-smoke-discovery.XXXXXX")"
-trap 'rm -rf "$smoke_discovery_dir"' EXIT
-export NOVA_E2E_DISCOVERY_MANIFEST="$smoke_discovery_dir/tests.json"
-node_modules/.bin/playwright test "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
-if [ -n "${SMOKE_PARTITION:-}" ]; then
-  for smoke_arg in "$@"; do
-    case "$smoke_arg" in
-      --shard*|--test-list*)
-        echo "[smoke] SMOKE_PARTITION cannot be combined with another partition filter." >&2
-        exit 1
-        ;;
-    esac
-  done
-  smoke_complete_manifest="$smoke_discovery_dir/complete.json"
-  cp "$NOVA_E2E_DISCOVERY_MANIFEST" "$smoke_complete_manifest"
-  smoke_test_list="$smoke_discovery_dir/partition.txt"
-  node_modules/.bin/tsx scripts/ci/smoke-partition.ts write "$smoke_complete_manifest" "$SMOKE_PARTITION" "$smoke_test_list"
-  set -- "$@" --test-list "$smoke_test_list"
-  node_modules/.bin/playwright test "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
-  node_modules/.bin/tsx scripts/ci/smoke-partition.ts verify "$smoke_complete_manifest" "$SMOKE_PARTITION" "$NOVA_E2E_DISCOVERY_MANIFEST"
-fi
+
 node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 node_modules/.bin/playwright test "$@"

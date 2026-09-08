@@ -229,6 +229,9 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
+In Preview, barcode search fields accept typed codes and camera scans when your
+browser supports scanning. A scan replaces the current answer; cancelling keeps it.
+
 ### Hints, required fields, and checks
 
 Each search field can carry a **Hint**, a short line under its label that
@@ -573,6 +576,11 @@ instead of restarting the app and retracing every step.
 When the open form updates, answers you are editing stay in place, including
 an answer you have just cleared. You can finish typing before Nova shows
 validation for that field.
+
+If a case-data refresh brings back the same values, your open controls and
+draft answers stay in place.
+Open calendars keep their current month and keyboard focus as other fields
+finish updating.
 
 ## Working with the sidebars
 
