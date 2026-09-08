@@ -345,6 +345,16 @@ to measured lane costs, with at least one job per lane. Flaky browser results fa
 CI even when a diagnostic retry passes. Choose defaults using three hosted runs
 per candidate and five consecutive complete green runs at the chosen setting;
 include setup, fan-in, runner time and resource observations in the comparison.
+
+The September 2026 hosted comparison selected six jobs with two workers per job.
+All twelve comparison runs passed every smoke test on its first attempt. Six jobs
+had complete-workflow medians of 4m58s with one worker and 4m59s with two; within
+the five-second tie window, two workers used fewer runner-minutes (51.29 per run
+versus 52.69). Four jobs exceeded the five-minute median target at either worker
+count. These are hosted observations, including setup and aggregate checks;
+future workload changes need fresh measurements. Detailed timings and resource
+observations remain in the CI artifacts and shipping PR.
+
 The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
 select tests. New or renamed tests get a five-second estimate. Refresh timings
 from passing first attempts in each uploaded browser report's `timings.json`,
