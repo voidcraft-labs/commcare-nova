@@ -9,6 +9,7 @@ import {
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { LOCALIZATION_SEED } from "../../lib/localizationSeed";
+import { replaceRichText } from "../../lib/richText";
 
 const snapshotSchema = z.object({
 	blueprint: z.object({
@@ -96,7 +97,7 @@ test(
 			.click();
 		const inline = field.locator('[contenteditable="true"]');
 		await expect(inline).toBeFocused();
-		await inline.fill("Nombre del cliente");
+		await replaceRichText(inline, "Nombre del cliente");
 		const labelSaved = nextSave(page, appId);
 		await inline.press("ControlOrMeta+Enter");
 		expect((await labelSaved).status()).toBe(200);

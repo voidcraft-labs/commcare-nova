@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+import { replaceRichText } from "../../lib/richText";
 
 let peer: Awaited<ReturnType<typeof componentPeer>>;
 test.use({ actionTimeout: 10_000 });
@@ -1432,7 +1433,7 @@ test("options use real label editors, preserve draft identity across key-order e
 		.getByRole("textbox", { name: "Label", exact: true })
 		.nth(2);
 	await expect(label).toBeFocused();
-	await label.fill("Green");
+	await replaceRichText(label, "Green");
 	await label.press("Enter");
 	await expect(
 		page.getByRole("textbox", { name: "Stored value for Green", exact: true }),
@@ -1458,7 +1459,7 @@ test("changing a reference-bearing option label preserves the authored stored to
 	const label = page
 		.getByRole("textbox", { name: "Label", exact: true })
 		.first();
-	await label.fill("Renamed");
+	await replaceRichText(label, "Renamed");
 	await label.press("Enter");
 	await expect(
 		page.getByRole("textbox", {
@@ -1477,7 +1478,7 @@ test("refused prose commits keep the real editor draft until permission is resto
 	await page.goto(`${peer.origin}/?scenario=field-prose`);
 	const hint = page.getByRole("textbox", { name: "Hint", exact: true });
 	await expect(page.getByLabel("Can undo")).toHaveText("false");
-	await hint.fill("Helpful wording");
+	await replaceRichText(hint, "Helpful wording");
 	await expect(page.getByLabel("Saved prose field")).not.toContainText(
 		'"hint"',
 	);
@@ -1551,7 +1552,7 @@ test("validation messages stage empty slots, persist prose and retain a refused 
 	await expect(add).toBeVisible();
 	await expect(saved).not.toContainText('"validate_msg"');
 	await add.click();
-	await message.fill("Check the answer");
+	await replaceRichText(message, "Check the answer");
 	await message.press("Enter");
 	await expect(saved).toContainText("Check the answer");
 	// Use the editor's native selection command. fill("") selects only the DOM,
@@ -1813,7 +1814,7 @@ test("field activation is one-shot through empty cancellation, saved values and 
 	await expect(add).toBeVisible();
 	await expect(editor).toHaveCount(0);
 	await add.click();
-	await editor.fill("Keep this hint");
+	await replaceRichText(editor, "Keep this hint");
 	await editor.press("Enter");
 	await expect(editor).toHaveText("Keep this hint");
 	await editor.press("ControlOrMeta+A");

@@ -1,6 +1,7 @@
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-interactions-client";
+import { replaceRichText } from "../../lib/richText";
 
 test("Preview drag adapters commit native pointer drops and restore cursor when the canvas retires", async ({
 	page,
@@ -69,20 +70,20 @@ test("Preview text editing retains rejected drafts, retries, cancels and navigat
 			.click();
 		const first = page.locator('[data-editor="first"] .ProseMirror');
 		await expect(first).toBeFocused();
-		await first.fill("Rejected draft");
+		await replaceRichText(first, "Rejected draft");
 		await first.press("ControlOrMeta+Enter");
 		await expect(page.getByRole("alert")).toContainText(
 			"This draft was refused",
 		);
 		await expect(first).toHaveText("Rejected draft");
-		await first.fill("Accepted label");
+		await replaceRichText(first, "Accepted label");
 		await first.press("Tab");
 		await expect(
 			page.getByRole("button", { name: "Accepted label", exact: true }),
 		).toBeVisible();
 		const second = page.locator('[data-editor="second"] .ProseMirror');
 		await expect(second).toBeFocused();
-		await second.fill("Discard me");
+		await replaceRichText(second, "Discard me");
 		await second.press("Escape");
 		await expect(
 			page.getByRole("button", { name: "Second label", exact: true }),

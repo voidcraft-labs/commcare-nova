@@ -209,10 +209,11 @@ CI fails on flaky results even when a diagnostic retry passes. Manual workflow
 inputs support the four/six-job, one/two-worker benchmark without editing tests.
 Read `docs/testing.md` for boundary selection and asynchronous ownership.
 
-Clear TipTap content with native Select All and Backspace, then observe the empty
-draft before saving. `fill("")` selects only the DOM range; ProseMirror's delayed
-focus selection can replace it before Playwright sends Delete. Native input
-elements can still use `fill`.
+Replace TipTap content through `e2e/lib/richText.ts`: native Select All and
+Backspace, observe the empty draft, then type the replacement. `fill()` selects
+only the DOM range; ProseMirror's delayed focus selection can replace it before
+Playwright sends Delete or inserts the text. Native input elements can still
+use `fill`.
 
 Native dragover callbacks are frame-throttled. Before moving into a placeholder
 that retains the previous landing, observe the intended landing position;
