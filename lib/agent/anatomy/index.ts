@@ -40,11 +40,13 @@ export {
 	lifecyclesFor,
 	MODEL_ROLE_TO_ANATOMY,
 	modelLabel,
+	OPENAI_COMPACTION_NOTE,
 	providerOptionsFor,
 	ROLE_FACTS,
 } from "./catalog";
 export {
 	RECORDED_KIND_LABELS,
+	recordedItemsOf,
 	recordedLabel,
 } from "./compositions/recordedItems";
 export type { DiffEntry, DiffStatus, MomentDiff } from "./diff";

@@ -64,15 +64,23 @@ export interface ToolDefinitionSource {
 	readonly strict?: boolean;
 }
 
+/** The schema exactly as the wire carries it: its JSON serialization.
+ * Zod's emitters hang a non-enumerable `~standard` hook (functions) off the
+ * schema object, which never reaches the provider and would refuse to cross
+ * into a client component. */
+export function wireJson(value: unknown): unknown {
+	return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
 async function resolveJsonSchema(inputSchema: unknown): Promise<unknown> {
 	if (
 		typeof inputSchema === "object" &&
 		inputSchema !== null &&
 		"jsonSchema" in inputSchema
 	) {
-		return await (inputSchema as { jsonSchema: unknown }).jsonSchema;
+		return wireJson(await (inputSchema as { jsonSchema: unknown }).jsonSchema);
 	}
-	return inputSchema;
+	return wireJson(inputSchema);
 }
 
 export async function toolViews(
@@ -127,11 +135,12 @@ export function outputSchemaItem(args: {
 		label: args.label ?? "Output schema",
 		origin: "composed",
 		source: args.source,
-		jsonSchema:
+		jsonSchema: wireJson(
 			args.projection === "strict"
 				? strictWireJsonSchema(args.schema)
 				: // The SDK's own emission, as `Output.object` serializes it.
 					zodSchema(args.schema).jsonSchema,
+		),
 		strict: true,
 		...(args.note && { note: args.note }),
 	};
@@ -188,7 +197,13 @@ export function missingItem(args: {
 		kind: "missing",
 		id: args.id,
 		label: args.label,
-		origin: "composed",
+		// The origin the piece would carry once its input is present.
+		origin:
+			args.needs === "app"
+				? "derived"
+				: args.needs === "design-session"
+					? "recorded"
+					: "composed",
 		source: args.source,
 		needs: args.needs,
 		explanation: args.explanation,

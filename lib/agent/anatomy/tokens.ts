@@ -15,11 +15,13 @@
 
 import { createHash } from "node:crypto";
 import type { ModelMessage } from "ai";
+import { outlineText } from "./outline";
 import type {
 	ContextItem,
 	Moment,
 	WeighedItem,
 	WeighedMoment,
+	WeighedOutlineSection,
 	WeighedSegment,
 	WeighedTool,
 	Weight,
@@ -138,7 +140,22 @@ async function weighItem(item: ContextItem): Promise<WeighedItem> {
 					weight: await weighText(segment.text),
 				})),
 			);
-			return { ...item, segments, weight: await weighText(item.text) };
+			const outline: WeighedOutlineSection[] = await Promise.all(
+				outlineText(item.text).map(async (section) => ({
+					id: section.id,
+					level: section.level,
+					title: section.title,
+					line: section.line,
+					text: section.text,
+					weight: await weighText(section.text),
+				})),
+			);
+			return {
+				...item,
+				segments,
+				outline,
+				weight: await weighText(item.text),
+			};
 		}
 		case "tools": {
 			const tools: WeighedTool[] = await Promise.all(

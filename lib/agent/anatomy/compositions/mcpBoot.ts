@@ -32,6 +32,7 @@ import {
 	specById,
 	systemItem,
 	toolsItem,
+	wireJson,
 } from "./shared";
 
 const RENDERER = { file: "lib/mcp/prompts.ts", symbol: "renderAgentPrompt" };
@@ -84,11 +85,13 @@ export function collectMcpToolDefinitions(): ToolDefinitionView[] {
 				inputSchema:
 					schema === undefined
 						? {}
-						: z.toJSONSchema(schema, {
-								target: "draft-7",
-								io: "input",
-								unrepresentable: "any",
-							}),
+						: wireJson(
+								z.toJSONSchema(schema, {
+									target: "draft-7",
+									io: "input",
+									unrepresentable: "any",
+								}),
+							),
 				strict: undefined,
 			});
 		},

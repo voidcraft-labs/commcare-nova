@@ -505,6 +505,10 @@ export const MODEL_ROLE_CALL_SITES: readonly string[] = [
 	"lib/agent/translation/translator.ts",
 ];
 
+/** The one sentence about provider options every call shares, rendered from
+ * the constants so the map's footer cannot drift from `lib/models.ts`. */
+export const OPENAI_COMPACTION_NOTE = `Every call runs stateless (store: false) with the provider's automatic compaction at ${OPENAI_COMPACTION_THRESHOLD.toLocaleString("en-US")} input tokens and reasoning summaries on. Token counts on these pages are estimates from the o200k_base tokenizer over the text Nova sends; the provider renders tool schemas in its own grammar and bills images by its own rules, so a recorded run shows the billed input beside the estimate.`;
+
 /** Files that read a role's model id for pricing, labeling, or budgets, and
  * never construct a model call. */
 export const MODEL_ROLE_NON_CALL_SITES: readonly string[] = [
@@ -513,4 +517,9 @@ export const MODEL_ROLE_NON_CALL_SITES: readonly string[] = [
 	"lib/agent/documentExtractionStore.ts",
 	"lib/agent/translation/finalizer.ts",
 	"app/api/chat/route.ts",
+	/* The anatomy reads the roster to describe it, and selects the
+	 * architect's model id to run the route's history pipeline; neither
+	 * constructs a call. */
+	"lib/agent/anatomy/catalog.ts",
+	"lib/agent/anatomy/compositions/solutionsArchitect.ts",
 ];

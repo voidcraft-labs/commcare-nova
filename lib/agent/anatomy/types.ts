@@ -262,11 +262,31 @@ export interface Weight {
 export type WeighedSegment = PromptSegmentView & { readonly weight: Weight };
 export type WeighedTool = ToolDefinitionView & { readonly weight: Weight };
 
-export type WeighedItem = ContextItem & {
+/** One heading section of a system prompt, with its weight. */
+export interface WeighedOutlineSection {
+	readonly id: string;
+	readonly level: number;
+	readonly title: string;
+	readonly line: number;
+	/** The section's text including its heading line. */
+	readonly text: string;
 	readonly weight: Weight;
-	readonly segments?: readonly WeighedSegment[];
-	readonly tools?: readonly WeighedTool[];
-};
+}
+
+export type WeighedItem =
+	| (Omit<Extract<ContextItem, { kind: "system" }>, "segments"> & {
+			readonly weight: Weight;
+			readonly segments: readonly WeighedSegment[];
+			/** The heading outline of the whole text. */
+			readonly outline: readonly WeighedOutlineSection[];
+	  })
+	| (Omit<Extract<ContextItem, { kind: "tools" }>, "tools"> & {
+			readonly weight: Weight;
+			readonly tools: readonly WeighedTool[];
+	  })
+	| (Exclude<ContextItem, { kind: "system" | "tools" }> & {
+			readonly weight: Weight;
+	  });
 
 export interface WeighedMoment extends MomentSpec {
 	readonly items: readonly WeighedItem[];

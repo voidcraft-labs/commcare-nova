@@ -34,7 +34,9 @@ function slug(title: string): string {
 
 function firstLineTitle(text: string): string {
 	const first = text.split("\n").find((line) => line.trim().length > 0) ?? "";
-	const trimmed = first.trim();
+	// A title is display text: drop the emphasis and code marks a prose line
+	// may open with, then cap it.
+	const trimmed = first.trim().replaceAll(/[*_`]+/g, "");
 	return trimmed.length > 72 ? `${trimmed.slice(0, 71)}…` : trimmed;
 }
 

@@ -104,6 +104,14 @@ export function throughFirst(
 	return index === -1 ? undefined : items.slice(0, index + 1);
 }
 
+/** Every item of a recorded context as context items, for the runs pages. */
+export function recordedItemsOf(context: RecordedContext): ContextItem[] {
+	return recordedItems(context.items, {
+		file: "lib/agent/build/modelContextStore.ts",
+		symbol: "appendDesignModelContext",
+	});
+}
+
 /** Items from the newest compaction checkpoint onward, or undefined when the
  * context never compacted. */
 export function fromNewestCompaction(
