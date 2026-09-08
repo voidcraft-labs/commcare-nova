@@ -54,6 +54,59 @@ interface ToolCallOptionsLike {
 	toolCallId?: string;
 }
 
+/** One SA tool's provider-facing definition: the description and the chat
+ *  wire schema, with no server binding. */
+export interface SolutionsArchitectToolDefinition {
+	readonly description: string;
+	readonly inputSchema: FlexibleSchema<unknown>;
+	readonly strict: false;
+}
+
+/** Chat-surface wire projection — AST stubs on the wire, full Zod
+ *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
+ *  so the cast holds. */
+function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
+	return wireToolSchema(schema as ZodType<I>);
+}
+
+/**
+ * Every SA tool definition in provider order: the client-side `askQuestions`
+ * first, then each `SHARED_TOOL_REGISTRY` entry under its SA name. This is
+ * exactly what the model sees; `createSolutionsArchitect` attaches `execute`
+ * to these same objects, so the mounted grammar and this pure catalog cannot
+ * drift. Pure: no context, no database.
+ *
+ * Every tool opts out of the Responses API's default strict-mode schema
+ * normalization, which forces EVERY property present on every call
+ * (optionals become required; the model pads unused slots with null, or
+ * invents filler where null isn't in the type). Non-strict lets the model
+ * omit what doesn't apply, fewer output tokens per call and less context
+ * echo on every later step, and our own Zod validation remains the real
+ * gate either way.
+ */
+export function solutionsArchitectToolDefinitions(): Record<
+	string,
+	SolutionsArchitectToolDefinition
+> {
+	return {
+		askQuestions: {
+			description: askQuestionsTool.description,
+			inputSchema: wire(askQuestionsTool.inputSchema),
+			strict: false,
+		},
+		...Object.fromEntries(
+			SHARED_TOOL_REGISTRY.map((entry) => [
+				entry.saName,
+				{
+					description: entry.tool.description,
+					inputSchema: wire(entry.tool.inputSchema as ZodType<unknown>),
+					strict: false,
+				} satisfies SolutionsArchitectToolDefinition,
+			]),
+		),
+	};
+}
+
 /**
  * Create the Solutions Architect agent — the direct canonical EDIT executor.
  * A chat BUILD never mounts it: the design pipeline's orchestrator and slice
@@ -109,12 +162,7 @@ export function createSolutionsArchitect(
 		if (terminalError !== undefined) throw terminalError;
 	}
 
-	/** Chat-surface wire projection — AST stubs on the wire, full Zod
-	 *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
-	 *  so the cast holds. */
-	function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
-		return wireToolSchema(schema as ZodType<I>);
-	}
+	const definitions = solutionsArchitectToolDefinitions();
 
 	/**
 	 * Mount one entry from the canonical shared-tool registry on the SA.
@@ -127,17 +175,14 @@ export function createSolutionsArchitect(
 	 */
 	function wrapShared(entry: SharedToolRegistryEntry) {
 		const { saName, tool: t } = entry;
+		const definition = definitions[saName];
+		if (definition === undefined) {
+			throw new Error(
+				`The shared tool ${saName} has no provider definition. solutionsArchitectToolDefinitions() must list every registry entry.`,
+			);
+		}
 		return {
-			description: t.description,
-			inputSchema: wire(t.inputSchema),
-			// Opt out of the Responses API's default strict-mode schema
-			// normalization, which forces EVERY property present on every
-			// call (optionals become required; the model pads unused slots
-			// with null — or invents filler where null isn't in the type).
-			// Non-strict lets the model omit what doesn't apply — fewer
-			// output tokens per call, less context echo on every later step
-			// — and our own Zod validation remains the real gate either way.
-			strict: false,
+			...definition,
 			execute: async (input: unknown, options?: ToolCallOptionsLike) => {
 				try {
 					return await workspace.invoke({
@@ -226,11 +271,7 @@ export function createSolutionsArchitect(
 		// agent stops for user input when the model calls it. Kept as a
 		// bare `{ description, inputSchema }` object so the AI SDK can
 		// still register the schema without wiring a server handler.
-		askQuestions: {
-			description: askQuestionsTool.description,
-			inputSchema: wire(askQuestionsTool.inputSchema),
-			strict: false,
-		},
+		askQuestions: definitions.askQuestions,
 		...Object.fromEntries(
 			SHARED_TOOL_REGISTRY.map((entry) => [entry.saName, wrapShared(entry)]),
 		),

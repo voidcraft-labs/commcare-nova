@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
+import {
+	jsonByteLength,
+	summarizeModelMessage,
+} from "@/lib/agent/anatomy/modelMessageSummary";
 import type { Event } from "@/lib/log/types";
+
+export { jsonByteLength, summarizeModelMessage };
 
 export interface DesignSessionResolutionMatch {
 	readonly sessionId: string;
@@ -63,38 +69,6 @@ export function collectRunIds(
 		}
 	}
 	return runIds;
-}
-
-export function jsonByteLength(value: unknown): number {
-	return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function messageRole(message: Record<string, unknown>): string {
-	return typeof message.role === "string"
-		? message.role
-		: typeof message.type === "string"
-			? message.type
-			: "message";
-}
-
-/**
- * A payload-safe context ledger summary. Full persisted ModelMessages are
- * available behind the explicit --context-content flag; the ordinary view
- * shows shape and byte pressure without spilling customer content.
- */
-export function summarizeModelMessage(message: unknown): string {
-	if (message === null || typeof message !== "object" || Array.isArray(message))
-		return `${typeof message} · ${jsonByteLength(message)} B`;
-	const record = message as Record<string, unknown>;
-	const role = messageRole(record);
-	const kind = typeof record.kind === "string" ? `/${record.kind}` : "";
-	const content = record.content;
-	const parts = Array.isArray(content)
-		? content.length
-		: content === undefined
-			? 0
-			: 1;
-	return `${role}${kind} · ${parts} part${parts === 1 ? "" : "s"} · ${jsonByteLength(message)} B`;
 }
 
 function compactJson(value: unknown, maxLength = 500): string {

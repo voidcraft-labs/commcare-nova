@@ -101,6 +101,7 @@ import type {
 	LookupRowId,
 	LookupTableId,
 } from "@/lib/lookup/types";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 export const inspectProjectDataInputSchema = z
 	.object({
@@ -1624,6 +1625,151 @@ export function designCreationIdentityIssue(
 	return null;
 }
 
+/** One design tool's provider-facing definition: what the model sees, with
+ * no server binding. `createDesignLoopTools` attaches `execute` to exactly
+ * these objects, so the mounted grammar and this pure catalog cannot drift. */
+export interface DesignLoopToolDefinition {
+	readonly description: string;
+	readonly inputSchema: ReturnType<typeof strictWireOnly>;
+	readonly strict: true;
+}
+
+const semanticCollectionDefinition = (
+	collection: (typeof CONTRACT_COLLECTIONS)[number],
+	description: string,
+): DesignLoopToolDefinition => ({
+	description: `${description} Upsert or remove complete items. Give each new element a readable @handle and reuse it in references. Emit this together with other known design updates in the same response.`,
+	inputSchema: strictWireWithHandles(
+		designCollectionUpdateInputSchemas[collection],
+	),
+	strict: true,
+});
+
+/**
+ * The 19 design-loop tool definitions in exactly the order the loop mounts
+ * them. Key order is load-bearing: `designLoopRunner.ts` hashes the mounted
+ * tools in insertion order into the persisted `toolset_digest`, and a changed
+ * digest rolls every open design session to a new context generation.
+ */
+export function designLoopToolDefinitions() {
+	return {
+		inspectProjectData: {
+			description:
+				"Inspect this app Project's current data tables before designing references or changes. Omit tableId for one bounded rows-free catalog page with stable table and column UUIDs; continue with each nextCursor until complete is true. With tableId, read one ordered page of at most 100 rows, optionally filtered by query or projected to columnIds. To continue a row read, repeat the same query and projection with its cursor. Names, tags, labels, and wire names are metadata, never identity.",
+			inputSchema: strictWireOnly(inspectProjectDataInputSchema),
+			strict: true,
+		},
+		setDesignRoot: {
+			description:
+				"Set the design identity and/or complete app charter in the implicit design workspace. Give a new design identity a readable @handle. Emit this with other known semantic design calls in the same response.",
+			inputSchema: strictWireWithHandles(setDesignRootInputSchema),
+			strict: true,
+		},
+		updateActors: semanticCollectionDefinition("actors", "Update app actors."),
+		updateRecords: semanticCollectionDefinition(
+			"records",
+			"Update durable record concepts and their properties.",
+		),
+		updateWorkflows: semanticCollectionDefinition(
+			"workflows",
+			"Update task-complete workflow semantics.",
+		),
+		updateLists: semanticCollectionDefinition(
+			"lists",
+			"Update worker queues and searches.",
+		),
+		updateAccess: semanticCollectionDefinition(
+			"access",
+			"Update actor access policies.",
+		),
+		updateNavigation: semanticCollectionDefinition(
+			"navigation",
+			"Update worker navigation intent.",
+		),
+		updateModuleCompositions: semanticCollectionDefinition(
+			"moduleCompositions",
+			"Update worker-facing module composition.",
+		),
+		updateFormCompositions: semanticCollectionDefinition(
+			"formCompositions",
+			"Update exact worker-facing form composition and layout.",
+		),
+		updateLookupTables: semanticCollectionDefinition(
+			"lookupTables",
+			"Update reviewed Project lookup-table creation or explicitly authorized existing-table changes. New tables, columns, and rows use readable @handles; existing Project resources use only inspected stable UUIDs.",
+		),
+		updateExternalRequirements: semanticCollectionDefinition(
+			"externalRequirements",
+			"Update honest requirements outside the authored app.",
+		),
+		updateDecisions: semanticCollectionDefinition(
+			"decisions",
+			"Update settled architecture decisions.",
+		),
+		updateAssumptions: semanticCollectionDefinition(
+			"assumptions",
+			"Update explicit design assumptions.",
+		),
+		updateOpenQuestions: semanticCollectionDefinition(
+			"openQuestions",
+			"Update genuinely open design questions.",
+		),
+		updateFindingDispositions: {
+			description:
+				"Disposition blocking findings in the current reviewed revision. Use each finding's printed @f handle exactly. Advisory findings need no disposition. Emit dispositions with the affected semantic design updates in the same response.",
+			inputSchema: strictWireWithHandles(updateFindingDispositionsInputSchema),
+			strict: true,
+		},
+		inspectDesign: {
+			description:
+				"Inspect the implicit authoritative design candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. During revision, sourceRoot and sourceCollection inspect the immutable reviewed parent. Use only for a narrow lookup after resume or compaction; the state packet already carries the full current candidate.",
+			inputSchema: strictWireWithHandles(inspectDesignInputSchema),
+			strict: true,
+		},
+		finishDesign: {
+			description:
+				"Finish the complete design in the implicit workspace. The server chooses contract or reviewed-revision finalization from durable state, validates the whole graph, and atomically persists it or returns exact corrections. Call only after all known semantic updates; it may follow them in the same response.",
+			inputSchema: strictWireOnly(finishDesignInputSchema),
+			strict: true,
+		},
+		requestReview: {
+			description:
+				"Ask the server to run the independent fresh-context reviewer over the current draft. The persisted review's findings come back as the result; a clean review is accepted on the spot.",
+			inputSchema: strictWireOnly(z.object({}).strict()),
+			strict: true,
+		},
+	} satisfies Record<string, DesignLoopToolDefinition>;
+}
+
+/**
+ * The exact mapping `designLoopRunner.ts` persists as a design context's
+ * `toolset_digest`: the mounted tools in insertion order, each as
+ * `{ name, description, strict, inputSchema }`. Exported so a reader can
+ * recompute the digest over a definitions-only record and compare it with
+ * the digest a live session persisted.
+ */
+export async function designToolsetDigest(
+	tools: Record<
+		string,
+		{
+			readonly description: string;
+			readonly strict?: boolean;
+			readonly inputSchema: { readonly jsonSchema: unknown };
+		}
+	>,
+): Promise<string> {
+	return canonicalJsonDigest(
+		await Promise.all(
+			Object.entries(tools).map(async ([name, definition]) => ({
+				name,
+				description: definition.description,
+				strict: definition.strict,
+				inputSchema: await definition.inputSchema.jsonSchema,
+			})),
+		),
+	);
+}
+
 export function createDesignLoopTools(
 	deps: DesignLoopToolDeps,
 	executionQueue = createDesignToolExecutionQueue(),
@@ -1633,11 +1779,9 @@ export function createDesignLoopTools(
 	 * attaches its work to that reservation, including update -> finish -> review
 	 * chains and the client-side askQuestions terminal. */
 	const inResponseOrder = executionQueue.run;
+	const definitions = designLoopToolDefinitions();
 	const inspectProjectData = {
-		description:
-			"Inspect this app Project's current data tables before designing references or changes. Omit tableId for one bounded rows-free catalog page with stable table and column UUIDs; continue with each nextCursor until complete is true. With tableId, read one ordered page of at most 100 rows, optionally filtered by query or projected to columnIds. To continue a row read, repeat the same query and projection with its cursor. Names, tags, labels, and wire names are metadata, never identity.",
-		inputSchema: strictWireOnly(inspectProjectDataInputSchema),
-		strict: true,
+		...definitions.inspectProjectData,
 		execute: (input: unknown) =>
 			inResponseOrder(input, async () => {
 				const parsedInput = parseStage(inspectProjectDataInputSchema, input);
@@ -1741,13 +1885,9 @@ export function createDesignLoopTools(
 
 	const semanticCollectionTool = (
 		collection: (typeof CONTRACT_COLLECTIONS)[number],
-		description: string,
+		definition: DesignLoopToolDefinition,
 	) => ({
-		description: `${description} Upsert or remove complete items. Give each new element a readable @handle and reuse it in references. Emit this together with other known design updates in the same response.`,
-		inputSchema: strictWireWithHandles(
-			designCollectionUpdateInputSchemas[collection],
-		),
-		strict: true,
+		...definition,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
 			inResponseOrder(input, () =>
 				semanticUpdate({
@@ -1759,10 +1899,7 @@ export function createDesignLoopTools(
 	});
 
 	const setDesignRoot = {
-		description:
-			"Set the design identity and/or complete app charter in the implicit design workspace. Give a new design identity a readable @handle. Emit this with other known semantic design calls in the same response.",
-		inputSchema: strictWireWithHandles(setDesignRootInputSchema),
-		strict: true,
+		...definitions.setDesignRoot,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
 			inResponseOrder(input, () =>
 				semanticUpdate({
@@ -1772,60 +1909,57 @@ export function createDesignLoopTools(
 				}),
 			),
 	};
-	const updateActors = semanticCollectionTool("actors", "Update app actors.");
+	const updateActors = semanticCollectionTool(
+		"actors",
+		definitions.updateActors,
+	);
 	const updateRecords = semanticCollectionTool(
 		"records",
-		"Update durable record concepts and their properties.",
+		definitions.updateRecords,
 	);
 	const updateWorkflows = semanticCollectionTool(
 		"workflows",
-		"Update task-complete workflow semantics.",
+		definitions.updateWorkflows,
 	);
-	const updateLists = semanticCollectionTool(
-		"lists",
-		"Update worker queues and searches.",
-	);
+	const updateLists = semanticCollectionTool("lists", definitions.updateLists);
 	const updateAccess = semanticCollectionTool(
 		"access",
-		"Update actor access policies.",
+		definitions.updateAccess,
 	);
 	const updateNavigation = semanticCollectionTool(
 		"navigation",
-		"Update worker navigation intent.",
+		definitions.updateNavigation,
 	);
 	const updateModuleCompositions = semanticCollectionTool(
 		"moduleCompositions",
-		"Update worker-facing module composition.",
+		definitions.updateModuleCompositions,
 	);
 	const updateFormCompositions = semanticCollectionTool(
 		"formCompositions",
-		"Update exact worker-facing form composition and layout.",
+		definitions.updateFormCompositions,
 	);
 	const updateLookupTables = semanticCollectionTool(
 		"lookupTables",
-		"Update reviewed Project lookup-table creation or explicitly authorized existing-table changes. New tables, columns, and rows use readable @handles; existing Project resources use only inspected stable UUIDs.",
+		definitions.updateLookupTables,
 	);
 	const updateExternalRequirements = semanticCollectionTool(
 		"externalRequirements",
-		"Update honest requirements outside the authored app.",
+		definitions.updateExternalRequirements,
 	);
 	const updateDecisions = semanticCollectionTool(
 		"decisions",
-		"Update settled architecture decisions.",
+		definitions.updateDecisions,
 	);
 	const updateAssumptions = semanticCollectionTool(
 		"assumptions",
-		"Update explicit design assumptions.",
+		definitions.updateAssumptions,
 	);
 	const updateOpenQuestions = semanticCollectionTool(
 		"openQuestions",
-		"Update genuinely open design questions.",
+		definitions.updateOpenQuestions,
 	);
 	const updateFindingDispositions = {
-		description:
-			"Disposition blocking findings in the current reviewed revision. Use each finding's printed @f handle exactly. Advisory findings need no disposition. Emit dispositions with the affected semantic design updates in the same response.",
-		inputSchema: strictWireWithHandles(updateFindingDispositionsInputSchema),
-		strict: true,
+		...definitions.updateFindingDispositions,
 		execute: (input: unknown, options: { readonly toolCallId: string }) =>
 			inResponseOrder(input, () =>
 				semanticUpdate({
@@ -1837,10 +1971,7 @@ export function createDesignLoopTools(
 	};
 
 	const inspectDesign = {
-		description:
-			"Inspect the implicit authoritative design candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. During revision, sourceRoot and sourceCollection inspect the immutable reviewed parent. Use only for a narrow lookup after resume or compaction; the state packet already carries the full current candidate.",
-		inputSchema: strictWireWithHandles(inspectDesignInputSchema),
-		strict: true,
+		...definitions.inspectDesign,
 		execute: (input: unknown) =>
 			inResponseOrder(input, async () => {
 				const parsed = parseHandledStage(
@@ -1960,10 +2091,7 @@ export function createDesignLoopTools(
 	};
 
 	const requestReviewInternal = {
-		description:
-			"Ask the server to run the independent fresh-context reviewer over the current draft. The persisted review's findings come back as the result; a clean review is accepted on the spot.",
-		inputSchema: strictWireOnly(z.object({}).strict()),
-		strict: true,
+		...definitions.requestReview,
 		execute: async () => {
 			const gates = await gatesFor(deps);
 			const refusal = refuse(deps, gates, "requestReview");
@@ -2213,10 +2341,7 @@ export function createDesignLoopTools(
 	};
 
 	const finishDesign = {
-		description:
-			"Finish the complete design in the implicit workspace. The server chooses contract or reviewed-revision finalization from durable state, validates the whole graph, and atomically persists it or returns exact corrections. Call only after all known semantic updates; it may follow them in the same response.",
-		inputSchema: strictWireOnly(finishDesignInputSchema),
-		strict: true,
+		...definitions.finishDesign,
 		execute: (input: unknown) =>
 			inResponseOrder(input, async () => {
 				const gates = await gatesFor(deps);

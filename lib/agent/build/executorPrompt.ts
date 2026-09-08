@@ -17,6 +17,10 @@
  */
 
 import { buildExpressionReference } from "@/lib/agent/expressionReference";
+import {
+	joinPromptSegments,
+	type PromptSegment,
+} from "@/lib/agent/promptSegments";
 import { fieldKindGuide } from "@/lib/agent/toolSchemaGenerator";
 
 /** Bumped on any meaning-bearing change to the executor's operating envelope:
@@ -107,19 +111,7 @@ A slot you have no real value for is left out of the call entirely. Never fill o
 
 Machine authoring never parses or emits XPath source strings. Every expression, condition, prose template, and reference slot takes the typed AST, with reference parts carrying UUIDs (or handles) — never a path, a saved name, or a source string. In a Predicate or ValueExpression operand, a direct Term such as \`{ kind: "literal", value: "open" }\` or \`{ kind: "session-context", field: "userid" }\` is accepted and normalized to the stored \`{ kind: "term", term: ... }\` shape; use the direct form when it is clearer.`;
 
-/**
- * The complete executor system prompt — assembled once at module load, static
- * for the life of the process.
- */
-export const EXECUTOR_SYSTEM = [
-	IDENTITY,
-	NATIVE_CALLS,
-	CHANGE_SET_VOCABULARY,
-	HANDLES,
-	DISCIPLINE,
-	RESULTS,
-	INPUT_CONTRACT,
-	`## Field kinds
+const FIELD_KINDS = `## Field kinds
 
 Every field's \`kind\` picks the CommCare control and data type — use the most specific kind for the data (\`int\` for a count, not \`text\`).
 
@@ -127,12 +119,56 @@ A field that writes a recorded case property carries one complete \`caseWrite: {
 
 One executor-specific identity rule overrides that convenience: when a recorded select property has inline catalog options, pass the same options explicitly as an inline \`optionsSource\` and declare a durable \`optionUuid\` handle on every option. Omitting that source would make shared catalog defaulting mint option identities after handle declaration.
 
-${fieldKindGuide()}`,
-	`## Filters & expressions
+${fieldKindGuide()}`;
+
+const FILTERS_AND_EXPRESSIONS = `## Filters & expressions
 
 A tool slot described as a "Predicate" or "ValueExpression" takes exactly these shapes:
 
 \`\`\`typescript
 ${buildExpressionReference()}
-\`\`\``,
-].join("\n\n---\n\n");
+\`\`\``;
+
+/**
+ * The ordered segments of the executor prompt. `EXECUTOR_SYSTEM` is exactly
+ * their join, so a reader of the segments reads the prompt.
+ */
+export const EXECUTOR_SEGMENTS: readonly PromptSegment[] = [
+	{ id: "identity", title: "Identity: a compiler worker", text: IDENTITY },
+	{
+		id: "native-calls",
+		title: "Native calls and ordered responses",
+		text: NATIVE_CALLS,
+	},
+	{
+		id: "change-set",
+		title: "Where the work goes: the private change set",
+		text: CHANGE_SET_VOCABULARY,
+	},
+	{
+		id: "handles",
+		title: "Handles for entities that do not exist yet",
+		text: HANDLES,
+	},
+	{ id: "discipline", title: "How to work", text: DISCIPLINE },
+	{ id: "results", title: "Reading results", text: RESULTS },
+	{ id: "input-contract", title: "Tool inputs", text: INPUT_CONTRACT },
+	{
+		id: "field-kinds",
+		title: "Field kinds",
+		text: FIELD_KINDS,
+		generated: ["fieldKindGuide"],
+	},
+	{
+		id: "filters-and-expressions",
+		title: "Filters and expressions",
+		text: FILTERS_AND_EXPRESSIONS,
+		generated: ["buildExpressionReference"],
+	},
+];
+
+/**
+ * The complete executor system prompt — assembled once at module load, static
+ * for the life of the process.
+ */
+export const EXECUTOR_SYSTEM = joinPromptSegments(EXECUTOR_SEGMENTS);

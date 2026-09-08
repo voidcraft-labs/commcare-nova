@@ -100,7 +100,7 @@ export const PROMPT_END_MARKER = "NOVA-PROMPT-END";
  * discovering the missing tool, while the tool-allowlist gate is what
  * Claude Code physically enforces.
  */
-const INTERACTIVITY_INSTRUCTIONS = {
+export const INTERACTIVITY_INSTRUCTIONS = {
 	interactive: `
 
 ## Interaction Mode

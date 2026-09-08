@@ -24,6 +24,7 @@
 import type { ModelMessage } from "ai";
 import type { BlueprintDoc } from "@/lib/domain";
 import { buildExpressionReference } from "./expressionReference";
+import { joinPromptSegments, type PromptSegment } from "./promptSegments";
 import { summarizeBlueprint } from "./summarizeBlueprint";
 import { fieldKindGuide } from "./toolSchemaGenerator";
 
@@ -649,13 +650,64 @@ export function isEditableDoc(doc?: BlueprintDoc): doc is BlueprintDoc {
  * renderer (`renderAgentPrompt`), which hands a subagent its one-shot boot
  * prompt where caching isn't in play.
  */
+const CORE_SEGMENT: PromptSegment = {
+	id: "core",
+	title: "Core: identity, voice, and the XPath quick reference",
+	text: CORE_PROMPT,
+};
+const BUILD_INTERACTION_SEGMENT: PromptSegment = {
+	id: "build-interaction",
+	title: "Initial interaction (MCP build only)",
+	text: BUILD_INTERACTION,
+};
+const INITIAL_BUILD_SEGMENT: PromptSegment = {
+	id: "initial-build",
+	title: "Initial build method (MCP build only)",
+	text: INITIAL_BUILD,
+};
+const EDIT_PREAMBLE_SEGMENT: PromptSegment = {
+	id: "edit-preamble",
+	title: "Editing mode",
+	text: EDIT_PREAMBLE,
+};
+const AUTHORING_RULES_SEGMENT: PromptSegment = {
+	id: "authoring-rules",
+	title: "Authoring rules and batch discipline",
+	text: AUTHORING_RULES,
+};
+const SHARED_TAIL_SEGMENT: PromptSegment = {
+	id: "shared-tail",
+	title:
+		"Shared tail: input contract, field kinds, expressions, architecture, media, languages, Connect, error recovery",
+	text: SHARED_TAIL,
+	generated: ["fieldKindGuide", "buildExpressionReference"],
+};
+
+/**
+ * The ordered segments of each composition. The builders below are exactly
+ * the join of these arrays, so a reader of the segments reads the prompt.
+ */
+export const MCP_BUILD_SEGMENTS: readonly PromptSegment[] = [
+	CORE_SEGMENT,
+	BUILD_INTERACTION_SEGMENT,
+	INITIAL_BUILD_SEGMENT,
+	AUTHORING_RULES_SEGMENT,
+	SHARED_TAIL_SEGMENT,
+];
+export const SOLUTIONS_ARCHITECT_SEGMENTS: readonly PromptSegment[] = [
+	CORE_SEGMENT,
+	EDIT_PREAMBLE_SEGMENT,
+	AUTHORING_RULES_SEGMENT,
+	SHARED_TAIL_SEGMENT,
+];
+
 /** The MCP build-agent boot prompt — see the MCP composition note above. */
 export function buildMcpAgentBuildPrompt(): string {
-	return `${CORE_PROMPT}\n\n---\n\n${BUILD_INTERACTION}\n\n---\n\n${INITIAL_BUILD}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
+	return joinPromptSegments(MCP_BUILD_SEGMENTS);
 }
 
 export function buildSolutionsArchitectPrompt(): string {
-	return `${CORE_PROMPT}\n\n---\n\n${EDIT_PREAMBLE}\n\n---\n\n${AUTHORING_RULES}\n\n---\n\n${SHARED_TAIL}`;
+	return joinPromptSegments(SOLUTIONS_ARCHITECT_SEGMENTS);
 }
 
 /**

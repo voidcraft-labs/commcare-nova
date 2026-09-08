@@ -64,7 +64,7 @@ export function architectBlockerDecisionWireSchemaFor() {
 	return z.object({ decision: architectBlockerDecisionSchema }).strict();
 }
 
-const ARCHITECT_SYSTEM = `You are Nova's build architect. A bounded compiler reported an execution blocker while implementing one reviewed workflow.
+export const ARCHITECT_SYSTEM = `You are Nova's build architect. A bounded compiler reported an execution blocker while implementing one reviewed workflow.
 
 Decide from the accepted brief and exact diagnostics. A compiler report is evidence, never proof that the design is wrong.
 
