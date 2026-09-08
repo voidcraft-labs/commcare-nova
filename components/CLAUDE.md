@@ -56,6 +56,11 @@ introduce one-off Android-styled controls.
 
 A button-acting part (`Button`, any `*Trigger` / `*Close`) whose `render` prop swaps in a non-`<button>`, e.g. `render={<Link/>}` for a link styled as a button, must also pass `nativeButton={false}` (Base UI's documented pattern; its dev warning fires otherwise). The check is against the final DOM element, so `render={<Button/>}` into a trigger needs nothing.
 
+Calendar's DayPicker component overrides keep stable component identities.
+Parent edits and acknowledgements must not replace its native grid or focused
+day button. Changing locale belongs in DayPicker's context, not a newly created
+component function inside render.
+
 ## Icons
 
 Always `@iconify/react/offline`: the default `@iconify/react` export hydrates via effects and renders an empty span for 1–3 frames. Icon data is imported synchronously (the field/module/form kind metadata in `lib/domain` carries `IconifyIcon` object data, not an id string). A missing Tabler icon goes in the project's extras file with SVG from tabler.io. This applies INSIDE `components/shadcn` too, vendored components get every library icon (lucide) swapped to Tabler.

@@ -6,10 +6,14 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import * as React from "react";
 import {
+	type Chevron,
 	type DayButton,
 	DayPicker,
 	getDefaultClassNames,
 	type Locale,
+	type Root,
+	useDayPicker,
+	type WeekNumber,
 } from "react-day-picker";
 import { Button, buttonVariants } from "@/components/shadcn/button";
 import { cn } from "@/lib/utils";
@@ -144,43 +148,67 @@ function Calendar({
 				...classNames,
 			}}
 			components={{
-				Root: ({ className, rootRef, ...props }) => {
-					return (
-						<div
-							data-slot="calendar"
-							ref={rootRef}
-							className={cn(className)}
-							{...props}
-						/>
-					);
-				},
-				Chevron: ({ className, orientation, size: _size, ...props }) => {
-					const icon =
-						orientation === "left"
-							? tablerChevronLeft
-							: orientation === "right"
-								? tablerChevronRight
-								: tablerChevronDown;
-					return (
-						<Icon icon={icon} className={cn("size-4", className)} {...props} />
-					);
-				},
-				DayButton: ({ ...props }) => (
-					<CalendarDayButton locale={locale} {...props} />
-				),
-				WeekNumber: ({ children, ...props }) => {
-					return (
-						<td {...props}>
-							<div className="flex h-(--cell-target-size) w-(--cell-size) items-center justify-center text-center">
-								{children}
-							</div>
-						</td>
-					);
-				},
+				Root: CalendarRoot,
+				Chevron: CalendarChevron,
+				DayButton: CalendarContextDayButton,
+				WeekNumber: CalendarWeekNumber,
 				...components,
 			}}
 			{...props}
 		/>
+	);
+}
+
+// DayPicker renders these as component types. Defining them during Calendar's
+// render replaces native nodes and focus whenever its parent acknowledges an
+// edit. Read changing configuration through DayPicker's context instead.
+function CalendarRoot({
+	className,
+	rootRef,
+	...props
+}: React.ComponentProps<typeof Root>) {
+	return (
+		<div
+			data-slot="calendar"
+			ref={rootRef}
+			className={cn(className)}
+			{...props}
+		/>
+	);
+}
+
+function CalendarChevron({
+	className,
+	orientation,
+	size: _size,
+	...props
+}: React.ComponentProps<typeof Chevron>) {
+	const icon =
+		orientation === "left"
+			? tablerChevronLeft
+			: orientation === "right"
+				? tablerChevronRight
+				: tablerChevronDown;
+	return <Icon icon={icon} className={cn("size-4", className)} {...props} />;
+}
+
+function CalendarContextDayButton(
+	props: React.ComponentProps<typeof DayButton>,
+) {
+	const { dayPickerProps } = useDayPicker();
+	return <CalendarDayButton locale={dayPickerProps.locale} {...props} />;
+}
+
+function CalendarWeekNumber({
+	children,
+	...props
+}: React.ComponentProps<typeof WeekNumber>) {
+	return (
+		<td {...props}>
+			<div className="flex h-(--cell-target-size) w-(--cell-size) items-center justify-center text-center">
+				{children}
+			</div>
+		</td>
 	);
 }
 

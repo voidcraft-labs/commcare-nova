@@ -47,7 +47,7 @@ const caseType = {
 		},
 	],
 };
-function Surface() {
+function Surface({ revision }: { revision: number }) {
 	const run = useSearchInputRunState({
 		scopeKey: "native-search",
 		searchInputs: inputs,
@@ -60,7 +60,7 @@ function Surface() {
 		),
 	});
 	return (
-		<main style={{ padding: 12 }}>
+		<main style={{ padding: 12 }} data-render-revision={revision}>
 			<SearchInputForm
 				caseType={caseType}
 				searchInputs={inputs}
@@ -77,14 +77,18 @@ function Surface() {
 const rootElement = document.getElementById("root");
 if (!rootElement) throw new Error("Missing root");
 const root = createRoot(rootElement);
-root.render(<Surface />);
+let revision = 0;
+root.render(<Surface revision={revision} />);
 window.previewSearchAudit = {
+	rerender() {
+		root.render(<Surface revision={++revision} />);
+	},
 	dispose() {
 		root.unmount();
 	},
 };
 declare global {
 	interface Window {
-		previewSearchAudit: { dispose(): void };
+		previewSearchAudit: { rerender(): void; dispose(): void };
 	}
 }

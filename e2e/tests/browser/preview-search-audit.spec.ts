@@ -65,6 +65,51 @@ test("Search date ranges remain usable on a narrow screen and submit the actual 
 	}
 });
 
+test("an open Search calendar retains its native grid and keyboard focus across a parent render", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-search-client.tsx");
+	try {
+		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
+		await page.goto(peer.origin);
+		await page.getByLabel("Registered from").click();
+		const calendar = page.getByRole("grid");
+		await expect(calendar).toBeVisible();
+		await page.getByRole("button", { name: "Go to the Next Month" }).click();
+		const day = page.getByRole("button", { name: /February 15th, 2024/ });
+		await day.focus();
+		await expect(day).toBeFocused();
+		const gridNode = await calendar.elementHandle();
+		const dayNode = await day.elementHandle();
+		if (!gridNode || !dayNode) throw new Error("Missing open calendar nodes");
+		await page.evaluate(() => window.previewSearchAudit.rerender());
+		await expect(page.locator("[data-render-revision]")).toHaveAttribute(
+			"data-render-revision",
+			"1",
+		);
+		expect(await gridNode.evaluate((node) => node.isConnected)).toBe(true);
+		expect(await dayNode.evaluate((node) => node.isConnected)).toBe(true);
+		await expect(day).toBeFocused();
+		await page.keyboard.press("ArrowRight");
+		await expect(
+			page.getByRole("button", { name: /February 16th, 2024/ }),
+		).toBeFocused();
+		await page.keyboard.press("Enter");
+		await expect(calendar).toBeHidden();
+		await expect(page.getByLabel("Registered from")).toHaveText(
+			"February 16, 2024",
+		);
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewSearchAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});
+
 test("Search barcode scanning disposes native media tracks on cancellation, late permission and detection", async ({
 	page,
 }) => {
