@@ -49,6 +49,9 @@ export function ReadingPane({ item }: { item: WeighedItem }) {
 							? NEED_LABELS[item.needs]
 							: ORIGIN_LABELS[item.origin]}
 					</span>
+					{item.kind === "message" && item.verified === false && (
+						<Badge variant="rose">stored bytes changed</Badge>
+					)}
 					{item.kind !== "missing" && (
 						<span className="ml-auto font-mono text-nova-text-secondary text-xs">
 							{formatWeight(item.weight)}
@@ -81,7 +84,18 @@ function ItemBody({ item }: { item: WeighedItem }) {
 		case "output-schema":
 			return <JsonBlock value={item.jsonSchema} />;
 		case "message":
-			return <MessageView item={item} />;
+			return (
+				<div className="space-y-4">
+					{item.verified === false && (
+						<p className="max-w-[80ch] rounded-xl border border-nova-rose/20 bg-nova-rose/10 p-4 text-sm leading-relaxed">
+							This row no longer matches the digest written beside it when it
+							was appended, so the text below may not be what the model
+							received. The production reader refuses such a row.
+						</p>
+					)}
+					<MessageView item={item} />
+				</div>
+			);
 		case "compaction":
 			return (
 				<p className="max-w-[80ch] text-nova-text-secondary text-sm leading-relaxed">
@@ -143,7 +157,7 @@ function SystemView({ item }: { item: WeighedItem & { kind: "system" } }) {
 							)}
 						>
 							Whole prompt
-							<span className="font-mono text-xs opacity-80">
+							<span className="font-mono text-nova-text-muted text-xs">
 								{formatTokens(item.weight.tokens)}
 							</span>
 						</button>
@@ -159,7 +173,7 @@ function SystemView({ item }: { item: WeighedItem & { kind: "system" } }) {
 								)}
 							>
 								{segment.title}
-								<span className="font-mono text-xs opacity-80">
+								<span className="font-mono text-nova-text-muted text-xs">
 									{formatTokens(segment.weight.tokens)}
 								</span>
 							</button>
@@ -347,6 +361,8 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 						onChange={(event) => setQuery(event.target.value)}
 						placeholder="Find a tool by name or description"
 						aria-label="Find a tool"
+						autoComplete="off"
+						data-1p-ignore
 						className="pl-10"
 					/>
 				</div>

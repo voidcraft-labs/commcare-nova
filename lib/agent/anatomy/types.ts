@@ -109,10 +109,14 @@ export type ContextItem =
 	  })
 	| (ItemBase & {
 			readonly kind: "message";
-			readonly wireRole: "user" | "assistant" | "tool";
+			readonly wireRole: "system" | "user" | "assistant" | "tool";
 			readonly message: ModelMessage;
 			/** The request-local explicit prompt-cache boundary lands here. */
 			readonly cacheBoundary?: boolean;
+			/** Recorded rows only: false when the stored message no longer
+			 * matches the digest written beside it, so the text shown may not
+			 * be what the model received. */
+			readonly verified?: boolean;
 	  })
 	/** A provider compaction checkpoint: an opaque encrypted item the provider
 	 * substitutes for everything before it. Recorded runs only. */
@@ -221,6 +225,8 @@ export interface RecordedItem {
 	readonly message: ModelMessage;
 	/** True when the message carries the provider's opaque compaction part. */
 	readonly compaction: boolean;
+	/** Whether the stored message still matches the digest written beside it. */
+	readonly verified: boolean;
 	readonly createdAt: string;
 	readonly createdByRunId: string;
 }

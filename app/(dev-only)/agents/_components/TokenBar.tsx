@@ -1,6 +1,7 @@
 "use client";
 
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { bandOf } from "@/lib/agent/anatomy/bands";
 import type { WeighedItem, WeighedMoment } from "@/lib/agent/anatomy/types";
 import { cn } from "@/lib/utils";
 import {
@@ -10,27 +11,24 @@ import {
 	KIND_FILL,
 } from "../_lib/format";
 
-const STATIC_KINDS = new Set(["system", "tools", "output-schema"]);
-
 /**
  * The weight of the moment as one bar whose segments are the items in wire
  * order: the static part the provider caches on the left, the per-turn
- * messages on the right. Click a segment to read that item.
+ * messages on the right. The bar is a picture of the list below it; the
+ * list is where an item is picked, so no segment has to be a hit target.
  */
 export function TokenBar({
 	moment,
 	selectedId,
-	onSelect,
 }: {
 	moment: WeighedMoment;
 	selectedId: string | null;
-	onSelect: (id: string) => void;
 }) {
-	const staticItems = moment.items.filter((item) =>
-		STATIC_KINDS.has(item.kind),
+	const staticItems = moment.items.filter(
+		(item) => bandOf(item.kind) === "static",
 	);
 	const variableItems = moment.items.filter(
-		(item) => !STATIC_KINDS.has(item.kind),
+		(item) => bandOf(item.kind) === "variable",
 	);
 	const total = moment.items.reduce(
 		(sum, item) => sum + (item.weight.tokens ?? 0),
@@ -41,19 +39,9 @@ export function TokenBar({
 	return (
 		<section aria-label="Estimated weight" className="space-y-2">
 			<div className="flex items-stretch gap-1.5">
-				<Band
-					items={staticItems}
-					total={total}
-					selectedId={selectedId}
-					onSelect={onSelect}
-				/>
+				<Band items={staticItems} total={total} selectedId={selectedId} />
 				{variableItems.length > 0 && (
-					<Band
-						items={variableItems}
-						total={total}
-						selectedId={selectedId}
-						onSelect={onSelect}
-					/>
+					<Band items={variableItems} total={total} selectedId={selectedId} />
 				)}
 			</div>
 			<div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs">
@@ -85,12 +73,10 @@ function Band({
 	items,
 	total,
 	selectedId,
-	onSelect,
 }: {
 	items: readonly WeighedItem[];
 	total: number;
 	selectedId: string | null;
-	onSelect: (id: string) => void;
 }) {
 	const tokens = items.reduce(
 		(sum, item) => sum + (item.weight.tokens ?? 0),
@@ -111,13 +97,11 @@ function Band({
 						key={item.id}
 						content={`${item.label}: ${formatWeight(item.weight)}`}
 					>
-						<button
-							type="button"
-							onClick={() => onSelect(item.id)}
+						<span
+							role="img"
 							aria-label={`${item.label}, ${formatWeight(item.weight)}`}
-							aria-pressed={selected}
 							className={cn(
-								"nova-focusable-inset relative h-7 min-w-2 cursor-pointer transition-opacity",
+								"relative h-7 min-w-2 transition-opacity",
 								KIND_FILL[item.kind],
 								item.kind === "missing" &&
 									"border border-nova-border-bright border-dashed",

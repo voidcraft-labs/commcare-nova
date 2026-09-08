@@ -36,10 +36,13 @@ export function formatCurrency(amount: number): string {
 	return `$${amount.toFixed(2)}`;
 }
 
-/** Format a large token count in a compact form (e.g. 45000 → "45K"). */
+/** Format a large token count in a compact form (e.g. 45000 → "45K",
+ * 1400 → "1.4K"). Below ten thousand one decimal survives so a small count
+ * still reads as itself rather than rounding to a whole thousand. */
 export function formatTokenCount(count: number): string {
 	if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
-	if (count >= 1_000) return `${(count / 1_000).toFixed(0)}K`;
+	if (count >= 10_000) return `${(count / 1_000).toFixed(0)}K`;
+	if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
 	return String(count);
 }
 

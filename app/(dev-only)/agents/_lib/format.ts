@@ -4,6 +4,7 @@ import type {
 	Origin,
 	Weight,
 } from "@/lib/agent/anatomy";
+import { formatTokenCount } from "@/lib/utils/format";
 
 /** Why a piece is absent from a composed moment, in the reader's terms. */
 export const NEED_LABELS: Readonly<Record<InputNeed, string>> = {
@@ -13,10 +14,7 @@ export const NEED_LABELS: Readonly<Record<InputNeed, string>> = {
 };
 
 export function formatTokens(tokens: number | null): string {
-	if (tokens === null) return "unknown";
-	if (tokens >= 10_000) return `${Math.round(tokens / 1000)}k`;
-	if (tokens >= 1_000) return `${(tokens / 1000).toFixed(1)}k`;
-	return String(tokens);
+	return tokens === null ? "unknown" : formatTokenCount(tokens);
 }
 
 export function formatExactTokens(tokens: number | null): string {
@@ -63,18 +61,3 @@ export const KIND_TEXT: Readonly<Record<ContextItemKind, string>> = {
 	compaction: "text-nova-amber",
 	missing: "text-nova-text-muted",
 };
-
-export function formatUsd(amount: number): string {
-	return `$${amount.toFixed(2)}`;
-}
-
-export function formatWhen(iso: string): string {
-	const date = new Date(iso);
-	if (Number.isNaN(date.getTime())) return iso;
-	return date.toLocaleString("en-US", {
-		month: "short",
-		day: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-	});
-}

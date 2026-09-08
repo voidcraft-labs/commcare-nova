@@ -2,7 +2,11 @@
  * Agent anatomy: how Nova's model roles are composed, rendered from the
  * production code paths so the surface is accurate by construction.
  *
- * The dev-only pages under `app/(dev-only)/agents` import only this entry.
+ * This entry is `server-only`. The pages under `app/(dev-only)/agents` take
+ * their values from it and their types from the sibling modules directly
+ * (a type import carries no runtime); the client-safe `bands.ts` is the one
+ * value module a client component reaches. The inspector script under
+ * `scripts/` reads `modelMessageSummary.ts` directly for the same reason.
  */
 
 import "server-only";
@@ -34,11 +38,11 @@ export function isAnatomyRoleId(value: string): value is AnatomyRoleId {
 	return Object.hasOwn(COMPOSITIONS, value);
 }
 
+export { bandOf } from "./bands";
 export type { Lifecycle, LifecycleStep, RoleFact, RoleFacts } from "./catalog";
 export {
 	LIFECYCLES,
 	lifecyclesFor,
-	MODEL_ROLE_TO_ANATOMY,
 	modelLabel,
 	OPENAI_COMPACTION_NOTE,
 	providerOptionsFor,
@@ -53,16 +57,12 @@ export type { DiffEntry, DiffStatus, MomentDiff } from "./diff";
 export { diffMoments, itemContentDigest } from "./diff";
 export type { OutlineSection } from "./outline";
 export { outlineText } from "./outline";
-export type {
-	AppRunSummary,
-	DesignSessionSummary,
-	LocalAppSummary,
-} from "./recorded";
+export type { DesignSessionSummary, LocalAppSummary } from "./recorded";
 export {
+	AppInspectionRefusal,
 	listDesignSessions,
 	listLocalApps,
 	readAppInput,
-	readAppRunSummaries,
 	readDesignSession,
 } from "./recorded";
 export { estimateTokens, weigh } from "./tokens";

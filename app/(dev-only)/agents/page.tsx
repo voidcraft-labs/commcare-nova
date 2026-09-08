@@ -10,10 +10,13 @@ import { type RoleSummary, summarizeRole } from "./_lib/roleSummary";
 export const dynamic = "force-dynamic";
 
 export default async function AgentsMapPage() {
-	const summaries = new Map<AnatomyRoleId, RoleSummary>();
-	for (const role of ANATOMY_ROLE_IDS) {
-		summaries.set(role, await summarizeRole(role));
-	}
+	const summaries = new Map<AnatomyRoleId, RoleSummary>(
+		await Promise.all(
+			ANATOMY_ROLE_IDS.map(
+				async (role) => [role, await summarizeRole(role)] as const,
+			),
+		),
+	);
 	return (
 		<div className="space-y-8">
 			<div className="max-w-[68ch] space-y-2">

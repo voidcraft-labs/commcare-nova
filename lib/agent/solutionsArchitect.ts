@@ -23,8 +23,10 @@
  * is no finishing tool: the chat route finalizes a build at drain end
  * (status flip + case-store materialize + the `data-done` signal).
  */
+
 import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
 import type { ZodType } from "zod";
+import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import {
 	AppProjectChangedError,
@@ -84,6 +86,16 @@ function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
  * echo on every later step, and our own Zod validation remains the real
  * gate either way.
  */
+/** Steps per turn: the tool loop stops here whatever the model wants next. */
+export const SOLUTIONS_ARCHITECT_MAX_STEPS = 80;
+
+/** Provider 5xx / 429 at request establishment retries with the SDK's
+ * exponential backoff — 5 attempts (~30s of patience) instead of the
+ * default 3, so a brief provider outage rides through rather than failing +
+ * refunding the run. Mid-stream failures are past the SDK's retry layer; the
+ * chat route's turn-level re-run (`lib/agent/turnRetry`) owns those. */
+export const SOLUTIONS_ARCHITECT_MAX_RETRIES = 4;
+
 export function solutionsArchitectToolDefinitions(): Record<
 	string,
 	SolutionsArchitectToolDefinition
@@ -289,14 +301,8 @@ export function createSolutionsArchitect(
 		// blueprint summary rides the per-turn message the route appends
 		// (`buildAppStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(),
-		stopWhen: stepCountIs(80),
-		/* Provider 5xx / 429 at request establishment retries with the SDK's
-		 * exponential backoff — 5 attempts (~30s of patience) instead of the
-		 * default 3, so a brief provider outage rides through rather than
-		 * failing + refunding the run. Mid-stream failures are past the SDK's
-		 * retry layer; the chat route's turn-level re-run (`lib/agent/turnRetry`)
-		 * owns those. */
-		maxRetries: 4,
+		stopWhen: stepCountIs(SOLUTIONS_ARCHITECT_MAX_STEPS),
+		maxRetries: SOLUTIONS_ARCHITECT_MAX_RETRIES,
 		prepareStep: ({ messages }) => {
 			// A tool execution error is a non-fatal AI SDK content part. Stop the
 			// loop explicitly once an authoritative scope error has been latched;
@@ -314,7 +320,7 @@ export function createSolutionsArchitect(
 				providerOptions: reasoningProviderOptions(
 					MODEL_ROLES.followUpEditor.reasoningEffort,
 					{
-						promptCacheKey: `nova:app:${ctx.appId}`,
+						promptCacheKey: promptCacheKeys.app(ctx.appId),
 					},
 				),
 			};

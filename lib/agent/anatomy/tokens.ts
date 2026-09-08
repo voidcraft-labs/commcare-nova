@@ -15,7 +15,9 @@
 
 import { createHash } from "node:crypto";
 import type { ModelMessage } from "ai";
+import { bandOf } from "./bands";
 import { outlineText } from "./outline";
+import { presentableMessage } from "./present";
 import type {
 	ContextItem,
 	Moment,
@@ -178,8 +180,11 @@ async function weighItem(item: ContextItem): Promise<WeighedItem> {
 		case "message": {
 			const { text, uncountedParts } = countableMessageText(item.message);
 			const weight = await weighText(text);
+			/* Counted over the real message; carried onward as a page can hold
+			 * it (a URL as its text, bytes as a labeled placeholder). */
 			return {
 				...item,
+				message: presentableMessage(item.message),
 				weight:
 					uncountedParts > 0 ? { chars: weight.chars, tokens: null } : weight,
 			};
@@ -191,19 +196,13 @@ async function weighItem(item: ContextItem): Promise<WeighedItem> {
 	}
 }
 
-const STATIC_KINDS: ReadonlySet<ContextItem["kind"]> = new Set([
-	"system",
-	"tools",
-	"output-schema",
-]);
-
 /** Adds an estimated weight to every item, segment, and tool of a moment and
  * sums the static and variable bands. */
 export async function weigh(moment: Moment): Promise<WeighedMoment> {
 	const items = await Promise.all(moment.items.map(weighItem));
-	const staticItems = items.filter((item) => STATIC_KINDS.has(item.kind));
+	const staticItems = items.filter((item) => bandOf(item.kind) === "static");
 	const variableItems = items.filter(
-		(item) => item.kind === "message" || item.kind === "compaction",
+		(item) => bandOf(item.kind) === "variable",
 	);
 	return {
 		...moment,

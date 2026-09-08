@@ -101,7 +101,7 @@ export function RolePage({
 			/>
 			<SourcePicker sources={sources} needs={needs} />
 			<MomentPicker moments={moments} current={current} />
-			<TokenBar moment={weighed} selectedId={selectedId} onSelect={select} />
+			<TokenBar moment={weighed} selectedId={selectedId} />
 			{diff && <MomentDiffStrip diff={diff} onSelect={select} />}
 			<div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
 				<div className="min-w-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:self-start lg:overflow-y-auto">

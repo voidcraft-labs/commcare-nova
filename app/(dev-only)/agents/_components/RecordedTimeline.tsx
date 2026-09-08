@@ -11,18 +11,14 @@ import {
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 import type {
 	RecordedContext,
 	RecordedStep,
 	WeighedItem,
 } from "@/lib/agent/anatomy/types";
 import { cn } from "@/lib/utils";
-import {
-	formatExactTokens,
-	formatTokens,
-	formatWhen,
-	KIND_FILL,
-} from "../_lib/format";
+import { formatExactTokens, formatTokens, KIND_FILL } from "../_lib/format";
 import { MessageView } from "./ReadingPane";
 
 export interface TimelineContext {
@@ -197,6 +193,9 @@ function ItemRow({
 						</span>
 					)}
 				</span>
+				{item.verified === false && (
+					<Badge variant="rose">stored bytes changed</Badge>
+				)}
 				<Badge>{item.wireRole}</Badge>
 				<span className="w-12 shrink-0 text-right font-mono text-nova-text-secondary text-xs">
 					{item.weight.tokens === null ? "?" : formatTokens(item.weight.tokens)}
@@ -242,11 +241,19 @@ function StepList({ context }: { context: TimelineContext }) {
 			({ item }) => item.kind === "message" && item.wireRole === "assistant",
 		)
 		.map(({ index }) => index);
+	/* What the provider had in front of it for this response: the static
+	 * part, then every item after the newest compaction checkpoint before
+	 * the response (the checkpoint replaced everything above it). A media
+	 * part the estimator cannot count leaves the estimate unknown. */
 	const sentBefore = (responseIndex: number | undefined): number | null => {
 		if (responseIndex === undefined || context.staticTokens === null)
 			return null;
+		const before = context.items.slice(0, responseIndex);
+		const checkpoint = before.findLastIndex(
+			(item) => item.kind === "compaction",
+		);
 		let sum = context.staticTokens;
-		for (const item of context.items.slice(0, responseIndex)) {
+		for (const item of before.slice(checkpoint + 1)) {
 			if (item.weight.tokens === null) return null;
 			sum += item.weight.tokens;
 		}
@@ -283,7 +290,11 @@ function StepList({ context }: { context: TimelineContext }) {
 								<tr key={step.stepKey} className="border-nova-border border-t">
 									<td className="py-2 pr-4 font-sans">{step.stepKey}</td>
 									<td className="py-2 pr-4 text-nova-text-secondary">
-										{step.completedAt ? formatWhen(step.completedAt) : ""}
+										{step.completedAt ? (
+											<RelativeTime date={new Date(step.completedAt)} />
+										) : (
+											""
+										)}
 									</td>
 									<td className="py-2 pr-4 text-right">
 										{formatExactTokens(estimate)}

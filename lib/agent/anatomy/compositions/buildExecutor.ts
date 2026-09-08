@@ -8,7 +8,10 @@
  * learns what earlier slices built.
  */
 
-import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
+import {
+	buildExecutorTools,
+	EXECUTOR_TOOL_STRICT,
+} from "@/lib/agent/build/executorLoop";
 import {
 	EXECUTOR_SEGMENTS,
 	EXECUTOR_SYSTEM,
@@ -97,7 +100,7 @@ const MOMENTS: readonly MomentSpec[] = [
 	},
 ];
 
-function staticItems() {
+function systemPromptItem(): ContextItem {
 	return systemItem({
 		text: EXECUTOR_SYSTEM,
 		segments: segmentViews(EXECUTOR_SEGMENTS, PROMPT, "EXECUTOR_SEGMENTS"),
@@ -111,7 +114,7 @@ async function toolItem(): Promise<ContextItem> {
 		Object.fromEntries(
 			Object.entries(buildExecutorTools()).map(([name, definition]) => [
 				name,
-				{ ...definition, strict: false },
+				{ ...definition, strict: EXECUTOR_TOOL_STRICT },
 			]),
 		),
 	);
@@ -290,7 +293,7 @@ export const buildExecutorComposition: RoleComposition = {
 	moments: MOMENTS,
 	async compose(momentId, inputs) {
 		const spec = specById(MOMENTS, momentId, "build executor");
-		const system = staticItems();
+		const system = systemPromptItem();
 		const tools = await toolItem();
 		const messages =
 			inputs.session === undefined

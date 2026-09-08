@@ -295,13 +295,18 @@ export function buildExecutorTools(
 // ── The production step ──────────────────────────────────────────────
 
 /**
+ * Every executor tool mounts with this strictness. `false` matches every
+ * other Nova tool surface — under Responses strict-mode normalization the
+ * model cannot omit an inapplicable slot and invents filler for it; SDK-side
+ * Zod validation is the real gate. Applied at mount time rather than stored
+ * on the definitions, whose canonical digest is the persisted toolset digest.
+ */
+export const EXECUTOR_TOOL_STRICT = false;
+
+/**
  * The real model call behind one executor step: one generation, tools mounted
  * with NO `execute` (the loop dispatches), and native multi-tool responses
  * enabled. The provider may compose calls; the loop owns their serial order.
- *
- * `strict: false` matches every other Nova tool surface — under Responses
- * strict-mode normalization the model cannot omit an inapplicable slot and
- * invents filler for it; SDK-side Zod validation is the real gate.
  */
 export function productionExecutorStep(
 	model: LanguageModel,
@@ -340,7 +345,7 @@ export function productionExecutorStep(
 					tool({
 						description: definition.description,
 						inputSchema: jsonSchema(definition.inputSchema),
-						strict: false,
+						strict: EXECUTOR_TOOL_STRICT,
 					}),
 				]),
 			),

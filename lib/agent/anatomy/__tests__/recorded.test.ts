@@ -12,13 +12,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { semanticScopeOf } from "@/lib/agent/build/modelContextStore";
 import {
 	APPEND_KEY_FAMILIES,
 	classifyAppendKey,
 	NON_MESSAGE_KEY_PREFIXES,
 	normalizeRecordedUsage,
 	refineToolResultKind,
-	semanticScopeOf,
 } from "../recorded";
 
 describe("classifyAppendKey", () => {

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import {
 	ANATOMY_ROLE_IDS,
+	AppInspectionRefusal,
 	COMPOSITIONS,
 	type CompositionInputs,
 	diffMoments,
@@ -58,20 +59,32 @@ export default async function AgentRolePage({
 		listLocalApps(),
 		listDesignSessions(),
 	]);
+	let appProblem: string | null = null;
+	let app: Awaited<ReturnType<typeof readAppInput>> = null;
+	if (search.app) {
+		try {
+			app = await readAppInput(search.app);
+		} catch (error) {
+			if (!(error instanceof AppInspectionRefusal)) throw error;
+			appProblem = error.message;
+		}
+	}
 	const inputs: CompositionInputs = {
-		...(search.app && { app: (await readAppInput(search.app)) ?? undefined }),
+		...(app !== null && { app }),
 		...(search.session && {
 			session: (await readDesignSession(search.session)) ?? undefined,
 		}),
 	};
 
-	const moment = await composition.compose(momentSpec.id, inputs);
-	const weighed = await weigh(moment);
 	const baselineSpec = composition.moments[0];
-	const diff =
+	const [moment, baseline] = await Promise.all([
+		composition.compose(momentSpec.id, inputs),
 		baselineSpec !== undefined && baselineSpec.id !== momentSpec.id
-			? diffMoments(await composition.compose(baselineSpec.id, inputs), moment)
-			: null;
+			? composition.compose(baselineSpec.id, inputs)
+			: null,
+	]);
+	const weighed = await weigh(moment);
+	const diff = baseline === null ? null : diffMoments(baseline, moment);
 
 	return (
 		<RolePage
@@ -90,8 +103,11 @@ export default async function AgentRolePage({
 			sources={{
 				apps,
 				sessions,
-				appId: inputs.app?.appId ?? null,
+				appId:
+					inputs.app?.appId ??
+					(appProblem === null ? null : (search.app ?? null)),
 				appName: inputs.app?.appName ?? null,
+				appProblem,
 				sessionId: inputs.session?.designSessionId ?? null,
 				sessionAppName: inputs.session?.appName ?? null,
 			}}

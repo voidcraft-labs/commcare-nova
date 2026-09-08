@@ -10,12 +10,15 @@
  */
 
 import type { ModelMessage } from "ai";
+import { semanticScopeOf } from "@/lib/agent/build/modelContextStore";
 import { rehydrateModelMessage } from "@/lib/agent/modelMessagePersistence";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { modelMessagesContainCompaction } from "@/lib/chat/compaction";
 import { loadAppForInspection } from "@/lib/db/apps";
 import { getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type {
 	AppInput,
 	DesignSessionInput,
@@ -111,15 +114,6 @@ export function refineToolResultKind(
 	return kind;
 }
 
-function messageHasCompactionPart(message: ModelMessage): boolean {
-	if (typeof message.content === "string") return false;
-	return message.content.some(
-		(part) =>
-			(part as { type?: unknown; kind?: unknown }).type === "custom" &&
-			(part as { kind?: unknown }).kind === "openai.compaction",
-	);
-}
-
 // ── Usage ────────────────────────────────────────────────────────────────
 
 function integer(value: unknown): number | null {
@@ -147,18 +141,6 @@ export function normalizeRecordedUsage(
 		reasoningTokens:
 			integer(usage.reasoningTokens) ?? integer(outputDetails?.reasoningTokens),
 	};
-}
-
-// ── Context versions ─────────────────────────────────────────────────────
-
-const SEMANTIC_SCOPE = ":semantic-scope:";
-
-/** The slice attempt id an executor context version names, if any. */
-export function semanticScopeOf(contextVersion: string): string | null {
-	const index = contextVersion.indexOf(SEMANTIC_SCOPE);
-	if (index === -1) return null;
-	const scope = contextVersion.slice(index + SEMANTIC_SCOPE.length);
-	return scope.length > 0 ? scope : null;
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────
@@ -203,28 +185,43 @@ export async function listDesignSessions(
 		.execute();
 	if (sessions.length === 0) return [];
 	const ids = sessions.map((session) => session.id);
-	const contexts = await db
-		.selectFrom("design_model_contexts")
-		.select(["design_session_id", "context_kind"])
-		.where("design_session_id", "in", ids)
-		.execute();
-	const summaries = await db
-		.selectFrom("run_summaries")
-		.select([
-			"design_session_id",
-			"input_tokens",
-			"output_tokens",
-			"cost_estimate",
-		])
-		.where("design_session_id", "in", ids)
-		.execute();
+	// Postgres groups the counts and sums; one row per session and kind
+	// comes back instead of every context and run row.
+	const [contextCounts, runTotals] = await Promise.all([
+		db
+			.selectFrom("design_model_contexts")
+			.select(({ fn }) => [
+				"design_session_id",
+				"context_kind",
+				fn.countAll().as("contexts"),
+			])
+			.where("design_session_id", "in", ids)
+			.groupBy(["design_session_id", "context_kind"])
+			.execute(),
+		db
+			.selectFrom("run_summaries")
+			.select(({ fn }) => [
+				"design_session_id",
+				fn.sum("input_tokens").as("input_tokens"),
+				fn.sum("output_tokens").as("output_tokens"),
+				fn.sum("cost_estimate").as("cost_estimate"),
+			])
+			.where("design_session_id", "in", ids)
+			.groupBy("design_session_id")
+			.execute(),
+	]);
+	const contextsOf = (sessionId: string, kind: string): number =>
+		Number(
+			contextCounts.find(
+				(row) =>
+					row.design_session_id === sessionId && row.context_kind === kind,
+			)?.contexts ?? 0,
+		);
+	const totalsById = new Map(
+		runTotals.map((row) => [row.design_session_id, row]),
+	);
 	return sessions.map((session) => {
-		const own = contexts.filter(
-			(context) => context.design_session_id === session.id,
-		);
-		const runs = summaries.filter(
-			(summary) => summary.design_session_id === session.id,
-		);
+		const totals = totalsById.get(session.id);
 		return {
 			designSessionId: session.id,
 			appId: session.app_id,
@@ -232,30 +229,24 @@ export async function listDesignSessions(
 			mode: session.mode,
 			state: session.state,
 			updatedAt: iso(session.updated_at),
-			designContexts: own.filter((context) => context.context_kind === "design")
-				.length,
-			executorContexts: own.filter(
-				(context) => context.context_kind === "executor",
-			).length,
-			billedInputTokens: runs.reduce(
-				(sum, run) => sum + Number(run.input_tokens),
-				0,
-			),
-			billedOutputTokens: runs.reduce(
-				(sum, run) => sum + Number(run.output_tokens),
-				0,
-			),
-			costEstimate: runs.reduce(
-				(sum, run) => sum + Number(run.cost_estimate),
-				0,
-			),
+			designContexts: contextsOf(session.id, "design"),
+			executorContexts: contextsOf(session.id, "executor"),
+			billedInputTokens: Number(totals?.input_tokens ?? 0),
+			billedOutputTokens: Number(totals?.output_tokens ?? 0),
+			costEstimate: Number(totals?.cost_estimate ?? 0),
 		};
 	});
 }
 
+/** `design_sessions.id` is a uuid column; anything else would be a Postgres
+ * type error rather than a missing row. */
+const UUID_SHAPE =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function readDesignSession(
 	designSessionId: string,
 ): Promise<DesignSessionInput | null> {
+	if (!UUID_SHAPE.test(designSessionId)) return null;
 	const db = await getAppDb();
 	const session = await db
 		.selectFrom("design_sessions")
@@ -311,7 +302,10 @@ export async function readDesignSession(
 					appendIndex: item.append_index,
 					itemKind: kind,
 					message,
-					compaction: messageHasCompactionPart(message),
+					compaction: modelMessagesContainCompaction([message]),
+					// The production reader refuses a row whose message no longer
+					// matches its digest; an inspector shows the row and says so.
+					verified: canonicalJsonDigest(item.message) === item.item_digest,
 					createdAt: iso(item.created_at),
 					createdByRunId: item.created_by_run_id,
 				};
@@ -417,8 +411,28 @@ function isUIMessageShaped(value: unknown): value is NovaUIMessage {
 	);
 }
 
+/** An app that exists but no longer passes the current commit gate. The
+ * strict inspection loader refuses it; a page shows the refusal beside the
+ * picker instead of failing the whole view. */
+export class AppInspectionRefusal extends Error {
+	readonly appId: string;
+	constructor(appId: string, cause: unknown) {
+		super(
+			`This app can't be loaded under the current blueprint contract: ${cause instanceof Error ? cause.message : String(cause)}`,
+			{ cause },
+		);
+		this.name = "AppInspectionRefusal";
+		this.appId = appId;
+	}
+}
+
 export async function readAppInput(appId: string): Promise<AppInput | null> {
-	const loaded = await loadAppForInspection(appId);
+	let loaded: Awaited<ReturnType<typeof loadAppForInspection>>;
+	try {
+		loaded = await loadAppForInspection(appId);
+	} catch (error) {
+		throw new AppInspectionRefusal(appId, error);
+	}
 	if (loaded === null) return null;
 	const doc = hydratePersistedBlueprint(loaded.blueprint as PersistableDoc);
 	const db = await getAppDb();
@@ -439,45 +453,4 @@ export async function readAppInput(appId: string): Promise<AppInput | null> {
 			},
 		}),
 	};
-}
-
-export interface AppRunSummary {
-	readonly runId: string;
-	readonly startedAt: string;
-	readonly finishedAt: string;
-	readonly model: string;
-	readonly stepCount: number;
-	readonly toolCallCount: number;
-	readonly inputTokens: number;
-	readonly outputTokens: number;
-	readonly cacheReadTokens: number;
-	readonly costEstimate: number;
-}
-
-/** Run-level billed usage for an app's chat runs. There is no per-turn
- * record of the architect's wire, so this is the only calibration it has. */
-export async function readAppRunSummaries(
-	appId: string,
-	limit = 20,
-): Promise<AppRunSummary[]> {
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("run_summaries")
-		.selectAll()
-		.where("app_id", "=", appId)
-		.orderBy("finished_at", "desc")
-		.limit(limit)
-		.execute();
-	return rows.map((row) => ({
-		runId: row.run_id,
-		startedAt: iso(row.started_at),
-		finishedAt: iso(row.finished_at),
-		model: row.model,
-		stepCount: row.step_count,
-		toolCallCount: row.tool_call_count,
-		inputTokens: Number(row.input_tokens),
-		outputTokens: Number(row.output_tokens),
-		cacheReadTokens: Number(row.cache_read_tokens),
-		costEstimate: Number(row.cost_estimate),
-	}));
 }

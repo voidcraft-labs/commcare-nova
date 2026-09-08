@@ -64,6 +64,10 @@ export function architectBlockerDecisionWireSchemaFor() {
 	return z.object({ decision: architectBlockerDecisionSchema }).strict();
 }
 
+/** The helper's decision is a short structured object; this bounds the
+ * reasoning-inclusive output one blocker resolution may spend. */
+export const ARCHITECT_MAX_OUTPUT_TOKENS = 12_000;
+
 export const ARCHITECT_SYSTEM = `You are Nova's build architect. A bounded compiler reported an execution blocker while implementing one reviewed workflow.
 
 Decide from the accepted brief and exact diagnostics. A compiler report is evidence, never proof that the design is wrong.
@@ -96,7 +100,7 @@ export async function resolveExecutionBlocker(
 			"## Current server diagnostics",
 			JSON.stringify(args.diagnostics),
 		].join("\n\n"),
-		maxOutputTokens: 12_000,
+		maxOutputTokens: ARCHITECT_MAX_OUTPUT_TOKENS,
 		providerOptions: reasoningProviderOptions(
 			MODEL_ROLES.executorHelper.reasoningEffort,
 		),

@@ -12,11 +12,7 @@ import {
 	MCP_BUILD_SEGMENTS,
 	SOLUTIONS_ARCHITECT_SEGMENTS,
 } from "@/lib/agent/prompts";
-import {
-	INTERACTIVITY_INSTRUCTIONS,
-	PROMPT_END_MARKER,
-	renderAgentPrompt,
-} from "@/lib/mcp/prompts";
+import { agentPromptSegments, renderAgentPrompt } from "@/lib/mcp/prompts";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type {
 	ContextItem,
@@ -144,63 +140,50 @@ export const mcpBootComposition: RoleComposition = {
 		}
 		const doc = edit ? inputs.app?.doc : undefined;
 		const text = renderAgentPrompt(interactive, doc);
-		const base = edit ? SOLUTIONS_ARCHITECT_SEGMENTS : MCP_BUILD_SEGMENTS;
-		const baseSymbol = edit
-			? "SOLUTIONS_ARCHITECT_SEGMENTS"
-			: "MCP_BUILD_SEGMENTS";
-		const segments: PromptSegmentView[] = [
-			...segmentViews(base, PROMPTS, baseSymbol),
-			{
-				id: "interaction-mode",
-				title: "Interaction mode",
-				text: INTERACTIVITY_INSTRUCTIONS[
-					interactive ? "interactive" : "autonomous"
-				].trim(),
-				source: {
-					file: "lib/mcp/prompts.ts",
-					symbol: "INTERACTIVITY_INSTRUCTIONS",
+		/* The renderer's own pieces. The base prompt piece is shown as the
+		 * segments its builder joins, so the architect's and the build
+		 * prompt's parts read the same here as on their own pages. */
+		const pieces = agentPromptSegments(interactive, doc);
+		const editable = pieces.some((piece) => piece.id === "app-state");
+		const segments: PromptSegmentView[] = pieces.flatMap((piece) => {
+			if (piece.id === "architect") {
+				return segmentViews(
+					SOLUTIONS_ARCHITECT_SEGMENTS,
+					PROMPTS,
+					"SOLUTIONS_ARCHITECT_SEGMENTS",
+				);
+			}
+			if (piece.id === "build") {
+				return segmentViews(MCP_BUILD_SEGMENTS, PROMPTS, "MCP_BUILD_SEGMENTS");
+			}
+			return [
+				{
+					id: piece.id,
+					title: piece.title,
+					text: piece.text.trim(),
+					source: {
+						file: "lib/mcp/prompts.ts",
+						symbol:
+							piece.id === "interaction-mode"
+								? "INTERACTIVITY_INSTRUCTIONS"
+								: piece.id === "app-state"
+									? "appStateBlockFor"
+									: "PROMPT_END_MARKER",
+					},
+					...(piece.generated && { generated: piece.generated }),
 				},
-			},
-			...(edit && doc !== undefined
-				? [
-						{
-							id: "app-state",
-							title: "Current app state",
-							text: appStateSection(text),
-							source: {
-								file: "lib/mcp/prompts.ts",
-								symbol: "appStateBlockFor",
-							},
-							generated: ["summarizeBlueprint"],
-						} satisfies PromptSegmentView,
-					]
-				: []),
-			{
-				id: "end-marker",
-				title: "Delivery marker",
-				text: PROMPT_END_MARKER,
-				source: { file: "lib/mcp/prompts.ts", symbol: "PROMPT_END_MARKER" },
-			},
-		];
+			];
+		});
 		const system: ContextItem = systemItem({
 			label: "Boot prompt",
 			text,
 			segments,
 			source: RENDERER,
-			origin: edit ? "derived" : "composed",
-			note: edit
+			origin: editable ? "derived" : "composed",
+			note: editable
 				? "The app-state block is the largest and most app-specific section, so the marker after it is what turns a truncated delivery into a refusal."
 				: "Delivered as an MCP tool result. The marker is last so a size-capped delivery is detectable.",
 		});
 		return moment(spec, [system, tools]);
 	},
 };
-
-/** The rendered prompt's app-state section: from its heading to the marker. */
-function appStateSection(rendered: string): string {
-	const heading = "## Current app state";
-	const start = rendered.lastIndexOf(heading);
-	const end = rendered.lastIndexOf(PROMPT_END_MARKER);
-	if (start === -1 || end === -1) return "";
-	return rendered.slice(start, end).trimEnd();
-}

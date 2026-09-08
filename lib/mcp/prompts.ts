@@ -42,6 +42,7 @@
  * model resolves the two by name at call time.
  */
 
+import type { PromptSegment } from "@/lib/agent/promptSegments";
 import {
 	buildMcpAgentBuildPrompt,
 	buildSolutionsArchitectPrompt,
@@ -145,19 +146,27 @@ export function renderAgentPrompt(
 	interactive: boolean,
 	editDoc?: BlueprintDoc,
 ): string {
+	return agentPromptSegments(interactive, editDoc)
+		.map((segment) => segment.text)
+		.join("");
+}
+
+/**
+ * The boot prompt as its ordered pieces; `renderAgentPrompt` is exactly
+ * their concatenation (each piece carries its own leading blank lines, so
+ * there is no separator). Named so the agent-anatomy page reads the same
+ * list the tool result is rendered from.
+ */
+export function agentPromptSegments(
+	interactive: boolean,
+	editDoc?: BlueprintDoc,
+): readonly PromptSegment[] {
 	/* Edit mode boots the SA's edit prompt; build mode boots the MCP-only
 	 * build composition — the plugin's client-side agent drives direct
 	 * canonical tools (`create_app` + the shared set), which remain an
 	 * immediate, unreviewed surface (the chat design pipeline never runs
 	 * here). */
-	const baseSystem = isEditableDoc(editDoc)
-		? buildSolutionsArchitectPrompt()
-		: buildMcpAgentBuildPrompt();
-	const interactivityBlock = interactive
-		? INTERACTIVITY_INSTRUCTIONS.interactive
-		: INTERACTIVITY_INSTRUCTIONS.autonomous;
-	const tail = `\n\n${PROMPT_END_MARKER}`;
-	const appStateBlock = isEditableDoc(editDoc) ? appStateBlockFor(editDoc) : "";
+	const editable = isEditableDoc(editDoc);
 	/* `PROMPT_END_MARKER` is last by contract — it proves the executor
 	 * received the whole text, so anything after it would be outside
 	 * what the check covers. The app-state block precedes it for the
@@ -165,7 +174,41 @@ export function renderAgentPrompt(
 	 * app-specific section, so it is the first thing a truncated
 	 * delivery loses, and the marker is what turns that loss into a
 	 * refusal instead of a quietly worse app. */
-	return `${baseSystem}${interactivityBlock}${appStateBlock}${tail}`;
+	return [
+		editable
+			? {
+					id: "architect",
+					title: "The architect's edit prompt",
+					text: buildSolutionsArchitectPrompt(),
+				}
+			: {
+					id: "build",
+					title: "The MCP build prompt",
+					text: buildMcpAgentBuildPrompt(),
+				},
+		{
+			id: "interaction-mode",
+			title: "Interaction mode",
+			text: interactive
+				? INTERACTIVITY_INSTRUCTIONS.interactive
+				: INTERACTIVITY_INSTRUCTIONS.autonomous,
+		},
+		...(editable
+			? [
+					{
+						id: "app-state",
+						title: "Current app state",
+						text: appStateBlockFor(editDoc),
+						generated: ["summarizeBlueprint"],
+					},
+				]
+			: []),
+		{
+			id: "end-marker",
+			title: "Delivery marker",
+			text: `\n\n${PROMPT_END_MARKER}`,
+		},
+	];
 }
 
 /**

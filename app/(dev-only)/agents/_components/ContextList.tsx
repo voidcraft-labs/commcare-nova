@@ -46,7 +46,7 @@ export function ContextList({
 							aria-pressed={selected}
 							className={cn(
 								selectableRowCls(selected),
-								"items-start border",
+								"border",
 								missing
 									? "border-nova-border border-dashed"
 									: "border-transparent",
@@ -54,7 +54,7 @@ export function ContextList({
 						>
 							<span
 								className={cn(
-									"mt-1.5 inline-block size-2.5 shrink-0 rounded-sm",
+									"mt-1.5 inline-block size-2.5 shrink-0 self-start rounded-sm",
 									KIND_FILL[item.kind],
 									missing && "border border-nova-border-bright border-dashed",
 									item.kind === "compaction" &&
@@ -80,7 +80,7 @@ export function ContextList({
 										: `${item.kind === "message" ? item.wireRole : KIND_LABELS[item.kind].toLowerCase()} · ${ROW_ORIGIN[item.origin]}`}
 								</span>
 							</span>
-							<span className="shrink-0 pt-0.5 font-mono text-nova-text-secondary text-xs">
+							<span className="shrink-0 self-start pt-0.5 font-mono text-nova-text-secondary text-xs">
 								{item.kind === "missing"
 									? ""
 									: item.weight.tokens === null

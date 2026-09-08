@@ -2,7 +2,8 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { Badge } from "@/components/shadcn/badge";
 import { listDesignSessions, listLocalApps } from "@/lib/agent/anatomy";
-import { formatTokens, formatUsd, formatWhen } from "../_lib/format";
+import { formatCurrency, formatRelativeDate } from "@/lib/utils/format";
+import { formatTokens } from "../_lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -80,10 +81,10 @@ export default async function RunsPage() {
 									<span className="font-mono text-nova-text-secondary text-xs">
 										{formatTokens(session.billedInputTokens)} in ·{" "}
 										{formatTokens(session.billedOutputTokens)} out ·{" "}
-										{formatUsd(session.costEstimate)}
+										{formatCurrency(session.costEstimate)}
 									</span>
 									<span className="text-nova-text-muted text-xs">
-										{formatWhen(session.updatedAt)}
+										{formatRelativeDate(new Date(session.updatedAt))}
 									</span>
 								</Link>
 							</li>

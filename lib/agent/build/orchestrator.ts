@@ -67,6 +67,7 @@ import {
 	meterDurableSubGenerationUsage,
 	type SubGenerationUsageMeter,
 } from "@/lib/agent/modelRunContext";
+import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import {
 	finalizeInitialBuildLocalization,
 	type InitialBuildLocalizationArgs,
@@ -1157,7 +1158,7 @@ function productionDeps(
 			productionExecutorStep(
 				executorContext.model(MODEL_ROLES.buildExecutor.modelId),
 				MODEL_ROLES.buildExecutor.reasoningEffort,
-				`nova:design-executor:${args.designSessionId}`,
+				promptCacheKeys.executor(args.designSessionId),
 			),
 		resolveBlocker:
 			overrides.resolveBlocker ??

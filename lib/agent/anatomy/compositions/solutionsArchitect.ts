@@ -9,25 +9,17 @@
  * run a model, which a page must never do.
  */
 
-import {
-	convertToModelMessages,
-	type ModelMessage,
-	tool,
-	validateUIMessages,
-} from "ai";
+import { type ModelMessage, tool } from "ai";
+import { projectArchitectHistory } from "@/lib/agent/architectHistory";
 import { wrapAttachment } from "@/lib/agent/documentExtraction";
 import {
 	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
-	markStablePrefixBoundary,
 	SOLUTIONS_ARCHITECT_SEGMENTS,
 } from "@/lib/agent/prompts";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
 import { buildTurnRetryContinuation } from "@/lib/agent/turnRetry";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
-import { projectCompatibleCompactedHistory } from "@/lib/chat/compaction";
-import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
-import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { MODEL_ROLES } from "@/lib/models";
 import type {
 	AppInput,
@@ -115,15 +107,15 @@ function placeholderAttachments(
 	});
 }
 
-/** The route's pipeline over a thread, with definition-only tools and
- * placeholder attachments. Returns the converted history with the cache
- * boundary marked, but without the app-state tail. */
-export async function projectArchitectHistory(
+/** The route's own history pipeline (`projectArchitectHistory`) over a
+ * thread, with definition-only tools and placeholder attachments. Returns
+ * the converted history with the cache boundary marked, but without the
+ * app-state tail. */
+async function architectHistory(
 	messages: readonly NovaUIMessage[],
 ): Promise<ModelMessage[]> {
 	/* Definition-only tools: the same description, schema, and strictness
-	 * the architect mounts, with no execute. Validation and conversion read
-	 * only the schema, so the widening the sanitizer performs is behavior-safe. */
+	 * the architect mounts, with no execute. The pipeline reads only those. */
 	const tools = Object.fromEntries(
 		Object.entries(solutionsArchitectToolDefinitions()).map(
 			([name, definition]) => [
@@ -135,17 +127,13 @@ export async function projectArchitectHistory(
 				}),
 			],
 		),
-	) as Parameters<typeof validateUIMessages>[0]["tools"] &
-		Parameters<typeof sanitizeHistoricalToolParts>[1];
-	const model = MODEL_ROLES.followUpEditor.modelId;
-	const prepared = placeholderAttachments(messages);
-	const sanitized = await sanitizeHistoricalToolParts(prepared, tools);
-	const reasoningSafe = sanitizeHistoricalReasoningParts(sanitized, model);
-	const effective = projectCompatibleCompactedHistory(reasoningSafe, model);
-	const validated = await validateUIMessages({ messages: effective, tools });
-	return markStablePrefixBoundary(
-		await convertToModelMessages(validated, { tools }),
 	);
+	const projected = await projectArchitectHistory({
+		messages: placeholderAttachments(messages),
+		tools,
+		model: MODEL_ROLES.followUpEditor.modelId,
+	});
+	return projected.modelMessages;
 }
 
 function historyItems(history: readonly ModelMessage[]): ContextItem[] {
@@ -192,7 +180,7 @@ async function threadItems(app: AppInput | undefined): Promise<ContextItem[]> {
 			}),
 		];
 	}
-	return historyItems(await projectArchitectHistory(app.thread.messages));
+	return historyItems(await architectHistory(app.thread.messages));
 }
 
 function appStateItem(app: AppInput | undefined): ContextItem {

@@ -61,7 +61,7 @@ const BASE_MODEL_STEPS = 10;
  * one form, its case list — with room for reads and bounded correction after
  * a rejected private mutation.
  */
-const BASE_BUDGET: SliceExecutionBudget = {
+export const BASE_BUDGET: SliceExecutionBudget = {
 	maxModelSteps: BASE_MODEL_STEPS,
 	maxMutationCalls: 16,
 	/* Three commit attempts: the first, one after a rebase refresh, one after
@@ -106,7 +106,7 @@ const CEILING_MODEL_STEPS = 40;
  * The wall-clock ceiling funds exactly the step ceiling, so both bind at the
  * same slice shape and the funded pace never degrades at the top of the range.
  */
-const CEILINGS = {
+export const CEILINGS = {
 	maxModelSteps: CEILING_MODEL_STEPS,
 	maxMutationCalls: 96,
 	maxWallClockMs: CEILING_MODEL_STEPS * STEP_PACE_MS,

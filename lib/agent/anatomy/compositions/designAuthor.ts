@@ -11,18 +11,11 @@
  */
 
 import {
-	buildCapabilityCatalog,
-	renderCapabilityCatalog,
-} from "@/lib/agent/design/capabilityCatalog";
-import {
 	composeDesignInstructions,
 	designAgentOwnedToolDefinitions,
+	designAuthorInstructionParts,
 } from "@/lib/agent/design/loop/designAgent";
 import { designLoopToolDefinitions } from "@/lib/agent/design/loop/tools";
-import {
-	DESIGN_AGENT_SYSTEM,
-	renderPlatformConstraintsSection,
-} from "@/lib/agent/design/prompts";
 import type {
 	ContextItem,
 	DesignSessionInput,
@@ -120,20 +113,17 @@ const MOMENTS: readonly MomentSpec[] = [
 	},
 ];
 
-function staticItems() {
-	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
-	const constraintsText = renderPlatformConstraintsSection();
-	const system = systemItem({
-		text: composeDesignInstructions(
-			DESIGN_AGENT_SYSTEM,
-			catalogText,
-			constraintsText,
-		),
+function systemPromptItem(): ContextItem {
+	/* The same three parts the loop runner hands `createDesignAgent`. */
+	const { instructions, catalogText, constraintsText } =
+		designAuthorInstructionParts();
+	return systemItem({
+		text: composeDesignInstructions(instructions, catalogText, constraintsText),
 		segments: [
 			{
 				id: "instructions",
 				title: "Design agent instructions",
-				text: DESIGN_AGENT_SYSTEM,
+				text: instructions,
 				source: {
 					file: "lib/agent/design/prompts.ts",
 					symbol: "DESIGN_AGENT_SYSTEM",
@@ -166,18 +156,18 @@ function staticItems() {
 		},
 		note: "Three parts joined by blank lines. The same string in every phase, so a phase change never moves the cached prefix.",
 	});
-	return { system };
 }
 
 async function toolItem(): Promise<ContextItem> {
 	const owned = designAgentOwnedToolDefinitions();
 	const loop = designLoopToolDefinitions();
 	const tools = await toolViews({ ...owned, ...loop });
+	const loopCount = Object.keys(loop).length;
 	return toolsItem({
 		tools,
 		source: AGENT,
 		digestCovers: Object.keys(loop),
-		note: "21 mounted: askQuestions and waitForInput, then the 19 loop tools. The persisted toolset digest covers the 19; a changed digest rolls the session to a new generation.",
+		note: `${tools.length} mounted: ${Object.keys(owned).join(" and ")}, then the ${loopCount} loop tools. The persisted toolset digest covers the ${loopCount}; a changed digest rolls the session to a new generation.`,
 	});
 }
 
@@ -367,7 +357,7 @@ export const designAuthorComposition: RoleComposition = {
 	moments: MOMENTS,
 	async compose(momentId, inputs) {
 		const spec = specById(MOMENTS, momentId, "design author");
-		const { system } = staticItems();
+		const system = systemPromptItem();
 		const tools = await toolItem();
 		const messages =
 			inputs.session === undefined

@@ -2,6 +2,7 @@
 
 import { usePathname, useSearchParams } from "next/navigation";
 import { useId } from "react";
+import { Field, FieldError, FieldLabel } from "@/components/shadcn/field";
 import {
 	Select,
 	SelectContent,
@@ -9,19 +10,21 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { RelativeTime } from "@/components/ui/RelativeTime";
 import type {
 	DesignSessionSummary,
 	LocalAppSummary,
 } from "@/lib/agent/anatomy/recorded";
 import type { InputNeed } from "@/lib/agent/anatomy/types";
 import { useExternalNavigate } from "@/lib/routing/hooks";
-import { formatWhen } from "../_lib/format";
 
 export interface SourceState {
 	readonly apps: readonly LocalAppSummary[];
 	readonly sessions: readonly DesignSessionSummary[];
 	readonly appId: string | null;
 	readonly appName: string | null;
+	/** Why the picked app could not be loaded, when it could not. */
+	readonly appProblem: string | null;
 	readonly sessionId: string | null;
 	readonly sessionAppName: string | null;
 }
@@ -57,18 +60,16 @@ export function SourcePicker({
 	return (
 		<div className="flex flex-wrap items-end gap-3">
 			{wantsApp && (
-				<div className="flex min-w-0 flex-col gap-1.5">
-					<span id={appLabelId} className="text-nova-text-secondary text-xs">
-						Local app
-					</span>
+				<Field
+					className="w-72 max-w-full"
+					data-invalid={sources.appProblem !== null}
+				>
+					<FieldLabel htmlFor={appLabelId}>Local app</FieldLabel>
 					<Select
 						value={sources.appId ?? NONE}
 						onValueChange={(value) => navigate("app", value)}
 					>
-						<SelectTrigger
-							aria-labelledby={appLabelId}
-							className="w-72 max-w-full"
-						>
+						<SelectTrigger id={appLabelId}>
 							<SelectValue>
 								{sources.appId === null
 									? "No app picked"
@@ -89,24 +90,22 @@ export function SourcePicker({
 							))}
 						</SelectContent>
 					</Select>
-				</div>
+					{sources.appProblem && (
+						<FieldError>
+							{sources.appProblem} Pick another app, or repair this one through
+							the builder first.
+						</FieldError>
+					)}
+				</Field>
 			)}
 			{wantsSession && (
-				<div className="flex min-w-0 flex-col gap-1.5">
-					<span
-						id={sessionLabelId}
-						className="text-nova-text-secondary text-xs"
-					>
-						Local design session
-					</span>
+				<Field className="w-80 max-w-full">
+					<FieldLabel htmlFor={sessionLabelId}>Local design session</FieldLabel>
 					<Select
 						value={sources.sessionId ?? NONE}
 						onValueChange={(value) => navigate("session", value)}
 					>
-						<SelectTrigger
-							aria-labelledby={sessionLabelId}
-							className="w-80 max-w-full"
-						>
+						<SelectTrigger id={sessionLabelId}>
 							<SelectValue>
 								{sources.sessionId === null
 									? "No session picked"
@@ -123,13 +122,14 @@ export function SourcePicker({
 									{session.appName ??
 										`Session ${session.designSessionId.slice(0, 8)}`}
 									<span className="ml-2 text-nova-text-muted">
-										{session.state}, {formatWhen(session.updatedAt)}
+										{session.state},{" "}
+										<RelativeTime date={new Date(session.updatedAt)} />
 									</span>
 								</SelectItem>
 							))}
 						</SelectContent>
 					</Select>
-				</div>
+				</Field>
 			)}
 		</div>
 	);

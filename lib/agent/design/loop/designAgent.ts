@@ -20,7 +20,15 @@ import type {
 } from "ai";
 import { ToolLoopAgent, zodSchema } from "ai";
 import { z } from "zod";
+import {
+	buildCapabilityCatalog,
+	renderCapabilityCatalog,
+} from "@/lib/agent/design/capabilityCatalog";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
+import {
+	DESIGN_AGENT_SYSTEM,
+	renderPlatformConstraintsSection,
+} from "@/lib/agent/design/prompts";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import {
@@ -46,7 +54,7 @@ export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
 
 export const DESIGN_WAIT_FOR_INPUT_TOOL = "waitForInput";
 
-export const waitForInputInputSchema = z
+const waitForInputInputSchema = z
 	.object({
 		reason: z
 			.literal("more-requirements-coming")
@@ -548,6 +556,24 @@ export async function projectDesignStepMessages(
 		message,
 	});
 	return [...projected, message];
+}
+
+/**
+ * The three parts every design session's system prompt is composed from,
+ * as the loop runner passes them to `createDesignAgent`: the static phase
+ * instructions, the generated capability catalog, and the citable platform
+ * constraints. Zero-arg on purpose: nothing about a session changes them.
+ */
+export function designAuthorInstructionParts(): {
+	readonly instructions: string;
+	readonly catalogText: string;
+	readonly constraintsText: string;
+} {
+	return {
+		instructions: DESIGN_AGENT_SYSTEM,
+		catalogText: renderCapabilityCatalog(buildCapabilityCatalog()),
+		constraintsText: renderPlatformConstraintsSection(),
+	};
 }
 
 /**

@@ -47,9 +47,8 @@ export default async function RecordedSessionPage({
 		summarizeRole("design-author"),
 		summarizeRole("build-executor"),
 	]);
-	const contexts: TimelineContext[] = [];
-	for (const context of session.contexts) {
-		contexts.push({
+	const contexts: TimelineContext[] = await Promise.all(
+		session.contexts.map(async (context) => ({
 			contextId: context.contextId,
 			kind: context.kind,
 			generation: context.generation,
@@ -64,8 +63,8 @@ export default async function RecordedSessionPage({
 				context.kind === "design" ? author.staticTokens : executor.staticTokens,
 			items: await weighContext(context),
 			steps: context.steps,
-		});
-	}
+		})),
+	);
 	return (
 		<div className="space-y-6">
 			<p className="text-nova-text-muted text-xs">

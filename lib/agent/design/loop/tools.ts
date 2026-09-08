@@ -1742,11 +1742,11 @@ export function designLoopToolDefinitions() {
 }
 
 /**
- * The exact mapping `designLoopRunner.ts` persists as a design context's
- * `toolset_digest`: the mounted tools in insertion order, each as
- * `{ name, description, strict, inputSchema }`. Exported so a reader can
- * recompute the digest over a definitions-only record and compare it with
- * the digest a live session persisted.
+ * The digest a design context persists as its `toolset_digest`: the mounted
+ * tools in insertion order, each as `{ name, description, strict,
+ * inputSchema }`. The runner computes it over the bound tools when a context
+ * opens; a reader recomputes it over the definitions alone to compare with
+ * what a session persisted.
  */
 export async function designToolsetDigest(
 	tools: Record<

@@ -12,6 +12,7 @@
  */
 
 import type { ModelMessage } from "ai";
+import { sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	appendDesignModelContext,
@@ -19,7 +20,10 @@ import {
 	openDesignModelContext,
 	recordDesignModelStepEvent,
 } from "@/lib/agent/build/modelContextStore";
-import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import {
+	durableModelValueDigest,
+	persistModelMessage,
+} from "@/lib/agent/modelMessagePersistence";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { listDesignSessions, readDesignSession } from "../recorded";
 
@@ -189,6 +193,31 @@ describe("readDesignSession", () => {
 		});
 		expect(context?.steps[0]?.startedAt).not.toBeNull();
 		expect(context?.steps[0]?.completedAt).not.toBeNull();
+	});
+
+	it("marks a row whose stored message no longer matches its digest, and keeps the rest verified", async () => {
+		const opened = await openDesignModelContext(designSpec());
+		await append(opened.id, "seed:package-digest", seedMessages);
+		await append(opened.id, "state:state-digest", [stateMessage]);
+		// Edit one row behind the writer's back, the way a hand repair or a
+		// corrupted column would; the digest beside it stays as written.
+		await sql`
+			update design_model_context_items
+			set message = ${JSON.stringify(persistModelMessage({ role: "user", content: "not what was sent" }))}::jsonb
+			where context_id = ${opened.id} and ordinal = 2
+		`.execute(h.db());
+
+		const session = await readDesignSession(designSessionId);
+		const items = session?.contexts[0]?.items ?? [];
+		expect(items.map((item) => [item.ordinal, item.verified])).toEqual([
+			[1, true],
+			[2, false],
+			[3, true],
+		]);
+		expect(items[1]?.message).toEqual({
+			role: "user",
+			content: "not what was sent",
+		});
 	});
 
 	it("returns a rolled-over session's generations in order, linked to their predecessors", async () => {

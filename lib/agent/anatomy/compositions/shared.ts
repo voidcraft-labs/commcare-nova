@@ -154,6 +154,7 @@ export function messageItem(args: {
 	origin: Origin;
 	note?: string;
 	cacheBoundary?: boolean;
+	verified?: boolean;
 }): ContextItem {
 	return {
 		kind: "message",
@@ -161,10 +162,11 @@ export function messageItem(args: {
 		label: args.label,
 		origin: args.origin,
 		source: args.source,
-		wireRole: args.message.role === "system" ? "user" : args.message.role,
+		wireRole: args.message.role,
 		message: args.message,
 		...(args.note && { note: args.note }),
 		...(args.cacheBoundary && { cacheBoundary: true }),
+		...(args.verified !== undefined && { verified: args.verified }),
 	};
 }
 
@@ -249,6 +251,7 @@ export function recordedItem(
 		message: item.message,
 		source,
 		origin: "recorded",
+		verified: item.verified,
 		...(note && { note }),
 	});
 }

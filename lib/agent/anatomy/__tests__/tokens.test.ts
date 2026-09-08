@@ -252,3 +252,48 @@ describe("weigh", () => {
 		expect(weighed.bands.variable.tokens).toBeNull();
 	});
 });
+
+describe("presented messages", () => {
+	it("counts the real message, then carries a URL as its text and bytes as a labeled placeholder", async () => {
+		const bytes = new Uint8Array(2048);
+		const rehydrated: ContextItem = {
+			kind: "message",
+			id: "history:2",
+			label: "user message",
+			origin: "recorded",
+			source: SOURCE,
+			wireRole: "user",
+			message: {
+				role: "user",
+				content: [
+					{ type: "text", text: "the plan" },
+					{
+						type: "file",
+						data: new URL("https://example.test/plan.pdf"),
+						mediaType: "application/pdf",
+					},
+					{ type: "image", image: bytes },
+				],
+			},
+		};
+		const weighed = await weigh(moment([rehydrated]));
+		const item = weighed.items[0];
+		expect(item?.kind).toBe("message");
+		if (item?.kind !== "message") return;
+		expect(item.weight.tokens).toBeNull();
+		expect(item.weight.chars).toBe("the plan".length);
+		expect(item.message).toEqual({
+			role: "user",
+			content: [
+				{ type: "text", text: "the plan" },
+				{
+					type: "file",
+					data: "https://example.test/plan.pdf",
+					mediaType: "application/pdf",
+				},
+				{ type: "image", image: "[binary, 2,048 bytes]" },
+			],
+		});
+		expect(JSON.stringify(item.message)).not.toContain("0,0,0");
+	});
+});

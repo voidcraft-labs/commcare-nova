@@ -10,15 +10,27 @@
  * does not name fails the build.
  */
 
-import { BLOCKER_RESOLUTION_ALLOWANCE } from "@/lib/agent/build/budgets";
+import {
+	BASE_BUDGET,
+	BLOCKER_RESOLUTION_ALLOWANCE,
+	CEILINGS,
+} from "@/lib/agent/build/budgets";
+import { ARCHITECT_MAX_OUTPUT_TOKENS } from "@/lib/agent/build/executionBlocker";
 import { EXECUTOR_PROMPT_VERSION } from "@/lib/agent/build/executorPrompt";
+import { designAgentOwnedToolDefinitions } from "@/lib/agent/design/loop/designAgent";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
 	DESIGN_ROLLOVER_STEP_ALLOWANCE,
 } from "@/lib/agent/design/loop/gates";
+import { designLoopToolDefinitions } from "@/lib/agent/design/loop/tools";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import { DESIGN_REVIEWER_MAX_OUTPUT_TOKENS } from "@/lib/agent/design/reviewer";
 import { EXTRACT_MAX_OUTPUT_TOKENS } from "@/lib/agent/documentExtraction";
+import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
+import {
+	SOLUTIONS_ARCHITECT_MAX_RETRIES,
+	SOLUTIONS_ARCHITECT_MAX_STEPS,
+} from "@/lib/agent/solutionsArchitect";
 import {
 	TRANSLATION_MAX_OUTPUT_TOKENS,
 	TRANSLATION_PROMPT_VERSION,
@@ -95,6 +107,29 @@ function roleModel(key: ModelRoleKey) {
 
 const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
 
+/** "strict: true on 20 tools; strict: false on askQuestions", read from the
+ * definitions rather than typed by hand, so a new tool changes the sentence. */
+function strictnessSentence(
+	definitions: Readonly<Record<string, { readonly strict?: boolean }>>,
+): string {
+	const strict = Object.entries(definitions)
+		.filter(([, definition]) => definition.strict === true)
+		.map(([name]) => name);
+	const loose = Object.entries(definitions)
+		.filter(([, definition]) => definition.strict !== true)
+		.map(([name]) => name);
+	const describe = (names: readonly string[]) =>
+		names.length <= 2 ? names.join(" and ") : `${names.length} tools`;
+	if (loose.length === 0) return `strict: true on all ${strict.length} tools`;
+	if (strict.length === 0) return `strict: false on all ${loose.length} tools`;
+	return `strict: true on ${describe(strict)}; strict: false on ${describe(loose)}`;
+}
+
+const DESIGN_AUTHOR_TOOL_STRICTNESS = strictnessSentence({
+	...designAgentOwnedToolDefinitions(),
+	...designLoopToolDefinitions(),
+});
+
 export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 	"solutions-architect": {
 		role: "solutions-architect",
@@ -103,7 +138,7 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 			"Edits a complete app in conversation, one tool call at a time, against the full thread history.",
 		...roleModel("followUpEditor"),
 		promptVersion: null,
-		cacheKey: "nova:app:<appId>",
+		cacheKey: promptCacheKeys.app("<appId>"),
 		ledger: "thread",
 		callShape: "tool-loop",
 		toolStrictness: "strict: false on every tool",
@@ -111,12 +146,12 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		ceilings: [
 			{
 				label: "Steps per turn",
-				value: "80",
-				detail: "stopWhen: stepCountIs(80) in createSolutionsArchitect.",
+				value: String(SOLUTIONS_ARCHITECT_MAX_STEPS),
+				detail: "stopWhen: stepCountIs in createSolutionsArchitect.",
 			},
 			{
 				label: "Establishment retries",
-				value: "4",
+				value: String(SOLUTIONS_ARCHITECT_MAX_RETRIES),
 				detail:
 					"The SDK retries a failed request; a mid-stream fault re-drives the whole turn instead.",
 			},
@@ -137,11 +172,10 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 			"Turns the source package into a reviewed Design Contract through one durable model context.",
 		...roleModel("designAuthor"),
 		promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-		cacheKey: "nova:design:<designSessionId>",
+		cacheKey: promptCacheKeys.design("<designSessionId>"),
 		ledger: "durable-context",
 		callShape: "tool-loop",
-		toolStrictness:
-			"strict: true on the 19 loop tools and waitForInput; strict: false on askQuestions",
+		toolStrictness: DESIGN_AUTHOR_TOOL_STRICTNESS,
 		outputStrictness: "no structured output",
 		ceilings: [
 			{
@@ -200,7 +234,7 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 			"Compiles one reviewed workflow slice into a private change set, one fresh context per attempt.",
 		...roleModel("buildExecutor"),
 		promptVersion: EXECUTOR_PROMPT_VERSION,
-		cacheKey: "nova:design-executor:<designSessionId>",
+		cacheKey: promptCacheKeys.executor("<designSessionId>"),
 		ledger: "durable-context",
 		callShape: "single-step-loop",
 		toolStrictness:
@@ -209,21 +243,21 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		ceilings: [
 			{
 				label: "Steps per slice",
-				value: "10 to 40",
+				value: `${BASE_BUDGET.maxModelSteps} to ${CEILINGS.maxModelSteps}`,
 				detail:
-					"budgetForSlice: a base of 10, plus 3 per construction group and a risk allowance, capped at 40.",
+					"budgetForSlice: the base, plus an allowance per construction group and for risk, capped at the ceiling.",
 			},
 			{
 				label: "Mutation calls",
-				value: "16 to 96",
+				value: `${BASE_BUDGET.maxMutationCalls} to ${CEILINGS.maxMutationCalls}`,
 			},
 			{
 				label: "Commit attempts",
-				value: "3",
+				value: String(BASE_BUDGET.maxCommitAttempts),
 			},
 			{
 				label: "Blocker allowance",
-				value: `${BLOCKER_RESOLUTION_ALLOWANCE.modelSteps} steps each, 2 max`,
+				value: `${BLOCKER_RESOLUTION_ALLOWANCE.modelSteps} steps each, ${BASE_BUDGET.maxBlockerResolutions} max`,
 			},
 			{
 				label: "Step pace",
@@ -248,7 +282,10 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		toolStrictness: "no tools",
 		outputStrictness: "strict projection of the blocker-decision schema",
 		ceilings: [
-			{ label: "Output tokens", value: "12,000" },
+			{
+				label: "Output tokens",
+				value: ARCHITECT_MAX_OUTPUT_TOKENS.toLocaleString("en-US"),
+			},
 			{
 				label: "Step pace",
 				value: minutes(MODEL_ROLES.executorHelper.msPerModelStep),

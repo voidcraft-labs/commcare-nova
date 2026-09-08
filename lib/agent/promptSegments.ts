@@ -22,7 +22,7 @@ export interface PromptSegment {
 }
 
 /** The separator every composed system prompt places between segments. */
-export const PROMPT_SEGMENT_SEPARATOR = "\n\n---\n\n";
+const PROMPT_SEGMENT_SEPARATOR = "\n\n---\n\n";
 
 export function joinPromptSegments(segments: readonly PromptSegment[]): string {
 	return segments.map((segment) => segment.text).join(PROMPT_SEGMENT_SEPARATOR);
