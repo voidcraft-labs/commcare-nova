@@ -15,7 +15,6 @@ import {
 import {
 	canonicalMenuOrder,
 	type DesignMenu,
-	type DesignMenuPlacement,
 } from "@/lib/agent/design/modulePlacement";
 import {
 	durableModelValueDigest,
@@ -29,7 +28,7 @@ import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 const MIGRATION = "design-placement-turns-20260911";
 
 /** Reproduce the pre-migration array semantics only in the conversion script.
- * Original operation bytes stay intact. Appended ordinary placement operations
+ * Original operation bytes stay intact. Appended ordinary collection operations
  * make the new replay reproduce the same intended menu tree and sibling order. */
 export function planWorkspacePlacementMigration(args: {
 	kind: "contract" | "revision";
@@ -95,39 +94,35 @@ export function planWorkspacePlacementMigration(args: {
 	const target = { ...normalized, moduleCompositions: targetMenus };
 	const current = replayDesignWorkspace(args);
 	if (canonicalJsonDigest(current) === canonicalJsonDigest(target)) return [];
-	const preceding = new Map<string | undefined, string>();
-	// Unresolved parent references are legal in a partial workspace. They stay
-	// in their canonical trailing order; converting other siblings must not
-	// attempt a move whose parent has not been authored yet.
-	const knownParents = new Set(targetMenus.map((menu) => menu.id));
-	const placements: DesignMenuPlacement[] = targetMenus
-		.filter(
-			(menu) =>
-				menu.parentModuleCompositionId === undefined ||
-				knownParents.has(menu.parentModuleCompositionId),
-		)
-		.map((menu) => {
-			const placement = {
-				moduleId: menu.id,
-				parentModuleId: menu.parentModuleCompositionId,
-				afterModuleId: preceding.get(menu.parentModuleCompositionId),
-			};
-			preceding.set(menu.parentModuleCompositionId, menu.id);
-			return placement;
-		});
+	// Convert the collection through ordinary bounded operations in one locked
+	// transaction. Reusing the same IDs preserves every reference. Replacing
+	// the private projection also preserves legal forward-parent rows whose
+	// order cannot be expressed by placeModules until their parents exist.
 	const operations: DesignArtifactWorkspaceOperation[] = [];
-	for (let offset = 0; offset < placements.length; offset += 32) {
+	const appendCollection = (
+		upserts: readonly DesignMenu[],
+		removeIds: readonly string[],
+	) =>
 		operations.push(
 			normalizeStoredDesignArtifactWorkspaceOperation({
 				storageVersion: 2,
 				operation: {
 					kind: args.kind,
-					collections: [],
-					placements: placements.slice(offset, offset + 32),
+					collections: [
+						{ collection: "moduleCompositions", upserts, removeIds },
+					],
 				},
 			}),
 		);
-	}
+	const currentMenus = (current.moduleCompositions ?? []) as DesignMenu[];
+	for (let offset = 0; offset < currentMenus.length; offset += 32)
+		appendCollection(
+			[],
+			currentMenus.slice(offset, offset + 32).map((menu) => menu.id),
+		);
+	// One menu per upsert retains the original bounded-item grammar even for
+	// menus with large selection definitions. No intermediate state commits.
+	for (const menu of targetMenus) appendCollection([menu], []);
 	const projected = replayDesignWorkspace({
 		...args,
 		operations: [...args.operations, ...operations],

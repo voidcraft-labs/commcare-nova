@@ -55,8 +55,10 @@ requires current owner Project edit access; and refuses any session/app holder,
 reservation, scope change, or changed timestamp. It preserves original model
 events and usage, adding only the provenance fields and their separate digest.
 Where current replay would change saved sibling order in an open workspace,
-it appends ordinary placement operations. Unresolved forward parent references
-stay intact while unrelated sibling order is converted. Original workspace operations remain available unchanged.
+it appends bounded ordinary menu collection operations, retaining the same
+identities and contents in their intended order. This also preserves unresolved
+forward parent references. The replacement commits atomically; intermediate
+private projection states never become visible. Original workspace operations remain available unchanged.
 An idempotent receipt records the conversion; no model runs, credit settlements,
 error clearing, or accepted artifact rewrites occur.
 

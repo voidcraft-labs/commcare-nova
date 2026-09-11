@@ -178,3 +178,42 @@ it("never attributes pre-answer or removed-assistant starts to a later logical i
 		),
 	).toBe("user");
 });
+
+it("preserves order when unresolved-parent rows themselves moved under the current replay", () => {
+	const source = makeNestedMenuContract();
+	const menu = fixtureValue(source.moduleCompositions[1], "child");
+	const first = { ...menu, id: did(991), parentModuleCompositionId: did(997) };
+	const second = { ...menu, id: did(992), parentModuleCompositionId: did(997) };
+	const changed = { ...first, parentModuleCompositionId: did(998) };
+	const args = {
+		kind: "revision" as const,
+		baseContract: { moduleCompositions: [first, second] },
+		operations: [
+			normalizeStoredDesignArtifactWorkspaceOperation({
+				storageVersion: 2,
+				operation: {
+					kind: "revision",
+					collections: [
+						{
+							collection: "moduleCompositions",
+							upserts: [changed],
+							removeIds: [],
+						},
+					],
+				},
+			}),
+		],
+	};
+	expect(
+		(replayDesignWorkspace(args).moduleCompositions as { id: string }[]).map(
+			(menu) => menu.id,
+		),
+	).toEqual([second.id, first.id]);
+	const migration = planWorkspacePlacementMigration(args);
+	const migrated = { ...args, operations: [...args.operations, ...migration] };
+	expect(replayDesignWorkspace(migrated).moduleCompositions).toEqual([
+		changed,
+		second,
+	]);
+	expect(planWorkspacePlacementMigration(migrated)).toEqual([]);
+});

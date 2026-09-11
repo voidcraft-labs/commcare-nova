@@ -1199,7 +1199,7 @@ the one-time migration in `scripts/lib/designContinuationMigration.ts`.
 
 The scan is read-only. Targeted migration defaults to dry-run and requires the
 exact inspected timestamp, current owner Project edit access, and no session
-or materialized-app holder/reservation. It appends ordinary placement operations,
+or materialized-app holder/reservation. It appends ordinary menu collection operations,
 backfills exact turn provenance, and records `continuation_recovery` plus
 `updated_at`. It never starts a run, rewrites sealed artifacts or usage, settles
 credits, or erases errors. Ambiguous turn attribution stops the transaction

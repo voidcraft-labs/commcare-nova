@@ -546,7 +546,7 @@ Null parent means a root; null preceding sibling means first in that parent.
 Moving a parent carries its children. Module updates preserve position, append new modules to their parent, and
 reparent existing modules at the end of the new parent's children. Canonical
 preorder is a storage projection. One runtime grammar handles every workspace.
-The one-time data migration appends ordinary placement operations wherever
+The one-time data migration appends ordinary menu collection operations wherever
 old array replay would otherwise change the saved menu intent; original
 operations and sealed artifacts stay intact.
 
@@ -563,7 +563,7 @@ correction step; the 64-step ceiling stays a distinct recoverable stop.
 `scan-design-continuations.ts` inventories data requiring the one-time conversion.
 `migrate-design-continuations.ts` defaults to dry-run and targets one inspected
 session with current owner edit membership, an exact timestamp, and no session
-or app holder/reservation. It backfills provenance and appends placement
+or app holder/reservation. It backfills provenance and appends menu collection
 operations, then records a migration receipt. It preserves original artifact
 and usage digests, errors, and credits. It never starts a model.
 
