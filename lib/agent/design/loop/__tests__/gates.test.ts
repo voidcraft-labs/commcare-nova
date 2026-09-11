@@ -2,8 +2,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
-	DESIGN_ROLLOVER_ALLOWANCE_CAP,
-	DESIGN_ROLLOVER_STEP_ALLOWANCE,
 	DESIGN_SEQUENCE_ERROR_BUDGET,
 	DESIGN_STAGE_REPAIR_BUDGET,
 	DesignLoopBudgetError,
@@ -12,32 +10,13 @@ import {
 } from "@/lib/agent/design/loop/gates";
 import { did } from "../../__tests__/fixtures";
 
-describe("designLoopStepBudget", () => {
-	it.each([
-		[-5, 64],
-		[0, 64],
-		[1, 96],
-		[2, 128],
-		[3, 128],
-		[100, 128],
-	])("generation %s has exact step ceiling %s", (generation, ceiling) => {
-		expect(designLoopStepBudget(generation)).toBe(ceiling);
-	});
-	it("grants one bounded allowance per context-generation rollover", () => {
-		/* A rollover is a real deployment change — the corrected-harness retry
-		 * the repair fuses direct users toward — so steps a since-fixed defect
-		 * consumed cannot starve the retry, while the cap keeps the ceiling
-		 * bounded by deploy cadence, never by anything a user can mint. */
-		expect(designLoopStepBudget(0)).toBe(DESIGN_LOOP_STEP_BUDGET);
-		expect(designLoopStepBudget(1)).toBe(
-			DESIGN_LOOP_STEP_BUDGET + DESIGN_ROLLOVER_STEP_ALLOWANCE,
-		);
-		expect(designLoopStepBudget(DESIGN_ROLLOVER_ALLOWANCE_CAP + 5)).toBe(
-			DESIGN_LOOP_STEP_BUDGET +
-				DESIGN_ROLLOVER_ALLOWANCE_CAP * DESIGN_ROLLOVER_STEP_ALLOWANCE,
-		);
-		expect(designLoopStepBudget(-1)).toBe(DESIGN_LOOP_STEP_BUDGET);
-	});
+describe("design turn step budget", () => {
+	it.each([0, 1, 2, 10])(
+		"does not replenish a turn on context generation %s",
+		(generation) => {
+			expect(designLoopStepBudget(generation)).toBe(DESIGN_LOOP_STEP_BUDGET);
+		},
+	);
 });
 
 describe("DesignRepairTracker", () => {

@@ -648,11 +648,26 @@ export async function stageDesignArtifactWorkspace(args: {
 					duplicate.operation_text,
 					`design_artifact_workspace_steps.operation for ${workspaceId} revision ${String(duplicate.revision)}`,
 				);
+				const replayEnvelope =
+					prepareDesignArtifactWorkspaceOperationForStorage(operation);
+				// The provider never authored placementVersion. When replaying a call
+				// committed by the previous release, compare its exact original grammar;
+				// the stored operation remains authoritative and is never reapplied.
+				if (
+					operation.placements === undefined &&
+					stored !== null &&
+					typeof stored === "object" &&
+					"storageVersion" in stored &&
+					stored.storageVersion === replayEnvelope.storageVersion &&
+					"operation" in stored &&
+					stored.operation !== null &&
+					typeof stored.operation === "object" &&
+					!Object.hasOwn(stored.operation, "placementVersion")
+				) {
+					delete replayEnvelope.operation.placementVersion;
+				}
 				const sameOperation =
-					canonicalJsonDigest(stored) ===
-					canonicalJsonDigest(
-						prepareDesignArtifactWorkspaceOperationForStorage(operation),
-					);
+					canonicalJsonDigest(stored) === canonicalJsonDigest(replayEnvelope);
 				const bindings = sameOperation
 					? await selectHandleBindings(tx, args.designSessionId)
 					: [];

@@ -1749,7 +1749,7 @@ export function ChatContainer({
 			) ||
 			!designBuildCanResume(
 				designProgressStore.getState(),
-				session?.buildUnfinished === true,
+				isExistingApp && session?.buildUnfinished === true,
 				status,
 			)
 		) {
@@ -1772,6 +1772,7 @@ export function ChatContainer({
 	}, [
 		clearError,
 		designProgressStore,
+		isExistingApp,
 		projectToast,
 		scopeEpoch,
 		sendMessage,
@@ -1969,7 +1970,7 @@ export function ChatContainer({
 								!readOnly &&
 								designBuildCanResume(
 									designProgressStore.getState(),
-									buildUnfinished,
+									isExistingApp && buildUnfinished,
 									status,
 								)
 							? {
@@ -2012,7 +2013,13 @@ export function ChatContainer({
 				designProgress,
 				buildUnfinished,
 			)}
-			awaitingTypedInput={trailingDesignWaitsForInput(messages)}
+			awaitingTypedInput={
+				trailingDesignWaitsForInput(messages) ||
+				(!isExistingApp &&
+					designProgress.active &&
+					(designProgress.stage === "incomplete" ||
+						designProgress.stage === "failed"))
+			}
 			/* The design session owns the one activity row until the complete
 			 * frame and transport close. Its details collapse after materialization,
 			 * but its status remains the authoritative current slice/build phase. */

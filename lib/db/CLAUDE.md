@@ -1185,3 +1185,19 @@ retry as additive schema updates. Separate apps still build indexes on the share
 `cases` table, so concurrent DDL can deadlock. Recovery rereads durable pending
 work and rebuilds invalid indexes; exhausted transient failures and deterministic
 faults still propagate to the caller. It never retries a case-data write.
+
+
+### Design continuation provenance
+
+Design provider starts reserve a logical user turn's allowance under the existing
+actor/session and context locks. `turn_provenance_id` and its separate digest
+bind the started event to that turn across context generations; historical
+payload digests and usage rows stay immutable. Reconnects retain the allowance;
+a new user message or answered question starts a new one. See
+`lib/agent/design/CLAUDE.md` for legacy counting and terminal correction.
+
+`designContinuationRecovery.ts` supplies a read-only census and a targeted,
+dry-run-default operator preparation. The write requires the exact inspected
+timestamp, current owner Project edit access, and no holder or reservation.
+It records only a versioned `continuation_recovery` receipt and `updated_at`;
+it cannot start a run, rewrite artifacts, settle credits, or erase errors.

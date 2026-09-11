@@ -1503,3 +1503,9 @@ XPath refusal notices preserve the active editor's keyboard focus and selection.
 Their informational popup opts out of both initial and return focus; a native
 blur-event check covers the entire refusal and recovery interaction, including
 brief transfers that an eventual focused assertion would miss.
+
+
+A stopped pre-app design accepts a new chat message after reload. That new
+logical turn continues saved design work. `Resume build` is reserved for a
+materialized accepted build and resubmits its frozen transcript; the app editor
+stays locked until construction finishes.

@@ -913,3 +913,93 @@ describe("durable model context", () => {
 		});
 	});
 });
+
+describe("durable design turn admission", () => {
+	it("keeps starts across rollover, deduplicates replay, and grants a different turn its own allowance", async () => {
+		const designSpec = { ...spec(), kind: "design" as const };
+		let context = await openDesignModelContext(designSpec);
+		const reserve = (stepKey: string, turn: string) =>
+			recordDesignModelStepEvent({
+				designSessionId,
+				contextId: context.id,
+				stepKey,
+				event: {
+					eventKind: "started",
+					requestDigest: "1".repeat(64),
+					turnProvenanceId: turn,
+				},
+				turnBudget: { limit: 1, includeLegacy: false },
+				authority,
+			});
+		await reserve("first", "message-a");
+		await reserve("first", "message-a");
+		context = await openDesignModelContext({
+			...designSpec,
+			promptVersion: "design-v2",
+		});
+		expect(context.startedStepsByTurn.get("message-a")).toBe(1);
+		await expect(reserve("second", "message-a")).rejects.toThrow(
+			"step allowance",
+		);
+		await reserve("third", "answered-question-b");
+		const reopened = await openDesignModelContext({
+			...designSpec,
+			promptVersion: "design-v2",
+		});
+		expect(reopened.totalStartedStepCount).toBe(2);
+		expect(reopened.startedStepsByTurn.get("answered-question-b")).toBe(1);
+	});
+	it("serializes competing reservations for the last step", async () => {
+		const context = await openDesignModelContext({ ...spec(), kind: "design" });
+		const outcomes = await Promise.allSettled(
+			["a", "b"].map((stepKey) =>
+				recordDesignModelStepEvent({
+					designSessionId,
+					contextId: context.id,
+					stepKey,
+					event: {
+						eventKind: "started",
+						requestDigest: "2".repeat(64),
+						turnProvenanceId: "same-turn",
+					},
+					turnBudget: { limit: 1, includeLegacy: false },
+					authority,
+				}),
+			),
+		);
+		expect(
+			outcomes.filter((result) => result.status === "fulfilled"),
+		).toHaveLength(1);
+		expect(
+			outcomes.filter((result) => result.status === "rejected"),
+		).toHaveLength(1);
+		expect((await storedRows(context.id)).steps).toHaveLength(1);
+	});
+	it("keeps legacy digest verification and conservatively charges a legacy continuation", async () => {
+		const designSpec = { ...spec(), kind: "design" as const };
+		const context = await openDesignModelContext(designSpec);
+		await recordDesignModelStepEvent({
+			designSessionId,
+			contextId: context.id,
+			stepKey: "legacy",
+			event: { eventKind: "started", requestDigest: "3".repeat(64) },
+			authority,
+		});
+		const reopened = await openDesignModelContext(designSpec);
+		expect(reopened.legacyStartedStepCount).toBe(1);
+		await expect(
+			recordDesignModelStepEvent({
+				designSessionId,
+				contextId: context.id,
+				stepKey: "new",
+				event: {
+					eventKind: "started",
+					requestDigest: "4".repeat(64),
+					turnProvenanceId: "legacy-turn",
+				},
+				turnBudget: { limit: 1, includeLegacy: true },
+				authority,
+			}),
+		).rejects.toThrow("step allowance");
+	});
+});

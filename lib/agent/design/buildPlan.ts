@@ -121,7 +121,7 @@ export type BuildSlice = z.infer<typeof buildSliceSchema>;
 
 const buildPlanBaseSchema = z
 	.object({
-		schemaVersion: z.literal(1),
+		schemaVersion: z.union([z.literal(1), z.literal(2)]),
 		designRevisionId: z.string().uuid(),
 		designRevisionDigest: sha256HexSchema,
 		id: z.string().uuid(),
@@ -417,6 +417,7 @@ function requiredPrerequisiteWorkflowIds(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
 	ownerByElement: ReadonlyMap<string, string>,
+	version: 1 | 2,
 ): Map<string, string[]> {
 	const required: Map<string, Set<string>> = new Map(
 		contract.workflows.map((workflow) => [
@@ -512,7 +513,7 @@ function requiredPrerequisiteWorkflowIds(
 					composition.parentModuleCompositionId,
 			)
 			.pop();
-		addPlacementOwner(composition.id, precedingSibling?.id);
+		if (version === 1) addPlacementOwner(composition.id, precedingSibling?.id);
 	}
 	/* Module selection is realized only after every affected case-loading form
 	 * exists. Choose the latest covered workflow in the same deterministic order
@@ -663,6 +664,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 				digest: plan.designRevisionDigest,
 			},
 			planId: plan.id,
+			schemaVersion: plan.schemaVersion,
 			lookupMaterialization: plan.lookupMaterialization,
 		});
 		for (const key of ["slices", "externalActions"] as const) {
@@ -718,6 +720,7 @@ function workflowOrder(contract: AppDesignContract): string[] {
 }
 
 interface DeriveBuildPlanArgs {
+	readonly schemaVersion?: 1 | 2;
 	readonly contract: AppDesignContract;
 	readonly revision: { readonly id: string; readonly digest: string };
 	readonly planId?: string;
@@ -760,6 +763,7 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 		contract,
 		orderedWorkflowIds,
 		ownerByElement,
+		args.schemaVersion ?? 2,
 	);
 	const refsFor = (
 		workflowId: string,
@@ -1028,7 +1032,7 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 	const lookupRequired = contractRequiresLookupMaterialization(contract);
 
 	return {
-		schemaVersion: 1,
+		schemaVersion: args.schemaVersion ?? 2,
 		designRevisionId: revision.id,
 		designRevisionDigest: revision.digest,
 		id: args.planId ?? crypto.randomUUID(),

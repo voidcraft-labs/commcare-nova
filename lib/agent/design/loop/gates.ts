@@ -41,7 +41,7 @@ export const DESIGN_LOOP_TOOL_NAMES = [
 ] as const;
 export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
 
-/** Loop steps per POST. Sized so a legitimate extended-depth design (a
+/** Design-author steps per logical user turn. Sized so a legitimate extended-depth design (a
  *  question round, contract, review, correction review, further revision,
  *  plan, with talk between and one repair each) fits with headroom, and a
  *  pathological loop cannot run away. The executor's `budgets.ts` is the
@@ -49,30 +49,12 @@ export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
  *  hope. */
 export const DESIGN_LOOP_STEP_BUDGET = 64;
 
-/** Extra step headroom per context-generation rollover, capped. A rollover
- * happens only when a real deployment changed the pinned model, prompt, tool
- * digest, or context format — exactly the "correct the harness, then run this
- * phase again" case the repair fuses name — so the allowance is bounded by
- * deploy cadence and can never be minted by a user. Without it, steps a
- * harness defect consumed would permanently starve the session's retry: one
- * live session spent fifty steps in a since-fixed staging rut and then hit
- * the ceiling twenty productive stages into its clean post-fix rebuild. */
-export const DESIGN_ROLLOVER_STEP_ALLOWANCE = 32;
-export const DESIGN_ROLLOVER_ALLOWANCE_CAP = 2;
-
-/** One server-authored terminal correction may cross the ordinary session
- * ceiling by exactly one provider step. The allowance is armed only after a
- * clean omission has already consumed the last ordinary step; users and model
- * output cannot mint it. */
+/** One extra provider step belongs only to a genuine terminal omission. */
 export const DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE = 1;
 
-/** The session's step ceiling given its current context generation. */
-export function designLoopStepBudget(generation: number): number {
-	return (
-		DESIGN_LOOP_STEP_BUDGET +
-		Math.min(Math.max(generation, 0), DESIGN_ROLLOVER_ALLOWANCE_CAP) *
-			DESIGN_ROLLOVER_STEP_ALLOWANCE
-	);
+/** A new user turn owns a new allowance; context rollover never mints steps. */
+export function designLoopStepBudget(_generation = 0): number {
+	return DESIGN_LOOP_STEP_BUDGET;
 }
 
 /** Maximum finalization rejections of one submission kind. A third rejection
