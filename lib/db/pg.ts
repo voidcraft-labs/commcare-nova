@@ -1110,11 +1110,6 @@ export interface DesignArtifactWorkspaceStepsTable {
  * `lib/db/designSessions.ts` and mirror the app run protocol exactly.
  */
 export interface DesignSessionsTable {
-	continuation_recovery: JSONColumnType<
-		Record<string, unknown> | null,
-		string | null | undefined,
-		string | null
-	>;
 	id: string;
 	mode: string;
 	project_id: string;

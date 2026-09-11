@@ -14,55 +14,32 @@ plan's explicit dependency graph remains valid data; newly derived plans omit
 artificial sibling-order prerequisites. Sealed plans, revisions, reviews,
 source packages, and their digests are not rewritten.
 
-## One-time data migration
+## Completed cutover
 
-The schema migration adds turn provenance and its digest to provider starts,
-and a migration receipt to design sessions. The application requires exact
-turn provenance before resuming old design contexts. There is no legacy budget
-fallback or placement-version reader in the application.
+PR #584 deployed as commit `d2616815`, Cloud Build
+`e3203c9b-9fd2-487b-9399-c903ca021ab9`, and serving revision
+`commcare-nova-00517-h5n` on 11 September 2026. The prior revision retired
+before the historical data conversion.
 
-After the schema is installed and the old serving revision has drained, run
-the read-only scan. Migrate the returned sessions before resuming their designs.
-The new runtime cannot append design work to a context whose historical starts
-still lack provenance. New sessions already use the current contract.
+Both supported databases were scanned, dry-run, migrated, and rescanned:
 
-```bash
-mise exec -- npx tsx --conditions=react-server scripts/scan-design-continuations.ts --prod
-```
+| Database | Designs | Historical provider starts | Remaining candidates |
+| --- | ---: | ---: | ---: |
+| Local | 30 | 942 | 0 |
+| Production | 12 | 329 | 0 |
 
-For each returned session, configure the intended write-capable database
-connection explicitly. The writer deliberately has no `--prod` shortcut. Use
-its exact owner and `updated_at` from the scan:
+Original model events, usage, sealed artifacts, and workspace operations were
+preserved. No workspace needed appended menu conversion operations. Two local
+starts required explicit attribution, verified against the last saved question
+result preceding each start and its matching UI answer digest. One abandoned
+local session from August was released through the standard exact-holder
+refund path. Settled app receipts remained intact; the migrator used the shared
+run-state reader to distinguish those receipts from occupying holders.
 
-```bash
-mise exec -- npx tsx --conditions=react-server scripts/migrate-design-continuations.ts \
-  --session SESSION_ID --actor OWNER_ID --expected-updated-at TIMESTAMP
-```
-
-The command defaults to dry-run. It reports the number of provider starts and
-workspaces to convert, plus any unresolved turn identities. Completed provider
-response receipts and preceding input evidence resolve the original logical
-turn. Bare assistant IDs whose messages were removed or later gained answers
-require independent historical evidence or inspection; their current UI state
-is never treated as the earlier input. Ambiguous history stops the entire transaction. An inspected
-JSON map from `contextId/stepKey` to the original logical turn can be supplied
-with `--turn-assignments PATH`; an assignment conflicting with durable evidence
-is rejected. Keep that operator artifact outside the repository.
-
-Repeat the reviewed command with `--execute`. It locks the actor gate, any
-materialized app, the session, and its workspaces in the established order;
-requires current owner Project edit access; and refuses any session/app holder,
-reservation, scope change, or changed timestamp. It preserves original model
-events and usage, adding only the provenance fields and their separate digest.
-Where current replay would change saved sibling order in an open workspace,
-it appends bounded ordinary menu collection operations, retaining the same
-identities and contents in their intended order. This also preserves unresolved
-forward parent references. The replacement commits atomically; intermediate
-private projection states never become visible. Original workspace operations remain available unchanged.
-An idempotent receipt records the conversion; no model runs, credit settlements,
-error clearing, or accepted artifact rewrites occur.
-
-Rerun the scan and resolve remaining rows before calling the cutover complete.
-A new user message or answered question then continues the saved design with
-its own 64-step allowance. Reconnecting the same logical input retains its
-existing count, including starts from before the deployment.
+The temporary scanner, writer, conversion module, and their operator-only tests
+are retired. A forward schema migration removes the temporary
+`continuation_recovery` receipt column after verifying that every design start
+has provenance. Normal turn IDs and their integrity digests remain required
+for per-turn recovery and accounting. Historical schema migrations remain in
+the immutable migration ledger and its separate deployment artifact; they are
+not part of the serving application image.
