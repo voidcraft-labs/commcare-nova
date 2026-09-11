@@ -24,6 +24,29 @@ import {
 const h = setupAppStateTestDb("design_continuation_migration_");
 async function seed(known = true) {
 	const id = await h.seedDesignSession();
+	if (known)
+		await h
+			.db()
+			.insertInto("threads")
+			.values({
+				thread_id: crypto.randomUUID(),
+				app_id: null,
+				design_session_id: id,
+				created_at: new Date().toISOString(),
+				updated_at: new Date().toISOString(),
+				thread_type: "chat",
+				summary: "Migration fixture",
+				run_id: "old-run",
+				active_stream_id: null,
+				messages: JSON.stringify([
+					{
+						id: "original-user",
+						role: "user",
+						parts: [{ type: "text", text: "Build this app" }],
+					},
+				]),
+			})
+			.execute();
 	const contextId = crypto.randomUUID();
 	await h
 		.db()

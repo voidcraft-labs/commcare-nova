@@ -96,15 +96,25 @@ export function planWorkspacePlacementMigration(args: {
 	const current = replayDesignWorkspace(args);
 	if (canonicalJsonDigest(current) === canonicalJsonDigest(target)) return [];
 	const preceding = new Map<string | undefined, string>();
-	const placements: DesignMenuPlacement[] = targetMenus.map((menu) => {
-		const placement = {
-			moduleId: menu.id,
-			parentModuleId: menu.parentModuleCompositionId,
-			afterModuleId: preceding.get(menu.parentModuleCompositionId),
-		};
-		preceding.set(menu.parentModuleCompositionId, menu.id);
-		return placement;
-	});
+	// Unresolved parent references are legal in a partial workspace. They stay
+	// in their canonical trailing order; converting other siblings must not
+	// attempt a move whose parent has not been authored yet.
+	const knownParents = new Set(targetMenus.map((menu) => menu.id));
+	const placements: DesignMenuPlacement[] = targetMenus
+		.filter(
+			(menu) =>
+				menu.parentModuleCompositionId === undefined ||
+				knownParents.has(menu.parentModuleCompositionId),
+		)
+		.map((menu) => {
+			const placement = {
+				moduleId: menu.id,
+				parentModuleId: menu.parentModuleCompositionId,
+				afterModuleId: preceding.get(menu.parentModuleCompositionId),
+			};
+			preceding.set(menu.parentModuleCompositionId, menu.id);
+			return placement;
+		});
 	const operations: DesignArtifactWorkspaceOperation[] = [];
 	for (let offset = 0; offset < placements.length; offset += 32) {
 		operations.push(
@@ -152,15 +162,34 @@ export function inferDesignStepTurn(
 	items: readonly Item[],
 	threads: readonly UIMessage[][],
 ): string | null {
-	const canonicalTurn = (turn: string): string => {
+	const canonicalTurn = (turn: string): string | null => {
 		for (const transcript of threads) {
 			const index = transcript.findIndex((message) => message.id === turn);
-			if (index >= 0)
-				return designTurnProvenanceId(transcript.slice(0, index + 1), turn);
+			const message = transcript[index];
+			if (message?.role === "user") return turn;
+			if (message?.role === "assistant") {
+				// Old bare assistant IDs cannot bind answers added to that mutable UI
+				// message later. Those require historical input evidence or inspection.
+				if (
+					message.parts.some(
+						(part) =>
+							part.type === "tool-askQuestions" &&
+							part.state === "output-available",
+					)
+				)
+					return null;
+				return designTurnProvenanceId(transcript.slice(0, index), "") || null;
+			}
 		}
-		return turn;
+		// An old answer key already binds its exact output digest. An unknown bare
+		// ID might instead be a removed partial assistant, so it proves no input.
+		return /^.+:answer:[a-f0-9]{64}$/.test(turn) ? turn : null;
 	};
 	const responses = new Set<string>();
+	const addResponseTurn = (turn: string) => {
+		const resolved = canonicalTurn(turn);
+		if (resolved !== null) responses.add(resolved);
+	};
 	for (const item of items) {
 		if (
 			item.context_id !== step.context_id ||
@@ -173,7 +202,7 @@ export function inferDesignStepTurn(
 		if (index < 0) continue;
 		const prefix = item.append_key.slice(0, index);
 		if (prefix.startsWith("design-wait:"))
-			responses.add(canonicalTurn(prefix.slice("design-wait:".length)));
+			addResponseTurn(prefix.slice("design-wait:".length));
 		if (prefix.startsWith("design-response:")) {
 			const turnAndPhase = prefix.slice("design-response:".length);
 			const phaseIndex = turnAndPhase.lastIndexOf(":");
@@ -182,7 +211,7 @@ export function inferDesignStepTurn(
 					turnAndPhase.slice(phaseIndex + 1),
 				)
 			)
-				responses.add(canonicalTurn(turnAndPhase.slice(0, phaseIndex)));
+				addResponseTurn(turnAndPhase.slice(0, phaseIndex));
 		}
 	}
 	if (responses.size === 1) return [...responses][0] ?? null;

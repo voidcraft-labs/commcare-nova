@@ -41,8 +41,10 @@ mise exec -- npx tsx --conditions=react-server scripts/migrate-design-continuati
 
 The command defaults to dry-run. It reports the number of provider starts and
 workspaces to convert, plus any unresolved turn identities. Completed provider
-response receipts bind turns exactly; interrupted starts use verified preceding
-input evidence. Ambiguous history stops the entire transaction. An inspected
+response receipts and preceding input evidence resolve the original logical
+turn. Bare assistant IDs whose messages were removed or later gained answers
+require independent historical evidence or inspection; their current UI state
+is never treated as the earlier input. Ambiguous history stops the entire transaction. An inspected
 JSON map from `contextId/stepKey` to the original logical turn can be supplied
 with `--turn-assignments PATH`; an assignment conflicting with durable evidence
 is rejected. Keep that operator artifact outside the repository.
@@ -52,8 +54,9 @@ materialized app, the session, and its workspaces in the established order;
 requires current owner Project edit access; and refuses any session/app holder,
 reservation, scope change, or changed timestamp. It preserves original model
 events and usage, adding only the provenance fields and their separate digest.
-Where current replay would change saved sibling order, it appends ordinary
-placement operations. Original workspace operations remain available unchanged.
+Where current replay would change saved sibling order in an open workspace,
+it appends ordinary placement operations. Unresolved forward parent references
+stay intact while unrelated sibling order is converted. Original workspace operations remain available unchanged.
 An idempotent receipt records the conversion; no model runs, credit settlements,
 error clearing, or accepted artifact rewrites occur.
 
