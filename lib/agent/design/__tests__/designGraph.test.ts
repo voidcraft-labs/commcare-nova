@@ -84,7 +84,7 @@ describe("lean Design Contract graph", () => {
 		expect(constructionMessages(contract)).toBe("");
 	});
 
-	it("rejects a materialization-root module placed after a later-owned sibling", () => {
+	it("accepts menu order independent of module construction order", () => {
 		const contract = cloneContract(makeThirteenWorkflowContract());
 		const first = fixtureValue(contract.moduleCompositions[0], "first module");
 		const second = fixtureValue(
@@ -93,9 +93,7 @@ describe("lean Design Contract graph", () => {
 		);
 		contract.moduleCompositions.splice(0, 2, second, first);
 
-		expect(messages(contract)).toContain(
-			"construction owner must be the same as or later than its preceding sibling's owner",
-		);
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
 	});
 
 	it("rejects a child menu that is ordered before its parent", () => {

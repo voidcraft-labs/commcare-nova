@@ -34,6 +34,10 @@ remaining parts as valid updates, so you never edit underneath the initial
 build. Direct editing and Preview become available when the whole build is
 finished; unfinished private work never appears in the app.
 
+The accepted menu order stays the same even when Nova builds the workflows in
+a different dependency order. Moving a menu in the design also moves its
+submenus together.
+
 ## Share a document with Nova
 
 Nova prepares documents before using them in chat. In the file library,
@@ -71,6 +75,11 @@ saved work instead of rewriting completed sections. Only a complete, checked
 design advances to review or construction. Nova derives construction work from
 the accepted workflows and checks that the saved construction plan preserves
 that work, including its required setup actions.
+
+If a long design turn reaches its work limit, Nova saves the decisions and
+pending corrections. A new message or answer lets it continue with a fresh
+allowance. Refreshing or reconnecting keeps the current turn and does not
+restart its allowance.
 
 If the final check reveals that an included workflow still needs a decision
 from you, Nova returns to the question card and keeps the design in progress.

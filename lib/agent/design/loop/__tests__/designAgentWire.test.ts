@@ -22,6 +22,7 @@ const DESIGN_TOOL_NAMES = [
 	"finishDesign",
 	"inspectDesign",
 	"inspectProjectData",
+	"placeModules",
 	"requestReview",
 	"setDesignRoot",
 	"updateAccess",

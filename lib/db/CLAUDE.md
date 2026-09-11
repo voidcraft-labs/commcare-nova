@@ -1185,3 +1185,22 @@ retry as additive schema updates. Separate apps still build indexes on the share
 `cases` table, so concurrent DDL can deadlock. Recovery rereads durable pending
 work and rebuilds invalid indexes; exhausted transient failures and deterministic
 faults still propagate to the caller. It never retries a case-data write.
+
+
+### Design continuation provenance
+
+Design provider starts reserve a logical user turn's allowance under the existing
+actor/session and context locks. `turn_provenance_id` and its separate digest
+bind the started event to that turn across context generations; original event
+digests and usage rows stay immutable. Reconnects retain the allowance; a new
+user message or answered question starts a new one. Missing provenance in a
+design start is an invariant failure before another provider call, requiring
+the one-time migration in `scripts/lib/designContinuationMigration.ts`.
+
+The scan is read-only. Targeted migration defaults to dry-run and requires the
+exact inspected timestamp, current owner Project edit access, and no session
+or materialized-app holder/reservation. It appends ordinary menu collection operations,
+backfills exact turn provenance, and records `continuation_recovery` plus
+`updated_at`. It never starts a run, rewrites sealed artifacts or usage, settles
+credits, or erases errors. Ambiguous turn attribution stops the transaction
+unless an operator supplies inspected exact assignments.

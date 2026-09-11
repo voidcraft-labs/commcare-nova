@@ -20,6 +20,11 @@ import {
 	type DesignLoopRunnerArgs,
 	runDesignAgentLoop,
 } from "../designLoopRunner";
+import {
+	appendDesignModelContext,
+	openDesignModelContext,
+	recordDesignModelStepEvent,
+} from "../modelContextStore";
 import type { OrchestratorStreamWriter } from "../orchestrator";
 
 const h = setupAppStateTestDb("design_runner_native_", { poolMax: 3 });
@@ -459,3 +464,153 @@ describe("durable design loop runner", () => {
 		});
 	});
 });
+
+describe("logical design turn budget through the real SDK", () => {
+	it("keeps a rejected finalizer at step 64 resumable without replaying paid calls", async () => {
+		const session = await seed();
+		const legacy = await openDesignModelContext({
+			designSessionId: session,
+			kind: "design",
+			modelId: "legacy-offline",
+			promptVersion: "legacy",
+			toolsetDigest: "a".repeat(64),
+			contextVersion: "legacy",
+			authority,
+		});
+		await appendDesignModelContext({
+			designSessionId: session,
+			contextId: legacy.id,
+			appendKey: "seed-through:older-user",
+			messages: [{ role: "user", content: "Earlier requirements" }],
+			authority,
+		});
+		for (let index = 0; index < 64; index++)
+			await recordDesignModelStepEvent({
+				designSessionId: session,
+				contextId: legacy.id,
+				stepKey: `legacy-${index}`,
+				event: {
+					eventKind: "started",
+					requestDigest: "b".repeat(64),
+					turnProvenanceId: "older-user",
+				},
+				authority,
+			});
+
+		const outputs: ProviderOutput[][] = Array.from(
+			{ length: 63 },
+			(_, index) => [
+				{
+					type: "tool",
+					name: "inspectDesign",
+					input: { selection: { kind: "summary" } },
+					callId: `inspect-${index}`,
+				},
+			],
+		);
+		outputs.push(
+			[
+				{
+					type: "tool",
+					name: "finishDesign",
+					input: {},
+					callId: "rejected-finalizer",
+				},
+			],
+			[wait("new-turn-wait")],
+		);
+		await withDesignResponses(outputs, async (_model, requests, transport) => {
+			const chunks: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
+			const args = await argsFor(session, transport, messages, chunks);
+			expect(await runDesignAgentLoop(args)).toMatchObject({
+				kind: "failed",
+				errorType: "design-step-budget",
+				recoverable: true,
+				diagnostics: { stepsSpent: 64 },
+			});
+			expect(requests).toHaveLength(64);
+			expect(
+				await runDesignAgentLoop({
+					...args,
+					responseMessageId: "reconnect",
+					messages: [
+						...messages,
+						{
+							id: "partial-assistant",
+							role: "assistant",
+							parts: [
+								{ type: "text", text: "The current design needs corrections." },
+							],
+						},
+					],
+				}),
+			).toMatchObject({
+				kind: "failed",
+				errorType: "design-step-budget",
+				diagnostics: { stepsSpent: 64 },
+			});
+			expect(requests).toHaveLength(64);
+			const nextMessages: NovaUIMessage[] = [
+				...messages,
+				{
+					id: "user-two",
+					role: "user",
+					parts: [{ type: "text", text: "Continue with the saved design." }],
+				},
+			];
+			expect(
+				await runDesignAgentLoop(
+					await argsFor(session, transport, nextMessages, []),
+				),
+			).toMatchObject({ kind: "awaiting-input" });
+			expect(requests).toHaveLength(65);
+			const started = await h
+				.db()
+				.selectFrom("design_model_steps")
+				.select(["turn_provenance_id"])
+				.where("event_kind", "=", "started")
+				.execute();
+			expect(
+				new Set(
+					started
+						.filter(
+							(row) =>
+								row.turn_provenance_id !== null &&
+								row.turn_provenance_id !== "older-user",
+						)
+						.map((row) => row.turn_provenance_id),
+				).size,
+			).toBe(2);
+		});
+	}, 60_000);
+});
+
+it("reserves one extra step only for a genuine text-only omission at the boundary", async () => {
+	const session = await seed();
+	const outputs: ProviderOutput[][] = Array.from({ length: 63 }, (_, index) => [
+		{
+			type: "tool",
+			name: "inspectDesign",
+			input: { selection: { kind: "summary" } },
+			callId: `inspect-boundary-${index}`,
+		},
+	]);
+	outputs.push(
+		[{ type: "text", text: "I will keep working." }],
+		[wait("corrected-terminal")],
+	);
+	await withDesignResponses(outputs, async (_model, requests, transport) => {
+		const args = await argsFor(session, transport, messages, []);
+		expect(await runDesignAgentLoop(args)).toMatchObject({
+			kind: "awaiting-input",
+		});
+		expect(requests).toHaveLength(65);
+		expect(
+			await runDesignAgentLoop({
+				...args,
+				responseMessageId: "reconnected-correction",
+			}),
+		).toMatchObject({ kind: "awaiting-input" });
+		expect(requests).toHaveLength(65);
+	});
+}, 60_000);

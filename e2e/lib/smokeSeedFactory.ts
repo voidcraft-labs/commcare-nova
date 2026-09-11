@@ -1111,7 +1111,45 @@ export async function createSmokeBuilders(
 				starter: null,
 			};
 
-			return { designBuildActivation };
+			const continuationDesignId = randomUUID();
+			const continuationMessages = [
+				{
+					id: "saved-design-request",
+					role: "user",
+					parts: [
+						{
+							type: "text",
+							text: "Keep farmer correction under Farmer search.",
+						},
+					],
+				},
+				{
+					id: "saved-design-stop",
+					role: "assistant",
+					parts: [
+						{
+							type: "text",
+							text: "The design needs another turn to finish. Your decisions and pending corrections are saved. Send a message to continue.",
+						},
+					],
+				},
+			];
+			await pool.query(
+				`INSERT INTO design_sessions (id,mode,project_id,owner_user_id,proposed_app_id,state,last_error_type) VALUES ($1,'build',$2,$3,$4,'active','design-step-budget')`,
+				[continuationDesignId, seedProjectId, SEED.userId, randomUUID()],
+			);
+			const now = new Date().toISOString();
+			await pool.query(
+				`INSERT INTO threads (thread_id,design_session_id,created_at,updated_at,thread_type,summary,run_id,messages) VALUES ($1,$2,$3,$3,'build','Farmer correction design',$4,$5::jsonb)`,
+				[
+					randomUUID(),
+					continuationDesignId,
+					now,
+					randomUUID(),
+					JSON.stringify(continuationMessages),
+				],
+			);
+			return { designBuildActivation, continuationDesignId };
 		},
 		delete: async () => {
 			const { openAppId } = await seedOpen();

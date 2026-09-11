@@ -256,7 +256,7 @@ describe("deterministic build planning", () => {
 		expect(prerequisites).toContain(childOwner.id);
 	});
 
-	it("adds the exact preceding sibling owner as a placement prerequisite", () => {
+	it("does not create workflow prerequisites from sibling placement", () => {
 		const contract = makeThirteenWorkflowContract();
 		for (const workflow of contract.workflows) {
 			workflow.prerequisiteWorkflowIds = [];
@@ -273,8 +273,8 @@ describe("deterministic build planning", () => {
 
 		expect(first.role).toBe("materialization-root");
 		expect(first.prerequisiteSliceIds).toEqual([]);
-		expect(second.prerequisiteSliceIds).toEqual([first.id]);
-		expect(third.prerequisiteSliceIds).toEqual([second.id]);
+		expect(second.prerequisiteSliceIds).toEqual([]);
+		expect(third.prerequisiteSliceIds).toEqual([]);
 		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 

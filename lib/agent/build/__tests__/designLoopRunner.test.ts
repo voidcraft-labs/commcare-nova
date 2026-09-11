@@ -110,6 +110,59 @@ describe("design POST step budget", () => {
 });
 
 describe("design terminal omission correction", () => {
+	it.each([64, 65])(
+		"does not recover a rejected finalizer at step %s as an omission",
+		(modelStepsSpent) => {
+			const turnProvenanceId = "turn-finalize";
+			const appendKey = `design-response:${turnProvenanceId}:revision:response`;
+			expect(
+				recoverableDesignTerminalOmissionForTurn({
+					currentItems: [
+						{
+							appendKey,
+							message: {
+								role: "assistant",
+								content: [
+									{
+										type: "tool-call",
+										toolName: "finishDesign",
+										toolCallId: "finish",
+										input: {},
+									},
+								],
+							},
+						},
+						{
+							appendKey,
+							message: {
+								role: "tool",
+								content: [
+									{
+										type: "tool-result",
+										toolName: "finishDesign",
+										toolCallId: "finish",
+										output: {
+											type: "json",
+											value: { error: "Module placement needs correction." },
+										},
+									},
+								],
+							},
+						},
+					],
+					predecessorItems: [],
+					currentGenerationHasCompletedStep: true,
+					appendKeys: new Set([
+						`design-terminal-omission:${turnProvenanceId}:64`,
+					]),
+					turnProvenanceId,
+					phase: "revision",
+					modelStepsSpent,
+				}),
+			).toBeNull();
+		},
+	);
+
 	it("allows exactly one durable correction per logical input turn", () => {
 		const target = {
 			turnProvenanceId: "user-turn-1",
@@ -799,4 +852,23 @@ describe("ordinary design continuation", () => {
 			},
 		]);
 	});
+});
+
+it("does not treat saved assistant output on a reconnect as a fresh user allowance", () => {
+	const user = {
+		id: "original-input",
+		role: "user",
+		parts: [{ type: "text", text: "Build the app" }],
+	} as const;
+	const transcript: UIMessage[] = [
+		{ ...user, parts: [...user.parts] },
+		{
+			id: "partial-output",
+			role: "assistant",
+			parts: [{ type: "text", text: "Working on the design" }],
+		},
+	];
+	expect(designTurnProvenanceId(transcript, "replacement-output")).toBe(
+		user.id,
+	);
 });
