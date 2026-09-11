@@ -91,7 +91,11 @@ async function durableCheckpoint(model: LanguageModel) {
 				designSessionId,
 				contextId: context.id,
 				stepKey: `step:${stepNumber}`,
-				event: { eventKind: "started", requestDigest },
+				event: {
+					eventKind: "started",
+					requestDigest,
+					turnProvenanceId: "compaction-user",
+				},
 				authority,
 			}),
 		onStepCompleted: async ({
@@ -178,6 +182,7 @@ describe("design agent durable compaction recovery", () => {
 						),
 					).toEqual(responseItems);
 					expect(after.completedSteps).toHaveLength(1);
+					expect(after.startedStepsByTurn.get("compaction-user")).toBe(1);
 					expect(after.completedSteps).toEqual(recovered.completedSteps);
 				},
 			);
