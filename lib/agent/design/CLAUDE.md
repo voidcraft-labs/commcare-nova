@@ -472,9 +472,7 @@ Provider-call starts carry immutable logical-turn provenance and a separately ve
 provenance digest without rewriting historical event digests. The 64-step limit
 is reserved transactionally across all generations for that turn. Reconnects,
 provider retries and deployment rollovers cannot replenish it. A new user
-message or newly answered question starts a new allowance. The one-time migration backfills historical starts from verified response and
-input evidence. Ambiguous starts require explicit inspected attribution; the
-runtime refuses a missing turn before another provider request. Completed usage stays attached to its original run.
+message or newly answered question starts a new allowance. The runtime refuses a missing turn before another provider request. Completed usage stays attached to its original run.
 Server-only question-card
 provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
@@ -546,9 +544,6 @@ Null parent means a root; null preceding sibling means first in that parent.
 Moving a parent carries its children. Module updates preserve position, append new modules to their parent, and
 reparent existing modules at the end of the new parent's children. Canonical
 preorder is a storage projection. One runtime grammar handles every workspace.
-The one-time data migration appends ordinary menu collection operations wherever
-old array replay would otherwise change the saved menu intent; original
-operations and sealed artifacts stay intact.
 
 Build plans and briefs use one schema. Only real workflow, parent, selection
 and viewer prerequisites determine newly derived construction order. Existing
@@ -560,12 +555,7 @@ failures; future modules are not required early.
 A response containing tool calls, including a rejected finalizer, is never a
 clean terminal omission. Only text-only completion gets the one durable
 correction step; the 64-step ceiling stays a distinct recoverable stop.
-`scan-design-continuations.ts` inventories data requiring the one-time conversion.
-`migrate-design-continuations.ts` defaults to dry-run and targets one inspected
-session with current owner edit membership, an exact timestamp, and no session
-or app holder/reservation. It backfills provenance and appends menu collection
-operations, then records a migration receipt. It preserves original artifact
-and usage digests, errors, and credits. It never starts a model.
+
 
 The pre-app chat composer accepts a new message after a stopped design, including
 on reload. Only materialized accepted builds offer `Resume build`, which

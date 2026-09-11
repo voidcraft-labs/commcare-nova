@@ -349,7 +349,7 @@ async function readStepsThroughGeneration(
 			totalStartedStepCount += 1;
 			if (row.turn_provenance_id === null && context.context_kind === "design")
 				throw new DesignModelContextError(
-					"Design steps require turn provenance. Run the one-time design continuation migration before resuming this session.",
+					"A design provider start is missing its logical user turn provenance.",
 				);
 			if (row.turn_provenance_id !== null)
 				startedStepsByTurn.set(
