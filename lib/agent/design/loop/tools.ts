@@ -1732,7 +1732,6 @@ export function createDesignLoopTools(
 			designArtifactWorkspaceOperationSchema,
 			{
 				kind,
-				placementVersion: 2,
 				...(stagedInput as Record<string, unknown>),
 			},
 			deps.designSessionId,

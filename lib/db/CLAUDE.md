@@ -1191,13 +1191,16 @@ faults still propagate to the caller. It never retries a case-data write.
 
 Design provider starts reserve a logical user turn's allowance under the existing
 actor/session and context locks. `turn_provenance_id` and its separate digest
-bind the started event to that turn across context generations; historical
-payload digests and usage rows stay immutable. Reconnects retain the allowance;
-a new user message or answered question starts a new one. See
-`lib/agent/design/CLAUDE.md` for legacy counting and terminal correction.
+bind the started event to that turn across context generations; original event
+digests and usage rows stay immutable. Reconnects retain the allowance; a new
+user message or answered question starts a new one. Missing provenance in a
+design start is an invariant failure before another provider call, requiring
+the one-time migration in `scripts/lib/designContinuationMigration.ts`.
 
-`designContinuationRecovery.ts` supplies a read-only census and a targeted,
-dry-run-default operator preparation. The write requires the exact inspected
-timestamp, current owner Project edit access, and no holder or reservation.
-It records only a versioned `continuation_recovery` receipt and `updated_at`;
-it cannot start a run, rewrite artifacts, settle credits, or erase errors.
+The scan is read-only. Targeted migration defaults to dry-run and requires the
+exact inspected timestamp, current owner Project edit access, and no session
+or materialized-app holder/reservation. It appends ordinary placement operations,
+backfills exact turn provenance, and records `continuation_recovery` plus
+`updated_at`. It never starts a run, rewrites sealed artifacts or usage, settles
+credits, or erases errors. Ambiguous turn attribution stops the transaction
+unless an operator supplies inspected exact assignments.

@@ -272,7 +272,6 @@ export const placeModulesInputSchema = z
 const contractStageBodySchema = z
 	.object({
 		root: setDesignRootInputSchema.optional(),
-		placementVersion: z.literal(2).optional(),
 		placements: placeModulesInputSchema.shape.placements.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 	})
@@ -290,7 +289,6 @@ const contractStageBodySchema = z
 const revisionStageBodySchema = z
 	.object({
 		root: setDesignRootInputSchema.optional(),
-		placementVersion: z.literal(2).optional(),
 		placements: placeModulesInputSchema.shape.placements.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 		dispositions: dispositionMutationSchema.optional(),
@@ -715,13 +713,9 @@ export function replayDesignWorkspace(args: {
 		for (const collection of operation.collections) {
 			const prior = (candidate.moduleCompositions ?? []) as DesignMenu[];
 			applyIdentityMutation(candidate, collection as never);
-			if (
-				operation.placementVersion === 2 &&
-				collection.collection === "moduleCompositions"
-			) {
+			if (collection.collection === "moduleCompositions") {
 				let menus = candidate.moduleCompositions as DesignMenu[];
-				// Reparented entries append in the new parent's sibling list. Do not
-				// reinterpret historical operations that lack this explicit version.
+				// Reparented entries append in the new parent's sibling list.
 				for (const item of collection.upserts) {
 					const before = prior.find((entry) => entry.id === item.id);
 					if (

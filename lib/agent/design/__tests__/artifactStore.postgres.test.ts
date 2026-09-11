@@ -988,7 +988,7 @@ describe("build plans", () => {
 			envelope: planEnvelope(accepted, plan),
 			runId: RUN_ID,
 		});
-		expect(stored.envelope.payload.schemaVersion).toBe(2);
+		expect(stored.envelope.payload.schemaVersion).toBe(1);
 		expect(
 			receipt.payload.bindings.filter(
 				(binding) => binding.kind === "lookup-row",

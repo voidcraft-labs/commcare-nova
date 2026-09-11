@@ -76,7 +76,7 @@ describe("accepted lookup reference projection (pure; persisted receipts have na
 			revision: REVISION,
 			lookupMaterialization,
 		});
-		expect(plan.schemaVersion).toBe(2);
+		expect(plan.schemaVersion).toBe(1);
 		expect(plan.lookupMaterialization).toEqual(lookupMaterialization);
 
 		const root = plan.slices.find(
@@ -89,7 +89,7 @@ describe("accepted lookup reference projection (pure; persisted receipts have na
 			plan,
 			sliceId: root.id,
 		});
-		expect(brief.schemaVersion).toBe(2);
+		expect(brief.schemaVersion).toBe(1);
 		const risk = brief.records
 			.flatMap((record) => record.properties)
 			.find((property) => property.id === ids.factRisk);

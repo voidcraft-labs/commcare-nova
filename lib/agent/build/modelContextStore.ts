@@ -65,7 +65,6 @@ export interface DesignModelContextState {
 	/** Provider calls spent by this context and every immutable predecessor. */
 	readonly totalStartedStepCount: number;
 	readonly startedStepsByTurn: ReadonlyMap<string, number>;
-	readonly legacyStartedStepCount: number;
 }
 
 export interface DesignModelContextItem {
@@ -276,7 +275,6 @@ async function readStepsThroughGeneration(
 	completedSteps: DesignModelCompletedStep[];
 	totalStartedStepCount: number;
 	startedStepsByTurn: Map<string, number>;
-	legacyStartedStepCount: number;
 }> {
 	const rows = await tx
 		.selectFrom("design_model_steps as step")
@@ -309,7 +307,6 @@ async function readStepsThroughGeneration(
 	const completedSteps: DesignModelCompletedStep[] = [];
 	let totalStartedStepCount = 0;
 	const startedStepsByTurn = new Map<string, number>();
-	let legacyStartedStepCount = 0;
 	for (const row of rows) {
 		const label = `design_model_steps for ${row.context_id}/${row.step_key}`;
 		const usage =
@@ -350,8 +347,11 @@ async function readStepsThroughGeneration(
 		}
 		if (row.event_kind === "started") {
 			totalStartedStepCount += 1;
-			if (row.turn_provenance_id === null) legacyStartedStepCount += 1;
-			else
+			if (row.turn_provenance_id === null && context.context_kind === "design")
+				throw new DesignModelContextError(
+					"Design steps require turn provenance. Run the one-time design continuation migration before resuming this session.",
+				);
+			if (row.turn_provenance_id !== null)
 				startedStepsByTurn.set(
 					row.turn_provenance_id,
 					(startedStepsByTurn.get(row.turn_provenance_id) ?? 0) + 1,
@@ -377,7 +377,6 @@ async function readStepsThroughGeneration(
 		completedSteps,
 		totalStartedStepCount,
 		startedStepsByTurn,
-		legacyStartedStepCount,
 	};
 }
 
@@ -569,7 +568,6 @@ export async function openDesignModelContext(
 			completedSteps: steps.completedSteps,
 			totalStartedStepCount: steps.totalStartedStepCount,
 			startedStepsByTurn: steps.startedStepsByTurn,
-			legacyStartedStepCount: steps.legacyStartedStepCount,
 		};
 	});
 }
@@ -776,7 +774,6 @@ export async function recordDesignModelStepEvent(args: {
 	readonly event: DesignModelStepEvent;
 	readonly turnBudget?: {
 		readonly limit: number;
-		readonly includeLegacy: boolean;
 	};
 	readonly authority: DesignModelContextAuthority;
 }): Promise<void> {
@@ -807,6 +804,14 @@ export async function recordDesignModelStepEvent(args: {
 			);
 		}
 		await assertCurrentContext(tx, context);
+		if (
+			context.context_kind === "design" &&
+			args.event.eventKind === "started" &&
+			turnProvenanceId === null
+		)
+			throw new DesignModelContextError(
+				"Every design provider start requires its logical user turn provenance.",
+			);
 		const existing = await tx
 			.selectFrom("design_model_steps")
 			.select(["event_digest", "turn_provenance_id"])
@@ -845,26 +850,7 @@ export async function recordDesignModelStepEvent(args: {
 				.where("context.design_session_id", "=", args.designSessionId)
 				.where("context.context_kind", "=", "design")
 				.where("step.event_kind", "=", "started")
-				.where((eb) =>
-					args.turnBudget?.includeLegacy === true
-						? eb.or([
-								eb(
-									"step.turn_provenance_id",
-									"=",
-									args.event.eventKind === "started"
-										? (args.event.turnProvenanceId ?? "")
-										: "",
-								),
-								eb("step.turn_provenance_id", "is", null),
-							])
-						: eb(
-								"step.turn_provenance_id",
-								"=",
-								args.event.eventKind === "started"
-									? (args.event.turnProvenanceId ?? "")
-									: "",
-							),
-				)
+				.where("step.turn_provenance_id", "=", turnProvenanceId)
 				.executeTakeFirstOrThrow();
 			if (Number(count.count) >= args.turnBudget.limit)
 				throw new DesignTurnBudgetError();

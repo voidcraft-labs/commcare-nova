@@ -235,7 +235,7 @@ describe("menu order independent of construction", () => {
 		const contract = appDesignContractSchema.parse(source);
 		const revision = { id: crypto.randomUUID(), digest: "a".repeat(64) };
 		const plan = deriveBuildPlan({ contract, revision });
-		expect(plan.schemaVersion).toBe(2);
+		expect(plan.schemaVersion).toBe(1);
 		const firstSlice = fixtureValue(plan.slices[0], "first slice");
 		const firstBrief = deriveSliceExecutionBrief({
 			contract,
@@ -280,23 +280,5 @@ describe("menu order independent of construction", () => {
 				(module) => module.compositionId === first.id,
 			)?.afterSiblingModuleCompositionId,
 		).toBe(second.id);
-	});
-	it("keeps historical plans on their original projection", () => {
-		const contract = makeNestedMenuContract();
-		const revision = { id: crypto.randomUUID(), digest: "b".repeat(64) };
-		const historical = deriveBuildPlan({
-			contract,
-			revision,
-			schemaVersion: 1,
-		});
-		const slice = fixtureValue(historical.slices[0], "historical slice");
-		expect(
-			deriveSliceExecutionBrief({
-				contract,
-				revision,
-				plan: historical,
-				sliceId: slice.id,
-			}).schemaVersion,
-		).toBe(1);
 	});
 });

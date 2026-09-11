@@ -70,7 +70,18 @@ export function placeDesignMenus<T extends DesignMenu>(
 			(after === undefined || after.parentModuleCompositionId !== parentId)
 		)
 			refuse(`anchor ${afterId} is not a sibling in the requested parent.`);
-		const moved = { ...menu, parentModuleCompositionId: parentId } as T;
+		// Legacy workspace replay attaches non-enumerable selection metadata.
+		// It must survive placement until the replay boundary normalizes it.
+		const moved = Object.defineProperties(
+			{},
+			Object.getOwnPropertyDescriptors(menu),
+		) as T;
+		Object.defineProperty(moved, "parentModuleCompositionId", {
+			value: parentId,
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
 		result = result.filter((entry) => entry.id !== placement.moduleId);
 		const siblings = result.filter(
 			(entry) => entry.parentModuleCompositionId === parentId,

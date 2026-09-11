@@ -20,6 +20,11 @@ import {
 	type DesignLoopRunnerArgs,
 	runDesignAgentLoop,
 } from "../designLoopRunner";
+import {
+	appendDesignModelContext,
+	openDesignModelContext,
+	recordDesignModelStepEvent,
+} from "../modelContextStore";
 import type { OrchestratorStreamWriter } from "../orchestrator";
 
 const h = setupAppStateTestDb("design_runner_native_", { poolMax: 3 });
@@ -463,6 +468,35 @@ describe("durable design loop runner", () => {
 describe("logical design turn budget through the real SDK", () => {
 	it("keeps a rejected finalizer at step 64 resumable without replaying paid calls", async () => {
 		const session = await seed();
+		const legacy = await openDesignModelContext({
+			designSessionId: session,
+			kind: "design",
+			modelId: "legacy-offline",
+			promptVersion: "legacy",
+			toolsetDigest: "a".repeat(64),
+			contextVersion: "legacy",
+			authority,
+		});
+		await appendDesignModelContext({
+			designSessionId: session,
+			contextId: legacy.id,
+			appendKey: "seed-through:older-user",
+			messages: [{ role: "user", content: "Earlier requirements" }],
+			authority,
+		});
+		for (let index = 0; index < 64; index++)
+			await recordDesignModelStepEvent({
+				designSessionId: session,
+				contextId: legacy.id,
+				stepKey: `legacy-${index}`,
+				event: {
+					eventKind: "started",
+					requestDigest: "b".repeat(64),
+					turnProvenanceId: "older-user",
+				},
+				authority,
+			});
+
 		const outputs: ProviderOutput[][] = Array.from(
 			{ length: 63 },
 			(_, index) => [
@@ -510,7 +544,11 @@ describe("logical design turn budget through the real SDK", () => {
 						},
 					],
 				}),
-			).toMatchObject({ kind: "failed", errorType: "design-step-budget" });
+			).toMatchObject({
+				kind: "failed",
+				errorType: "design-step-budget",
+				diagnostics: { stepsSpent: 64 },
+			});
 			expect(requests).toHaveLength(64);
 			const nextMessages: NovaUIMessage[] = [
 				...messages,
@@ -532,9 +570,17 @@ describe("logical design turn budget through the real SDK", () => {
 				.select(["turn_provenance_id"])
 				.where("event_kind", "=", "started")
 				.execute();
-			expect(new Set(started.map((row) => row.turn_provenance_id)).size).toBe(
-				2,
-			);
+			expect(
+				new Set(
+					started
+						.filter(
+							(row) =>
+								row.turn_provenance_id !== null &&
+								row.turn_provenance_id !== "older-user",
+						)
+						.map((row) => row.turn_provenance_id),
+				).size,
+			).toBe(2);
 		});
 	}, 60_000);
 });

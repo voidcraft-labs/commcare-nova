@@ -148,8 +148,7 @@ valid direct Builder or MCP edit.
   receipt producer exists). A construction group cannot reference an
   external requirement as an element. Module composition is owned once by its
   earliest workflow. A module whose parent has a different owner gains that
-  exact owner workflow as a prerequisite. Version 1 plans also retain their
-  historical preceding-sibling prerequisite; version 2 plans do not;
+  exact owner workflow as a prerequisite; sibling position adds no dependency;
   same-slice construction keeps
   the parent first and requires that owner to carry the parent's own form or
   case-list surface. A list placed in that module, and properties used only by
@@ -473,9 +472,9 @@ Provider-call starts carry immutable logical-turn provenance and a separately ve
 provenance digest without rewriting historical event digests. The 64-step limit
 is reserved transactionally across all generations for that turn. Reconnects,
 provider retries and deployment rollovers cannot replenish it. A new user
-message or newly answered question starts a new allowance. Historical starts
-without provenance are conservatively charged when a retained response proves
-the same legacy turn. Completed usage stays attached to its original run.
+message or newly answered question starts a new allowance. The one-time migration backfills historical starts from verified response and
+input evidence. Ambiguous starts require explicit inspected attribution; the
+runtime refuses a missing turn before another provider request. Completed usage stays attached to its original run.
 Server-only question-card
 provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
@@ -544,28 +543,29 @@ still own validation, and progress labels never imply artifact acceptance.
 
 `placeModules` edits menu identity, parent and preceding sibling atomically.
 Null parent means a root; null preceding sibling means first in that parent.
-Moving a parent carries its children. New semantic operation envelopes mark
-`placementVersion: 2`: module updates preserve position, append new modules to
-their parent, and reparent existing modules at the end of the new parent's
-children. Canonical preorder is a storage projection. Legacy envelopes replay
-with their original array semantics. Final graph validation still checks all
-references, hierarchy, ownership and host compatibility.
+Moving a parent carries its children. Module updates preserve position, append new modules to their parent, and
+reparent existing modules at the end of the new parent's children. Canonical
+preorder is a storage projection. One runtime grammar handles every workspace.
+The one-time data migration appends ordinary placement operations wherever
+old array replay would otherwise change the saved menu intent; original
+operations and sealed artifacts stay intact.
 
-BuildPlan and execution brief version 2 separate menu order from workflow build
-order. Only real workflow, parent, selection and viewer prerequisites determine
-construction order. Brief placement projects accepted order onto the full
-expected construction prefix, including earlier slices. Missing expected
-modules remain failures; future modules are not required early. Version 1 plans
-and briefs retain their original dependency and placement projection.
+Build plans and briefs use one schema. Only real workflow, parent, selection
+and viewer prerequisites determine newly derived construction order. Existing
+sealed plans retain their explicit dependency data without a special reader.
+Brief placement always projects accepted order onto the full expected
+construction prefix, including earlier slices. Missing expected modules remain
+failures; future modules are not required early.
 
 A response containing tool calls, including a rejected finalizer, is never a
 clean terminal omission. Only text-only completion gets the one durable
 correction step; the 64-step ceiling stays a distinct recoverable stop.
-`scan-design-continuations.ts` inventories supported stopped pre-app sessions.
-`recover-design-continuation.ts` defaults to dry-run and prepares one exact
-holder-free session with current owner edit membership and a timestamp check.
-Its versioned idempotent receipt preserves errors, artifacts, usage and credit
-reservations. It never starts a model; a later user turn owns paid continuation.
+`scan-design-continuations.ts` inventories data requiring the one-time conversion.
+`migrate-design-continuations.ts` defaults to dry-run and targets one inspected
+session with current owner edit membership, an exact timestamp, and no session
+or app holder/reservation. It backfills provenance and appends placement
+operations, then records a migration receipt. It preserves original artifact
+and usage digests, errors, and credits. It never starts a model.
 
 The pre-app chat composer accepts a new message after a stopped design, including
 on reload. Only materialized accepted builds offer `Resume build`, which

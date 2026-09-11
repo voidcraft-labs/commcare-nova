@@ -60,7 +60,7 @@ function messages(
 describe("deterministic build planning", () => {
 	it("derives one dependency-ordered slice per workflow", () => {
 		const plan = makeBuildPlan();
-		expect(plan.schemaVersion).toBe(2);
+		expect(plan.schemaVersion).toBe(1);
 		expect(plan.lookupMaterialization).toBeNull();
 		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
 			ids.taskRegister,
@@ -256,35 +256,27 @@ describe("deterministic build planning", () => {
 		expect(prerequisites).toContain(childOwner.id);
 	});
 
-	it.each([1, 2] as const)(
-		"uses version %s placement dependencies",
-		(version) => {
-			const contract = makeThirteenWorkflowContract();
-			for (const workflow of contract.workflows) {
-				workflow.prerequisiteWorkflowIds = [];
-				workflow.prerequisites = [];
-			}
-			const plan = deriveBuildPlan({
-				schemaVersion: version,
-				contract,
-				revision: { id: ids.revisionId, digest: "1".repeat(64) },
-				planId: ids.planId,
-			});
-			const first = fixtureValue(plan.slices[0], "first module owner slice");
-			const second = fixtureValue(plan.slices[1], "second module owner slice");
-			const third = fixtureValue(plan.slices[2], "third module owner slice");
+	it("does not create workflow prerequisites from sibling placement", () => {
+		const contract = makeThirteenWorkflowContract();
+		for (const workflow of contract.workflows) {
+			workflow.prerequisiteWorkflowIds = [];
+			workflow.prerequisites = [];
+		}
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const first = fixtureValue(plan.slices[0], "first module owner slice");
+		const second = fixtureValue(plan.slices[1], "second module owner slice");
+		const third = fixtureValue(plan.slices[2], "third module owner slice");
 
-			expect(first.role).toBe("materialization-root");
-			expect(first.prerequisiteSliceIds).toEqual([]);
-			expect(second.prerequisiteSliceIds).toEqual(
-				version === 1 ? [first.id] : [],
-			);
-			expect(third.prerequisiteSliceIds).toEqual(
-				version === 1 ? [second.id] : [],
-			);
-			expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
-		},
-	);
+		expect(first.role).toBe("materialization-root");
+		expect(first.prerequisiteSliceIds).toEqual([]);
+		expect(second.prerequisiteSliceIds).toEqual([]);
+		expect(third.prerequisiteSliceIds).toEqual([]);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
+	});
 
 	it("is stable for the same accepted revision", () => {
 		const first = makeBuildPlan();

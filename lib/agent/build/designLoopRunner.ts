@@ -1676,7 +1676,6 @@ export async function runDesignAgentLoop(
 					? "author"
 					: "awaiting-input";
 	let modelStepsSpent = 0;
-	let includeLegacyTurnSteps = false;
 	/** Context generations retain the same logical-turn budget. */
 	let modelContextGeneration = 0;
 	/* One model-visible context for the whole design attempt. Durable phase
@@ -1746,18 +1745,7 @@ export async function runDesignAgentLoop(
 			persisted.completedStepKeys.size > 0;
 		modelContextAppendKeys = new Set(persisted.appendKeys);
 		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
-		includeLegacyTurnSteps =
-			persisted.legacyStartedStepCount > 0 &&
-			[...persisted.lineageAppendKeys].some(
-				(key) =>
-					key.startsWith(`design-response:${turnProvenanceId}:`) ||
-					key.startsWith(`design-wait:${turnProvenanceId}:`) ||
-					key === `ui-turn:${turnProvenanceId}` ||
-					key === `seed-through:${turnProvenanceId}`,
-			);
-		modelStepsSpent =
-			(persisted.startedStepsByTurn.get(turnProvenanceId) ?? 0) +
-			(includeLegacyTurnSteps ? persisted.legacyStartedStepCount : 0);
+		modelStepsSpent = persisted.startedStepsByTurn.get(turnProvenanceId) ?? 0;
 		modelContextGeneration = persisted.generation;
 		/* Re-register every usage-bearing response from this long-lived run in
 		 * the exact-once meter only. Recovered steps are historical evidence, not
@@ -1970,7 +1958,6 @@ export async function runDesignAgentLoop(
 						authority: modelContextAuthority,
 						turnBudget: {
 							limit: designLoopStepBudget() + stepBudgetAllowance,
-							includeLegacy: includeLegacyTurnSteps,
 						},
 					});
 				} catch (error) {
@@ -2696,7 +2683,6 @@ export async function runDesignAgentLoop(
 				stepLimit: designLoopStepBudget(),
 				phase: phaseFor(finalGates),
 				contextGeneration: modelContextGeneration,
-				legacyStepsIncluded: includeLegacyTurnSteps,
 			},
 			message:
 				"The design needs another turn to finish. Your decisions and pending corrections are saved. Send a message to continue.",

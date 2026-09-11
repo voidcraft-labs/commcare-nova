@@ -612,6 +612,7 @@ describe("durable model context", () => {
 			event: {
 				eventKind: "started",
 				requestDigest: "9".repeat(64),
+				turnProvenanceId: "user-turn-1",
 			},
 			authority,
 		});
@@ -928,7 +929,7 @@ describe("durable design turn admission", () => {
 					requestDigest: "1".repeat(64),
 					turnProvenanceId: turn,
 				},
-				turnBudget: { limit: 1, includeLegacy: false },
+				turnBudget: { limit: 1 },
 				authority,
 			});
 		await reserve("first", "message-a");
@@ -962,7 +963,7 @@ describe("durable design turn admission", () => {
 						requestDigest: "2".repeat(64),
 						turnProvenanceId: "same-turn",
 					},
-					turnBudget: { limit: 1, includeLegacy: false },
+					turnBudget: { limit: 1 },
 					authority,
 				}),
 			),
@@ -975,31 +976,16 @@ describe("durable design turn admission", () => {
 		).toHaveLength(1);
 		expect((await storedRows(context.id)).steps).toHaveLength(1);
 	});
-	it("keeps legacy digest verification and conservatively charges a legacy continuation", async () => {
-		const designSpec = { ...spec(), kind: "design" as const };
-		const context = await openDesignModelContext(designSpec);
-		await recordDesignModelStepEvent({
-			designSessionId,
-			contextId: context.id,
-			stepKey: "legacy",
-			event: { eventKind: "started", requestDigest: "3".repeat(64) },
-			authority,
-		});
-		const reopened = await openDesignModelContext(designSpec);
-		expect(reopened.legacyStartedStepCount).toBe(1);
+	it("refuses a design provider start without logical input provenance", async () => {
+		const context = await openDesignModelContext({ ...spec(), kind: "design" });
 		await expect(
 			recordDesignModelStepEvent({
 				designSessionId,
 				contextId: context.id,
-				stepKey: "new",
-				event: {
-					eventKind: "started",
-					requestDigest: "4".repeat(64),
-					turnProvenanceId: "legacy-turn",
-				},
-				turnBudget: { limit: 1, includeLegacy: true },
+				stepKey: "missing-turn",
+				event: { eventKind: "started", requestDigest: "3".repeat(64) },
 				authority,
 			}),
-		).rejects.toThrow("step allowance");
+		).rejects.toThrow("requires its logical user turn");
 	});
 });

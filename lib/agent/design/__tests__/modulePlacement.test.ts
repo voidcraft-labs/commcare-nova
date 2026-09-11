@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { replayDesignWorkspace } from "../artifactWorkspaceOperations";
+import {
+	normalizeStoredDesignArtifactWorkspaceOperation,
+	replayDesignWorkspace,
+} from "../artifactWorkspaceOperations";
+import { appDesignContractSchema } from "../contract";
 import { placeDesignMenus } from "../modulePlacement";
 import { did, fixtureValue, makeNestedMenuContract } from "./fixtures";
 
@@ -98,7 +102,6 @@ describe("design menu placement", () => {
 				{
 					kind: "revision",
 					collections: [],
-					placementVersion: 2,
 					placements: [{ moduleId: did(4), parentModuleId: did(1) }],
 				},
 			],
@@ -110,39 +113,61 @@ describe("design menu placement", () => {
 	});
 });
 
-it.each([undefined, 2] as const)(
-	"keeps historical array replay and versions reparenting semantics (%s)",
-	(placementVersion) => {
-		const contract = makeNestedMenuContract();
-		const parent = fixtureValue(contract.moduleCompositions[0], "parent");
-		const child = {
-			...fixtureValue(contract.moduleCompositions[1], "child"),
-			parentModuleCompositionId: undefined,
-		};
-		const sibling = { ...child, id: did(999) };
-		const result = replayDesignWorkspace({
-			kind: "revision",
-			baseContract: { moduleCompositions: [parent, sibling, child] },
+it("retains legacy selection inference when a current placement moves a stored module", () => {
+	const contract = makeNestedMenuContract();
+	const legacy = [
+		normalizeStoredDesignArtifactWorkspaceOperation({
+			kind: "contract",
+			root: { id: contract.id, charter: contract.charter, schemaVersion: 1 },
+			collections: [],
+		}),
+		...Object.entries(contract).flatMap(([collection, items]) =>
+			Array.isArray(items) && items.length > 0
+				? [
+						normalizeStoredDesignArtifactWorkspaceOperation({
+							kind: "contract",
+							collections: [
+								{
+									collection,
+									upserts:
+										collection === "moduleCompositions"
+											? items.map((item) =>
+													Object.fromEntries(
+														Object.entries(item).filter(
+															([key]) => key !== "selection",
+														),
+													),
+												)
+											: items,
+									removeIds: [],
+								},
+							],
+						}),
+					]
+				: [],
+		),
+	];
+	const child = fixtureValue(contract.moduleCompositions[1], "child");
+	const parent = fixtureValue(contract.moduleCompositions[0], "parent");
+	const before = appDesignContractSchema.parse(
+		replayDesignWorkspace({ kind: "contract", operations: legacy }),
+	);
+	const after = appDesignContractSchema.parse(
+		replayDesignWorkspace({
+			kind: "contract",
 			operations: [
+				...legacy,
 				{
-					kind: "revision",
-					placementVersion,
-					collections: [
-						{
-							collection: "moduleCompositions",
-							upserts: [{ ...child, parentModuleCompositionId: parent.id }],
-							removeIds: [],
-						},
-					],
+					kind: "contract",
+					collections: [],
+					placements: [{ moduleId: child.id, parentModuleId: parent.id }],
 				},
 			],
-		});
-		expect(
-			(result.moduleCompositions as { id: string }[]).map((menu) => menu.id),
-		).toEqual(
-			placementVersion === 2
-				? [parent.id, child.id, sibling.id]
-				: [parent.id, sibling.id, child.id],
-		);
-	},
-);
+		}),
+	);
+	expect(after).toEqual(before);
+	expect(after.moduleCompositions[1]?.selection).toEqual(
+		before.moduleCompositions[1]?.selection,
+	);
+	expect(after.moduleCompositions[1]?.selection).toBeDefined();
+});
