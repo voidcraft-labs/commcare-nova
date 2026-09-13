@@ -1,4 +1,5 @@
 import { uniqueSlug } from "@/lib/domain/idSlug";
+import { orderSlicesForExecution } from "./sliceOrder";
 /** Exact, derived execution context for one workflow slice. */
 
 import {
@@ -657,6 +658,23 @@ export function deriveSliceExecutionBrief(args: {
 			relevantModuleCompositionIds.add(composition.id);
 		}
 	}
+	// Briefs validate the full expected construction prefix, not just modules
+	// that happen to be present. Every earlier slice has committed in this same
+	// shared deterministic execution order.
+	const expectedModuleIds = new Set<string>();
+	for (const prefixSlice of orderSlicesForExecution(args.plan)) {
+		for (const group of prefixSlice.constructionGroups) {
+			for (const element of group.elements) {
+				if (element.kind === "module-composition")
+					expectedModuleIds.add(element.id);
+			}
+		}
+		if (prefixSlice.workflowId === workflow.id) break;
+	}
+	for (const id of expectedModuleIds) relevantModuleCompositionIds.add(id);
+	const placementModules = args.contract.moduleCompositions.filter((entry) =>
+		expectedModuleIds.has(entry.id),
+	);
 	/* A child cannot be realized from its row alone: construction needs its
 	 * parent and preceding sibling as exact create/reuse anchors. Close that
 	 * one-tier placement context before filtering the immutable contract order. */
@@ -680,7 +698,7 @@ export function deriveSliceExecutionBrief(args: {
 			}
 		}
 		if (composition !== undefined) {
-			const siblings = args.contract.moduleCompositions.filter(
+			const siblings = placementModules.filter(
 				(entry) =>
 					entry.parentModuleCompositionId ===
 					composition.parentModuleCompositionId,
@@ -772,7 +790,7 @@ export function deriveSliceExecutionBrief(args: {
 								maximum: selectionIntent.maximum,
 							},
 						};
-		const siblings = args.contract.moduleCompositions.filter(
+		const siblings = placementModules.filter(
 			(entry) =>
 				entry.parentModuleCompositionId ===
 				composition.parentModuleCompositionId,

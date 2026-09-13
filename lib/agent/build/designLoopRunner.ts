@@ -131,6 +131,7 @@ import {
 	appendDesignModelContext,
 	completeDesignModelStep,
 	type DesignModelContextItem,
+	DesignTurnBudgetError,
 	openDesignModelContext,
 	recordDesignModelStepEvent,
 	recoverableCompletedModelSteps,
@@ -159,6 +160,7 @@ export type DesignLoopOutcome =
 			readonly errorType: string;
 			readonly message: string;
 			readonly recoverable: boolean;
+			readonly diagnostics?: Record<string, string | number | boolean>;
 	  };
 
 export interface DesignToolOutcomeEvent {
@@ -233,6 +235,7 @@ const DESIGN_UPDATE_STEP_LABELS: Readonly<Record<string, string>> = {
 	updateAccess: "Setting who sees what",
 	updateNavigation: "Laying out navigation",
 	updateModuleCompositions: "Composing the menus",
+	placeModules: "Arranging the menus",
 	updateFormCompositions: "Composing the forms",
 	updateExternalRequirements: "Checking what needs setup",
 	updateDecisions: "Weighing the choices",
@@ -442,6 +445,17 @@ export type RecoverableDesignTerminalOmission =
 	| "correction-pending"
 	| "correction-exhausted";
 
+export function designResponseHasToolCalls(
+	messages: readonly ModelMessage[],
+): boolean {
+	return messages.some(
+		(message) =>
+			message.role === "assistant" &&
+			Array.isArray(message.content) &&
+			message.content.some((part) => part.type === "tool-call"),
+	);
+}
+
 /** Classify a provider response that committed before the runner could apply
  * its clean-omission rule. General response keys bind both the logical input
  * turn and the phase that produced them, so a successful finalizer whose
@@ -484,6 +498,9 @@ export function recoverableDesignTerminalOmissionForTurn(args: {
 	if (unansweredDesignQuestionCalls(latestResponseMessages).length > 0) {
 		return null;
 	}
+	// A rejected or successful tool response is evidence of an attempted
+	// action. Budget exhaustion after it must never become terminal omission.
+	if (designResponseHasToolCalls(latestResponseMessages)) return null;
 	const correctionPrefix = designTerminalOmissionCorrectionPrefix({
 		turnProvenanceId: args.turnProvenanceId,
 	});
@@ -753,22 +770,26 @@ export function designTurnProvenanceId(
 	messages: readonly UIMessage[],
 	fallbackResponseMessageId: string,
 ): string {
-	const trailing = messages.at(-1);
-	if (trailing === undefined) return fallbackResponseMessageId;
-	if (trailing.role !== "assistant") return trailing.id;
-	for (let index = trailing.parts.length - 1; index >= 0; index -= 1) {
-		const part = trailing.parts[index];
-		if (
-			part?.type === "tool-askQuestions" &&
-			part.state === "output-available"
-		) {
-			return `${trailing.id}:answer:${canonicalJsonDigest({
-				toolCallId: part.toolCallId,
-				output: part.output,
-			})}`;
+	for (
+		let messageIndex = messages.length - 1;
+		messageIndex >= 0;
+		messageIndex -= 1
+	) {
+		const message = messages[messageIndex];
+		if (message?.role === "user") return message.id;
+		if (message?.role !== "assistant") continue;
+		for (let index = message.parts.length - 1; index >= 0; index -= 1) {
+			const part = message.parts[index];
+			if (
+				part?.type === "tool-askQuestions" &&
+				part.state === "output-available"
+			) {
+				return `${message.id}:answer:${canonicalJsonDigest({ toolCallId: part.toolCallId, output: part.output })}`;
+			}
 		}
 	}
-	return trailing.id;
+	// Assistant output and response regeneration are not new user input.
+	return fallbackResponseMessageId;
 }
 
 /** A conversational wait may only become terminal when the server has no
@@ -1651,9 +1672,7 @@ export async function runDesignAgentLoop(
 					? "author"
 					: "awaiting-input";
 	let modelStepsSpent = 0;
-	/** The durable context's generation: each rollover (a real deployment
-	 * change) raises the step ceiling by the capped allowance, so steps a
-	 * since-fixed harness consumed cannot starve the corrected retry. */
+	/** Context generations retain the same logical-turn budget. */
 	let modelContextGeneration = 0;
 	/* One model-visible context for the whole design attempt. Durable phase
 	 * transitions append state and tool receipts to this sequence; they never
@@ -1713,7 +1732,7 @@ export async function runDesignAgentLoop(
 			persisted.completedStepKeys.size > 0;
 		modelContextAppendKeys = new Set(persisted.appendKeys);
 		modelContextProtocolKeys = new Set(persisted.lineageAppendKeys);
-		modelStepsSpent = persisted.totalStartedStepCount;
+		modelStepsSpent = persisted.startedStepsByTurn.get(turnProvenanceId) ?? 0;
 		modelContextGeneration = persisted.generation;
 		/* Re-register every usage-bearing response from this long-lived run in
 		 * the exact-once meter only. Recovered steps are historical evidence, not
@@ -1911,18 +1930,40 @@ export async function runDesignAgentLoop(
 					requestDigest: step.requestDigest,
 				});
 				stepEventKeys.set(step.stepNumber, stepKey);
-				await recordDesignModelStepEvent({
-					designSessionId: args.designSessionId,
-					contextId: modelContextId,
-					stepKey,
-					event: {
-						eventKind: "started",
-						requestDigest: step.requestDigest,
-					},
-					authority: modelContextAuthority,
-				});
+				try {
+					await recordDesignModelStepEvent({
+						designSessionId: args.designSessionId,
+						contextId: modelContextId,
+						stepKey,
+						event: {
+							eventKind: "started",
+							turnProvenanceId,
+							requestDigest: step.requestDigest,
+						},
+						authority: modelContextAuthority,
+						turnBudget: {
+							limit: designLoopStepBudget() + stepBudgetAllowance,
+						},
+					});
+				} catch (error) {
+					if (error instanceof DesignTurnBudgetError) {
+						protocolFailure = {
+							kind: "failed",
+							errorType: "design-step-budget",
+							recoverable: true,
+							message:
+								"The design needs another turn to finish. Your decisions and pending corrections are saved. Send a message to continue.",
+							diagnostics: {
+								stepLimit: designLoopStepBudget(),
+								phase,
+								reservationRefused: true,
+							},
+						};
+					}
+					throw error;
+				}
 				/* The started event is written before the provider request. Once that
-				 * succeeds, this call owns one unit of the session budget even if the
+				 * succeeds, this call owns one unit of this logical turn's budget even if the
 				 * response is interrupted and never reaches onStepEnd. */
 				modelStepsSpent += 1;
 			},
@@ -2530,6 +2571,18 @@ export async function runDesignAgentLoop(
 			/* A legal terminal tool advances the durable phase. Continue by
 			 * appending its new authoritative state to this same context. */
 			if (phaseFor(settled) !== phase) continue;
+			const lastResponseKey = modelContextCurrentItems.findLast((item) =>
+				isDesignProviderResponseAppendKey(item.appendKey),
+			)?.appendKey;
+			if (
+				lastResponseKey !== undefined &&
+				designResponseHasToolCalls(
+					modelContextCurrentItems
+						.filter((item) => item.appendKey === lastResponseKey)
+						.map((item) => item.message),
+				)
+			)
+				continue;
 			/* AI SDK stops a ToolLoopAgent as soon as the provider returns a
 			 * non-tool finish, before stopWhen can ask for another step. Give the
 			 * model one durable, exact correction inside this turn. A second clean
@@ -2601,8 +2654,8 @@ export async function runDesignAgentLoop(
 			 * turn's budget, never the durable artifacts. A fresh chargeable
 			 * turn re-enters the same phase with a fresh budget — which is
 			 * also how a deployed harness correction reaches a preserved
-			 * draft. Only the session-wide step budget below is a genuinely
-			 * unrecoverable stop. */
+			 * draft. Reconnects keep the durable step count for this logical input;
+			 * a new user message starts a new allowance. */
 			recoverable: true,
 		};
 	}
@@ -2610,8 +2663,15 @@ export async function runDesignAgentLoop(
 		return {
 			kind: "failed",
 			errorType: "design-step-budget",
-			message: designLoopStopMessage(finalGates),
-			recoverable: false,
+			diagnostics: {
+				stepsSpent: modelStepsSpent,
+				stepLimit: designLoopStepBudget(),
+				phase: phaseFor(finalGates),
+				contextGeneration: modelContextGeneration,
+			},
+			message:
+				"The design needs another turn to finish. Your decisions and pending corrections are saved. Send a message to continue.",
+			recoverable: true,
 		};
 	}
 	if (failure !== null) {

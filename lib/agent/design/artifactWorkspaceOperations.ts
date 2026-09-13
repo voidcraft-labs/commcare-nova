@@ -22,6 +22,11 @@ import {
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { findingDispositionSchema } from "@/lib/agent/design/review";
+import {
+	canonicalMenuOrder,
+	type DesignMenu,
+	placeDesignMenus,
+} from "./modulePlacement";
 
 export const DESIGN_ARTIFACT_KINDS = ["contract", "revision"] as const;
 export type DesignArtifactKind = (typeof DESIGN_ARTIFACT_KINDS)[number];
@@ -247,19 +252,44 @@ const dispositionMutationSchema = identityMutationSchema(
 	"findingId",
 );
 
+export const placeModulesInputSchema = z
+	.object({
+		placements: z
+			.array(
+				z
+					.object({
+						moduleId: designIdSchema,
+						parentModuleId: designIdSchema.optional(),
+						afterModuleId: designIdSchema.optional(),
+					})
+					.strict(),
+			)
+			.min(1)
+			.max(MAX_DESIGN_WORKSPACE_ITEM_MUTATIONS),
+	})
+	.strict();
+
 const contractStageBodySchema = z
 	.object({
 		root: setDesignRootInputSchema.optional(),
+		placements: placeModulesInputSchema.shape.placements.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 	})
 	.strict()
-	.refine((value) => value.root !== undefined || value.collections.length > 0, {
-		message: "A contract stage must change the root or one collection.",
-	});
+	.refine(
+		(value) =>
+			value.root !== undefined ||
+			value.collections.length > 0 ||
+			value.placements !== undefined,
+		{
+			message: "A contract stage must change the root or one collection.",
+		},
+	);
 
 const revisionStageBodySchema = z
 	.object({
 		root: setDesignRootInputSchema.optional(),
+		placements: placeModulesInputSchema.shape.placements.optional(),
 		collections: z.array(contractCollectionMutationSchema).max(1),
 		dispositions: dispositionMutationSchema.optional(),
 	})
@@ -267,6 +297,7 @@ const revisionStageBodySchema = z
 	.refine(
 		(value) =>
 			value.root !== undefined ||
+			value.placements !== undefined ||
 			value.collections.length > 0 ||
 			value.dispositions !== undefined,
 		{
@@ -679,8 +710,30 @@ export function replayDesignWorkspace(args: {
 		if (operation.root !== undefined) {
 			Object.assign(candidate, operation.root);
 		}
-		for (const collection of operation.collections)
+		for (const collection of operation.collections) {
+			const prior = (candidate.moduleCompositions ?? []) as DesignMenu[];
 			applyIdentityMutation(candidate, collection as never);
+			if (collection.collection === "moduleCompositions") {
+				let menus = candidate.moduleCompositions as DesignMenu[];
+				// Reparented entries append in the new parent's sibling list.
+				for (const item of collection.upserts) {
+					const before = prior.find((entry) => entry.id === item.id);
+					if (
+						before !== undefined &&
+						before.parentModuleCompositionId !== item.parentModuleCompositionId
+					) {
+						menus = [...menus.filter((entry) => entry.id !== item.id), item];
+					}
+				}
+				candidate.moduleCompositions = canonicalMenuOrder(menus);
+			}
+		}
+		if (operation.placements !== undefined) {
+			candidate.moduleCompositions = placeDesignMenus(
+				(candidate.moduleCompositions ?? []) as DesignMenu[],
+				operation.placements,
+			);
+		}
 		if (operation.kind === "revision" && operation.dispositions !== undefined)
 			applyIdentityMutation(candidate, operation.dispositions as never);
 	}
@@ -691,7 +744,8 @@ export function replayDesignWorkspace(args: {
 export function designWorkspaceMutationCount(
 	operation: DesignArtifactWorkspaceOperation,
 ): number {
-	let count = operation.root ? Object.keys(operation.root).length : 0;
+	let count = operation.placements?.length ?? 0;
+	count += operation.root ? Object.keys(operation.root).length : 0;
 	for (const collection of operation.collections)
 		count += collection.upserts.length + collection.removeIds.length;
 	if (operation.kind === "revision" && operation.dispositions)

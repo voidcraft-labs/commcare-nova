@@ -1,6 +1,6 @@
 /**
  * The design author: one durable model context per design session, a static
- * prompt (instructions, capability catalog, platform constraints), 21 tools
+ * prompt (instructions, capability catalog, platform constraints), 22 tools
  * mounted in one immutable order, and server-authored packets appended to
  * the ledger between provider calls.
  *

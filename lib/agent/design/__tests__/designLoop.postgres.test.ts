@@ -73,6 +73,7 @@ import {
 	ids,
 	makeContract,
 	makeLookupContract,
+	makeNestedMenuContract,
 	messageRef,
 } from "./fixtures";
 
@@ -1463,4 +1464,74 @@ describe("semantic design loop", () => {
 			expect(await workspaceRows()).toEqual(beforeReplay);
 		},
 	);
+});
+
+describe("durable placement grammar", () => {
+	it("moves by handle with null first-position input and rolls back an invalid batch", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const projected = modelContract(makeNestedMenuContract());
+		expect(
+			await call(tools.updateModuleCompositions, {
+				upserts: projected.moduleCompositions,
+				removeIds: [],
+			}),
+		).toMatchObject({ ok: true });
+		const placements = [
+			{
+				moduleId: { handle: handleForFixtureId(ids.moduleVisits) },
+				parentModuleId: { handle: handleForFixtureId(ids.modulePatients) },
+				afterModuleId: null,
+			},
+		];
+		expect(
+			await call(tools.placeModules, { placements }, "place-child"),
+		).toMatchObject({ ok: true });
+		const before = await workspaceRows();
+		expect(
+			await call(tools.placeModules, { placements }, "place-child"),
+		).toMatchObject({ ok: true, deduplicated: true });
+		expect(await workspaceRows()).toEqual(before);
+		const failed = await call(tools.placeModules, {
+			placements: [
+				{ ...placements[0], parentModuleId: null },
+				{
+					moduleId: { handle: handleForFixtureId(ids.modulePatients) },
+					parentModuleId: null,
+					afterModuleId: { handle: "@missing-sibling" },
+				},
+			],
+		});
+		expect(failed).toMatchObject({
+			error: expect.stringContaining("@missing-sibling"),
+		});
+		expect(await workspaceRows()).toEqual(before);
+	});
+	it("deduplicates an old semantic call without rewriting its historical operation version", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		await stageDesignArtifactWorkspace({
+			designSessionId: sessionId,
+			lineage: {
+				schemaVersion: 1,
+				artifactKind: "contract",
+				sourcePackageDigest: pkg.packageDigest,
+				reviewArtifacts: [],
+			},
+			authority: authority(),
+			toolCallId: "old-root",
+			expectedRevision: 0,
+			operation: {
+				kind: "contract",
+				root: { id: ids.contract },
+				collections: [],
+			},
+		});
+		const before = await workspaceRows();
+		expect(
+			await call(mount(pkg).setDesignRoot, { id: ids.contract }, "old-root"),
+		).toMatchObject({ ok: true, deduplicated: true });
+		expect(await workspaceRows()).toEqual(before);
+	});
 });

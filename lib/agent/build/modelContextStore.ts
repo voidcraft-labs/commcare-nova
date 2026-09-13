@@ -64,6 +64,7 @@ export interface DesignModelContextState {
 	readonly completedSteps: readonly DesignModelCompletedStep[];
 	/** Provider calls spent by this context and every immutable predecessor. */
 	readonly totalStartedStepCount: number;
+	readonly startedStepsByTurn: ReadonlyMap<string, number>;
 }
 
 export interface DesignModelContextItem {
@@ -115,6 +116,7 @@ export interface DurableModelUsageIdentity {
 export type DesignModelStepEvent =
 	| {
 			readonly eventKind: "started";
+			readonly turnProvenanceId?: string;
 			readonly requestDigest: string;
 	  }
 	| {
@@ -122,6 +124,13 @@ export type DesignModelStepEvent =
 			readonly responseDigest: string;
 			readonly usage?: Record<string, unknown>;
 	  };
+
+export class DesignTurnBudgetError extends Error {
+	readonly name = "DesignTurnBudgetError";
+	constructor() {
+		super("The design turn has used its step allowance.");
+	}
+}
 
 export class DesignModelContextError extends Error {
 	readonly name = "DesignModelContextError";
@@ -265,6 +274,7 @@ async function readStepsThroughGeneration(
 	completed: Set<string>;
 	completedSteps: DesignModelCompletedStep[];
 	totalStartedStepCount: number;
+	startedStepsByTurn: Map<string, number>;
 }> {
 	const rows = await tx
 		.selectFrom("design_model_steps as step")
@@ -275,6 +285,8 @@ async function readStepsThroughGeneration(
 		)
 		.select([
 			"step.context_id",
+			"step.turn_provenance_id",
+			"step.turn_provenance_digest",
 			"step.step_key",
 			"step.event_kind",
 			"step.event_digest",
@@ -294,6 +306,7 @@ async function readStepsThroughGeneration(
 	const completed = new Set<string>();
 	const completedSteps: DesignModelCompletedStep[] = [];
 	let totalStartedStepCount = 0;
+	const startedStepsByTurn = new Map<string, number>();
 	for (const row of rows) {
 		const label = `design_model_steps for ${row.context_id}/${row.step_key}`;
 		const usage =
@@ -318,8 +331,31 @@ async function readStepsThroughGeneration(
 				`${label} no longer matches its digest.`,
 			);
 		}
+		if (
+			row.turn_provenance_id !== null &&
+			row.turn_provenance_digest !==
+				canonicalJsonDigest({
+					contextId: row.context_id,
+					stepKey: row.step_key,
+					turnProvenanceId: row.turn_provenance_id,
+					eventDigest: row.event_digest,
+				})
+		) {
+			throw new DesignModelContextError(
+				`${label} no longer matches its turn provenance digest.`,
+			);
+		}
 		if (row.event_kind === "started") {
 			totalStartedStepCount += 1;
+			if (row.turn_provenance_id === null && context.context_kind === "design")
+				throw new DesignModelContextError(
+					"A design provider start is missing its logical user turn provenance.",
+				);
+			if (row.turn_provenance_id !== null)
+				startedStepsByTurn.set(
+					row.turn_provenance_id,
+					(startedStepsByTurn.get(row.turn_provenance_id) ?? 0) + 1,
+				);
 			if (row.context_id === context.id) started.add(row.step_key);
 		} else {
 			if (row.context_id === context.id) completed.add(row.step_key);
@@ -335,7 +371,13 @@ async function readStepsThroughGeneration(
 			});
 		}
 	}
-	return { started, completed, completedSteps, totalStartedStepCount };
+	return {
+		started,
+		completed,
+		completedSteps,
+		totalStartedStepCount,
+		startedStepsByTurn,
+	};
 }
 
 function providerContractMatches(
@@ -539,6 +581,7 @@ export async function openDesignModelContext(
 			completedStepKeys: steps.completed,
 			completedSteps: steps.completedSteps,
 			totalStartedStepCount: steps.totalStartedStepCount,
+			startedStepsByTurn: steps.startedStepsByTurn,
 		};
 	});
 }
@@ -743,12 +786,23 @@ export async function recordDesignModelStepEvent(args: {
 	readonly contextId: string;
 	readonly stepKey: string;
 	readonly event: DesignModelStepEvent;
+	readonly turnBudget?: {
+		readonly limit: number;
+	};
 	readonly authority: DesignModelContextAuthority;
 }): Promise<void> {
-	const eventPayload = {
-		stepKey: args.stepKey,
-		...args.event,
-	};
+	const eventPayload =
+		args.event.eventKind === "started"
+			? {
+					stepKey: args.stepKey,
+					eventKind: args.event.eventKind,
+					requestDigest: args.event.requestDigest,
+				}
+			: { stepKey: args.stepKey, ...args.event };
+	const turnProvenanceId =
+		args.event.eventKind === "started"
+			? (args.event.turnProvenanceId ?? null)
+			: null;
 	const eventDigest = canonicalJsonDigest(eventPayload);
 	await withAppTx(async (tx) => {
 		await authorize(tx, args.designSessionId, args.authority);
@@ -764,27 +818,76 @@ export async function recordDesignModelStepEvent(args: {
 			);
 		}
 		await assertCurrentContext(tx, context);
+		if (
+			context.context_kind === "design" &&
+			args.event.eventKind === "started" &&
+			turnProvenanceId === null
+		)
+			throw new DesignModelContextError(
+				"Every design provider start requires its logical user turn provenance.",
+			);
 		const existing = await tx
 			.selectFrom("design_model_steps")
-			.select("event_digest")
+			.select(["event_digest", "turn_provenance_id"])
 			.where("context_id", "=", args.contextId)
 			.where("step_key", "=", args.stepKey)
 			.where("event_kind", "=", args.event.eventKind)
 			.executeTakeFirst();
 		if (existing !== undefined) {
-			if (existing.event_digest !== eventDigest) {
+			if (
+				existing.event_digest !== eventDigest ||
+				existing.turn_provenance_id !== turnProvenanceId
+			) {
 				throw new DesignModelContextError(
 					`Model step ${args.stepKey} was replayed with different ${args.event.eventKind} evidence.`,
 				);
 			}
 			return;
 		}
+		if (args.turnBudget !== undefined) {
+			if (
+				context.context_kind !== "design" ||
+				args.event.eventKind !== "started" ||
+				args.event.turnProvenanceId === undefined
+			)
+				throw new DesignModelContextError(
+					"A design turn reservation requires started-step provenance.",
+				);
+			const count = await tx
+				.selectFrom("design_model_steps as step")
+				.innerJoin(
+					"design_model_contexts as context",
+					"context.id",
+					"step.context_id",
+				)
+				.select(sql<string>`count(*)`.as("count"))
+				.where("context.design_session_id", "=", args.designSessionId)
+				.where("context.context_kind", "=", "design")
+				.where("step.event_kind", "=", "started")
+				.where("step.turn_provenance_id", "=", turnProvenanceId)
+				.executeTakeFirstOrThrow();
+			if (Number(count.count) >= args.turnBudget.limit)
+				throw new DesignTurnBudgetError();
+		}
 		await tx
 			.insertInto("design_model_steps")
 			.values({
 				context_id: args.contextId,
+				turn_provenance_digest:
+					turnProvenanceId === null
+						? null
+						: canonicalJsonDigest({
+								contextId: args.contextId,
+								stepKey: args.stepKey,
+								turnProvenanceId,
+								eventDigest,
+							}),
 				step_key: args.stepKey,
 				event_kind: args.event.eventKind,
+				turn_provenance_id:
+					args.event.eventKind === "started"
+						? (args.event.turnProvenanceId ?? null)
+						: null,
 				event_digest: eventDigest,
 				request_digest:
 					args.event.eventKind === "started" ? args.event.requestDigest : null,

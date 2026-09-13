@@ -869,6 +869,16 @@ export interface DesignModelContextItemsTable {
 
 /** Payload-free, append-only request lifecycle evidence for one model step. */
 export interface DesignModelStepsTable {
+	turn_provenance_digest: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	turn_provenance_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
 	context_id: string;
 	step_key: string;
 	event_kind: string;

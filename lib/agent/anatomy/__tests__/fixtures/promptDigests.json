@@ -4,18 +4,18 @@
 		"version": "build-executor-v20"
 	},
 	"designInstructions": {
-		"digest": "d0ddd48ad90953ea7ac39d065e19157795c0eaafb723812cd222d74e23349498",
-		"version": "design-agent-v25"
+		"digest": "9b786d2d85dc01734906e4609d5cfd58111dfb6c01ae2e8d2dfbba8dc673483c",
+		"version": "design-agent-v26"
 	},
 	"designReviewerSystem": {
-		"digest": "c38d0d4888b547d5c5239e63df5822dff04b71f23d57369b1e22427c3196951a",
-		"version": "design-reviewer-v19"
+		"digest": "40969318f4a7b49975c6ec96bfdfef63da37b4efac19f03d9ef1bbeaf7072dff",
+		"version": "design-reviewer-v20"
 	},
 	"extractSystem": {
 		"digest": "39df659a59ec1a50aa7fff1686f8456cef8811a8a391e32c817605fb50a821e5",
 		"version": 4
 	},
-	"designToolsetDigest": "a51efd98d412a806ff835d9f4da0288b8b52c2f7838ab87443502f73599e81c4",
+	"designToolsetDigest": "19192b64f5c18ec6af117d22a56e0b50a25a36ddbfe86f2a5e7a42525ac22bbd",
 	"designToolOrder": [
 		"inspectProjectData",
 		"setDesignRoot",
@@ -26,6 +26,7 @@
 		"updateAccess",
 		"updateNavigation",
 		"updateModuleCompositions",
+		"placeModules",
 		"updateFormCompositions",
 		"updateLookupTables",
 		"updateExternalRequirements",

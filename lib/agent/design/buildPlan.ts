@@ -448,10 +448,7 @@ function requiredPrerequisiteWorkflowIds(
 			required.get(owner)?.add(anchorOwner);
 		}
 	};
-	for (const [
-		compositionIndex,
-		composition,
-	] of contract.moduleCompositions.entries()) {
+	for (const composition of contract.moduleCompositions) {
 		const parent =
 			composition.parentModuleCompositionId === undefined
 				? undefined
@@ -498,21 +495,6 @@ function requiredPrerequisiteWorkflowIds(
 				}
 			}
 		}
-
-		/* `createModule.after` names the exact preceding sibling, so source order
-		 * alone is insufficient: the scheduler needs the sibling owner's durable
-		 * slice dependency before this slice may run. Graph validation has already
-		 * proved that owner is not later, preventing a new cycle or a root that
-		 * depends on a later slice. */
-		const precedingSibling = contract.moduleCompositions
-			.slice(0, compositionIndex)
-			.filter(
-				(candidate) =>
-					candidate.parentModuleCompositionId ===
-					composition.parentModuleCompositionId,
-			)
-			.pop();
-		addPlacementOwner(composition.id, precedingSibling?.id);
 	}
 	/* Module selection is realized only after every affected case-loading form
 	 * exists. Choose the latest covered workflow in the same deterministic order

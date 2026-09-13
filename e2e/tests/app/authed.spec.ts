@@ -4027,6 +4027,64 @@ test.describe("authenticated builder", () => {
 		await expect(startFromScratch).toHaveCount(0);
 	});
 
+	test("a stopped design keeps its conversation across reload and sends a new turn to the same design", {
+		tag: "@seed:design",
+	}, async ({ scenario, page }) => {
+		const { continuationDesignId } = seedFor(scenario, "design");
+		await page.goto(`/build/new?design=${continuationDesignId}`);
+		await expect(
+			page.getByText("Keep farmer correction under Farmer search.", {
+				exact: true,
+			}),
+		).toBeVisible();
+		await page.reload();
+		await expect(
+			page.getByText("The design needs another turn to finish.", {
+				exact: false,
+			}),
+		).toBeVisible();
+		let submitted: Record<string, unknown> | undefined;
+		await page.route("**/api/chat", async (route) => {
+			submitted = route.request().postDataJSON() as Record<string, unknown>;
+			const chunks = [
+				{ type: "start", messageId: "continued-design" },
+				{ type: "start-step" },
+				{ type: "text-start", id: "continued-text" },
+				{
+					type: "text-delta",
+					id: "continued-text",
+					delta: "I have the saved correction placement.",
+				},
+				{ type: "text-end", id: "continued-text" },
+				{ type: "finish-step" },
+				{ type: "finish" },
+			];
+			await route.fulfill({
+				status: 200,
+				headers: {
+					"content-type": "text/event-stream",
+					"x-vercel-ai-ui-message-stream": "v1",
+				},
+				body:
+					chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+					"data: [DONE]\n\n",
+			});
+		});
+		await page
+			.getByPlaceholder("What would you like to change?")
+			.fill("Continue with the saved correction placement.");
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		// The controlled response is not persisted by a real run. Assert the
+		// admitted browser request; the normal hydration may restore the seed.
+		await expect.poll(() => submitted).toBeDefined();
+		expect(JSON.stringify(submitted)).toContain(continuationDesignId);
+		expect(JSON.stringify(submitted)).toContain("saved-design-request");
+		expect(JSON.stringify(submitted)).toContain(
+			"Continue with the saved correction placement.",
+		);
+		await expect(page).toHaveURL(new RegExp(`design=${continuationDesignId}$`));
+	});
+
 	test("a scripted reviewed build stays plain-language and read-only until every workflow finishes", {
 		tag: "@seed:design",
 	}, async ({ scenario, page }) => {

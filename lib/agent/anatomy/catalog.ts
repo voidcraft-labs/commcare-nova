@@ -20,7 +20,7 @@ import { EXECUTOR_PROMPT_VERSION } from "@/lib/agent/build/executorPrompt";
 import { designAgentOwnedToolDefinitions } from "@/lib/agent/design/loop/designAgent";
 import {
 	DESIGN_LOOP_STEP_BUDGET,
-	DESIGN_ROLLOVER_STEP_ALLOWANCE,
+	DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE,
 } from "@/lib/agent/design/loop/gates";
 import { designLoopToolDefinitions } from "@/lib/agent/design/loop/tools";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
@@ -179,9 +179,9 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		outputStrictness: "no structured output",
 		ceilings: [
 			{
-				label: "Steps per session",
+				label: "Steps per user turn",
 				value: String(DESIGN_LOOP_STEP_BUDGET),
-				detail: `Plus ${DESIGN_ROLLOVER_STEP_ALLOWANCE} per contract rollover, at most two rollovers.`,
+				detail: `A new user turn owns a new allowance; a context rollover mints none. Plus ${DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE} for a genuine terminal omission.`,
 			},
 			{
 				label: "Compaction",

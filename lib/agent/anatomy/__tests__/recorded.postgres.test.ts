@@ -119,7 +119,11 @@ describe("readDesignSession", () => {
 			designSessionId,
 			contextId: opened.id,
 			stepKey,
-			event: { eventKind: "started", requestDigest: "1".repeat(64) },
+			event: {
+				eventKind: "started",
+				requestDigest: "1".repeat(64),
+				turnProvenanceId: "user-turn-1",
+			},
 			authority,
 		});
 		await completeDesignModelStep({

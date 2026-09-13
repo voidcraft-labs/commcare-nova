@@ -36,7 +36,7 @@ const eagerDepsTrap = new Proxy({} as DesignLoopToolDeps, {
 });
 
 describe("design loop tool definitions", () => {
-	it("digest and order the 19 loop tools as the runner persists them", async () => {
+	it("digest and order the 20 loop tools as the runner persists them", async () => {
 		const definitions = designLoopToolDefinitions();
 		expect(Object.keys(definitions)).toEqual(fixture.designToolOrder);
 		expect(await designToolsetDigest(definitions)).toBe(

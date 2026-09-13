@@ -25,6 +25,7 @@ import {
 	finishDesignInputSchema,
 	inspectDesignInputSchema,
 	inspectDesignWorkspaceCandidate,
+	placeModulesInputSchema,
 	setDesignRootInputSchema,
 	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
@@ -102,6 +103,7 @@ import type {
 	LookupTableId,
 } from "@/lib/lookup/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { DesignMenuPlacementError } from "../modulePlacement";
 
 export const inspectProjectDataInputSchema = z
 	.object({
@@ -1103,6 +1105,8 @@ export function designWorkspaceLineageForGates(
 }
 
 function workspaceError(error: unknown): ToolError | null {
+	if (error instanceof DesignMenuPlacementError)
+		return { error: error.message };
 	if (!(error instanceof DesignArtifactWorkspaceError)) return null;
 	return {
 		error: error.message,
@@ -1242,7 +1246,14 @@ async function persistStagedDesignPart(args: {
 		};
 	} catch (error) {
 		const handled = workspaceError(error);
-		if (handled) return rejectedStage(args.deps, args.toolName, handled);
+		if (handled)
+			return rejectedStage(args.deps, args.toolName, {
+				...handled,
+				error: projectBoundIdsIntoText(handled.error, [
+					...args.workspaceHandleBindings,
+					...handleBindings,
+				]),
+			});
 		throw error;
 	}
 }
@@ -1646,7 +1657,7 @@ const semanticCollectionDefinition = (
 });
 
 /**
- * The 19 design-loop tool definitions in exactly the order the loop mounts
+ * The 20 design-loop tool definitions in exactly the order the loop mounts
  * them. Key order is load-bearing: `designLoopRunner.ts` hashes the mounted
  * tools in insertion order into the persisted `toolset_digest`, and a changed
  * digest rolls every open design session to a new context generation.
@@ -1688,8 +1699,14 @@ export function designLoopToolDefinitions() {
 		),
 		updateModuleCompositions: semanticCollectionDefinition(
 			"moduleCompositions",
-			"Update worker-facing module composition.",
+			"Update worker-facing module composition. New modules append within their parent. Existing modules keep position; changing parent moves to its last child position. Use placeModules for exact sibling order.",
 		),
+		placeModules: {
+			description:
+				"Place existing modules in worker-facing menu order. Choose a top-level parent or null; choose a preceding sibling in that parent or null for first. A parent moves with its children. Placements run in order and commit atomically. Use this to change position without inventing workflow prerequisites or changing record relationships.",
+			inputSchema: strictWireWithHandles(placeModulesInputSchema),
+			strict: true,
+		},
 		updateFormCompositions: semanticCollectionDefinition(
 			"formCompositions",
 			"Update exact worker-facing form composition and layout.",
@@ -1801,6 +1818,7 @@ export function createDesignLoopTools(
 		collection?: (typeof CONTRACT_COLLECTIONS)[number];
 		root?: boolean;
 		dispositions?: boolean;
+		placements?: boolean;
 	}) => {
 		const gates = await gatesFor(deps);
 		const kind = workspaceKind(gates);
@@ -1820,16 +1838,18 @@ export function createDesignLoopTools(
 		if (questionRefusal !== null) return questionRefusal;
 
 		const body = stripNullProperties(args.input) as Record<string, unknown>;
-		const wrapped = args.root
-			? { root: body, collections: [] }
-			: args.dispositions
-				? {
-						collections: [],
-						dispositions: { collection: "dispositions", ...body },
-					}
-				: {
-						collections: [{ collection: args.collection, ...body }],
-					};
+		const wrapped = args.placements
+			? { placements: body.placements, collections: [] }
+			: args.root
+				? { root: body, collections: [] }
+				: args.dispositions
+					? {
+							collections: [],
+							dispositions: { collection: "dispositions", ...body },
+						}
+					: {
+							collections: [{ collection: args.collection, ...body }],
+						};
 		let stagedInput: unknown = wrapped;
 		if (args.dispositions) {
 			const findingBindings = deriveFindingHandleBindings(
@@ -1860,7 +1880,10 @@ export function createDesignLoopTools(
 		if (admissionRejection !== null) return admissionRejection;
 		const parsed = parseHandledStage(
 			designArtifactWorkspaceOperationSchema,
-			{ kind, ...(stagedInput as Record<string, unknown>) },
+			{
+				kind,
+				...(stagedInput as Record<string, unknown>),
+			},
 			deps.designSessionId,
 		);
 		if (!parsed.ok)
@@ -1930,6 +1953,17 @@ export function createDesignLoopTools(
 		"navigation",
 		definitions.updateNavigation,
 	);
+	const placeModules = {
+		...definitions.placeModules,
+		execute: (input: unknown, options: { readonly toolCallId: string }) =>
+			inResponseOrder(input, () =>
+				semanticUpdate({
+					input,
+					toolCallId: options.toolCallId,
+					placements: true,
+				}),
+			),
+	};
 	const updateModuleCompositions = semanticCollectionTool(
 		"moduleCompositions",
 		definitions.updateModuleCompositions,
@@ -2367,6 +2401,7 @@ export function createDesignLoopTools(
 		updateAccess,
 		updateNavigation,
 		updateModuleCompositions,
+		placeModules,
 		updateFormCompositions,
 		updateLookupTables,
 		updateExternalRequirements,

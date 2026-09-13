@@ -71,9 +71,8 @@ valid direct Builder or MCP edit.
   optional one-tier parent menu, record hosts, queue/form roles, placements,
   ordering, and icon decisions. Parents precede their contiguous child block,
   a child cannot parent another composition, and its construction owner is the
-  same as or later than its parent's owner. Sibling construction-owner ranks
-  are nondecreasing in accepted sibling order, so no exact `after` anchor is
-  owned by a later slice;
+  same as or later than its parent's owner. Sibling menu order is independent
+  of construction-owner order;
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
   summaries, and justified flat or duplicated forms. Stored contracts that
@@ -148,8 +147,8 @@ valid direct Builder or MCP edit.
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
   external requirement as an element. Module composition is owned once by its
-  earliest workflow. A module whose parent or exact preceding sibling has a
-  different owner gains that exact owner workflow as a prerequisite;
+  earliest workflow. A module whose parent has a different owner gains that
+  exact owner workflow as a prerequisite; sibling position adds no dependency;
   same-slice construction keeps
   the parent first and requires that owner to carry the parent's own form or
   case-list surface. A list placed in that module, and properties used only by
@@ -405,8 +404,8 @@ state stay outside it. Both fuses are PER-TURN accounting and classify as
 RECOVERABLE failures: the stop seals that turn's repair budget, never the
 durable artifacts, so a fresh chargeable turn re-enters the same phase with a
 fresh budget — which is also how a deployed harness correction reaches a
-preserved draft. Only the session-wide design step budget is an unrecoverable
-stop. When every construction issue is a
+preserved draft. The 64-step allowance is per logical user turn, including an answered question;
+reconnects retain the same count and a new user message starts a fresh allowance. When every construction issue is a
 blocking question already authored in the candidate, it does not consume that
 repair budget. The server derives those exact questions, appends them as an
 authoritative message, and refuses further design updates until an exact
@@ -469,12 +468,12 @@ prompts.
 
 A real deployment change to the pinned model, prompt, tool digest, or context
 format creates a new context generation linked to the immutable prior one.
-Provider-call spend is session-wide across that immutable generation chain, so
-a contract rollover never RESETS the design budget — but each rollover grants
-one bounded step allowance (`designLoopStepBudget`, capped at two rollovers):
-a rollover is by definition a real deployment change, which is exactly the
-corrected-harness retry the repair fuses direct users toward, and steps a
-since-fixed defect consumed must not starve that retry. Server-only question-card
+Provider-call starts carry immutable logical-turn provenance and a separately verified
+provenance digest without rewriting historical event digests. The 64-step limit
+is reserved transactionally across all generations for that turn. Reconnects,
+provider retries and deployment rollovers cannot replenish it. A new user
+message or newly answered question starts a new allowance. The runtime refuses a missing turn before another provider request. Completed usage stays attached to its original run.
+Server-only question-card
 provenance also remains readable across the chain even though model messages
 reseed into the successor. That exceptional rollover reseeds from the complete
 browser transcript and durable workspace; it never mutates old messages or
@@ -536,3 +535,29 @@ Progress narration recognizes completed top-level JSON keys across streamed
 deltas, including split escapes. Nested keys and source prose do not announce
 submission steps. It retains only a bounded candidate key; submission schemas
 still own validation, and progress labels never imply artifact acceptance.
+
+
+### Menu placement and continuation
+
+`placeModules` edits menu identity, parent and preceding sibling atomically.
+Null parent means a root; null preceding sibling means first in that parent.
+Moving a parent carries its children. Module updates preserve position, append new modules to their parent, and
+reparent existing modules at the end of the new parent's children. Canonical
+preorder is a storage projection. One runtime grammar handles every workspace.
+
+Build plans and briefs use one schema. Only real workflow, parent, selection
+and viewer prerequisites determine newly derived construction order. Existing
+sealed plans retain their explicit dependency data without a special reader.
+Brief placement always projects accepted order onto the full expected
+construction prefix, including earlier slices. Missing expected modules remain
+failures; future modules are not required early.
+
+A response containing tool calls, including a rejected finalizer, is never a
+clean terminal omission. Only text-only completion gets the one durable
+correction step; the 64-step ceiling stays a distinct recoverable stop.
+
+
+The pre-app chat composer accepts a new message after a stopped design, including
+on reload. Only materialized accepted builds offer `Resume build`, which
+re-drives the frozen plan without adding design instructions. The initial app
+editor remains locked throughout construction.

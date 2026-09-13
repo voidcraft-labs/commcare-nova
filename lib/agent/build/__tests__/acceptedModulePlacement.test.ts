@@ -5,6 +5,7 @@ import {
 	fixtureValue,
 	ids,
 	makeNestedMenuContract,
+	makeThirteenWorkflowContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
@@ -221,5 +222,63 @@ describe("accepted module placement", () => {
 			{ id: ids.modulePatients, after: childUuid },
 			{ id: ids.moduleVisits, after: null },
 		]);
+	});
+});
+
+describe("menu order independent of construction", () => {
+	it("projects expected earlier slices and inserts an earlier menu when its workflow is built later", () => {
+		const source = makeThirteenWorkflowContract();
+		const [first, second] = source.moduleCompositions;
+		if (first === undefined || second === undefined)
+			throw new Error("Fixture requires two modules");
+		source.moduleCompositions.splice(0, 2, second, first);
+		const contract = appDesignContractSchema.parse(source);
+		const revision = { id: crypto.randomUUID(), digest: "a".repeat(64) };
+		const plan = deriveBuildPlan({ contract, revision });
+		expect(plan.schemaVersion).toBe(1);
+		const firstSlice = fixtureValue(plan.slices[0], "first slice");
+		const firstBrief = deriveSliceExecutionBrief({
+			contract,
+			revision,
+			plan,
+			sliceId: firstSlice.id,
+		});
+		expect(
+			firstBrief.moduleRealizations.some(
+				(module) => module.compositionId === second.id,
+			),
+		).toBe(false);
+		expect(
+			firstBrief.moduleRealizations.find(
+				(module) => module.compositionId === first.id,
+			)?.afterSiblingModuleCompositionId,
+		).toBeNull();
+		const secondSlice = fixtureValue(
+			plan.slices.find((slice) =>
+				slice.constructionGroups.some((group) =>
+					group.elements.some(
+						(element) =>
+							element.kind === "module-composition" && element.id === second.id,
+					),
+				),
+			),
+			"second module slice",
+		);
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision,
+			plan,
+			sliceId: secondSlice.id,
+		});
+		expect(
+			brief.moduleRealizations.find(
+				(module) => module.compositionId === second.id,
+			)?.afterSiblingModuleCompositionId,
+		).toBeNull();
+		expect(
+			brief.moduleRealizations.find(
+				(module) => module.compositionId === first.id,
+			)?.afterSiblingModuleCompositionId,
+		).toBe(second.id);
 	});
 });

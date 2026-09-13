@@ -821,7 +821,6 @@ describe("deriveSliceExecutionBrief", () => {
 			workflow.prerequisites = [];
 		}
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
-		const firstSlice = fixtureValue(plan.slices[0], "first module owner slice");
 		const secondSlice = fixtureValue(
 			plan.slices[1],
 			"second module owner slice",
@@ -833,10 +832,8 @@ describe("deriveSliceExecutionBrief", () => {
 			sliceId: secondSlice.id,
 		});
 
-		expect(secondSlice.prerequisiteSliceIds).toEqual([firstSlice.id]);
-		expect(brief.prerequisiteWorkflows.map((workflow) => workflow.id)).toEqual([
-			firstSlice.workflowId,
-		]);
+		expect(secondSlice.prerequisiteSliceIds).toEqual([]);
+		expect(brief.prerequisiteWorkflows).toEqual([]);
 		expect(brief.moduleRealizations).toEqual([
 			expect.objectContaining({
 				compositionId: contract.moduleCompositions[0]?.id,
