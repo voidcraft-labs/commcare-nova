@@ -1674,12 +1674,7 @@ async function executeOneSlice(
 			context: slice.executorContext,
 			contextScopeKey: slice.attempt.id,
 			step: deps.executorStep,
-			resolveBlocker: (blockerArgs) =>
-				deps.resolveBlocker({
-					...blockerArgs,
-					acceptedContract: slice.contract,
-					currentPlan: slice.plan,
-				}),
+			resolveBlocker: deps.resolveBlocker,
 			commit,
 			reconcileCommit: async () => {
 				if (slice.isGenesis) {

@@ -17,6 +17,15 @@ valid direct Builder or MCP edit.
 
 ## Authority
 
+`projection/blueprint.ts` reads current Blueprint content independently of the
+design. It preserves identities, ordered screens, authored wording and rules,
+and derives ordinary field actions through the shared domain inventory.
+The build helper consumes it with an exact private workspace revision. Its
+versioned digest excludes derived document indexes; unreadable sections are
+reported at their owning object. It does not inspect external rows, deployment
+readiness or target-language overlays, infer intent, execute a form, or prove
+conformance. Unit F's canonical reports and completion review remain open.
+
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` strings;
   identities are minted deterministically from (session, handle), so a

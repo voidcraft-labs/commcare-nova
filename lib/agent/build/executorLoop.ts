@@ -61,6 +61,10 @@ import type {
 	ChangeSetMutationWorkspace,
 	StagedInputPreparation,
 } from "@/lib/agent/change-set/workspace";
+import {
+	type BlueprintImplementation,
+	projectBlueprintImplementation,
+} from "@/lib/agent/design/projection/blueprint";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { novaOpenAITools } from "@/lib/agent/openaiProvider";
 import {
@@ -225,6 +229,10 @@ export type SliceBlockerResolver = (args: {
 	readonly blocker: ExecutionBlocker;
 	readonly brief: SliceExecutionBrief;
 	readonly diagnostics: unknown;
+	readonly candidate: {
+		readonly revision: number;
+		readonly implementation: BlueprintImplementation;
+	};
 	readonly signal: AbortSignal;
 }) => Promise<ArchitectBlockerDecision>;
 
@@ -1211,6 +1219,7 @@ export async function runSliceExecutor(
 			args.resolveBlocker({
 				blocker,
 				brief,
+				candidate: blockerCandidate(workspace),
 				diagnostics:
 					failure.diagnostics ??
 					projectDiagnostics(
@@ -2088,6 +2097,7 @@ export async function runSliceExecutor(
 								args.resolveBlocker({
 									blocker: parsed.data,
 									brief,
+									candidate: blockerCandidate(workspace),
 									diagnostics: projectDiagnostics(
 										await awaitWithAbort(workspace.inspect(), boundedSignal),
 										brief,
@@ -2536,6 +2546,14 @@ function terminalProtocolCode(error: unknown): string | null {
 
 /** Bounded diagnostics for the model: enough findings to act on, never the
  *  whole validator dump. */
+function blockerCandidate(workspace: ExecutorWorkspace) {
+	const snapshot = workspace.currentSnapshot();
+	return {
+		revision: snapshot.revision,
+		implementation: projectBlueprintImplementation(snapshot.doc),
+	};
+}
+
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,

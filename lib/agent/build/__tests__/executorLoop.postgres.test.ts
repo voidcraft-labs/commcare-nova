@@ -41,6 +41,7 @@ import {
 	type ExecutorStepFn,
 	productionExecutorStep,
 	runSliceExecutor,
+	type SliceBlockerResolver,
 } from "../executorLoop";
 import { EXECUTOR_PROMPT_VERSION } from "../executorPrompt";
 import {
@@ -297,6 +298,7 @@ async function fixture() {
 		options: {
 			context?: ExecutorConversationContext;
 			budget?: Partial<SliceExecutionBudget>;
+			resolveBlocker?: SliceBlockerResolver;
 		} = {},
 	) {
 		const recovered = await beginOrRecoverSliceAttempt(attemptArgs);
@@ -315,6 +317,7 @@ async function fixture() {
 				workspace,
 				step,
 				budget,
+				resolveBlocker: options.resolveBlocker,
 				signal: new AbortController().signal,
 				context: options.context ?? (await openContext()),
 				contextScopeKey: attempt.id,
@@ -914,6 +917,116 @@ describe("persisted executor Responses journeys", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({ validator_repair_count: 1, commit_attempts_used: 1 });
 	});
+
+	it.each(["reported", "repeated"] as const)(
+		"grounds a %s blocker in the current private candidate before repair",
+		async (mode) => {
+			const f = await fixture();
+			const caseType = f.calls.schema.input.caseTypes[0].name;
+			const schema: Call = {
+				...f.calls.schema,
+				input: {
+					caseTypes: [
+						{
+							name: caseType,
+							properties: [
+								...f.calls.schema.input.caseTypes[0].properties,
+								{
+									name: "beds",
+									label: "Beds",
+									data_type: "int",
+									validation: "between(., 1, 50)",
+									validation_msg: "Enter 1 to 50.",
+								},
+							],
+						},
+					],
+				},
+			};
+			const report: Call = {
+				id: "report",
+				name: "reportExecutionBlocker",
+				input: {
+					schemaVersion: 1,
+					observations: ["The catalog validation cannot compile."],
+					requestedDecision: "How can this property rule be repaired?",
+				},
+			};
+			let requests = 0;
+			let helperCalls = 0;
+			const outcome = await withResponsesPeer(
+				(_request, response) => {
+					requests += 1;
+					respondWithCalls(
+						response,
+						requests === 1
+							? [
+									schema,
+									f.calls.module,
+									mode === "reported" ? report : f.calls.finish,
+								]
+							: mode === "repeated" && requests === 2
+								? [{ ...f.calls.finish, id: "finish-again" }]
+								: [
+										{
+											id: "repair",
+											name: "updateCaseProperty",
+											input: {
+												caseType,
+												property: "beds",
+												updates: { validation: ". >= 1 and . <= 50" },
+											},
+										},
+										{ ...f.calls.finish, id: "finish-repaired" },
+									],
+					);
+				},
+				(provider) =>
+					f.run(
+						productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+						{
+							async resolveBlocker(args) {
+								helperCalls += 1;
+								expect(args.candidate.revision).toBe(2);
+								expect(args.candidate.implementation.unreadable).toEqual([]);
+								expect(args.candidate.implementation.records).toContainEqual(
+									expect.objectContaining({
+										name: caseType,
+										properties: expect.arrayContaining([
+											expect.objectContaining({
+												name: "beds",
+												definition: expect.objectContaining({
+													validation: "between(., 1, 50)",
+												}),
+											}),
+										]),
+									}),
+								);
+								expect(
+									args.candidate.implementation.modules[0].forms[0]
+										.fieldActions,
+								).toMatchObject([{ action: "create", caseType }]);
+								expect(args.brief.toolProfile.mutationTools).toContain(
+									"updateCaseProperty",
+								);
+								expect(
+									await h.db().selectFrom("apps").select("id").execute(),
+								).toEqual([]);
+								return {
+									kind: "continue",
+									guidance:
+										"Update the beds catalog validation to . >= 1 and . <= 50.",
+								};
+							},
+						},
+					),
+			);
+			expect(helperCalls).toBe(1);
+			expect(outcome.kind).toBe("committed");
+			const steps = await loadChangeSetSteps(f.changeSet.id);
+			expect(steps).toHaveLength(3);
+		},
+	);
 
 	it("ends repeated canonical input rejection without spending an architect blocker", async () => {
 		const f = await fixture();

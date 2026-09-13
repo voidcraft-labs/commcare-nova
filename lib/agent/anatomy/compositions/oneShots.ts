@@ -137,7 +137,7 @@ export const executorHelperComposition: RoleComposition = {
 			liveOnly(
 				"prompt",
 				"Blocker prompt",
-				"Five sections joined by blank lines: the accepted design contract as JSON, the deterministic build plan as JSON, the accepted execution brief rendered exactly as the executor read it, the compiler report as JSON, and the current server diagnostics as JSON.",
+				"The accepted workflow brief, current private candidate with readable content and derived field actions, builder report, server diagnostics, and descriptions of the operations authorized for this slice. The candidate carries its workspace revision and snapshot digest. Unreadable sections are identified explicitly.",
 				HELPER,
 			),
 			outputSchemaItem({
