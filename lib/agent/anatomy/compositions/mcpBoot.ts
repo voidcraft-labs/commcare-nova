@@ -7,6 +7,7 @@
  * the terminal marker is last by contract.
  */
 
+import type { StandardJSONSchemaV1 } from "@standard-schema/spec";
 import { z } from "zod";
 import {
 	MCP_BUILD_SEGMENTS,
@@ -74,20 +75,27 @@ export function collectMcpToolDefinitions(): ToolDefinitionView[] {
 			name: string,
 			config: { description?: string; inputSchema?: unknown },
 		) {
-			const schema = config.inputSchema as z.ZodType | undefined;
+			const schema = config.inputSchema as
+				| z.ZodType
+				| StandardJSONSchemaV1
+				| undefined;
 			collected.push({
 				name,
 				description: config.description ?? "",
 				inputSchema:
 					schema === undefined
 						? {}
-						: wireJson(
-								z.toJSONSchema(schema, {
-									target: "draft-7",
-									io: "input",
-									unrepresentable: "any",
-								}),
-							),
+						: !(schema instanceof z.ZodType)
+							? wireJson(
+									schema["~standard"].jsonSchema.input({ target: "draft-07" }),
+								)
+							: wireJson(
+									z.toJSONSchema(schema, {
+										target: "draft-7",
+										io: "input",
+										unrepresentable: "any",
+									}),
+								),
 				strict: undefined,
 			});
 		},

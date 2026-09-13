@@ -12,6 +12,7 @@ import { checkPredicate, checkValueExpression } from "@/lib/domain/predicate";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { AuthoringScope } from "../bindings";
 import { parseAuthoringMessage, printAuthoringMessage } from "../messages";
+import { authoringEncoders } from "../output";
 import { queryPrinter } from "../printQueryExpression";
 import { parseQueryPredicate, parseQueryValue } from "../queryExpressions";
 import { normalizeText, printAuthoringText } from "../text";
@@ -126,6 +127,26 @@ it("resolves identically named columns within the requested table and preserves 
 	expect(() =>
 		parseQueryValue("lookup('Missing', 'name', true())", scope),
 	).toThrow("not in this scope");
+	const numericTable = {
+		...tables[0],
+		columns: tables[0].columns.map((column) => ({
+			...column,
+			dataType: "int" as const,
+		})),
+	};
+	const scoped = new AuthoringScope({
+		doc,
+		tables: [numericTable],
+		tableId: numericTable.id,
+	});
+	const filter = parseQueryPredicate("quotient(#row/code, 2) >= 1", scoped);
+	const source = { optionsSource: { tableId: numericTable.id, filter } };
+	const printedFilter = authoringEncoders(
+		{ doc, tables: [numericTable] },
+		source,
+	).condition(filter, ["optionsSource", "filter"]);
+	expect(printedFilter).toContain("#row/code");
+	expect(parseQueryPredicate(String(printedFilter), scoped)).toEqual(filter);
 });
 
 it("rejects ambiguous field names and binds authored worker information by stable identity", () => {

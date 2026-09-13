@@ -4,6 +4,7 @@ import { localizedValueSchema } from "@/lib/domain/localization";
 import * as expressions from "@/lib/domain/predicate/types";
 import { proseTemplateSchema } from "@/lib/domain/prose";
 import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
+import { AuthoringInputError } from "./errors";
 
 export type AuthoringValueFamily =
 	| "text"
@@ -149,6 +150,7 @@ export function authoringJsonSchema(schema: z.core.$ZodType): Json {
 	const json = z.toJSONSchema(schema, {
 		io: "input",
 		target: "draft-7",
+		reused: "ref",
 		override({ zodSchema, jsonSchema }) {
 			const family = familyOf(zodSchema);
 			if (!family) return;
@@ -185,6 +187,27 @@ export function decodeAuthoringValues(
 	decoders: AuthoringValueDecoders,
 	path: AuthoringPath = [],
 ): unknown {
+	return transformValues(schema, input, decoders, path, "authored");
+}
+
+/** Read projection walks the same content families, selecting union variants
+ * against the canonical values that were already admitted to the document. */
+export function encodeAuthoringValues(
+	schema: z.core.$ZodType,
+	input: unknown,
+	encoders: AuthoringValueDecoders,
+	path: AuthoringPath = [],
+): unknown {
+	return transformValues(schema, input, encoders, path, "canonical");
+}
+
+function transformValues(
+	schema: z.core.$ZodType,
+	input: unknown,
+	decoders: AuthoringValueDecoders,
+	path: AuthoringPath,
+	representation: "authored" | "canonical",
+): unknown {
 	const family = familyOf(schema);
 	if (family) return decoders[family](input, path);
 	if (input === null || input === undefined) return input;
@@ -192,7 +215,7 @@ export function decodeAuthoringValues(
 		child: z.core.$ZodType,
 		value: unknown,
 		childPath: AuthoringPath = path,
-	) => decodeAuthoringValues(child, value, decoders, childPath);
+	) => transformValues(child, value, decoders, childPath, representation);
 	const definition = (schema as z.core.$ZodTypes)._zod.def;
 	switch (definition.type) {
 		case "optional":
@@ -241,11 +264,13 @@ export function decodeAuthoringValues(
 				: input;
 		case "union": {
 			const variants = definition.options;
-			const matching = variants.filter(
-				(variant) => authoringSchema(variant).safeParse(input).success,
+			const matching = variants.filter((variant) =>
+				representation === "authored"
+					? authoringSchema(variant).safeParse(input).success
+					: z.safeParse(variant, input).success,
 			);
 			if (matching.length !== 1)
-				throw new Error(
+				throw new AuthoringInputError(
 					`Choose one valid value at ${path.join(".") || "input"}.`,
 				);
 			return descend(matching[0], input);

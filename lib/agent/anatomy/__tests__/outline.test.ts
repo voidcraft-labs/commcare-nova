@@ -8,8 +8,6 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { EXECUTOR_SYSTEM } from "@/lib/agent/build/executorPrompt";
-import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
 import { outlineText } from "../outline";
 
 describe("outlineText", () => {
@@ -99,12 +97,5 @@ describe("outlineText", () => {
 		const sections = outlineText("## Same\na\n## Same\nb\n## Same\nc");
 		const ids = sections.map((section) => section.id);
 		expect(new Set(ids).size).toBe(3);
-	});
-
-	it("outlines the real executor and architect prompts into many sections", () => {
-		expect(outlineText(EXECUTOR_SYSTEM).length).toBeGreaterThan(5);
-		expect(outlineText(buildSolutionsArchitectPrompt()).length).toBeGreaterThan(
-			5,
-		);
 	});
 });

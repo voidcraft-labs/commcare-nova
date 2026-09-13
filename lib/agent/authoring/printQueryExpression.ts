@@ -294,5 +294,5 @@ export function queryPrinter(context: QueryPrintContext) {
 				);
 		}
 	}
-	return { value: expression, predicate };
+	return { value: expression, predicate, term, relationship: relation };
 }

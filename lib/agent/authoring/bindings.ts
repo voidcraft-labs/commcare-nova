@@ -24,6 +24,7 @@ import {
 	termSchema,
 } from "@/lib/domain/predicate";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { AuthoringInputError } from "./errors";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
 import type { QueryPrintContext } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
@@ -32,6 +33,41 @@ export interface NamedAuthoringField {
 	uuid: Uuid;
 	path: string;
 	kind: FieldKind;
+}
+
+/** A nested value inherits its enclosing table and the Search validation slot.
+ * Reads and writes use this same scope selection. */
+export function enclosingAuthoringTable(
+	input: unknown,
+	path: readonly (string | number)[],
+	initial?: string,
+) {
+	let enclosing = input;
+	let tableId = initial;
+	for (const segment of path) {
+		if (enclosing !== null && typeof enclosing === "object") {
+			if ("tableId" in enclosing && typeof enclosing.tableId === "string")
+				tableId = enclosing.tableId;
+			enclosing = (enclosing as Record<string | number, unknown>)[segment];
+		}
+	}
+	return tableId;
+}
+
+export function authoringValueScope(
+	options: AuthoringScopeOptions,
+	input: unknown,
+	path: readonly (string | number)[],
+	searchValidation = false,
+): AuthoringScope {
+	return new AuthoringScope({
+		...options,
+		tableId: enclosingAuthoringTable(input, path, options.tableId),
+		...(searchValidation &&
+			path.some((part) => part === "required" || part === "validation") && {
+				patternMatching: true,
+			}),
+	});
 }
 export interface AuthoringScopeOptions {
 	doc: BlueprintDoc;
@@ -58,7 +94,7 @@ function one<T>(
 ): T {
 	const found = values.filter(matches);
 	if (found.length !== 1)
-		throw new Error(
+		throw new AuthoringInputError(
 			`${describe} is ${found.length ? "ambiguous" : "not in this scope"}.`,
 		);
 	return found[0];
@@ -67,6 +103,9 @@ function one<T>(
 /** One invocation's names and types. This is a view over the canonical document
  * and prepared declarations, never another document or mutation engine. */
 export class AuthoringScope implements QueryBindings, QueryPrintContext {
+	get formUuid() {
+		return this.options.formUuid;
+	}
 	readonly typeContext: TypeContext;
 	readonly fields: readonly NamedAuthoringField[];
 	private readonly inputs: readonly SearchInputDecl[];
@@ -88,7 +127,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				.map((field) => {
 					const path = computeFieldPath(doc, field.uuid);
 					if (!path)
-						throw new Error(`Field ${field.id} has no path in this form.`);
+						throw new AuthoringInputError(
+							`Field ${field.id} has no path in this form.`,
+						);
 					return { uuid: field.uuid, path, kind: field.kind };
 				});
 		this.inputs =
@@ -159,6 +200,16 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		);
 		return ids.size === 1 ? [...ids][0] : undefined;
 	};
+	resolveSearchInput = (name: string): Uuid | undefined => {
+		const identity = this.inputs.find((input) => input.uuid === name);
+		if (identity) return identity.uuid;
+		const ids = new Set(
+			this.inputs
+				.filter((input) => input.name === name)
+				.map((input) => input.uuid),
+		);
+		return ids.size === 1 ? [...ids][0] : undefined;
+	};
 	reference(namespace: string, path: readonly string[]): Term;
 	reference(term: Term): string | undefined;
 	reference(
@@ -170,18 +221,18 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		if (value === "form") {
 			const uuid = this.resolveField(path);
 			if (!uuid)
-				throw new Error(`Field ${name} is missing or ambiguous in this form.`);
+				throw new AuthoringInputError(
+					`Field ${name} is missing or ambiguous in this form.`,
+				);
 			return { kind: "field", uuid };
 		}
 		if (value === "search") {
-			const identity = this.inputs.find((input) => input.uuid === name);
-			if (identity) return { kind: "input", searchInputUuid: identity.uuid };
-			const input = one(
-				this.inputs,
-				(input) => input.uuid === name || input.name === name,
-				`Search answer ${name}`,
-			);
-			return { kind: "input", searchInputUuid: input.uuid };
+			const uuid = this.resolveSearchInput(name);
+			if (!uuid)
+				throw new AuthoringInputError(
+					`Search answer ${name} is missing or ambiguous.`,
+				);
+			return { kind: "input", searchInputUuid: uuid };
 		}
 		if (value === "user") {
 			const properties = Object.values(this.options.doc.userProperties ?? {});
@@ -198,20 +249,22 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 					(property) => property.slug.toLowerCase() === name.toLowerCase(),
 				)
 			)
-				throw new Error(
+				throw new AuthoringInputError(
 					`Worker information ${name} is ambiguous or has different capitalization.`,
 				);
 			return termSchema.parse({ kind: "session-user", field: name });
 		}
 		if (value === "row") {
 			if (!this.options.tableId)
-				throw new Error("A row reference needs a data-table scope.");
+				throw new AuthoringInputError(
+					"A row reference needs a data-table scope.",
+				);
 			const table = this.table(this.options.tableId);
 			const column = this.column(table, name);
 			return { kind: "table-column", tableId: table.id, columnId: column.id };
 		}
 		if (value === "record" && path.length !== 2)
-			throw new Error(
+			throw new AuthoringInputError(
 				"A record reference needs exactly one record type and property.",
 			);
 		const caseType =
@@ -225,18 +278,20 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			(type) => type.name === caseType,
 		);
 		if (!type || !property)
-			throw new Error(
+			throw new AuthoringInputError(
 				`Record ${caseType ?? "in this context"} is not available.`,
 			);
 		if (
 			this.typeContext.currentCaseType &&
 			type.name !== this.typeContext.currentCaseType
 		)
-			throw new Error(
+			throw new AuthoringInputError(
 				`This scope reads ${this.typeContext.currentCaseType}; use a relationship to read ${type.name}.`,
 			);
 		if (!type.properties.some((candidate) => candidate.name === property))
-			throw new Error(`Record ${type.name} has no property ${property}.`);
+			throw new AuthoringInputError(
+				`Record ${type.name} has no property ${property}.`,
+			);
 		return termSchema.parse({ kind: "prop", caseType: type.name, property });
 	}
 	private column(table: LookupTableDefinition, name: string) {
@@ -256,7 +311,10 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 	): string {
 		if (kind === "table") return this.table(name).id;
 		if (kind === "column") {
-			if (!owner) throw new Error("A column reference needs its data table.");
+			if (!owner)
+				throw new AuthoringInputError(
+					"A column reference needs its data table.",
+				);
 			return this.column(this.table(owner), name).id;
 		}
 		const values =
@@ -280,7 +338,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		if (relation.kind === "self") return this;
 		const source = this.typeContext.currentCaseType;
 		if (!source)
-			throw new Error("A record relationship needs an originating record.");
+			throw new AuthoringInputError(
+				"A record relationship needs an originating record.",
+			);
 		const errors: CheckError[] = [];
 		const destination = checkRelationPath(
 			relation,
@@ -290,7 +350,7 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			[],
 		);
 		if (!destination || errors.length)
-			throw new Error(
+			throw new AuthoringInputError(
 				errors.map((error) => error.message).join(" ") ||
 					"The relationship has no single record type.",
 			);

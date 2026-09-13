@@ -332,6 +332,14 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 	);
 	return (
 		<div className="space-y-4">
+			{tools.some((tool) => tool.deferred) && (
+				<p className="text-nova-text-secondary text-sm">
+					{formatExactTokens(item.weight.tokens)} estimated tokens available
+					initially; {formatExactTokens(item.catalogWeight.tokens)} in the full
+					catalog. Deferred definitions enter context when loaded. Earlier tool
+					searches in a resumed thread may have loaded more.
+				</p>
+			)}
 			<div className="flex flex-wrap items-center gap-2 text-nova-text-secondary text-xs">
 				<span>
 					{tools.length} {tools.length === 1 ? "tool" : "tools"}
@@ -419,6 +427,8 @@ function ToolRow({
 					<span className="min-w-0 flex-1">
 						<span className="flex flex-wrap items-center gap-2">
 							<span className="font-mono text-sm">{tool.name}</span>
+							{tool.deferred && <Badge>loaded on demand</Badge>}
+							{tool.providerTool && <Badge>provider tool</Badge>}
 							{tool.strict === true && <Badge variant="violet">strict</Badge>}
 							{tool.allowed === true && (
 								<Badge variant="emerald">allowed this slice</Badge>
@@ -444,7 +454,10 @@ function ToolRow({
 						{formatExactTokens(tool.weight.tokens)} estimated tokens for the
 						JSON the SDK serializes. The provider renders it in its own grammar.
 					</p>
-					<JsonBlock value={tool.inputSchema} />
+					<JsonBlock value={tool.providerTool ?? tool.inputSchema} />
+					{tool.providerOptions !== undefined && (
+						<JsonBlock value={tool.providerOptions} />
+					)}
 				</CollapsibleContent>
 			</Collapsible>
 		</li>

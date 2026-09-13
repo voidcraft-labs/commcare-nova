@@ -2,6 +2,10 @@
  * delivery and stored-app authorization are exercised by getAgentPrompt tests. */
 import { expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import {
+	buildMcpAgentBuildPrompt,
+	buildSolutionsArchitectPrompt,
+} from "@/lib/agent/prompts";
 import { renderAgentPrompt } from "../prompts";
 import { promptDoc } from "./promptFixtures";
 
@@ -9,8 +13,7 @@ it.each([true, false])(
 	"selects build framing and the requested interaction policy (%s)",
 	(interactive) => {
 		const prompt = renderAgentPrompt(interactive);
-		expect(prompt).toContain("Initial Build");
-		expect(prompt).not.toContain("Editing Mode");
+		expect(prompt.startsWith(buildMcpAgentBuildPrompt())).toBe(true);
 		const policy = prompt.slice(prompt.lastIndexOf("## Interaction Mode"));
 		expect(policy).toContain(
 			interactive
@@ -28,8 +31,8 @@ it.each([true, false])(
 it("includes addressable app state under edit framing before the terminal marker", () => {
 	const doc = promptDoc();
 	const prompt = renderAgentPrompt(true, doc);
-	expect(prompt).toContain("Editing Mode");
-	expect(prompt).not.toContain("Initial Build");
+	expect(prompt.startsWith(buildSolutionsArchitectPrompt())).toBe(true);
+	expect(prompt.startsWith(buildMcpAgentBuildPrompt())).toBe(false);
 	const appState = prompt.slice(prompt.lastIndexOf("## Current app state"));
 	expect(appState).toContain("Vaccine Tracker");
 	expect(appState).toContain(

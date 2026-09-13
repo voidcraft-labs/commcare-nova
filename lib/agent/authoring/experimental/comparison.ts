@@ -1,9 +1,14 @@
 import type { OpenAIProvider, OpenAIToolOptions } from "@ai-sdk/openai";
 import type { ToolSet } from "ai";
-import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
+import {
+	SHARED_TOOL_REGISTRY,
+	type SharedToolRegistryEntry,
+} from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
 import type { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
+import { prepareAuthoringInput } from "../input";
+import { projectAuthoringReadInContext } from "../output";
 import { nativePilotTools } from "./native";
 
 /** The baseline sends the current production grammar unchanged. Only operations
@@ -14,43 +19,55 @@ export function currentPilotTools(
 ): ToolSet {
 	return Object.fromEntries(
 		Object.entries(solutionsArchitectToolDefinitions()).map(
-			([name, definition]) => [
-				name,
-				{
-					...definition,
-					execute: async (input: unknown, options: { toolCallId: string }) => {
-						const entry = SHARED_TOOL_REGISTRY.find(
-							(entry) => entry.saName === name,
-						);
-						if (
-							!entry ||
-							entry.policy.readSets.length ||
-							entry.policy.capabilities.some(
-								(capability) =>
-									![
-										"canonical-blueprint-write",
-										"case-store-migration",
-									].includes(capability),
-							)
-						)
-							return {
-								error:
-									"This local comparison can only read or edit its disposable app.",
-							};
-						return workspace.invoke({
-							toolName: name,
-							requestId: options.toolCallId,
-							execute: async (ctx) => {
-								const outcome = await entry.tool.execute(
-									entry.tool.inputSchema.parse(input) as never,
-									ctx,
-								);
-								return outcome.kind === "read" ? outcome.data : outcome.result;
+			([name, definition]) =>
+				definition.type === "provider"
+					? [name, definition]
+					: [
+							name,
+							{
+								...definition,
+								execute: async (
+									input: unknown,
+									options: { toolCallId: string },
+								) => {
+									const entry: SharedToolRegistryEntry | undefined =
+										SHARED_TOOL_REGISTRY.find((entry) => entry.saName === name);
+									if (
+										!entry ||
+										entry.policy.readSets.length ||
+										entry.policy.capabilities.some(
+											(capability) =>
+												![
+													"canonical-blueprint-write",
+													"case-store-migration",
+												].includes(capability),
+										)
+									)
+										return {
+											error:
+												"This local comparison can only read or edit its disposable app.",
+										};
+									return workspace.invoke({
+										toolName: name,
+										requestId: options.toolCallId,
+										execute: async (ctx) => {
+											const outcome = await entry.tool.execute(
+												await prepareAuthoringInput({
+													toolName: name,
+													schema: entry.tool.inputSchema,
+													input,
+													ctx,
+												}),
+												ctx,
+											);
+											return outcome.kind === "read"
+												? projectAuthoringReadInContext(name, outcome.data, ctx)
+												: outcome.result;
+										},
+									});
+								},
 							},
-						});
-					},
-				},
-			],
+						],
 		),
 	);
 }

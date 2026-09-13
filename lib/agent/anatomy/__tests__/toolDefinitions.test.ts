@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
 	createDesignLoopTools,
@@ -20,7 +21,6 @@ import {
 } from "@/lib/agent/design/loop/tools";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import fixture from "./fixtures/promptDigests.json";
 
@@ -79,13 +79,16 @@ async function wireJsonSchema(schema: unknown): Promise<unknown> {
 }
 
 describe("Solutions Architect tool definitions", () => {
-	it("list askQuestions first, then every shared tool in registry order, all strict: false", () => {
+	it("lists hosted discovery and questions before deferred shared tools", () => {
 		const definitions = solutionsArchitectToolDefinitions();
 		expect(Object.keys(definitions)).toEqual([
+			"toolSearch",
 			"askQuestions",
 			...SHARED_TOOL_REGISTRY.map((entry) => entry.saName),
 		]);
-		for (const definition of Object.values(definitions)) {
+		for (const definition of Object.values(definitions).filter(
+			(definition) => definition.type !== "provider",
+		)) {
 			expect(definition.strict).toBe(false);
 		}
 	});
@@ -96,9 +99,13 @@ describe("Solutions Architect tool definitions", () => {
 			const definition = definitions[entry.saName];
 			expect(definition, entry.saName).toBeDefined();
 			expect(definition?.description).toBe(entry.tool.description);
-			const expected = await wireToolSchema(
-				entry.tool.inputSchema as Parameters<typeof wireToolSchema>[0],
-			).jsonSchema;
+			expect(definition?.providerOptions).toEqual({
+				openai: { deferLoading: true },
+			});
+			const expected = authoringToolSchema(
+				entry.saName,
+				entry.tool.inputSchema,
+			).json;
 			expect(
 				await wireJsonSchema(definition?.inputSchema),
 				entry.saName,

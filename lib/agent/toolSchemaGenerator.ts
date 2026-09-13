@@ -91,9 +91,7 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
 		.enum(kinds as readonly [FieldKind, ...FieldKind[]])
 		.describe(
-			"Field kind — pick the most specific for the data. The per-kind " +
-				'guide is the "Field kinds" section of the agent instructions: ' +
-				"the system prompt in chat, the get_agent_prompt tool on MCP.",
+			"Field type. Choose the most specific type for the answer being collected.",
 		);
 }
 
@@ -116,9 +114,7 @@ const FIELD_DOCS = {
 		"and in friendly XPath such as #form/first_name. It is independent " +
 		"from any case property the answer writes.",
 	label:
-		"User-facing label — markdown and hashtag references OK, never " +
-		'{curly} templates. An explicit "" makes a group transparent and a ' +
-		"repeat titleless.",
+		"Visible wording. An empty label makes a group transparent or a repeat titleless.",
 	hint: "Short helper text under the input.",
 	help: "Longer tap-to-expand guidance. Plain text.",
 	required: 'XPath condition making an answer mandatory — "true()" for always.',
@@ -140,7 +136,7 @@ const FIELD_DOCS = {
 		"default is seeded, so the default never shows.",
 	optionsSource:
 		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
-		'"lookup" with stable table/column UUIDs and an optional canonical filter. ' +
+		'"lookup" with table/column IDs and an optional row filter. ' +
 		"Each inline option's `value` is the stored answer token, a lowercase " +
 		"underscore-joined slug (prefer_not_to_say) with no spaces or quotes; " +
 		"its `label` carries the wording.",

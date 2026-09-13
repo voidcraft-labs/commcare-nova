@@ -55,6 +55,32 @@ function parse(source: string, doc: XPathPrintableDoc): XPathExpression {
 }
 
 describe("leaf classification", () => {
+	it("retains explicitly initialized paths in authored expressions without extending their scope to sibling expressions", () => {
+		const doc = makeDoc();
+		const authored = (source: string) =>
+			parseXPathExpressionWithIssues(
+				source,
+				fieldPathResolver(doc, FORM),
+				resolvableUserPropertySlug(doc),
+				undefined,
+				{ requireBoundNames: true },
+			);
+		for (const source of [
+			"instance('casedb')/casedb/case[@case_id = #form/age]/case_name",
+			"instance('commcaresession')/session/data/case_id",
+			"current()/../age",
+		]) {
+			const result = authored(source);
+			expect(result.issues, source).toEqual([]);
+			expect(result.expression).toEqual(parse(source, doc));
+		}
+		expect(
+			authored("age + instance('casedb')/casedb/case/age").issues,
+		).toMatchObject([{ source: "age" }]);
+		expect(authored("#form/missing").issues).toMatchObject([
+			{ kind: "unresolved-reference" },
+		]);
+	});
 	it("resolves #form refs to field-ref leaves, full path only", () => {
 		const doc = makeDoc();
 		expect(parse("#form/age", doc).parts).toEqual([

@@ -4,14 +4,19 @@ The authoring boundary accepts the content an author wants to write. The canonic
 document still stores typed expressions, protected prose, and stable identities.
 Do not expose those storage structures merely because the reducer accepts them.
 
-The shared codecs and name scopes are implemented here but are not yet mounted
-on production SA, build, or MCP tools. Those still use their current canonical
-inputs. `text.ts` is also used by the isolated comparison. Mounting the complete
-interface, its read projections, and its current guidance is the next delivery
-step in `docs/plans/agent-authoring-quality.md`.
+The SA editor and shared MCP tools use this boundary in production. The build
+executor still uses its durable handle interface; its integration is a separate
+step in `docs/plans/agent-authoring-quality.md`. Both surfaces validate authored
+shapes, then prepare input inside the authorized, serialized workspace invocation.
+Canonical schemas and the existing commit gate remain authoritative.
+
+The editor mounts hosted OpenAI tool search and defers shared definitions. MCP
+publishes the same authored schemas; its client owns discovery. Detailed reference
+material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
+sets purpose, collaboration, and app-quality judgment without describing storage.
 
 `schema.ts` projects explicit canonical content families to authored values. It
-follows Zod's preserved refinement lineage; it never identifies content by a
+follows Zod's preserved refinement lineage, emits reusable definitions once, and it never identifies content by a
 property named `parts` or `label`. The schema walker binds values before the full
 canonical schema runs its refinements. Null and omission keep their existing
 meaning. Localized values need the current translation unit's `valueKind` to
@@ -60,9 +65,8 @@ rather than becoming opaque text that renames cannot maintain.
 
 Wording is Markdown. Answer interpolation is parsed at this boundary and printed
 back to the same authoring representation. Literal braces and backslashes must
-round-trip. Conditions use Nova's existing XPath grammar. The pilot's strict
-parser does not yet cover all advanced instance and attribute paths; do not
-promote that subset as a complete replacement.
+round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths retain their existing XPath semantics.
+Connect wrapper paths are admitted by the canonical Connect validator.
 
 Preparation and canonical admission run inside `CanonicalMutationWorkspace`.
 Authorization, reference validation, valid atomic writes, and concurrency remain
@@ -73,7 +77,11 @@ for its process; production must use the durable call ledger.
 Read results use the same authored content shapes accepted by edits. Preserve
 existing child identities when replacing content. A read/edit cycle must not
 silently drop media, validation messages, navigation, or option identities.
-The pilot refuses option replacement with media until it can preserve it.
+Production option edits preserve identity and attached media by retained identity
+or unique value. Field reads expose the editable validation, repeat, and choice
+shapes; option media remains a separate read-only fact. Translation source proofs
+are opaque SHA-256 transport tokens, resolved against the current canonical proof
+before the original concurrency checks. No second proof is persisted.
 
 The local evaluator captures credential-free request bodies in a private folder,
 limits model steps and requests, records conservative spend, and soft-deletes its
