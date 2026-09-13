@@ -343,6 +343,55 @@ it("uses each translation unit's own form and preserves inserted identities", as
 			},
 		],
 	});
+	await h.call("editField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "hello",
+		updates: { label: "Hello, {{name}}!" },
+	});
+	const review = z
+		.object({
+			items: z.array(
+				z.object({
+					sourceFingerprint: z.string(),
+					status: z.literal("out-of-date"),
+					explicit: z.object({
+						sourceFingerprint: z.string(),
+						value: z.string(),
+					}),
+				}),
+			),
+		})
+		.parse(
+			await h.call("getTranslatableContent", {
+				language: { language: "fra" },
+				query: "Hello",
+				limit: 10,
+			}),
+		).items[0];
+	expect(review.explicit.sourceFingerprint).toBe(source.sourceFingerprint);
+	expect(review.sourceFingerprint).not.toBe(review.explicit.sourceFingerprint);
+	await h.call("updateTranslations", {
+		language: { language: "fra" },
+		updates: [
+			{
+				operation: "review",
+				unitId: unit.id,
+				expectedSourceFingerprint: review.explicit.sourceFingerprint,
+				expectedCurrentSourceFingerprint: review.sourceFingerprint,
+				expectedValue: review.explicit.value,
+			},
+		],
+	});
+	expect(
+		await h.call("getTranslatableContent", {
+			language: { language: "fra" },
+			query: "Hello",
+			limit: 10,
+		}),
+	).toMatchObject({
+		items: [{ status: "ready", effective: "Bonjour {{name}}" }],
+	});
 });
 
 it("binds Search rules to renamed answers and seeds a new no-matches form from them", async () => {

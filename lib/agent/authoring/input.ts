@@ -3,8 +3,11 @@ import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import { parseAuthoredXPath } from "@/lib/doc/expressionText";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import {
+	appLanguageIdentitySchema,
 	type BlueprintDoc,
+	effectiveAppLocalization,
 	fieldKinds,
+	languageTag,
 	moduleUuidOfForm,
 	orderedCaseOperations,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
@@ -345,6 +348,17 @@ async function prepareInput<S extends z.ZodType>(args: {
 		toolName === "updateTranslations" ? translationUnitsById(doc) : undefined;
 	const translated = new Map<number, TranslationUnit>();
 	if (units) {
+		const identity = appLanguageIdentitySchema.parse(
+			Object.fromEntries(
+				Object.entries(record.parse(input.language)).filter(
+					([, value]) => value != null,
+				),
+			),
+		);
+		const entries =
+			effectiveAppLocalization(doc.localization).translations[
+				languageTag(identity)
+			] ?? {};
 		const updates = records.parse(input.updates);
 		input.updates = updates;
 		for (const [index, update] of updates.entries()) {
@@ -361,11 +375,15 @@ async function prepareInput<S extends z.ZodType>(args: {
 				"expectedCurrentSourceFingerprint",
 			]) {
 				if (update[key] === undefined) continue;
-				if (update[key] !== authoringFingerprint(unit.sourceFingerprint))
+				const proof =
+					key === "expectedSourceFingerprint" && update.operation === "review"
+						? entries[unit.id]?.sourceFingerprint
+						: unit.sourceFingerprint;
+				if (proof === undefined || update[key] !== authoringFingerprint(proof))
 					throw new AuthoringInputError(
 						"The source text changed. Read its current translation entry before editing it.",
 					);
-				update[key] = unit.sourceFingerprint;
+				update[key] = proof;
 			}
 			const owner = unit.owner;
 			scopes.push({
