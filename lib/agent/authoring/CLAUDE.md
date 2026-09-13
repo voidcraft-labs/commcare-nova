@@ -9,6 +9,8 @@ validate authored shapes and prepare input inside the authorized, serialized
 workspace invocation. The executor performs durable replay lookup first, then
 supplies accepted module/form construction facts and records their exact
 implementation bindings alongside the staged mutations.
+Accepted catalog preparation uses canonical literal text and the same creation
+identity allocator; it does not reinterpret accepted labels as answer references.
 Canonical schemas and the existing commit gate remain authoritative.
 
 The editor and executor mount hosted OpenAI tool search and defers shared definitions. MCP

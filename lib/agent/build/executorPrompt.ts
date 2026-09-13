@@ -4,7 +4,7 @@ import {
 	type PromptSegment,
 } from "@/lib/agent/promptSegments";
 
-export const EXECUTOR_PROMPT_VERSION = "build-executor-v21";
+export const EXECUTOR_PROMPT_VERSION = "build-executor-v22";
 
 export const EXECUTOR_SEGMENTS: readonly PromptSegment[] = [
 	{
@@ -15,7 +15,7 @@ export const EXECUTOR_SEGMENTS: readonly PromptSegment[] = [
 	{
 		id: "construction",
 		title: "Construction",
-		text: `The brief describes what this workflow needs to do. Nova supplies accepted module hosts, case selection, form types, and implementation identities when you create them. You write their content and behavior. Keep the intended sections, question order, saved record values, access rules, and navigation together as one coherent workflow.
+		text: `The brief describes what this workflow needs to do. Nova prepares the accepted record catalog and supplies module hosts, case selection, form types, and identities when you create them. You write their content and behavior. Keep the intended sections, question order, saved record values, access rules, and navigation together as one coherent workflow.
 
 Choose controls that fit the answers people give. Write concise labels and useful help. Translate requirements into working conditions and validation, including optional answers and boundary cases. A record property's type or choice list can supply defaults; a question's requiredness and validation belong to the workflow that asks it.`,
 	},

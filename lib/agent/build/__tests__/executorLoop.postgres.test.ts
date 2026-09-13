@@ -23,6 +23,7 @@ import {
 	type ChangeSetWorkspaceHost,
 } from "@/lib/agent/change-set/workspace";
 import {
+	did,
 	fixtureValue,
 	makeWorkflowChainContract,
 } from "@/lib/agent/design/__tests__/fixtures";
@@ -37,6 +38,10 @@ import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import {
+	acceptedRecordCatalogInput,
+	prepareAcceptedRecordCatalog,
+} from "../acceptedRecordCatalog";
 import {
 	budgetForSlice,
 	remainingWallClockMs,
@@ -126,7 +131,7 @@ function respondWithCalls(response: ServerResponse, calls: readonly Call[]) {
 	response.end();
 }
 
-async function fixture() {
+async function fixture(includeBeds = false) {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
 	const claim = await createAndClaimDesignSessionRun({
 		actorUserId: ACTOR,
@@ -144,7 +149,15 @@ async function fixture() {
 	fixtureValue(
 		fixtureValue(contract.records[0], "record").properties[0],
 		"property",
-	).name = "Case name";
+	).name = "case_name";
+	if (includeBeds)
+		contract.records[0].properties.push({
+			id: did(900),
+			name: "beds",
+			meaning: "Number of beds",
+			dataShape: "integer",
+			sensitivity: "ordinary",
+		});
 	const artifacts = await persistAcceptedDesignFixture({
 		designSessionId: claim.designSessionId,
 		authority,
@@ -257,24 +270,6 @@ async function fixture() {
 		"case type",
 	);
 	const calls = {
-		schema: {
-			id: "schema",
-			name: "generateSchema",
-			input: {
-				caseTypes: [
-					{
-						name: caseType,
-						properties: [
-							{
-								name: "case_name",
-								label: "Name",
-								data_type: "text",
-							},
-						],
-					},
-				],
-			},
-		},
 		module: {
 			id: "module",
 			name: "createModule",
@@ -399,6 +394,7 @@ async function fixture() {
 		changeSet,
 		contextSpec,
 		caseType,
+		brief,
 		calls,
 		run,
 		openContext,
@@ -415,27 +411,101 @@ function results(messages: readonly ModelMessage[]) {
 }
 
 describe("persisted executor Responses journeys", () => {
-	it("repairs a catalog rule after recovery and publishes only the corrected candidate", async () => {
+	it("prepares records before the first model request and replays without replacing later refinements", async () => {
 		const f = await fixture();
-		const schema = structuredClone(f.calls.schema);
-		const definition: Call = {
-			...schema,
+		const context = await f.openContext();
+		const append = fixtureValue(context.append, "durable append");
+		const lost = new Error("Setup acknowledgement lost");
+		context.append = async (key, messages) => {
+			await append(key, messages);
+			throw lost;
+		};
+		await expect(
+			f.run(
+				async () => {
+					throw new Error("Setup must finish before a model request");
+				},
+				{ context },
+			),
+		).rejects.toBe(lost);
+		const original = await loadChangeSetSteps(f.changeSet.id);
+		expect(original.map((step) => step.toolName)).toEqual(["generateSchema"]);
+		const workspace = await f.reopenWorkspace();
+		const wrongParent = acceptedRecordCatalogInput(f.brief);
+		wrongParent.caseTypes[0].parent_type = "unrelated";
+		const beforeRefusal = workspace.currentSnapshot();
+		await expect(
+			workspace.stageDispatch({
+				toolName: "generateSchema",
+				requestId: "wrong-parent",
+				input: wrongParent,
+				prepare: prepareAcceptedRecordCatalog,
+			}),
+		).rejects.toThrow("different parent");
+		expect(workspace.currentSnapshot()).toEqual(beforeRefusal);
+		const changed = await workspace.stageDispatch({
+			toolName: "updateCaseProperty",
+			requestId: "refine-label",
 			input: {
-				caseTypes: [
-					{
-						...schema.input.caseTypes[0],
-						properties: [
-							...schema.input.caseTypes[0].properties,
-							{
-								name: "beds",
-								label: "Beds",
-								data_type: "int",
-								validation: "between(., 1, 50)",
-								validation_msg: "Enter 1 to 50.",
-							},
-						],
-					},
-				],
+				caseType: f.caseType,
+				property: "case_name",
+				updates: { label: "Plot name" },
+			},
+		});
+		expect(changed.result).toMatchObject({ result: { ok: true } });
+		const later = {
+			toolName: "generateSchema",
+			requestId: "later-workflow-catalog",
+			input: acceptedRecordCatalogInput(f.brief),
+			prepare: prepareAcceptedRecordCatalog,
+		};
+		const unchanged = await workspace.stageDispatch(later);
+		expect(unchanged.result).toMatchObject({
+			mutations: [],
+			result: { ok: true, unchanged: [f.caseType] },
+		});
+		expect(unchanged.receipt).toBeDefined();
+		const replaced = await f.reopenWorkspace();
+		expect((await replaced.stageDispatch(later)).replayed).toBe(true);
+		const outcome = await withResponsesPeer(
+			(_request, response) =>
+				respondWithCalls(response, [f.calls.module, f.calls.finish]),
+			(provider) =>
+				f.run(
+					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+				),
+		);
+		expect(outcome.kind).toBe("committed");
+		expect((await loadChangeSetSteps(f.changeSet.id))[0]).toEqual(original[0]);
+		const canonical = await loadCanonicalBlueprintAtSequence(h.db(), {
+			appId: f.proposedAppId,
+			seq: 1,
+			expectedDigest: null,
+		});
+		expect(canonical.doc.caseTypes?.[0].properties[0].label).toEqual({
+			parts: [{ kind: "text", text: "Plot name" }],
+		});
+		expect(
+			await h
+				.db()
+				.selectFrom("design_slice_attempts")
+				.select(["model_steps_used", "mutation_calls_used"])
+				.where("id", "=", f.attempt.id)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ model_steps_used: 1, mutation_calls_used: 2 });
+	});
+	it("repairs a catalog rule after recovery and publishes only the corrected candidate", async () => {
+		const f = await fixture(true);
+		const definition: Call = {
+			id: "bad-rule",
+			name: "updateCaseProperty",
+			input: {
+				caseType: f.caseType,
+				property: "beds",
+				updates: {
+					validation: "between(., 1, 50)",
+					validation_msg: "Enter 1 to 50.",
+				},
 			},
 		};
 		const first = await withResponsesPeer(
@@ -520,6 +590,7 @@ describe("persisted executor Responses journeys", () => {
 		const steps = await loadChangeSetSteps(f.changeSet.id);
 		expect(steps.map((step) => step.toolName)).toEqual([
 			"generateSchema",
+			"updateCaseProperty",
 			"createModule",
 			"updateCaseProperty",
 		]);
@@ -543,7 +614,7 @@ describe("persisted executor Responses journeys", () => {
 		const release = Promise.withResolvers<void>();
 		context.append = async (key, messages) => {
 			await append(key, messages);
-			if (results(messages).some((part) => part.toolCallId === "schema")) {
+			if (results(messages).some((part) => part.toolCallId === "module")) {
 				entered.resolve();
 				await release.promise;
 			}
@@ -552,7 +623,6 @@ describe("persisted executor Responses journeys", () => {
 			(_request, response) => {
 				requests += 1;
 				respondWithCalls(response, [
-					f.calls.schema,
 					f.calls.module,
 					f.calls.finish,
 					f.calls.suffix,
@@ -568,7 +638,7 @@ describe("persisted executor Responses journeys", () => {
 						entered.promise,
 						running.then(() => {
 							throw new Error(
-								"Executor ended before the durable schema result",
+								"Executor ended before the durable module result",
 							);
 						}),
 					]);
@@ -576,13 +646,13 @@ describe("persisted executor Responses journeys", () => {
 					expect(stored.completedStepKeys.size).toBe(1);
 					expect(
 						results(stored.messages).map((part) => part.toolCallId),
-					).toEqual(["schema"]);
+					).toEqual(["module"]);
 					const reopened = await f.reopenWorkspace();
-					expect(reopened.currentSnapshot().revision).toBe(1);
+					expect(reopened.currentSnapshot().revision).toBe(2);
 					expect(reopened.currentSnapshot().doc.caseTypes).toMatchObject([
 						{ name: f.caseType, properties: [{ name: "case_name" }] },
 					]);
-					expect(reopened.currentSnapshot().doc.moduleOrder).toEqual([]);
+					expect(reopened.currentSnapshot().doc.moduleOrder).toHaveLength(1);
 					expect(
 						await h
 							.db()
@@ -616,7 +686,6 @@ describe("persisted executor Responses journeys", () => {
 		]);
 		const stored = await openDesignModelContext(f.contextSpec);
 		expect(results(stored.messages).map((part) => part.toolCallId)).toEqual([
-			"schema",
 			"module",
 			"finish",
 			"suffix",
@@ -636,18 +705,14 @@ describe("persisted executor Responses journeys", () => {
 		);
 		context.append = async (key, messages) => {
 			await append(key, messages);
-			if (results(messages).some((part) => part.toolCallId === "schema"))
+			if (results(messages).some((part) => part.toolCallId === "module"))
 				throw lost;
 		};
 		let requests = 0;
 		await withResponsesPeer(
 			(_request, response) => {
 				requests += 1;
-				respondWithCalls(response, [
-					f.calls.schema,
-					f.calls.module,
-					f.calls.finish,
-				]);
+				respondWithCalls(response, [f.calls.module, f.calls.finish]);
 			},
 			async (provider) => {
 				const step = productionExecutorStep(
@@ -655,12 +720,15 @@ describe("persisted executor Responses journeys", () => {
 				);
 				await expect(f.run(step, { context })).rejects.toBe(lost);
 				const before = await loadChangeSetSteps(f.changeSet.id);
-				expect(before.map((step) => step.toolName)).toEqual(["generateSchema"]);
+				expect(before.map((step) => step.toolName)).toEqual([
+					"generateSchema",
+					"createModule",
+				]);
 				const replacement = await f.openContext();
 				expect(replacement.contextId).toBe(context.contextId);
 				expect(
 					results(replacement.messages).map((part) => part.toolCallId),
-				).toEqual(["schema"]);
+				).toEqual(["module"]);
 				await expect(
 					f.run(step, { context: replacement }),
 				).resolves.toMatchObject({ kind: "committed" });
@@ -722,11 +790,7 @@ describe("persisted executor Responses journeys", () => {
 				request.on("end", () => {
 					requests.push(JSON.parse(body));
 					if (requests.length === 1)
-						respondWithCalls(response, [
-							f.calls.schema,
-							invalid,
-							f.calls.suffix,
-						]);
+						respondWithCalls(response, [invalid, f.calls.suffix]);
 					else if (requests.length === 2)
 						respondWithCalls(response, [f.calls.module, f.calls.finish]);
 					else respondWithObject(response, "Unexpected extra request");
@@ -785,11 +849,7 @@ describe("persisted executor Responses journeys", () => {
 		const f = await fixture();
 		const outcome = await withResponsesPeer(
 			(_request, response) =>
-				respondWithCalls(response, [
-					f.calls.schema,
-					f.calls.module,
-					f.calls.finish,
-				]),
+				respondWithCalls(response, [f.calls.module, f.calls.finish]),
 			(provider) =>
 				f.run(
 					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
@@ -814,7 +874,6 @@ describe("persisted executor Responses journeys", () => {
 		).toEqual([]);
 		const stored = await openDesignModelContext(f.contextSpec);
 		expect(results(stored.messages).map((part) => part.toolCallId)).toEqual([
-			"schema",
 			"module",
 			"finish",
 		]);
@@ -897,7 +956,6 @@ describe("persisted executor Responses journeys", () => {
 				requests += 1;
 				if (requests === 1)
 					respondWithCalls(response, [
-						f.calls.schema,
 						requiredModule,
 						{ ...f.calls.finish, id: "refused_finish" },
 						f.calls.suffix,
@@ -937,7 +995,7 @@ describe("persisted executor Responses journeys", () => {
 	it.each(["reported", "repeated"] as const)(
 		"grounds a %s blocker in the current private candidate before repair",
 		async (mode) => {
-			const f = await fixture();
+			const f = await fixture(true);
 			const table = await createLookupTable(LOOKUP_SCOPE, {
 				name: "Destinations",
 				tag: "destinations",
@@ -977,25 +1035,17 @@ describe("persisted executor Responses journeys", () => {
 					],
 				},
 			};
-			const caseType = f.calls.schema.input.caseTypes[0].name;
+			const caseType = f.caseType;
 			const schema: Call = {
-				...f.calls.schema,
+				id: "bad-rule",
+				name: "updateCaseProperty",
 				input: {
-					caseTypes: [
-						{
-							name: caseType,
-							properties: [
-								...f.calls.schema.input.caseTypes[0].properties,
-								{
-									name: "beds",
-									label: "Beds",
-									data_type: "int",
-									validation: "between(., 1, 50)",
-									validation_msg: "Enter 1 to 50.",
-								},
-							],
-						},
-					],
+					caseType,
+					property: "beds",
+					updates: {
+						validation: "between(., 1, 50)",
+						validation_msg: "Enter 1 to 50.",
+					},
 				},
 			};
 			const report: Call = {
@@ -1042,7 +1092,7 @@ describe("persisted executor Responses journeys", () => {
 						{
 							async resolveBlocker(args) {
 								helperCalls += 1;
-								expect(args.candidate.revision).toBe(2);
+								expect(args.candidate.revision).toBe(3);
 								expect(args.candidate.implementation.unreadable).toEqual([]);
 								expect(
 									args.candidate.implementation.modules[0].forms[0].definition,
@@ -1094,7 +1144,7 @@ describe("persisted executor Responses journeys", () => {
 			expect(helperCalls).toBe(1);
 			expect(outcome.kind).toBe("committed");
 			const steps = await loadChangeSetSteps(f.changeSet.id);
-			expect(steps).toHaveLength(3);
+			expect(steps).toHaveLength(4);
 		},
 	);
 
@@ -1107,8 +1157,8 @@ describe("persisted executor Responses journeys", () => {
 				respondWithCalls(response, [
 					{
 						id: `invalid_${requests}`,
-						name: "generateSchema",
-						input: { caseTypes: "invalid" },
+						name: "updateCaseProperty",
+						input: { property: "invalid" },
 					},
 				]);
 			},
@@ -1138,7 +1188,9 @@ describe("persisted executor Responses journeys", () => {
 			blocker_reports_used: 0,
 			model_steps_used: 3,
 		});
-		expect(await loadChangeSetSteps(f.changeSet.id)).toEqual([]);
+		expect(
+			(await loadChangeSetSteps(f.changeSet.id)).map((step) => step.toolName),
+		).toEqual(["generateSchema"]);
 	});
 
 	it("refuses prose-only completion after three actual Responses steps", async () => {

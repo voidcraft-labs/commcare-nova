@@ -10,6 +10,10 @@ import {
 	acceptedEntryPointIssues,
 	realizedEntryPointTarget,
 } from "./acceptedEntryPointParity";
+import {
+	acceptedRecordCatalogInput,
+	prepareAcceptedRecordCatalog,
+} from "./acceptedRecordCatalog";
 /**
  * The slice executor loop (the plan's §13.5–§13.9) — the bounded, server-owned
  * machine that turns one accepted Build Slice into one committed canonical
@@ -1352,22 +1356,6 @@ export async function runSliceExecutor(
 		visit(messages);
 		return count;
 	};
-	const [briefMessage, candidateMessage, focusMessage] =
-		executorSliceStartMessages(brief, workspace);
-	if (briefMessage !== undefined)
-		appendMessages(`slice-brief:${scopeKey}`, briefMessage);
-	if (candidateMessage !== undefined) {
-		appendMessages(
-			`candidate:${scopeKey}:${canonicalJsonDigest(candidateMessage)}`,
-			candidateMessage,
-		);
-	}
-	if (focusMessage !== undefined) {
-		appendMessages(
-			`focus:${scopeKey}:${canonicalJsonDigest(focusMessage)}`,
-			focusMessage,
-		);
-	}
 
 	const emitOutcome = async (
 		call: NativeCall,
@@ -1417,6 +1405,52 @@ export async function runSliceExecutor(
 		// that owns cancellation, using the original absolute deadline.
 		armDeadlineTimer();
 		args.onProgress?.("building");
+		const catalog = acceptedRecordCatalogInput(brief);
+		if (catalog.caseTypes.length > 0) {
+			const requestId = `accepted-record-catalog:${brief.slice.id}`;
+			if (
+				(await claimBudget(
+					"mutationCalls",
+					allowedMutationCalls(),
+					requestId,
+				)) === "exhausted"
+			)
+				return exhausted("mutation-calls");
+			const staged = await awaitWithAbort(
+				workspace.stageDispatch({
+					toolName: "generateSchema",
+					requestId,
+					input: catalog,
+					deadlineAt,
+					prepare: prepareAcceptedRecordCatalog,
+				}),
+				boundedSignal,
+			);
+			const result = projectToolResult(staged.result, workspace);
+			if (resultHasError(result))
+				return {
+					kind: "protocol-failure",
+					code: "accepted-record-catalog-rejected",
+					message: (result as { error: string }).error,
+				};
+		}
+
+		const [briefMessage, candidateMessage, focusMessage] =
+			executorSliceStartMessages(brief, workspace);
+		if (briefMessage !== undefined)
+			appendMessages(`slice-brief:${scopeKey}`, briefMessage);
+		if (candidateMessage !== undefined) {
+			appendMessages(
+				`candidate:${scopeKey}:${canonicalJsonDigest(candidateMessage)}`,
+				candidateMessage,
+			);
+		}
+		if (focusMessage !== undefined) {
+			appendMessages(
+				`focus:${scopeKey}:${canonicalJsonDigest(focusMessage)}`,
+				focusMessage,
+			);
+		}
 		for (;;) {
 			await persistence;
 			const compacted = projectModelHistoryFromNewestCompaction(messages);
@@ -2215,31 +2249,6 @@ export function compositionAdmissionIssue(
 				(accepted.ignoreDisplayConditions === true)
 		)
 			return "addEntryPoint must use an exact entryPointRealization destination, ID, and display-condition behavior from this brief.";
-		return null;
-	}
-	if (toolName === "generateSchema") {
-		const caseTypes = Array.isArray(object.caseTypes) ? object.caseTypes : [];
-		const expectedByKey = new Map(
-			brief.recordRealizations.map((record) => [
-				record.blueprintCaseType,
-				record,
-			]),
-		);
-		for (const caseType of caseTypes) {
-			const candidate = rawObject(caseType);
-			if (candidate === null || typeof candidate.name !== "string") continue;
-			if (!expectedByKey.has(candidate.name)) {
-				return `Record case-type names are deterministic compiler keys, not display names. Use the exact accepted lowering: ${brief.recordRealizations.map((record) => `${record.displayName} -> ${record.blueprintCaseType}`).join(", ")}.`;
-			}
-			const expectedParent = expectedByKey.get(
-				candidate.name,
-			)?.parentBlueprintCaseType;
-			const suppliedParent =
-				candidate.parent_type === null ? undefined : candidate.parent_type;
-			if (suppliedParent !== expectedParent) {
-				return `Record parent_type must use the exact accepted Blueprint key${expectedParent === undefined ? " and this record has no accepted parent" : ` ${expectedParent}`}.`;
-			}
-		}
 		return null;
 	}
 	if (toolName === "configureCaseSelection") {

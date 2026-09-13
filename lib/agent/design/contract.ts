@@ -39,6 +39,7 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
+import { WRITABLE_STANDARD_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import {
 	lookupCellInputSchema,
@@ -1337,6 +1338,27 @@ export function designConstructionIssues(
 	}
 	contract.records.forEach((record, recordIndex) => {
 		record.properties.forEach((property, propertyIndex) => {
+			if (WRITABLE_STANDARD_CASE_PROPERTIES.has(property.name)) {
+				if (property.dataShape !== "text")
+					issues.push({
+						path: [
+							"records",
+							recordIndex,
+							"properties",
+							propertyIndex,
+							"dataShape",
+						],
+						message: `${property.name} is a text value. Use a separate property for other data shapes.`,
+					});
+				if (
+					record.properties.findIndex((item) => item.name === property.name) !==
+					propertyIndex
+				)
+					issues.push({
+						path: ["records", recordIndex, "properties", propertyIndex, "name"],
+						message: `A record has one ${property.name}. Combine its inputs or use distinct custom properties.`,
+					});
+			}
 			if (property.dataShape === "unknown") {
 				issues.push({
 					path: [

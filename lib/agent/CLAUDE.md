@@ -78,6 +78,23 @@ handoff: Nova owns the publish gate when a concrete target is selected.
 
 ## What lives here
 
+Before each executor slice, Nova derives the needed record catalog from accepted
+meaning: stable case and property keys, parent relationships, intrinsic types,
+and inline choices. `build/acceptedRecordCatalog.ts` stages that input through
+`generateSchema` in the ordinary private workspace, before the first model
+request. One stable receipt and budget claim make preparation recoverable.
+Existing properties keep their authored metadata; a satisfied declaration is a
+successful no-op with a durable receipt. Accepted wording is canonical literal
+prose, never parsed as authoring interpolation. Contextual requiredness,
+validation, and lookup binding remain with the forms that use them.
+
+The executor cannot declare or rename catalog keys; those are accepted construction
+decisions. Editor and MCP tools retain both capabilities. The full accepted record
+set determines property keys before a slice selects its relevant subset. Only
+explicit `case_name` and `external_id` names select standard scalar roles; a
+business property named `status` receives a distinct custom key. These two scalar
+roles must be unique per record and text-typed at construction admission.
+
 The build repair helper receives one accepted workflow brief, current private
 candidate, server diagnostics, builder report, and descriptions of the exact
 operations authorized for that slice. It uses the same readable content

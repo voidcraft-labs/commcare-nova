@@ -66,6 +66,7 @@ export type GenerateSchemaResult =
 			recorded: string[];
 			enriched: string[];
 			extended: string[];
+			unchanged?: string[];
 	  })
 	| { error: string };
 
@@ -212,8 +213,15 @@ export const generateSchemaTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error:
-							"Nothing was recorded — every supplied case type and property already exists with the same definition. Pass only properties that are not yet in the recorded model.",
+						ok: true,
+						recorded: [],
+						enriched: [],
+						extended: [],
+						unchanged: input.caseTypes.map((record) => record.name),
+						summary: {
+							subject: input.caseTypes.map((record) => record.name).join(", "),
+							count: 0,
+						},
 					},
 				};
 			}

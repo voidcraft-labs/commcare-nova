@@ -98,6 +98,21 @@ async function fixture() {
 }
 
 describe("record property authoring", () => {
+	it("declares an empty catalog and reports an unchanged declaration without another write", async () => {
+		const h = authoring();
+		const input = { caseTypes: [{ name: "plot", properties: [] }] };
+		expect(await h.call("generateSchema", input)).toMatchObject({
+			ok: true,
+			recorded: ["plot"],
+		});
+		const before = structuredClone(h.currentDoc());
+		expect(await h.call("generateSchema", input)).toMatchObject({
+			ok: true,
+			recorded: [],
+			unchanged: ["plot"],
+		});
+		expect(h.currentDoc()).toEqual(before);
+	});
 	it("reads and patches one exact definition while preserving other records and form content", async () => {
 		const h = await fixture();
 		const before = structuredClone(h.currentDoc());
