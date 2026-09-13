@@ -451,23 +451,19 @@ group and its requirements remain in that slice's brief. Completion still
 requires the exact nonempty committed receipts for the whole plan.
 Worker starting conditions describe the situation in which a task is useful;
 they do not schedule construction. Nova derives dependencies from forms, menu
-homes, selection and shared data definitions. It fixes ownership with the
-initial workflow first and design order breaking ties. Record catalogs belong
-to their first consumer, including list, in-form summary and property use and parent catalogs
-needed by a child, rather than the first workflow that saves a record instance.
-Menu membership is worker-facing meaning, not construction ownership. The
-planner may establish an accepted child list with the workflow that first writes
-its records, then add its own forms in their original workflow slices. Graph
-admission uses that same ownership derivation. Ownership is fixed before sorting
-construction dependencies, including each form's module, so scheduling cannot
-change which slice creates a home. Construction cycles and prerequisites for the
-initial workflow are rejected before acceptance. A direct child-record writer
-also gets an accepted viewer first, including a top-level history list. The
-planner keeps an already available home or schedules one feasible viewer
-before the writer, preferring a list that can exist without forms. It does not
-choose a later view whose prerequisites would create a cycle. Other views
-retain their task ownership; explicit creation of an unrelated record imposes
-no viewer dependency. The shared form-creation path
+homes, selection and shared data definitions. Record catalogs belong to their
+first consumer, including lists, in-form summaries, properties and parent catalogs
+needed by a child. Saving the first record instance need not own its definition.
+Menu membership is worker-facing meaning. Form-only homes belong to their first
+form; accepted lists are claimed when a ready workflow needs them. Readiness is
+read-only and checks menu homes, parent selection and any suitable child viewer.
+The initial workflow has priority, then design order settles ties. Claiming a
+list assigns its needed parent lists and records actual prior-owner dependencies.
+Other lists stay with their first participating workflow or a later parent-ready
+workflow. Later forms keep their own workflows. Graph admission and planning use
+this same derivation, rejecting construction cycles and prerequisites for the
+initial workflow. An unrelated record's explicit creation needs no viewer.
+The shared form-creation path
 converts a viewer into a form-bearing module in one admitted mutation batch;
 a no-matches registration keeps its existing case-list entry behavior.
 External actions are separate from Blueprint effects. Current plan admission

@@ -93,7 +93,7 @@ function childFormBeforeItsHome(childIndex = 1) {
 }
 
 describe("deterministic build planning", () => {
-	it("builds a delayed home before its form without changing menu order or ownership", () => {
+	it("builds the parent before a delayed home and keeps the home with its form", () => {
 		const contract = childFormBeforeItsHome();
 		const menuOrder = contract.moduleCompositions.map((module) => module.id);
 		const plan = deriveBuildPlan({
@@ -111,11 +111,7 @@ describe("deterministic build planning", () => {
 		expect(
 			homeSlice.constructionGroups.flatMap((group) => group.elements),
 		).toEqual(
-			expect.arrayContaining([
-				{ kind: "module-composition", id: did(4002) },
-				{ kind: "module-composition", id: did(4001) },
-				{ kind: "list", id: did(9005) },
-			]),
+			expect.arrayContaining([{ kind: "module-composition", id: did(4002) }]),
 		);
 		expect(formSlice.prerequisiteSliceIds).toContain(homeSlice.id);
 		expect(
@@ -123,7 +119,12 @@ describe("deterministic build planning", () => {
 		).toContainEqual({ kind: "form-composition", id: did(5001) });
 		expect(
 			formSlice.constructionGroups.flatMap((group) => group.elements),
-		).not.toContainEqual({ kind: "module-composition", id: did(4001) });
+		).toEqual(
+			expect.arrayContaining([
+				{ kind: "module-composition", id: did(4001) },
+				{ kind: "list", id: did(9005) },
+			]),
+		);
 		expect(contract.moduleCompositions.map((module) => module.id)).toEqual(
 			menuOrder,
 		);
@@ -279,6 +280,209 @@ describe("deterministic build planning", () => {
 			});
 		},
 	);
+
+	it.each([
+		{ reverseRecords: false, secondRegistration: false },
+		{ reverseRecords: true, secondRegistration: false },
+		{ reverseRecords: false, secondRegistration: true },
+		{ reverseRecords: true, secondRegistration: true },
+	])(
+		"schedules sibling writers independently of record order: %j",
+		({ reverseRecords, secondRegistration }) => {
+			const contract = makeWorkflowChainContract(4);
+			const [neutral, parent, related, sibling] = contract.records;
+			const [initial, firstWriter, secondWriter, registration] =
+				contract.workflows;
+			const [neutralHome, firstHome, secondHome, relatedHome] =
+				contract.moduleCompositions;
+			for (const child of [related, sibling]) {
+				child.parentRecordId = parent.id;
+				child.relationshipMeaning = "Each child belongs to its parent.";
+			}
+			firstWriter.recordEffects.push({
+				handle: "create_related",
+				recordId: related.id,
+				kind: "create",
+				writes: [],
+				outcome: "Save the related record.",
+			});
+			secondWriter.inputs[0].propertyId = parent.properties[0].id;
+			secondWriter.recordEffects[0].recordId = parent.id;
+			secondWriter.recordEffects[0].writes[0].propertyId =
+				parent.properties[0].id;
+			secondWriter.readback = [
+				{
+					recordId: parent.id,
+					purpose: "Review the parent",
+					propertyIds: [parent.properties[0].id],
+				},
+			];
+			secondWriter.recordEffects.push({
+				handle: "create_sibling",
+				recordId: sibling.id,
+				kind: "create",
+				writes: [],
+				outcome: "Save the sibling record.",
+			});
+			secondHome.hostRecordId = parent.id;
+			if (!secondRegistration) {
+				secondWriter.contextRecordId = parent.id;
+				secondWriter.recordEffects[0].kind = "update";
+				contract.formCompositions[2].mode = "selected-record";
+			}
+			registration.inputs[0].propertyId = related.properties[0].id;
+			registration.recordEffects[0].recordId = related.id;
+			registration.recordEffects[0].writes[0].propertyId =
+				related.properties[0].id;
+			registration.readback = [
+				{
+					recordId: related.id,
+					purpose: "Review related records",
+					propertyIds: [related.properties[0].id],
+				},
+			];
+			relatedHome.hostRecordId = related.id;
+			const relatedList = {
+				...makeContract().lists[0],
+				id: did(9800),
+				recordId: related.id,
+				actorIds: contract.actors.map((actor) => actor.id),
+				scanPropertyIds: [related.properties[0].id],
+				detailPropertyIds: [],
+				searchPropertyIds: [],
+			};
+			const siblingList = {
+				...relatedList,
+				id: did(9801),
+				recordId: sibling.id,
+				scanPropertyIds: [sibling.properties[0].id],
+			};
+			contract.lists = [relatedList, siblingList];
+			const relatedView = {
+				...structuredClone(relatedHome),
+				id: did(9802),
+				role: "queue-only" as const,
+				workflowIds: [secondWriter.id],
+				listIds: [relatedList.id],
+				parentModuleCompositionId: secondHome.id,
+			};
+			const siblingView = {
+				...relatedView,
+				id: did(9803),
+				hostRecordId: sibling.id,
+				workflowIds: [firstWriter.id],
+				listIds: [siblingList.id],
+				parentModuleCompositionId: firstHome.id,
+			};
+			contract.moduleCompositions = [
+				neutralHome,
+				firstHome,
+				siblingView,
+				secondHome,
+				relatedView,
+				relatedHome,
+			];
+			contract.records = [
+				...(reverseRecords ? [sibling, related] : [related, sibling]),
+				parent,
+				neutral,
+			];
+			const plan = deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			});
+			expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+				initial.id,
+				registration.id,
+				firstWriter.id,
+				secondWriter.id,
+			]);
+			const beforeWriter = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === registration.id),
+				"independent registration",
+			);
+			const first = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === firstWriter.id),
+				"first writer",
+			);
+			const second = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === secondWriter.id),
+				"second writer",
+			);
+			expect(first.prerequisiteSliceIds).toContain(beforeWriter.id);
+			expect(second.prerequisiteSliceIds).toContain(first.id);
+			expect(first.prerequisiteSliceIds).not.toContain(second.id);
+		},
+	);
+
+	it("establishes a shared child list with the writer whose menu is ready first", () => {
+		const contract = makeWorkflowChainContract(3);
+		const [, parent, child] = contract.records;
+		const [initial, laterWriter, firstWriter] = contract.workflows;
+		const [neutralHome, laterHome, firstHome] = contract.moduleCompositions;
+		child.parentRecordId = parent.id;
+		child.relationshipMeaning = "Each child belongs to its parent.";
+		firstWriter.inputs[0].propertyId = parent.properties[0].id;
+		firstWriter.recordEffects[0].recordId = parent.id;
+		firstWriter.recordEffects[0].writes[0].propertyId = parent.properties[0].id;
+		firstWriter.readback = [
+			{
+				recordId: parent.id,
+				purpose: "Review the parent",
+				propertyIds: [parent.properties[0].id],
+			},
+		];
+		firstHome.hostRecordId = parent.id;
+		laterHome.parentModuleCompositionId = firstHome.id;
+		for (const writer of [laterWriter, firstWriter])
+			writer.recordEffects.push({
+				handle: "create_child",
+				recordId: child.id,
+				kind: "create",
+				writes: [],
+				outcome: "Save a child with its parent.",
+			});
+		const list = {
+			...makeContract().lists[0],
+			id: did(9900),
+			recordId: child.id,
+			actorIds: contract.actors.map((actor) => actor.id),
+			scanPropertyIds: [child.properties[0].id],
+			detailPropertyIds: [],
+			searchPropertyIds: [],
+		};
+		contract.lists = [list];
+		const childHome = {
+			...firstHome,
+			id: did(9901),
+			hostRecordId: child.id,
+			role: "queue-only" as const,
+			workflowIds: [laterWriter.id],
+			listIds: [list.id],
+		};
+		contract.moduleCompositions = [
+			neutralHome,
+			firstHome,
+			laterHome,
+			childHome,
+		];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+		});
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+			initial.id,
+			firstWriter.id,
+			laterWriter.id,
+		]);
+		const first = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === firstWriter.id),
+			"first ready writer",
+		);
+		expect(
+			first.constructionGroups.flatMap((group) => group.elements),
+		).toContainEqual({ kind: "module-composition", id: childHome.id });
+	});
 
 	it("builds a record catalog for its first consumer while preserving worker starting conditions", () => {
 		const contract = makeContract();
@@ -437,9 +641,15 @@ describe("deterministic build planning", () => {
 		const prerequisites = childSlice.prerequisiteSliceIds.map(
 			(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
 		);
-		expect(prerequisites).toEqual(
-			expect.arrayContaining([parentOwner.id, parentFormOwner.id]),
-		);
+		expect(prerequisites).toEqual([parentFormOwner.id]);
+		expect(
+			plan.slices
+				.find((slice) => slice.workflowId === parentFormOwner.id)
+				?.constructionGroups.flatMap((group) => group.elements),
+		).toContainEqual({
+			kind: "module-composition",
+			id: parent.id,
+		});
 	});
 
 	it.each([false, true])(

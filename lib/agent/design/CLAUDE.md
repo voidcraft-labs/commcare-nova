@@ -166,21 +166,21 @@ valid direct Builder or MCP edit.
   external requirement as an element. `constructionOwnership.ts` supplies the
   same workflow order and module ownership to graph admission and planning.
   A form-only home belongs to its first form's workflow. A home with an accepted
-  list can be created before its forms: a child is scheduled after its parent
-  selection exists, and can move to the first workflow that needs its viewer. Its list and list-only properties travel with that owner; its later
-  forms retain their own workflows. Authored workflow membership stays unchanged.
+  list can exist before its forms. The scheduler walks ready workflows with the
+  initial workflow first and design order breaking ties. Readiness does not
+  mutate ownership: forms and read tasks need their menu homes, and a direct
+  child writer needs any available or establishable viewer. Claiming a list
+  also claims any needed parent list and records the parent-selection dependency.
+  The list and its properties travel with that owner; later forms retain their
+  own workflows. An unused list stays with its first participating workflow or
+  a later workflow that establishes its parent selection. Authored membership
+  stays unchanged. This avoids choices that depend on record order or assign a
+  shared viewer to a writer whose menu is not ready.
   The model describes worker `startingConditions`; it does not supply construction
-  dependency IDs. Ownership is fixed with the initial workflow first and design
-  order as the tie-breaker before construction dependencies are sorted. Each form depends on its module owner; parent placement, parent
-  selection and child writers supply the other dependencies. Graph admission
-  rejects construction cycles and any prerequisite for the initial workflow.
-  A direct child-record writer also depends on an accepted viewer regardless of
-  menu nesting. Keep an already available home; otherwise prefer a list that
-  can be established without forms, then a top-level home. Candidate viewer
-  dependencies must leave a feasible order with no initial-workflow dependency.
-  Other views keep their task ownership. `childRecordConstruction.ts` identifies
-  these writers through the actual direct-parent relationship; creating an
-  unrelated record does not require a viewer.
+  dependency IDs. Graph admission rejects construction cycles and any prerequisite
+  for the initial workflow. `childRecordConstruction.ts` identifies writers through
+  the actual direct-parent relationship; an unrelated record's explicit creation
+  does not require a viewer.
   Catalog entries belong to their first consumer, including lists, properties
   and child catalogs. `workflowReferences.ts` supplies the same typed data-use
   traversal to planning and briefs, including flat and grouped in-form record
