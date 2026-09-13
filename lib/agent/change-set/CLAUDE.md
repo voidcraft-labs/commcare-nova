@@ -37,8 +37,9 @@ gate, and integrity services every other write uses.
   still replays its original receipt — the receipt, not prose, is the
   replay contract). If a stored receipt advanced beyond this workspace, it
   first rehydrates the durable steps and handles before serving that receipt.
-  It also owns handle declaration/resolution against a scratch table
-  merged only when the step commits, automatic read-set capture, the
+  Authored preparation runs after replay lookup against the serialized context.
+  Server-owned implementation bindings use a scratch table merged only when
+  the step commits. The workspace also owns automatic read-set capture, the
   batch-exclusive fence, and the REAL whole-document evaluator whose
   findings land on the receipt as compact fingerprints.
   `adoptAuthoritativeSnapshot` is a protocol error here — a private overlay
@@ -75,44 +76,22 @@ gate, and integrity services every other write uses.
   sequence plus the admitted suffix, digest-proved via the gate-free
   bounded fold in `lib/db/canonicalMutationFold.ts`) replayed through the
   durable steps. Caches are discardable; replay is the authority.
-- `handles.ts` / `stagingProjection.ts` — the private symbol table. A
-  handle reference is EXACTLY the one-key `{ "handle": "@name" }` object,
-  resolved structurally before the ORIGINAL tool schema re-parses the
-  resolved input; prose is never searched, and no canonical tool schema
-  owns a `handle` property (a source test proves the collision freedom).
-  `STAGING_PROJECTION_DECISIONS` is the reviewed handle-eligibility
-  classification over the identity-pointer registry — only Blueprint-entity
-  families are handle-eligible; app/Project/media/lookup/location/external
-  identities stay canonical. Executor-facing `uuid | { handle }` wire
-  schemas emit from this map in the executor unit. Every creator declares in
-  its existing canonical identity slot; worker properties, user types,
-  personas, and place-information properties use `userPropertyUuid`,
-  `userTypeUuid`, `personaUuid`, and `locationPropertyUuid`; entry points declare
-  `entryPointUuid` with staged kind `entry_point`. Its forward migration widens
-  the durable handle constraint before reviewed construction uses this kind.
-  A later change
-  set in the same frozen accepted plan inherits bindings from earlier
-  committed slices, including the genesis set through its immutable committed
-  receipt's app identity, only after `runtime.ts` proves each UUID and entity
-  kind still exists in its exact base revision and in the replayed private
-  overlay. A correction that deletes a locally created entity prunes its
-  binding in the same stage transaction; deleting an inherited entity prunes
-  that symbol on process recovery too, and an earlier slice's handle whose
-  entity was later deleted is omitted from the next seed.
-  Case-catalog select defaults are not allowed to mint anonymous options on the
-  executor path: the executor explicitly supplies the same options with
-  handled `optionUuid` creation slots. The executor checkpoint projects those
-  symbols and never returns raw UUID binding maps.
-- `designLookupReferences.ts` is the server-owned seam between an accepted
-  design's lookup identities and the canonical Blueprint lookup carrier. The
-  BuildPlan binds an immutable materialization receipt to the change-set
-  lineage, but neither the receipt mapping nor replacement identities enter the
-  execution brief. `workspace.ts` resolves a semantic lookup source only after
-  idempotency has bound the raw model input and immediately before the shared
-  tool's original Zod parser; canonical read results reverse-project through
-  the same receipt before reaching the executor. Existing tables retain the
-  stable UUIDs discovered beside their catalog names, while tables created by
-  the design retain their DesignIds throughout model execution.
+- `handles.ts` retains exact internal implementation bindings. The executor
+  binds accepted module/form compositions to UUIDs in server preparation; new
+  one-to-one compositions use their accepted UUID bytes through that explicit
+  binding. Existing verified bindings win. Names never infer the identity of
+  an existing implementation. Fields, choices, and other creations need no
+  extra symbols: their canonical staged mutations and receipts retain identity.
+  A binding cannot reassign a lineage key or UUID. Only bindings whose entities
+  survive the staged candidate are persisted; recovery also omits deleted
+  inherited entities. Earlier committed slices contribute verified bindings
+  through the existing plan lineage. Generic internal `invoke` still supports
+  structural symbol resolution; model-facing `stageDispatch` accepts authored
+  values and never resolves old `{handle}` arguments.
+- `designLookupReferences.ts` resolves accepted semantic lookup sources through
+  the immutable materialization receipt when composing working context. Tools
+  then use the shared lookup grammar and authorized names or IDs. Canonical
+  reads use the same authored projection as chat and MCP.
 - `readSets.ts` / `diagnostics.ts` — external read sets are captured
   automatically (lookup reads via the wrapped readers, the organization
   fence from the write's `expectedOrganizationRevision`, media identities
@@ -138,13 +117,10 @@ gate, and integrity services every other write uses.
   authoritative snapshot. External-effect tools are structurally absent from
   the map. The batch-exclusive mutation KINDS (`renameCaseProperties`,
   `retireCaseType`) fence at admission: such a batch owns its change set
-  alone (`exclusive_kind` closes the set). Shared structural creation tools
-  bind handles from their explicit identity slots before canonical parsing,
-  including nested forms, fields, inline options, columns, search inputs, case
-  operations, worker properties, roles, personas, organization levels,
-  location properties, and automation entities. Inline-option replacement
-  slots preserve an existing bound option or bind a newly created one; target,
-  parent, and anchor slots remain reference-only.
+  alone (`exclusive_kind` closes the set). Shared creation identities are
+  allocated during authored preparation; exact composition bindings are
+  committed with the same stage receipt. Optional inline choices can inherit
+  catalog defaults without model-authored identity declarations.
 
 ## Invariants
 
@@ -195,8 +171,9 @@ gate, and integrity services every other write uses.
    exact append-only executor context generation: process recovery of that
    attempt reopens it, while the next attempt starts a fresh generation instead
    of inheriting the prior tool transcript. Each generation opens with the
-   accepted brief, a full handle-projected Blueprint checkpoint, and a short
-   slice focus; every compaction boundary reappends all three. Each returned
+   accepted workflow and a bounded workspace overview; compaction restores both.
+   Focused reads provide omitted details. Hosted search stays in provider
+   history and is never dispatched as a native Nova operation. Each returned
    provider response and its usage-bearing payload-free
    completed-step event commit atomically. Recovery replays any unanswered tool call under its
    original call id before another provider request. Each mutation call,

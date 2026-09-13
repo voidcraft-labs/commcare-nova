@@ -959,7 +959,7 @@ describe("deriveSliceExecutionBrief", () => {
 		);
 	});
 
-	it("renders every JSON context section losslessly and omits absent work", () => {
+	it("carries requirements and concrete record mappings once, without implementation bookkeeping", () => {
 		const brief = briefAt(1);
 		const message = renderBriefMessage(brief);
 		const sections = new Map(
@@ -973,57 +973,31 @@ describe("deriveSliceExecutionBrief", () => {
 		);
 		expect(
 			JSON.parse(
-				fixtureValue(sections.get("Workflow semantics"), "workflow section"),
+				fixtureValue(sections.get("Workflow requirements"), "workflow"),
 			),
 		).toEqual(brief.workflow);
-		expect(
-			JSON.parse(
-				fixtureValue(sections.get("Capability boundary"), "capability section"),
-			),
-		).toEqual(brief.capabilityBoundary);
-		for (const [heading, expected] of [
-			[
-				"Prerequisite workflows already established",
-				brief.prerequisiteWorkflows,
-			],
-			["Actors", brief.actors],
-			["Records and properties", brief.records],
-			["Exact record lowering", brief.recordRealizations],
-			["Lists and searches", brief.lists],
-			["Access", brief.access],
-			["Navigation", brief.navigation],
-			["Module composition", brief.moduleCompositions],
-			["Form composition", brief.formCompositions],
-			[
-				"Module and selection realization instructions",
-				brief.moduleRealizations,
-			],
-			["Exact form realization instructions", brief.formRealizations],
-		] as const) {
-			if (expected.length === 0) {
-				expect(sections.has(heading)).toBe(false);
-				continue;
-			}
-			expect(
-				fixtureValue(sections.get(heading), heading)
-					.split("\n")
-					.map((line) => JSON.parse(line)),
-			).toEqual(expected);
-		}
-		for (const absent of [
-			"App decisions",
-			"App assumptions",
-			"External requirements",
-			"External actions",
-		]) {
-			expect(sections.has(absent)).toBe(false);
-		}
-		expect(sections.get("Semantic construction checklist")).toContain(
-			"Declare record Visit.",
-		);
-		expect(sections.get("Semantic construction checklist")).not.toContain(
-			"Declare record Patient.",
-		);
+		const records = fixtureValue(sections.get("Records"), "records")
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		for (const record of brief.records)
+			expect(records).toContainEqual({
+				...record,
+				caseType: brief.recordRealizations.find(
+					(item) => item.recordId === record.id,
+				)?.blueprintCaseType,
+				...(brief.recordRealizations.find((item) => item.recordId === record.id)
+					?.parentBlueprintCaseType
+					? {
+							parentCaseType: brief.recordRealizations.find(
+								(item) => item.recordId === record.id,
+							)?.parentBlueprintCaseType,
+						}
+					: {}),
+			});
+		expect(message).not.toContain("blueprintModuleHandle");
+		expect(message).not.toContain("blueprintFormHandle");
+		expect(sections.has("Semantic construction checklist")).toBe(false);
+		expect(sections.has("External actions")).toBe(false);
 	});
 
 	it("has a stable digest and refuses unknown slices", () => {

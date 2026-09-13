@@ -1,4 +1,10 @@
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
 import { withoutToolPresentation } from "../toolResults";
+import {
+	acceptedConstructionIdentities,
+	prepareAcceptedConstruction,
+} from "./acceptedConstruction";
 import {
 	type AcceptedEntryPointIssue,
 	acceptedEntryPointIssues,
@@ -37,6 +43,7 @@ import {
 	type ModelMessage,
 	stepCountIs,
 	streamText,
+	type ToolSet,
 	tool,
 } from "ai";
 import { z } from "zod";
@@ -50,8 +57,12 @@ import {
 } from "@/lib/agent/change-set/errors";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
-import type { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import type {
+	ChangeSetMutationWorkspace,
+	StagedInputPreparation,
+} from "@/lib/agent/change-set/workspace";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import { novaOpenAITools } from "@/lib/agent/openaiProvider";
 import {
 	modelMessagesContainCompaction,
 	projectModelHistoryFromNewestCompaction,
@@ -90,8 +101,7 @@ import { renderBriefMessage, type SliceExecutionBrief } from "./executionBrief";
 import { EXECUTOR_SYSTEM } from "./executorPrompt";
 import { STABLE_EXECUTOR_TOOL_PROFILE } from "./executorToolProfile";
 import {
-	executorCatalogDefaultHandleIssue,
-	executorCreationHandleIssue,
+	executorAuthoringSchema,
 	executorWireToolSchema,
 } from "./executorWireSchemas";
 
@@ -106,7 +116,7 @@ export type ExecutorWorkspace = Pick<
 	| "inspect"
 	| "currentSnapshot"
 	| "currentExecutionCheckpoint"
-	| "projectDesignLookupReferences"
+	| "resolveDesignLookupReferences"
 >;
 
 /** Caller-owned transcript for one durable slice attempt. The orchestrator
@@ -146,7 +156,10 @@ export interface ExecutorConversationContext {
 export type ExecutorStepFn = (args: {
 	system: string;
 	messages: ModelMessage[];
-	tools: Record<string, { description: string; inputSchema: JSONSchema7 }>;
+	tools: Record<
+		string,
+		{ description: string; inputSchema: JSONSchema7; deferred?: true }
+	>;
 	allowedTools?: readonly string[];
 	signal: AbortSignal;
 }) => Promise<{
@@ -249,25 +262,28 @@ const SERVER_TOOLS: Readonly<
 > = {
 	[FINISH_TOOL]: {
 		description:
-			"Finish this workflow. The server inspects the complete private candidate, verifies current external reads and export readiness, and commits the workflow as one canonical revision only when every check is clean. Otherwise it returns exact corrections to make with ordinary Nova tools before calling finishWorkflow again.",
+			"Check and commit the completed workflow. Returns findings if the candidate needs corrections.",
 		schema: noArgumentsSchema,
 	},
 	[REPORT_BLOCKER_TOOL]: {
 		description:
-			"Report exact observations that cannot be resolved locally and request one construction decision. This is evidence for the server-owned architect, not a design verdict or a user message.",
+			"Ask the architect to resolve a blocker that requires reconsidering an accepted decision. Include the observation and what prevents progress.",
 		schema: executionBlockerSchema,
 	},
 };
 
 /** The immutable mounted tool definitions for every slice. Keeping the full
- * native registry stable preserves prompt-cache shape; provider `allowedTools`
- * and the server-side dispatch check enforce the slice-specific profile. */
+ * deferred registry stable preserves prompt-cache shape. The server-side
+ * dispatch check enforces each slice's permissions. */
 export function buildExecutorTools(
 	_brief?: SliceExecutionBrief,
-): Record<string, { description: string; inputSchema: JSONSchema7 }> {
+): Record<
+	string,
+	{ description: string; inputSchema: JSONSchema7; deferred?: true }
+> {
 	const tools: Record<
 		string,
-		{ description: string; inputSchema: JSONSchema7 }
+		{ description: string; inputSchema: JSONSchema7; deferred?: true }
 	> = {};
 	for (const name of [
 		...STABLE_EXECUTOR_TOOL_PROFILE.readTools,
@@ -282,6 +298,7 @@ export function buildExecutorTools(
 		tools[name] = {
 			description: entry.tool.description,
 			inputSchema: executorWireToolSchema(name, entry.tool.inputSchema),
+			deferred: true,
 		};
 	}
 	for (const [name, definition] of Object.entries(SERVER_TOOLS)) {
@@ -291,6 +308,76 @@ export function buildExecutorTools(
 		};
 	}
 	return tools;
+}
+
+/** Bind authored input against the serialized private snapshot. Durable request
+ * replay precedes this callback, so names and creation IDs never rebind a retry. */
+export function executorInputPreparation(
+	toolName: string,
+	brief: SliceExecutionBrief,
+	workspace: ExecutorWorkspace,
+): StagedInputPreparation {
+	const entry = CHANGE_SET_TOOL_REGISTRY.get(toolName);
+	if (!entry) throw new Error(`Unknown executor tool ${toolName}.`);
+	return async (ctx, rawInput) => {
+		try {
+			const authored = executorAuthoringSchema(
+				toolName,
+				entry.tool.inputSchema,
+			).authored.parse(rawInput);
+			const construction = prepareAcceptedConstruction({
+				toolName: toolName,
+				input: z.record(z.string(), z.unknown()).parse(authored),
+				brief,
+				doc: ctx.snapshot.doc,
+				bindings: workspace.currentExecutionCheckpoint().handles,
+			});
+			const input = await prepareAuthoringInput({
+				toolName: toolName,
+				schema: entry.tool.inputSchema,
+				input: construction.input,
+				ctx,
+			});
+			const issue = compositionAdmissionIssue(
+				toolName,
+				input,
+				brief,
+				workspace,
+			);
+			if (issue !== null)
+				throw new ChangeSetStagingRejectedError("TOOL_INPUT_INVALID", issue);
+			return { input, bindings: construction.bindings };
+		} catch (error) {
+			if (error instanceof AuthoringInputError || error instanceof z.ZodError)
+				throw new ChangeSetStagingRejectedError(
+					"TOOL_INPUT_INVALID",
+					error instanceof z.ZodError ? wireIssueSummary(error) : error.message,
+				);
+			throw error;
+		}
+	};
+}
+
+/** The runtime and /agents inspect the same hosted-search tool mount. */
+export function executorToolDefinitions(
+	definitions = buildExecutorTools(),
+): ToolSet {
+	return {
+		toolSearch: novaOpenAITools.toolSearch(),
+		...Object.fromEntries(
+			Object.entries(definitions).map(([name, definition]) => [
+				name,
+				tool({
+					description: definition.description,
+					inputSchema: jsonSchema(definition.inputSchema),
+					strict: EXECUTOR_TOOL_STRICT,
+					...(definition.deferred && {
+						providerOptions: { openai: { deferLoading: true } },
+					}),
+				}),
+			]),
+		),
+	};
 }
 
 // ── The production step ──────────────────────────────────────────────
@@ -314,13 +401,7 @@ export function productionExecutorStep(
 	reasoningEffort: ReasoningEffort = "xhigh",
 	promptCacheKey?: string,
 ): ExecutorStepFn {
-	return async ({
-		system,
-		messages,
-		tools: definitions,
-		allowedTools,
-		signal,
-	}) => {
+	return async ({ system, messages, tools: definitions, signal }) => {
 		const base = reasoningProviderOptions(
 			reasoningEffort,
 			promptCacheKey === undefined ? undefined : { promptCacheKey },
@@ -340,16 +421,7 @@ export function productionExecutorStep(
 			model,
 			system,
 			messages: projectModelHistoryFromNewestCompaction(messages),
-			tools: Object.fromEntries(
-				Object.entries(definitions).map(([name, definition]) => [
-					name,
-					tool({
-						description: definition.description,
-						inputSchema: jsonSchema(definition.inputSchema),
-						strict: EXECUTOR_TOOL_STRICT,
-					}),
-				]),
-			),
+			tools: executorToolDefinitions(definitions),
 			toolChoice: "auto",
 			/* One model step per call; the loop owns what happens next. */
 			stopWhen: stepCountIs(1),
@@ -358,14 +430,6 @@ export function productionExecutorStep(
 				openai: {
 					...base.openai,
 					parallelToolCalls: true,
-					...(allowedTools !== undefined && allowedTools.length > 0
-						? {
-								allowedTools: {
-									toolNames: [...allowedTools],
-									mode: "auto" as const,
-								},
-							}
-						: {}),
 				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
@@ -394,11 +458,13 @@ export function productionExecutorStep(
 		const [toolCalls, text, reasoningText, usage, responseMessages] =
 			await Promise.all(pending);
 		return {
-			toolCalls: toolCalls.map((call) => ({
-				toolCallId: call.toolCallId,
-				toolName: call.toolName,
-				input: call.input,
-			})),
+			toolCalls: toolCalls
+				.filter((call) => call.providerExecuted !== true)
+				.map((call) => ({
+					toolCallId: call.toolCallId,
+					toolName: call.toolName,
+					input: call.input,
+				})),
 			text,
 			...(reasoningText && { reasoningText }),
 			usage,
@@ -503,7 +569,7 @@ function pendingExecutorStep(
 			if (message.role !== "assistant" || typeof message.content === "string")
 				return [];
 			return message.content.flatMap((part) =>
-				part.type === "tool-call"
+				part.type === "tool-call" && part.providerExecuted !== true
 					? [
 							{
 								toolCallId: part.toolCallId,
@@ -550,51 +616,20 @@ function pendingExecutorStep(
  * same projection chat and MCP perform. `summary` is UI-only presentation and
  * never reaches a model.
  */
-function projectBoundIdentities(
-	value: unknown,
-	workspace: ExecutorWorkspace,
-): unknown {
-	const byUuid = new Map(
-		workspace
-			.currentExecutionCheckpoint()
-			.handles.map((binding) => [binding.uuid, binding.handle]),
-	);
-	const walk = (member: unknown): unknown => {
-		if (typeof member === "string") {
-			const handle = byUuid.get(member);
-			return handle === undefined ? member : { handle };
-		}
-		if (Array.isArray(member)) return member.map(walk);
-		if (member !== null && typeof member === "object") {
-			return Object.fromEntries(
-				Object.entries(member).map(([key, nested]) => [
-					byUuid.get(key) ?? key,
-					walk(nested),
-				]),
-			);
-		}
-		return member;
-	};
-	return walk(value);
-}
-
 function projectToolResult(
 	value: unknown,
-	workspace: ExecutorWorkspace,
+	_workspace: ExecutorWorkspace,
 ): unknown {
-	const project = (member: unknown) =>
-		workspace.projectDesignLookupReferences(
-			projectBoundIdentities(member, workspace),
-		);
-	if (value === null || typeof value !== "object") return project(value);
+	if (value === null || typeof value !== "object") return value;
 	const envelope = value as {
 		kind?: unknown;
 		result?: unknown;
 		data?: unknown;
 	};
-	if (envelope.kind === "read") return project(envelope.data);
-	if (envelope.kind !== "mutate") return project(value);
-	return project(withoutToolPresentation(envelope.result));
+	if (envelope.kind === "read") return envelope.data;
+	return envelope.kind === "mutate"
+		? withoutToolPresentation(envelope.result)
+		: value;
 }
 
 function resultHasError(result: unknown): boolean {
@@ -618,7 +653,7 @@ function caseSelectionNeedsChanges(
 }
 
 const CONTINUE_NUDGE =
-	"Continue building with the ordinary Nova tools. You may make several independent calls in one response; they run in order. Call finishWorkflow when this workflow is complete.";
+	'{"status":"work_remaining","next":"Use a tool to continue or finishWorkflow when ready."}';
 
 const INVENTORY_MODULE_LIMIT = 12;
 const INVENTORY_FORM_LIMIT = 24;
@@ -626,7 +661,6 @@ const INVENTORY_FIELD_LIMIT_PER_FORM = 12;
 const INVENTORY_USER_PROPERTY_LIMIT = 16;
 const INVENTORY_CASE_TYPE_LIMIT = 12;
 const INVENTORY_CASE_PROPERTY_LIMIT = 24;
-const INVENTORY_HANDLE_LIMIT = 128;
 
 function more(count: number, shown: number): string {
 	return count > shown ? `; +${count - shown} more` : "";
@@ -640,13 +674,8 @@ export function renderExecutorWorkspaceSummary(
 	workspace: ExecutorWorkspace,
 ): string {
 	const snapshot = workspace.currentSnapshot();
-	const execution = workspace.currentExecutionCheckpoint();
 	const doc = snapshot.doc;
-	const handleByUuid = new Map(
-		execution.handles.map((binding) => [binding.uuid, binding.handle]),
-	);
-	const symbol = (uuid: string, kind: string): string =>
-		handleByUuid.get(uuid) ?? `[unbound ${kind}]`;
+	const symbol = (uuid: string, _kind: string): string => uuid;
 	const moduleCount = snapshot.doc.moduleOrder.length;
 	const formCount = Object.keys(snapshot.doc.forms).length;
 	const lines = [
@@ -657,14 +686,6 @@ export function renderExecutorWorkspaceSummary(
 			: "Build on what is already in the private workspace; never re-create it.",
 		`App: ${JSON.stringify(doc.appName)} (${doc.appId})`,
 	];
-	const handles = execution.handles.slice(0, INVENTORY_HANDLE_LIMIT);
-	if (handles.length > 0) {
-		lines.push(
-			`Durable handles: ${handles
-				.map((binding) => `${binding.handle}:${binding.entityKind}`)
-				.join(", ")}${more(execution.handles.length, handles.length)}`,
-		);
-	}
 
 	const userPropertyOrder = doc.userPropertyOrder ?? [];
 	const userProperties = doc.userProperties ?? {};
@@ -741,78 +762,8 @@ export function renderExecutorWorkspaceSummary(
 	return lines.join("\n");
 }
 
-function projectBlueprintHandles(
-	value: unknown,
-	handleByUuid: ReadonlyMap<string, string>,
-): unknown {
-	if (typeof value === "string") return handleByUuid.get(value) ?? value;
-	if (Array.isArray(value))
-		return value.map((entry) => projectBlueprintHandles(entry, handleByUuid));
-	if (value === null || typeof value !== "object") return value;
-	return Object.fromEntries(
-		Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
-			handleByUuid.get(key) ?? key,
-			projectBlueprintHandles(entry, handleByUuid),
-		]),
-	);
-}
-
-/** Lossless model-facing private Blueprint checkpoint. Unlike the compact
- * focus inventory, this carries every current field label, hint, help block,
- * expression, ordering relation, case operation, list setting, and media
- * decision. Authored entity identities project to their durable handles in
- * both map keys and reference values. Accepted lookup identities project back
- * to the same semantic references the executor received in its brief. */
-export function renderExecutorBlueprintCheckpoint(
-	workspace: ExecutorWorkspace,
-): string {
-	const snapshot = workspace.currentSnapshot();
-	const execution = workspace.currentExecutionCheckpoint();
-	const handleByUuid = new Map(
-		execution.handles.map((binding) => [binding.uuid, binding.handle]),
-	);
-	return JSON.stringify(
-		{
-			workspaceRevision: snapshot.revision,
-			canonicalBaseSequence: snapshot.canonicalSeq,
-			externalContextDigest: snapshot.externalContextDigest,
-			blueprint: workspace.projectDesignLookupReferences(
-				projectBlueprintHandles(snapshot.doc, handleByUuid),
-			),
-		},
-		null,
-		1,
-	);
-}
-
-/** ONE spelling for the candidate checkpoint heading: the composer writes it
- * and the compaction re-seed detects it by prefix, so a drifted copy would
- * silently stop fresh checkpoints after a compaction boundary. */
-const EXECUTOR_CANDIDATE_HEADING = "## Current authoritative private candidate";
-const EXECUTOR_BRIEF_HEADING = "## Accepted execution brief";
-const EXECUTOR_FOCUS_HEADING = "## Current slice focus";
-
-function renderExecutorSliceFocus(
-	brief: SliceExecutionBrief,
-	_workspace: ExecutorWorkspace,
-): string {
-	return [
-		`${brief.slice.name}: ${brief.slice.goal}`,
-		`Modules: ${brief.moduleRealizations
-			.map(
-				(module) =>
-					`${module.action} ${module.compositionId} (${module.role}, menu parent ${module.parentModuleCompositionId ?? "top-level"}, after ${module.afterSiblingModuleCompositionId ?? "first"}, record host ${module.hostRecord === null ? "none" : `${module.hostRecord.name} -> ${module.hostRecord.blueprintCaseType}`})`,
-			)
-			.join("; ")}.`,
-		`Forms: ${brief.formRealizations
-			.map(
-				(form) =>
-					`${form.name} (${form.blueprintFormType}) in ${form.moduleCompositionId}, ${form.layout.kind}`,
-			)
-			.join("; ")}.`,
-		"Execute this accepted composition exactly. Do not redesign, add a parallel host, flatten a sectioned form, or duplicate a role form. Call finishWorkflow only after the complete workflow is present.",
-	].join("\n");
-}
+const EXECUTOR_CANDIDATE_HEADING = "## Current private workspace";
+const EXECUTOR_BRIEF_HEADING = "## Accepted workflow";
 
 function executorSliceStartMessages(
 	brief: SliceExecutionBrief,
@@ -822,23 +773,17 @@ function executorSliceStartMessages(
 		userMessage(
 			[
 				EXECUTOR_BRIEF_HEADING,
-				"This is the exact current slice in the ongoing accepted build. It is immutable for this attempt.",
-				renderBriefMessage(brief),
+				renderBriefMessage(
+					brief,
+					workspace.resolveDesignLookupReferences.bind(workspace),
+				),
 			].join("\n\n"),
 		),
 		userMessage(
 			[
 				EXECUTOR_CANDIDATE_HEADING,
-				"This is the complete current private Blueprint, projected through durable authoring handles. It is authority after any compaction or recovery.",
-				renderExecutorBlueprintCheckpoint(workspace),
-			].join("\n\n"),
-		),
-		userMessage(
-			[
-				EXECUTOR_FOCUS_HEADING,
-				renderExecutorSliceFocus(brief, workspace),
-				"Compact inventory:",
 				renderExecutorWorkspaceSummary(workspace),
+				"This overview omits details. Use focused reads before changing existing behavior.",
 			].join("\n\n"),
 		),
 	];
@@ -1475,9 +1420,6 @@ export async function runSliceExecutor(
 				) ||
 					!compacted.some((message) =>
 						messageStartsWith(message, EXECUTOR_CANDIDATE_HEADING),
-					) ||
-					!compacted.some((message) =>
-						messageStartsWith(message, EXECUTOR_FOCUS_HEADING),
 					))
 			) {
 				const boundary = compactionBoundaryOrdinal();
@@ -1611,6 +1553,19 @@ export async function runSliceExecutor(
 			if (deadlineExceeded()) return exhausted("wall-clock");
 			if (step.reasoningText) args.onReasoning?.(step.reasoningText);
 			if (step.toolCalls.length === 0) {
+				const searched = step.responseMessages.some(
+					(message) =>
+						message.role === "assistant" &&
+						Array.isArray(message.content) &&
+						message.content.some(
+							(part) =>
+								part.type === "tool-call" && part.providerExecuted === true,
+						),
+				);
+				if (searched) {
+					consecutiveEmptySteps = 0;
+					continue;
+				}
 				consecutiveEmptySteps += 1;
 				if (consecutiveEmptySteps > 2) {
 					return {
@@ -1695,174 +1650,121 @@ export async function runSliceExecutor(
 							}
 						}
 						if (dispatch.kind === "continue") {
-							const creationIssue =
-								registryEntry.policy.effect === "mutate-blueprint"
-									? (executorCreationHandleIssue(call.toolName, call.input) ??
-										executorCatalogDefaultHandleIssue(
+							try {
+								const dispatched = await awaitWithAbort(
+									workspace.stageDispatch({
+										toolName: call.toolName,
+										requestId: call.toolCallId,
+										input: call.input,
+										deadlineAt,
+										prepare: executorInputPreparation(
 											call.toolName,
-											call.input,
-											workspace.currentSnapshot().doc,
-										))
-									: null;
-							const compositionIssue =
-								registryEntry.policy.effect === "mutate-blueprint"
-									? compositionAdmissionIssue(
-											call.toolName,
-											call.input,
 											brief,
 											workspace,
-										)
-									: null;
-							const admissionError = creationIssue ?? compositionIssue;
-							const admissionCode =
-								creationIssue !== null
-									? "CREATION_HANDLE_REQUIRED"
-									: compositionIssue !== null
-										? "COMPOSITION_HOST_FORBIDDEN"
-										: null;
-							if (admissionError !== null && admissionCode !== null) {
-								const failure = await observeNativeCallFailure({
-									call,
-									code: admissionCode,
-									error: admissionError,
-								});
-								await emitOutcome(
-									call,
-									index,
-									admissionCode === "CREATION_HANDLE_REQUIRED"
-										? "wire-invalid"
-										: "mutation-rejected",
-									admissionCode,
-								);
-								await appendToolResult(
-									call,
-									failedToolResult({
-										code: admissionCode,
-										error: admissionError,
-										repeatedFailure: failure.repeatedFailure,
+										),
 									}),
+									boundedSignal,
 								);
-								dispatch =
-									failure.observed.kind === "stop"
-										? { kind: "stop", outcome: failure.observed.outcome }
-										: { kind: "halt-response" };
-							} else {
-								try {
-									const dispatched = await awaitWithAbort(
-										workspace.stageDispatch({
-											toolName: call.toolName,
-											requestId: call.toolCallId,
-											input: call.input,
-											deadlineAt,
-										}),
-										boundedSignal,
+								const projected = projectToolResult(
+									dispatched.result,
+									workspace,
+								);
+								if (caseSelectionNeedsChanges(call.toolName, projected)) {
+									clearFailureSequence();
+									await emitOutcome(
+										call,
+										index,
+										"non-applied",
+										"CASE_SELECTION_NEEDS_CHANGES",
 									);
-									const projected = projectToolResult(
-										dispatched.result,
-										workspace,
+									await appendToolResult(call, {
+										...projected,
+										status: "not-applied",
+										code: "CASE_SELECTION_NEEDS_CHANGES",
+									});
+									dispatch = { kind: "halt-response" };
+								} else if (resultHasError(projected)) {
+									const code = toolFailureCode(dispatched.receipt, projected);
+									const error = (projected as { error: string }).error;
+									const failure = await observeNativeCallFailure({
+										call,
+										code,
+										error,
+									});
+									await emitOutcome(
+										call,
+										index,
+										registryEntry.policy.effect === "read-blueprint"
+											? "operation-rejected"
+											: "mutation-rejected",
+										code,
 									);
-									if (caseSelectionNeedsChanges(call.toolName, projected)) {
-										clearFailureSequence();
-										await emitOutcome(
-											call,
-											index,
-											"non-applied",
-											"CASE_SELECTION_NEEDS_CHANGES",
-										);
-										await appendToolResult(call, {
-											...projected,
-											status: "not-applied",
-											code: "CASE_SELECTION_NEEDS_CHANGES",
-										});
-										dispatch = { kind: "halt-response" };
-									} else if (resultHasError(projected)) {
-										const code = toolFailureCode(dispatched.receipt, projected);
-										const error = (projected as { error: string }).error;
-										const failure = await observeNativeCallFailure({
-											call,
+									await appendToolResult(
+										call,
+										failedToolResult({
 											code,
 											error,
-										});
-										await emitOutcome(
-											call,
-											index,
-											registryEntry.policy.effect === "read-blueprint"
-												? "operation-rejected"
-												: "mutation-rejected",
-											code,
-										);
-										await appendToolResult(
-											call,
-											failedToolResult({
-												code,
-												error,
-												repeatedFailure: failure.repeatedFailure,
-											}),
-										);
-										dispatch =
-											failure.observed.kind === "stop"
-												? { kind: "stop", outcome: failure.observed.outcome }
-												: { kind: "halt-response" };
-									} else {
-										clearFailureSequence();
-										await emitOutcome(
-											call,
-											index,
-											"accepted",
-											registryEntry.policy.effect === "read-blueprint"
-												? "READ_COMPLETED"
-												: "PRIVATE_MUTATION_APPLIED",
-										);
-										await appendToolResult(call, projected);
-									}
-								} catch (error) {
-									if (deadlineExceeded()) {
-										dispatch = {
-											kind: "stop",
-											outcome: exhausted("wall-clock"),
-										};
-									} else if (error instanceof ChangeSetStagingRejectedError) {
-										const failure = await observeNativeCallFailure({
-											call,
+											repeatedFailure: failure.repeatedFailure,
+										}),
+									);
+									dispatch =
+										failure.observed.kind === "stop"
+											? { kind: "stop", outcome: failure.observed.outcome }
+											: { kind: "halt-response" };
+								} else {
+									clearFailureSequence();
+									await emitOutcome(
+										call,
+										index,
+										"accepted",
+										registryEntry.policy.effect === "read-blueprint"
+											? "READ_COMPLETED"
+											: "PRIVATE_MUTATION_APPLIED",
+									);
+									await appendToolResult(call, projected);
+								}
+							} catch (error) {
+								if (deadlineExceeded()) {
+									dispatch = {
+										kind: "stop",
+										outcome: exhausted("wall-clock"),
+									};
+								} else if (error instanceof ChangeSetStagingRejectedError) {
+									const failure = await observeNativeCallFailure({
+										call,
+										code: error.code,
+										error: error.message,
+									});
+									await emitOutcome(call, index, "wire-invalid", error.code);
+									await appendToolResult(
+										call,
+										failedToolResult({
 											code: error.code,
 											error: error.message,
-										});
-										await emitOutcome(call, index, "wire-invalid", error.code);
-										await appendToolResult(
-											call,
-											failedToolResult({
-												code: error.code,
-												error: error.message,
-												repeatedFailure: failure.repeatedFailure,
-											}),
-										);
-										dispatch =
-											failure.observed.kind === "stop"
-												? { kind: "stop", outcome: failure.observed.outcome }
-												: { kind: "halt-response" };
-									} else {
-										const terminal = terminalProtocolCode(error);
-										if (terminal === null) throw error;
-										await emitOutcome(
-											call,
-											index,
-											"terminal-protocol",
-											terminal,
-										);
-										await appendToolResult(call, {
-											status: "terminal",
+											repeatedFailure: failure.repeatedFailure,
+										}),
+									);
+									dispatch =
+										failure.observed.kind === "stop"
+											? { kind: "stop", outcome: failure.observed.outcome }
+											: { kind: "halt-response" };
+								} else {
+									const terminal = terminalProtocolCode(error);
+									if (terminal === null) throw error;
+									await emitOutcome(call, index, "terminal-protocol", terminal);
+									await appendToolResult(call, {
+										status: "terminal",
+										code: terminal,
+										error: (error as Error).message,
+									});
+									dispatch = {
+										kind: "stop",
+										outcome: {
+											kind: "protocol-failure",
 											code: terminal,
-											error: (error as Error).message,
-										});
-										dispatch = {
-											kind: "stop",
-											outcome: {
-												kind: "protocol-failure",
-												code: terminal,
-												message: (error as Error).message,
-											},
-										};
-									}
+											message: (error as Error).message,
+										},
+									};
 								}
 							}
 						}
@@ -2248,25 +2150,9 @@ function rawObject(value: unknown): Record<string, unknown> | null {
 
 function resolveCheckpointIdentity(
 	value: unknown,
-	workspace: ExecutorWorkspace,
+	_workspace: ExecutorWorkspace,
 ): string | null {
-	if (typeof value === "string") return value;
-	const object = rawObject(value);
-	if (object === null || typeof object.handle !== "string") return null;
-	return (
-		workspace
-			.currentExecutionCheckpoint()
-			.handles.find((binding) => binding.handle === object.handle)?.uuid ?? null
-	);
-}
-
-function rawCheckpointHandle(value: unknown): string | null {
-	const object = rawObject(value);
-	return object !== null &&
-		Object.keys(object).length === 1 &&
-		typeof object.handle === "string"
-		? object.handle
-		: null;
+	return typeof value === "string" ? value : null;
 }
 
 function inputSelectionMatches(
@@ -2407,17 +2293,26 @@ export function compositionAdmissionIssue(
 		const candidates = brief.moduleRealizations.filter(
 			(realization) => realization.action === "create",
 		);
-		const declaredModuleHandle = rawCheckpointHandle(object.moduleUuid);
+		const plannedIdentities = acceptedConstructionIdentities({
+			brief,
+			doc: snapshot,
+			bindings: executionHandles,
+		});
+		const declaredModuleUuid = object.moduleUuid;
 		const realization = candidates.find(
 			(entry) =>
-				entry.blueprintModuleHandle === declaredModuleHandle &&
+				plannedIdentities.some(
+					(identity) =>
+						identity.compositionId === entry.compositionId &&
+						identity.uuid === declaredModuleUuid,
+				) &&
 				(entry.hostRecord?.blueprintCaseType ?? null) === caseType &&
 				brief.moduleCompositions.find(
 					(composition) => composition.id === entry.compositionId,
 				)?.name === name,
 		);
 		if (realization === undefined) {
-			return "This slice may create only the exact accepted module composition, using its blueprintModuleHandle as moduleUuid together with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+			return "This slice may create only the exact accepted module composition, with its accepted identity, display name, and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
 		}
 		const creationSelection =
 			realization.selectionRealization?.action === "create-with-module"
@@ -2469,15 +2364,12 @@ export function compositionAdmissionIssue(
 						entry.moduleCompositionId === realization.compositionId &&
 						entry.name === nested.name &&
 						entry.blueprintFormType === nested.type &&
-						(entry.blueprintFormHandle === undefined ||
-							rawCheckpointHandle(nested.formUuid) ===
-								entry.blueprintFormHandle),
+						plannedIdentities.some(
+							(identity) =>
+								identity.compositionId === entry.compositionId &&
+								identity.uuid === nested.formUuid,
+						),
 				);
-				if (
-					expected?.blueprintFormHandle !== undefined &&
-					rawCheckpointHandle(nested.formUuid) !== expected.blueprintFormHandle
-				)
-					return "Declare the accepted blueprintFormHandle in this nested form's formUuid so its entry point retains exact identity.";
 				if (expected === undefined) {
 					return "A form nested in this module does not match an accepted form name, mode, and module composition for this workflow slice.";
 				}
@@ -2543,6 +2435,11 @@ export function compositionAdmissionIssue(
 	}
 
 	if (toolName === "createForm") {
+		const plannedIdentities = acceptedConstructionIdentities({
+			brief,
+			doc: snapshot,
+			bindings: executionHandles,
+		});
 		const moduleUuid = resolveCheckpointIdentity(object.moduleUuid, workspace);
 		const module =
 			moduleUuid === null ? undefined : snapshot.modules[moduleUuid];
@@ -2550,8 +2447,11 @@ export function compositionAdmissionIssue(
 			(entry) =>
 				entry.blueprintFormType === object.type &&
 				entry.name === object.name &&
-				(entry.blueprintFormHandle === undefined ||
-					rawCheckpointHandle(object.formUuid) === entry.blueprintFormHandle) &&
+				plannedIdentities.some(
+					(identity) =>
+						identity.compositionId === entry.compositionId &&
+						identity.uuid === object.formUuid,
+				) &&
 				realizedModuleUuid(
 					snapshot,
 					brief,
@@ -2559,11 +2459,6 @@ export function compositionAdmissionIssue(
 					executionHandles,
 				) === moduleUuid,
 		);
-		if (
-			expected?.blueprintFormHandle !== undefined &&
-			rawCheckpointHandle(object.formUuid) !== expected.blueprintFormHandle
-		)
-			return "Declare the accepted blueprintFormHandle in formUuid so its entry point retains exact identity.";
 		const moduleComposition =
 			expected === undefined
 				? undefined

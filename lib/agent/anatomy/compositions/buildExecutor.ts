@@ -1,17 +1,8 @@
-/**
- * The build executor: one fresh model context per slice attempt, seeded with
- * three user messages (the accepted brief, the private Blueprint checkpoint,
- * the slice focus and inventory), one model step per call, and the full
- * native tool registry mounted while `allowedTools` narrows it per slice.
- *
- * It never inherits a previous slice's transcript. The checkpoint is how it
- * learns what earlier slices built.
- */
+/** Executor composition: stable role guidance, an accepted workflow brief,
+ * a bounded workspace overview, and shared tools loaded through hosted search.
+ * Each slice owns its transcript; recovery retains durable native results. */
 
-import {
-	buildExecutorTools,
-	EXECUTOR_TOOL_STRICT,
-} from "@/lib/agent/build/executorLoop";
+import { executorToolDefinitions } from "@/lib/agent/build/executorLoop";
 import {
 	EXECUTOR_SEGMENTS,
 	EXECUTOR_SYSTEM,
@@ -53,7 +44,7 @@ const MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "slice-start",
 		label: "Slice start",
-		why: "A new generation opens for the attempt and receives exactly three user messages before the first step. Nothing from an earlier slice's transcript is here.",
+		why: "A new generation opens for the attempt and receives the accepted workflow and workspace overview before the first step. Nothing from an earlier slice's transcript is here.",
 		needs: ["design-session"],
 		source: {
 			file: "lib/agent/build/executorLoop.ts",
@@ -91,7 +82,7 @@ const MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "after-compaction",
 		label: "After a compaction",
-		why: "The provider's checkpoint replaces the prefix, including the three seed packets. Nova appends all three again so the executor keeps exact intent and current state.",
+		why: "After provider compaction, Nova restores the accepted workflow and a current workspace overview. Focused reads provide details.",
 		needs: ["design-session"],
 		source: {
 			file: "lib/agent/build/executorLoop.ts",
@@ -105,26 +96,19 @@ function systemPromptItem(): ContextItem {
 		text: EXECUTOR_SYSTEM,
 		segments: segmentViews(EXECUTOR_SEGMENTS, PROMPT, "EXECUTOR_SEGMENTS"),
 		source: { file: PROMPT, symbol: "EXECUTOR_SYSTEM" },
-		note: "Nothing per slice, per app, or per attempt is in here. The brief, checkpoint, and focus ride as messages so the cached prefix holds across every slice of every build.",
+		note: "Role guidance is stable. Accepted requirements and current workspace state arrive as separate messages.",
 	});
 }
 
 async function toolItem(): Promise<ContextItem> {
-	const tools = await toolViews(
-		Object.fromEntries(
-			Object.entries(buildExecutorTools()).map(([name, definition]) => [
-				name,
-				{ ...definition, strict: EXECUTOR_TOOL_STRICT },
-			]),
-		),
-	);
+	const tools = await toolViews(executorToolDefinitions());
 	return toolsItem({
 		tools,
 		source: {
 			file: "lib/agent/build/executorLoop.ts",
-			symbol: "buildExecutorTools",
+			symbol: "executorToolDefinitions",
 		},
-		note: "The full native registry on every step, so the prompt-cache shape never changes. The brief's tool profile plus finishWorkflow and reportExecutionBlocker become the provider's allowedTools; the server refuses dispatch outside it.",
+		note: "Shared tools load through hosted search. The server enforces the accepted workflow's permissions when each call runs.",
 	});
 }
 
@@ -147,17 +131,12 @@ function seedMissing(): ContextItem[] {
 		ledgerMissing(
 			"brief",
 			"Accepted execution brief",
-			"The workflow, only the properties it owns or uses, a semantic checklist per construction group, relevant constraints, and the exact tool profile. Pick a local design session with an executed slice to read one.",
+			"Accepted workflow requirements, relevant records, composition, and constraints. Choose a local design session with an executed slice to inspect its context.",
 		),
 		ledgerMissing(
 			"candidate",
-			"Private Blueprint checkpoint",
-			"The complete current private Blueprint projected through durable authoring handles: what every earlier slice built, as the only authority after compaction or recovery.",
-		),
-		ledgerMissing(
-			"focus",
-			"Slice focus and inventory",
-			"A short focus statement for this slice plus a compact inventory of the workspace.",
+			"Private workspace overview",
+			"Names and identities for existing modules, forms, questions, and record properties. Focused reads provide the omitted details.",
 		),
 	];
 }
@@ -181,7 +160,7 @@ function noSessionItems(momentId: string): ContextItem[] {
 				ledgerMissing(
 					"nudge",
 					"Empty-step nudge",
-					"A user message: continue building with the ordinary Nova tools, call finishWorkflow when the workflow is complete.",
+					"A short work_remaining status, with finishWorkflow as the completion action.",
 				),
 			];
 		case "repeated-failure":
@@ -212,7 +191,7 @@ function noSessionItems(momentId: string): ContextItem[] {
 				ledgerMissing(
 					"reseed",
 					"Reseed after compaction",
-					"The brief, checkpoint, and focus appended again under compaction-reseed keys.",
+					"The accepted workflow and current overview restored after compaction.",
 				),
 			];
 		default:

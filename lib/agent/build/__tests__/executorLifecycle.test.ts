@@ -27,7 +27,7 @@ function setup() {
 			projectId: "lifecycle-project",
 		}),
 		currentExecutionCheckpoint: () => ({ handles: [] }),
-		projectDesignLookupReferences: (value) => value,
+		resolveDesignLookupReferences: (value) => value,
 		async stageDispatch() {
 			throw new Error("No tool may run after initialization fails");
 		},

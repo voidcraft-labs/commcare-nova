@@ -4,7 +4,6 @@
 import type { ServerResponse } from "node:http";
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	respondWithObject,
 	withResponsesPeer,
@@ -28,7 +27,6 @@ import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persi
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
-import { proseText } from "@/lib/domain";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -252,7 +250,7 @@ async function fixture() {
 						properties: [
 							{
 								name: "case_name",
-								label: proseText("Name"),
+								label: "Name",
 								data_type: "text",
 							},
 						],
@@ -264,20 +262,15 @@ async function fixture() {
 			id: "module",
 			name: "createModule",
 			input: {
-				moduleUuid: { handle: realization.blueprintModuleHandle },
 				name: "Workflow 1",
-				case_type: caseType,
 				forms: [
 					{
-						formUuid: { handle: "@registration" },
 						name: "Workflow 1",
-						type: "registration",
 						fields: [
 							{
-								fieldUuid: { handle: "@value" },
 								id: "workflow_1_value",
 								kind: "text",
-								label: proseText("Workflow 1 value"),
+								label: "Workflow 1 value",
 								caseWrite: { caseType, property: "case_name" },
 							},
 						],
@@ -285,7 +278,6 @@ async function fixture() {
 				],
 				case_list_columns: [
 					{
-						columnUuid: { handle: "@name_column" },
 						kind: "plain",
 						field: "case_name",
 						header: "Name",
@@ -573,7 +565,6 @@ describe("persisted executor Responses journeys", () => {
 						...f.calls.module.input.forms[0],
 						fields: [
 							{
-								fieldUuid: { handle: "@value" },
 								id: "workflow_1_value",
 								kind: "text",
 							},
@@ -710,7 +701,7 @@ describe("persisted executor Responses journeys", () => {
 						...form,
 						fields: form.fields.map((field) => ({
 							...field,
-							required: xp("true()"),
+							required: true,
 						})),
 					},
 				],
@@ -720,9 +711,10 @@ describe("persisted executor Responses journeys", () => {
 			id: "repair",
 			name: "editField",
 			input: {
-				moduleUuid: f.calls.module.input.moduleUuid,
-				formUuid: { handle: "@registration" },
-				fieldUuid: { handle: "@value" },
+				moduleUuid: f.calls.module.input.name,
+				formUuid: "Workflow 1",
+				fieldUuid: "workflow_1_value",
+
 				updates: { kind: "text", required: null },
 			},
 		};

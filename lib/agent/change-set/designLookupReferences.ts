@@ -40,18 +40,11 @@ function bindingKey(kind: DesignLookupBinding["kind"], id: string): string {
 	return `${kind}:${id}`;
 }
 
-/**
- * The private compiler's lookup-reference boundary.
- *
- * A reviewed design keeps its semantic DesignIds through planning and model
- * execution. Only this server-owned resolver knows that a materialized Project
- * table has different persistence identities. It resolves semantic references
- * immediately before the ordinary shared-tool schema parses them, and reverses
- * that projection before any canonical read result reaches the executor model.
- */
+/** Resolve accepted lookup references while composing the execution brief.
+ * Shared tool reads and writes then use the actual Project identities. */
 export class DesignLookupReferenceResolver {
 	private readonly lookupIdByDesign = new Map<string, string>();
-	private readonly designIdByLookup = new Map<string, DesignId>();
+	private readonly boundLookupIds = new Set<string>();
 
 	constructor(bindings: readonly DesignLookupBinding[]) {
 		const seenDesignIds = new Set<DesignId>();
@@ -61,7 +54,7 @@ export class DesignLookupReferenceResolver {
 			if (
 				seenDesignIds.has(binding.designId) ||
 				this.lookupIdByDesign.has(designKey) ||
-				this.designIdByLookup.has(lookupKey)
+				this.boundLookupIds.has(lookupKey)
 			) {
 				throw new ChangeSetIntegrityError(
 					"The accepted lookup materialization contains duplicate identity bindings.",
@@ -69,7 +62,7 @@ export class DesignLookupReferenceResolver {
 			}
 			seenDesignIds.add(binding.designId);
 			this.lookupIdByDesign.set(designKey, binding.lookupId);
-			this.designIdByLookup.set(lookupKey, binding.designId);
+			this.boundLookupIds.add(lookupKey);
 		}
 	}
 
@@ -152,67 +145,6 @@ export class DesignLookupReferenceResolver {
 					tableId: tableId.data,
 					valueColumnId: valueColumnId.data,
 					labelColumnId: labelColumnId.data,
-				};
-			}
-			return Object.fromEntries(
-				Object.entries(object).map(([key, nested]) => [key, walk(nested)]),
-			);
-		};
-		return walk(value);
-	}
-
-	projectOutput(value: unknown): unknown {
-		const walk = (member: unknown): unknown => {
-			if (Array.isArray(member)) return member.map(walk);
-			const object = record(member);
-			if (object === null) return member;
-			if (
-				object.kind === "lookup" &&
-				typeof object.tableId === "string" &&
-				typeof object.valueColumnId === "string" &&
-				typeof object.labelColumnId === "string"
-			) {
-				const tableId = this.designIdByLookup.get(
-					bindingKey("lookup-table", object.tableId),
-				);
-				const valueColumnId = this.designIdByLookup.get(
-					bindingKey("lookup-column", object.valueColumnId),
-				);
-				const labelColumnId = this.designIdByLookup.get(
-					bindingKey("lookup-column", object.labelColumnId),
-				);
-				const filter = object.filter;
-				const mappedCount = [tableId, valueColumnId, labelColumnId].filter(
-					(identity) => identity !== undefined,
-				).length;
-				if (mappedCount > 0 && mappedCount < 3) {
-					throw new ChangeSetIntegrityError(
-						"A canonical lookup source only partially matches this design's materialization receipt.",
-					);
-				}
-				if (
-					tableId !== undefined &&
-					valueColumnId !== undefined &&
-					labelColumnId !== undefined
-				) {
-					if (filter !== undefined) {
-						throw new ChangeSetIntegrityError(
-							"A designed lookup source gained a filter that is absent from the accepted design.",
-						);
-					}
-					return {
-						kind: "designed-project-lookup",
-						tableId,
-						valueColumnId,
-						labelColumnId,
-					};
-				}
-				return {
-					kind: "existing-project-lookup",
-					tableId: object.tableId,
-					valueColumnId: object.valueColumnId,
-					labelColumnId: object.labelColumnId,
-					...(filter === undefined ? {} : { filter: walk(filter) }),
 				};
 			}
 			return Object.fromEntries(

@@ -15,8 +15,8 @@
  *
  *   - accepts a private candidate WITH gating findings — they become
  *     diagnostics on the receipt, and the step still appends;
- *   - resolves change-set handles structurally BEFORE the original tool
- *     schema re-parses the resolved input;
+ *   - binds authored inputs and accepted construction identities before the
+ *     original shared-tool schema checks the canonical input;
  *   - records intent ids and external read sets with each durable step;
  *   - replays a stored receipt for a repeated request id without re-running
  *     the tool body (the receipt, not the prose, is the replay contract).
@@ -26,7 +26,11 @@
  * peer surface. Committing is `commit.ts`'s separate server-owned operation.
  */
 
-import { normalizeModelAstInput } from "@/lib/agent/modelAstInput";
+import { ZodError } from "zod";
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
+import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
+import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import type {
 	ConversionImpactFn,
 	ToolInvocationContext,
@@ -164,8 +168,22 @@ interface DispatchArgs<T> {
 	 * `ToolWorkspace` contract remains satisfied. */
 	readonly input?: unknown;
 	readonly deadlineAt?: number;
+	readonly prepare?: StagedInputPreparation;
 	execute(ctx: ToolInvocationContext, resolvedInput?: unknown): Promise<T>;
 }
+
+export interface PreparedStagedInput {
+	readonly input: unknown;
+	readonly bindings?: readonly StageHandleAllocation[];
+}
+
+/** Runs once inside the serialized invocation, after durable replay lookup.
+ * Preparation may bind authored values and accepted construction facts, but
+ * shared tools remain the only mutation owners. */
+export type StagedInputPreparation = (
+	ctx: ToolInvocationContext,
+	input: unknown,
+) => Promise<PreparedStagedInput>;
 
 export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	readonly mode = "change-set" as const;
@@ -248,9 +266,9 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		};
 	}
 
-	/** Keep materialized Project UUIDs outside the compiler model's world. */
-	projectDesignLookupReferences(value: unknown): unknown {
-		return this.designLookupReferences.projectOutput(value);
+	/** Resolve accepted design references for authored working context. */
+	resolveDesignLookupReferences(value: unknown): unknown {
+		return this.designLookupReferences.resolveInput(value);
 	}
 
 	/** The change set's authority row as this workspace last observed it. */
@@ -280,6 +298,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly input: unknown;
 		/** Absolute executor deadline. Direct/non-executor callers omit it. */
 		readonly deadlineAt?: number;
+		readonly prepare?: StagedInputPreparation;
 	}): Promise<StageDispatchResult<unknown>> {
 		const entry = changeSetToolEntry(args.toolName);
 		if (entry === undefined) {
@@ -293,12 +312,42 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			requestId: args.requestId,
 			input: args.input,
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
+			prepare:
+				args.prepare ??
+				(async (ctx, input) => {
+					try {
+						return {
+							input: await prepareAuthoringInput({
+								toolName: args.toolName,
+								schema: entry.tool.inputSchema,
+								input: authoringToolSchema(
+									args.toolName,
+									entry.tool.inputSchema,
+								).authored.parse(input),
+								ctx,
+							}),
+						};
+					} catch (error) {
+						if (
+							error instanceof AuthoringInputError ||
+							error instanceof ZodError
+						)
+							throw new ChangeSetStagingRejectedError(
+								"TOOL_INPUT_INVALID",
+								error instanceof ZodError
+									? error.issues
+											.map(
+												(issue) =>
+													`${issue.path.join(".") || "input"}: ${issue.message}`,
+											)
+											.join("; ")
+									: error.message,
+							);
+						throw error;
+					}
+				}),
 			execute: async (ctx, resolvedInput) => {
-				const parsed = entry.tool.inputSchema.safeParse(
-					normalizeModelAstInput(
-						this.designLookupReferences.resolveInput(resolvedInput),
-					),
-				);
+				const parsed = entry.tool.inputSchema.safeParse(resolvedInput);
 				if (!parsed.success) {
 					throw new ChangeSetStagingRejectedError(
 						"TOOL_INPUT_INVALID",
@@ -310,7 +359,17 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 							.join("; ")}`,
 					);
 				}
-				return entry.tool.execute(parsed.data, ctx);
+				const result = await entry.tool.execute(parsed.data, ctx);
+				return result.kind === "read"
+					? {
+							...result,
+							data: await projectAuthoringReadInContext(
+								args.toolName,
+								result.data,
+								ctx,
+							),
+						}
+					: result;
 			},
 		});
 	}
@@ -417,7 +476,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			const allocations: StageHandleAllocation[] = [];
 			let resolvedInput: unknown;
 			try {
-				if (entry?.declaredHandles !== undefined) {
+				if (
+					args.prepare === undefined &&
+					entry?.declaredHandles !== undefined
+				) {
 					for (const declaration of entry.declaredHandles(args.input)) {
 						const existing = scratch.lookup(declaration.handle);
 						if (
@@ -437,7 +499,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						});
 					}
 				}
-				resolvedInput = resolveHandleRefs(args.input, scratch).resolved;
+				resolvedInput =
+					args.prepare === undefined
+						? resolveHandleRefs(args.input, scratch).resolved
+						: args.input;
 			} catch (error) {
 				if (!(error instanceof ChangeSetStagingRejectedError)) throw error;
 				const receipt = await this.persistRejection({
@@ -474,6 +539,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				state: invocationState,
 				...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 			});
+			if (args.prepare !== undefined) {
+				const prepared = await args.prepare(ctx, args.input);
+				resolvedInput = prepared.input;
+				for (const binding of prepared.bindings ?? [])
+					if (scratch.bind(binding)) allocations.push(binding);
+			}
 			const result = await args.execute(ctx, resolvedInput);
 			if (
 				invocationState.receipt === undefined &&

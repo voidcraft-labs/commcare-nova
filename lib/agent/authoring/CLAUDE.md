@@ -4,13 +4,14 @@ The authoring boundary accepts the content an author wants to write. The canonic
 document still stores typed expressions, protected prose, and stable identities.
 Do not expose those storage structures merely because the reducer accepts them.
 
-The SA editor and shared MCP tools use this boundary in production. The build
-executor still uses its durable handle interface; its integration is a separate
-step in `docs/plans/agent-authoring-quality.md`. Both surfaces validate authored
-shapes, then prepare input inside the authorized, serialized workspace invocation.
+The SA editor, build executor, and shared MCP tools use this boundary. They
+validate authored shapes and prepare input inside the authorized, serialized
+workspace invocation. The executor performs durable replay lookup first, then
+supplies accepted module/form construction facts and records their exact
+implementation bindings alongside the staged mutations.
 Canonical schemas and the existing commit gate remain authoritative.
 
-The editor mounts hosted OpenAI tool search and defers shared definitions. MCP
+The editor and executor mount hosted OpenAI tool search and defers shared definitions. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.

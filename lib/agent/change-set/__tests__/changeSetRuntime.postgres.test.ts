@@ -11,6 +11,17 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	blueprintFormHandle,
+	deriveSliceExecutionBrief,
+} from "@/lib/agent/build/executionBrief";
+import { executorInputPreparation } from "@/lib/agent/build/executorLoop";
+import {
+	ids,
+	makeBuildPlan,
+	makeContract,
+} from "@/lib/agent/design/__tests__/fixtures";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -42,10 +53,7 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetStagingRejectedError,
 } from "../errors";
-import {
-	changeSetHandleSchema,
-	nonAppliedMutationReplayResultSchema,
-} from "../schemas";
+import { nonAppliedMutationReplayResultSchema } from "../schemas";
 import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
@@ -257,18 +265,17 @@ describe("private staging isolation", () => {
 				toolName: "createModule",
 				requestId: "malformed-complete-module",
 				input: {
-					moduleUuid: { handle: "@registry" },
+					moduleUuid: testUuid("registry"),
 					name: "Household registry",
 					case_type: null,
-					displayCondition: null,
 					forms: [
 						{
-							formUuid: { handle: "@survey" },
+							formUuid: testUuid("survey"),
 							name: "Household survey",
 							type: "survey",
 							fields: [
 								{
-									fieldUuid: { handle: "@status" },
+									fieldUuid: testUuid("status"),
 									kind: "single_select",
 									id: "status",
 								},
@@ -280,11 +287,11 @@ describe("private staging isolation", () => {
 		).rejects.toMatchObject({
 			name: "ChangeSetStagingRejectedError",
 			code: "TOOL_INPUT_INVALID",
-			message: expect.stringContaining("forms.0.fields.0.label"),
+			message: expect.stringContaining("forms"),
 		});
 	});
 
-	it("creates a complete shared module with handles and reuses those bindings", async () => {
+	it("creates an authored module and preserves existing choice identities during replacement", async () => {
 		const app = await createTestApp();
 		const before = await canonicalTableCounts(app.appId);
 		const { workspace } = await openWorkspace(app.appId);
@@ -292,32 +299,32 @@ describe("private staging isolation", () => {
 			toolName: "createModule",
 			requestId: "complete-module",
 			input: {
-				moduleUuid: { handle: "@registry" },
+				moduleUuid: testUuid("registry"),
 				name: "Household registry",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@survey" },
+						formUuid: testUuid("survey"),
 						name: "Household survey",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@status" },
+								fieldUuid: testUuid("status"),
 								kind: "single_select",
 								id: "status",
-								label: proseText("Status"),
+								label: "Status",
 								optionsSource: {
 									kind: "inline",
 									options: [
 										{
-											optionUuid: { handle: "@active" },
+											optionUuid: testUuid("active"),
 											value: "active",
-											label: proseText("Active"),
+											label: "Active",
 										},
 										{
-											optionUuid: { handle: "@closed" },
+											optionUuid: testUuid("closed"),
 											value: "closed",
-											label: proseText("Closed"),
+											label: "Closed",
 										},
 									],
 								},
@@ -329,36 +336,29 @@ describe("private staging isolation", () => {
 		});
 		expect(created.receipt?.disposition).toBe("staged");
 		expect(created.result).not.toHaveProperty("error");
-		expect(created.receipt?.handles).toMatchObject({
-			"@registry": expect.stringMatching(/^[0-9a-f-]{36}$/),
-			"@survey": expect.stringMatching(/^[0-9a-f-]{36}$/),
-			"@status": expect.stringMatching(/^[0-9a-f-]{36}$/),
-			"@active": expect.stringMatching(/^[0-9a-f-]{36}$/),
-			"@closed": expect.stringMatching(/^[0-9a-f-]{36}$/),
-		});
 
 		const edited = await workspace.stageDispatch({
 			toolName: "editField",
 			requestId: "reuse-field",
 			input: {
-				moduleUuid: { handle: "@registry" },
-				formUuid: { handle: "@survey" },
-				fieldUuid: { handle: "@status" },
+				moduleUuid: testUuid("registry"),
+				formUuid: testUuid("survey"),
+				fieldUuid: testUuid("status"),
 				updates: {
 					kind: "single_select",
-					label: proseText("Current status"),
+					label: "Current status",
 					optionsSource: {
 						kind: "inline",
 						options: [
 							{
-								optionUuid: { handle: "@active" },
+								optionUuid: testUuid("active"),
 								value: "active",
-								label: proseText("Active"),
+								label: "Active",
 							},
 							{
-								optionUuid: { handle: "@pending" },
+								optionUuid: testUuid("pending"),
 								value: "pending",
-								label: proseText("Pending"),
+								label: "Pending",
 							},
 						],
 					},
@@ -367,16 +367,8 @@ describe("private staging isolation", () => {
 		});
 		expect(edited.receipt?.disposition).toBe("staged");
 		expect(edited.result).not.toHaveProperty("error");
-		expect(edited.receipt?.handles).toMatchObject({
-			"@pending": expect.stringMatching(/^[0-9a-f-]{36}$/),
-		});
-		const statusUuid =
-			created.receipt?.handles[changeSetHandleSchema.parse("@status")];
-		const activeUuid =
-			created.receipt?.handles[changeSetHandleSchema.parse("@active")];
-		if (statusUuid === undefined || activeUuid === undefined) {
-			throw new Error("creation handles missing");
-		}
+		const statusUuid = testUuid("status");
+		const activeUuid = testUuid("active");
 		const status = workspace.currentSnapshot().doc.fields[statusUuid];
 		if (status?.kind !== "single_select")
 			throw new Error("status field missing");
@@ -386,24 +378,24 @@ describe("private staging isolation", () => {
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
 	});
 
-	it("replays a lost response with identical receipt, handles, and revision — after opening a fresh workspace", async () => {
+	it("replays a lost response with identical receipt, identities, and revision — after opening a fresh workspace", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
 		const input = {
-			moduleUuid: { handle: "@m" },
+			moduleUuid: testUuid("m"),
 			name: "Visits",
 			case_type: null,
 			forms: [
 				{
-					formUuid: { handle: "@visit_form" },
+					formUuid: testUuid("visit_form"),
 					name: "Record visit",
 					type: "survey",
 					fields: [
 						{
-							fieldUuid: { handle: "@visit_note" },
+							fieldUuid: testUuid("visit_note"),
 							kind: "text",
 							id: "visit_note",
-							label: proseText("Visit note"),
+							label: "Visit note",
 						},
 					],
 				},
@@ -430,11 +422,7 @@ describe("private staging isolation", () => {
 		expect(canonicalJsonDigest(reopened.currentSnapshot().doc.modules)).toBe(
 			canonicalJsonDigest(workspace.currentSnapshot().doc.modules),
 		);
-		expect(reopened.currentExecutionCheckpoint().handles).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ handle: "@m", entityKind: "module" }),
-			]),
-		);
+
 		const replayAfterDeath = await reopened.stageDispatch({
 			toolName: "createModule",
 			requestId: "call-1",
@@ -480,63 +468,7 @@ describe("private staging isolation", () => {
 		).rejects.toBeInstanceOf(ChangeSetRequestIdCollisionError);
 	});
 
-	it("prunes a removed handle from the verified projection while retaining its append-only declaration", async () => {
-		const app = await createTestApp();
-		const { changeSet, workspace } = await openWorkspace(app.appId);
-		await workspace.stageDispatch({
-			toolName: "createModule",
-			requestId: "temporary-module",
-			input: {
-				moduleUuid: { handle: "@temporary" },
-				name: "Temporary",
-				case_type: null,
-				forms: [
-					{
-						formUuid: { handle: "@temporary_form" },
-						name: "Temporary form",
-						type: "survey",
-						fields: [
-							{
-								fieldUuid: { handle: "@temporary_note" },
-								kind: "text",
-								id: "temporary_note",
-								label: proseText("Temporary note"),
-							},
-						],
-					},
-				],
-			},
-		});
-		expect(workspace.currentExecutionCheckpoint().handles).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ handle: "@temporary", entityKind: "module" }),
-			]),
-		);
-		await workspace.stageDispatch({
-			toolName: "removeModule",
-			requestId: "remove-temporary-module",
-			input: { moduleUuid: { handle: "@temporary" } },
-		});
-		expect(workspace.currentExecutionCheckpoint().handles).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ handle: "@temporary" }),
-			]),
-		);
-		expect(await loadHandleBindings(changeSet.id)).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					handle: "@temporary",
-					entityKind: "module",
-				}),
-				expect.objectContaining({ handle: "@temporary_form" }),
-				expect.objectContaining({ handle: "@temporary_note" }),
-			]),
-		);
-		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
-		expect(reopened.currentExecutionCheckpoint().handles).toEqual([]);
-	});
-
-	it("carries worker symbols across tool steps, workspace recovery, commit, and a later slice", async () => {
+	it("carries worker references across tool steps, workspace recovery, commit, and a later slice", async () => {
 		const app = await createTestApp();
 		const sharedLineage = await lineage();
 		const first = await beginAppEditChangeSet({
@@ -563,7 +495,7 @@ describe("private staging isolation", () => {
 			input: {
 				properties: [
 					{
-						userPropertyUuid: { handle: "@worker_role" },
+						userPropertyUuid: testUuid("worker_role"),
 						slug: "worker_role",
 						label: "Worker role",
 						choices: ["supervisor", "agent"],
@@ -571,26 +503,17 @@ describe("private staging isolation", () => {
 				],
 			},
 		});
-		const workerPropertyUuid =
-			workerProperty.receipt?.handles[
-				changeSetHandleSchema.parse("@worker_role")
-			];
-		if (workerPropertyUuid === undefined)
-			throw new Error("worker property handle was not bound");
+		const workerPropertyUuid = testUuid("worker_role");
+		expect(workerProperty.receipt?.disposition).toBe("staged");
 
 		/* This is the original failure boundary: the worker property was created
 		 * in one model step, then the in-memory workspace disappeared before a
 		 * later createModule referenced it. */
 		const recovered = await ChangeSetMutationWorkspace.open(host, first.id);
-		expect(recovered.currentExecutionCheckpoint()).toMatchObject({
-			handles: [
-				{
-					handle: "@worker_role",
-					uuid: workerPropertyUuid,
-					entityKind: "worker_property",
-				},
-			],
-		});
+		expect(
+			recovered.currentSnapshot().doc.userProperties?.[workerPropertyUuid]
+				?.slug,
+		).toBe("worker_role");
 
 		await recovered.stageDispatch({
 			toolName: "addUserTypes",
@@ -598,11 +521,11 @@ describe("private staging isolation", () => {
 			input: {
 				userTypes: [
 					{
-						userTypeUuid: { handle: "@supervisor_type" },
+						userTypeUuid: testUuid("supervisor_type"),
 						name: "Supervisor",
 						values: [
 							{
-								userPropertyUuid: { handle: "@worker_role" },
+								userPropertyUuid: testUuid("worker_role"),
 								value: "supervisor",
 							},
 						],
@@ -616,12 +539,12 @@ describe("private staging isolation", () => {
 			input: {
 				personas: [
 					{
-						personaUuid: { handle: "@asha" },
+						personaUuid: testUuid("asha"),
 						name: "Asha",
-						userTypeUuid: { handle: "@supervisor_type" },
+						userTypeUuid: testUuid("supervisor_type"),
 						values: [
 							{
-								userPropertyUuid: { handle: "@worker_role" },
+								userPropertyUuid: testUuid("worker_role"),
 								value: "supervisor",
 							},
 						],
@@ -635,7 +558,7 @@ describe("private staging isolation", () => {
 			input: {
 				properties: [
 					{
-						locationPropertyUuid: { handle: "@facility_code" },
+						locationPropertyUuid: testUuid("facility_code"),
 						slug: "facility_code",
 						label: "Facility code",
 					},
@@ -646,38 +569,29 @@ describe("private staging isolation", () => {
 			toolName: "createModule",
 			requestId: "later-module-step",
 			input: {
-				moduleUuid: { handle: "@restricted_module" },
+				moduleUuid: testUuid("restricted_module"),
 				name: "Restricted workflow",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@restricted_form" },
+						formUuid: testUuid("restricted_form"),
 						name: "Restricted survey",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@restricted_note" },
+								fieldUuid: testUuid("restricted_note"),
 								kind: "text",
 								id: "note",
-								label: proseText("Note"),
-								relevant: {
-									parts: [
-										{
-											kind: "user-property-ref",
-											userPropertyUuid: { handle: "@worker_role" },
-										},
-										{ kind: "text", text: " = 'supervisor'" },
-									],
-								},
+								label: "Note",
+								relevant: "#user/worker_role = 'supervisor'",
 							},
 						],
 					},
 				],
 			},
 		});
-		const noteUuid =
-			module.receipt?.handles[changeSetHandleSchema.parse("@restricted_note")];
-		if (noteUuid === undefined) throw new Error("note handle was not bound");
+		expect(module.receipt?.disposition).toBe("staged");
+		const noteUuid = testUuid("restricted_note");
 		expect(
 			(
 				recovered.currentSnapshot().doc.fields[noteUuid] as
@@ -758,35 +672,22 @@ describe("private staging isolation", () => {
 			host,
 			second.id,
 		);
-		expect(secondWorkspace.currentExecutionCheckpoint().handles).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					handle: "@worker_role",
-					uuid: workerPropertyUuid,
-					entityKind: "worker_property",
-				}),
-				expect.objectContaining({
-					handle: "@supervisor_type",
-					entityKind: "user_type",
-				}),
-				expect.objectContaining({
-					handle: "@facility_code",
-					entityKind: "location_property",
-				}),
-			]),
-		);
+		expect(
+			secondWorkspace.currentSnapshot().doc.userProperties?.[workerPropertyUuid]
+				?.slug,
+		).toBe("worker_role");
 		const laterPersona = await secondWorkspace.stageDispatch({
 			toolName: "addPersonas",
 			requestId: "later-slice-persona",
 			input: {
 				personas: [
 					{
-						personaUuid: { handle: "@later_persona" },
+						personaUuid: testUuid("later_persona"),
 						name: "Later slice persona",
-						userTypeUuid: { handle: "@supervisor_type" },
+						userTypeUuid: testUuid("supervisor_type"),
 						values: [
 							{
-								userPropertyUuid: { handle: "@worker_role" },
+								userPropertyUuid: testUuid("worker_role"),
 								value: "supervisor",
 							},
 						],
@@ -799,30 +700,24 @@ describe("private staging isolation", () => {
 			host,
 			second.id,
 		);
-		expect(reopenedSecond.currentExecutionCheckpoint().handles).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ handle: "@worker_role" }),
-				expect.objectContaining({ handle: "@later_persona" }),
-			]),
-		);
+		expect(
+			reopenedSecond.currentSnapshot().doc.personas?.[testUuid("later_persona")]
+				?.name,
+		).toBe("Later slice persona");
 		await reopenedSecond.stageDispatch({
 			toolName: "removeModule",
 			requestId: "remove-inherited-module",
-			input: { moduleUuid: { handle: "@restricted_module" } },
+			input: { moduleUuid: testUuid("restricted_module") },
 		});
 		const reopenedAfterInheritedDelete = await ChangeSetMutationWorkspace.open(
 			host,
 			second.id,
 		);
 		expect(
-			reopenedAfterInheritedDelete.currentExecutionCheckpoint().handles,
-		).not.toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({ handle: "@restricted_module" }),
-				expect.objectContaining({ handle: "@restricted_form" }),
-				expect.objectContaining({ handle: "@restricted_note" }),
-			]),
-		);
+			reopenedAfterInheritedDelete.currentSnapshot().doc.modules[
+				testUuid("restricted_module")
+			],
+		).toBeUndefined();
 		expect((await reopenedAfterInheritedDelete.inspect()).canCommit).toBe(true);
 		expect(
 			await commitDesignChangeSet({
@@ -1198,20 +1093,20 @@ describe("private staging isolation", () => {
 			toolName: "createModule",
 			requestId: "call-1",
 			input: {
-				moduleUuid: { handle: "@ordinary" },
+				moduleUuid: testUuid("ordinary"),
 				name: "Ordinary first",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@ordinary_form" },
+						formUuid: testUuid("ordinary_form"),
 						name: "Ordinary form",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@ordinary_field" },
+								fieldUuid: testUuid("ordinary_field"),
 								kind: "text",
 								id: "ordinary_field",
-								label: proseText("Ordinary field"),
+								label: "Ordinary field",
 							},
 						],
 					},
@@ -1253,20 +1148,20 @@ describe("private staging isolation", () => {
 			toolName: "createModule",
 			requestId: "call-2",
 			input: {
-				moduleUuid: { handle: "@after_exclusive" },
+				moduleUuid: testUuid("after_exclusive"),
 				name: "After exclusive",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@after_exclusive_form" },
+						formUuid: testUuid("after_exclusive_form"),
 						name: "After exclusive form",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@after_exclusive_field" },
+								fieldUuid: testUuid("after_exclusive_field"),
 								kind: "text",
 								id: "after_exclusive_field",
-								label: proseText("After exclusive field"),
+								label: "After exclusive field",
 							},
 						],
 					},
@@ -1385,20 +1280,20 @@ describe("genesis staging", () => {
 			toolName: "createModule",
 			requestId: "g-1",
 			input: {
-				moduleUuid: { handle: "@m" },
+				moduleUuid: testUuid("m"),
 				name: "Survey",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@f" },
+						formUuid: testUuid("f"),
 						name: "Survey form",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@question" },
+								fieldUuid: testUuid("question"),
 								kind: "text",
 								id: "question",
-								label: proseText("Question"),
+								label: "Question",
 							},
 						],
 					},
@@ -1412,7 +1307,7 @@ describe("genesis staging", () => {
 				items: [
 					{
 						target: "module",
-						moduleUuid: { handle: "@m" },
+						moduleUuid: testUuid("m"),
 						icon: "nutrition",
 						audioLabel: null,
 					},
@@ -1465,20 +1360,20 @@ describe("commitDesignChangeSet", () => {
 			toolName: "createModule",
 			requestId: "c-1",
 			input: {
-				moduleUuid: { handle: "@m" },
+				moduleUuid: testUuid("m"),
 				name: "Committed module",
 				case_type: null,
 				forms: [
 					{
-						formUuid: { handle: "@f" },
+						formUuid: testUuid("f"),
 						name: "Committed form",
 						type: "survey",
 						fields: [
 							{
-								fieldUuid: { handle: "@field" },
+								fieldUuid: testUuid("field"),
 								kind: "text",
 								id: "committed_field",
-								label: proseText("Committed field"),
+								label: "Committed field",
 							},
 						],
 					},
@@ -1728,5 +1623,180 @@ describe("commitDesignChangeSet", () => {
 				expectedRevision: 1,
 			}),
 		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+	});
+});
+
+describe("authored executor requests", () => {
+	it("binds accepted construction once and replays after process replacement without reinterpreting names", async () => {
+		const app = await createTestApp();
+		const canonicalBefore = await canonicalTableCounts(app.appId);
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const plan = makeBuildPlan();
+		const brief = deriveSliceExecutionBrief({
+			contract: makeContract(),
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: plan.slices[0].id,
+		});
+		const module = brief.moduleRealizations[0];
+		const composition = brief.moduleCompositions.find(
+			(item) => item.id === module.compositionId,
+		);
+		const form = brief.formRealizations.find(
+			(item) => item.moduleCompositionId === module.compositionId,
+		);
+		if (!composition || !form || !module.hostRecord)
+			throw new Error("Registration composition missing.");
+		const schemaResult = await workspace.stageDispatch({
+			toolName: "generateSchema",
+			requestId: "authored-schema",
+			input: {
+				caseTypes: [
+					{
+						name: module.hostRecord.blueprintCaseType,
+						properties: [{ name: "phone", label: "Phone", data_type: "text" }],
+					},
+				],
+			},
+		});
+		expect(schemaResult.receipt?.disposition).toBe("staged");
+		const input = {
+			name: composition.name,
+			forms: [
+				{
+					name: form.name,
+					fields: [
+						{
+							kind: "text",
+							id: "name",
+							label: "Full name",
+							required: true,
+							caseWrite: {
+								caseType: module.hostRecord.blueprintCaseType,
+								property: "case_name",
+							},
+						},
+						{ kind: "label", id: "greeting", label: "Hello {{name}}" },
+					],
+				},
+			],
+		};
+		const prepare = vi.fn(
+			executorInputPreparation("createModule", brief, workspace),
+		);
+		const request = {
+			toolName: "createModule",
+			requestId: "authored-create",
+			input,
+			prepare,
+		};
+		const first = await workspace.stageDispatch(request);
+		expect(first.receipt?.disposition, JSON.stringify(first.result)).toBe(
+			"staged",
+		);
+		expect(prepare).toHaveBeenCalledTimes(1);
+		const bindings = await loadHandleBindings(changeSet.id);
+		expect(bindings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					handle: module.blueprintModuleHandle,
+					uuid: module.compositionId,
+					entityKind: "module",
+				}),
+				expect.objectContaining({
+					handle: blueprintFormHandle(form.compositionId),
+					uuid: form.compositionId,
+					entityKind: "form",
+				}),
+			]),
+		);
+		expect(bindings).toHaveLength(2);
+		const built = workspace.currentSnapshot().doc;
+		expect(built.modules[asUuid(module.compositionId)]?.caseType).toBe(
+			module.hostRecord.blueprintCaseType,
+		);
+		expect(built.forms[asUuid(form.compositionId)]?.type).toBe("registration");
+		const nameField = Object.values(built.fields).find(
+			(item) => item.id === "name",
+		);
+		const greeting = Object.values(built.fields).find(
+			(item) => item.id === "greeting",
+		);
+		if (!nameField || !greeting || greeting.kind !== "label")
+			throw new Error("Authored fields missing.");
+		expect(greeting.label).toEqual({
+			parts: [
+				{ kind: "text", text: "Hello " },
+				{ kind: "field-ref", uuid: nameField.uuid },
+			],
+		});
+		const renamed = await workspace.stageDispatch({
+			toolName: "editField",
+			requestId: "authored-rename",
+			input: {
+				formUuid: form.name,
+				fieldUuid: "name",
+				updates: { id: "full_name" },
+			},
+		});
+		expect(renamed.receipt?.disposition).toBe("staged");
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const replayPreparation = vi.fn(
+			executorInputPreparation("createModule", brief, reopened),
+		);
+		const replay = await reopened.stageDispatch({
+			...request,
+			prepare: replayPreparation,
+		});
+		expect(replay.replayed).toBe(true);
+		expect(replay.receipt).toEqual(first.receipt);
+		expect(replayPreparation).not.toHaveBeenCalled();
+		expect(reopened.currentSnapshot().doc.fields[nameField.uuid]?.id).toBe(
+			"full_name",
+		);
+		expect(reopened.currentSnapshot().doc.fields[greeting.uuid]).toMatchObject({
+			label: greeting.label,
+		});
+		const read = await reopened.stageDispatch({
+			toolName: "getField",
+			requestId: "authored-read",
+			input: { fieldUuid: greeting.uuid },
+		});
+		expect(read.result).toMatchObject({
+			kind: "read",
+			data: { field: { label: "Hello {{full_name}}" } },
+		});
+		const removed = await reopened.stageDispatch({
+			toolName: "removeForm",
+			requestId: "authored-remove",
+			input: { formUuid: form.compositionId },
+		});
+		expect(removed.receipt?.disposition, JSON.stringify(removed.result)).toBe(
+			"staged",
+		);
+		const afterDelete = await ChangeSetMutationWorkspace.open(
+			host,
+			changeSet.id,
+		);
+		expect(afterDelete.currentExecutionCheckpoint().handles).toEqual([
+			expect.objectContaining({
+				entityKind: "module",
+				uuid: module.compositionId,
+			}),
+		]);
+		expect(await loadHandleBindings(changeSet.id)).toHaveLength(2);
+		expect(
+			(
+				await afterDelete.stageDispatch({
+					...request,
+					prepare: executorInputPreparation("createModule", brief, afterDelete),
+				})
+			).replayed,
+		).toBe(true);
+		expect(
+			afterDelete.currentSnapshot().doc.forms[asUuid(form.compositionId)],
+		).toBeUndefined();
+
+		expect(await canonicalTableCounts(app.appId)).toEqual(canonicalBefore);
 	});
 });

@@ -999,44 +999,51 @@ describe("slice attempts", () => {
 		expect(afterRecovery - afterActive).toBeLessThan(60_000);
 	});
 
-	it("recovers the running attempt when digests match, supersedes it when they moved", async () => {
-		const sessionId = await seedHeldSession();
-		const args = await attemptArgs(sessionId);
-		const first = await beginOrRecoverSliceAttempt(args);
-		expect(first.recovered).toBe(false);
-		expect(first.attempt.attempt).toBe(1);
-		expect(first.attempt.status).toBe("running");
-		const firstChangeSet = await openGenesisForAttempt(args, first.attempt.id);
+	it.each(["briefDigest", "promptVersion"] as const)(
+		"recovers unchanged work and supersedes the private attempt when %s changes",
+		async (field) => {
+			const sessionId = await seedHeldSession();
+			const args = await attemptArgs(sessionId);
+			const first = await beginOrRecoverSliceAttempt(args);
+			expect(first.recovered).toBe(false);
+			expect(first.attempt.attempt).toBe(1);
+			expect(first.attempt.status).toBe("running");
+			const firstChangeSet = await openGenesisForAttempt(
+				args,
+				first.attempt.id,
+			);
 
-		const recovered = await beginOrRecoverSliceAttempt(args);
-		expect(recovered.recovered).toBe(true);
-		expect(recovered.attempt.id).toBe(first.attempt.id);
+			const recovered = await beginOrRecoverSliceAttempt(args);
+			expect(recovered.recovered).toBe(true);
+			expect(recovered.attempt.id).toBe(first.attempt.id);
 
-		const superseding = await beginOrRecoverSliceAttempt({
-			...args,
-			briefDigest: "b".repeat(64),
-		});
-		expect(superseding.recovered).toBe(false);
-		expect(superseding.attempt.attempt).toBe(2);
-		const rows = await h
-			.db()
-			.selectFrom("design_slice_attempts")
-			.select(["status", "attempt", "failure_code"])
-			.where("design_session_id", "=", sessionId)
-			.where("slice_id", "=", args.sliceId)
-			.orderBy("attempt", "asc")
-			.execute();
-		expect(rows.map((row) => row.status)).toEqual(["superseded", "running"]);
-		expect(rows[0]?.failure_code).toBe("artifact-superseded");
-		expect(
-			await h
+			const superseding = await beginOrRecoverSliceAttempt({
+				...args,
+				[field]:
+					field === "briefDigest" ? "b".repeat(64) : "build-executor-next",
+			});
+			expect(superseding.recovered).toBe(false);
+			expect(superseding.attempt.attempt).toBe(2);
+			const rows = await h
 				.db()
-				.selectFrom("design_change_sets")
-				.select("status")
-				.where("id", "=", firstChangeSet.id)
-				.executeTakeFirstOrThrow(),
-		).toEqual({ status: "superseded" });
-	});
+				.selectFrom("design_slice_attempts")
+				.select(["status", "attempt", "failure_code"])
+				.where("design_session_id", "=", sessionId)
+				.where("slice_id", "=", args.sliceId)
+				.orderBy("attempt", "asc")
+				.execute();
+			expect(rows.map((row) => row.status)).toEqual(["superseded", "running"]);
+			expect(rows[0]?.failure_code).toBe("artifact-superseded");
+			expect(
+				await h
+					.db()
+					.selectFrom("design_change_sets")
+					.select("status")
+					.where("id", "=", firstChangeSet.id)
+					.executeTakeFirstOrThrow(),
+			).toEqual({ status: "superseded" });
+		},
+	);
 
 	it("adopts the exact running attempt and open change set after infrastructure replacement", async () => {
 		const sessionId = await seedHeldSession();

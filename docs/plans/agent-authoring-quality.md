@@ -126,8 +126,19 @@ consequences and confirmations, and moves full automation setup guides to focuse
 reads. Its local validation and independent reviews have passed; publication is
 pending. The following reference slice extends scalar names to case operations,
 case-list orders, worker and organization settings, and shared data resources,
-including same-request references. It is under validation and independent review.
-Build-executor integration, migration, and broader quality evidence remain open.
+including same-request references. It has passed local validation and two
+independent reviews; publication is pending. Executor integration is now being
+validated: shared authored values and hosted discovery, server-owned module/form
+construction facts, a bounded workspace overview, and requirements without
+duplicate compiler instructions. Its 113 Postgres tests and 546 related tests,
+typecheck, and lint pass. Local estimates are 373 system-prompt tokens and
+199 initially mounted tool tokens; the full deferred catalog is still 72,369
+tokens, with the largest definition at 5,255. These estimates use the same
+production definitions as `/agents`; they are not provider counts. Independent
+review and a model-driven executor trial remain pending. The existing versioned attempt lifecycle
+supersedes incompatible private work and opens a fresh context; persisted app
+and mutation shapes have not changed. Further deterministic construction and
+broader quality evidence remain open.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

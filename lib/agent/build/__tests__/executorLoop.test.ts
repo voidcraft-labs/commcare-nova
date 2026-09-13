@@ -4,7 +4,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
-import { DesignLookupReferenceResolver } from "@/lib/agent/change-set/designLookupReferences";
 import {
 	cloneContract,
 	fixtureValue,
@@ -15,18 +14,14 @@ import {
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
-import { designLookupBindingSchema } from "@/lib/agent/design/lookupMaterializationTypes";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
 	emptyCaseListConfig,
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
 	proseText,
 } from "@/lib/domain";
-import { parseLookupRevision } from "@/lib/lookup/schema";
 import { acceptedInputRequirementIssues } from "../acceptedInputParity";
 import { acceptedSelectionRealizationIssues } from "../acceptedSelectionParity";
 import {
@@ -36,7 +31,7 @@ import {
 import {
 	compositionAdmissionIssue,
 	type ExecutorWorkspace,
-	renderExecutorBlueprintCheckpoint,
+	renderExecutorWorkspaceSummary,
 } from "../executorLoop";
 
 function caseListConfig(
@@ -147,7 +142,7 @@ function acceptedWorkspaceFixture(): {
 function readonlyWorkspace(options: {
 	doc: BlueprintDoc;
 	lookupContext?: LookupValidationContext;
-	projectDesignLookupReferences?: (value: unknown) => unknown;
+	resolveDesignLookupReferences?: (value: unknown) => unknown;
 }): ExecutorWorkspace {
 	if (options.doc.moduleOrder.length > 0)
 		assertAdmittedDoc(options.doc, options.lookupContext);
@@ -159,8 +154,8 @@ function readonlyWorkspace(options: {
 			projectId: "projection-project",
 		}),
 		currentExecutionCheckpoint: () => ({ handles: [] }),
-		projectDesignLookupReferences: (value) =>
-			options.projectDesignLookupReferences?.(value) ?? value,
+		resolveDesignLookupReferences: (value) =>
+			options.resolveDesignLookupReferences?.(value) ?? value,
 		async stageDispatch() {
 			throw new Error("Pure admission must not dispatch tools");
 		},
@@ -230,111 +225,40 @@ function severalSelectionWorkspace(
 	return workspace;
 }
 
-describe("executor identity projection", () => {
-	it("keeps designed lookup references stable in authoritative checkpoints", () => {
-		const tableDesignId = "00000000-0000-4000-8000-000000000101";
-		const valueDesignId = "00000000-0000-4000-8000-000000000102";
-		const labelDesignId = "00000000-0000-4000-8000-000000000103";
-		const tableId = lookupTableIdSchema.parse(
-			"018f0000-0000-7000-8000-000000000101",
-		);
-		const valueColumnId = lookupColumnIdSchema.parse(
-			"018f0000-0000-7000-8000-000000000102",
-		);
-		const labelColumnId = lookupColumnIdSchema.parse(
-			"018f0000-0000-7000-8000-000000000103",
-		);
-		const resolver = new DesignLookupReferenceResolver(
-			designLookupBindingSchema.array().parse([
-				{ kind: "lookup-table", designId: tableDesignId, lookupId: tableId },
-				{
-					kind: "lookup-column",
-					designId: valueDesignId,
-					lookupId: valueColumnId,
-				},
-				{
-					kind: "lookup-column",
-					designId: labelDesignId,
-					lookupId: labelColumnId,
-				},
-			]),
-		);
+describe("executor workspace overview", () => {
+	it("keeps names and usable identities while leaving field details to focused reads", () => {
 		const doc = buildDoc({
-			appName: "Referral app",
+			appName: "Visits",
 			modules: [
 				{
-					name: "Referrals",
+					name: "Visits",
 					forms: [
 						{
-							name: "Referral",
+							name: "Visit",
 							type: "survey",
-							fields: [
+							fields: Array.from({ length: 30 }, (_, index) =>
 								f({
-									kind: "single_select",
-									id: "risk",
-									label: proseText("Risk"),
-									optionsSource: {
-										kind: "lookup",
-										tableId,
-										valueColumnId,
-										labelColumnId,
-									},
+									kind: "text",
+									id: `answer_${index}`,
+									label: proseText(
+										"Detailed wording belongs in a focused read",
+									),
 								}),
-							],
+							),
 						},
 					],
 				},
 			],
 		});
-		const checkpoint = renderExecutorBlueprintCheckpoint(
-			readonlyWorkspace({
-				doc,
-				lookupContext: {
-					kind: "available",
-					projectId: "projection-project",
-					projectRevision: parseLookupRevision("1"),
-					definitions: [
-						{
-							id: tableId,
-							name: "Risk levels",
-							tag: "risk_levels",
-							definitionRevision: parseLookupRevision("1"),
-							columns: [
-								{
-									id: valueColumnId,
-									wireName: "code",
-									label: "Code",
-									dataType: "text",
-								},
-								{
-									id: labelColumnId,
-									wireName: "name",
-									label: "Name",
-									dataType: "text",
-								},
-							],
-						},
-					],
-				},
-				projectDesignLookupReferences: (value) => resolver.projectOutput(value),
-			}),
+		const overview = renderExecutorWorkspaceSummary(readonlyWorkspace({ doc }));
+		expect(overview).toContain("Visit");
+		expect(overview).toContain(doc.moduleOrder[0]);
+		expect(overview).toContain("+18 more");
+		expect(overview).not.toContain(
+			"Detailed wording belongs in a focused read",
 		);
-
-		const fieldUuid = fixtureValue(Object.keys(doc.fields)[0], "lookup field");
-		expect(JSON.parse(checkpoint)).toMatchObject({
-			blueprint: {
-				fields: {
-					[fieldUuid]: {
-						optionsSource: {
-							kind: "designed-project-lookup",
-							tableId: tableDesignId,
-							valueColumnId: valueDesignId,
-							labelColumnId: labelDesignId,
-						},
-					},
-				},
-			},
-		});
+		expect(overview).not.toContain("parts");
+		expect(overview).not.toContain("unbound");
 	});
 });
 describe("accepted selection realization parity", () => {
@@ -511,16 +435,9 @@ describe("accepted input requirement parity", () => {
 describe("accepted composition admission", () => {
 	it("admits case-selection configuration only for the exact brief realization", () => {
 		const sliceBrief = severalVisitBrief();
-		const realization = fixtureValue(
-			sliceBrief.moduleRealizations.find(
-				(entry) =>
-					entry.selectionRealization?.action === "configure-after-forms",
-			),
-			"configured selection realization",
-		);
 		const workspace = severalSelectionWorkspace(sliceBrief);
 		const exactInput = {
-			moduleUuid: { handle: realization.blueprintModuleHandle },
+			moduleUuid: workspace.currentSnapshot().doc.moduleOrder[0],
 			selection: { kind: "multiple", maximum: 12 },
 		};
 
@@ -574,7 +491,7 @@ describe("accepted composition admission", () => {
 			"created module composition",
 		);
 		const input = {
-			moduleUuid: { handle: realization.blueprintModuleHandle },
+			moduleUuid: realization.compositionId,
 			name: composition.name,
 			case_type: realization.hostRecord?.blueprintCaseType ?? null,
 		};
@@ -663,7 +580,7 @@ describe("accepted composition admission", () => {
 			compositionAdmissionIssue(
 				"createModule",
 				{
-					moduleUuid: { handle: childRealization.blueprintModuleHandle },
+					moduleUuid: childRealization.compositionId,
 					name: childComposition.name,
 					case_type: childRealization.hostRecord?.blueprintCaseType,
 					forms: [],
@@ -674,7 +591,7 @@ describe("accepted composition admission", () => {
 		).toBeNull();
 	});
 
-	it("uses the compiler-owned handle to distinguish equal module semantics", () => {
+	it("uses exact construction identity to distinguish equal module semantics", () => {
 		const contract = makeNestedMenuContract();
 		const parentComposition = fixtureValue(
 			contract.moduleCompositions.find(
@@ -749,7 +666,7 @@ describe("accepted composition admission", () => {
 				"createModule",
 				{
 					...input,
-					moduleUuid: { handle: childRealization.blueprintModuleHandle },
+					moduleUuid: childRealization.compositionId,
 				},
 				sliceBrief,
 				workspace,
@@ -760,12 +677,12 @@ describe("accepted composition admission", () => {
 				"createModule",
 				{
 					...input,
-					moduleUuid: { handle: parentRealization.blueprintModuleHandle },
+					moduleUuid: parentUuid,
 				},
 				sliceBrief,
 				workspace,
 			),
-		).toContain("blueprintModuleHandle");
+		).toContain("accepted identity");
 	});
 
 	it("keeps a selected-record form on the accepted host module", () => {
@@ -852,7 +769,8 @@ describe("accepted composition admission", () => {
 			compositionAdmissionIssue(
 				"createForm",
 				{
-					moduleUuid: { handle: "@referrals" },
+					moduleUuid: referralModuleUuid,
+					formUuid: visitBrief.formRealizations[0].compositionId,
 					name: "Record visit",
 					type: "followup",
 				},
@@ -864,7 +782,8 @@ describe("accepted composition admission", () => {
 			compositionAdmissionIssue(
 				"createForm",
 				{
-					moduleUuid: { handle: acceptedModuleHandle },
+					moduleUuid: beneficiaryModuleUuid,
+					formUuid: visitBrief.formRealizations[0].compositionId,
 					name: "Record visit",
 					type: "followup",
 				},
