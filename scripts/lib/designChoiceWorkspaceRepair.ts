@@ -1,6 +1,6 @@
 /** One-time retirement of private drafts containing unrepairable old evidence.
  * Runtime authoring does not import this operator repair. */
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import {
 	designArtifactWorkspaceOperationSchema,
 	normalizeStoredDesignArtifactWorkspaceOperation,
@@ -15,7 +15,8 @@ import {
 	EXISTING_LOOKUP_CHOICE_SCHEMA_MARKER,
 	lookupChoiceAttestationsEqual,
 } from "@/lib/agent/design/lookupChoiceAttestation";
-import { leaseView } from "@/lib/db/leaseView";
+import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
+import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb } from "@/lib/db/pg";
 import { designSessionLeaseState, runLeaseState } from "@/lib/db/runLiveness";
 import {
@@ -37,14 +38,18 @@ async function invalidProofs(
 ): Promise<number> {
 	const steps = await tx
 		.selectFrom("design_artifact_workspace_steps")
-		.select("operation")
+		.select("revision")
+		.select(sql<string>`${sql.ref("operation")}::text`.as("operation_text"))
 		.where("workspace_id", "=", workspaceId)
 		.orderBy("revision")
 		.execute();
 	const sources = new Map<string, ExistingLookupChoiceSource>();
 	for (const step of steps) {
 		const operation = normalizeStoredDesignArtifactWorkspaceOperation(
-			step.operation,
+			parsePersistedJsonText(
+				step.operation_text,
+				`design_artifact_workspace_steps.operation for ${workspaceId} revision ${String(step.revision)}`,
+			),
 		);
 		mapDesignSchemaSlots(
 			designArtifactWorkspaceOperationSchema,
@@ -127,7 +132,7 @@ async function inspectWorkspace(
 	if (session.app_id !== null) {
 		let query = tx
 			.selectFrom("apps")
-			.selectAll()
+			.select(LEASE_COLUMNS)
 			.where("id", "=", session.app_id);
 		if (execute) query = query.forUpdate();
 		const app = await query.executeTakeFirstOrThrow();
