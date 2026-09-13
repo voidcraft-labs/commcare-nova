@@ -4,7 +4,7 @@ import type { FieldState } from "@/lib/preview/engine/types";
 import { ValidationError } from "./ValidationError";
 
 interface NumberFieldProps {
-	/** Either an int or decimal field. `step` derives from the kind. */
+	/** The answer type also selects the mobile keyboard. */
 	field: IntField | DecimalField;
 	state: FieldState;
 	/** Visible question label rendered by InteractiveFormRenderer. */
@@ -25,12 +25,12 @@ export function NumberField({
 	return (
 		<div>
 			<input
-				type="number"
+				type="text"
+				inputMode={field.kind === "int" ? "numeric" : "decimal"}
 				aria-labelledby={labelledBy}
-				// Integer fields only accept whole numbers; decimal fields
-				// accept any precision. `kind` replaces the legacy wire-format
-				// `type` discriminant.
-				step={field.kind === "int" ? "1" : "any"}
+				aria-invalid={showError || undefined}
+				// Keep incomplete answers visible. Native number inputs can turn
+				// malformed text into an empty value before the engine sees it.
 				value={state.value}
 				onChange={(e) => onChange(e.target.value)}
 				onBlur={onBlur}

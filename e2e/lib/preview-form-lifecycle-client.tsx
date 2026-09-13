@@ -21,6 +21,7 @@ const MODULE = testUuid("native-form-module"),
 	FORM = testUuid("native-form-survey");
 const NAME = testUuid("native-form-name"),
 	PHOTO = testUuid("native-form-photo");
+const numbers = new URLSearchParams(location.search).has("numbers");
 const doc = admittedControllerDoc(
 	buildDoc({
 		appId: "native-form",
@@ -43,6 +44,22 @@ const doc = admittedControllerDoc(
 								required: "true()",
 							},
 							{ uuid: PHOTO, id: "photo", kind: "image", label: "Photo" },
+							...(numbers
+								? [
+										{
+											uuid: testUuid("native-form-count"),
+											id: "count",
+											kind: "int" as const,
+											label: "Count",
+										},
+										{
+											uuid: testUuid("native-form-quantity"),
+											id: "quantity",
+											kind: "decimal" as const,
+											label: "Quantity",
+										},
+									]
+								: []),
 						],
 					},
 				],

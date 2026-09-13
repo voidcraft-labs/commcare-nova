@@ -552,12 +552,144 @@ describe("FormEngine", () => {
 		});
 	});
 
-	describe("temporal shape gate", () => {
-		// A clock is typed, so a temporal answer can be half-finished in a way
-		// no other kind can: "abc" is a legal string, "2:3" is not a time. The
-		// gate is what keeps that from reaching the case store and coming back
-		// as a schema rejection naming a property instead of a question.
+	describe.each([false, true])(
+		"numeric answers (worker: %s)",
+		(stagedAsync) => {
+			it("checks full answers before authored rules and preserves text until correction", async () => {
+				const engine = new FormEngine(
+					dTree([
+						{
+							id: "count",
+							kind: "int",
+							validate: xp(". >= 0"),
+							validate_msg: proseText("Use zero or more."),
+						},
+						{ id: "quantity", kind: "decimal" },
+					]),
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync } = fixedWorldEvaluator(
+					engine,
+					"numeric-answers",
+				);
+				if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+				const set = async (path: string, value: string) => {
+					if (stagedAsync)
+						await engine.setValueAsync(path, value, evaluateAsync);
+					else engine.setValue(path, value);
+				};
+				const validate = () =>
+					stagedAsync
+						? engine.validateAllAsync(evaluateAsync)
+						: engine.validateAll();
+				for (const raw of [
+					"2.5",
+					"2.0",
+					"2e1",
+					"2people",
+					" ",
+					"0x10",
+					"2147483648",
+				]) {
+					await set("/data/count", raw);
+					expect(await validate(), raw).toBe(false);
+					expect(engine.getState("/data/count")).toMatchObject({
+						value: raw,
+						valid: false,
+					});
+					expect(engine.getState("/data/count").errorMessage).not.toBe(
+						"Use zero or more.",
+					);
+				}
+				await set("/data/count", "-1");
+				expect(await validate()).toBe(false);
+				expect(engine.getState("/data/count").errorMessage).toBe(
+					"Use zero or more.",
+				);
+				await set("/data/count", "2147483647");
+				for (const raw of ["2.5kg", "1e", "0x10", "Infinity", "1e309"]) {
+					await set("/data/quantity", raw);
+					expect(await validate(), raw).toBe(false);
+					expect(engine.getState("/data/quantity").value).toBe(raw);
+				}
+				for (const raw of ["2.5", "-.5", "1e2", "-0", ""]) {
+					await set("/data/quantity", raw);
+					expect(await validate(), raw).toBe(true);
+				}
+				await set("/data/count", "");
+				expect(await validate()).toBe(true);
+			});
+		},
+	);
 
+	it("never truncates malformed numeric answers when projecting case writes", () => {
+		const engine = new FormEngine(
+			dTree(
+				[
+					{
+						id: "name",
+						kind: "text",
+						caseWrite: { caseType: "patient", property: "case_name" },
+					},
+					{
+						id: "count",
+						kind: "int",
+						caseWrite: { caseType: "patient", property: "count" },
+					},
+					{
+						id: "quantity",
+						kind: "decimal",
+						caseWrite: { caseType: "patient", property: "quantity" },
+					},
+				],
+				"registration",
+				[
+					{
+						name: "patient",
+						properties: [
+							{
+								name: "case_name",
+								label: proseText("Name"),
+								data_type: "text",
+							},
+							{ name: "count", label: proseText("Count"), data_type: "int" },
+							{
+								name: "quantity",
+								label: proseText("Quantity"),
+								data_type: "decimal",
+							},
+						],
+					},
+				],
+			),
+			"patient",
+		);
+		engine.setValue("/data/name", "Ada");
+		engine.setValue("/data/count", "2.5");
+		engine.setValue("/data/quantity", "2.5kg");
+		expect(
+			engine.computeSubmissionMutation({ entryKey: ENTRY_KEY }),
+		).toMatchObject({
+			kind: "registration",
+			primary: { properties: { count: "2.5", quantity: "2.5kg" } },
+		});
+		engine.setValue("/data/count", "-2147483648");
+		engine.setValue("/data/quantity", "2.5e1");
+		expect(engine.validateAll()).toBe(true);
+		expect(
+			engine.computeSubmissionMutation({ entryKey: ENTRY_KEY }),
+		).toMatchObject({
+			kind: "registration",
+			primary: { properties: { count: -2147483648, quantity: 25 } },
+		});
+	});
+
+	describe("temporal shape gate", () => {
 		it("rejects a half-typed clock, naming what was entered", () => {
 			const input = dTree([
 				{ id: "wake", kind: "time", label: proseText("Wake time") },
