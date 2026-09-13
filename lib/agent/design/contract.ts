@@ -39,7 +39,6 @@ import {
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { selectOptionValueSchema } from "@/lib/domain/selectOptionValue";
 import { LOOKUP_MAX_COLUMNS, LOOKUP_MAX_ROWS } from "@/lib/lookup/constants";
 import {
 	lookupCellInputSchema,
@@ -52,6 +51,7 @@ import {
 } from "@/lib/lookup/schema";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
 import { DESIGN_CONTRACT_SCHEMA_VERSION } from "./formats";
+import { designChoicesSchema } from "./inlineChoices";
 
 /**
  * Semantic fact shapes the accepted design can lower to at least one real
@@ -296,12 +296,7 @@ function makeRecordPropertySchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 				.enum(["ordinary", "sensitive", "highly-sensitive"])
 				.default("ordinary"),
 			requiredWhen: z.string().min(1).optional(),
-			choiceValues: z
-				.array(selectOptionValueSchema)
-				.optional()
-				.describe(
-					"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
-				),
+			choices: designChoicesSchema.optional(),
 			choiceSource: choiceSourceSchema.optional(),
 		})
 		.strict()
@@ -311,19 +306,19 @@ function makeRecordPropertySchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 				value.dataShape === "multiple-choice";
 			if (
 				choice &&
-				(value.choiceValues?.length ?? 0) === 0 &&
+				(value.choices?.length ?? 0) === 0 &&
 				value.choiceSource === undefined
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["choiceValues"],
+					path: ["choices"],
 					message:
 						"A choice property must name its allowed values or a Project lookup source.",
 				});
 			}
 			if (
 				choice &&
-				value.choiceValues !== undefined &&
+				value.choices !== undefined &&
 				value.choiceSource !== undefined
 			) {
 				ctx.addIssue({
@@ -335,11 +330,11 @@ function makeRecordPropertySchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 			}
 			if (
 				!choice &&
-				(value.choiceValues !== undefined || value.choiceSource !== undefined)
+				(value.choices !== undefined || value.choiceSource !== undefined)
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["choiceValues"],
+					path: ["choices"],
 					message:
 						"Only a choice property may declare choice values or a lookup source.",
 				});
@@ -383,12 +378,7 @@ function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 			propertyId: designIdSchema.optional(),
 			dataShape: factDataShapeSchema.optional(),
 			requiredWhen: z.string().min(1).optional(),
-			choiceValues: z
-				.array(selectOptionValueSchema)
-				.optional()
-				.describe(
-					"The stored values of this fact's choices, one slug each (in_progress, prefer_not_to_say); the executor derives the wording people read from them. Every later tool that writes these choices refuses a value outside that shape.",
-				),
+			choices: designChoicesSchema.optional(),
 			choiceSource: choiceSourceSchema.optional(),
 			validation: z
 				.object({
@@ -419,19 +409,19 @@ function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 				value.dataShape === "multiple-choice";
 			if (
 				choice &&
-				(value.choiceValues?.length ?? 0) === 0 &&
+				(value.choices?.length ?? 0) === 0 &&
 				value.choiceSource === undefined
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["choiceValues"],
+					path: ["choices"],
 					message:
 						"A form-only choice input must name its allowed values or a Project lookup source.",
 				});
 			}
 			if (
 				choice &&
-				value.choiceValues !== undefined &&
+				value.choices !== undefined &&
 				value.choiceSource !== undefined
 			) {
 				ctx.addIssue({
@@ -443,11 +433,11 @@ function makeWorkflowInputSchema<ChoiceSourceSchema extends z.ZodTypeAny>(
 			}
 			if (
 				!choice &&
-				(value.choiceValues !== undefined || value.choiceSource !== undefined)
+				(value.choices !== undefined || value.choiceSource !== undefined)
 			) {
 				ctx.addIssue({
 					code: "custom",
-					path: ["choiceValues"],
+					path: ["choices"],
 					message:
 						"Only a form-only choice input may declare choice values or a lookup source.",
 				});
@@ -1363,7 +1353,7 @@ export function designConstructionIssues(
 				(property.dataShape === "single-choice" ||
 					property.dataShape === "multiple-choice") &&
 				property.choiceSource === undefined &&
-				distinctRealChoices(property.choiceValues) < 2
+				distinctRealChoices(property.choices?.map((choice) => choice.value)) < 2
 			) {
 				issues.push({
 					path: [
@@ -1371,7 +1361,7 @@ export function designConstructionIssues(
 						recordIndex,
 						"properties",
 						propertyIndex,
-						"choiceValues",
+						"choices",
 					],
 					message:
 						"A controlled-choice property needs at least two distinct real values before it can be built.",
@@ -1413,16 +1403,10 @@ export function designConstructionIssues(
 				(input.dataShape === "single-choice" ||
 					input.dataShape === "multiple-choice") &&
 				input.choiceSource === undefined &&
-				distinctRealChoices(input.choiceValues) < 2
+				distinctRealChoices(input.choices?.map((choice) => choice.value)) < 2
 			) {
 				issues.push({
-					path: [
-						"workflows",
-						workflowIndex,
-						"inputs",
-						inputIndex,
-						"choiceValues",
-					],
+					path: ["workflows", workflowIndex, "inputs", inputIndex, "choices"],
 					message:
 						"A controlled-choice form input needs at least two distinct real values before it can be built.",
 				});

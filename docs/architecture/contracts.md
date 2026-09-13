@@ -404,8 +404,13 @@ there is no parallel navigation intent. The execution brief includes a menu's
 access and actors for its construction owner and hosted workflows, without
 copying policies from unrelated placement anchors.
 
-Current design readers accept contract version 3 and workspace storage version
-4. The [one-time format cutover](design-format-cutover.md) retires incompatible
+Inline choice intent keeps the visible wording and saved code together. Authors
+may supply labels and let Nova derive codes, or supply explicit codes when their
+values matter. Review and execution receive the accepted pairs. Project lookup
+choices retain their separate source and revision contract.
+
+Current design readers accept contract version 4 and workspace storage version
+5. The [one-time format cutover](design-format-cutover.md) retires incompatible
 private sessions while preserving canonical apps, conversations and billing.
 Retirement removes a session from typed artifact selection and run authority;
 it never upgrades historical meaning during a read.

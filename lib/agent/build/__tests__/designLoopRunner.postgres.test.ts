@@ -218,7 +218,7 @@ describe("durable design loop runner", () => {
 				.find((property) => property.id === ids.factRisk),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: table.id,

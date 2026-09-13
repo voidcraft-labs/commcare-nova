@@ -455,7 +455,7 @@ describe("reviewed-design Project-data inspection", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId,
@@ -497,7 +497,7 @@ describe("reviewed-design Project-data inspection", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId,

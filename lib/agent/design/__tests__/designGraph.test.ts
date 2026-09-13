@@ -785,7 +785,7 @@ describe("lean Design Contract graph", () => {
 			name: "Temporary note",
 			purpose: "Capture without saving",
 			dataShape: "text",
-			choiceValues: ["not applicable"],
+			choices: [{ value: "not_applicable", label: "Not applicable" }],
 		});
 		expect(messages(strayChoices)).toContain("Only a form-only choice input");
 	});
@@ -796,7 +796,7 @@ describe("lean Design Contract graph", () => {
 			(property) => property.id === ids.factRisk,
 		);
 		if (!risk) throw new Error("fixture risk property missing");
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: EXISTING_TABLE_ID,
@@ -809,7 +809,10 @@ describe("lean Design Contract graph", () => {
 			designConstructionIssues(appDesignContractSchema.parse(contract)),
 		).toEqual([]);
 
-		risk.choiceValues = ["routine", "urgent"];
+		risk.choices = [
+			{ value: "routine", label: "Routine" },
+			{ value: "urgent", label: "Urgent" },
+		];
 		expect(messages(contract)).toContain("either inline values");
 	});
 
@@ -821,7 +824,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "designed-project-lookup",
 			tableId: ids.lookupRisk,
@@ -875,7 +878,10 @@ describe("lean Design Contract graph", () => {
 		).toEqual([]);
 
 		delete risk.choiceSource;
-		risk.choiceValues = ["routine", "priority"];
+		risk.choices = [
+			{ value: "routine", label: "Routine" },
+			{ value: "priority", label: "Priority" },
+		];
 		expect(messages(contract)).toContain("must be used");
 	});
 
@@ -887,7 +893,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		const nameBased = {
 			...contract,
 			records: contract.records.map((record, recordIndex) =>
@@ -931,7 +937,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: EXISTING_TABLE_ID,
@@ -975,7 +981,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: EXISTING_TABLE_ID,
@@ -1055,7 +1061,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = source;
 		contract.lookupTables.push({
 			kind: "modify-existing",
@@ -1119,7 +1125,7 @@ describe("lean Design Contract graph", () => {
 			),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		const inspection = computeLookupChoiceProjectionAttestation({
 			tableRevision: lookupRevisionSchema.parse("9"),
 			tableName: "Every facility",
@@ -1272,7 +1278,7 @@ describe("lean Design Contract graph", () => {
 			(property) => property.id === ids.factRisk,
 		);
 		if (!risk) throw new Error("fixture risk property missing");
-		delete risk.choiceValues;
+		delete risk.choices;
 		expect(messages(contract)).toContain("must name its allowed values");
 	});
 
@@ -1282,7 +1288,7 @@ describe("lean Design Contract graph", () => {
 			(property) => property.id === ids.factRisk,
 		);
 		if (!risk) throw new Error("fixture risk property missing");
-		risk.choiceValues = ["priority"];
+		risk.choices = [{ value: "priority", label: "Priority" }];
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
 		expect(designConstructionIssues(contract)).toEqual([
 			expect.objectContaining({

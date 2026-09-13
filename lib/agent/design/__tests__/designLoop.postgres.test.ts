@@ -367,6 +367,69 @@ async function authorWholeContract(
 }
 
 describe("semantic design loop", () => {
+	it.each([
+		{ collection: "records", member: "properties", tool: "updateRecords" },
+		{ collection: "workflows", member: "inputs", tool: "updateWorkflows" },
+	] as const)(
+		"stores and replays choice wording in $collection",
+		async ({ collection, member, tool }) => {
+			const pkg = await makePackage();
+			await insertDesignSourcePackage({ pkg, authority: authority() });
+			const tools = mount(pkg);
+			const owner = object(array(modelContract(makeContract())[collection])[0]);
+			const choice =
+				collection === "records"
+					? object(
+							array(owner.properties).find(
+								(entry) => object(entry).name === "Risk level",
+							),
+						)
+					: {
+							handle: "soil",
+							name: "Soil condition",
+							purpose: "Describe the soil during this visit",
+							dataShape: "single-choice",
+						};
+			const update = (choices: unknown[]) => ({
+				upserts: [{ ...owner, [member]: [{ ...choice, choices }] }],
+				removeIds: [],
+			});
+			const input = update([
+				"Dry",
+				{ value: "dry", label: "Imported dry code" },
+				"Damp",
+				"Wet",
+			]);
+			expect(await call(tools[tool], input, "choice-wording")).toMatchObject({
+				ok: true,
+			});
+			const before = await workspaceRows();
+			expect(before.steps).toHaveLength(1);
+			const operation = parseStoredDesignArtifactWorkspaceOperation(
+				fixtureValue(before.steps[0], "choice operation").operation,
+			);
+			const storedOwner = object(operation.collections[0]?.upserts[0]);
+			expect(object(array(storedOwner[member])[0]).choices).toEqual([
+				{ value: "dry_2", label: "Dry" },
+				{ value: "dry", label: "Imported dry code" },
+				{ value: "damp", label: "Damp" },
+				{ value: "wet", label: "Wet" },
+			]);
+			expect(
+				await call(mount(pkg)[tool], input, "choice-wording"),
+			).toMatchObject({ ok: true });
+			expect((await workspaceRows()).steps).toEqual(before.steps);
+			const duplicate = update([
+				{ value: "dry", label: "Dry" },
+				{ value: "dry", label: "Damp" },
+			]);
+			expect(await call(tools[tool], duplicate)).toMatchObject({
+				error: expect.stringContaining("unique"),
+			});
+			expect((await workspaceRows()).steps).toEqual(before.steps);
+		},
+	);
+
 	it("stores full source provenance from a label and refuses an unknown label without staging it", async () => {
 		const pkg = await makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
@@ -473,7 +536,7 @@ describe("semantic design loop", () => {
 				.find((property) => property.id === ids.factRisk),
 			"risk property",
 		);
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: table.id,

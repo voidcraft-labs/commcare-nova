@@ -17,8 +17,8 @@ import {
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v38",
-	reviewer: "design-reviewer-v26",
+	agent: "design-agent-v39",
+	reviewer: "design-reviewer-v27",
 	planner: "design-plan-v8",
 } as const;
 

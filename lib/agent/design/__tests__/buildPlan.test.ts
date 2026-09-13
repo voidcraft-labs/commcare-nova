@@ -901,7 +901,7 @@ describe("deterministic build planning", () => {
 			(property) => property.id === ids.factRisk,
 		);
 		if (!risk) throw new Error("fixture risk property missing");
-		risk.choiceValues = ["priority"];
+		risk.choices = [{ value: "priority", label: "Priority" }];
 		expect(() =>
 			deriveBuildPlan({
 				contract,
@@ -917,7 +917,7 @@ describe("deterministic build planning", () => {
 			(property) => property.id === ids.factRisk,
 		);
 		if (!risk) throw new Error("fixture risk property missing");
-		delete risk.choiceValues;
+		delete risk.choices;
 		risk.choiceSource = {
 			kind: "existing-project-lookup",
 			tableId: EXISTING_TABLE_ID,
