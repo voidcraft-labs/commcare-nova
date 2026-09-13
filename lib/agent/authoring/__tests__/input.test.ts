@@ -112,6 +112,24 @@ it("uses scoped short names for nested questions, wording, conditions, edits and
 		kind: "field-ref",
 		uuid: date.uuid,
 	});
+	await expect(
+		h.call("editField", {
+			formUuid: "Weekly check",
+			fieldUuid: "confirmation",
+			updates: { relevant: "/data/check_date != ''" },
+		}),
+	).rejects.toThrow("Unknown or ambiguous reference");
+	expect(h.currentDoc()).toBe(doc);
+	await h.call("editField", {
+		formUuid: "Weekly check",
+		fieldUuid: "confirmation",
+		updates: { relevant: "/data/details/check_date != ''" },
+	});
+	expect(h.currentDoc().fields[confirmation.uuid]).toMatchObject({
+		relevant: {
+			parts: expect.arrayContaining([{ kind: "path-ref", uuid: date.uuid }]),
+		},
+	});
 	await h.call("addFields", {
 		formUuid: "Weekly check",
 		parentUuid: "details",

@@ -537,10 +537,11 @@ async function prepareInput<S extends z.ZodType>(args: {
 			authoringXPath(
 				doc,
 				scope.formUuid,
-				scope.resolveField,
+				scope.resolveFieldPath,
 				source,
 				scope.typeContext.currentCaseType,
 				scope.resolveSearchInput,
+				{ resolveFormReference: scope.resolveField },
 			),
 		);
 	}
@@ -552,11 +553,14 @@ async function prepareInput<S extends z.ZodType>(args: {
 				authoringXPath(
 					doc,
 					scope.formUuid,
-					scope.resolveField,
+					scope.resolveFieldPath,
 					source,
 					scope.typeContext.currentCaseType,
 					scope.resolveSearchInput,
-					path.includes("connect"),
+					{
+						allowExternalFormPaths: path.includes("connect"),
+						resolveFormReference: scope.resolveField,
+					},
 				),
 			);
 		},

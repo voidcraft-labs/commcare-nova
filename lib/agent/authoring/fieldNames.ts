@@ -5,11 +5,21 @@ export function fieldNameCandidates<T extends { uuid: string; path: string }>(
 	name: string,
 	fields: readonly T[],
 ): T[] {
-	const identity = fields.find((field) => field.uuid === name);
+	const exact = fieldPathCandidates(name, fields);
+	if (exact.length) return exact;
+	const candidates = fields.filter(
+		(field) => field.path.split("/").at(-1) === name,
+	);
+	return [...new Map(candidates.map((field) => [field.uuid, field])).values()];
+}
+
+/** Native XPath paths do not inherit shorthand name lookup. */
+export function fieldPathCandidates<T extends { uuid: string; path: string }>(
+	path: string,
+	fields: readonly T[],
+): T[] {
+	const identity = fields.find((field) => field.uuid === path);
 	if (identity) return [identity];
-	const exact = fields.filter((field) => field.path === name);
-	const candidates = exact.length
-		? exact
-		: fields.filter((field) => field.path.split("/").at(-1) === name);
+	const candidates = fields.filter((field) => field.path === path);
 	return [...new Map(candidates.map((field) => [field.uuid, field])).values()];
 }

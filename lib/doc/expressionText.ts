@@ -1,8 +1,7 @@
 // lib/doc/expressionText.ts
 //
-// The doc-aware text ⇄ AST bridge for human builder editors and the isolated
-// authoring-interface experiment. Production SA/MCP tools still receive the
-// canonical AST directly. The operator
+// The doc-aware text ⇄ AST bridge for Builder editors and agent authoring.
+// The operator
 // repair helper also uses this boundary on its private clone; the
 // canonical-identity-foundation migration owns a frozen parser copy instead.
 //
@@ -35,7 +34,7 @@ import {
 
 const NO_CLAIMED_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set();
 
-/** Text authoring for the interface experiment. The caller supplies the
+/** Agent text authoring. The caller supplies the
  * complete name scope, including fields created in the same atomic call.
  * Canonical admission still owns validity. */
 export function parseAuthoredXPath(
@@ -45,7 +44,10 @@ export function parseAuthoredXPath(
 	source: string,
 	selectedCaseType?: string,
 	resolveSearchInput?: ResolveSearchInputName,
-	allowExternalFormPaths = false,
+	options: {
+		allowExternalFormPaths?: boolean;
+		resolveFormReference?: ResolveFieldPath;
+	} = {},
 ): XPathExpression {
 	const form = formUuid ? doc.forms[formUuid] : undefined;
 	const moduleUuid = formUuid ? moduleUuidOfForm(doc, formUuid) : undefined;
@@ -59,12 +61,16 @@ export function parseAuthoredXPath(
 		resolveField,
 		resolvableUserPropertySlug(doc),
 		resolveSearchInput ?? searchInputNameResolver(doc, formUuid),
-		{ requireBoundNames: true, selectedCaseType: boundCaseType },
+		{
+			requireBoundNames: true,
+			selectedCaseType: boundCaseType,
+			resolveFormReference: options.resolveFormReference,
+		},
 	);
 	const issues = parsed.issues.filter(
 		(issue) =>
 			!(
-				allowExternalFormPaths &&
+				options.allowExternalFormPaths &&
 				issue.kind === "unresolved-reference" &&
 				(issue.source.startsWith("/data/") || issue.source.startsWith("#form/"))
 			),

@@ -41,23 +41,37 @@ it("binds unique short field names without changing exact paths or accepting amb
 			{ uuid: date, path: "details/visit_date", kind: "date" },
 		],
 	});
+	const xpath = (source: string) =>
+		parseAuthoredXPath(
+			doc,
+			undefined,
+			scope.resolveFieldPath,
+			source,
+			undefined,
+			undefined,
+			{ resolveFormReference: scope.resolveField },
+		);
 	expect(parseQueryValue("#form/check_date", scope)).toEqual({
 		kind: "term",
 		term: { kind: "field", uuid: date },
 	});
+	expect(xpath("#form/visit_date != ''").parts).toContainEqual({
+		kind: "field-ref",
+		uuid: date,
+	});
 	expect(
-		parseAuthoredXPath(
-			doc,
-			undefined,
-			scope.resolveField,
-			"#form/visit_date != ''",
-		).parts,
+		normalizeText("Checked on {{check_date}}", xpath).parts,
 	).toContainEqual({ kind: "field-ref", uuid: date });
+	expect(() => xpath("/data/check_date != ''")).toThrow(
+		"Unknown or ambiguous reference",
+	);
+	expect(xpath("/data/details/check_date != ''").parts).toContainEqual({
+		kind: "path-ref",
+		uuid: date,
+	});
 	expect(
-		normalizeText("Checked on {{check_date}}", (source) =>
-			parseAuthoredXPath(doc, undefined, scope.resolveField, source),
-		).parts,
-	).toContainEqual({ kind: "field-ref", uuid: date });
+		xpath("concat('/data/check_date', #form/check_date)").parts,
+	).toContainEqual({ kind: "text", text: "concat('/data/check_date', " });
 	const ambiguous = new AuthoringScope({
 		doc,
 		fields: [

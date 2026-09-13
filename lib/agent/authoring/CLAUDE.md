@@ -61,6 +61,8 @@ targets and anchors: exact identity, then exact path, then a unique short name.
 Rename aliases for one UUID are one candidate. An existing root path keeps its
 meaning when another group contains a field with that name. Qualified paths
 never fall back to their last segment, and ambiguous short names reject.
+XPath `/data/...` paths use exact resolution only. The parser's separate
+`#form` resolver supplies authoring shorthand without reinterpreting XPath paths.
 Related-record names bind in the destination scope, while a canonical property
 with `via` stores the originating case type. Nested `where` clauses change both
 parse and print scope. The existing type checker owns relation traversal and

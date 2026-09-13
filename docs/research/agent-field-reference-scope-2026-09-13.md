@@ -62,6 +62,12 @@ journey resolves a nested choice in a form's typed close condition. Parser check
 cover query expressions, XPath, rename aliases, qualified misses and root-path
 precedence. These establish authoring behavior, not completion quality.
 
+Independent review caught shorthand being applied to absolute `/data/...`
+paths as well. The parser now accepts a separate resolver for `#form` references;
+absolute paths retain exact resolution. Production authoring tests distinguish a
+rejected `/data/check_date` from accepted `#form/check_date` and
+`/data/details/check_date`, including a refusal before mutation.
+
 Completion still needs exact accepted-input bindings and proof of the resulting
 writes, effects, navigation and readback. The next construction trial should have
 enough request allowance for all planned workflows, within the same financial
