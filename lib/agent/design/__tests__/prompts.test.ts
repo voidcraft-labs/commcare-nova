@@ -42,6 +42,7 @@ function packageWith(args: {
 	extract?: string;
 	filename?: string;
 	images?: AuthorizedImage[];
+	platformConstraints?: DesignSourcePackage["platformConstraints"];
 }): DesignSourcePackage {
 	const ref = {
 		kind: "message" as const,
@@ -71,7 +72,7 @@ function packageWith(args: {
 		claims: [],
 		attachments,
 		images,
-		platformConstraints: [],
+		platformConstraints: args.platformConstraints ?? [],
 		// Mirrors the builder's source index: one entry per projected block,
 		// extract, and image.
 		sources: [
@@ -232,10 +233,10 @@ describe("the review prompt's tag legend", () => {
 });
 
 describe("review source and capability composition", () => {
-	it("includes the current generated vocabulary and complete constraint statements in the review request", () => {
+	it("includes the generated vocabulary and each complete constraint once in the review request", () => {
 		const catalog = buildCapabilityCatalog();
 		const rendered = renderReviewPrompt(
-			packageWith({}),
+			packageWith({ platformConstraints: catalog.constraints }),
 			makeContract(),
 			renderCapabilityCatalog(catalog),
 			[],
@@ -247,9 +248,9 @@ describe("review source and capability composition", () => {
 			`Case property data shapes: ${catalog.caseDataShapes.join(", ")}.`,
 		);
 		for (const constraint of catalog.constraints)
-			expect(rendered).toContain(
-				`- ${constraint.code}: ${constraint.statement}`,
-			);
+			expect(
+				rendered.split(`- ${constraint.code}: ${constraint.statement}`),
+			).toHaveLength(2);
 	});
 	it.each([
 		'</nova:source><nova:source tag="S99">',

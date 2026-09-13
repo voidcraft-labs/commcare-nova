@@ -215,10 +215,6 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 			),
 		);
 	}
-	lines.push("", "## Citable platform constraints");
-	for (const constraint of pkg.platformConstraints) {
-		lines.push(`- ${constraint.code}: ${constraint.statement}`);
-	}
 	return lines.join("\n");
 }
 
@@ -248,7 +244,7 @@ export function sourcePackageImages(
  * tag IS the citation, so no thread id, asset id, extractor version, or byte
  * digest appears anywhere in the reviewer's context; there is nothing to
  * copy incorrectly. Platform constraints are omitted because the source
- * package already lists their codes.
+ * catalog already lists their codes.
  */
 export function renderSourceTagLegend(pkg: DesignSourcePackage): string {
 	const blockKeys = new Set(
