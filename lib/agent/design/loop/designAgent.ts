@@ -20,7 +20,15 @@ import type {
 } from "ai";
 import { ToolLoopAgent, zodSchema } from "ai";
 import { z } from "zod";
+import {
+	buildCapabilityCatalog,
+	renderCapabilityCatalog,
+} from "@/lib/agent/design/capabilityCatalog";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
+import {
+	DESIGN_AGENT_SYSTEM,
+	renderPlatformConstraintsSection,
+} from "@/lib/agent/design/prompts";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import {
@@ -550,18 +558,67 @@ export async function projectDesignStepMessages(
 	return [...projected, message];
 }
 
-export function createDesignAgent(args: DesignAgentArgs) {
-	const freshStateDigests = new Set<string>();
-	const stableTools = {
+/**
+ * The three parts every design session's system prompt is composed from,
+ * as the loop runner passes them to `createDesignAgent`: the static phase
+ * instructions, the generated capability catalog, and the citable platform
+ * constraints. Zero-arg on purpose: nothing about a session changes them.
+ */
+export function designAuthorInstructionParts(): {
+	readonly instructions: string;
+	readonly catalogText: string;
+	readonly constraintsText: string;
+} {
+	return {
+		instructions: DESIGN_AGENT_SYSTEM,
+		catalogText: renderCapabilityCatalog(buildCapabilityCatalog()),
+		constraintsText: renderPlatformConstraintsSection(),
+	};
+}
+
+/**
+ * The design agent's system prompt: the static phase instructions, the
+ * generated capability catalog, and the platform constraints, separated by
+ * blank lines. `createDesignAgent` sends exactly this string, so a reader of
+ * the three parts reads the prompt.
+ */
+export function composeDesignInstructions(
+	instructions: string,
+	catalogText: string,
+	constraintsText: string,
+): string {
+	return [instructions, "", catalogText, "", constraintsText].join("\n");
+}
+
+/**
+ * The two agent-owned tools that precede the loop's 19 in the provider
+ * grammar: the client-side question pause (never executed on the server) and
+ * the explicit wait-for-input terminal. `createDesignAgent` mounts exactly
+ * these definitions ahead of the loop tools; only `waitForInput` gains an
+ * `execute`.
+ */
+export function designAgentOwnedToolDefinitions() {
+	return {
 		askQuestions: {
 			description: DESIGN_ASK_QUESTIONS_DESCRIPTION,
 			inputSchema: requiredDesignQuestionInputSchema(),
-			strict: false,
+			strict: false as const,
 		},
 		[DESIGN_WAIT_FOR_INPUT_TOOL]: {
 			description: DESIGN_WAIT_FOR_INPUT_DESCRIPTION,
 			inputSchema: zodSchema(waitForInputInputSchema),
-			strict: true,
+			strict: true as const,
+		},
+	};
+}
+
+export function createDesignAgent(args: DesignAgentArgs) {
+	const freshStateDigests = new Set<string>();
+	const ownedTools = designAgentOwnedToolDefinitions();
+	const stableTools = {
+		askQuestions: ownedTools.askQuestions,
+		[DESIGN_WAIT_FOR_INPUT_TOOL]: {
+			...ownedTools[DESIGN_WAIT_FOR_INPUT_TOOL],
 			execute: async (input: unknown) => args.toolExecutionQueue.pause(input),
 		},
 		inspectProjectData: args.tools.inspectProjectData,
@@ -628,13 +685,11 @@ export function createDesignAgent(args: DesignAgentArgs) {
 					: null;
 	return new ToolLoopAgent({
 		model: args.model,
-		instructions: [
+		instructions: composeDesignInstructions(
 			args.instructions,
-			"",
 			args.catalogText,
-			"",
 			args.constraintsText,
-		].join("\n"),
+		),
 		stopWhen: ({ steps }) =>
 			designStepBudgetReached(
 				args.stepsBeforeStream,

@@ -39,10 +39,6 @@ import {
 	readDesignIdentityHandleBindings,
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import {
-	buildCapabilityCatalog,
-	renderCapabilityCatalog,
-} from "@/lib/agent/design/capabilityCatalog";
-import {
 	type AppDesignContract,
 	appDesignContractSchema,
 	type DesignConstructionIssue,
@@ -61,6 +57,7 @@ import {
 	createDesignAgent,
 	DESIGN_WAIT_FOR_INPUT_TOOL,
 	type DesignAgentStep,
+	designAuthorInstructionParts,
 	hasAuthoritativeDesignStateMessage,
 	isExactRequiredDesignQuestionCall,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
@@ -92,16 +89,13 @@ import {
 	type DesignProjectDataCatalogTableSegment,
 	type DesignProjectDataInspectionResult,
 	type DesignProjectDataTable,
+	designToolsetDigest,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
 	type InspectProjectDataInput,
 	projectDesignIdentityHandles,
 } from "@/lib/agent/design/loop/tools";
-import {
-	DESIGN_AGENT_SYSTEM,
-	DESIGN_PROMPT_VERSIONS,
-	renderPlatformConstraintsSection,
-} from "@/lib/agent/design/prompts";
+import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 import type {
 	BuildSourcePackageArgs,
@@ -112,6 +106,7 @@ import {
 	classifyError,
 } from "@/lib/agent/errorClassifier";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import { shouldRetryTurn, turnRetryDelayMs } from "@/lib/agent/turnRetry";
 import {
 	isOpenAICompactionChunk,
@@ -1540,7 +1535,8 @@ export async function runDesignAgentLoop(
 		: initialGates.verdicts.requestReview.legal
 			? "review"
 			: "design";
-	const catalogText = renderCapabilityCatalog(buildCapabilityCatalog());
+	const instructionParts = designAuthorInstructionParts();
+	const catalogText = instructionParts.catalogText;
 	/* Declared before tool construction because a recovered workspace can ask
 	 * the server gate about question provenance before the model context opens.
 	 * Until its durable append keys load, no answered card is authorized. */
@@ -1718,16 +1714,7 @@ export async function runDesignAgentLoop(
 	};
 	const openAndRecoverModelContext = async (): Promise<void> => {
 		if (modelContextId !== null) return;
-		const toolsetDigest = canonicalJsonDigest(
-			await Promise.all(
-				Object.entries(tools).map(async ([name, definition]) => ({
-					name,
-					description: definition.description,
-					strict: definition.strict,
-					inputSchema: await definition.inputSchema.jsonSchema,
-				})),
-			),
-		);
+		const toolsetDigest = await designToolsetDigest(tools);
 		const persisted = await openDesignModelContext({
 			designSessionId: args.designSessionId,
 			kind: "design",
@@ -1915,10 +1902,8 @@ export async function runDesignAgentLoop(
 			tools,
 			toolExecutionQueue,
 			phase,
-			catalogText,
-			constraintsText: renderPlatformConstraintsSection(),
-			instructions: DESIGN_AGENT_SYSTEM,
-			promptCacheKey: `nova:design:${args.designSessionId}`,
+			...instructionParts,
+			promptCacheKey: promptCacheKeys.design(args.designSessionId),
 			fatalError: () => repair.fatalError(),
 			requiredUserQuestions,
 			isAuthoritativeStateMessage: (message) =>

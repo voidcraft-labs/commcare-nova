@@ -365,7 +365,7 @@ export function translationPromptPayload(input: TranslationBatchInput) {
 	};
 }
 
-const TRANSLATION_SYSTEM = `You translate static worker-facing content for a data-collection app.
+export const TRANSLATION_SYSTEM = `You translate static worker-facing content for a data-collection app.
 
 Each language is one exact identity: an ISO 639:2023 Set 3 individual-language code, an ISO 15924 script where the language is written in more than one, and an ISO 3166-1 region where regional conventions differ; the request also names each language in prose. Translate from the exact source language into the exact target language, writing in the target's script and following its regional conventions. Use the app objective, role, breadcrumb, context, sibling content, and accepted glossary to preserve domain meaning and terminology. Keep concise UI labels concise. Preserve formatting that carries meaning.
 

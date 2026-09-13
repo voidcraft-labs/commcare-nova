@@ -397,10 +397,24 @@ function providerContractMatches(
 	);
 }
 
+/** The suffix that binds an executor generation to its slice attempt inside
+ * the persisted `context_version`. The writer below and `semanticScopeOf`
+ * are its only two sides. */
+const SEMANTIC_SCOPE_SEPARATOR = ":semantic-scope:";
+
 function persistedContextVersion(spec: DesignModelContextSpec): string {
 	return spec.semanticScopeKey === undefined
 		? spec.contextVersion
-		: `${spec.contextVersion}:semantic-scope:${spec.semanticScopeKey}`;
+		: `${spec.contextVersion}${SEMANTIC_SCOPE_SEPARATOR}${spec.semanticScopeKey}`;
+}
+
+/** The semantic scope key a persisted `context_version` carries, if any:
+ * the inverse of the suffix `persistedContextVersion` writes. */
+export function semanticScopeOf(contextVersion: string): string | null {
+	const index = contextVersion.indexOf(SEMANTIC_SCOPE_SEPARATOR);
+	if (index === -1) return null;
+	const scope = contextVersion.slice(index + SEMANTIC_SCOPE_SEPARATOR.length);
+	return scope.length > 0 ? scope : null;
 }
 
 async function assertCurrentContext(

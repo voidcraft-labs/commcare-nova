@@ -3,16 +3,20 @@
 // Public barrel for the lib/agent layer. Server-only: every symbol here
 // transitively imports the LLM provider layer and the server data layer.
 
+// prompts — the per-turn app-state message an edit turn appends to the end
+// of its prompt (the system prompt itself is static; the SA factory renders
+// it internally). The route adds one request-local cache boundary before the
+// volatile app-state tail without mutating the stored transcript.
+export {
+	type ProjectedArchitectHistory,
+	projectArchitectHistory,
+} from "./architectHistory";
 // errorClassifier — shared error taxonomy + user-facing messages.
 export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
 // generationContext — shared LLM wrapper around the OpenAI provider, SSE
 // writer, event log, and usage accumulator.
 export { GenerationContext, logWarnings } from "./generationContext";
-// prompts — the per-turn app-state message an edit turn appends to the end
-// of its prompt (the system prompt itself is static; the SA factory renders
-// it internally). The route adds one request-local cache boundary before the
-// volatile app-state tail without mutating the stored transcript.
 export { buildAppStateMessage, markStablePrefixBoundary } from "./prompts";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls

@@ -1,0 +1,70 @@
+"use client";
+
+import { Badge } from "@/components/shadcn/badge";
+import type { MomentDiff as Diff, DiffStatus } from "@/lib/agent/anatomy/diff";
+
+const VARIANTS: Record<DiffStatus, "emerald" | "rose" | "amber" | "muted"> = {
+	added: "emerald",
+	removed: "rose",
+	replaced: "amber",
+	kept: "muted",
+};
+
+const VERBS: Record<DiffStatus, string> = {
+	added: "added",
+	removed: "gone",
+	replaced: "changed",
+	kept: "same",
+};
+
+/** What this moment receives that the role's first moment did not, by item. */
+export function MomentDiffStrip({
+	diff,
+	onSelect,
+}: {
+	diff: Diff;
+	onSelect: (id: string) => void;
+}) {
+	const changed = diff.entries.filter((entry) => entry.status !== "kept");
+	// A recorded ledger adds dozens of same-named messages; one chip per
+	// (label, status) with a count keeps the strip readable, and the chip
+	// opens the first of them.
+	const groups = new Map<
+		string,
+		{ entry: (typeof changed)[number]; count: number }
+	>();
+	for (const entry of changed) {
+		const key = `${entry.status}\u0000${entry.label}`;
+		const group = groups.get(key);
+		if (group) group.count += 1;
+		else groups.set(key, { entry, count: 1 });
+	}
+	return (
+		<section aria-label="What changes" className="space-y-2">
+			<p className="text-nova-text-secondary text-xs">
+				Compared with {diff.baseline.label.toLowerCase()}:{" "}
+				{changed.length === 0
+					? "the same items"
+					: `${diff.counts.added} added, ${diff.counts.removed} gone, ${diff.counts.replaced} changed, ${diff.counts.kept} the same`}
+			</p>
+			{changed.length > 0 && (
+				<div className="flex flex-wrap gap-1.5">
+					{[...groups.entries()].map(([key, { entry, count }]) => (
+						<Badge
+							key={key}
+							variant={VARIANTS[entry.status]}
+							render={
+								entry.status === "removed" ? undefined : (
+									<button type="button" onClick={() => onSelect(entry.id)} />
+								)
+							}
+						>
+							{entry.label}: {count > 1 ? `${count} ` : ""}
+							{VERBS[entry.status]}
+						</Badge>
+					))}
+				</div>
+			)}
+		</section>
+	);
+}

@@ -1,12 +1,10 @@
 import {
-	convertToModelMessages,
 	createUIMessageStream,
 	createUIMessageStreamResponse,
 	type InferAgentUIMessage,
 	isTextUIPart,
 	type UIMessage,
 	type UIMessageStreamWriter,
-	validateUIMessages,
 } from "ai";
 import {
 	buildAppStateMessage,
@@ -18,7 +16,7 @@ import {
 	type ErrorType,
 	GenerationContext,
 	MESSAGES,
-	markStablePrefixBoundary,
+	projectArchitectHistory,
 	resolveAttachments,
 	shouldRetryTurn,
 	turnRetryDelayMs,
@@ -34,15 +32,10 @@ import {
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
-import {
-	isOpenAICompactionChunk,
-	projectCompatibleCompactedHistory,
-} from "@/lib/chat/compaction";
+import { isOpenAICompactionChunk } from "@/lib/chat/compaction";
 import { DurableStreamWriter } from "@/lib/chat/durableStreamWriter";
 import { SEED_STEPS_CHUNK_TYPE } from "@/lib/chat/hydratedStepFilter";
 import { MAX_CHAT_MESSAGE_CHARS } from "@/lib/chat/limits";
-import { sanitizeHistoricalReasoningParts } from "@/lib/chat/sanitizeReasoningParts";
-import { sanitizeHistoricalToolParts } from "@/lib/chat/sanitizeToolParts";
 import { createOpenPartTracker } from "@/lib/chat/streamPartClosure";
 import { validateChatMessages } from "@/lib/chat/validateMessages";
 import {
@@ -2804,43 +2797,22 @@ export async function POST(req: Request) {
 						ctx.emitConversation({ type: "attachment-prep", phase: "done" });
 					}
 
-					/* Repair deploy-crossing histories BEFORE validation: preserve
-					 * the AI SDK's native `dynamic-tool` conversion for loadable
-					 * terminal history, while dropping non-terminal missing tools and
-					 * typed parts whose recorded input/output no longer parses after a
-					 * schema change. Without that repair, validation below would
-					 * throw, fail+refund the run, and re-poison every retry with the
-					 * same history. The full contract, the drop semantics, and the
-					 * validation mirror live on `sanitizeHistoricalToolParts`. The
-					 * repair runs on EVERY turn: every request sends full history,
-					 * and resumed threads routinely carry parts recorded under
-					 * earlier deploys, or under the OTHER tool set entirely (an
-					 * edit turn continuing a build thread drops the generation-tool
-					 * parts; the dialogue survives). Keyed on `sa.tools` so
-					 * the filter never drifts from the active set. */
-					const sanitizedMessages = await sanitizeHistoricalToolParts(
-						preparedMessages,
-						sa.tools,
-					);
-
-					/* Apply the reasoning-part wire contract AFTER the tool repair
-					 * (what pairing survives depends on which tool parts did):
-					 * historical assistant messages drop their reasoning parts:
-					 * prior-turn reasoning is ignored server-side, bills as input
-					 * every turn, and is model-bound (one model change would 400
-					 * every old thread), while a trailing answered-askQuestions
-					 * continuation keeps its reasoning (the wire REQUIRES it beside
-					 * the function call whose output this turn submits) unless the
-					 * pause crossed a model change, in which case the round rides as
-					 * plain dialogue text. Contract + sources on the module. */
-					const reasoningSafeMessages = sanitizeHistoricalReasoningParts(
-						sanitizedMessages,
-						saModel,
-					);
-					const effectiveMessages = projectCompatibleCompactedHistory(
-						reasoningSafeMessages,
-						saModel,
-					);
+					/* The history pipeline: tool-part repair, the reasoning-part
+					 * policy, the compaction projection, validation against the SA's
+					 * tools, conversion, and the explicit cache boundary. One shared
+					 * function (`projectArchitectHistory`) so the agent-anatomy page
+					 * renders exactly this sequence. The explicit
+					 * `InferAgentUIMessage<typeof sa>` type arg is what
+					 * `createAgentUIStream` gets for free from being generic over the
+					 * agent's tools: it gives validation the SA's exact tool set (incl.
+					 * client-side tools with no `execute`, like `askQuestions`), which
+					 * the route's base `UIMessage[]` doesn't carry. */
+					const projected = await projectArchitectHistory<
+						InferAgentUIMessage<typeof sa>
+					>({ messages: preparedMessages, tools: sa.tools, model: saModel });
+					const effectiveMessages = projected.effective;
+					const validated = projected.validated;
+					const baseModelMessages = projected.modelMessages;
 
 					/* Every turn delivers the CURRENT blueprint summary as a per-turn
 					 * message at the END of the prompt, not inside the system prompt:
@@ -2878,29 +2850,9 @@ export async function POST(req: Request) {
 					 * loop to its terminal state even with no reader, so a closed tab no
 					 * longer stalls the build via response backpressure and finalization keys
 					 * off the drain rather than the browser connection. The UIMessage handling
-					 * replicates `createAgentUIStream` exactly: validate against the SA's
-					 * tools, convert to ModelMessages, and thread the validated set back as
-					 * `originalMessages` (the response-message-id continuity the client
-					 * relies on). */
-					// The explicit `InferAgentUIMessage<typeof sa>` type arg is what
-					// `createAgentUIStream` gets for free from being generic over the
-					// agent's tools: it gives `validateUIMessages` the SA's exact tool
-					// set (incl. client-side tools with no `execute`, like
-					// `askQuestions`), which the route's base `UIMessage[]` doesn't carry.
-					const validated = await validateUIMessages<
-						InferAgentUIMessage<typeof sa>
-					>({
-						messages: effectiveMessages,
-						tools: sa.tools,
-					});
-					/* The request-local marker writes a reusable entry before the
-					 * volatile app-state tail. It changes no transcript token and does
-					 * not mutate the durable UI history. */
-					const baseModelMessages = markStablePrefixBoundary(
-						await convertToModelMessages(validated, {
-							tools: sa.tools,
-						}),
-					);
+					 * replicates `createAgentUIStream` exactly: the validated history above
+					 * is threaded back as `originalMessages` (the response-message-id
+					 * continuity the client relies on). */
 					/* The full per-turn prompt: converted history, then the app-state
 					 * snapshot. A retry/redrive attempt REPLACES the
 					 * snapshot with the turn-retry continuation below: the
