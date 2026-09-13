@@ -753,6 +753,12 @@ retypes, and owner assignment — validated by
 `lib/commcare/validator/rules/caseOperations.ts` and emitted by
 `lib/commcare/xform/caseOps.ts`.
 
+Single-case submissions keep the loaded case in scope for all operations,
+including creates and expression targets, and preserve authored order within
+each repeat iteration. Multiple-selection submissions run form-level operations
+once, then session-targeted operations per selected case; choosing only one row
+does not change that mode. Both evaluate expressions before applying effects.
+
 Relation operators carry their own case-instance dependency. An unfiltered
 count, exists or missing condition still reads related rows, even when its AST
 contains no property leaf. The shared instance collector includes these nodes

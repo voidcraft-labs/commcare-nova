@@ -212,6 +212,13 @@ moves catalog definitions already determined by the design into server-owned
 preparation through the ordinary private workspace. Exact accepted input bindings
 and semantic completion remain unfinished.
 
+The next trial built all three garden workflows from that recorded design in
+36 requests for $0.3641. Testing the resulting app exposed a submission defect:
+advanced creates lost the selected case's context. The runtime correction now
+passes registration, correction and weekly submissions against real Postgres,
+including backdated history and latest-summary behavior. These observations do
+not establish fresh-design reliability, browser navigation or device execution.
+
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove
 app quality or provider billing.
