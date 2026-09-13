@@ -6,7 +6,13 @@ import {
 import { buildPlanSchemaFor, deriveBuildPlan } from "../buildPlan";
 import { appDesignContractSchema, designConstructionIssues } from "../contract";
 import { hasCompleteReadSurfaces } from "../readWorkflows";
-import { did, fixtureValue, ids, makeContract } from "./fixtures";
+import {
+	did,
+	fixtureValue,
+	ids,
+	makeContract,
+	makeWorkflowChainContract,
+} from "./fixtures";
 
 const revision = { id: ids.revisionId, digest: "b".repeat(64) };
 
@@ -51,6 +57,152 @@ function readingContract() {
 }
 
 describe("read-only workflows", () => {
+	it("carries a new reader persona into the slice that builds the existing list", () => {
+		const { contract, workflow, module } = readingContract();
+		const actor = {
+			...structuredClone(contract.actors[0]),
+			id: did(9900),
+			name: "Reader",
+		};
+		contract.actors.push(actor);
+		workflow.actorIds = [actor.id];
+		module.actorIds.push(actor.id);
+		contract.lists[0].actorIds.push(actor.id);
+		const plan = deriveBuildPlan({
+			contract: appDesignContractSchema.parse(contract),
+			revision,
+		});
+		expect(plan.slices).toHaveLength(2);
+		const owner = fixtureValue(plan.slices[0], "registration slice");
+		expect(owner.constructionGroups.flatMap((group) => group.elements)).toEqual(
+			expect.arrayContaining([
+				{ kind: "actor", id: actor.id },
+				{ kind: "workflow", id: workflow.id },
+			]),
+		);
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision,
+			plan,
+			sliceId: owner.id,
+		});
+		expect(brief.actors).toContainEqual(actor);
+		expect(brief.readWorkflows).toEqual([workflow]);
+	});
+
+	it("waits for a later menu owner before covering the reading task", () => {
+		const contract = makeWorkflowChainContract(3);
+		const [first, reading, last] = contract.workflows;
+		const [firstModule, readingModule, lastModule] =
+			contract.moduleCompositions;
+		Object.assign(reading, {
+			inputs: [],
+			recordEffects: [],
+			readback: structuredClone(first.readback),
+			contextRecordId: contract.records[0].id,
+		});
+		last.prerequisiteWorkflowIds = [first.id];
+		contract.records.splice(1, 1);
+		contract.formCompositions.splice(1, 1);
+		const list = {
+			...structuredClone(makeContract().lists[0]),
+			id: did(9910),
+			recordId: contract.records[0].id,
+			actorIds: first.actorIds,
+			scanPropertyIds: first.readback[0].propertyIds,
+			detailPropertyIds: [],
+			searchPropertyIds: [],
+		};
+		contract.lists.push(list);
+		Object.assign(readingModule, {
+			role: "queue-only",
+			hostRecordId: list.recordId,
+			parentModuleCompositionId: lastModule.id,
+			listIds: [list.id],
+		});
+		contract.moduleCompositions = [firstModule, lastModule, readingModule];
+		const parsed = appDesignContractSchema.parse(contract);
+		expect(designConstructionIssues(parsed)).toEqual([]);
+		const plan = deriveBuildPlan({ contract: parsed, revision });
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+			first.id,
+			last.id,
+		]);
+		const owner = plan.slices[1];
+		expect(owner.prerequisiteSliceIds).toEqual([plan.slices[0].id]);
+		const brief = deriveSliceExecutionBrief({
+			contract: parsed,
+			revision,
+			plan,
+			sliceId: owner.id,
+		});
+		expect(brief.readWorkflows).toEqual([reading]);
+		expect(brief.moduleRealizations).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					compositionId: readingModule.id,
+					action: "create",
+				}),
+			]),
+		);
+		// A semantic dependency in the opposite direction cannot be met by
+		// emitting an empty reading slice before its screen exists.
+		last.prerequisiteWorkflowIds = [reading.id];
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(false);
+	});
+
+	it("retains a grouped task's context when its history and construction owner use different records", () => {
+		const contract = makeWorkflowChainContract(3);
+		const [context, history] = contract.records;
+		const ownerWorkflow = contract.workflows[2];
+		const reading = {
+			...readingContract().workflow,
+			contextRecordId: context.id,
+			prerequisiteWorkflowIds: [ownerWorkflow.id],
+			readback: [
+				{
+					recordId: history.id,
+					purpose: "Read this record's saved history",
+					propertyIds: history.properties.map((property) => property.id),
+				},
+			],
+		};
+		contract.workflows.push(reading);
+		contract.charter.includedWorkflowIds.push(reading.id);
+		const list = {
+			...structuredClone(makeContract().lists[0]),
+			id: did(9920),
+			recordId: history.id,
+			actorIds: reading.actorIds,
+			scanPropertyIds: reading.readback[0].propertyIds,
+			detailPropertyIds: [],
+			searchPropertyIds: [],
+		};
+		contract.lists.push(list);
+		const module = contract.moduleCompositions[1];
+		module.role = "form-and-queue";
+		module.workflowIds.push(reading.id);
+		module.listIds.push(list.id);
+		const parsed = appDesignContractSchema.parse(contract);
+		expect(designConstructionIssues(parsed)).toEqual([]);
+		const plan = deriveBuildPlan({ contract: parsed, revision });
+		expect(plan.slices).toHaveLength(3);
+		const brief = deriveSliceExecutionBrief({
+			contract: parsed,
+			revision,
+			plan,
+			sliceId: plan.slices[2].id,
+		});
+		expect(brief.readWorkflows).toEqual([reading]);
+		expect(brief.records.map((record) => record.id)).toContain(context.id);
+		expect(brief.recordRealizations.map((record) => record.recordId)).toContain(
+			context.id,
+		);
+		expect(renderBriefMessage(brief)).toContain(
+			JSON.stringify({ id: context.id, name: context.name }).slice(0, -1),
+		);
+	});
+
 	it("keeps a construction slice for a read task that creates its own list", () => {
 		const { contract, workflow, module } = readingContract();
 		module.workflowIds = module.workflowIds.filter((id) => id !== workflow.id);

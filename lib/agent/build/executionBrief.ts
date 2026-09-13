@@ -572,8 +572,10 @@ export function deriveSliceExecutionBrief(args: {
 		[workflow, ...readWorkflows].flatMap((item) => item.actorIds),
 	);
 	const recordIds = new Set<string>();
-	if (workflow.contextRecordId !== undefined)
-		recordIds.add(workflow.contextRecordId);
+	for (const covered of [workflow, ...readWorkflows]) {
+		if (covered.contextRecordId !== undefined)
+			recordIds.add(covered.contextRecordId);
+	}
 	for (const effect of workflow.recordEffects) {
 		recordIds.add(effect.recordId);
 		if (effect.sourceRecordId !== undefined)

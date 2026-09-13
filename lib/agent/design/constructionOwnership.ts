@@ -1,5 +1,6 @@
 import type { AppDesignContract } from "./contract";
 import { parentFormChildWriterWorkflowIds } from "./nestedMenuConstruction";
+import { hasCompleteReadSurfaces } from "./readWorkflows";
 
 /** Stable workflow order for both graph admission and plan derivation. */
 function workflowOrder(
@@ -120,6 +121,13 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 	};
 	for (const form of contract.formCompositions)
 		add(form.workflowId, moduleOwners.get(form.moduleCompositionId));
+	for (const workflow of contract.workflows) {
+		if (!hasCompleteReadSurfaces(contract, workflow)) continue;
+		for (const module of contract.moduleCompositions) {
+			if (module.workflowIds.includes(workflow.id))
+				add(workflow.id, moduleOwners.get(module.id));
+		}
+	}
 	for (const module of contract.moduleCompositions) {
 		const parent = contract.moduleCompositions.find(
 			(candidate) => candidate.id === module.parentModuleCompositionId,

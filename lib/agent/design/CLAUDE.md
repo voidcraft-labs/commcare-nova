@@ -138,7 +138,8 @@ valid direct Builder or MCP edit.
   accepted revision plus its exact lookup materialization receipt. It also
   derives stable
   construction groups for Blueprint work and separate external actions.
-  A read-only task with no separately owned construction joins the last
+  Reading surfaces become construction prerequisites before scheduling. A
+  read-only task with no separately owned construction joins the last
   prerequisite's existing group. Its workflow element remains in the plan and
   its requirements, records and external setup remain in the execution brief;
   it requires neither a dummy form nor an empty executor slice. Read tasks that

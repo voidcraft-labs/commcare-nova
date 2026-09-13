@@ -60,6 +60,7 @@ export function assignReadWorkflowOwners(args: {
 }): void {
 	const { contract, orderedWorkflowIds, ownerByElement, prerequisites } = args;
 	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
+	const actorIds = new Set<string>(contract.actors.map((actor) => actor.id));
 	for (const workflowId of orderedWorkflowIds) {
 		const workflow = contract.workflows.find((item) => item.id === workflowId);
 		if (
@@ -70,7 +71,8 @@ export function assignReadWorkflowOwners(args: {
 				(form) => form.workflowId === workflowId,
 			) ||
 			[...ownerByElement].some(
-				([id, owner]) => id !== workflowId && owner === workflowId,
+				([id, owner]) =>
+					id !== workflowId && !actorIds.has(id) && owner === workflowId,
 			)
 		) {
 			continue;
@@ -96,7 +98,12 @@ export function assignReadWorkflowOwners(args: {
 		if (
 			owner !== undefined &&
 			(rank.get(owner) ?? Infinity) < (rank.get(workflowId) ?? -1)
-		)
-			ownerByElement.set(workflowId, owner);
+		) {
+			// Actors describe who reads; access and worker configuration have their
+			// own construction elements. Carry this context with the task.
+			for (const [id, currentOwner] of ownerByElement) {
+				if (currentOwner === workflowId) ownerByElement.set(id, owner);
+			}
+		}
 	}
 }
