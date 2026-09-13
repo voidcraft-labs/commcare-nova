@@ -54,6 +54,7 @@ export const APPEND_KEY_FAMILIES: readonly KeyFamily[] = [
 	{ prefix: "design-response:", kind: "response" },
 	{ prefix: "design-wait:", kind: "wait" },
 	{ prefix: "recovered-design-wait:", kind: "wait" },
+	{ prefix: "recovered-design-question:", kind: "question-card" },
 	{ prefix: "slice-brief:", kind: "slice-brief" },
 	{ prefix: "candidate:", kind: "candidate-checkpoint" },
 	{ prefix: "focus:", kind: "slice-focus" },

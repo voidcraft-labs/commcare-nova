@@ -7,6 +7,7 @@ import {
 	runDesignAgentLoop,
 	validateAuthorizedProjectLookupEvidence,
 } from "@/lib/agent/build/designLoopRunner";
+import { openDesignModelContext } from "@/lib/agent/build/modelContextStore";
 import type { OrchestratorStreamWriter } from "@/lib/agent/build/orchestrator";
 import {
 	type DesignArtifactWriteAuthority,
@@ -1113,6 +1114,36 @@ describe("semantic design loop", () => {
 					throw new Error("The native question card is missing");
 				const cardInput = askQuestionsInputSchema.parse(card.input);
 				expect(cardInput).toEqual(questionInput);
+				// A deployment may replace the provider context before the saved
+				// question reaches the public thread. Recover the exact card and
+				// its answer authority from the immutable predecessor lineage.
+				await openDesignModelContext({
+					designSessionId: sessionId,
+					kind: "design",
+					modelId: "offline-context-replacement",
+					promptVersion: "offline-context-replacement",
+					toolsetDigest: "a".repeat(64),
+					contextVersion: "offline-context-replacement",
+					authority: authority(),
+				});
+				const replay: typeof chunks = [];
+				expect(
+					await runDesignAgentLoop({
+						...args,
+						writer: { write: (chunk) => replay.push(chunk) },
+					}),
+				).toEqual({ kind: "awaiting-input", headRevisionId: null });
+				expect(
+					replay.filter((chunk) => chunk.type === "tool-input-available"),
+				).toEqual([
+					{
+						type: "tool-input-available",
+						toolCallId: "required-pilot-card",
+						toolName: "askQuestions",
+						input: questionInput,
+					},
+				]);
+				expect(requests).toHaveLength(1);
 				const beforeAnswer = await workspaceRows();
 				expect(
 					await call(tools.updateOpenQuestions, {

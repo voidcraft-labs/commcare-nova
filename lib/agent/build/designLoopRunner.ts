@@ -108,6 +108,7 @@ import {
 } from "@/lib/agent/errorClassifier";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
+import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import { shouldRetryTurn, turnRetryDelayMs } from "@/lib/agent/turnRetry";
 import {
 	isOpenAICompactionChunk,
@@ -433,6 +434,108 @@ export function recoverableDesignWaitForTurn(args: {
 	);
 }
 
+interface RecoverableDesignQuestion {
+	readonly toolCallId: string;
+	readonly input: unknown;
+	readonly acknowledgement: string | null;
+}
+
+function questionResponseTurnSuffix(turnProvenanceId: string): string {
+	return `:turn:${canonicalJsonDigest({ turnProvenanceId })}`;
+}
+
+/** Restore the selected, unanswered card from the latest paid response. A
+ * later user turn supersedes it; server receipts do not. Required-question
+ * responses retain their authorization prefix and also bind this exact turn. */
+function recoverableDesignQuestionForTurn(args: {
+	readonly currentItems: readonly DesignModelContextItem[];
+	readonly predecessorItems: readonly DesignModelContextItem[];
+	readonly currentGenerationHasCompletedStep: boolean;
+	readonly turnProvenanceId: string;
+}): RecoverableDesignQuestion | null {
+	const items =
+		args.currentItems.some((item) =>
+			isDesignProviderResponseAppendKey(item.appendKey),
+		) || args.currentGenerationHasCompletedStep
+			? args.currentItems
+			: args.predecessorItems;
+	const responseKey = items.findLast((item) =>
+		isDesignProviderResponseAppendKey(item.appendKey),
+	)?.appendKey;
+	if (
+		responseKey === undefined ||
+		!(
+			responseKey.startsWith(`design-response:${args.turnProvenanceId}:`) ||
+			responseKey.endsWith(questionResponseTurnSuffix(args.turnProvenanceId))
+		)
+	)
+		return null;
+	const messages = items
+		.filter((item) => item.appendKey === responseKey)
+		.map((item) => item.message);
+	if (trailingSuccessfulDesignWait(messages) !== null) return null;
+	const answered = modelToolPartIds(
+		[...args.predecessorItems, ...args.currentItems].map(
+			(item) => item.message,
+		),
+		"tool-result",
+	);
+	for (const message of messages) {
+		if (message.role !== "assistant" || !Array.isArray(message.content))
+			continue;
+		for (const part of message.content) {
+			if (
+				part.type !== "tool-call" ||
+				part.toolName !== "askQuestions" ||
+				answered.has(part.toolCallId)
+			)
+				continue;
+			const parsed = askQuestionsInputSchema.safeParse(part.input);
+			if (!parsed.success) continue;
+			const acknowledgement = message.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("");
+			return {
+				toolCallId: part.toolCallId,
+				input: parsed.data,
+				acknowledgement: acknowledgement || null,
+			};
+		}
+	}
+	return null;
+}
+
+function recoveredDesignQuestionChunks(
+	question: RecoverableDesignQuestion,
+): readonly UIMessageChunk[] {
+	const acknowledgementId = `recovered-design-question:${question.toolCallId}`;
+	return [
+		...(question.acknowledgement === null
+			? []
+			: [
+					{ type: "text-start" as const, id: acknowledgementId },
+					{
+						type: "text-delta" as const,
+						id: acknowledgementId,
+						delta: question.acknowledgement,
+					},
+					{ type: "text-end" as const, id: acknowledgementId },
+				]),
+		{
+			type: "tool-input-start",
+			toolCallId: question.toolCallId,
+			toolName: "askQuestions",
+		},
+		{
+			type: "tool-input-available",
+			toolCallId: question.toolCallId,
+			toolName: "askQuestions",
+			input: question.input,
+		},
+	];
+}
+
 export type RecoverableDesignTerminalOmission =
 	| "needs-correction"
 	| "correction-pending"
@@ -485,8 +588,8 @@ export function recoverableDesignTerminalOmissionForTurn(args: {
 		.filter((item) => item.appendKey === latestResponseKey)
 		.map((item) => item.message);
 	/* A question call is itself a valid terminal. Process replacement may happen
-	 * before its card reaches the public thread, in which case the continuation
-	 * reconciler below closes the orphan and redrives it. Never misclassify that
+	 * before its card reaches the public thread; recovery replays that card.
+	 * Never misclassify that
 	 * durable question as an exhausted conversational-text correction. */
 	if (unansweredDesignQuestionCalls(latestResponseMessages).length > 0) {
 		return null;
@@ -670,11 +773,9 @@ export async function projectAnsweredDesignContinuation(args: {
 			}
 		}
 	}
-	/* A paid askQuestions response can reach the private model ledger before its
-	 * client card reaches the thread row. Dead-run redrive deliberately removes
-	 * that partial assistant message. Close the now-orphaned function call before
-	 * another provider request; the error grants no answer and lets the server
-	 * derive and ask the still-current question batch again. */
+	/* Same-turn unanswered cards are recovered before this continuation. When
+	 * newer user input supersedes an unanswered call, close its provider protocol
+	 * without inventing an answer. */
 	for (const call of unansweredQuestions) {
 		if (resultIds.has(call.toolCallId)) continue;
 		continuation.push({
@@ -687,8 +788,7 @@ export async function projectAnsweredDesignContinuation(args: {
 					output: {
 						type: "json",
 						value: {
-							error:
-								"The question card was interrupted before a durable user answer. Re-evaluate the current required questions and ask them again if they remain necessary.",
+							error: "No answer was recorded for this question.",
 						},
 					},
 				},
@@ -1795,6 +1895,29 @@ export async function runDesignAgentLoop(
 			currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
 			turnProvenanceId,
 		});
+	const recoveredQuestion = recoverableDesignQuestionForTurn({
+		currentItems: modelContextCurrentItems,
+		predecessorItems: modelContextPredecessorItems,
+		currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
+		turnProvenanceId,
+	});
+	if (recoveredQuestion !== null) {
+		const alreadyVisible = args.messages.some((message) =>
+			message.parts.some(
+				(part) =>
+					part.type === "tool-askQuestions" &&
+					part.toolCallId === recoveredQuestion.toolCallId &&
+					part.state === "input-available",
+			),
+		);
+		if (!alreadyVisible)
+			for (const chunk of recoveredDesignQuestionChunks(recoveredQuestion))
+				args.writer.write(chunk);
+		return {
+			kind: "awaiting-input",
+			headRevisionId: initialGates.head?.id ?? null,
+		};
+	}
 	if (recoveredPlan !== null && initialGates.newestAccepted !== null) {
 		const recoveredWait = recoveredWaitForCurrentTurn();
 		if (recoveredWait !== null) {
@@ -2004,7 +2127,7 @@ export async function runDesignAgentLoop(
 				);
 				const responseKey =
 					cardKey !== null
-						? `${cardKey}:response:${stepKey}:${step.responseDigest}`
+						? `${cardKey}:response:${stepKey}:${step.responseDigest}${questionResponseTurnSuffix(turnProvenanceId)}`
 						: completedWait !== null
 							? designWaitResponseAppendKey({
 									turnProvenanceId,

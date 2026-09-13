@@ -358,8 +358,10 @@ immutable artifact insert. The runner then starts the independent reviewer
 directly; the author never calls a tool to start review. A saved clean review
 resumes acceptance without another model call, provided its source package is
 still current and authorized Project data still satisfies the design. Blocking
-findings return to the author in the saved design state. A durable user pause
-wins over pending review on recovery. `inspectProjectData` returns a byte-bounded,
+findings return to the author in the saved design state. A durable wait or unanswered question
+wins over pending review on recovery. The server replays the selected question
+card without buying another author response; a later answer or user message
+supersedes it. `inspectProjectData` returns a byte-bounded,
 cursor-paged authorized Project table catalog or one cursor-bound page of at
 most 100 rows; it never accepts names as identity. Catalog cursors bind the
 exact Project revision and table/column position, so the author must read until
@@ -529,8 +531,10 @@ The graph, review, deterministic plan, complexity, source package, capability
 catalog, artifact store, workspace protocol, gates, compaction wire, and full
 phase loop each have focused tests under `__tests__/` and `loop/__tests__/`.
 
-`scripts/preview-app-design.ts` makes live model calls against an in-memory
-author/review/revision protocol and performs no database writes.
+Design lifecycle tests exercise the production runner, durable artifacts, and
+installed provider decoder against controlled HTTP responses and Postgres. Paid
+quality trials must use that same production path; there is no separate in-memory
+author/review protocol.
 `scripts/inspect-design-artifacts.ts` is the read-only local/production
 inspector. It reconstructs open workspace readiness and usage even before an
 immutable revision exists; `--reasoning` includes model reasoning summaries and

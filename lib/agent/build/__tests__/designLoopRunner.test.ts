@@ -745,7 +745,7 @@ describe("answered design continuation", () => {
 		]);
 	});
 
-	it("closes an orphaned durable question call before provider redrive", async () => {
+	it("closes an unanswered question without inventing an answer", async () => {
 		const continuation = await projectAnsweredDesignContinuation({
 			uiMessages: [],
 			modelContext: [call],
@@ -761,7 +761,7 @@ describe("answered design continuation", () => {
 						toolName: "askQuestions",
 						output: {
 							type: "json",
-							value: { error: expect.stringContaining("interrupted") },
+							value: { error: expect.any(String) },
 						},
 					},
 				],

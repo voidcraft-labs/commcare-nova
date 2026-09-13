@@ -410,35 +410,40 @@ describe("durable design loop runner", () => {
 			).toHaveLength(1);
 		});
 	});
-	it("honors a durable user pause even when a draft awaits review after replacement", async () => {
-		const session = await seed();
-		await withDesignResponses(
-			[[wait("saved-pause")]],
-			async (_model, requests, transport) => {
-				const args = await argsFor(session, transport, patientMessages, []);
-				expect((await runDesignAgentLoop(args)).kind).toBe("awaiting-input");
-				const fixture = await persistDraftDesignFixture({
-					designSessionId: session,
-					authority,
-				});
-				const replay: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
-				expect(
-					(
-						await runDesignAgentLoop(
-							await argsFor(session, transport, patientMessages, replay),
-						)
-					).kind,
-				).toBe("awaiting-input");
-				expect(visibleTerminals(replay)).toEqual(["waitForInput"]);
-				expect(requests).toHaveLength(1);
-				expect(
-					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
-						fixture.draft.id,
-					),
-				).toEqual([]);
-			},
-		);
-	});
+	it.each(["wait", "question"] as const)(
+		"restores a durable %s before reviewing a saved draft after replacement",
+		async (terminal) => {
+			const session = await seed();
+			await withDesignResponses(
+				[[terminal === "wait" ? wait("saved-pause") : ask("saved-pause")]],
+				async (_model, requests, transport) => {
+					const args = await argsFor(session, transport, patientMessages, []);
+					expect((await runDesignAgentLoop(args)).kind).toBe("awaiting-input");
+					const fixture = await persistDraftDesignFixture({
+						designSessionId: session,
+						authority,
+					});
+					const replay: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
+					expect(
+						(
+							await runDesignAgentLoop(
+								await argsFor(session, transport, patientMessages, replay),
+							)
+						).kind,
+					).toBe("awaiting-input");
+					expect(visibleTerminals(replay)).toEqual([
+						terminal === "wait" ? "waitForInput" : "askQuestions",
+					]);
+					expect(requests).toHaveLength(1);
+					expect(
+						(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+							fixture.draft.id,
+						),
+					).toEqual([]);
+				},
+			);
+		},
+	);
 	it("gives newer requirements to the author before reviewing an older draft", async () => {
 		const session = await seed();
 		const fixture = await persistDraftDesignFixture({
@@ -584,6 +589,15 @@ describe("durable design loop runner", () => {
 						),
 					).toEqual({ kind: "awaiting-input", headRevisionId: null });
 					expect(visibleTerminals(chunks)).toEqual([
+						order === "wait-first" ? "waitForInput" : "askQuestions",
+					]);
+					const replay: typeof chunks = [];
+					expect(
+						await runDesignAgentLoop(
+							await argsFor(session, transport, messages, replay),
+						),
+					).toEqual({ kind: "awaiting-input", headRevisionId: null });
+					expect(visibleTerminals(replay)).toEqual([
 						order === "wait-first" ? "waitForInput" : "askQuestions",
 					]);
 					const items = await h
