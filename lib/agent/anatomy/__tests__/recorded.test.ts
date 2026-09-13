@@ -35,6 +35,7 @@ describe("classifyAppendKey", () => {
 		["required-question-omission:digest:3", "correction"],
 		["input-terminal-rejection:call:digest", "correction"],
 		["design-terminal-omission:turn:", "correction"],
+		["review-admission:revision:digest", "correction"],
 		["design-response:turn:author:", "response"],
 		["design-wait:turn:", "wait"],
 		["recovered-design-wait:call", "wait"],

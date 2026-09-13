@@ -50,6 +50,7 @@ export const APPEND_KEY_FAMILIES: readonly KeyFamily[] = [
 	{ prefix: "required-question-omission:", kind: "correction" },
 	{ prefix: "input-terminal-rejection:", kind: "correction" },
 	{ prefix: "design-terminal-omission:", kind: "correction" },
+	{ prefix: "review-admission:", kind: "correction" },
 	{ prefix: "design-response:", kind: "response" },
 	{ prefix: "design-wait:", kind: "wait" },
 	{ prefix: "recovered-design-wait:", kind: "wait" },
