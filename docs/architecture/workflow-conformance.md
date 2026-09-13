@@ -6,6 +6,29 @@ build executor requests `finishWorkflow`. Findings return through the existing
 bounded correction loop before its private candidate commits. They do not alter
 canonical admission, direct editing, export, or runtime execution.
 
+After all planned slices commit, `canonicalConformance.ts` applies the same
+rules to every constructed workflow against one authorized canonical snapshot.
+It requires the original plan's exact, ordered committed receipts. A later
+slice that removes an earlier accepted input or write therefore fails this
+final assessment even if each slice passed its own private checks.
+
+`conformanceStore.ts` seals an immutable report with the accepted revision and
+plan digests, app sequence and snapshot digest, projection and rule versions,
+committed receipts, findings, and unreadable sections. The writer rechecks the
+current app and active artifacts under the live run's authority lock. An exact
+retry reuses the sealed row. A stale snapshot, changed lineage or lost authority
+cannot produce a current report. Runtime grants prohibit updates, deletes and
+row locks on reports; their app/session owns retention and tenancy.
+
+The build orchestrator records this assessment before requesting its existing
+completion transaction. Findings or unreadable evidence prevent a completion
+claim and preserve the saved app. `inspect-design-artifacts` shows the report's
+app sequence and structural finding count. Its current/stale comparison refers
+only to the app sequence. Lookup definitions provide names in the projection;
+this assessment does not verify their current rows, media, deployment or external
+setup. Grounded quality review and corrective canonical slices remain separate
+unfinished work.
+
 Each finding below is critical for this workflow's construction. Identity comes
 from exact server-owned bindings, never matching labels or slugs. Conflicting
 bindings are an integrity error, not a model correction. Each complete form

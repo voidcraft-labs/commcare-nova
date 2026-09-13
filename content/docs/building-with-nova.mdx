@@ -46,6 +46,11 @@ remaining parts as valid updates, so you never edit underneath the initial
 build. Direct editing and Preview become available when the whole build is
 finished; unfinished private work never appears in the app.
 
+Before finishing, Nova checks the saved app again for missing accepted questions
+and record writes. This catches a later workflow removing something built
+earlier. If that check cannot finish, Nova keeps the saved app and tells you
+that verification is unfinished.
+
 The accepted menu order stays the same even when Nova builds the workflows in
 a different dependency order. Moving a menu in the design also moves its
 submenus together.

@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $31.5460 across 311 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $31.9102 across 347 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -276,8 +276,9 @@ tools. The repair helper now receives the current candidate, readable catalog
 and form content, derived field actions, and its slice's actual operation
 descriptions. Its brief supplies accepted meaning without another full contract
 and plan. This is the first deterministic Blueprint reader for Unit F, consumed
-by repair today; semantic conformance, canonical sequence-bound reports and
-grounded final quality review remain unfinished.
+by repair today. Structural conformance and canonical reports now use that
+reader too; broader semantic assessment and grounded final quality review
+remain unfinished.
 
 **Slice 3: supply the right work and context to each role.**
 
@@ -318,8 +319,10 @@ material, not only the opening request.
 
 The first structural conformance rules now provide private construction feedback
 for missing accepted inputs and record writes, incompatible types and absent
-record actions. They add no opening prompt or schema content. Canonical reports,
-grounded quality review, bounded correction and Design history remain open.
+record actions. They add no opening prompt or schema content. Canonical reports
+now reassess the constructed workflows against the same app snapshot, preserve
+the exact plan receipts and refuse stale writes. Grounded quality review,
+bounded canonical correction and Design history remain open.
 
 Use Unit F's deterministic implementation projection, sequence-bound conformance,
 grounded quality review, bounded correction, and completion report. Add useful

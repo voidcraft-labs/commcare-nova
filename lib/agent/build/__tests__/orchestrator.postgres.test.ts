@@ -2,11 +2,18 @@
  * outcome is an explicit model boundary; all durable transitions are real. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
-import { FIXTURE_THREAD_ID } from "@/lib/agent/design/__tests__/fixtures";
+import {
+	FIXTURE_THREAD_ID,
+	fixtureValue,
+	makeWorkflowChainContract,
+} from "@/lib/agent/design/__tests__/fixtures";
 import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
+import { readConformanceReport } from "@/lib/agent/design/conformanceStore";
 import { buildDesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { setDesignSessionActiveArtifacts } from "@/lib/db/designSessions";
+import { deriveSliceExecutionBrief } from "../executionBrief";
+import type { ExecutorStepFn } from "../executorLoop";
 import {
 	type OrchestratorStreamWriter,
 	type RunBuildOrchestrationArgs,
@@ -104,6 +111,160 @@ async function setup(
 }
 
 describe("native orchestration", () => {
+	it.each([false, true])(
+		"rechecks the final app before the completion transaction (earlier input removed: %s)",
+		async (removeEarlierInput) => {
+			const f = await setup(async () => {
+				throw new Error("An accepted plan must not reenter design");
+			});
+			const authority = {
+				actorUserId: ACTOR,
+				runId: RUN,
+				holderNonce: NONCE,
+				expectedProjectId: PROJECT,
+			};
+			const contract = makeWorkflowChainContract(2);
+			for (const record of contract.records)
+				fixtureValue(record.properties[0], "record name").name = "case_name";
+			const accepted = await persistAcceptedDesignFixture({
+				designSessionId: f.session,
+				authority,
+				contract,
+			});
+			await setDesignSessionActiveArtifacts({
+				...authority,
+				designSessionId: f.session,
+				activeDesignRevisionId: accepted.accepted.id,
+				activeBuildPlanId: accepted.plan.id,
+			});
+			const steps = accepted.plan.envelope.payload.slices.map(
+				(slice, index) => {
+					const brief = deriveSliceExecutionBrief({
+						contract: accepted.accepted.envelope.payload,
+						revision: {
+							id: accepted.accepted.id,
+							digest: accepted.accepted.artifactDigest,
+						},
+						plan: accepted.plan.envelope.payload,
+						sliceId: slice.id,
+					});
+					const name = `Workflow ${index + 1}`;
+					const toolCalls: Awaited<ReturnType<ExecutorStepFn>>["toolCalls"] = [
+						{
+							toolCallId: `module-${index}`,
+							toolName: "createModule",
+							input: {
+								name,
+								forms: [
+									{
+										name,
+										fields: [
+											{
+												id: `workflow_${index + 1}_value`,
+												kind: "text",
+												label: `${name} value`,
+												caseWrite: {
+													caseType: fixtureValue(
+														brief.moduleRealizations.find(
+															(module) => module.action === "create",
+														)?.hostRecord ?? undefined,
+														"host record",
+													).blueprintCaseType,
+													property: "case_name",
+												},
+											},
+										],
+									},
+								],
+								case_list_columns: [
+									{ kind: "plain", field: "case_name", header: "Name" },
+								],
+							},
+						},
+					];
+					if (removeEarlierInput && index === 1)
+						toolCalls.push({
+							toolCallId: "replace-earlier-answer",
+							toolName: "editField",
+							input: {
+								moduleUuid: "Workflow 1",
+								formUuid: "Workflow 1",
+								fieldUuid: "workflow_1_value",
+								updates: { kind: "hidden", calculate: "'Entry'" },
+							},
+						});
+					toolCalls.push({
+						toolCallId: `finish-${index}`,
+						toolName: "finishWorkflow",
+						input: {},
+					});
+					return toolCalls;
+				},
+			);
+			let step = 0;
+			const reachedCompletion = new Error(
+				"Reached route-owned completion transaction",
+			);
+			let completionCalls = 0;
+			const run = runBuildOrchestration({
+				...f.args,
+				deps: {
+					...f.args.deps,
+					executorStep: async () => {
+						const toolCalls = fixtureValue(
+							steps[step++],
+							"controlled executor response",
+						);
+						return {
+							toolCalls,
+							text: "",
+							usage: undefined,
+							responseMessages: [
+								{
+									role: "assistant",
+									content: toolCalls.map((call) => ({
+										type: "tool-call",
+										...call,
+									})),
+								},
+							],
+						};
+					},
+				},
+				finalizeCompletion: async ({ expectedSeq }) => {
+					completionCalls += 1;
+					expect(expectedSeq).toBe(2);
+					throw reachedCompletion;
+				},
+			});
+			if (removeEarlierInput) {
+				expect(await run).toMatchObject({
+					kind: "failed",
+					errorType: "final-verification-failed",
+					appId: f.args.proposedAppId,
+				});
+				expect(completionCalls).toBe(0);
+			} else {
+				await expect(run).rejects.toBe(reachedCompletion);
+				expect(completionCalls).toBe(1);
+			}
+			const row = await h
+				.db()
+				.selectFrom("design_conformance_reports")
+				.select("id")
+				.executeTakeFirstOrThrow();
+			const report = fixtureValue(
+				(await readConformanceReport(row.id)) ?? undefined,
+				"final assessment",
+			);
+			expect(report.payload.appSeq).toBe(2);
+			expect(report.payload.committedReceipts).toHaveLength(2);
+			expect(report.payload.findings.map((finding) => finding.code)).toEqual(
+				removeEarlierInput ? ["WORKFLOW_INPUT_TYPE_MISMATCH"] : [],
+			);
+		},
+	);
+
 	it("durably pauses the exact owned session and brackets its one assistant message", async () => {
 		const fixture = await setup(async (args) => {
 			expect(

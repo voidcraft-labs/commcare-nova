@@ -26,6 +26,7 @@ export const DESIGN_ARTIFACT_TYPES = [
 	"design-contract",
 	"design-review",
 	"design-build-plan",
+	"design-conformance",
 ] as const;
 export type DesignArtifactType = (typeof DESIGN_ARTIFACT_TYPES)[number];
 

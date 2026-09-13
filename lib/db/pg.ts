@@ -1070,6 +1070,21 @@ export interface DesignBuildPlansTable {
 	created_at: Timestamp;
 }
 
+export interface DesignConformanceReportsTable {
+	id: string;
+	design_session_id: string;
+	design_revision_id: string;
+	build_plan_id: string;
+	app_id: string;
+	app_seq: BigIntColumn;
+	snapshot_digest: string;
+	assessment_digest: string;
+	artifact_digest: string;
+	created_by_run_id: string;
+	envelope: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
 /** Mutable authority row for one private contract/revision/plan authoring
  * workspace. Its append-only steps are replayed into the candidate; only a
  * complete validated candidate can atomically finalize an immutable artifact. */
@@ -1249,6 +1264,7 @@ export interface AppDatabase {
 	design_reviews: DesignReviewsTable;
 	design_review_dispositions: DesignReviewDispositionsTable;
 	design_build_plans: DesignBuildPlansTable;
+	design_conformance_reports: DesignConformanceReportsTable;
 	design_artifact_workspaces: DesignArtifactWorkspacesTable;
 	design_artifact_workspace_steps: DesignArtifactWorkspaceStepsTable;
 	design_sessions: DesignSessionsTable;

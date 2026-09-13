@@ -406,6 +406,33 @@ export async function loadPriorCommittedPlanHandleBindings(
 	dbHandle?: Db,
 ): Promise<ChangeSetHandleBinding[]> {
 	if (changeSet.kind !== "app-edit" || changeSet.baseSeq === null) return [];
+	if (changeSet.appId === null)
+		throw new Error("An app-edit change set has no canonical app identity.");
+	return loadCommittedPlanHandleBindings(
+		{
+			...changeSet,
+			appId: changeSet.appId,
+			throughSeq: changeSet.baseSeq,
+		},
+		dbHandle,
+	);
+}
+
+/** Bindings from the exact committed plan through a canonical sequence.
+ * A current private change set has no committed receipt and cannot enter this
+ * set. Canonical conformance uses the same lineage query as slice recovery. */
+export async function loadCommittedPlanHandleBindings(
+	lineage: {
+		readonly designSessionId: string;
+		readonly designRevisionId: string;
+		readonly designRevisionDigest: string;
+		readonly buildPlanId: string;
+		readonly buildPlanDigest: string;
+		readonly appId: string;
+		readonly throughSeq: number;
+	},
+	dbHandle?: Db,
+): Promise<ChangeSetHandleBinding[]> {
 	const db = dbHandle ?? (await getAppDb());
 	const rows = await db
 		.selectFrom("design_change_sets as source")
@@ -426,18 +453,17 @@ export async function loadPriorCommittedPlanHandleBindings(
 			"handle.binding_request_id",
 			"source.id as source_change_set_id",
 		])
-		.where("source.design_session_id", "=", changeSet.designSessionId)
-		.where("source.design_revision_id", "=", changeSet.designRevisionId)
-		.where("source.design_revision_digest", "=", changeSet.designRevisionDigest)
-		.where("source.build_plan_id", "=", changeSet.buildPlanId)
-		.where("source.build_plan_digest", "=", changeSet.buildPlanDigest)
+		.where("source.design_session_id", "=", lineage.designSessionId)
+		.where("source.design_revision_id", "=", lineage.designRevisionId)
+		.where("source.design_revision_digest", "=", lineage.designRevisionDigest)
+		.where("source.build_plan_id", "=", lineage.buildPlanId)
+		.where("source.build_plan_digest", "=", lineage.buildPlanDigest)
 		/* A genesis source has `app_id = NULL` forever; the immutable receipt is
 		 * the canonical binding from that root change set to the materialized app.
 		 * Scope through it so later slices inherit root handles too. */
-		.where("receipt.app_id", "=", changeSet.appId)
+		.where("receipt.app_id", "=", lineage.appId)
 		.where("source.status", "=", "committed")
-		.where("source.committed_seq", "<=", changeSet.baseSeq)
-		.where("source.id", "!=", changeSet.id)
+		.where("source.committed_seq", "<=", lineage.throughSeq)
 		.orderBy("source.committed_seq", "asc")
 		.orderBy("handle.handle", "asc")
 		.execute();

@@ -1,9 +1,10 @@
-/** Real Responses decoding, durable context, attempt budget, private tools and
- * genesis publication. Only the remote model's output is controlled. These
- * journeys stop at slice materialization; they do not claim plan conformance. */
+/** Real Responses decoding, durable context, private tools, publication and
+ * canonical structural assessment. Only the remote model's output is controlled.
+ * These journeys do not establish overall completion or application quality. */
 import type { ServerResponse } from "node:http";
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	respondWithObject,
 	withResponsesPeer,
@@ -28,13 +29,23 @@ import {
 	makeWorkflowChainContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
+import {
+	insertConformanceReport,
+	readConformanceReport,
+	recordCanonicalConformance,
+} from "@/lib/agent/design/conformanceStore";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
 	readToolLookupCatalog,
 	readToolLookupDefinitions,
 } from "@/lib/agent/lookupContext";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
+import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
+import {
+	createAndClaimDesignSessionRun,
+	setDesignSessionActiveArtifacts,
+} from "@/lib/db/designSessions";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -397,6 +408,8 @@ async function fixture(
 	}
 	return {
 		...claim,
+		artifacts,
+		authority,
 		attempt,
 		changeSet,
 		contextSpec,
@@ -418,6 +431,157 @@ function results(messages: readonly ModelMessage[]) {
 }
 
 describe("persisted executor Responses journeys", () => {
+	it("seals canonical conformance, reuses an exact retry and refuses a stale snapshot", async () => {
+		const f = await fixture();
+		await setDesignSessionActiveArtifacts({
+			...f.authority,
+			designSessionId: f.designSessionId,
+			activeDesignRevisionId: f.artifacts.accepted.id,
+			activeBuildPlanId: f.artifacts.plan.id,
+		});
+		const outcome = await withResponsesPeer(
+			(_request, response) =>
+				respondWithCalls(response, [f.calls.module, f.calls.finish]),
+			(provider) =>
+				f.run(
+					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+				),
+		);
+		expect(outcome.kind).toBe("committed");
+		const args = {
+			designSessionId: f.designSessionId,
+			appId: f.proposedAppId,
+			designRevisionId: f.artifacts.accepted.id,
+			buildPlanId: f.artifacts.plan.id,
+			authority: f.authority,
+		};
+		const report = await recordCanonicalConformance(args);
+		expect(report.payload).toMatchObject({
+			appSeq: 1,
+			findings: [],
+			unreadable: [],
+		});
+		expect(await recordCanonicalConformance(args)).toEqual(report);
+		expect(await readConformanceReport(report.artifactId)).toEqual(report);
+		for (const authority of [
+			{ ...args.authority, expectedProjectId: "another-project" },
+			{ ...args.authority, actorUserId: "another-user" },
+		]) {
+			await expect(
+				recordCanonicalConformance({ ...args, authority }),
+			).rejects.toThrow();
+		}
+		expect(
+			await h
+				.db()
+				.selectFrom("design_conformance_reports")
+				.select("id")
+				.where("app_id", "=", f.proposedAppId)
+				.execute(),
+		).toEqual([{ id: report.artifactId }]);
+		const changed = await applyBlueprintChange({
+			appId: f.proposedAppId,
+			userId: ACTOR,
+			expectedProjectId: PROJECT,
+			runId: RUN,
+			chatRunHolder: {
+				mode: "build",
+				runId: RUN,
+				nonce: f.holderNonce,
+				source: "chat",
+			},
+			batchId: "after-conformance",
+			kind: "chat",
+			guard: {
+				mutations: admitMutationBatch([
+					{ kind: "setAppName", name: "A later revision" },
+				]),
+			},
+		});
+		expect(changed.seq).toBe(2);
+		await expect(
+			insertConformanceReport({
+				designSessionId: f.designSessionId,
+				assessment: report.payload,
+				authority: f.authority,
+			}),
+		).rejects.toThrow("changed before conformance");
+		expect(await readConformanceReport(report.artifactId)).toEqual(report);
+		const later = await recordCanonicalConformance(args);
+		expect(later.artifactId).not.toBe(report.artifactId);
+		expect(later.payload.appSeq).toBe(2);
+		expect(later.payload.snapshotDigest).not.toBe(
+			report.payload.snapshotDigest,
+		);
+		await expect(
+			recordCanonicalConformance({
+				...args,
+				authority: {
+					...args.authority,
+					holderNonce: crypto.randomUUID(),
+				},
+			}),
+		).rejects.toThrow();
+		expect(
+			await h
+				.db()
+				.selectFrom("design_conformance_reports")
+				.select("id")
+				.where("app_id", "=", f.proposedAppId)
+				.execute(),
+		).toHaveLength(2);
+		const canonical = await loadCanonicalBlueprintAtSequence(h.db(), {
+			appId: f.proposedAppId,
+			seq: 2,
+			expectedDigest: null,
+		});
+		const input = fixtureValue(
+			Object.values(canonical.doc.fields)[0],
+			"accepted input",
+		);
+		await applyBlueprintChange({
+			appId: f.proposedAppId,
+			userId: ACTOR,
+			expectedProjectId: PROJECT,
+			runId: RUN,
+			chatRunHolder: {
+				mode: "build",
+				runId: RUN,
+				nonce: f.holderNonce,
+				source: "chat",
+			},
+			batchId: "replace-captured-answer",
+			kind: "chat",
+			guard: {
+				mutations: admitMutationBatch([
+					{ kind: "convertField", uuid: input.uuid, toKind: "hidden" },
+					{
+						kind: "updateField",
+						targetKind: "hidden",
+						uuid: input.uuid,
+						patch: { calculate: xp("'Entry'") },
+					},
+				]),
+			},
+		});
+		const regression = await recordCanonicalConformance(args);
+		expect(regression.payload).toMatchObject({
+			appSeq: 3,
+			findings: [
+				expect.objectContaining({ code: "WORKFLOW_INPUT_TYPE_MISMATCH" }),
+			],
+		});
+		await h
+			.db()
+			.updateTable("design_conformance_reports")
+			.set({ snapshot_digest: "a".repeat(64) })
+			.where("id", "=", later.artifactId)
+			.execute();
+		await expect(readConformanceReport(later.artifactId)).rejects.toThrow(
+			"stored identity or digest",
+		);
+	});
+
 	it("prepares records before the first model request and replays without replacing later refinements", async () => {
 		const f = await fixture();
 		const context = await f.openContext();

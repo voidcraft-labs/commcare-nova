@@ -40,6 +40,7 @@ import {
 	designArtifactWorkspaceOperationSchema,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
+import { readConformanceReport } from "@/lib/agent/design/conformanceStore";
 import {
 	appDesignContractSchema,
 	designConstructionIssues,
@@ -600,6 +601,30 @@ async function main(): Promise<void> {
 					acceptedWorkflowCount: revision.envelope.payload.workflows.length,
 					artifactRunIds,
 				});
+				const reports = await db
+					.selectFrom("design_conformance_reports as report")
+					.innerJoin("apps", "apps.id", "report.app_id")
+					.select(["report.id", "apps.mutation_seq as current_seq"])
+					.where("report.design_session_id", "=", sessionId)
+					.where("report.build_plan_id", "=", plan.id)
+					.orderBy("report.app_seq", "asc")
+					.orderBy("report.created_at", "asc")
+					.execute();
+				for (const row of reports) {
+					const report = await readConformanceReport(row.id);
+					if (!report)
+						throw new Error(`Conformance report ${row.id} is unavailable.`);
+					const payload = report.payload;
+					const current =
+						safePersistedSequence(
+							row.current_seq,
+							"conformance current sequence",
+						) === payload.appSeq;
+					console.log(
+						`  conformance ${report.artifactId}: app sequence ${payload.appSeq} (${current ? "current" : "stale"}), ` +
+							`${payload.findings.length} structural findings, ${payload.unreadable.length} unreadable sections`,
+					);
+				}
 			}
 		}
 	}

@@ -24,7 +24,7 @@ The build helper consumes it with an exact private workspace revision. Its
 versioned digest excludes derived document indexes; unreadable sections are
 reported at their owning object. It does not inspect external rows, deployment
 readiness or target-language overlays, infer intent, execute a form, or prove
-conformance. Unit F's canonical reports and completion review remain open.
+conformance. Completion review remains open.
 
 `conformance.ts` supplies the first deterministic comparison with accepted
 workflows. The executor runs it at `finishWorkflow` beside the existing private
@@ -38,6 +38,17 @@ Link, owner and retype semantics remain outside these initial rules. Direct
 Builder and MCP mutations do not consult them.
 The [rule contract](../../../docs/architecture/workflow-conformance.md) records
 each proof and its limits.
+
+`canonicalConformance.ts` reassesses every constructed workflow against one
+canonical app snapshot after verifying the complete plan's committed receipts.
+`conformanceStore.ts` reads the authorized app and exact accepted artifacts,
+then seals that assessment only while its app sequence, snapshot digest and
+active design/plan still match under the run's authority lock. Exact retries
+reuse an immutable `design_conformance_reports` row. Later edits leave it intact
+and make it historical. The orchestrator requires this structural assessment
+before requesting completion; the admin artifact inspector shows its app
+sequence and findings. Reports do not prove quality or external readiness.
+Lookup definitions are projection context, not verified setup evidence.
 
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` strings;
