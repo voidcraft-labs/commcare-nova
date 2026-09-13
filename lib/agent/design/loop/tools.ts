@@ -94,6 +94,10 @@ import {
 	RESERVED_FINDING_HANDLE_PATTERN,
 } from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	bindDesignSourceRefs,
+	sourceAuthoringWireSchema,
+} from "@/lib/agent/design/sourceReferences";
 import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import {
 	strictWireJsonSchema,
@@ -400,7 +404,9 @@ function stagedDesignIdentityOccurrences(input: unknown) {
  * design identity is expressible. */
 export function designToolWireSchema(schema: z.ZodType): unknown {
 	return widenDesignIdsToHandles(
-		lookupChoiceAuthoringWireSchema(strictWireJsonSchema(schema)),
+		lookupChoiceAuthoringWireSchema(
+			sourceAuthoringWireSchema(strictWireJsonSchema(schema)),
+		),
 	);
 }
 
@@ -1727,9 +1733,16 @@ export function createDesignLoopActions(
 			workspace,
 		);
 		if (admissionRejection !== null) return admissionRejection;
-		const bound = await bindDesignLookupEvidence({
+		const sources = bindDesignSourceRefs({
 			schema: designArtifactWorkspaceOperationSchema,
 			input: { kind, ...(stagedInput as Record<string, unknown>) },
+			pkg: deps.currentPkg,
+		});
+		if (!sources.ok)
+			return rejectedStage(deps, repairTool, { error: sources.error });
+		const bound = await bindDesignLookupEvidence({
+			schema: designArtifactWorkspaceOperationSchema,
+			input: sources.value,
 			workspace,
 			inspectProjectData: deps.inspectProjectData,
 		});

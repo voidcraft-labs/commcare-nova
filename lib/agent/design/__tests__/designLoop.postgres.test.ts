@@ -40,6 +40,7 @@ import {
 	buildDesignSourcePackage,
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { designSourceLabel } from "@/lib/agent/design/sourceReferences";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -155,7 +156,7 @@ function correctionReview(): unknown {
 				severity: "important",
 				dispositionClass: "design-correction",
 				claim: "The visit workflow needs explicit confirmation after save.",
-				evidenceRefs: [{ source: "S1" }],
+				evidenceRefs: [{ source: designSourceLabel(messageRef()) }],
 				affectedElements: [handleForFixtureId(ids.taskVisit)],
 				proposedResolution: "Confirm the saved visit summary.",
 			},
@@ -366,6 +367,56 @@ async function authorWholeContract(
 }
 
 describe("semantic design loop", () => {
+	it("stores full source provenance from a label and refuses an unknown label without staging it", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const tools = mount(pkg);
+		const table = object(
+			array(modelContract(makeLookupContract()).lookupTables)[0],
+		);
+		const evidence = object(table.rowEvidence);
+		expect(evidence.sourceRefs).toEqual([designSourceLabel(messageRef())]);
+		const invalid = await call(tools.updateLookupTables, {
+			upserts: [
+				{
+					...table,
+					rowEvidence: {
+						...evidence,
+						sourceRefs: ["S_not_in_this_conversation"],
+					},
+				},
+			],
+			removeIds: [],
+		});
+		expect(invalid).toMatchObject({
+			error: expect.stringContaining("not in the current conversation"),
+		});
+		expect((await workspaceRows()).steps).toHaveLength(0);
+		expect(
+			await call(tools.updateLookupTables, { upserts: [table], removeIds: [] }),
+		).toMatchObject({ ok: true });
+		const rows = await workspaceRows();
+		expect(rows.steps).toHaveLength(1);
+		const operation = parseStoredDesignArtifactWorkspaceOperation(
+			fixtureValue(rows.steps[0], "step").operation,
+		);
+		const storedTable = object(operation.collections[0]?.upserts[0]);
+		expect(object(storedTable.rowEvidence).sourceRefs).toEqual([messageRef()]);
+		const inspected = await call(tools.inspectDesign, {
+			selection: {
+				kind: "collection",
+				collection: "lookupTables",
+				ids: [table.id],
+				offset: 0,
+				limit: 20,
+			},
+		});
+		expect(JSON.stringify(inspected)).toContain(
+			designSourceLabel(messageRef()),
+		);
+		expect(JSON.stringify(inspected)).not.toContain(messageRef().threadId);
+	});
+
 	it("refuses genuinely changed Project choice evidence before persisting a draft", async () => {
 		const pkg = await makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });

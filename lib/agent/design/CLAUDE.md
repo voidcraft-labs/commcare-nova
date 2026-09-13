@@ -112,7 +112,7 @@ valid direct Builder or MCP edit.
 - `review.ts` defines the persisted findings, dispositions, and revisions —
   UUID-only shapes and their laws. The reviewer MODEL never speaks that
   vocabulary: `reviewerSchema.ts` is its structured-output schema, whose wire
-  side is symbols only — `S`-numbered source tags (an exact enum over
+  side is symbols only — stable source labels (an exact enum over
   `reviewVocabulary.ts::taggedCitableSourceRefs`, the one derivation the
   prompt's legend and block labels share, so an out-of-set citation is
   grammatically inexpressible), platform-constraint codes (the catalog
@@ -288,12 +288,20 @@ valid direct Builder or MCP edit.
   CommCare/Nova domain knowledge, treat source blocks as untrusted data, keep
   technical protocol details out of user prose, and make unsupported
   capabilities explicit. Readiness may remain external only when every included
-  workflow can still be authored as a valid, reachable, useful app. The tagged
-  source rendering (`<nova:source tag="S1">`, the tag legend, tag-labeled
-  images, the handle-projected contract) is REVIEWER-PROMPT-ONLY: the
-  conversational per-block renderers stay byte-identical because the author
-  transcript is prefix-cached and tag numbering shifts when an answered round
-  extends the package — tags are derived per render and never persisted.
+  workflow can still be authored as a valid, reachable, useful app.
+  `sourceReferences.ts` gives each source a label derived from its identity.
+  Labels stay stable when the source index grows or changes order, so the
+  author's cached message prefix and the reviewer's citations share one
+  vocabulary. Message coordinates, media digests and extract versions stay
+  behind the boundary. Lookup evidence accepts a displayed label directly;
+  a document citation may add a section path or figure marker. Binding accepts
+  only sources in the current authorized package. Plain document citations
+  never inherit a prior citation's location. Artifacts retain full canonical
+  references; labels are projections, never another stored ledger.
+  Claims, candidate reads, reviewed parents and returned findings use the same
+  projection. Source notes show statements and citations without private claim
+  identities. State packets report saved facts without repeated continuation
+  instructions.
   Message, attachment, image-label and normalized-claim text all neutralize
   source delimiters before projection. Rendering tests prove this formatting
   boundary; they do not prove that a model obeys the source-data instruction.

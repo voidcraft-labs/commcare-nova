@@ -29,7 +29,7 @@ describe("review symbol projection", () => {
 		const before = structuredClone(pkg);
 		const expected = [
 			{
-				tag: "S1",
+				tag: expect.stringMatching(/^S_[a-f0-9]{12}$/),
 				ref: {
 					kind: "message",
 					threadId: SOURCE_THREAD,
@@ -38,7 +38,7 @@ describe("review symbol projection", () => {
 				},
 			},
 			{
-				tag: "S2",
+				tag: expect.stringMatching(/^S_[a-f0-9]{12}$/),
 				ref: {
 					kind: "attachment-extract",
 					assetId: SOURCE_DOCUMENT,
@@ -47,7 +47,7 @@ describe("review symbol projection", () => {
 				},
 			},
 			{
-				tag: "S3",
+				tag: expect.stringMatching(/^S_[a-f0-9]{12}$/),
 				ref: {
 					kind: "image",
 					assetId: SOURCE_IMAGE,
@@ -55,7 +55,7 @@ describe("review symbol projection", () => {
 				},
 			},
 			{
-				tag: "S4",
+				tag: expect.stringMatching(/^S_[a-f0-9]{12}$/),
 				ref: {
 					kind: "message",
 					threadId: SOURCE_THREAD,
@@ -65,12 +65,10 @@ describe("review symbol projection", () => {
 			},
 		];
 		expect(taggedCitableSourceRefs(pkg)).toEqual(expected);
-		expect([...sourceTagByRefKey(pkg)]).toEqual([
-			[`message:${SOURCE_THREAD}:request:0`, "S1"],
-			[`attachment:${SOURCE_DOCUMENT}:${EXTRACTOR_VERSION}`, "S2"],
-			[`image:${SOURCE_IMAGE}:${sourceDigest(SOURCE_PNG)}`, "S3"],
-			[`message:${SOURCE_THREAD}:answers:1`, "S4"],
-		]);
+		const tags = taggedCitableSourceRefs(pkg);
+		expect(new Set(tags.map(({ tag }) => tag)).size).toBe(4);
+		for (const { tag, ref } of tags)
+			expect(sourceTagByRefKey(pkg).get(sourceRefKey(ref))).toBe(tag);
 		expect(pkg).toEqual(before);
 		expect(taggedCitableSourceRefs(JSON.parse(JSON.stringify(pkg)))).toEqual(
 			expected,
@@ -108,14 +106,14 @@ describe("review symbol projection", () => {
 		expect(taggedCitableSourceRefs(pkg)).toEqual([
 			...original.slice(0, 3),
 			{
-				tag: "S4",
+				tag: expect.stringMatching(/^S_[a-f0-9]{12}$/),
 				ref: {
 					kind: "image",
 					assetId: SOURCE_IMAGE,
 					bytesDigest: "f".repeat(64),
 				},
 			},
-			{ tag: "S5", ref: original[3]?.ref },
+			original[3],
 		]);
 		expect(
 			sourceTagByRefKey(pkg).get(
@@ -126,7 +124,7 @@ describe("review symbol projection", () => {
 					),
 				),
 			),
-		).toBe("S5");
+		).toBe(original[3]?.tag);
 	});
 
 	it("projects complete admitted contract references while preserving unrelated text and source data", () => {

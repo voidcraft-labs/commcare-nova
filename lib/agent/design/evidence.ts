@@ -19,6 +19,8 @@ import { designIdSchema } from "@/lib/agent/design/ids";
 import { PLATFORM_CONSTRAINT_CODES } from "@/lib/agent/design/platformConstraints";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 
+export const DESIGN_SOURCE_SCHEMA_MARKER = "x-nova-design-source";
+
 /**
  * One opaque pointer into authorized source material.
  *
@@ -38,41 +40,43 @@ import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
  *   attached image cites the image itself; the digest binds the citation to
  *   that content, so re-projected or replaced bytes never inherit it.
  */
-export const sourceRefSchema = z.discriminatedUnion("kind", [
-	z
-		.object({
-			kind: z.literal("message"),
-			threadId: z.string().uuid(),
-			messageId: z.string().min(1),
-			partIndex: z.number().int().nonnegative(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("attachment-extract"),
-			assetId: mediaAssetIdSchema,
-			extractorVersion: z.number().int().positive(),
-			sectionPath: z.array(z.string().min(1)).default([]),
-			figureMarker: z.string().min(1).optional(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("platform-constraint"),
-			code: z.enum(PLATFORM_CONSTRAINT_CODES),
-			sourceAnchor: z.string().min(1),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("image"),
-			assetId: mediaAssetIdSchema,
-			/** SHA-256 of the exact projected image bytes — binds the citation to
-			 *  the content the model actually saw. */
-			bytesDigest: z.string().regex(/^[a-f0-9]{64}$/),
-		})
-		.strict(),
-]);
+export const sourceRefSchema = z
+	.discriminatedUnion("kind", [
+		z
+			.object({
+				kind: z.literal("message"),
+				threadId: z.string().uuid(),
+				messageId: z.string().min(1),
+				partIndex: z.number().int().nonnegative(),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("attachment-extract"),
+				assetId: mediaAssetIdSchema,
+				extractorVersion: z.number().int().positive(),
+				sectionPath: z.array(z.string().min(1)).default([]),
+				figureMarker: z.string().min(1).optional(),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("platform-constraint"),
+				code: z.enum(PLATFORM_CONSTRAINT_CODES),
+				sourceAnchor: z.string().min(1),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("image"),
+				assetId: mediaAssetIdSchema,
+				/** SHA-256 of the exact projected image bytes — binds the citation to
+				 *  the content the model actually saw. */
+				bytesDigest: z.string().regex(/^[a-f0-9]{64}$/),
+			})
+			.strict(),
+	])
+	.meta({ [DESIGN_SOURCE_SCHEMA_MARKER]: true });
 export type SourceRef = z.infer<typeof sourceRefSchema>;
 
 /**

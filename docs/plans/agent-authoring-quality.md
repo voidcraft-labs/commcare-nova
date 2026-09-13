@@ -118,7 +118,8 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [design names #595](https://github.com/voidcraft-labs/commcare-nova/pull/595),
 [server-bound data evidence #596](https://github.com/voidcraft-labs/commcare-nova/pull/596),
 [role context and discovery #597](https://github.com/voidcraft-labs/commcare-nova/pull/597),
-and [construction ownership #598](https://github.com/voidcraft-labs/commcare-nova/pull/598).
+[construction ownership #598](https://github.com/voidcraft-labs/commcare-nova/pull/598),
+and [one menu model and format retirement #599](https://github.com/voidcraft-labs/commcare-nova/pull/599).
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 
@@ -131,21 +132,24 @@ repair. Construction now derives a consistent module owner and workflow order
 before execution. That fixes a reproduced admission failure, not the broader
 quality question.
 
-Current work removes the redundant navigation collection. Menus carry their
-own hierarchy, actors and access, and server-owned format metadata leaves the
-author's input. Contract version 2 and workspace storage version 3 use a strict
-current reader. The separate scan and retirement operation replaces old-format
-replay and the narrower evidence repair, preserving canonical apps, conversation
-messages and billing. Complete validation, independent review and CI before
-publishing this slice.
+The duplicate navigation collection is gone. Menus carry their own hierarchy,
+actors and access; the server owns contract and workspace format metadata.
+The separate scan and retirement command replaces old-format replay and the
+narrower evidence repair while preserving apps, conversations and billing.
+PR #599 has two independent reviews and all 19 CI checks green.
 
-Next, preserve useful batching, simplify the largest remaining tool definitions,
-and repeat a bounded end-to-end design/build trial. The design author's complete
-system context currently measures 3,517 local tokens; its largest deferred tool
-still measures 8,341. The editor and executor also retain broad deferred
-catalogs. These figures explain remaining work, not app quality or provider
-billing. Further deterministic construction and broader quality evidence remain
-open.
+Current work gives authors and reviewers stable source labels. Tool inputs,
+source messages, claims, candidates and findings use those labels; Nova binds
+them to full canonical provenance. The author can still cite a document section
+or figure, and existing source, consent and Project-data checks remain in place.
+Repeated continuation prose also leaves the state packet. The lookup tool's
+local estimate falls from 8,337 to 5,492 tokens; the design tool catalog from
+24,101 to 21,256. Complete validation and independent review before publication.
+
+Next, preserve useful batching and repeat a bounded end-to-end design/build
+trial. Remaining tool design, deterministic construction, other role context
+and broader quality evidence stay open. Local tokenizer estimates do not prove
+app quality or provider billing.
 
 Expand the selected interface to the current supported authoring capabilities.
 Use a coverage inventory to prevent accidental omissions, while keeping worker

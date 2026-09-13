@@ -50,7 +50,6 @@ import {
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
-import { projectDesignIdentityHandles } from "@/lib/agent/design/identityProjection";
 import {
 	computeLookupChoiceProjectionAttestation,
 	lookupChoiceAttestationsEqual,
@@ -1729,7 +1728,7 @@ export async function runDesignAgentLoop(
 								];
 								return openReviews.map((review) => ({
 									summary: review.envelope.payload.summary,
-									findings: projectDesignIdentityHandles(
+									findings: projectDesignAuthoringValues(
 										z.array(designFindingSchema),
 										review.envelope.payload.findings,
 										projectionBindings,

@@ -6,14 +6,13 @@
  * than 32-hex-digit UUIDs or compound source coordinates: both observed live
  * failure classes (minted citations, a spliced element UUID) were the model
  * failing to copy an arbitrary string it could not mean. So the reviewer
- * reads and writes symbols — `S1`-numbered source tags and the session's
+ * reads and writes symbols — stable source labels and the session's
  * `@handle` element symbols — and the server resolves them back to the
  * UUID-only persisted vocabulary inside the review schema.
  *
- * Everything here is a render-time projection. Tags are positional over
- * `citableSourceRefs(pkg)`, so they are stable within one package version and
- * MUST never be persisted (an extended package renumbers); the package digest
- * and every stored artifact stay tag-free. Dependency-free of `loop/` and the
+ * Everything here is a render-time projection. Source labels derive from
+ * their coordinates and stay stable when a package grows. The package digest
+ * and every stored artifact stay label-free. Dependency-free of `loop/` and the
  * database on purpose: `prompts.ts` renders from here, and the reviewer
  * schema resolves from here, so what the model is shown and what the schema
  * admits share one derivation.
@@ -25,6 +24,7 @@ import {
 	citableSourceRefs,
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
+import { designSourceLabel } from "@/lib/agent/design/sourceReferences";
 
 /** One durable handle ↔ design-ID pair, as the identity ledger stores it. */
 export interface ReviewHandleBinding {
@@ -38,7 +38,7 @@ export interface TaggedSourceRef {
 }
 
 /**
- * `S1..SN` over the package's citable set, in `citableSourceRefs` order, with
+ * Stable labels over the package's citable set, with
  * platform-constraint refs filtered out — those are cited by their catalog
  * code, which is already a short closed symbol. THE one derivation behind the
  * prompt's tag legend, the source-block labels, and the reviewer schema's tag
@@ -50,7 +50,7 @@ export function taggedCitableSourceRefs(
 ): readonly TaggedSourceRef[] {
 	return citableSourceRefs(pkg)
 		.filter((ref) => ref.kind !== "platform-constraint")
-		.map((ref, index) => ({ tag: `S${index + 1}`, ref }));
+		.map((ref) => ({ tag: designSourceLabel(ref), ref }));
 }
 
 /** Identity-key → tag lookup over the same derivation. */

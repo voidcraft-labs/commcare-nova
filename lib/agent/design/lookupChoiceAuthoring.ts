@@ -17,6 +17,7 @@ import type {
 	DesignLoopToolDeps,
 	DesignProjectDataInspectionResult,
 } from "./loop/tools";
+import { projectDesignSourceRefs } from "./sourceReferences";
 
 export function projectDesignDataInspection(
 	result: DesignProjectDataInspectionResult,
@@ -85,7 +86,10 @@ export function projectDesignAuthoringValues(
 	value: unknown,
 	bindings: Parameters<typeof projectDesignIdentityHandles>[2],
 ): unknown {
-	const names = projectDesignIdentityHandles(schema, value, bindings);
+	const names = projectDesignSourceRefs(
+		schema,
+		projectDesignIdentityHandles(schema, value, bindings),
+	);
 	return mapDesignSchemaSlots(
 		schema,
 		names,
