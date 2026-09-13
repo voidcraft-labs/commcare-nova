@@ -1797,6 +1797,34 @@ describe("authored executor requests", () => {
 			afterDelete.currentSnapshot().doc.forms[asUuid(form.compositionId)],
 		).toBeUndefined();
 
+		const recreateRequest = {
+			toolName: "createForm",
+			requestId: "authored-recreate-new-call",
+			input: { moduleUuid: module.compositionId, ...input.forms[0] },
+			prepare: executorInputPreparation("createForm", brief, afterDelete),
+		};
+		const recreated = await afterDelete.stageDispatch(recreateRequest);
+		expect(
+			recreated.receipt?.disposition,
+			JSON.stringify(recreated.result),
+		).toBe("staged");
+		expect(
+			afterDelete.currentSnapshot().doc.forms[asUuid(form.compositionId)],
+		).toBeDefined();
+		// Historical provenance is immutable, including the original request ID.
+		expect(await loadHandleBindings(changeSet.id)).toEqual(bindings);
+		const afterRecreate = await ChangeSetMutationWorkspace.open(
+			host,
+			changeSet.id,
+		);
+		expect(afterRecreate.currentExecutionCheckpoint().handles).toHaveLength(2);
+		const recreatedReplay = await afterRecreate.stageDispatch({
+			...recreateRequest,
+			prepare: executorInputPreparation("createForm", brief, afterRecreate),
+		});
+		expect(recreatedReplay.replayed).toBe(true);
+		expect(recreatedReplay.receipt).toEqual(recreated.receipt);
+
 		expect(await canonicalTableCounts(app.appId)).toEqual(canonicalBefore);
 	});
 });

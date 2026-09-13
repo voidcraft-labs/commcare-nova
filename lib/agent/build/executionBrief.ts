@@ -118,7 +118,7 @@ export interface SliceExecutionBrief {
 	readonly moduleRealizations: readonly {
 		readonly compositionId: DesignId;
 		/** Exact private-workspace identity for this accepted composition. The
-		 * executor declares or references this handle so equal display names and
+		 * server binds this key so equal display names and
 		 * record hosts never become an identity heuristic. */
 		readonly blueprintModuleHandle: ChangeSetHandle;
 		readonly action: "create" | "reuse";
@@ -1069,20 +1069,7 @@ export function renderBriefMessage(
 				)?.action,
 			})),
 		),
-		jsonSection(
-			"Forms",
-			brief.formRealizations.map((form) => ({
-				id: form.compositionId,
-				moduleId: form.moduleCompositionId,
-				name: form.name,
-				type: form.blueprintFormType,
-				icon: form.icon,
-				layout: form.layoutLowering,
-				...(form.duplicateRationale && {
-					duplicateRationale: form.duplicateRationale,
-				}),
-			})),
-		),
+		jsonSection("Forms", brief.formCompositions),
 		jsonSection(
 			"Entry points",
 			brief.entryPointRealizations?.map((entry) => ({

@@ -88,6 +88,11 @@ gate, and integrity services every other write uses.
   through the existing plan lineage. Generic internal `invoke` still supports
   structural symbol resolution; model-facing `stageDispatch` accepts authored
   values and never resolves old `{handle}` arguments.
+  Removing an accepted entity prunes its active binding, not its historical
+  declaration. Recreating that entity reconciles the exact tuple under the
+  existing stage lock. UUID, kind, and binding-key reassignment reject without
+  advancing the stage; the original declaration's request ID remains intact.
+
 - `designLookupReferences.ts` resolves accepted semantic lookup sources through
   the immutable materialization receipt when composing working context. Tools
   then use the shared lookup grammar and authorized names or IDs. Canonical

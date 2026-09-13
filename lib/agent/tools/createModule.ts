@@ -162,14 +162,14 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"The module's forms, each with its fields — EVERY module must land WITH at least one form in this call (a formless module is rejected: CommCare needs a form or a case list to show). null only for a case_list_only viewer module.",
+				"Forms to include, with their questions. Include at least one unless the module contains a case list alone.",
 			),
 		case_list_columns: z
 			.array(columnInputSchema)
 			.nullable()
 			.optional()
 			.describe(
-				"Case-list columns, display order — required alongside case_type (start with the name property). Refine later via the case-list-config tools. null only on a survey-only module.",
+				"Columns in display order. A module that saves records needs at least one visible column; a survey-only module has none.",
 			),
 		case_list_only: z
 			.boolean()
@@ -248,7 +248,7 @@ export type CreateModuleResult =
 
 export const createModuleTool = {
 	description:
-		"Add a new top-level or one-tier child module together with its forms, case-list columns, and optional several-case selection in one call. Omit parentModuleUuid for top-level, or name an existing top-level parent. Several-case selection requires a case type and at least one follow-up or close form. A case-managing module lands complete or not at all.",
+		"Create a complete module, including its forms and any case list.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,

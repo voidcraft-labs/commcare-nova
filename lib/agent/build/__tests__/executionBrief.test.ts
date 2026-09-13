@@ -19,7 +19,10 @@ import {
 } from "@/lib/agent/design/__tests__/fixtures";
 import { deriveBuildPlan as deriveAdmittedBuildPlan } from "@/lib/agent/design/buildPlan";
 
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	appDesignContractSchema,
+	formCompositionSchema,
+} from "@/lib/agent/design/contract";
 
 function deriveBuildPlan(args: Parameters<typeof deriveAdmittedBuildPlan>[0]) {
 	appDesignContractSchema.parse(args.contract);
@@ -998,6 +1001,68 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(message).not.toContain("blueprintFormHandle");
 		expect(sections.has("Semantic construction checklist")).toBe(false);
 		expect(sections.has("External actions")).toBe(false);
+	});
+
+	it("keeps accepted form audiences, purpose, and authored wording in working context", () => {
+		const contract = cloneContract(makeContract());
+		const first = fixtureValue(contract.formCompositions[0], "registration");
+		const workflow = fixtureValue(contract.workflows[0], "workflow");
+		const module = fixtureValue(contract.moduleCompositions[0], "module");
+		workflow.actorIds = [ids.actorChw, ids.actorSupervisor];
+		module.actorIds = [ids.actorChw, ids.actorSupervisor];
+		first.variant = "actor-specific";
+		first.name = "Registration A";
+		first.duplicateRationale =
+			"Different worker responsibilities require distinct complete forms.";
+		let nextId = 8000;
+		const second = formCompositionSchema.parse(
+			JSON.parse(JSON.stringify(first), (key, value) =>
+				key === "id" ? did(++nextId) : value,
+			),
+		);
+		second.name = "Registration B";
+		second.actorIds = [ids.actorSupervisor];
+		second.purpose =
+			"The supervisor confirms the minimum identity and triage information.";
+		contract.formCompositions.push(second);
+		function message(source: typeof contract) {
+			const admitted = appDesignContractSchema.parse(source);
+			const plan = deriveBuildPlan({ contract: admitted, revision: REVISION });
+			return renderBriefMessage(
+				deriveSliceExecutionBrief({
+					contract: admitted,
+					revision: REVISION,
+					plan,
+					sliceId: fixtureValue(plan.slices[0], "slice").id,
+				}),
+			);
+		}
+		const original = message(contract);
+		const formText = fixtureValue(
+			original.split("## Forms\n")[1],
+			"forms",
+		).split("\n\n## ")[0];
+		const forms = fixtureValue(formText, "form text")
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(forms).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: "Registration A",
+					variant: "actor-specific",
+					actorIds: [ids.actorChw],
+				}),
+				expect.objectContaining({
+					name: "Registration B",
+					purpose: second.purpose,
+					actorIds: [ids.actorSupervisor],
+				}),
+			]),
+		);
+		expect(formText).toContain("**Patient name**");
+		expect(formText).toContain("Enter the name the household uses.");
+		[first.actorIds, second.actorIds] = [second.actorIds, first.actorIds];
+		expect(message(contract)).not.toBe(original);
 	});
 
 	it("has a stable digest and refuses unknown slices", () => {
