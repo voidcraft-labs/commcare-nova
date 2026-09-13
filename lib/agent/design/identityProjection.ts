@@ -48,12 +48,13 @@ function matchesArm(
 	);
 }
 
-/** Transform only declared design identities. Text and foreign UUIDs retain
- * their meaning even when their bytes match a bound design name or UUID.
+/** Transform only schema-marked values. Sibling text and foreign identities
+ * retain their meaning; property names alone never select a slot.
  * This reads partial workspace candidates too; validation has its own owner. */
-export function mapDesignIdentitySlots(
+export function mapDesignSchemaSlots(
 	schema: z.ZodType,
 	value: unknown,
+	marker: string,
 	transform: (value: unknown, path: readonly (string | number)[]) => unknown,
 ): unknown {
 	const root = schemaJson(schema);
@@ -66,7 +67,7 @@ export function mapDesignIdentitySlots(
 		seenRefs: ReadonlySet<string>,
 	): void => {
 		if (!object(node)) return;
-		if (node[DESIGN_IDENTITY_SCHEMA_MARKER] === true) {
+		if (node[marker] === true) {
 			slots.set(JSON.stringify(path), path);
 			return;
 		}
@@ -111,6 +112,19 @@ export function mapDesignIdentitySlots(
 		parent[key] = transform(parent[key], path);
 	}
 	return result;
+}
+
+export function mapDesignIdentitySlots(
+	schema: z.ZodType,
+	value: unknown,
+	transform: (value: unknown, path: readonly (string | number)[]) => unknown,
+): unknown {
+	return mapDesignSchemaSlots(
+		schema,
+		value,
+		DESIGN_IDENTITY_SCHEMA_MARKER,
+		transform,
+	);
 }
 
 /** Readable names for model-facing state; persisted values stay canonical. */

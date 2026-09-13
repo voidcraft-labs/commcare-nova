@@ -55,6 +55,7 @@ import {
 	computeLookupChoiceProjectionAttestation,
 	lookupChoiceAttestationsEqual,
 } from "@/lib/agent/design/lookupChoiceAttestation";
+import { projectDesignAuthoringValues } from "@/lib/agent/design/lookupChoiceAuthoring";
 import {
 	createDesignAgent,
 	DESIGN_WAIT_FOR_INPUT_TOOL,
@@ -1580,7 +1581,7 @@ export async function validateAuthorizedProjectLookupEvidence(
 					issues.push({
 						path: [...path, "inspection"],
 						message:
-							"This choice attestation does not match the current complete ordered Project-data projection. Inspect the saved-value and label columns again and copy the returned attestation exactly.",
+							"This choice attestation does not match the current complete ordered Project-data projection. Inspect the saved-value and label columns again to refresh the design reference.",
 					});
 					continue;
 				}
@@ -1745,12 +1746,12 @@ export async function runDesignAgentLoop(
 									workspaceKind,
 									workspace.candidate,
 								),
-								candidate: projectDesignIdentityHandles(
+								candidate: projectDesignAuthoringValues(
 									designWorkspaceIdentitySchema,
 									workspace.candidate,
 									workspace.handleBindings,
 								) as Record<string, unknown>,
-								sourceContract: projectDesignIdentityHandles(
+								sourceContract: projectDesignAuthoringValues(
 									appDesignContractBaseSchema,
 									workspace.sourceContract,
 									workspace.handleBindings,

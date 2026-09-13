@@ -159,9 +159,15 @@ identity slots. One schema-aware projection serves the author and reviewer,
 preserves literal text and foreign identities, and includes menu placements in
 reference admission. Canonical artifacts and the existing identity ledger keep
 their storage format; prompt and toolset versions roll active contexts forward.
-The related design, build, and anatomy suites pass 844 tests. Independent review
-and publication are pending. Project-data evidence binding and the remaining
-role guidance are still open.
+The related design, build, and anatomy suites pass 844 tests, and independent
+review cleared the name boundary. Publication is pending.
+Project-data evidence now binds on the server: the author selects a table,
+columns, and revision. Stored operations retain the proof for replay, while
+inspection and authoring state show the facts needed for the next decision.
+The full related suites pass 845 tests, including refusal of stale first-time
+references and replay after a source removal and table change. Independent
+review and publication of the evidence boundary are pending. The remaining
+role guidance is still open.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

@@ -48,10 +48,7 @@ import {
 	designConstructionQuestionRequirements,
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
-import {
-	mapDesignIdentitySlots,
-	projectDesignIdentityHandles,
-} from "@/lib/agent/design/identityProjection";
+import { mapDesignIdentitySlots } from "@/lib/agent/design/identityProjection";
 import {
 	DESIGN_HANDLE_PATTERN,
 	DESIGN_IDENTITY_SCHEMA_MARKER,
@@ -59,6 +56,12 @@ import {
 	designIdSchema,
 } from "@/lib/agent/design/ids";
 import type { LookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
+import {
+	bindDesignLookupEvidence,
+	lookupChoiceAuthoringWireSchema,
+	projectDesignAuthoringValues,
+	projectDesignDataInspection,
+} from "@/lib/agent/design/lookupChoiceAuthoring";
 import { ensureAcceptedLookupMaterialization } from "@/lib/agent/design/lookupMaterialization";
 import { projectBuildPlanLookupBindings } from "@/lib/agent/design/lookupMaterializationTypes";
 import {
@@ -396,7 +399,9 @@ function stagedDesignIdentityOccurrences(input: unknown) {
  * Exported so tests can prove the wire admits a name everywhere a
  * design identity is expressible. */
 export function designToolWireSchema(schema: z.ZodType): unknown {
-	return widenDesignIdsToHandles(strictWireJsonSchema(schema));
+	return widenDesignIdsToHandles(
+		lookupChoiceAuthoringWireSchema(strictWireJsonSchema(schema)),
+	);
 }
 
 function strictWireWithHandles(schema: z.ZodType) {
@@ -697,7 +702,7 @@ function projectDesignInspection(
 	if (view.kind === "root" || view.kind === "sourceRoot")
 		return {
 			...view,
-			root: projectDesignIdentityHandles(
+			root: projectDesignAuthoringValues(
 				setDesignRootInputSchema,
 				view.root,
 				bindings,
@@ -708,7 +713,7 @@ function projectDesignInspection(
 		view.collection === "dispositions"
 			? updateFindingDispositionsInputSchema
 			: designCollectionUpdateInputSchemas[view.collection];
-	const projected = projectDesignIdentityHandles(
+	const projected = projectDesignAuthoringValues(
 		schema,
 		{ upserts: view.items },
 		bindings,
@@ -1654,7 +1659,9 @@ export function createDesignLoopActions(
 			inResponseOrder(input, async () => {
 				const parsedInput = parseStage(inspectProjectDataInputSchema, input);
 				if (!parsedInput.ok) return { error: parsedInput.error };
-				return deps.inspectProjectData(parsedInput.data);
+				return projectDesignDataInspection(
+					await deps.inspectProjectData(parsedInput.data),
+				);
 			}),
 	};
 
@@ -1729,6 +1736,15 @@ export function createDesignLoopActions(
 			workspace,
 		);
 		if (admissionRejection !== null) return admissionRejection;
+		const bound = await bindDesignLookupEvidence({
+			schema: designArtifactWorkspaceOperationSchema,
+			input: { kind, ...(stagedInput as Record<string, unknown>) },
+			workspace,
+			inspectProjectData: deps.inspectProjectData,
+		});
+		if (!bound.ok)
+			return rejectedStage(deps, repairTool, { error: bound.error });
+		stagedInput = bound.value;
 		const parsed = parseHandledStage(
 			designArtifactWorkspaceOperationSchema,
 			{

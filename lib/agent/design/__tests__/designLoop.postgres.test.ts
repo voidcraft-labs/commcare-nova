@@ -25,6 +25,7 @@ import {
 } from "@/lib/agent/design/contract";
 import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { projectDesignAuthoringValues } from "@/lib/agent/design/lookupChoiceAuthoring";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import {
 	DESIGN_STAGE_REPAIR_BUDGET,
@@ -330,7 +331,13 @@ function projectFixtureIdentities(
 }
 
 function modelContract(contract: AppDesignContract) {
-	return object(projectFixtureIdentities(contract, contract, "handles"));
+	return object(
+		projectDesignAuthoringValues(
+			appDesignContractBaseSchema,
+			projectFixtureIdentities(contract, contract, "handles"),
+			[],
+		),
+	);
 }
 
 function resolvedContract(contract: AppDesignContract): AppDesignContract {
@@ -386,10 +393,26 @@ describe("semantic design loop", () => {
 			values: { [column.id]: "priority" },
 		});
 		const tools = mount(pkg);
-		const inspected = await tools.inspectProjectData.execute({
+		const selection = {
 			tableId: table.id,
 			choiceProjection: { valueColumnId: column.id, labelColumnId: column.id },
+		};
+		const visibleInspection = await tools.inspectProjectData.execute(selection);
+		expect(visibleInspection).toMatchObject({
+			kind: "rows",
+			choiceProjection: { distinctValueCount: 2 },
 		});
+		expect(JSON.stringify(visibleInspection)).not.toContain("projectionDigest");
+		const inspected = await inspectAuthorizedProjectData(
+			{
+				actorUserId: ACTOR,
+				designSessionId: sessionId,
+				holderNonce: NONCE,
+				projectId: PROJECT,
+				runId: RUN_ID,
+			},
+			selection,
+		);
 		if (
 			!("kind" in inspected) ||
 			inspected.kind !== "rows" ||
@@ -443,6 +466,161 @@ describe("semantic design loop", () => {
 				.execute(),
 		).toEqual([]);
 		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
+	});
+
+	it("binds Project choice evidence and replays it after removal and a table change", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const scope = {
+			projectId: PROJECT,
+			actorId: ACTOR,
+			role: "owner",
+		} as const;
+		const table = await createLookupTable(scope, {
+			name: "Priorities",
+			tag: "priorities",
+			columns: [{ wireName: "priority", label: "Priority", dataType: "text" }],
+		});
+		const column = fixtureValue(table.columns[0], "priority column");
+		const first = await createLookupRow(scope, {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+			toIndex: 0,
+			values: { [column.id]: "routine" },
+		});
+		const second = await createLookupRow(scope, {
+			tableId: table.id,
+			expectedTableRevision: first.tableRevision,
+			toIndex: 1,
+			values: { [column.id]: "urgent" },
+		});
+		const source = {
+			kind: "existing-project-lookup",
+			tableId: table.id,
+			valueColumnId: column.id,
+			labelColumnId: column.id,
+			tableRevision: second.tableRevision,
+		};
+		const record = {
+			id: "@patient",
+			name: "Patient",
+			purpose: "Track care",
+			lifecycleStates: ["active"],
+			properties: [
+				{
+					id: "@risk",
+					name: "risk",
+					meaning: "Care priority",
+					dataShape: "single-choice",
+					sensitivity: "ordinary",
+					choiceSource: source,
+				},
+			],
+		};
+		const input = { upserts: [record], removeIds: [] };
+		const inputWithSource = (choiceSource: unknown) => ({
+			...input,
+			upserts: [
+				{ ...record, properties: [{ ...record.properties[0], choiceSource }] },
+			],
+		});
+		const tools = mount(pkg);
+		expect(
+			await call(
+				tools.updateRecords,
+				inputWithSource({
+					...source,
+					inspection: { tableRevision: second.tableRevision },
+				}),
+			),
+		).toHaveProperty("error");
+		expect(
+			await call(
+				tools.updateRecords,
+				inputWithSource({ ...source, tableRevision: first.tableRevision }),
+			),
+		).toMatchObject({ error: expect.stringContaining("changed") });
+		expect((await workspaceRows()).steps).toHaveLength(0);
+
+		expect(
+			await call(tools.updateRecords, input, "bind-priorities"),
+		).toMatchObject({ ok: true, deduplicated: false });
+		const stored = (await workspaceRows()).steps[0];
+		if (stored === undefined) throw new Error("Missing saved design operation");
+		expect(
+			normalizeStoredDesignArtifactWorkspaceOperation(stored.operation),
+		).toMatchObject({
+			collections: [
+				{
+					upserts: [
+						{
+							properties: [
+								{
+									choiceSource: {
+										tableId: table.id,
+										inspection: {
+											tableRevision: second.tableRevision,
+											rowCount: 2,
+											distinctValueCount: 2,
+											duplicateValueCount: 0,
+										},
+									},
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		const shown = await call(tools.inspectDesign, {
+			selection: {
+				kind: "collection",
+				collection: "records",
+				ids: [],
+				offset: 0,
+				limit: 20,
+			},
+		});
+		expect(shown).toMatchObject({
+			view: {
+				items: [{ id: "@patient", properties: [{ choiceSource: source }] }],
+			},
+		});
+		expect(JSON.stringify(shown)).not.toContain("projectionDigest");
+
+		expect(
+			await call(tools.updateRecords, { upserts: [], removeIds: ["@patient"] }),
+		).toMatchObject({ ok: true });
+		await updateLookupRow(scope, {
+			tableId: table.id,
+			expectedTableRevision: second.tableRevision,
+			rowId: first.rowId,
+			values: { [column.id]: "standard" },
+		});
+		const beforeReplay = await workspaceRows();
+		expect(
+			await call(tools.updateRecords, input, "bind-priorities"),
+		).toMatchObject({ ok: true, deduplicated: true });
+		expect(await workspaceRows()).toEqual(beforeReplay);
+		expect(
+			await call(tools.inspectDesign, {
+				selection: {
+					kind: "collection",
+					collection: "records",
+					ids: [],
+					offset: 0,
+					limit: 20,
+				},
+			}),
+		).toMatchObject({ view: { total: 0 } });
+		expect(
+			await call(
+				tools.updateRecords,
+				{ ...input, upserts: [{ ...record, purpose: "Changed request" }] },
+				"bind-priorities",
+			),
+		).toHaveProperty("error");
+		expect(await workspaceRows()).toEqual(beforeReplay);
 	});
 
 	it.each([false, true])(
