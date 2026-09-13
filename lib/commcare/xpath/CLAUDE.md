@@ -17,6 +17,14 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 
 ## Production compatibility boundary
 
+The isolated agent-authoring pilot also uses `expressionAst.ts` through
+`lib/doc/expressionText.ts::parseAuthoredXPath`. Its opt-in `requireBoundNames`
+mode rejects unresolved grammar name nodes rather than preserving them as raw
+text. An explicitly supplied `selectedCaseType` binds `#case/property` to that
+actual type. Both options leave the existing Builder parser behavior unchanged.
+This stricter subset is experimental; it does not yet admit every supported raw
+instance or attribute path.
+
 `FUNCTION_REGISTRY` may admit only functions classified as JavaRosa native,
 proven-lowered, or path initializers used in their required path-root position,
 and every admitted call shape must have a faithful Preview execution path. Do

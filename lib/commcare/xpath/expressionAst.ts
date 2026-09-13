@@ -129,6 +129,7 @@ export function parseXPathExpressionWithIssues(
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
+	options: { requireBoundNames?: boolean; selectedCaseType?: string } = {},
 ): XPathParseResult {
 	if (source.length === 0) return { expression: { parts: [] }, issues: [] };
 	const tree = parser.parse(source);
@@ -158,6 +159,7 @@ export function parseXPathExpressionWithIssues(
 		resolveUserPropertySlug,
 		resolveSearchInputName,
 		spans,
+		options.selectedCaseType,
 	);
 	spans.sort((a, b) => a.from - b.from);
 
@@ -174,6 +176,27 @@ export function parseXPathExpressionWithIssues(
 		} else {
 			identitySpans.push(span as LeafSpan & { readonly part: XPathPart });
 		}
+	}
+	// Strict authoring cannot retain a name-dependent XPath path as plain text:
+	// its meaning would be relative to the current node and evade later renames.
+	// Grammar nodes distinguish paths from function names and quoted literals.
+	if (options.requireBoundNames) {
+		tree.iterate({
+			enter(node) {
+				if (
+					node.type === T.NameTest &&
+					!identitySpans.some(
+						(span) => span.from <= node.from && span.to >= node.to,
+					)
+				)
+					issues.push({
+						kind: "unresolved-reference",
+						source: source.slice(node.from, node.to),
+						from: node.from,
+						to: node.to,
+					});
+			},
+		});
 	}
 
 	const parts: XPathPart[] = [];
@@ -203,6 +226,7 @@ function collectLeafSpans(
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 	resolveSearchInputName: ResolveSearchInputName,
 	spans: LeafSpan[],
+	selectedCaseType?: string,
 ): void {
 	if (node.type === T.HashtagRef) {
 		const part = classifyHashtag(
@@ -211,6 +235,7 @@ function collectLeafSpans(
 			resolveFieldPath,
 			resolveUserPropertySlug,
 			resolveSearchInputName,
+			selectedCaseType,
 		);
 		if (part !== undefined) {
 			spans.push({ from: node.from, to: node.to, part });
@@ -237,6 +262,7 @@ function collectLeafSpans(
 			resolveUserPropertySlug,
 			resolveSearchInputName,
 			spans,
+			selectedCaseType,
 		);
 	}
 }
@@ -247,6 +273,7 @@ function classifyHashtag(
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 	resolveSearchInputName: ResolveSearchInputName,
+	selectedCaseType?: string,
 ): XPathPart | XPathUnresolvedReference | undefined {
 	const nsNode = node.getChild(T.HashtagType.name);
 	if (!nsNode) return undefined;
@@ -274,8 +301,14 @@ function classifyHashtag(
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (namespace === "case") {
-		// CommCare-private projection vocabulary, not a canonical
-		// `(caseType, property)` identity. It cannot enter authored storage.
+		// The text-authoring boundary may bind the selected record. Storage
+		// still receives its canonical type/property identity, never this alias.
+		if (selectedCaseType && segments.length === 1)
+			return {
+				kind: "case-ref",
+				caseType: selectedCaseType,
+				property: segments[0],
+			};
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (namespace === "search") {
