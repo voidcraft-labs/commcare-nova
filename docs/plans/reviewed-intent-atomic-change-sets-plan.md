@@ -233,7 +233,7 @@ task-complete user outcome:
 
 - actors, goal, and trigger;
 - optional current record context;
-- prerequisite workflows and plain-language prerequisites;
+- worker starting conditions;
 - inputs, including form-only inputs when nothing persists;
 - workflow-local decisions and outcomes;
 - authored existing-media and automation features when the workflow needs them;
@@ -719,7 +719,7 @@ same plan again and inserting it through the normal authority boundary.
 Each executor receives one exact brief containing:
 
 - the one-app charter;
-- its workflow and prerequisite workflow summaries;
+- its workflow and summaries of its construction dependencies;
 - only properties owned by this slice or read/written by its workflow, queue,
   access rule, or navigation, plus the actors, records, lists, and requirements
   that context needs;
@@ -1124,7 +1124,7 @@ Compare the projection directly with the lean contract:
 - create effects are not duplicated by both registration and a second create
   operation;
 - readback and lists expose the properties needed for the next decision;
-- prerequisite workflow order is reachable;
+- record context and navigation support the accepted sequence of worker tasks;
 - actor access and navigation are represented at every required layer;
 - location-scoped designs pair user-facing gates with ownership and search
   filtering rather than treating hidden menus as security;
