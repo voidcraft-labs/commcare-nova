@@ -264,7 +264,7 @@ export function renderSourceTagLegend(pkg: DesignSourcePackage): string {
 	);
 	const lines = [
 		"## Source tags",
-		"Critical and important findings cite sources only by these server-assigned tags, or a platform constraint code from the list above. Copy the tag exactly; never derive or invent one. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points.",
+		"Critical and important findings cite sources only by these server-assigned tags, or a platform constraint code from the capability catalog. Copy the tag exactly; never derive or invent one. An attachment tag's citation may add sectionPath headings and a figureMarker to say where inside the extract it points.",
 	];
 	for (const { tag, ref } of taggedCitableSourceRefs(pkg)) {
 		switch (ref.kind) {
