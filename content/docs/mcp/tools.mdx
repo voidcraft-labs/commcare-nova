@@ -25,7 +25,7 @@ or integration. The current interface has no `app_id` or `cursor` argument on
 
 Read the relevant part of an app before editing it. Results include stable IDs
 for retained objects. Named resources also accept unambiguous names: modules,
-forms, field paths, choice values, case-list headers, Search answers, case
+forms, field names and paths, choice values, case-list headers, Search answers, case
 operations, roles, personas, worker and place properties, organization levels,
 places, automations, and data tables and columns. Deep links accept their external
 ID. Names resolve within their owning form, module, or data table; duplicate names
@@ -76,7 +76,9 @@ are escaped with a backslash. Read tools return the same wording and expression
 format accepted by edits.
 
 A module, form, or field target accepts its stable ID or an unambiguous name.
-Use the full path for nested fields. Nova can infer parents from an existing form
+Nested fields accept a unique short name or their full path. Exact paths take
+precedence, so a root field keeps its name when a nested field has the same name.
+Nova can infer parents from an existing form
 or field identity; when a parent is supplied, it must match. New fields can name
 a parent container created in the same request. Nova assigns creation identities
 when omitted. Existing IDs remain useful when names collide.

@@ -56,6 +56,11 @@ Explicit numeric types and literal punctuation survive printing and editing.
 `AuthoringScope` holds one call's names and types. Fields and Search answers are
 local to their form or module; lookup columns are local to their table. Data
 definitions and location names must come from the authorized invocation.
+`fieldNames.ts` applies the same field lookup to expressions, wording, tool
+targets and anchors: exact identity, then exact path, then a unique short name.
+Rename aliases for one UUID are one candidate. An existing root path keeps its
+meaning when another group contains a field with that name. Qualified paths
+never fall back to their last segment, and ambiguous short names reject.
 Related-record names bind in the destination scope, while a canonical property
 with `via` stores the originating case type. Nested `where` clauses change both
 parse and print scope. The existing type checker owns relation traversal and

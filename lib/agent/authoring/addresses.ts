@@ -4,6 +4,7 @@ import {
 } from "@/lib/doc/mutations/helpers";
 import { type BlueprintDoc, moduleUuidOfForm, type Uuid } from "@/lib/domain";
 import { AuthoringInputError } from "./errors";
+import { fieldNameCandidates } from "./fieldNames";
 
 type Input = Record<string, unknown>;
 
@@ -23,6 +24,28 @@ function resolve<T extends { uuid: Uuid }>(
 			`${label} ${value} is ${found.length ? "ambiguous" : "not in this scope"}.`,
 		);
 	return found[0];
+}
+
+function resolveField(
+	value: unknown,
+	fields: readonly { uuid: Uuid }[],
+	doc: BlueprintDoc,
+	label: string,
+) {
+	if (typeof value !== "string")
+		throw new AuthoringInputError(`Choose ${label}.`);
+	const candidates = fieldNameCandidates(
+		value,
+		fields.flatMap((field) => {
+			const path = computeFieldPath(doc, field.uuid);
+			return path === undefined ? [] : [{ uuid: field.uuid, path }];
+		}),
+	);
+	if (candidates.length !== 1)
+		throw new AuthoringInputError(
+			`${label} ${value} is ${candidates.length ? "ambiguous" : "not in this scope"}.`,
+		);
+	return candidates[0];
 }
 
 /** Bind existing structural targets against this invocation's document. Stable
@@ -55,7 +78,7 @@ export function bindToolAddress(
 			? resolve(input.formUuid, forms, (form) => [form.name], "Form")
 			: undefined;
 	if (typeof input.fieldUuid === "string") {
-		const field = resolve(
+		const field = resolveField(
 			input.fieldUuid,
 			Object.values(doc.fields).filter((field) => {
 				const parent = findContainingForm(doc, field.uuid);
@@ -66,7 +89,7 @@ export function bindToolAddress(
 						: !module || moduleUuidOfForm(doc, parent) === module.uuid)
 				);
 			}),
-			(field) => [computeFieldPath(doc, field.uuid)],
+			doc,
 			"Field",
 		);
 		input.fieldUuid = field.uuid;
@@ -95,22 +118,12 @@ export function bindToolAddress(
 		);
 		for (const key of ["beforeFieldUuid", "afterFieldUuid"])
 			if (input[key] !== undefined)
-				input[key] = resolve(
-					input[key],
-					fields,
-					(field) => [computeFieldPath(doc, field.uuid)],
-					"Field",
-				).uuid;
+				input[key] = resolveField(input[key], fields, doc, "Field").uuid;
 		if (typeof input.parentUuid === "string") {
 			input.parentUuid =
 				input.parentUuid === form.uuid
 					? form.uuid
-					: resolve(
-							input.parentUuid,
-							fields,
-							(field) => [computeFieldPath(doc, field.uuid)],
-							"Parent field",
-						).uuid;
+					: resolveField(input.parentUuid, fields, doc, "Parent field").uuid;
 		}
 	}
 }
