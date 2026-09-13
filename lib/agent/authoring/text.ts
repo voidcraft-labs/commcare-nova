@@ -8,6 +8,7 @@ import {
 } from "@/lib/domain/prose";
 import type { XPathExpression } from "@/lib/domain/xpath/ast";
 import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import { AuthoringInputError } from "./errors";
 
 export const referenceSchema = z.string().min(1);
 export const textSchema = z
@@ -50,7 +51,9 @@ export function parseInterpolatedText<Reference>(
 		text = "";
 		const end = source.indexOf("}}", cursor + 2);
 		if (end === -1)
-			throw new Error("An answer reference is missing its closing }}.");
+			throw new AuthoringInputError(
+				"An answer reference is missing its closing }}.",
+			);
 		const name = source.slice(cursor + 2, end).trim();
 		parts.push(resolve(name));
 		cursor = end + 2;
@@ -68,7 +71,9 @@ export function normalizeText(
 			const expression = parse(name.startsWith("#") ? name : `#form/${name}`);
 			const [part] = expression.parts;
 			if (expression.parts.length !== 1 || !part || part.kind === "text")
-				throw new Error(`{{${name}}} must name one answer or record property.`);
+				throw new AuthoringInputError(
+					`{{${name}}} must name one answer or record property.`,
+				);
 			return prosePartSchema.parse(part);
 		}),
 	);

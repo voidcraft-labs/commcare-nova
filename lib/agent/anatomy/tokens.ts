@@ -21,6 +21,7 @@ import { presentableMessage } from "./present";
 import type {
 	ContextItem,
 	Moment,
+	ToolDefinitionView,
 	WeighedItem,
 	WeighedMoment,
 	WeighedOutlineSection,
@@ -119,17 +120,14 @@ export function countableMessageText(message: ModelMessage): {
 /** How a tool definition is counted: the JSON the SDK serializes for the
  * provider. The provider's own rendering differs, which is why the estimate
  * is labeled as one. */
-export function toolDefinitionText(tool: {
-	name: string;
-	description: string;
-	inputSchema: unknown;
-	strict: boolean | undefined;
-}): string {
+export function toolDefinitionText(tool: ToolDefinitionView): string {
+	if (tool.providerTool) return JSON.stringify(tool.providerTool);
 	return JSON.stringify({
 		name: tool.name,
 		description: tool.description,
 		parameters: tool.inputSchema,
 		strict: tool.strict,
+		...(tool.deferred && { defer_loading: true }),
 	});
 }
 
@@ -169,7 +167,10 @@ async function weighItem(item: ContextItem): Promise<WeighedItem> {
 			return {
 				...item,
 				tools,
-				weight: addWeights(tools.map((tool) => tool.weight)),
+				weight: addWeights(
+					tools.filter((tool) => !tool.deferred).map((tool) => tool.weight),
+				),
+				catalogWeight: addWeights(tools.map((tool) => tool.weight)),
 			};
 		}
 		case "output-schema":

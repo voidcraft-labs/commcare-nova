@@ -138,7 +138,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 									{
 										id: "dob",
 										kind: "date",
-										label: proseText("Date of birth"),
+										label: "Date of birth",
 									},
 								],
 							},
@@ -148,9 +148,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 							input: {
 								moduleUuid: MOD,
 								formUuid: FORM,
-								fields: [
-									{ id: "phone", kind: "text", label: proseText("Phone") },
-								],
+								fields: [{ id: "phone", kind: "text", label: "Phone" }],
 							},
 						},
 						{ name: "getForm", input: { moduleUuid: MOD, formUuid: FORM } },

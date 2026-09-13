@@ -11,6 +11,7 @@ import {
 	type ValueExpression,
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
+import { AuthoringInputError } from "./errors";
 import {
 	type AuthoredExpression,
 	parseAuthoringExpression,
@@ -48,7 +49,7 @@ function arity(
 	maximum = minimum,
 ) {
 	if (args.length < minimum || args.length > maximum)
-		throw new Error(
+		throw new AuthoringInputError(
 			`${name} expects ${minimum === maximum ? minimum : `${minimum}–${maximum}`} arguments; received ${args.length}.`,
 		);
 }
@@ -77,24 +78,24 @@ function literalValue(node: Node): string | number | boolean | null {
 				return values.join("");
 		}
 	}
-	throw new Error("This argument needs a literal value.");
+	throw new AuthoringInputError("This argument needs a literal value.");
 }
 function string(node: Node): string {
 	const value = literalValue(node);
 	if (typeof value !== "string")
-		throw new Error("This argument needs a quoted name or text.");
+		throw new AuthoringInputError("This argument needs a quoted name or text.");
 	return value;
 }
 function number(node: Node): number {
 	const value = literalValue(node);
 	if (typeof value !== "number" || !Number.isFinite(value))
-		throw new Error("This argument needs a finite number.");
+		throw new AuthoringInputError("This argument needs a finite number.");
 	return value;
 }
 function boolean(node: Node): boolean {
 	const value = literalValue(node);
 	if (typeof value !== "boolean")
-		throw new Error("This argument needs true() or false().");
+		throw new AuthoringInputError("This argument needs true() or false().");
 	return value;
 }
 function literal(node: Node): ObjectValue {
@@ -117,7 +118,7 @@ function literal(node: Node): ObjectValue {
 
 function relation(node: Node): RelationPath {
 	if (node.kind !== "call")
-		throw new Error(
+		throw new AuthoringInputError(
 			"Name a record relationship with self(), children(), or ancestor().",
 		);
 	const { name, args } = node;
@@ -148,7 +149,8 @@ function relation(node: Node): RelationPath {
 				return { identifier: string(step) };
 			}),
 		};
-	} else throw new Error(`Unknown relationship function: ${name}.`);
+	} else
+		throw new AuthoringInputError(`Unknown relationship function: ${name}.`);
 	return relationPathSchema.parse(result);
 }
 
@@ -165,14 +167,14 @@ function compiler(bindings: QueryBindings) {
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
 				if (via && origin !== bindings.typeContext.currentCaseType)
-					throw new Error(
+					throw new AuthoringInputError(
 						`property() starts from ${bindings.typeContext.currentCaseType ?? "an unspecified record"}, not ${origin}.`,
 					);
 				const resolved = via
 					? bindings.forRelation(via).reference("case", [string(args[1])])
 					: bindings.reference("record", [origin, string(args[1])]);
 				if (resolved.kind !== "prop")
-					throw new Error("property() needs a record property.");
+					throw new AuthoringInputError("property() needs a record property.");
 				return {
 					...resolved,
 					...(via && { via, caseType: origin }),
@@ -183,11 +185,12 @@ function compiler(bindings: QueryBindings) {
 				const path = relation(args[0]);
 				const property = compiler(bindings.forRelation(path)).term(args[1]);
 				if (property.kind !== "prop" || property.via !== undefined)
-					throw new Error(
+					throw new AuthoringInputError(
 						"via() needs a record property without an existing relationship.",
 					);
 				const origin = bindings.typeContext.currentCaseType;
-				if (!origin) throw new Error("via() needs an originating record.");
+				if (!origin)
+					throw new AuthoringInputError("via() needs an originating record.");
 				return { ...property, caseType: origin, via: path };
 			}
 			if (["field", "search", "user"].includes(name)) {
@@ -236,7 +239,7 @@ function compiler(bindings: QueryBindings) {
 	function value(node: Node): ObjectValue {
 		if (node.kind === "binary") {
 			if (!arithmetic.has(node.operator))
-				throw new Error(
+				throw new AuthoringInputError(
 					"This slot needs a value; put a condition inside if().",
 				);
 			const result = {
@@ -272,7 +275,7 @@ function compiler(bindings: QueryBindings) {
 				right: value(args[1]),
 			};
 			if (numericType(result) !== "int")
-				throw new Error("quotient() needs integer operands.");
+				throw new AuthoringInputError("quotient() needs integer operands.");
 			return result;
 		}
 		if (["today", "now", "acting-user", "unowned"].includes(name)) {
@@ -332,7 +335,7 @@ function compiler(bindings: QueryBindings) {
 		}
 		if (name === "switch") {
 			if (args.length < 4 || args.length % 2 !== 0)
-				throw new Error(
+				throw new AuthoringInputError(
 					"switch() needs a value, one or more match/result pairs, and a fallback.",
 				);
 			const cases = [];
@@ -367,7 +370,7 @@ function compiler(bindings: QueryBindings) {
 	function property(node: Node): ObjectValue {
 		const result = term(node);
 		if (result.kind !== "prop")
-			throw new Error("This argument needs a record property.");
+			throw new AuthoringInputError("This argument needs a record property.");
 		return result;
 	}
 	function predicate(node: Node): ObjectValue {
@@ -384,7 +387,9 @@ function compiler(bindings: QueryBindings) {
 				return { kind, left: value(node.left), right: value(node.right) };
 		}
 		if (node.kind !== "call")
-			throw new Error("This slot needs a condition, such as #case/age >= 18.");
+			throw new AuthoringInputError(
+				"This slot needs a condition, such as #case/age >= 18.",
+			);
 		const { name, args } = node;
 		if (name === "true" || name === "false") {
 			arity(name, args, 0);
@@ -466,7 +471,7 @@ function compiler(bindings: QueryBindings) {
 			arity(name, args, 2);
 			const input = term(args[0]);
 			if (input.kind !== "input")
-				throw new Error("when-provided() needs a Search answer.");
+				throw new AuthoringInputError("when-provided() needs a Search answer.");
 			return { kind: "when-input-present", input, clause: predicate(args[1]) };
 		}
 		if (name === "exists" || name === "missing") {
@@ -480,7 +485,7 @@ function compiler(bindings: QueryBindings) {
 				}),
 			};
 		}
-		throw new Error(`Unknown condition function: ${name}.`);
+		throw new AuthoringInputError(`Unknown condition function: ${name}.`);
 	}
 	return { predicate, value, term };
 }
@@ -489,7 +494,7 @@ export function queryValueType(value: ValueExpression, context: TypeContext) {
 	const errors: CheckError[] = [];
 	const result = checkExpression(value, context, errors, []);
 	if (errors.length || result === undefined)
-		throw new Error(
+		throw new AuthoringInputError(
 			errors.map((error) => error.message).join(" ") ||
 				"Could not resolve this value's type.",
 		);

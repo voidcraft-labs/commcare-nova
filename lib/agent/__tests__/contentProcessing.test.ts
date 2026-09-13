@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { type CaseType, fieldKinds, proseTemplateText } from "@/lib/domain";
+import {
+	asMediaAssetId,
+	type CaseType,
+	fieldKinds,
+	proseTemplateText,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	applyDefaults,
@@ -48,6 +53,45 @@ const testCaseType: CaseType = {
 };
 
 describe("prepareToolOptionsSource", () => {
+	it("retains choice identity and media when replacing wording or reordering choices", () => {
+		const yes = testUuid("choice-yes");
+		const no = testUuid("choice-no");
+		const image = asMediaAssetId(testUuid("choice-yes-image"));
+		const prior = {
+			kind: "inline" as const,
+			options: [
+				{ uuid: yes, value: "yes", label: proseText("Yes"), media: { image } },
+				{ uuid: no, value: "no", label: proseText("No") },
+			],
+		};
+		const result = prepareToolOptionsSource(
+			{
+				kind: "inline",
+				options: [
+					{ value: "no", label: proseText("Not today") },
+					{ value: "yes", label: proseText("Please do") },
+					{ value: "later", label: proseText("Later") },
+				],
+			},
+			prior,
+		);
+		expect(result).toMatchObject({
+			kind: "inline",
+			options: [
+				{ uuid: no, value: "no", label: proseText("Not today") },
+				{
+					uuid: yes,
+					value: "yes",
+					label: proseText("Please do"),
+					media: { image },
+				},
+				{ value: "later" },
+			],
+		});
+		if (result.kind !== "inline") throw new Error("Expected choices.");
+		expect(result.options[2].uuid).not.toBe(yes);
+		expect(result.options[2].uuid).not.toBe(no);
+	});
 	it("maps the machine option projection once, preserving declared identity and source order", () => {
 		const preserved = testUuid("prepared-option-preserved");
 		const result = prepareToolOptionsSource({

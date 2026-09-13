@@ -260,12 +260,12 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "display_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: "Name" }],
 				},
 				{
 					name: "visit",
 					parent_type: "patient",
-					properties: [{ name: "visit_title", label: proseText("Visit") }],
+					properties: [{ name: "visit_title", label: "Visit" }],
 				},
 			],
 		});
@@ -294,9 +294,7 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [
-						{ name: "phone_number", label: proseText("Phone number") },
-					],
+					properties: [{ name: "phone_number", label: "Phone number" }],
 				},
 			],
 		});
@@ -330,7 +328,7 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "display_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: "Name" }],
 				},
 			],
 		});
@@ -353,12 +351,12 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "display_name", label: proseText("Name") }],
+					properties: [{ name: "display_name", label: "Name" }],
 				},
 				{
 					name: "patient",
 					parent_type: "household",
-					properties: [{ name: "age", label: proseText("Age") }],
+					properties: [{ name: "age", label: "Age" }],
 				},
 			],
 		});
@@ -400,10 +398,10 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 					properties: [
 						{
 							name: "visit_date",
-							label: proseText("Visit date"),
+							label: "Visit date",
 							data_type: "date",
 						},
-						{ name: "outcome", label: proseText("Outcome") },
+						{ name: "outcome", label: "Outcome" },
 					],
 				},
 			],
@@ -505,19 +503,19 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 					fieldUuid,
 					id: "eligible",
 					kind: "single_select",
-					label: proseText("Eligible"),
+					label: "Eligible",
 					optionsSource: {
 						kind: "inline",
 						options: [
 							{
 								optionUuid: optionUuids[0],
 								value: "yes",
-								label: proseText("Yes"),
+								label: "Yes",
 							},
 							{
 								optionUuid: optionUuids[1],
 								value: "no",
-								label: proseText("No"),
+								label: "No",
 							},
 						],
 					},
@@ -572,7 +570,7 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 			updates: {
 				kind: "text",
 				id: "hamlet",
-				label: proseText("Hamlet"),
+				label: "Hamlet",
 			},
 		});
 
@@ -622,7 +620,7 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 					fieldUuid: FOLLOWUP_FIELD,
 					kind: "text",
 					id: "visit_notes",
-					label: proseText("Visit notes"),
+					label: "Visit notes",
 				},
 			],
 		});
@@ -715,7 +713,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		})) as { error?: string };
 
 		// The tool surfaced the conflict as the standard `{ error }` envelope.
@@ -753,9 +751,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [
-					{ id: "dob", kind: "date", label: proseText("Date of birth") },
-				],
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 			runTool(sa, "getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
 		]);
@@ -796,7 +792,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const thrown = await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
+			fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 		}).catch((error: unknown) => error);
 
 		expect(thrown).toBeInstanceOf(AppProjectChangedError);
@@ -820,9 +816,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [
-					{ id: "dob", kind: "date", label: proseText("Date of birth") },
-				],
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBe(databaseFault);
 		expect(ctx.reauthError()).toBeUndefined();
@@ -853,9 +847,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [
-					{ id: "dob", kind: "date", label: proseText("Date of birth") },
-				],
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBeInstanceOf(CommitReauthError);
 		expect(resolveAuthorizedAppSnapshotMock).not.toHaveBeenCalled();
@@ -874,9 +866,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 			runTool(sa, "addFields", {
 				moduleUuid: MOD_A,
 				formUuid: FORM_A,
-				fields: [
-					{ id: "dob", kind: "date", label: proseText("Date of birth") },
-				],
+				fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 			}),
 		).rejects.toBe(projectChanged);
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
@@ -904,16 +894,12 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 				runTool(sa, "addFields", {
 					moduleUuid: MOD_A,
 					formUuid: FORM_A,
-					fields: [
-						{ id: "dob", kind: "date", label: proseText("Date of birth") },
-					],
+					fields: [{ id: "dob", kind: "date", label: "Date of birth" }],
 				}),
 				runTool(sa, "addFields", {
 					moduleUuid: MOD_A,
 					formUuid: FORM_A,
-					fields: [
-						{ id: "nickname", kind: "text", label: proseText("Nickname") },
-					],
+					fields: [{ id: "nickname", kind: "text", label: "Nickname" }],
 				}),
 			]);
 
@@ -940,7 +926,7 @@ describe("solutionsArchitect — wrapMutating conflict reload / terminal reauth"
 		const result = (await runTool(sa, "addFields", {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
-			fields: [{ id: "case_name", kind: "text", label: proseText("Dup") }],
+			fields: [{ id: "case_name", kind: "text", label: "Dup" }],
 		})) as { error?: string };
 
 		expect(result.error).toBeDefined();

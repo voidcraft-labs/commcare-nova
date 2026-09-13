@@ -13,7 +13,7 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v26",
+	agent: "design-agent-v27",
 	reviewer: "design-reviewer-v20",
 	planner: "design-plan-v7",
 } as const;

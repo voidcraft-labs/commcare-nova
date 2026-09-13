@@ -11,11 +11,9 @@
 
 import { describe, expect, it } from "vitest";
 import { xp } from "@/lib/__tests__/docHelpers";
-import { fieldKinds, fieldRegistry } from "@/lib/domain";
+import { fieldKinds } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { buildSolutionsArchitectPrompt } from "../prompts";
 import {
-	fieldKindGuide,
 	generateToolSchemas,
 	projectedOptionsSourceSchema,
 } from "../toolSchemaGenerator";
@@ -179,21 +177,6 @@ describe("toolSchemaGenerator", () => {
 				[retiredCaseWriteKey]: "patient",
 			}).success,
 		).toBe(false);
-	});
-
-	it("surfaces each kind's saDocs through the prompt's Field kinds guide", () => {
-		// The per-kind guide is stated ONCE — in the system prompt via
-		// `fieldKindGuide()` — rather than repeated on each schema's kind
-		// enum. Assert every kind's saDocs appears in the guide, and that
-		// the built prompt carries the guide.
-		const guide = fieldKindGuide();
-		for (const kind of fieldKinds) {
-			expect(
-				guide.includes(fieldRegistry[kind].saDocs),
-				`saDocs for ${kind}`,
-			).toBe(true);
-		}
-		expect(buildSolutionsArchitectPrompt()).toContain(guide);
 	});
 
 	// ── The structural win: per-kind property scoping ───────────────────
