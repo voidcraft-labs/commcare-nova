@@ -51,3 +51,22 @@ native device behavior, or a complete garden app.
 This slice removes redundant construction decisions. It does not establish
 semantic completion or replace the remaining input-binding, app-quality, and
 reviewed-edit work.
+
+The next construction-only trial ran the same recorded accepted design on
+`361f05959261414653795e23cb654ea0545bcc46`. All three workflow slices committed
+at sequence 3 after 36 Luna requests, with no helper calls. The trial cost
+$0.36408425; cumulative recorded spend is $31.91011850 across 347 completed
+requests, with no pending reservations. Its private source manifest and results
+are under `build-record-catalog-1` in the research directory above. This is one
+successful construction run, not a reliability estimate or a fresh design run.
+
+Offline runtime checks then loaded that exact recorded blueprint, verified its
+digest after persistence, and exercised FormEngine through authorized real
+Postgres submissions. Registration requirements, integer bounds, distinct plot
+identities and selected-plot correction passed; correction also prefilled the
+existing location and bed count. The first weekly submission failed with
+`missing FROM-clause entry for table "c"` while evaluating the history record's
+name from the selected plot. The advanced create was evaluated without its
+single selected-case context. No successful weekly submission, history behavior,
+browser navigation or native device execution is claimed. That runtime defect
+needs a separate correction before this app can serve as quality evidence.

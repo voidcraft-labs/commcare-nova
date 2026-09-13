@@ -71,11 +71,11 @@ describe("caseTypeRecordSchema", () => {
 		expect(result.error?.issues[0]?.message).toContain("pass null");
 	});
 
-	it("rejects an empty properties array", () => {
+	it("accepts a record with no custom properties", () => {
 		expect(
 			caseTypeRecordSchema.safeParse({ ...validRecord, properties: [] })
 				.success,
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("rejects raw strings in typed prose and XPath slots", () => {
