@@ -204,6 +204,17 @@ export function assessAcceptedWorkflow(args: {
 				kind: operation.action,
 				properties,
 			});
+			// A stable authored key merges subsequent submissions into the
+			// existing record. A generated-ID create cannot supply that update.
+			if (
+				operation.action === "create" &&
+				operation.target.idFrom !== undefined
+			)
+				effects.push({
+					caseType: operation.caseType,
+					kind: "update",
+					properties,
+				});
 		}
 		for (const expected of brief.workflow.recordEffects) {
 			// Link and owner semantics need target-aware comparison. No absence

@@ -18,21 +18,25 @@ import {
 	assessAcceptedWorkflow,
 	conformanceFindingSchema,
 } from "../conformance";
-import { appDesignContractSchema } from "../contract";
-import { fixtureValue, ids, makeWorkflowChainContract } from "./fixtures";
+import { type AppDesignContract, appDesignContractSchema } from "../contract";
+import { did, fixtureValue, ids, makeWorkflowChainContract } from "./fixtures";
 
-function fixture() {
-	const contract = makeWorkflowChainContract(1);
+function briefFor(contract: AppDesignContract) {
 	const plan = deriveBuildPlan({
 		contract,
 		revision: { id: ids.revisionId, digest: "b".repeat(64) },
 	});
-	const brief = deriveSliceExecutionBrief({
+	return deriveSliceExecutionBrief({
 		contract,
 		revision: { id: ids.revisionId, digest: "b".repeat(64) },
 		plan,
 		sliceId: fixtureValue(plan.slices[0], "slice").id,
 	});
+}
+
+function fixture() {
+	const contract = makeWorkflowChainContract(1);
+	const brief = briefFor(contract);
 	const form = fixtureValue(brief.formRealizations[0], "form");
 	const input = fixtureValue(formCompositionInputs(form)[0], "input");
 	const record = fixtureValue(brief.recordRealizations[0], "record");
@@ -132,6 +136,127 @@ function fixture() {
 }
 
 describe("accepted workflow structural conformance", () => {
+	it("admits create-or-update by an authored key, but not an unrelated generated-ID create", () => {
+		const raw = makeWorkflowChainContract(1);
+		delete raw.moduleCompositions[0].hostRecordId;
+		raw.formCompositions[0].mode = "standalone";
+		raw.workflows[0].inputs.push({
+			handle: "stable_key",
+			name: "Stable record key",
+			purpose: "Identify the same record on later submissions",
+			dataShape: "text",
+		});
+		const layout = raw.formCompositions[0].layout;
+		if (layout.kind !== "flat") throw new Error("Expected flat composition");
+		layout.items.push({
+			kind: "input",
+			id: did(990),
+			inputHandle: "stable_key",
+			labelMarkdown: "Stable record key",
+		});
+		const create = raw.workflows[0].recordEffects[0];
+		create.condition = "Only if this form key has not been submitted before";
+		raw.workflows[0].recordEffects.push({
+			...create,
+			handle: "refresh_existing",
+			kind: "update",
+			condition: "When this form key was submitted before",
+			outcome: "Refresh the existing record with the current answer",
+		});
+		const brief = briefFor(appDesignContractSchema.parse(raw));
+		const form = fixtureValue(brief.formRealizations[0], "form");
+		const record = fixtureValue(brief.recordRealizations[0], "record");
+		const property = fixtureValue(brief.records[0]?.properties[0], "property");
+		const moduleUuid = testUuid("keyed-module");
+		const formUuid = testUuid("keyed-form");
+		const fieldUuid = testUuid("keyed-value");
+		const keyUuid = testUuid("keyed-key");
+		const doc = produce(
+			buildDoc({
+				caseTypes: [
+					{
+						name: record.blueprintCaseType,
+						properties: [
+							{
+								name: property.blueprintProperty,
+								label: "Value",
+								data_type: "text",
+							},
+						],
+					},
+				],
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "Records",
+						forms: [
+							{
+								uuid: formUuid,
+								name: "Save entry",
+								type: "survey",
+								fields: [
+									f({ uuid: fieldUuid, id: "value", kind: "text" }),
+									f({ uuid: keyUuid, id: "stable_key", kind: "text" }),
+								],
+							},
+						],
+					},
+				],
+			}),
+			(draft) => {
+				draft.forms[formUuid].caseOperations = [
+					{
+						uuid: testUuid("keyed-operation"),
+						id: "save_entry",
+						action: "create",
+						caseType: record.blueprintCaseType,
+						target: { kind: "new", idFrom: keyUuid },
+						name: term(literal("Entry")),
+						writes: [
+							{
+								property: property.blueprintProperty,
+								value: term({ kind: "field", uuid: fieldUuid }),
+							},
+						],
+					},
+				];
+			},
+		);
+		const bindings: ModuleHandleBinding[] = [
+			{
+				handle: blueprintModuleHandle(form.moduleCompositionId),
+				uuid: moduleUuid,
+				entityKind: "module",
+			},
+			{
+				handle: blueprintFormHandle(form.compositionId),
+				uuid: formUuid,
+				entityKind: "form",
+			},
+			...formCompositionInputs(form).map((input) => ({
+				handle: blueprintInputHandle(input.compositionItemId),
+				uuid: input.inputHandle === "stable_key" ? keyUuid : fieldUuid,
+				entityKind: "field",
+			})),
+		];
+		assertAdmittedDoc(doc);
+		expect(assessAcceptedWorkflow({ doc, brief, bindings })).toEqual([]);
+		const generated = produce(doc, (draft) => {
+			const operation = fixtureValue(
+				draft.forms[formUuid].caseOperations?.[0],
+				"create",
+			);
+			if (operation.action !== "create") throw new Error("Expected create");
+			delete operation.target.idFrom;
+		});
+		assertAdmittedDoc(generated);
+		expect(
+			assessAcceptedWorkflow({ doc: generated, brief, bindings }).map(
+				(finding) => finding.code,
+			),
+		).toEqual(["RECORD_EFFECT_MISSING"]);
+	});
+
 	it("follows bound inputs through renames and moves without guessing from accepted names", () => {
 		const setup = fixture();
 		expect(assessAcceptedWorkflow(setup)).toEqual([]);

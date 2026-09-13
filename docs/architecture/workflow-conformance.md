@@ -17,7 +17,7 @@ variant is checked separately; actor-specific variants are not duplicate inputs.
 | `WORKFLOW_FORM_HOST_MISMATCH` | The bound form's owning module differs from its accepted module binding. This does not evaluate navigation or access conditions. |
 | `WORKFLOW_INPUT_MISSING` | The accepted input binding has no field in this form. Renames and moves inside the form preserve identity. |
 | `WORKFLOW_INPUT_TYPE_MISMATCH` | The field cannot capture the accepted data shape. Text-compatible input kinds are admitted; an attachment needs a capture field. This does not evaluate validation, choices, relevance, or required-condition meaning. |
-| `RECORD_EFFECT_MISSING` | Neither the domain field-action inventory nor an explicit operation declares the accepted create, update, or close action for that record type. A close operation with writes also supplies an update. Links, owner changes and types affected by retyping are not assessed. |
+| `RECORD_EFFECT_MISSING` | Neither the domain field-action inventory nor an explicit operation supplies a possible accepted create, update, or close action for that record type. A writing close and a create with an authored stable key can also supply updates. A generated-ID create cannot. Links, owner changes and types affected by retyping are not assessed. |
 | `RECORD_WRITE_MISSING` | No action in the form writes an explicitly accepted property of that record type. Input/property association alone never implies a write. A subsequent operation may supply the write; attributing it to the correct record instance remains unchecked. |
 | `RECORD_PROPERTY_TYPE_MISMATCH` | An explicitly accepted write has no property of compatible effective type in the current catalog. This does not prove its computed value. |
 
