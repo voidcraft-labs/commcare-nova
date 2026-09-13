@@ -1,10 +1,11 @@
 /** Static design/review prompts and source-package renderers. */
 
 import type { AppDesignContract } from "@/lib/agent/design/contract";
+import { appDesignContractBaseSchema } from "@/lib/agent/design/contract";
 import { sourceRefKey } from "@/lib/agent/design/evidence";
+import { projectDesignIdentityHandles } from "@/lib/agent/design/identityProjection";
 import { PLATFORM_CONSTRAINTS } from "@/lib/agent/design/platformConstraints";
 import {
-	projectBoundIdsToHandles,
 	type ReviewHandleBinding,
 	sourceTagByRefKey,
 	taggedCitableSourceRefs,
@@ -13,8 +14,8 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v30",
-	reviewer: "design-reviewer-v20",
+	agent: "design-agent-v31",
+	reviewer: "design-reviewer-v21",
 	planner: "design-plan-v7",
 } as const;
 
@@ -83,7 +84,7 @@ Keep semantic information beside the workflow it belongs to. An input, decision,
 
 ## Identity
 
-Use readable handles wherever a semantic design call permits an identity object, for example {"handle":"@register_client"}. A handle begins with @ and contains lowercase letters, digits, underscores, or hyphens. Declare it in the element's own identity slot and reuse the same handle for every reference to that element. Related calls in one response may reference handles declared by earlier calls in that response because the server runs them in order. The server binds the handle durably and mints the stable identity. Exact state and inspection project every known identity back through its handle, including during revision; keep using that symbol. A raw UUID is accepted only for an identity already proven in the immutable base or current workspace. Never invent one. Review findings arrive with server-assigned @f-numbered handles; a disposition's findingId is that printed handle, copied exactly, for example {"handle":"@f1"}. Never declare an @f-numbered handle for a design element — that numbering belongs to the server.
+Name design elements with readable symbols such as "@register_client" and reuse the name when referring to that element. Review findings use reserved names such as "@f1"; copy those when responding to a finding.
 
 ## How to work
 
@@ -404,7 +405,15 @@ export function renderReviewPrompt(
 		"",
 		"# Proposed Design Contract",
 		"Elements are printed with their @handle symbols in place of raw identities. Form-composition sections and items are real citable elements. Names in a workflow's nested semantic handle fields (inputs, decisions, effects) are workflow-local, not element symbols; cite their enclosing workflow.",
-		JSON.stringify(projectBoundIdsToHandles(contract, bindings), null, 1),
+		JSON.stringify(
+			projectDesignIdentityHandles(
+				appDesignContractBaseSchema,
+				contract,
+				bindings,
+			),
+			null,
+			1,
+		),
 		"",
 		"Review this contract against the sources and capability boundary.",
 	].join("\n");

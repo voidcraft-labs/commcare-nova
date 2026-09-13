@@ -317,7 +317,7 @@ function projectFixtureIdentities(
 	const visit = (entry: unknown): unknown => {
 		if (typeof entry === "string" && declared.has(entry)) {
 			return mode === "handles"
-				? { handle: handleForFixtureId(entry) }
+				? handleForFixtureId(entry)
 				: resolvedFixtureId(entry);
 		}
 		if (Array.isArray(entry)) return entry.map(visit);
@@ -578,21 +578,27 @@ describe("semantic design loop", () => {
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
 		const result = await call(tools.setDesignRoot, {
-			id: { handle: "@contract" },
+			id: "@contract",
 		});
 		expect(result).toMatchObject({ ok: true });
 		const inspected = await call(tools.inspectDesign, {
 			selection: { kind: "root" },
 		});
 		const root = object(object(inspected.view).root);
-		expect(root.id).toEqual({ handle: "@contract" });
+		expect(root.id).toEqual("@contract");
 
 		const contract = makeContract();
 		const sourceRecord = fixtureValue(contract.records[0], "first record");
 		const record = array(modelContract(contract).records)[0];
 		if (record === undefined) throw new Error("record fixture missing");
 		const stagedRecord = await call(tools.updateRecords, {
-			upserts: [record],
+			upserts: [
+				{
+					...object(record),
+					name: "@f1",
+					purpose: resolvedFixtureId(sourceRecord.id),
+				},
+			],
 			removeIds: [],
 		});
 		expect(stagedRecord).toMatchObject({ ok: true });
@@ -600,7 +606,7 @@ describe("semantic design loop", () => {
 			selection: {
 				kind: "collection",
 				collection: "records",
-				ids: [{ handle: handleForFixtureId(sourceRecord.id) }],
+				ids: [handleForFixtureId(sourceRecord.id)],
 				offset: 0,
 				limit: 20,
 			},
@@ -611,7 +617,13 @@ describe("semantic design loop", () => {
 				kind: "collection",
 				collection: "records",
 				total: 1,
-				items: [{ id: { handle: handleForFixtureId(sourceRecord.id) } }],
+				items: [
+					{
+						id: handleForFixtureId(sourceRecord.id),
+						name: "@f1",
+						purpose: resolvedFixtureId(sourceRecord.id),
+					},
+				],
 			},
 		});
 		/* An unknown handle resolves to its deterministic identity and finds
@@ -621,7 +633,7 @@ describe("semantic design loop", () => {
 				selection: {
 					kind: "collection",
 					collection: "records",
-					ids: [{ handle: "@not_declared" }],
+					ids: ["@not_declared"],
 					offset: 0,
 					limit: 20,
 				},
@@ -707,11 +719,11 @@ describe("semantic design loop", () => {
 		 * order-free. Submit still refuses a reference whose element never
 		 * arrived — naming the handle the model wrote. */
 		const forward = await call(tools.setDesignRoot, {
-			id: { handle: "@contract" },
+			id: "@contract",
 			charter: {
 				...makeContract().charter,
-				includedWorkflowIds: [{ handle: "@undeclared_workflow" }],
-				initialWorkflowId: { handle: "@undeclared_workflow" },
+				includedWorkflowIds: ["@undeclared_workflow"],
+				initialWorkflowId: "@undeclared_workflow",
 			},
 		});
 		expect(forward).toMatchObject({ ok: true });
@@ -737,28 +749,28 @@ describe("semantic design loop", () => {
 			upserts: [
 				{
 					...fixtureWorkflow,
-					id: { handle: "@undeclared_workflow" },
-					actorIds: [{ handle: "@late_actor" }],
+					id: "@undeclared_workflow",
+					actorIds: ["@late_actor"],
 					inputs: fixtureWorkflow.inputs.map((input) => ({
 						...input,
-						propertyId: { handle: "@late_property" },
+						propertyId: "@late_property",
 					})),
 					decisions: fixtureWorkflow.decisions.map((decision) => ({
 						...decision,
-						inputPropertyIds: [{ handle: "@late_property" }],
+						inputPropertyIds: ["@late_property"],
 					})),
 					recordEffects: fixtureWorkflow.recordEffects.map((effect) => ({
 						...effect,
-						recordId: { handle: "@late_record" },
+						recordId: "@late_record",
 						writes: effect.writes.map((write) => ({
 							...write,
-							propertyId: { handle: "@late_property" },
+							propertyId: "@late_property",
 						})),
 					})),
 					readback: fixtureWorkflow.readback.map((entry) => ({
 						...entry,
-						recordId: { handle: "@late_record" },
-						propertyIds: [{ handle: "@late_property" }],
+						recordId: "@late_record",
+						propertyIds: ["@late_property"],
 					})),
 				},
 			],
@@ -777,18 +789,18 @@ describe("semantic design loop", () => {
 		 * even as a reference. */
 		expect(
 			await call(tools.setDesignRoot, {
-				id: { handle: "@contract" },
+				id: "@contract",
 				charter: {
 					...makeContract().charter,
-					includedWorkflowIds: [{ handle: "@f1" }],
-					initialWorkflowId: { handle: "@f1" },
+					includedWorkflowIds: ["@f1"],
+					initialWorkflowId: "@f1",
 				},
 			}),
 		).toMatchObject({
 			diagnostic: { code: "design-reserved-handle", issueCount: 1 },
 		});
 		const unknownReference = await call(tools.setDesignRoot, {
-			id: { handle: "@contract" },
+			id: "@contract",
 			charter: {
 				...makeContract().charter,
 				includedWorkflowIds: [did(998)],
@@ -847,7 +859,7 @@ describe("semantic design loop", () => {
 		);
 		const baseRecord = fixtureValue(contract.records[0], "first record");
 		const collidingRecords = Array.from({ length: 6 }, (_, index) => {
-			const identity = { handle: `@collision_${index}` };
+			const identity = `@collision_${index}`;
 			return {
 				...object(projectFixtureIdentities(baseRecord, contract, "handles")),
 				id: identity,
@@ -1373,7 +1385,7 @@ describe("semantic design loop", () => {
 		const unknownFinding = await call(tools.updateFindingDispositions, {
 			upserts: [
 				{
-					findingId: { handle: "@f9" },
+					findingId: "@f9",
 					status: "accepted",
 					rationale: "This finding does not exist.",
 				},
@@ -1419,7 +1431,7 @@ describe("semantic design loop", () => {
 			await call(tools.updateFindingDispositions, {
 				upserts: [
 					{
-						findingId: { handle: "@f1" },
+						findingId: "@f1",
 						status: "accepted",
 						rationale: "The saved visit is now explicitly confirmed.",
 					},
@@ -1485,7 +1497,7 @@ describe("semantic design loop", () => {
 		await insertDesignSourcePackage({ pkg, authority: authority() });
 		const tools = mount(pkg);
 		const result = await call(tools.setDesignRoot, {
-			id: { handle: "@f1" },
+			id: "@f1",
 		});
 		expect(result).toMatchObject({
 			diagnostic: { code: "design-reserved-handle" },
@@ -1606,8 +1618,8 @@ describe("durable placement grammar", () => {
 		).toMatchObject({ ok: true });
 		const placements = [
 			{
-				moduleId: { handle: handleForFixtureId(ids.moduleVisits) },
-				parentModuleId: { handle: handleForFixtureId(ids.modulePatients) },
+				moduleId: handleForFixtureId(ids.moduleVisits),
+				parentModuleId: handleForFixtureId(ids.modulePatients),
 				afterModuleId: null,
 			},
 		];
@@ -1623,9 +1635,9 @@ describe("durable placement grammar", () => {
 			placements: [
 				{ ...placements[0], parentModuleId: null },
 				{
-					moduleId: { handle: handleForFixtureId(ids.modulePatients) },
+					moduleId: handleForFixtureId(ids.modulePatients),
 					parentModuleId: null,
-					afterModuleId: { handle: "@missing-sibling" },
+					afterModuleId: "@missing-sibling",
 				},
 			],
 		});

@@ -11,6 +11,8 @@ import {
 	setDesignRootInputSchema,
 	updateFindingDispositionsInputSchema,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
+import { designedLookupChoiceSourceSchema } from "@/lib/agent/design/contract";
+import { designIdSchema } from "@/lib/agent/design/ids";
 import {
 	designToolWireSchema,
 	inspectProjectDataInputSchema,
@@ -24,7 +26,7 @@ import {
 const session = "00000000-0000-4000-8000-000000000002";
 const uuid = "00000000-0000-4000-8000-000000000010";
 const lookup = "018f0000-0000-7000-8000-000000000001";
-const handle = (name: string) => ({ handle: `@${name}` });
+const handle = (name: string) => `@${name}`;
 const actor = { ...makeContract().actors[0], id: handle("worker") };
 function recordInput(
 	parentRecordId: unknown = null,
@@ -71,7 +73,7 @@ function expectWire(schema: z.ZodType, input: unknown, handles = true) {
 }
 function canonical<T>(schema: z.ZodType<T>, input: unknown): T {
 	return schema.parse(
-		stripNullProperties(resolveDesignWorkspaceHandles(input, session)),
+		stripNullProperties(resolveDesignWorkspaceHandles(schema, input, session)),
 	);
 }
 
@@ -106,13 +108,15 @@ describe("strict semantic design payloads", () => {
 			expect(result.parentRecordId).toEqual(
 				parent === null
 					? undefined
-					: typeof parent === "string"
-						? parent
-						: resolveDesignWorkspaceHandles(parent, session),
+					: resolveDesignWorkspaceHandles(designIdSchema, parent, session),
 			);
 			expect(result.properties).toEqual([
 				{
-					id: resolveDesignWorkspaceHandles(handle("risk"), session),
+					id: resolveDesignWorkspaceHandles(
+						designIdSchema,
+						handle("risk"),
+						session,
+					),
 					name: "Risk",
 					meaning: "Patient priority",
 					dataShape: "text",
@@ -150,7 +154,11 @@ describe("strict semantic design payloads", () => {
 				charter: null,
 			}),
 		).toEqual({
-			id: resolveDesignWorkspaceHandles(handle("contract"), session),
+			id: resolveDesignWorkspaceHandles(
+				designIdSchema,
+				handle("contract"),
+				session,
+			),
 		});
 	});
 	it.each(["collection", "sourceCollection"])(
@@ -169,7 +177,13 @@ describe("strict semantic design payloads", () => {
 			expect(canonical(inspectDesignInputSchema, input)).toEqual({
 				selection: {
 					...input.selection,
-					ids: [resolveDesignWorkspaceHandles(handle("patient"), session)],
+					ids: [
+						resolveDesignWorkspaceHandles(
+							designIdSchema,
+							handle("patient"),
+							session,
+						),
+					],
 				},
 			});
 			expect(
@@ -199,6 +213,7 @@ describe("strict semantic design payloads", () => {
 					{
 						...input.upserts[0],
 						findingId: resolveDesignWorkspaceHandles(
+							designIdSchema,
 							handle("finding"),
 							session,
 						),
@@ -217,6 +232,9 @@ describe("strict semantic design payloads", () => {
 	);
 	it.each([
 		null,
+		"worker",
+		"@UPPER",
+		{ handle: "@worker" },
 		{ handle: "worker" },
 		{ handle: "@worker", extra: true },
 		[],
@@ -281,7 +299,13 @@ describe("lookup identity domains", () => {
 				designCollectionUpdateInputSchemas.records,
 				recordInput(null, designed),
 			).upserts[0].properties[0].choiceSource,
-		).toEqual(resolveDesignWorkspaceHandles(designed, session));
+		).toEqual(
+			resolveDesignWorkspaceHandles(
+				designedLookupChoiceSourceSchema,
+				designed,
+				session,
+			),
+		);
 		const existing = {
 			kind: "existing-project-lookup",
 			tableId: lookup,

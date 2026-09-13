@@ -154,6 +154,14 @@ after two reproduced question-recovery failures were fixed: saved questions now
 replay only for the same logical input and against the current required batch.
 The separate in-memory design harness was retired because it had diverged from
 production. Publication remains pending.
+The design name boundary now accepts plain `"@register_client"` strings at
+identity slots. One schema-aware projection serves the author and reviewer,
+preserves literal text and foreign identities, and includes menu placements in
+reference admission. Canonical artifacts and the existing identity ledger keep
+their storage format; prompt and toolset versions roll active contexts forward.
+The related design, build, and anatomy suites pass 844 tests. Independent review
+and publication are pending. Project-data evidence binding and the remaining
+role guidance are still open.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

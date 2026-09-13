@@ -7,11 +7,12 @@ import {
 } from "@/lib/agent/design/loop/tools";
 import {
 	deriveFindingHandleBindings,
-	projectBoundIdsToHandles,
 	sourceTagByRefKey,
 	taggedCitableSourceRefs,
 } from "@/lib/agent/design/reviewVocabulary";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { appDesignContractBaseSchema } from "../contract";
+import { projectDesignIdentityHandles } from "../identityProjection";
 import { did, fixtureValue, ids, makeContract } from "./fixtures";
 import { reviewSourceFixture } from "./reviewSourceFixture";
 import {
@@ -135,7 +136,11 @@ describe("review symbol projection", () => {
 			{ handle: "@patient", designId: ids.recPatient },
 			{ handle: "@patient_name", designId: ids.factName },
 		];
-		const result = projectBoundIdsToHandles(contract, bindings);
+		const result = projectDesignIdentityHandles(
+			appDesignContractBaseSchema,
+			contract,
+			bindings,
+		);
 		const expected = JSON.parse(
 			JSON.stringify(contract)
 				.replaceAll(JSON.stringify(ids.recPatient), '"@patient"')
@@ -152,12 +157,12 @@ describe("review symbol projection", () => {
 		);
 		const before = JSON.stringify(input);
 		expect(
-			projectBoundIdsToHandles(input, [
+			projectDesignIdentityHandles(appDesignContractBaseSchema, input, [
 				{ handle: "@patient", designId: ids.recPatient },
 			]),
 		).toEqual(
 			JSON.parse(
-				`{"__proto__":{"id":"@patient"},"constructor":[null,true,2,"@patient","prefix:${ids.recPatient}"],"unbound":"${ids.recVisit}"}`,
+				`{"__proto__":{"id":"${ids.recPatient}"},"constructor":[null,true,2,"${ids.recPatient}","prefix:${ids.recPatient}"],"unbound":"${ids.recVisit}"}`,
 			),
 		);
 		expect(JSON.stringify(input)).toBe(before);
@@ -197,7 +202,7 @@ describe("review symbol projection", () => {
 								upserts: [
 									{
 										...fixtureValue(makeContract().records[0], "record"),
-										id: { handle },
+										id: handle,
 									},
 								],
 								removeIds: [],
@@ -207,9 +212,12 @@ describe("review symbol projection", () => {
 					"session",
 				),
 			).toContain(handle);
-			expect(designReservedReferenceIssue({ recordId: { handle } })).toContain(
-				handle,
-			);
+			expect(
+				designReservedReferenceIssue({
+					placements: [{ moduleId: handle }],
+					collections: [],
+				}),
+			).toContain(handle);
 		},
 	);
 	it.each(["@f0", "@follow_up_visit", "@form_intake"])(
@@ -224,7 +232,7 @@ describe("review symbol projection", () => {
 								upserts: [
 									{
 										...fixtureValue(makeContract().records[0], "record"),
-										id: { handle },
+										id: handle,
 									},
 								],
 								removeIds: [],
@@ -234,7 +242,12 @@ describe("review symbol projection", () => {
 					"session",
 				),
 			).toBeNull();
-			expect(designReservedReferenceIssue({ recordId: { handle } })).toBeNull();
+			expect(
+				designReservedReferenceIssue({
+					placements: [{ moduleId: handle }],
+					collections: [],
+				}),
+			).toBeNull();
 		},
 	);
 });
