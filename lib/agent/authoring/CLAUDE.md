@@ -37,6 +37,10 @@ The pilot refuses option replacement with media until it can preserve it.
 The local evaluator captures credential-free request bodies in a private folder,
 limits model steps and requests, records conservative spend, and soft-deletes its
 owned disposable app in `finally`. Scenario rows belong only to those apps.
+The evaluator exclusively locks the shared ledger before reading it and writes
+reservations atomically before requests. Missing or invalid usage retains the
+reservation. A crashed process leaves its lock for inspection; do not remove it
+until confirming the owner stopped and accounting for pending requests.
 Scenario observations use the production Preview and real case database snapshot;
 they project submissions without submitting them. These are local diagnostics,
 not a production agent testing tool or device-runtime proof.

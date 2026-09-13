@@ -58,6 +58,14 @@ Unknown request outcomes retain their reservation. Seven earlier official
 input-token counting probes did not generate model output. No broad paid schema
 sweep ran.
 
+Independent review found two guard defects after the trials: concurrent runners
+could overwrite the shared ledger, and missing usage could release a reservation.
+The evaluator now takes an exclusive ledger lock, saves reservations atomically,
+and retains the charge for completed responses with incomplete or invalid usage.
+The recorded trials were sequential and all supplied usage, so these findings
+do not change their reported spend. A crashed owner's lock requires inspection
+before another run; it is not automatically treated as stale.
+
 ## What changed because of the failures
 
 The first interface proposal still asked models to construct protected prose
