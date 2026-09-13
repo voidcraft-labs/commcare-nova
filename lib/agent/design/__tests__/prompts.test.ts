@@ -236,7 +236,7 @@ describe("review source and capability composition", () => {
 	it("includes the generated vocabulary and each complete constraint once in the review request", () => {
 		const catalog = buildCapabilityCatalog();
 		const rendered = renderReviewPrompt(
-			packageWith({ platformConstraints: catalog.constraints }),
+			packageWith({ platformConstraints: [...catalog.constraints] }),
 			makeContract(),
 			renderCapabilityCatalog(catalog),
 			[],
