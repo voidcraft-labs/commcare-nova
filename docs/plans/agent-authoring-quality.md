@@ -174,9 +174,10 @@ search; `/agents` uses the same production mount and digest. Its complete
 system context falls from 8,368 to 3,517 estimated tokens, while the largest
 deferred tool remains 8,341 tokens. Local validation and independent review
 have passed. The [paired production design trials](../research/agent-design-trial-2026-09-13.md)
-did not produce an accepted app under either interface. Both encountered
-construction-order and menu-placement admission problems; the revised author
-reached independent review after removing a needed history list during repair.
+did not produce an accepted app under either interface. Both hit menu-placement
+admission problems; the previous author also hit a construction-order constraint.
+The revised author reached independent review after removing a needed history
+list during repair.
 The next work therefore addresses those authoring and construction boundaries,
 preserves useful batching, and then repeats a bounded end-to-end trial. Remaining
 role context, schema design, and broader app-quality evidence stay open.
