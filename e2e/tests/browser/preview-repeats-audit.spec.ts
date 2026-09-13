@@ -85,7 +85,7 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 		const text = page.getByRole("textbox", { name: /Related patient case id/ });
 		await distinctVisibleLabels(text, "Related patient case id");
 		await distinctVisibleLabels(
-			page.getByRole("spinbutton", { name: /Household size/ }),
+			page.getByRole("textbox", { name: /Household size/ }),
 			"Household size",
 		);
 		await distinctVisibleLabels(
