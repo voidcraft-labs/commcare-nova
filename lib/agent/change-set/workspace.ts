@@ -379,33 +379,43 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	 * server-owned workflow finalizer and commit preconditions consult this.
 	 */
 	async inspect(): Promise<ChangeSetDiagnostics> {
+		return (await this.inspectState()).diagnostics;
+	}
+
+	/** The same authorized, rows-free lookup snapshot informs diagnostics and
+	 * readable repair context. It is never a second catalog or a new write. */
+	async inspectState() {
+		const snapshot = this.currentSnapshot();
+		const changeSet = this.changeSet;
+		const steps = [...this.steps];
 		const lookupContext = await this.lookupContextFor(
-			this.overlayDoc,
-			this.overlayDoc,
+			snapshot.doc,
+			snapshot.doc,
 		);
 		const readSetStatus = await evaluateReadSetCurrency({
 			appId: this.changeSet.appId,
 			dependencies: this.accumulatedReadSet,
 		});
-		const findings = evaluateOverlayFindings(this.overlayDoc, lookupContext);
+		const findings = evaluateOverlayFindings(snapshot.doc, lookupContext);
 		const finalizationFindings =
 			findings.length === 0
 				? await genesisFinalizationFindings({
-						changeSet: this.changeSet,
-						overlay: this.overlayDoc,
+						changeSet,
+						overlay: snapshot.doc,
 						lookupContext,
 					})
 				: [];
-		return computeChangeSetDiagnostics({
-			changeSet: this.changeSet,
-			overlaySnapshot: toPersistableDoc(this.overlayDoc),
-			overlay: this.overlayDoc,
+		const diagnostics = computeChangeSetDiagnostics({
+			changeSet,
+			overlaySnapshot: toPersistableDoc(snapshot.doc),
+			overlay: snapshot.doc,
 			findings,
 			finalizationFindings,
-			steps: this.steps,
+			steps,
 			readSetStatus,
 			previousFingerprints: this.lastSummaryFingerprints,
 		});
+		return { snapshot, lookupContext, diagnostics };
 	}
 
 	// ── The serialized engine ────────────────────────────────────────

@@ -118,6 +118,7 @@ export type ExecutorWorkspace = Pick<
 	ChangeSetMutationWorkspace,
 	| "stageDispatch"
 	| "inspect"
+	| "inspectState"
 	| "currentSnapshot"
 	| "currentExecutionCheckpoint"
 	| "resolveDesignLookupReferences"
@@ -1219,13 +1220,10 @@ export async function runSliceExecutor(
 			args.resolveBlocker({
 				blocker,
 				brief,
-				candidate: blockerCandidate(workspace),
-				diagnostics:
-					failure.diagnostics ??
-					projectDiagnostics(
-						await awaitWithAbort(workspace.inspect(), boundedSignal),
-						brief,
-					),
+				...(await awaitWithAbort(
+					blockerContext(workspace, brief, failure.diagnostics),
+					boundedSignal,
+				)),
 				signal: boundedSignal,
 			}),
 			boundedSignal,
@@ -2097,11 +2095,10 @@ export async function runSliceExecutor(
 								args.resolveBlocker({
 									blocker: parsed.data,
 									brief,
-									candidate: blockerCandidate(workspace),
-									diagnostics: projectDiagnostics(
-										await awaitWithAbort(workspace.inspect(), boundedSignal),
-										brief,
-									),
+									...(await awaitWithAbort(
+										blockerContext(workspace, brief),
+										boundedSignal,
+									)),
 									signal: boundedSignal,
 								}),
 								boundedSignal,
@@ -2546,11 +2543,27 @@ function terminalProtocolCode(error: unknown): string | null {
 
 /** Bounded diagnostics for the model: enough findings to act on, never the
  *  whole validator dump. */
-function blockerCandidate(workspace: ExecutorWorkspace) {
-	const snapshot = workspace.currentSnapshot();
+async function blockerContext(
+	workspace: ExecutorWorkspace,
+	brief: SliceExecutionBrief,
+	reportedFailure?: unknown,
+) {
+	const { snapshot, diagnostics, lookupContext } =
+		await workspace.inspectState();
 	return {
-		revision: snapshot.revision,
-		implementation: projectBlueprintImplementation(snapshot.doc),
+		candidate: {
+			revision: snapshot.revision,
+			implementation: projectBlueprintImplementation(
+				snapshot.doc,
+				lookupContext.kind === "available"
+					? lookupContext.definitions
+					: undefined,
+			),
+		},
+		diagnostics: {
+			current: projectDiagnostics(diagnostics, brief),
+			...(reportedFailure === undefined ? {} : { reportedFailure }),
+		},
 	};
 }
 

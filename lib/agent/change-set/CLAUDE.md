@@ -42,6 +42,11 @@ gate, and integrity services every other write uses.
   the step commits. The workspace also owns automatic read-set capture, the
   batch-exclusive fence, and the REAL whole-document evaluator whose
   findings land on the receipt as compact fingerprints.
+  `inspectState` pins one immutable candidate and returns its diagnostics with
+  the authorized, rows-free lookup definitions used to compute them. The repair
+  helper uses that same snapshot to print lookup filters and names. It reads no
+  table rows and grants no new commit authority; `inspect` remains the ordinary
+  diagnostics-only reader.
   `adoptAuthoritativeSnapshot` is a protocol error here — a private overlay
   has no fresher authority than its own replay.
 - `commit.ts` — `commitDesignChangeSet`: the concatenated admitted steps as

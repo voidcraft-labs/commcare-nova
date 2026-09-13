@@ -37,6 +37,13 @@ configuration, explicit case operations, and the domain's derived field-action
 inventory. Stable object identities distinguish equal-name forms. Unreadable
 sections are identified instead of silently disappearing.
 
+Independent review found that an otherwise valid filtered lookup select became
+unreadable without its Project catalog. The corrected helper reuses the
+authorized definitions snapshot from workspace validation. Form and module
+encoders receive those definitions; no table rows enter the prompt. Both
+Postgres repair journeys include a filtered lookup select and private row data
+to check that the field stays readable while the row remains absent.
+
 The accepted workflow brief already contains its relevant meaning, dependencies
 and constraints. The helper therefore no longer receives another complete
 contract and plan. Its operation reference derives from the exact slice

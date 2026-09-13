@@ -20,13 +20,17 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { deriveCaseWriteInventory } from "@/lib/domain/caseWriteInventory";
+import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
 /** Current implementation facts, without inferred intent or execution claims.
  * Callers supply the canonical sequence or private workspace revision separately.
  * Source-language content uses the same readable projection as authoring tools.
  * External rows, deployment readiness and translation overlays are not inspected. */
-export function projectBlueprintImplementation(doc: BlueprintDoc) {
+export function projectBlueprintImplementation(
+	doc: BlueprintDoc,
+	tables?: readonly LookupTableDefinition[],
+) {
 	const unreadable: Array<{ kind: string; id: string; reason: string }> = [];
 	function read<T>(kind: string, id: string, project: () => T): T | null {
 		try {
@@ -61,6 +65,7 @@ export function projectBlueprintImplementation(doc: BlueprintDoc) {
 							toolName: "getForm",
 							data: { form: formSnapshot(doc, formUuid) },
 							doc,
+							tables,
 						}),
 					).form,
 			),
@@ -101,6 +106,7 @@ export function projectBlueprintImplementation(doc: BlueprintDoc) {
 							property,
 							authoringEncoders({
 								doc,
+								tables,
 								currentCaseType: record.name,
 							}),
 						),
@@ -118,6 +124,7 @@ export function projectBlueprintImplementation(doc: BlueprintDoc) {
 						authoringEncoders(
 							{
 								doc,
+								tables,
 								moduleUuid: uuid,
 								currentCaseType: module.caseType,
 							},
@@ -146,7 +153,7 @@ export function projectBlueprintImplementation(doc: BlueprintDoc) {
 				encodeAuthoringValues(
 					automationSchema,
 					automation,
-					authoringEncoders({ doc }),
+					authoringEncoders({ doc, tables }),
 				),
 			),
 		})),

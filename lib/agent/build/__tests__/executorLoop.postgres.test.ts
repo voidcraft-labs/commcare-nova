@@ -18,15 +18,23 @@ import {
 	loadChangeSet,
 	loadChangeSetSteps,
 } from "@/lib/agent/change-set/store";
-import { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import {
+	ChangeSetMutationWorkspace,
+	type ChangeSetWorkspaceHost,
+} from "@/lib/agent/change-set/workspace";
 import {
 	fixtureValue,
 	makeWorkflowChainContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "@/lib/agent/lookupContext";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
+import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -65,6 +73,11 @@ const h = setupAppStateTestDb("executor_native_", {
 const ACTOR = "executor-actor";
 const PROJECT = "executor-project";
 const RUN = "executor-run";
+const LOOKUP_SCOPE = {
+	projectId: PROJECT,
+	actorId: ACTOR,
+	role: "owner" as const,
+};
 type Call = { id: string; name: string; input: unknown };
 
 function respondWithCalls(response: ServerResponse, calls: readonly Call[]) {
@@ -217,9 +230,12 @@ async function fixture() {
 			},
 		};
 	}
-	const host = {
+	const host: ChangeSetWorkspaceHost = {
 		actorUserId: ACTOR,
 		runId: RUN,
+		lookupDefinitions: (tableIds) =>
+			readToolLookupDefinitions(LOOKUP_SCOPE, tableIds),
+		lookupCatalog: () => readToolLookupCatalog(LOOKUP_SCOPE),
 		chatRunHolder: {
 			mode: "build" as const,
 			runId: RUN,
@@ -922,6 +938,45 @@ describe("persisted executor Responses journeys", () => {
 		"grounds a %s blocker in the current private candidate before repair",
 		async (mode) => {
 			const f = await fixture();
+			const table = await createLookupTable(LOOKUP_SCOPE, {
+				name: "Destinations",
+				tag: "destinations",
+				columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+			});
+			await createLookupRow(LOOKUP_SCOPE, {
+				tableId: table.id,
+				toIndex: 0,
+				expectedTableRevision: table.tableRevision,
+				values: {
+					[table.columns[0].id]: "Private row must not enter helper context",
+				},
+			});
+			const moduleCall: Call = {
+				...f.calls.module,
+				input: {
+					...f.calls.module.input,
+					forms: [
+						{
+							...f.calls.module.input.forms[0],
+							fields: [
+								...f.calls.module.input.forms[0].fields,
+								{
+									kind: "single_select",
+									id: "destination",
+									label: "Destination",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table.id,
+										valueColumnId: table.columns[0].id,
+										labelColumnId: table.columns[0].id,
+										filter: "#row/name != ''",
+									},
+								},
+							],
+						},
+					],
+				},
+			};
 			const caseType = f.calls.schema.input.caseTypes[0].name;
 			const schema: Call = {
 				...f.calls.schema,
@@ -962,7 +1017,7 @@ describe("persisted executor Responses journeys", () => {
 						requests === 1
 							? [
 									schema,
-									f.calls.module,
+									moduleCall,
 									mode === "reported" ? report : f.calls.finish,
 								]
 							: mode === "repeated" && requests === 2
@@ -989,6 +1044,21 @@ describe("persisted executor Responses journeys", () => {
 								helperCalls += 1;
 								expect(args.candidate.revision).toBe(2);
 								expect(args.candidate.implementation.unreadable).toEqual([]);
+								expect(
+									args.candidate.implementation.modules[0].forms[0].definition,
+								).toMatchObject({
+									fields: expect.arrayContaining([
+										expect.objectContaining({
+											id: "destination",
+											optionsSource: expect.objectContaining({
+												filter: "(#row/name != '')",
+											}),
+										}),
+									]),
+								});
+								expect(JSON.stringify(args.candidate)).not.toContain(
+									"Private row must not enter helper context",
+								);
 								expect(args.candidate.implementation.records).toContainEqual(
 									expect.objectContaining({
 										name: caseType,

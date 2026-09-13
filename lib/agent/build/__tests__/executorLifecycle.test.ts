@@ -34,6 +34,11 @@ function setup() {
 		async inspect() {
 			throw new Error("No finalizer may run after initialization fails");
 		},
+		async inspectState() {
+			throw new Error(
+				"No repair inspection may run after initialization fails",
+			);
+		},
 	};
 	return { brief, workspace };
 }
