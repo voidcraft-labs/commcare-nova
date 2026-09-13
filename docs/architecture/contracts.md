@@ -434,11 +434,16 @@ scope, or drive a different plan. Only a persisted pre-build question may accept
 an answer before it freezes.
 
 A persisted build plan is derived deterministically from the accepted
-workflows. It has exactly one workflow-complete slice per included workflow and
-no extra slice, stable construction groups, exactly one materialization root,
+workflows. Its construction groups cover every included workflow exactly once,
+with no empty executor slice, stable groups, exactly one materialization root,
 and no model-authored ownership
 choices. The root has no prerequisite slices and directly owns the complete
 first export-ready app.
+A task that only reads saved records can use lists and details instead of a
+form when every actor can see each requested property. If all of its construction
+belongs to earlier work, its workflow element joins the last prerequisite's
+group and its requirements remain in that slice's brief. Completion still
+requires the exact nonempty committed receipts for the whole plan.
 Menu membership is worker-facing meaning, not construction ownership. The
 planner may establish an accepted child list with the workflow that first writes
 its records, then add its own forms in their original workflow slices. Graph
