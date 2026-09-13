@@ -84,19 +84,7 @@ function deriveModuleConstructionOwners(
 		const differentRecord =
 			module.hostRecordId !== undefined &&
 			module.hostRecordId !== parent.hostRecordId;
-		const firstWriter =
-			differentRecord && module.hostRecordId !== undefined
-				? earliest(
-						childRecordWriterWorkflowIds(
-							contract,
-							module.hostRecordId,
-							parent.id,
-						),
-					)
-				: undefined;
 		let owner = owners.get(module.id);
-		if (firstWriter !== undefined && index(firstWriter) < index(owner))
-			owner = firstWriter;
 		for (const prerequisite of [
 			owners.get(parent.id),
 			differentRecord ? firstForm(parent.id) : undefined,
@@ -109,35 +97,14 @@ function deriveModuleConstructionOwners(
 	return owners;
 }
 
-/** Construction follows the actual menu and form graph. Worker starting
- * conditions do not schedule software. Use the chosen initial workflow first,
- * then design order to break ties, and fix owners before sorting dependencies. */
-export function deriveConstructionSchedule(contract: AppDesignContract) {
+function scheduleWithViewers(
+	contract: AppDesignContract,
+	ownershipOrder: readonly string[],
+	viewerByRecord: ReadonlyMap<string, string>,
+) {
 	const prerequisites = new Map<string, Set<string>>(
 		contract.workflows.map((workflow) => [workflow.id, new Set<string>()]),
 	);
-	const ownershipOrder = [
-		contract.charter.initialWorkflowId,
-		...contract.workflows
-			.filter((workflow) => workflow.id !== contract.charter.initialWorkflowId)
-			.map((workflow) => workflow.id),
-	];
-	// One accepted viewer is enough for direct child-field writes. Prefer a
-	// list that can be born without forms, then a top-level home; leave other
-	// views with their own tasks. Stable design order settles equivalent homes.
-	const viewerByRecord = new Map<string, string>();
-	for (const module of [...contract.moduleCompositions].sort(
-		(a, b) =>
-			Number(b.listIds.length > 0) - Number(a.listIds.length > 0) ||
-			Number(a.parentModuleCompositionId !== undefined) -
-				Number(b.parentModuleCompositionId !== undefined),
-	)) {
-		if (
-			module.hostRecordId !== undefined &&
-			!viewerByRecord.has(module.hostRecordId)
-		)
-			viewerByRecord.set(module.hostRecordId, module.id);
-	}
 	const moduleOwners = deriveModuleConstructionOwners(
 		contract,
 		ownershipOrder,
@@ -192,16 +159,83 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 					(rank.get(right) ?? Number.MAX_SAFE_INTEGER),
 			)[0];
 		add(owner, firstParentFormOwner);
-		for (const writer of childRecordWriterWorkflowIds(
-			contract,
-			module.hostRecordId,
-			parent.id,
-		))
-			add(writer, owner);
 	}
 	return {
 		moduleOwners,
 		prerequisites,
 		orderedWorkflowIds: workflowOrder(contract, prerequisites),
 	};
+}
+
+/** Construction follows the actual menu and form graph. Worker starting
+ * conditions do not schedule software. Use the chosen initial workflow first,
+ * then design order to break ties. */
+export function deriveConstructionSchedule(contract: AppDesignContract) {
+	const ownershipOrder = [
+		contract.charter.initialWorkflowId,
+		...contract.workflows
+			.filter((workflow) => workflow.id !== contract.charter.initialWorkflowId)
+			.map((workflow) => workflow.id),
+	];
+	const viewers = new Map<string, string>();
+	let schedule = scheduleWithViewers(contract, ownershipOrder, viewers);
+	for (const record of contract.records) {
+		const writers = childRecordWriterWorkflowIds(contract, record.id);
+		if (writers.length === 0) continue;
+		const rank = new Map(
+			(schedule.orderedWorkflowIds ?? ownershipOrder).map((id, index) => [
+				id,
+				index,
+			]),
+		);
+		const firstWriter = Math.min(
+			...writers.map((id) => rank.get(id) ?? Number.MAX_SAFE_INTEGER),
+		);
+		const available = (moduleId: string) => {
+			const owner = schedule.moduleOwners.get(moduleId);
+			return (
+				owner !== undefined &&
+				(rank.get(owner) ?? Number.MAX_SAFE_INTEGER) <= firstWriter
+			);
+		};
+		// Any accepted viewer can support direct child writes. Keep an available
+		// home; otherwise prefer a list that can be established without its forms.
+		// A later viewer is useful only if it can precede the writers without a
+		// cycle. Other views keep their own construction owners.
+		const candidates = contract.moduleCompositions
+			.filter((module) => module.hostRecordId === record.id)
+			.sort(
+				(a, b) =>
+					Number(available(b.id)) - Number(available(a.id)) ||
+					Number(b.listIds.length > 0) - Number(a.listIds.length > 0) ||
+					Number(a.parentModuleCompositionId !== undefined) -
+						Number(b.parentModuleCompositionId !== undefined),
+			);
+		let selected: typeof schedule | undefined;
+		let selectedModuleId: string | undefined;
+		for (const candidate of candidates) {
+			const trial = scheduleWithViewers(
+				contract,
+				ownershipOrder,
+				new Map([...viewers, [record.id, candidate.id]]),
+			);
+			// Keep the first failed candidate so admission can report a real
+			// dependency when no viewer is feasible, rather than omit the need.
+			selected ??= trial;
+			selectedModuleId ??= candidate.id;
+			if (
+				trial.orderedWorkflowIds !== null &&
+				trial.prerequisites.get(contract.charter.initialWorkflowId)?.size === 0
+			) {
+				selected = trial;
+				selectedModuleId = candidate.id;
+				break;
+			}
+		}
+		if (selected !== undefined && selectedModuleId !== undefined) {
+			viewers.set(record.id, selectedModuleId);
+			schedule = selected;
+		}
+	}
+	return schedule;
 }

@@ -139,6 +139,147 @@ describe("deterministic build planning", () => {
 		);
 	});
 
+	it("does not require a viewer before an explicit create of an unrelated record", () => {
+		const contract = makeWorkflowChainContract(2);
+		const [first, later] = contract.workflows;
+		first.recordEffects.push({
+			...later.recordEffects[0],
+			handle: "create_unrelated",
+			writes: [],
+		});
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+		});
+		const root = plan.slices[0];
+		expect(root.workflowId).toBe(first.id);
+		expect(root.prerequisiteSliceIds).toEqual([]);
+		expect(
+			root.constructionGroups
+				.flatMap((group) => group.elements)
+				.filter((element) => element.kind === "module-composition"),
+		).toEqual([
+			{ kind: "module-composition", id: contract.moduleCompositions[0].id },
+		]);
+	});
+
+	it.each([false, true])(
+		"uses a feasible form viewer when a later list would cause a cycle (later form: %s)",
+		(laterForm) => {
+			const contract = makeWorkflowChainContract(3);
+			const [related, parent] = contract.records;
+			const [registration, writer, edit] = contract.workflows;
+			const [relatedHome, parentHome, editHome] = contract.moduleCompositions;
+			const editForm = contract.formCompositions[2];
+			related.parentRecordId = parent.id;
+			related.relationshipMeaning =
+				"Each related record belongs to its parent.";
+			contract.records = [related, parent];
+			writer.recordEffects.push({
+				handle: "create_related",
+				recordId: related.id,
+				kind: "create",
+				writes: [],
+				outcome: "A related record is saved.",
+			});
+			const secondActor = {
+				...contract.actors[0],
+				id: did(9700),
+				name: "Second actor",
+			};
+			contract.actors.push(secondActor);
+			edit.contextRecordId = parent.id;
+			edit.actorIds.push(secondActor.id);
+			edit.inputs[0].propertyId = parent.properties[0].id;
+			edit.recordEffects[0].kind = "update";
+			edit.recordEffects[0].recordId = parent.id;
+			edit.recordEffects[0].writes[0].propertyId = parent.properties[0].id;
+			edit.readback = [
+				{
+					recordId: parent.id,
+					purpose: "Review the parent",
+					propertyIds: [parent.properties[0].id],
+				},
+			];
+			editHome.hostRecordId = parent.id;
+			editHome.actorIds = [secondActor.id];
+			editForm.mode = "selected-record";
+			editForm.variant = "actor-specific";
+			editForm.actorIds = [secondActor.id];
+			editForm.duplicateRationale = "Second actor edits from their own menu.";
+			const otherForm = structuredClone(editForm);
+			otherForm.id = did(9701);
+			otherForm.moduleCompositionId = parentHome.id;
+			otherForm.actorIds = [contract.actors[0].id];
+			if (otherForm.layout.kind !== "flat")
+				throw new Error("Expected the fixture's flat form layout");
+			otherForm.layout.items[0].id = did(9702);
+			otherForm.duplicateRationale =
+				"First actor edits from their existing menu.";
+			contract.formCompositions.push(otherForm);
+			parentHome.workflowIds.push(edit.id);
+			const list = {
+				...makeContract().lists[0],
+				id: did(9703),
+				name: "Related records",
+				actorIds: [secondActor.id],
+				recordId: related.id,
+				scanPropertyIds: [related.properties[0].id],
+				detailPropertyIds: [],
+				searchPropertyIds: [],
+			};
+			contract.lists = [list];
+			const laterView = {
+				...structuredClone(relatedHome),
+				id: did(9704),
+				name: "Related records for second actor",
+				role: "queue-only" as const,
+				workflowIds: [edit.id],
+				actorIds: [secondActor.id],
+				listIds: [list.id],
+				parentModuleCompositionId: editHome.id,
+			};
+			contract.moduleCompositions.push(laterView);
+			if (laterForm) {
+				const neutral = makeWorkflowChainContract(4);
+				const starter = neutral.workflows[3];
+				contract.records.push(neutral.records[3]);
+				contract.moduleCompositions.push(neutral.moduleCompositions[3]);
+				contract.formCompositions.push(neutral.formCompositions[3]);
+				contract.workflows = [starter, writer, registration, edit];
+				contract.charter.initialWorkflowId = starter.id;
+				contract.charter.includedWorkflowIds = contract.workflows.map(
+					(workflow) => workflow.id,
+				);
+			}
+			const plan = deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			});
+			expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+				...(laterForm ? [contract.charter.initialWorkflowId] : []),
+				registration.id,
+				writer.id,
+				edit.id,
+			]);
+			const writerSlice = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === writer.id),
+				"writer slice",
+			);
+			const editSlice = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === edit.id),
+				"edit slice",
+			);
+			expect(writerSlice.prerequisiteSliceIds).not.toContain(editSlice.id);
+			expect(
+				editSlice.constructionGroups.flatMap((group) => group.elements),
+			).toContainEqual({
+				kind: "module-composition",
+				id: laterView.id,
+			});
+		},
+	);
+
 	it("builds a record catalog for its first consumer while preserving worker starting conditions", () => {
 		const contract = makeContract();
 		contract.charter.initialWorkflowId = ids.taskVisit;
@@ -348,6 +489,12 @@ describe("deterministic build planning", () => {
 				"child host record",
 			);
 			writerWrite.propertyId = childProperty.id;
+			childRecord.parentRecordId = fixtureValue(
+				parent.hostRecordId,
+				"parent record",
+			);
+			childRecord.relationshipMeaning =
+				"Each child record belongs to its selected parent.";
 			if (laterForm) {
 				contract.workflows.splice(1, 2, writer, childOwner);
 				child.role = "form-and-queue";

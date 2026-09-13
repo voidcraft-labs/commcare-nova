@@ -1,7 +1,6 @@
 /** Deterministic coherence checks for the lean Design Contract. */
 
 import type { z } from "zod";
-import { childRecordWriterWorkflowIds } from "@/lib/agent/design/childRecordConstruction";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import {
 	moduleSelectionIntent,
@@ -1070,26 +1069,6 @@ export function validateDesignGraph(
 							ctx,
 							["moduleCompositions", compositionIndex, "hostRecordId"],
 							"A different-record child menu must be owned by the same workflow as or a later workflow than the parent menu's first form, so the parent case selection exists before the child is built.",
-						);
-					}
-					const firstChildWriter = childRecordWriterWorkflowIds(
-						contract,
-						composition.hostRecordId,
-						parent.id,
-					).sort(
-						(left, right) =>
-							(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
-							(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
-					)[0];
-					if (
-						firstChildWriter !== undefined &&
-						(workflowRank.get(childOwner) ?? Number.MAX_SAFE_INTEGER) >
-							(workflowRank.get(firstChildWriter) ?? Number.MAX_SAFE_INTEGER)
-					) {
-						issue(
-							ctx,
-							["moduleCompositions", compositionIndex, "hostRecordId"],
-							"A child menu that displays cases created by a parent-menu form must be owned by the same workflow as or an earlier workflow than the first such form, so its required viewer exists before that form is built.",
 						);
 					}
 				}

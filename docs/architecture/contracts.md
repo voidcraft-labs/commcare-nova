@@ -463,8 +463,11 @@ construction dependencies, including each form's module, so scheduling cannot
 change which slice creates a home. Construction cycles and prerequisites for the
 initial workflow are rejected before acceptance. A direct child-record writer
 also gets an accepted viewer first, including a top-level history list. The
-planner chooses one viewer, preferring a list and then a top-level home, so
-other views can retain their own task ownership. The shared form-creation path
+planner keeps an already available home or schedules one feasible viewer
+before the writer, preferring a list that can exist without forms. It does not
+choose a later view whose prerequisites would create a cycle. Other views
+retain their task ownership; explicit creation of an unrelated record imposes
+no viewer dependency. The shared form-creation path
 converts a viewer into a form-bearing module in one admitted mutation batch;
 a no-matches registration keeps its existing case-list entry behavior.
 External actions are separate from Blueprint effects. Current plan admission

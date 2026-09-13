@@ -167,8 +167,7 @@ valid direct Builder or MCP edit.
   same workflow order and module ownership to graph admission and planning.
   A form-only home belongs to its first form's workflow. A home with an accepted
   list can be created before its forms: a child is scheduled after its parent
-  selection exists and no later than a parent-menu workflow that creates its
-  records. Its list and list-only properties travel with that owner; its later
+  selection exists, and can move to the first workflow that needs its viewer. Its list and list-only properties travel with that owner; its later
   forms retain their own workflows. Authored workflow membership stays unchanged.
   The model describes worker `startingConditions`; it does not supply construction
   dependency IDs. Ownership is fixed with the initial workflow first and design
@@ -176,10 +175,12 @@ valid direct Builder or MCP edit.
   selection and child writers supply the other dependencies. Graph admission
   rejects construction cycles and any prerequisite for the initial workflow.
   A direct child-record writer also depends on an accepted viewer regardless of
-  menu nesting. Prefer a list that can be created before its forms, then a
-  top-level home; move that viewer to the first writer when possible. Other
-  views keep their task ownership. `childRecordConstruction.ts` supplies the
-  shared writer lookup for global and nested placement constraints.
+  menu nesting. Keep an already available home; otherwise prefer a list that
+  can be established without forms, then a top-level home. Candidate viewer
+  dependencies must leave a feasible order with no initial-workflow dependency.
+  Other views keep their task ownership. `childRecordConstruction.ts` identifies
+  these writers through the actual direct-parent relationship; creating an
+  unrelated record does not require a viewer.
   Catalog entries belong to their first consumer, including lists, properties
   and child catalogs. `workflowReferences.ts` supplies the same typed data-use
   traversal to planning and briefs, including flat and grouped in-form record

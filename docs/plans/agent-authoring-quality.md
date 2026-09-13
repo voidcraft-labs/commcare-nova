@@ -123,8 +123,9 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [stable source labels #600](https://github.com/voidcraft-labs/commcare-nova/pull/600),
 [read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602),
 [derived selection #603](https://github.com/voidcraft-labs/commcare-nova/pull/603),
-and [current working context #604](https://github.com/voidcraft-labs/commcare-nova/pull/604).
-These 18 Nova PRs form native GitHub stack #601; all 24 checks on each PR are green.
+[current working context #604](https://github.com/voidcraft-labs/commcare-nova/pull/604),
+and [choice wording #605](https://github.com/voidcraft-labs/commcare-nova/pull/605).
+These 19 Nova PRs form native GitHub stack #601; every PR has all CI checks green.
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 

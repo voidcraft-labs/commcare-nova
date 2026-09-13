@@ -25,6 +25,7 @@ import {
 	makeLookupContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
+	makeWorkflowChainContract,
 	messageRef,
 } from "./fixtures";
 
@@ -178,35 +179,21 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("rejects a child viewer built after a parent-menu form creates its cases", () => {
-		const contract = cloneContract(makeNestedMenuContract());
-		const child = fixtureValue(
-			contract.moduleCompositions.find(
-				(composition) => composition.id === ids.moduleVisits,
-			),
-			"child module composition",
-		);
-		child.hostRecordId = ids.recVisit;
-		const parentWriter = fixtureValue(
-			contract.workflows.find((workflow) => workflow.id === ids.taskRegister),
-			"parent writer workflow",
-		);
-		const visitCreate = fixtureValue(
-			contract.workflows
-				.find((workflow) => workflow.id === ids.taskVisit)
-				?.recordEffects.find(
-					(effect) =>
-						effect.kind === "create" && effect.recordId === ids.recVisit,
-				),
-			"visit create effect",
-		);
-		parentWriter.recordEffects.push({
-			...structuredClone(visitCreate),
-			handle: "create_visit_from_registration",
+	it("rejects an initial child writer whose only viewer needs a later form", () => {
+		const contract = makeWorkflowChainContract(2);
+		const [parent, child] = contract.records;
+		child.parentRecordId = parent.id;
+		child.relationshipMeaning = "Each child belongs to its parent.";
+		expect(messages(contract)).toBe("");
+		contract.workflows[0].recordEffects.push({
+			handle: "create_child",
+			recordId: child.id,
+			kind: "create",
+			writes: [],
+			outcome: "A child is saved with its parent.",
 		});
-
-		expect(messages(contract)).toContain(
-			"must be owned by the same workflow as or an earlier workflow than the first such form",
+		expect(messages(contract)).toBe(
+			"The initial workflow must not depend on another workflow to construct its module or forms.",
 		);
 	});
 
