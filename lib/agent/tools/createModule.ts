@@ -123,7 +123,7 @@ const createModuleFormSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
+				"Close the case when this form's answer matches. Close forms only; null makes closing unconditional.",
 			),
 	})
 	.strict();

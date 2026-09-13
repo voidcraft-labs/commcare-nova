@@ -36,6 +36,15 @@ canonical schema runs its refinements. Null and omission keep their existing
 meaning. Localized values need the current translation unit's `valueKind` to
 choose plain text or reference-bearing prose; do not guess from the string.
 
+`identitySchema.ts` uses the shared identity-family classification to project
+scalar references and walk their finite request values, including recursive
+location trees and property-keyed records. Creation slots retain optional IDs;
+anonymous items, media, and data rows retain exact IDs. `identityBindings.ts`
+resolves named resources in the invocation's document and authorized catalogs.
+Owners bind before their children, and complete additions bind before content
+decoding. Unknown or ambiguous names refuse before mutation. Explicit IDs retain
+the owning tool's missing-item and no-op behavior. A name is never a stored alias.
+
 `queryExpressions.ts` uses the existing Lezer grammar to produce canonical
 Predicate and ValueExpression nodes. It never evaluates code. Ordinary `div`
 uses real division, consistent with field XPath: an inferred integer result is
@@ -71,9 +80,11 @@ direction and limitations live in
 `docs/research/agent-authoring-pilot-2026-09-12.md`.
 
 Resolve all names for one operation against its complete scope before preparing
-mutations. Creation allocates identities before binding expressions. A rename
-resolves both the original and proposed paths during that operation; ambiguous
-paths reject. Neither path becomes a stored alias. `#case/property` requires a
+mutations. Creation allocates identities before binding expressions. A field or
+Search-answer rename resolves both its original and proposed paths during that
+operation; ambiguous paths reject. Other resources resolve against the current
+catalog, including before a batch renames a data column. No name becomes a
+stored alias. `#case/property` requires a
 known selected case type and stores the actual type. Unbound bare names reject
 rather than becoming opaque text that renames cannot maintain.
 

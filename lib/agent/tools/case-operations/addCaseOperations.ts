@@ -31,10 +31,10 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 					operationUuid: uuidSchema
 						.optional()
 						.describe(
-							"Stable UUID for the new operation. Supply it when another item in this call references the operation; otherwise Nova mints it.",
+							"Optional identity for the new operation. Nova assigns one when omitted.",
 						),
 					operation: caseOperationInputSchema.describe(
-						"Complete operation body. References use stable UUIDs.",
+						"Complete operation body.",
 					),
 				})
 				.strict(),
@@ -73,7 +73,7 @@ export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 			}
 		})
 		.describe(
-			"Operations in execution order. Cross-operation references use stable UUIDs; operation ids remain editable wire names.",
+			"Operations in execution order. An operation can reference an earlier operation in this list.",
 		),
 	afterOperationUuid: uuidSchema
 		.nullable()

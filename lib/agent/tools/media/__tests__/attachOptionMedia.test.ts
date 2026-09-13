@@ -3,6 +3,8 @@
  * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
+import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import type { BlueprintDoc, Media, Uuid } from "@/lib/domain";
 import { attachOptionMediaTool } from "../attachOptionMedia";
@@ -62,6 +64,42 @@ const input = (...attachments: ReturnType<typeof attachment>[]) => ({
 });
 
 describe("attachOptionMedia", () => {
+	it("resolves a choice value inside its named attachment field", async () => {
+		const h = makeMediaFixture();
+		const authored = authoringToolSchema(
+			"attachOptionMedia",
+			attachOptionMediaTool.inputSchema,
+		).authored.parse({
+			attachments: [
+				{
+					optionUuid: "fever",
+					fieldUuid: h.doc.fields[SELECT_FIELD].id,
+					formUuid: h.doc.forms[FORM_A].name,
+					moduleUuid: h.doc.modules[MOD_A].name,
+					media: { image: ASSET_IMG_1 },
+				},
+			],
+		});
+		await h.workspace.invoke({
+			toolName: "attachOptionMedia",
+			async execute(ctx) {
+				const input = await prepareAuthoringInput({
+					toolName: "attachOptionMedia",
+					schema: attachOptionMediaTool.inputSchema,
+					input: authored,
+					ctx,
+				});
+				expect(input.attachments[0]).toMatchObject({
+					fieldUuid: SELECT_FIELD,
+					optionUuid: FEVER_OPTION,
+				});
+				return attachOptionMediaTool.execute(input, ctx);
+			},
+		});
+		expect(optionsOf(h.currentDoc())[0].media).toEqual({ image: ASSET_IMG_1 });
+		expect(optionsOf(h.currentDoc())[1].media).toBeUndefined();
+	});
+
 	it("sets media on the named option without disturbing siblings", async () => {
 		const h = makeMediaFixture();
 		const result = await h.runTool(

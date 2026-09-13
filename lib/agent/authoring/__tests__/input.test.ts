@@ -12,7 +12,7 @@ import {
 	SHARED_TOOL_REGISTRY,
 	type SharedToolRegistryEntry,
 } from "@/lib/agent/sharedToolRegistry";
-import { translationUnitsById } from "@/lib/domain";
+import { orderedCaseOperations, translationUnitsById } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -56,6 +56,170 @@ function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
 	}
 	return { ...harness, call };
 }
+
+it("binds new questions, case operations, and case-list order without predeclared identities", async () => {
+	const h = authoring();
+	await h.call("generateSchema", {
+		caseTypes: [
+			{
+				name: "client",
+				properties: [{ name: "case_name", label: "Name", data_type: "text" }],
+			},
+			{
+				name: "visit",
+				properties: [{ name: "source_id", label: "Source", data_type: "text" }],
+			},
+		],
+	});
+	await h.call("createModule", {
+		name: "Clients",
+		case_type: "client",
+		case_list_columns: [{ kind: "plain", field: "case_name", header: "Name" }],
+		forms: [
+			{
+				name: "Visit",
+				type: "close",
+				close_condition: { fieldUuid: "done", answer: "yes" },
+				fields: [
+					{ kind: "text", id: "name", label: "Visit name" },
+					{
+						kind: "single_select",
+						id: "done",
+						label: "Finished?",
+						optionsSource: {
+							kind: "inline",
+							options: [
+								{ value: "yes", label: "Yes" },
+								{ value: "no", label: "No" },
+							],
+						},
+					},
+				],
+			},
+		],
+	});
+	const form = Object.values(h.currentDoc().forms).find(
+		(item) => item.name === "Visit",
+	);
+	const done = Object.values(h.currentDoc().fields).find(
+		(item) => item.id === "done",
+	);
+	if (!form || !done) throw new Error("Missing visit form.");
+	expect(form.closeCondition).toMatchObject({
+		field: done.uuid,
+		answer: "yes",
+	});
+	await h.call("editField", {
+		formUuid: "Visit",
+		fieldUuid: "done",
+		updates: { id: "finished" },
+	});
+	await h.call("updateForm", {
+		formUuid: "Visit",
+		close_condition: { fieldUuid: "finished", answer: "yes" },
+	});
+	expect(h.currentDoc().forms[form.uuid].closeCondition?.field).toBe(done.uuid);
+	await h.call("addCaseOperations", {
+		formUuid: "Visit",
+		operations: [
+			{
+				operation: {
+					id: "create_visit",
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: "#form/name",
+					writes: [],
+				},
+			},
+			{
+				operation: {
+					id: "tag_visit",
+					action: "update",
+					caseType: "visit",
+					target: { kind: "op", opUuid: "create_visit" },
+					writes: [{ property: "source_id", value: "id-of('create_visit')" }],
+				},
+			},
+		],
+	});
+	const operations = orderedCaseOperations(h.currentDoc().forms[form.uuid]);
+	expect(operations[1]).toMatchObject({
+		target: { kind: "op", opUuid: operations[0].uuid },
+		writes: [
+			{
+				property: "source_id",
+				value: { kind: "id-of", opUuid: operations[0].uuid },
+			},
+		],
+	});
+	await h.call("configureCaseList", {
+		moduleUuid: "Clients",
+		columns: [{ kind: "plain", field: "case_name", header: "Client" }],
+		resultsColumnOrder: ["Client", "Name"],
+	});
+	const module = Object.values(h.currentDoc().modules).find(
+		(item) => item.name === "Clients",
+	);
+	if (!module) throw new Error("Missing client module.");
+	const result = await h.call("getModule", { moduleUuid: "Clients" });
+	const column = module.caseListConfig?.columns.find(
+		(item) => item.header === "Client",
+	);
+	expect(result).toMatchObject({
+		results_column_order: [
+			column?.uuid,
+			module.caseListConfig?.columns[0].uuid,
+		],
+	});
+	const before = h.currentDoc();
+	await expect(
+		h.call("updateForm", {
+			formUuid: "Visit",
+			close_condition: { fieldUuid: "missing", answer: "yes" },
+		}),
+	).rejects.toThrow("not in this scope");
+	expect(h.currentDoc()).toEqual(before);
+	await expect(
+		h.call("configureCaseList", {
+			moduleUuid: "Clients",
+			columns: [{ kind: "plain", field: "case_name", header: "Client" }],
+			resultsColumnOrder: ["Client", "Name"],
+		}),
+	).rejects.toThrow("ambiguous");
+	expect(h.currentDoc()).toEqual(before);
+});
+
+it("resolves sibling organization levels before admitting a complete hierarchy", async () => {
+	const h = authoring();
+	await h.call("addOrganizationLevels", {
+		levels: [
+			{
+				code: "district",
+				name: "District",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+			{
+				code: "clinic",
+				name: "Clinic",
+				parentLevelUuid: "District",
+				caseFlow: { workers: "none", ownsCases: false },
+				addressBook: { reach: "own-branch" },
+			},
+		],
+	});
+	const levels = Object.values(h.currentDoc().organizationLevels ?? {});
+	expect(levels.find((item) => item.name === "Clinic")?.parentLevelUuid).toBe(
+		levels.find((item) => item.name === "District")?.uuid,
+	);
+	await h.call("addLocationProperties", {
+		properties: [{ slug: "staff", label: "Staff", levelUuids: ["Clinic"] }],
+	});
+	expect(
+		Object.values(h.currentDoc().locationProperties ?? {})[0].levelUuids,
+	).toEqual([levels.find((item) => item.name === "Clinic")?.uuid]);
+});
 
 it("edits named fields after creation and preserves authored wording through read and rename", async () => {
 	const h = authoring();
@@ -183,9 +347,9 @@ it("loads the table scope for a lookup filter even when the condition uses no ro
 			fieldUuid: "service",
 			source: {
 				kind: "lookup",
-				tableId: table.id,
-				valueColumnId: table.columns[0].id,
-				labelColumnId: table.columns[1].id,
+				tableId: "Services",
+				valueColumnId: "code",
+				labelColumnId: "name",
 				filter,
 			},
 		});
@@ -437,7 +601,7 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 	if (!input) throw new Error("Missing Search input.");
 	await h.call("updateSearchInput", {
 		moduleUuid: "Clients",
-		searchInputUuid: input.uuid,
+		searchInputUuid: "name",
 		searchInput: {
 			name: "name",
 			kind: "simple",
@@ -449,7 +613,7 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 	});
 	await h.call("updateSearchInput", {
 		moduleUuid: "Clients",
-		searchInputUuid: input.uuid,
+		searchInputUuid: "name",
 		searchInput: {
 			name: "client_name",
 			kind: "simple",
