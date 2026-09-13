@@ -52,7 +52,7 @@ pricing card.
 The revised author loaded 11 design operations in its first search and one
 additional disposition tool during revision. It generally saved one collection
 per response despite already having the relevant tools. The previous author
-saved 11 collections in its first response and grouped later corrections. That
+saved 11 authoring operations in its first response and grouped later corrections. That
 is useful batching behavior to preserve. The comparison changes both prose and
 loading policy, so it does not identify which change caused this difference.
 
