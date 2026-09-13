@@ -17,6 +17,10 @@ Nova prepares the record definitions from the accepted design before building
 the forms that use them. Each form has its own required answers and validation;
 those rules do not spread automatically to other workflows using the same data.
 
+Before adding a workflow to the app, Nova checks for missing questions, answer
+types that do not fit the design, and missing record actions or saved values.
+It uses those findings to correct the workflow during construction.
+
 For tasks such as checking a visit history, Nova can use a list and detail view.
 Workers can read earlier records without opening and submitting another form.
 

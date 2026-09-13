@@ -316,6 +316,11 @@ material, not only the opening request.
 
 **Slice 4: observe workflow quality through Unit F.**
 
+The first structural conformance rules now provide private construction feedback
+for missing accepted inputs and record writes, incompatible types and absent
+record actions. They add no opening prompt or schema content. Canonical reports,
+grounded quality review, bounded correction and Design history remain open.
+
 Use Unit F's deterministic implementation projection, sequence-bound conformance,
 grounded quality review, bounded correction, and completion report. Add useful
 runtime observations to that evidence: what the worker sees, which branches

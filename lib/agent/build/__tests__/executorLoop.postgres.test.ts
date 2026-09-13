@@ -136,7 +136,10 @@ function respondWithCalls(response: ServerResponse, calls: readonly Call[]) {
 	response.end();
 }
 
-async function fixture(includeBeds = false) {
+async function fixture(
+	includeBeds = false,
+	contract = makeWorkflowChainContract(1),
+) {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
 	const claim = await createAndClaimDesignSessionRun({
 		actorUserId: ACTOR,
@@ -150,7 +153,6 @@ async function fixture(includeBeds = false) {
 		holderNonce: claim.holderNonce,
 		expectedProjectId: PROJECT,
 	};
-	const contract = makeWorkflowChainContract(1);
 	fixtureValue(
 		fixtureValue(contract.records[0], "record").properties[0],
 		"property",
@@ -1016,6 +1018,104 @@ describe("persisted executor Responses journeys", () => {
 				.where("id", "=", f.attempt.id)
 				.executeTakeFirstOrThrow(),
 		).toEqual({ validator_repair_count: 1, commit_attempts_used: 1 });
+	});
+
+	it("keeps a valid candidate private until an accepted record write exists", async () => {
+		const contract = makeWorkflowChainContract(1);
+		contract.records[0].properties.push({
+			id: did(901),
+			name: "beds",
+			meaning: "Fixed number of beds",
+			dataShape: "integer",
+			sensitivity: "ordinary",
+		});
+		contract.workflows[0].recordEffects[0].writes.push({
+			propertyId: did(901),
+			value: "12",
+			unanswered: "preserve",
+		});
+		const f = await fixture(false, contract);
+		const context = await f.openContext();
+		const append = fixtureValue(context.append, "durable append");
+		let sawRefusal = false;
+		context.append = async (key, messages) => {
+			await append(key, messages);
+			const refusal = results(messages).find(
+				(part) => part.toolCallId === "missing_write",
+			);
+			if (!refusal) return;
+			sawRefusal = true;
+			expect(
+				await h
+					.db()
+					.selectFrom("apps")
+					.select("id")
+					.where("id", "=", f.proposedAppId)
+					.execute(),
+			).toEqual([]);
+			const workspace = await f.reopenWorkspace();
+			expect((await workspace.inspect()).canCommit).toBe(true);
+			expect(refusal.output).toMatchObject({
+				type: "json",
+				value: {
+					status: "needs-correction",
+					diagnostics: {
+						canCommit: false,
+						findings: [
+							expect.objectContaining({ code: "RECORD_WRITE_MISSING" }),
+						],
+					},
+				},
+			});
+		};
+		let requests = 0;
+		const outcome = await withResponsesPeer(
+			(_request, response) => {
+				requests += 1;
+				if (requests === 1)
+					respondWithCalls(response, [
+						f.calls.module,
+						{ ...f.calls.finish, id: "missing_write" },
+					]);
+				else if (requests === 2)
+					respondWithCalls(response, [
+						{
+							id: "write_beds",
+							name: "addFields",
+							input: {
+								moduleUuid: "Workflow 1",
+								formUuid: "Workflow 1",
+								fields: [
+									{
+										id: "beds",
+										kind: "hidden",
+										calculate: "12",
+										caseWrite: { caseType: f.caseType, property: "beds" },
+									},
+								],
+							},
+						},
+						f.calls.finish,
+					]);
+				else respondWithObject(response, "Unexpected extra request");
+			},
+			(provider) =>
+				f.run(
+					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+					{ context },
+				),
+		);
+		expect(outcome.kind).toBe("committed");
+		expect(sawRefusal).toBe(true);
+		expect(requests).toBe(2);
+		const canonical = await loadCanonicalBlueprintAtSequence(h.db(), {
+			appId: f.proposedAppId,
+			seq: 1,
+			expectedDigest: null,
+		});
+		expect(
+			Object.values(canonical.doc.fields).find((field) => field.id === "beds"),
+		).toMatchObject({ caseWrite: { caseType: f.caseType, property: "beds" } });
 	});
 
 	it.each(["reported", "repeated"] as const)(

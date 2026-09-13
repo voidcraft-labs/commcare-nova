@@ -1122,6 +1122,13 @@ Its schema and digest version independently.
 
 ### 9.3 Conformance from workflow semantics
 
+The initial structural rules in `design/conformance.ts` now run at private
+workflow finalization. They compare exact form/module/input bindings and answer
+types, then detect absent record actions/writes and incompatible property types
+through domain data. This provides construction feedback; it is not a canonical
+sequence-bound completion report. Target, condition, value, access, readback,
+retype and whole-plan proof remain unfinished below.
+
 Compare the projection directly with the lean contract:
 
 - each accepted workflow has a reachable entry point;

@@ -105,6 +105,13 @@ Both reported blockers and automatic repeated-failure escalation supply the
 current workspace revision and document digest before the bounded model call.
 No conformance or completion claim follows from this inspection.
 
+At `finishWorkflow`, `design/conformance.ts` checks the accepted form and input
+identities, answer types, and presence of the expected record actions and writes.
+Missing or incompatible structure returns focused correction findings before
+the workflow commits. It does not prove the meaning of conditions, target
+instances or values. Canonical completion reports and final quality review
+remain separate unfinished work; ordinary direct edits keep their current gate.
+
 - `solutionsArchitect.ts` mounts the editor's `ToolLoopAgent`. Hosted search loads shared authoring tools on demand. The wrapper binds input inside `CanonicalMutationWorkspace`, projects read results, preserves saved-data consequences, and surfaces a commit conflict after the workspace reloads. Terminal scope and run-holder errors remain terminal. The workspace serializes invocations and adopts each commit's authoritative document. The route owns run finalization; reviewed new-app construction lives in `build/`.
 - `prompts.ts` composes static editor and MCP build prompts around purpose, collaboration, and app-quality judgment. Detailed syntax is available through `getAuthoringGuide`, not injected into every turn. `buildAppStateMessage` appends current state separately; MCP role guidance is static, fetched by mode without app data, and ends with `NOVA-PROMPT-END`. `appOverview.ts` supplies the separate editor/retry state and MCP `get_app` overview; scoped reads supply detailed content.
 - `wireSchemas.ts` serves the agent-owned question and lifecycle schemas. Shared tools use `authoring/toolSchema.ts`; the executor omits accepted construction slots through `build/executorWireSchemas.ts`. The full canonical Zod schema runs after binding; no stored AST input alternative is accepted on the new interface.
