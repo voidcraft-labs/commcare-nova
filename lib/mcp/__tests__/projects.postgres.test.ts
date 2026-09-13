@@ -23,7 +23,7 @@ import { registerListMembers } from "../tools/listMembers";
 import { registerListProjects } from "../tools/listProjects";
 import { registerUpdateMemberRole } from "../tools/updateMemberRole";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_projects_", { authSchema: "migrated" });
 const ACTOR = "ada";

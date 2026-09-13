@@ -3,7 +3,7 @@ import { expect, it } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { registerGetHqConnection } from "../tools/getHqConnection";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_hq_connection_");
 const ACTOR = "reader";

@@ -1,103 +1,61 @@
-/** No database or renderer fakes: build bootstrap and schema refusal through
- * real MCP dispatch. Persisted edit and continuation authorization live in PG. */
+/** Real MCP dispatch. Role guidance is static and never reads an app. */
 import { expect, it } from "vitest";
-import { renderAgentPrompt } from "../prompts";
+import {
+	buildMcpAgentBuildPrompt,
+	buildSolutionsArchitectPrompt,
+} from "@/lib/agent/prompts";
+import {
+	INTERACTIVITY_INSTRUCTIONS,
+	PROMPT_END_MARKER,
+	PROMPT_MODES,
+} from "../prompts";
 import { registerGetAgentPrompt } from "../tools/getAgentPrompt";
 import { withMcpClient } from "./client";
-import { readPrompt } from "./promptClient";
 
-const register: Parameters<typeof withMcpClient>[0] = (server) =>
-	registerGetAgentPrompt(server, {
-		userId: "member",
-		scopes: ["nova.read", "nova.write"],
-		authKind: "oauth",
-	});
-
-it.each(["build", "autonomous_build"] as const)(
-	"serves complete %s instructions even with an irrelevant app id",
+it.each(PROMPT_MODES)(
+	"serves complete %s guidance through MCP",
 	async (mode) => {
-		await withMcpClient(register, async (client) => {
-			const prompt = await readPrompt((cursor) =>
-				client.callTool({
-					name: "get_agent_prompt",
-					arguments: {
-						mode,
-						app_id: "does-not-exist",
-						...(cursor ? { cursor } : {}),
-					},
-				}),
+		await withMcpClient(registerGetAgentPrompt, async (client) => {
+			const result = await client.callTool({
+				name: "get_agent_prompt",
+				arguments: { mode },
+			});
+			expect(result.isError).not.toBe(true);
+			expect(result.content).toHaveLength(1);
+			const content = result.content[0];
+			if (content.type !== "text") throw new Error("Expected text guidance.");
+			expect(
+				content.text.startsWith(
+					mode === "edit"
+						? buildSolutionsArchitectPrompt()
+						: buildMcpAgentBuildPrompt(),
+				),
+			).toBe(true);
+			expect(content.text).toContain(
+				INTERACTIVITY_INSTRUCTIONS[
+					mode === "autonomous_build" ? "autonomous" : "interactive"
+				],
 			);
-			expect(prompt).toBe(renderAgentPrompt(mode === "build"));
+			expect(content.text.endsWith(PROMPT_END_MARKER)).toBe(true);
 		});
 	},
 );
+
 it.each([
 	{ mode: "autonomous_edit" },
 	{ mode: true },
 	{},
-	{ mode: "build", cursor: "x".repeat(513) },
-])(
-	"rejects invalid protocol input %j before the handler can return guidance",
-	async (args) => {
-		await withMcpClient(register, async (client) => {
-			const result = await client.callTool({
-				name: "get_agent_prompt",
-				arguments: args,
-			});
-			expect(result.isError).toBe(true);
-			expect(result.content).toEqual([
-				{
-					type: "text",
-					text: expect.stringContaining("Input validation error"),
-				},
-			]);
-		});
-	},
-);
-it.each([undefined, ""])(
-	"requires a nonempty app id for edit mode (%s)",
-	async (app_id) => {
-		await withMcpClient(register, async (client) => {
-			expect(
-				await client.callTool({
-					name: "get_agent_prompt",
-					arguments: {
-						mode: "edit",
-						...(app_id === undefined ? {} : { app_id }),
-					},
-				}),
-			).toEqual({
-				isError: true,
-				content: [
-					{
-						type: "text",
-						text: JSON.stringify({
-							error_type: "invalid_input",
-							message: "edit mode requires app_id",
-							...(app_id === undefined ? {} : { app_id }),
-						}),
-					},
-				],
-			});
-		});
-	},
-);
-it("returns a structured restart refusal for a malformed continuation", async () => {
-	await withMcpClient(register, async (client) => {
+	{ mode: "edit", app_id: "private-app" },
+	{ mode: "build", cursor: "old-page" },
+])("rejects unsupported input %j", async (args) => {
+	await withMcpClient(registerGetAgentPrompt, async (client) => {
 		const result = await client.callTool({
 			name: "get_agent_prompt",
-			arguments: { mode: "build", cursor: "invalid" },
+			arguments: args,
 		});
 		expect(result.isError).toBe(true);
 		expect(result.content).toEqual([
-			{
-				type: "text",
-				text: JSON.stringify({
-					error_type: "invalid_input",
-					message:
-						"The get_agent_prompt cursor is invalid. Restart without cursor.",
-				}),
-			},
+			{ type: "text", text: expect.stringContaining("Input validation error") },
 		]);
 	});
 });
