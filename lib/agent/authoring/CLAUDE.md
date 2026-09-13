@@ -1,8 +1,40 @@
 # Agent authoring
 
-The experiment accepts the content an author wants to write. The canonical
+The authoring boundary accepts the content an author wants to write. The canonical
 document still stores typed expressions, protected prose, and stable identities.
 Do not expose those storage structures merely because the reducer accepts them.
+
+The shared codecs and name scopes are implemented here but are not yet mounted
+on production SA, build, or MCP tools. Those still use their current canonical
+inputs. `text.ts` is also used by the isolated comparison. Mounting the complete
+interface, its read projections, and its current guidance is the next delivery
+step in `docs/plans/agent-authoring-quality.md`.
+
+`schema.ts` projects explicit canonical content families to authored values. It
+follows Zod's preserved refinement lineage; it never identifies content by a
+property named `parts` or `label`. The schema walker binds values before the full
+canonical schema runs its refinements. Null and omission keep their existing
+meaning. Localized values need the current translation unit's `valueKind` to
+choose plain text or reference-bearing prose; do not guess from the string.
+
+`queryExpressions.ts` uses the existing Lezer grammar to produce canonical
+Predicate and ValueExpression nodes. It never evaluates code. Ordinary `div`
+uses real division, consistent with field XPath: an inferred integer result is
+promoted through the existing `double` node. `quotient()` preserves canonical
+integer division when reading existing expressions and rejects decimal operands.
+Explicit numeric types and literal punctuation survive printing and editing.
+
+`AuthoringScope` holds one call's names and types. Fields and Search answers are
+local to their form or module; lookup columns are local to their table. Data
+definitions and location names must come from the authorized invocation.
+Related-record names bind in the destination scope, while a canonical property
+with `via` stores the originating case type. Nested `where` clauses change both
+parse and print scope. The existing type checker owns relation traversal and
+numeric inference; do not duplicate those rules here.
+
+`messages.ts` gives automation messages the same literal escaping as form text.
+The record catalog binds case, parent, and host references. The canonical
+automation validator still owns allowed properties, shadowing, and message limits.
 
 `experimental` is reachable only from the local comparison script. Its native
 tools cover one client workflow. The JavaScript adapter preserves the comparison

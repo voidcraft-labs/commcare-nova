@@ -13,7 +13,7 @@ import { createFormInputSchema } from "@/lib/agent/tools/createForm";
 import { createModuleInputSchema } from "@/lib/agent/tools/createModule";
 import { updateFormInputSchema } from "@/lib/agent/tools/updateForm";
 import { simpleScalarSearchInputSchema } from "@/lib/domain/modules";
-import { expressionSchema, referenceSchema, textSchema } from "./values";
+import { expressionSchema, referenceSchema, textSchema } from "../text";
 
 const optionalText = textSchema.nullable().optional();
 const optionalExpression = expressionSchema.nullable().optional();
