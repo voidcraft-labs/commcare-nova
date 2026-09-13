@@ -23,10 +23,8 @@
  */
 
 import type { z } from "zod";
-import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import type { Mutation } from "@/lib/doc/types";
-import { asUuid } from "@/lib/domain";
 import { removeFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -48,7 +46,9 @@ export const removeFormInputSchema = formAddressSchema;
 export type RemoveFormInput = z.infer<typeof removeFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type RemoveFormResult = MutationSuccess | string | { error: string };
+export type RemoveFormResult =
+	| (MutationSuccess & { found?: false })
+	| { error: string };
 
 export const removeFormTool = {
 	description: "Remove a form from a module.",
@@ -57,29 +57,18 @@ export const removeFormTool = {
 		input: RemoveFormInput,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveFormResult>> {
-		const { moduleUuid: rawModuleUuid, formUuid: rawFormUuid } = input;
 		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveFormAddress(doc, input);
 
-			// Missing UUID → return a clear "no change" summary. A
-			// "Successfully removed" string on a missing target would
-			// poison the SA's follow-up reasoning — it would assume the
-			// form was just deleted and e.g. skip a subsequent recreate
-			// step. Reporting the state truthfully (target not present,
-			// no mutation applied) keeps the SA aligned with reality.
 			if (!address.ok) {
-				const unresolvedModuleUuid = asUuid(rawModuleUuid);
-				const remainingForms = doc.modules[unresolvedModuleUuid]
-					? orderedFormUuids(doc, unresolvedModuleUuid)
-					: [];
 				return {
-					kind: "mutate" as const,
+					kind: "mutate",
 					mutations: [],
-					result: `Form ${rawFormUuid} does not exist in module ${rawModuleUuid} — no change. That module has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+					result: { ok: true, found: false, summary: { noop: true } },
 				};
 			}
-			const { moduleUuid, module: mod, formUuid, form } = address;
+			const { module: mod, formUuid, form } = address;
 
 			// Snapshot the pre-mutation display name so the summary can
 			// reference the real form even after cascade deletion removes
@@ -111,14 +100,12 @@ export const removeFormTool = {
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
-			const remainingForms = orderedFormUuids(newDoc, moduleUuid);
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully removed form "${removedName}" from module "${mod.name}". Module now has ${remainingForms.length} form${remainingForms.length === 1 ? "" : "s"}.`,
+					ok: true,
 					summary: {
 						location: mod.name,
 						subject: removedName,

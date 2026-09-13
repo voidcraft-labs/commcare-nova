@@ -282,7 +282,7 @@ export function registerSharedTool(
 					});
 					const finalPayload = projectResult(
 						outcome,
-						mcpCtx.consumeParkedNote(),
+						mcpCtx.consumeSavedDataReview(),
 					);
 					return {
 						content: [{ type: "text", text: JSON.stringify(finalPayload) }],

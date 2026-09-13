@@ -7,6 +7,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import {
+	mutationCommitVerdict,
+	type PreparedMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
@@ -96,6 +101,79 @@ function connectIds(doc: BlueprintDoc): string[] {
 }
 
 describe("configureConnect exact target-state tool", () => {
+	it("reports every committed participant when another editor adds a form", async () => {
+		const base = fixture();
+		base.connectType = "learn";
+		base.forms[FIRST].connect = {
+			learn_module: {
+				id: "lesson",
+				name: "Lesson",
+				description: "Read",
+				time_estimate: 10,
+			},
+		};
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(base));
+		h.recordMutations.mockImplementation(
+			async (prepared: PreparedMutationCandidate) => {
+				const peer = mutationCommitVerdict(
+					base,
+					[
+						{
+							kind: "updateForm",
+							uuid: SECOND,
+							patch: {
+								connect: {
+									learn_module: {
+										id: "second",
+										name: "Second",
+										description: "Read second",
+										time_estimate: 10,
+									},
+								},
+							},
+						},
+					],
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				if (!peer.ok) throw new Error(JSON.stringify(peer));
+				const committed = mutationCommitVerdict(
+					peer.nextDoc,
+					prepared.mutations,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				if (!committed.ok) throw new Error(JSON.stringify(committed));
+				return { events: [], committedDoc: committed.nextDoc };
+			},
+		);
+		const result = await h.runTool(configureConnectTool, {
+			mode: "learn",
+			participants: [
+				{
+					formUuid: FIRST,
+					connect: {
+						learn_module: {
+							id: "lesson",
+							name: "Updated lesson",
+							description: "Read",
+							time_estimate: 10,
+						},
+					},
+				},
+			],
+		});
+		expect(result.result).toMatchObject({
+			ok: true,
+			mode: "learn",
+			participants: [FIRST, SECOND],
+			cleared: [],
+			concurrentChanges: true,
+			summary: { connect: "learn", count: 2 },
+		});
+		expect(h.currentDoc().forms[SECOND].connect).toMatchObject({
+			learn_module: { id: "second" },
+		});
+	});
+
 	it("admits only a complete nonempty target at the callable boundary", () => {
 		expect(configureConnectInputSchema.safeParse({ mode: null }).success).toBe(
 			true,
@@ -161,7 +239,7 @@ describe("configureConnect exact target-state tool", () => {
 		expect(new Set(connectIds(harness.currentDoc())).size).toBe(2);
 	});
 
-	it("explains that clearing an already-disabled target is not a list or form operation", async () => {
+	it("reports an already-disabled target without committing or treating it as a failure", async () => {
 		const doc = fixture();
 		const harness = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const outcome = await harness.runTool(configureConnectTool, { mode: null });
@@ -169,17 +247,18 @@ describe("configureConnect exact target-state tool", () => {
 		expect(outcome).toMatchObject({
 			mutations: [],
 			result: {
-				error: expect.stringContaining("does not configure case lists"),
+				ok: true,
+				unchanged: true,
+				mode: null,
+				participants: [],
+				cleared: [],
 			},
-		});
-		expect(outcome.result).toEqual({
-			error: expect.stringContaining("Continue without retrying"),
 		});
 		expect(harness.recordMutations).not.toHaveBeenCalled();
 		expect(harness.currentDoc()).toBe(doc);
 	});
 
-	it("explains an exact non-null target no-op without persisting", async () => {
+	it("reports an already-satisfied target without persisting", async () => {
 		const harness = makeToolWorkspaceHarness(fixture());
 		const input = {
 			mode: "learn" as const,
@@ -194,7 +273,12 @@ describe("configureConnect exact target-state tool", () => {
 
 		expect(outcome).toMatchObject({
 			mutations: [],
-			result: { error: expect.stringContaining("already matches") },
+			result: {
+				ok: true,
+				unchanged: true,
+				mode: "learn",
+				participants: [FIRST],
+			},
 		});
 		expect(harness.recordMutations).not.toHaveBeenCalled();
 	});
@@ -252,9 +336,7 @@ describe("configureConnect exact target-state tool", () => {
 			],
 		});
 
-		expect(reconfigured.result).toEqual({
-			error: expect.stringContaining("already matches"),
-		});
+		expect(reconfigured.result).toMatchObject({ ok: true, unchanged: true });
 		expect(harness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"lesson_identity",
@@ -280,9 +362,7 @@ describe("configureConnect exact target-state tool", () => {
 			participants: [{ formUuid: FIRST, connect: learnModule() }],
 		});
 
-		expect(reconfigured.result).toEqual({
-			error: expect.stringContaining("already matches"),
-		});
+		expect(reconfigured.result).toMatchObject({ ok: true, unchanged: true });
 		expect(renamedHarness.currentDoc().forms[FIRST]?.connect).toHaveProperty(
 			"learn_module.id",
 			"learning",

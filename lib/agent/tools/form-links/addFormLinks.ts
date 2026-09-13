@@ -17,7 +17,6 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	fallbackPinSentence,
 	formLinkInputSchema,
 	formName,
 	linkAddressSchema,
@@ -200,7 +199,7 @@ export const addFormLinksTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Added ${count} after-submit ${count === 1 ? "link" : "links"} to form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}`,
+					ok: true,
 					linkUuids,
 					linkOrder: linkOrder(commit.newDoc, address.formUuid),
 					...(pinned !== undefined && { pinnedPostSubmit: pinned }),

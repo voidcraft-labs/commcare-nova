@@ -12,6 +12,11 @@ import {
 	makeToolWorkspaceHarness as makeRawHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
+import {
+	mutationCommitVerdict,
+	type PreparedMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutation } from "@/lib/doc/mutations";
 import {
 	collectLocalizedTranslationUnits,
@@ -520,6 +525,51 @@ describe("shared localization tools", () => {
 		);
 		expect(outcome.result.error).toContain("cannot be blank");
 		expect(harness.recordMutations).toHaveBeenCalledTimes(writesBefore);
+	});
+
+	it("reports complete language removal when a peer adds a translation before commit", async () => {
+		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		await h.runTool(addLanguageTool, { language: { language: "spa" } });
+		const peer = makeToolWorkspaceHarness(h.currentDoc());
+		const unit = collectTranslationUnits(peer.currentDoc()).find(
+			(item) => item.role === "app-name",
+		);
+		if (unit === undefined) throw new Error("Missing app name");
+		await peer.runTool(updateTranslationsTool, {
+			language: { language: "spa" },
+			updates: [
+				{
+					operation: "set",
+					unitId: unit.id,
+					expectedSourceFingerprint: unit.sourceFingerprint,
+					value: "Clínica",
+				},
+			],
+		});
+		expect(
+			effectiveAppLocalization(peer.currentDoc().localization).translations.spa,
+		).toHaveProperty(unit.id);
+		h.recordMutations.mockImplementation(
+			async (prepared: PreparedMutationCandidate) => {
+				const committed = mutationCommitVerdict(
+					peer.currentDoc(),
+					prepared.mutations,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				);
+				if (!committed.ok) throw new Error(JSON.stringify(committed));
+				return { events: [], committedDoc: committed.nextDoc };
+			},
+		);
+		const result = await h.runTool(removeLanguageTool, {
+			language: { language: "spa" },
+		});
+		expect(result.result).toMatchObject({
+			ok: true,
+			translationsRemoved: "all-explicit",
+		});
+		expect(
+			effectiveAppLocalization(h.currentDoc().localization).translations.spa,
+		).toBeUndefined();
 	});
 
 	it("changes the runtime default before allowing target removal", async () => {

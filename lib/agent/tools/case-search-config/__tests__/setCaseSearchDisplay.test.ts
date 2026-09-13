@@ -84,8 +84,6 @@ describe("setCaseSearchDisplay", () => {
 			"searchScreenTitle",
 			"searchButtonLabel",
 		]);
-		expect(result.result.message).toContain("searchScreenTitle");
-		expect(result.result.message).toContain("searchButtonLabel");
 	});
 
 	it("clears every display slot when all are null", async () => {
@@ -123,7 +121,6 @@ describe("setCaseSearchDisplay", () => {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		expect(result.result.displaySlotsSet).toEqual([]);
-		expect(result.result.message).toContain("Cleared every");
 	});
 
 	it("preserves advanced cluster when setting display labels", async () => {

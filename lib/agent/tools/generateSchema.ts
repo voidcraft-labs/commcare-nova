@@ -61,7 +61,13 @@ export const generateSchemaInputSchema = z
 export type GenerateSchemaInput = z.infer<typeof generateSchemaInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type GenerateSchemaResult = MutationSuccess | { error: string };
+export type GenerateSchemaResult =
+	| (MutationSuccess & {
+			recorded: string[];
+			enriched: string[];
+			extended: string[];
+	  })
+	| { error: string };
 
 export const generateSchemaTool = {
 	description:
@@ -222,10 +228,6 @@ export const generateSchemaTool = {
 			}
 
 			const typeNames = input.caseTypes.map((ct) => ct.name);
-			const propertyCount = input.caseTypes.reduce(
-				(n, ct) => n + ct.properties.length,
-				0,
-			);
 			const summary: ToolCallSummary = {
 				subject: typeNames.join(", "),
 				count: input.caseTypes.length,
@@ -234,7 +236,10 @@ export const generateSchemaTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Recorded the data model: ${typeNames.length} case type${typeNames.length === 1 ? "" : "s"} (${typeNames.join(", ")}) with ${propertyCount} supplied properties.${enriched.length > 0 ? ` ${enriched.map((n) => `"${n}"`).join(", ")} existed as a bare declaration and now carries the recorded model.` : ""}${extended.length > 0 ? ` Added new properties to ${extended.map((n) => `"${n}"`).join(", ")} without changing its existing definitions.` : ""} createModule now references these by name; fields writing a recorded property may inherit its type, canonical label, and choices, while hint, requiredness, and validation stay form-specific.`,
+					ok: true,
+					recorded: typeNames,
+					enriched,
+					extended,
 					summary,
 				},
 			};

@@ -130,7 +130,7 @@ export const removeCaseOperationTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Removed case operation "${operation.id}".`,
+					ok: true,
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
 						subject: operation.id,

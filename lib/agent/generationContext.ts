@@ -115,7 +115,7 @@ import type {
 	RecordMutationsOptions,
 	RecordMutationsResult,
 } from "./toolExecutionContext";
-import { describeParkedOutcome } from "./toolExecutionContext";
+import { type SavedDataReview, savedDataReview } from "./toolResults";
 import type { CanonicalMutationHost } from "./workspace/canonicalHost";
 
 /**
@@ -296,7 +296,7 @@ export class GenerationContext
 	 * ends rather than handing back an error the model reads as retryable and
 	 * answers by reminting the id. Terminal and never cleared within a run. */
 	private _batchIdCollisionError: MutationBatchIdCollisionError | undefined;
-	private _parkedNote: string | undefined;
+	private _savedDataReview: SavedDataReview | undefined;
 	/** Which liveness horizon the heartbeats refresh: an edit `run_lock` lease,
 	 * or (false) a build's `updated_at` staleness clock.
 	 * See {@link GenerationContextOptions.editLease}. Mutable through
@@ -703,14 +703,12 @@ export class GenerationContext
 					committedDoc: changeResult.committedDoc,
 				};
 				// A transaction-bearing case-store change can PARK saved case values.
-				// Stash the note for the tool wrapper to append to its
-				// success message — and log it, since this boundary has no
-				// toast.
+				// Preserve the consequence for the tool result and the run log.
 				if (
 					changeResult.migration !== undefined &&
 					changeResult.migration.parked > 0
 				) {
-					this._parkedNote = describeParkedOutcome(changeResult.migration);
+					this._savedDataReview = savedDataReview(changeResult.migration);
 					log.warn("[generationContext] case-store change parked case values", {
 						appId: this.appId,
 						batchId,
@@ -763,13 +761,13 @@ export class GenerationContext
 		return { events, committedDoc: result.committedDoc, seq: result.seq };
 	}
 
-	/** Read-and-clear the parked-value note the LAST commit's row migration
+	/** Read-and-clear the saved-data consequence the LAST commit's row migration
 	 * stashed — consumed by the SA wrapper after each mutating tool result so
 	 * a park is never invisible to the person who caused it. */
-	consumeParkedNote(): string | undefined {
-		const note = this._parkedNote;
-		this._parkedNote = undefined;
-		return note;
+	consumeSavedDataReview(): SavedDataReview | undefined {
+		const consequence = this._savedDataReview;
+		this._savedDataReview = undefined;
+		return consequence;
 	}
 
 	/**

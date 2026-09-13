@@ -91,7 +91,15 @@ export const configureConnectInputSchema = z
 	});
 
 export type ConfigureConnectInput = z.infer<typeof configureConnectInputSchema>;
-export type ConfigureConnectResult = MutationSuccess | { error: string };
+export type ConfigureConnectResult =
+	| (MutationSuccess & {
+			mode: "learn" | "deliver" | null;
+			participants: string[];
+			cleared: string[];
+			concurrentChanges?: true;
+			unchanged?: true;
+	  })
+	| { error: string };
 
 interface ResolvedForm {
 	readonly formUuid: string;
@@ -125,7 +133,6 @@ function prepareParticipants(
 	| {
 			readonly ok: true;
 			readonly participants: readonly ConnectTargetParticipant[];
-			readonly labels: readonly string[];
 	  }
 	| { readonly ok: false; readonly error: string } {
 	const forms = formInventory(doc);
@@ -192,7 +199,6 @@ function prepareParticipants(
 	if (errors.length > 0) return { ok: false, error: errors.join(" ") };
 
 	const participants: ConnectTargetParticipant[] = [];
-	const labels: string[] = [];
 	for (const { resolved, draft } of candidates) {
 		// The target-wide reservation includes this candidate's own identities.
 		// Exclude them while its local finalizer validates the same values; every
@@ -216,14 +222,13 @@ function prepareParticipants(
 			formUuid: resolved.formUuid,
 			connect: enforced.config as ConnectConfig,
 		});
-		labels.push(`"${resolved.formName}" (${resolved.formUuid})`);
 		for (const id of connectIdsInConfig(enforced.config)) {
 			taken.add(id);
 		}
 	}
 	return errors.length > 0
 		? { ok: false, error: errors.join(" ") }
-		: { ok: true, participants, labels };
+		: { ok: true, participants };
 }
 
 export const configureConnectTool = {
@@ -236,7 +241,6 @@ export const configureConnectTool = {
 	): Promise<MutatingToolResult<ConfigureConnectResult>> {
 		const doc = ctx.snapshot.doc;
 		try {
-			let labels: readonly string[] = [];
 			let target: ConnectTargetState = { mode: null };
 			if (input.mode !== null) {
 				if (input.participants === undefined) {
@@ -256,7 +260,6 @@ export const configureConnectTool = {
 						result: { error: prepared.error },
 					};
 				}
-				labels = prepared.labels;
 				target = {
 					mode: input.mode,
 					participants: prepared.participants,
@@ -275,10 +278,14 @@ export const configureConnectTool = {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						error:
-							input.mode === null
-								? "CommCare Connect is already off. mode null only clears an existing Connect target; it does not configure case lists or ordinary forms. Continue without retrying this call."
-								: `CommCare Connect already matches this complete ${input.mode} target. This call would make no edit; continue without retrying it.`,
+						ok: true,
+						unchanged: true,
+						mode: doc.connectType,
+						participants: [...formInventory(doc).keys()].filter(
+							(uuid) => doc.forms[uuid]?.connect !== undefined,
+						),
+						cleared: [],
+						summary: { connect: doc.connectType ?? "off", noop: true },
 					},
 				};
 			}
@@ -290,18 +297,35 @@ export const configureConnectTool = {
 					result: { error: commit.error },
 				};
 			}
+			const mode = commit.newDoc.connectType;
+			const participants = [...formInventory(commit.newDoc).keys()].filter(
+				(uuid) => commit.newDoc.forms[uuid]?.connect !== undefined,
+			);
+			const requested = new Set<string>(
+				(input.participants ?? []).map((participant) => participant.formUuid),
+			);
+			const concurrentChanges =
+				mode !== input.mode ||
+				participants.length !== requested.size ||
+				participants.some((uuid) => !requested.has(uuid));
 			const summary: ToolCallSummary = {
-				connect: input.mode ?? "off",
-				...(input.mode === null ? {} : { count: labels.length }),
+				connect: mode ?? "off",
+				...(mode === null ? {} : { count: participants.length }),
 			};
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message:
-						input.mode === null
-							? "CommCare Connect is off. Every form Connect block was cleared."
-							: `CommCare Connect is now ${input.mode}. Complete participant set: ${labels.join(", ")}. Every unlisted form is auxiliary.`,
+					ok: true,
+					mode,
+					participants,
+					...(concurrentChanges && { concurrentChanges: true as const }),
+					cleared: Object.values(doc.forms)
+						.filter(
+							(form) =>
+								form.connect && !commit.newDoc.forms[form.uuid]?.connect,
+						)
+						.map((form) => form.uuid),
 					summary,
 				},
 			};

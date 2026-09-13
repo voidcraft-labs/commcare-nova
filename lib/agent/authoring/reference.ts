@@ -68,7 +68,7 @@ A select is created with its complete choice source. Include the intended inline
 
 Tables store reference data; cases store the records collected by the workflow. Preview reads real case data, and sample-data actions write real rows. Use disposable data only when the task calls for it and its lifecycle is clear.`,
 	automations:
-		() => `Automations describe conditional alerts and automatic record updates. They produce setup guidance for CommCare HQ; Preview does not run them. Read an existing automation before replacing it. Preserve identities for retained rules and nested items; omitted items are removed.
+		() => `Automations describe conditional alerts and automatic record updates. They produce setup guidance for CommCare HQ; Preview does not run them. Request getAutomations with automationUuid and includeSetupGuide: true for the guide when preparing an HQ handoff. Read an existing automation before replacing it. Preserve identities for retained rules and nested items; omitted items are removed.
 
 Messages are ordinary text with insertions such as {{#case/case_name}} and {{#recipient/first_name}}. Parent and host references require that relationship to exist. Host references require one extension; an ambiguous host cannot be used. Message references cannot use owner, host, or last_modified_by, which HQ reserves in its formatting context.
 

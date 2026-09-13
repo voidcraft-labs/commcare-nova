@@ -110,9 +110,7 @@ describe("setMenuMedia", () => {
 		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 		expect(h.currentDoc().forms[FORM_A]?.icon).toBe("nova-icon:register");
 		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
-		const success = result.result as { message: string; summary: unknown };
-		expect(success.message).toContain("2 tiles");
-		expect(success.summary).toEqual({ count: 2 });
+		expect(result.result).toMatchObject({ ok: true, summary: { count: 2 } });
 	});
 
 	it("clears a slot when handed null", async () => {

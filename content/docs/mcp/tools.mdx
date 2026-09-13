@@ -526,9 +526,9 @@ its time of day.
 
 | Tool | What it does |
 |---|---|
-| `get_automations` | Read every automation in display order, including stable nested UUIDs, regenerated setup guidance, and an explicit statement that Preview does not execute it. |
-| `add_automations` | Add one or more complete automatic case-update rules or conditional alerts atomically and return each regenerated guide and omission list. Caller-supplied UUIDs are final identities and must be globally unused. |
-| `update_automation` | Set one automation's complete desired state and return its regenerated guide and omission list while preserving its immutable UUID and kind. Existing nested UUIDs preserve identity; omitted nested items are removed. |
+| `get_automations` | Read automations in display order, or choose one with `automationUuid`. Add `includeSetupGuide: true` for that automation’s current HQ setup guide. Preview does not execute automations. |
+| `add_automations` | Add one or more complete automatic case-update rules or conditional alerts atomically. The result includes their identities and whether HQ setup is required. Caller-supplied UUIDs are final identities and must be globally unused. |
+| `update_automation` | Set one automation's complete desired state while preserving its immutable UUID and kind. Request its setup guide when preparing the HQ handoff. Existing nested UUIDs preserve identity; omitted nested items are removed. |
 | `remove_automation` | Remove one automation and its derived guide from commcare nova without claiming to change CommCare HQ. |
 
 ## Working on modules

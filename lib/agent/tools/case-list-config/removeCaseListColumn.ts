@@ -44,7 +44,7 @@ export type RemoveCaseListColumnInput = z.infer<
 >;
 
 export interface RemoveCaseListColumnSuccess {
-	message: string;
+	ok: true;
 	uuid: Uuid;
 	remaining: number;
 	summary: ToolCallSummary;
@@ -105,7 +105,7 @@ export const removeCaseListColumnTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Removed case list column ${columnUuid} on module "${mod.name}". ${remaining} column${remaining === 1 ? "" : "s"} remain.`,
+					ok: true,
 					uuid: columnUuid,
 					remaining,
 					summary: { location: mod.name },

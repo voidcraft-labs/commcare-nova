@@ -19,6 +19,16 @@ orientation separately, shared by editor turns, retries, and MCP `get_app`.
 Detailed questions and configuration belong to scoped reads. The plugin only
 bootstraps current server guidance; it does not keep another authoring manual.
 
+Write results report completed operations with `ok: true`, created identities,
+and any consequential side effects. Confirmation and rejection remain explicit.
+`ok` does not distinguish a canonical save from private staging, or a change from
+an already satisfied request. `summary` belongs to transcript presentation: SDK
+`toModelOutput` omits it on live steps and resumed history; MCP and the executor
+project it out as well. Read payloads retain their data keys. Saved values set
+aside by a committed migration travel separately as `dataReview`, including when
+a later reporting step fails. Automation writes return setup requirements;
+`getAutomations` supplies one full guide on request.
+
 `schema.ts` projects explicit canonical content families to authored values. It
 follows Zod's preserved refinement lineage, emits reusable definitions once, and it never identifies content by a
 property named `parts` or `label`. The schema walker binds values before the full

@@ -223,7 +223,7 @@ describe("createForm — atomic form + fields", () => {
 			],
 		});
 
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		// One batch: addForm + its addField(s) — the workspace submits no
 		// transitional empty-form batch to its host.
@@ -312,7 +312,7 @@ describe("createForm — atomic form + fields", () => {
 			],
 		});
 
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		const addFields = out.mutations.filter(
 			(m): m is Extract<typeof m, { kind: "addField" }> =>
 				m.kind === "addField",
@@ -451,7 +451,7 @@ describe("createModule — atomic module + forms + case list", () => {
 			],
 		});
 
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		const kinds = out.mutations.map((m) => m.kind);
 		expect(kinds[0]).toBe("addModule");
@@ -705,7 +705,7 @@ describe("createModule — atomic module + forms + case list", () => {
 				},
 			],
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 	});
 
 	it("rejects a field/option UUID collision across separate born forms", async () => {
@@ -869,7 +869,7 @@ describe("atomic creation on a complete Connect app", () => {
 			],
 		});
 
-		expect("message" in out.result, JSON.stringify(out.result)).toBe(true);
+		expect("ok" in out.result, JSON.stringify(out.result)).toBe(true);
 		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 		const addForm = out.mutations.find(
 			(m): m is Extract<typeof m, { kind: "addForm" }> => m.kind === "addForm",
@@ -912,7 +912,7 @@ describe("atomic creation on a complete Connect app", () => {
 				},
 			],
 		});
-		expect("message" in grown.result).toBe(true);
+		expect("ok" in grown.result).toBe(true);
 
 		const out = await harness.runTool(updateFormTool, {
 			...formAddress(harness.currentDoc()),

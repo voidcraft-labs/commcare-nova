@@ -45,7 +45,7 @@ import type {
 	RecordMutationsOptions,
 	RecordMutationsResult,
 } from "@/lib/agent/toolExecutionContext";
-import { describeParkedOutcome } from "@/lib/agent/toolExecutionContext";
+import { type SavedDataReview, savedDataReview } from "@/lib/agent/toolResults";
 import type { CanonicalMutationHost } from "@/lib/agent/workspace/canonicalHost";
 import { withSchemaContext } from "@/lib/case-store";
 import { applyBlueprintChange } from "@/lib/db/applyBlueprintChange";
@@ -115,9 +115,9 @@ export class McpContext implements CanonicalMutationHost {
 	 */
 	private seq = 0;
 
-	/** The parked-value note the last commit stashed; the adapter consumes it
+	/** The saved-data consequence the last commit stashed; the adapter consumes it
 	 * so a park is never invisible to the caller that caused it. */
-	private _parkedNote: string | undefined;
+	private _savedDataReview: SavedDataReview | undefined;
 
 	constructor(opts: McpContextOptions) {
 		this.appId = opts.appId;
@@ -324,7 +324,7 @@ export class McpContext implements CanonicalMutationHost {
 		 * tells the client — a park must never be invisible to the caller
 		 * that caused it (this boundary has no toast). */
 		if (result.migration !== undefined && result.migration.parked > 0) {
-			this._parkedNote = describeParkedOutcome(result.migration);
+			this._savedDataReview = savedDataReview(result.migration);
 			log.warn("[mcp] commit parked case values", {
 				appId: this.appId,
 				parked: result.migration.parked,
@@ -334,12 +334,12 @@ export class McpContext implements CanonicalMutationHost {
 		return { committedDoc: result.committedDoc, seq: result.seq };
 	}
 
-	/** Read-and-clear the parked-value note — consumed by the adapter after
+	/** Read-and-clear the saved-data consequence — consumed by the adapter after
 	 * each tool result. */
-	consumeParkedNote(): string | undefined {
-		const note = this._parkedNote;
-		this._parkedNote = undefined;
-		return note;
+	consumeSavedDataReview(): SavedDataReview | undefined {
+		const consequence = this._savedDataReview;
+		this._savedDataReview = undefined;
+		return consequence;
 	}
 }
 

@@ -120,7 +120,16 @@ export const updateFormInputSchema = formAddressSchema
 export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type UpdateFormResult = MutationSuccess | { error: string };
+export type UpdateFormResult =
+	| (MutationSuccess & {
+			close?: "conditional" | "unconditional";
+			display?: "conditional" | "always";
+			postSubmit?: string;
+			entry?: "menu" | "search-no-matches";
+			searchFirst?: boolean;
+			clearedSearchDefaults?: string[];
+	  })
+	| { error: string };
 
 export const updateFormTool = {
 	description:
@@ -344,33 +353,42 @@ export const updateFormTool = {
 					},
 				};
 			}
-			const formChanges: string[] = [];
-			if (name !== undefined) formChanges.push(`name → "${formAfter.name}"`);
-			if (close_condition === null)
-				formChanges.push("close_condition removed (unconditional close)");
-			if (close_condition != null) formChanges.push("close_condition updated");
-			if (post_submit !== undefined)
-				formChanges.push(
-					`post_submit → "${formAfter.postSubmit ?? "form-type default"}"`,
-				);
-			if (connect !== undefined) formChanges.push("connect updated");
-			if (displayCondition === null)
-				formChanges.push("display condition removed (always shown)");
-			else if (displayCondition !== undefined)
-				formChanges.push("display condition updated");
-			if (entry === null)
-				formChanges.push(
-					`entry cleared (menu form${moduleOpensOnSearch(module) ? "; Search first off, search-answer starting values removed" : ""})`,
-				);
-			else if (entry !== undefined)
-				formChanges.push(
-					`entry → search-no-matches${moduleOpensOnSearch(module) ? "" : " (module now opens on Search)"}`,
-				);
+			const clearedSearchDefaults =
+				entry === null
+					? mutations.flatMap((mutation) =>
+							mutation.kind === "updateField" &&
+							"default_value" in mutation.patch &&
+							mutation.patch.default_value === null
+								? [mutation.uuid]
+								: [],
+						)
+					: [];
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully updated form "${formAfter.name}" (${formAfter.type}, UUID ${formUuid}). Changed: ${formChanges.join(", ")}.`,
+					ok: true,
+					...(close_condition !== undefined && {
+						close: formAfter.closeCondition
+							? ("conditional" as const)
+							: ("unconditional" as const),
+					}),
+					...(displayCondition !== undefined && {
+						display: formAfter.displayCondition
+							? ("conditional" as const)
+							: ("always" as const),
+					}),
+					...(post_submit !== undefined && {
+						postSubmit: formAfter.postSubmit ?? "form-type-default",
+					}),
+					...(entry !== undefined && {
+						entry:
+							entry === null
+								? ("menu" as const)
+								: ("search-no-matches" as const),
+						searchFirst: moduleOpensOnSearch(newDoc.modules[module.uuid]),
+					}),
+					...(clearedSearchDefaults.length > 0 && { clearedSearchDefaults }),
 					summary: {
 						location: module.name,
 						subject: formAfter.name,

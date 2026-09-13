@@ -57,10 +57,10 @@ import {
 } from "./common";
 
 type MutationResult =
-	| { message: string; summary?: { subject?: string } }
+	| { ok: true; summary?: { subject?: string } }
 	| { error: string };
 type AddResult =
-	| { message: string; uuids: Uuid[]; summary: { count: number } }
+	| { ok: true; uuids: Uuid[]; summary: { count: number } }
 	| { error: string };
 
 function scope(ctx: ToolInvocationContext): OrganizationScope {
@@ -91,7 +91,6 @@ async function commit(
 	ctx: ToolInvocationContext,
 	mutations: Mutation[],
 	stage: string,
-	message: string,
 	subject?: string,
 ): Promise<MutatingToolResult<MutationResult>> {
 	const outcome = await guardedMutate(ctx, mutations, stage);
@@ -106,7 +105,7 @@ async function commit(
 		kind: "mutate",
 		mutations: outcome.mutations,
 		result: {
-			message,
+			ok: true,
 			...(subject === undefined ? {} : { summary: { subject } }),
 		},
 	};
@@ -523,7 +522,7 @@ export const addOrganizationLevelsTool = {
 				kind: "mutate",
 				mutations: outcome.mutations,
 				result: {
-					message: `Added ${uuids.length} organization ${uuids.length === 1 ? "level" : "levels"}.`,
+					ok: true,
 					uuids,
 					summary: { count: uuids.length },
 				},
@@ -552,7 +551,6 @@ export const updateOrganizationLevelTool = {
 				ctx,
 				[{ kind: "updateOrganizationLevel", uuid, patch }],
 				"organization:level:update",
-				`Updated organization level "${current.name}".`,
 				current.name,
 			);
 		} catch (error) {
@@ -580,7 +578,6 @@ export const removeOrganizationLevelTool = {
 				ctx,
 				plan.mutations,
 				"organization:level:remove",
-				`Removed organization level "${current.name}".`,
 				current.name,
 			);
 		} catch (error) {
@@ -642,7 +639,7 @@ export const addLocationPropertiesTool = {
 				kind: "mutate",
 				mutations: outcome.mutations,
 				result: {
-					message: `Added ${uuids.length} place-information ${uuids.length === 1 ? "field" : "fields"}.`,
+					ok: true,
 					uuids,
 					summary: { count: uuids.length },
 				},
@@ -673,7 +670,6 @@ export const updateLocationPropertyTool = {
 				ctx,
 				[{ kind: "updateLocationProperty", uuid, patch }],
 				"organization:placeInformation:update",
-				`Updated place information "${current.label}".`,
 				current.label,
 			);
 		} catch (error) {
@@ -701,7 +697,6 @@ export const removeLocationPropertyTool = {
 				ctx,
 				removeLocationPropertyMutations(input.uuid),
 				"organization:placeInformation:remove",
-				`Removed place information "${current.label}".`,
 				current.label,
 			);
 		} catch (error) {
@@ -838,7 +833,7 @@ export const setLocationArchivedTool = {
 					kind: "mutate" as const,
 					mutations: blueprintChange.mutations,
 					result: {
-						message: `Archived ${result.archivedCount} ${result.archivedCount === 1 ? "place" : "places"} and updated ${result.unassignedPersonaCount} persona ${result.unassignedPersonaCount === 1 ? "assignment" : "assignments"}.`,
+						ok: true,
 						...organization,
 					},
 				};

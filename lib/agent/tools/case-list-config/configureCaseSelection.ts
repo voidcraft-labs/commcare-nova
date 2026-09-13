@@ -78,7 +78,6 @@ export interface CaseSelectionTransitionResult {
 
 export interface ConfigureCaseSelectionSuccess {
 	readonly outcome: "applied" | "unchanged";
-	readonly message: string;
 	readonly selection: CaseSelection | null;
 	readonly clearedPersistentTile: boolean;
 	readonly transitions: readonly CaseSelectionTransitionResult[];
@@ -88,7 +87,6 @@ export interface ConfigureCaseSelectionSuccess {
 export interface ConfigureCaseSelectionNeedsConfirmation {
 	readonly outcome: "needs_changes";
 	readonly needs: "confirmation";
-	readonly message: string;
 	readonly selection: CaseSelection | null;
 	readonly requiredConfirmedModuleUuids: readonly Uuid[];
 	readonly confirmationToken: string;
@@ -101,7 +99,6 @@ export interface ConfigureCaseSelectionNeedsConfirmation {
 export interface ConfigureCaseSelectionNeedsRepair {
 	readonly outcome: "needs_changes";
 	readonly needs: "repair";
-	readonly message: string;
 	readonly selection: CaseSelection | null;
 	readonly requiredConfirmedModuleUuids: readonly [];
 	readonly confirmationToken: null;
@@ -113,7 +110,6 @@ export interface ConfigureCaseSelectionNeedsRepair {
 export interface ConfigureCaseSelectionNeedsRefresh {
 	readonly outcome: "needs_changes";
 	readonly needs: "refresh";
-	readonly message: string;
 	readonly selection: CaseSelection | null;
 	readonly requiredConfirmedModuleUuids: readonly [];
 	readonly confirmationToken: null;
@@ -165,19 +161,13 @@ function needsConfirmationResult(args: {
 	const coordinatedChanges = args.transitions
 		.filter((transition) => transition.moduleUuid !== args.moduleUuid)
 		.map(transitionResult);
-	const names = coordinatedChanges
-		.map((transition) => `"${transition.moduleName}"`)
-		.join(", ");
-	const tileMessage = sourceChange?.clearsPersistentTile
-		? " The source module's Results tile will also stop staying above forms; its layout and grouping remain unchanged."
-		: "";
 	return {
 		kind: "mutate",
 		mutations: [],
 		result: {
 			outcome: "needs_changes",
 			needs: "confirmation",
-			message: `Changing case selection for module "${args.moduleName}" also changes ${coordinatedChanges.length === 1 ? "module" : "modules"} ${names} so linked workflows remain compatible.${tileMessage} No changes were applied. Repeat this request with confirmedModuleUuids exactly matching requiredConfirmedModuleUuids and pass confirmationToken unchanged to apply the reviewed change atomically.`,
+
 			selection: args.selection,
 			requiredConfirmedModuleUuids: coordinatedChanges.map(
 				(transition) => transition.moduleUuid,
@@ -258,7 +248,7 @@ export const configureCaseSelectionTool = {
 					result: {
 						outcome: "needs_changes",
 						needs: "repair",
-						message: `Case selection for module "${mod.name}" cannot change until ${plan.blockers.length === 1 ? "one linked workflow issue is" : `${plan.blockers.length} linked workflow issues are`} fixed. No changes were applied. Repair the UUID-located blockers, then call this tool again without confirmedModuleUuids for a fresh plan.`,
+
 						selection: input.selection,
 						requiredConfirmedModuleUuids: [],
 						confirmationToken: null,
@@ -275,7 +265,7 @@ export const configureCaseSelectionTool = {
 					result: {
 						outcome: "needs_changes",
 						needs: "refresh",
-						message: `The linked workflow changed after the earlier review for module "${mod.name}". No changes were applied. Call this tool again without confirmedModuleUuids or confirmationToken to review the current effect.`,
+
 						selection: input.selection,
 						requiredConfirmedModuleUuids: [],
 						confirmationToken: null,
@@ -308,23 +298,9 @@ export const configureCaseSelectionTool = {
 						);
 			if (!commit.ok) return errorResult(commit.error);
 
-			const selectionMessage =
-				selection === undefined
-					? `Set module "${mod.name}" (${moduleUuid}) to open one case at a time.`
-					: `Set module "${mod.name}" (${moduleUuid}) to let workers select up to ${selection.maximum} ${selection.maximum === 1 ? "case" : "cases"} before continuing.`;
 			const sourceTransition = plan.transitions.find(
 				(transition) => transition.moduleUuid === moduleUuid,
 			);
-			const tileMessage = sourceTransition?.clearsPersistentTile
-				? " The case tile will no longer stay above forms because that placement works only when a form opens one case. Its Results layout and grouping are unchanged."
-				: "";
-			const linkedTransitions = plan.transitions.filter(
-				(transition) => transition.moduleUuid !== moduleUuid,
-			);
-			const linkedMessage =
-				linkedTransitions.length === 0
-					? ""
-					: ` Also updated ${linkedTransitions.length === 1 ? "linked module" : "linked modules"} ${linkedTransitions.map((transition) => `"${transition.moduleName}"`).join(", ")} so the complete selection can continue through the linked workflow.`;
 			const outcome = commit.mutations.length === 0 ? "unchanged" : "applied";
 
 			return {
@@ -332,10 +308,7 @@ export const configureCaseSelectionTool = {
 				mutations: commit.mutations,
 				result: {
 					outcome,
-					message:
-						outcome === "unchanged"
-							? `Module "${mod.name}" (${moduleUuid}) already uses that case selection.`
-							: `${selectionMessage}${linkedMessage}${tileMessage}`,
+
 					selection: input.selection,
 					clearedPersistentTile:
 						sourceTransition?.clearsPersistentTile ?? false,

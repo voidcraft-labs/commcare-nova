@@ -83,7 +83,6 @@ describe("setCaseListFilter", () => {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		expect(result.result.kind).toBe("eq");
-		expect(result.result.message).toContain("eq");
 	});
 
 	it("clears the filter when null is passed", async () => {

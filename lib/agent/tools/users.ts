@@ -261,7 +261,11 @@ export const updatePersonaInputSchema = z
 export const removePersonaInputSchema = z.object({ uuid: uuidSchema }).strict();
 export const getUsersInputSchema = z.object({}).strict();
 
-type MutationResult = MutationSuccess | { error: string };
+interface UserResultFacts {
+	clearedValues?: { roles: string[]; personas: string[] };
+	casesPreserved?: true;
+}
+type MutationResult = (MutationSuccess & UserResultFacts) | { error: string };
 type AddMutationResult =
 	| (MutationSuccess & { uuids: Uuid[] })
 	| { error: string };
@@ -276,8 +280,8 @@ async function commit(
 	ctx: ToolInvocationContext,
 	mutations: Mutation[],
 	stage: string,
-	message: string,
 	summary: ToolCallSummary,
+	facts: UserResultFacts = {},
 ): Promise<MutatingToolResult<MutationResult>> {
 	const outcome = await guardedMutate(ctx, mutations, stage);
 	if (!outcome.ok) {
@@ -290,7 +294,7 @@ async function commit(
 	return {
 		kind: "mutate",
 		mutations: outcome.mutations,
-		result: { message, summary },
+		result: { ok: true, ...facts, summary },
 	};
 }
 
@@ -335,7 +339,7 @@ export const addUserPropertiesTool = {
 				kind: "mutate",
 				mutations: outcome.mutations,
 				result: {
-					message: `Added ${uuids.length} worker-information ${uuids.length === 1 ? "property" : "properties"}. Stable uuids: ${uuids.join(", ")}.`,
+					ok: true,
 					uuids,
 					summary: { count: uuids.length },
 				},
@@ -376,7 +380,6 @@ export const updateUserPropertyTool = {
 				ctx,
 				[{ kind: "updateUserProperty", uuid, patch }],
 				"users:workerInformation:update",
-				`Updated worker information "${current.label}".`,
 				{ subject: current.label },
 			);
 		} catch (error) {
@@ -415,8 +418,17 @@ export const removeUserPropertyTool = {
 				ctx,
 				plan.mutations,
 				"users:workerInformation:remove",
-				`Removed worker information "${current.label}" and its recorded role/persona values.`,
 				{ subject: current.label },
+				{
+					clearedValues: {
+						roles: plan.mutations.flatMap((mutation) =>
+							mutation.kind === "updateUserType" ? [mutation.uuid] : [],
+						),
+						personas: plan.mutations.flatMap((mutation) =>
+							mutation.kind === "updatePersona" ? [mutation.uuid] : [],
+						),
+					},
+				},
 			);
 		} catch (error) {
 			return toToolErrorResult(error);
@@ -464,7 +476,7 @@ export const addUserTypesTool = {
 				kind: "mutate",
 				mutations: outcome.mutations,
 				result: {
-					message: `Added ${uuids.length} ${uuids.length === 1 ? "role" : "roles"}. Stable uuids: ${uuids.join(", ")}.`,
+					ok: true,
 					uuids,
 					summary: { count: uuids.length },
 				},
@@ -517,13 +529,9 @@ export const updateUserTypeTool = {
 					result: { error: "Nothing to change." },
 				};
 			}
-			return await commit(
-				ctx,
-				mutations,
-				"users:role:update",
-				`Updated role "${current.name}".`,
-				{ subject: current.name },
-			);
+			return await commit(ctx, mutations, "users:role:update", {
+				subject: current.name,
+			});
 		} catch (error) {
 			return toToolErrorResult(error);
 		}
@@ -556,13 +564,9 @@ export const removeUserTypeTool = {
 					result: { error: plan.userMessage },
 				};
 			}
-			return await commit(
-				ctx,
-				plan.mutations,
-				"users:role:remove",
-				`Removed role "${current.name}".`,
-				{ subject: current.name },
-			);
+			return await commit(ctx, plan.mutations, "users:role:remove", {
+				subject: current.name,
+			});
 		} catch (error) {
 			return toToolErrorResult(error);
 		}
@@ -620,7 +624,7 @@ export const addPersonasTool = {
 				kind: "mutate",
 				mutations: outcome.mutations,
 				result: {
-					message: `Added ${uuids.length} ${uuids.length === 1 ? "persona" : "personas"}. Stable uuids: ${uuids.join(", ")}.`,
+					ok: true,
 					uuids,
 					summary: { count: uuids.length },
 				},
@@ -684,13 +688,9 @@ export const updatePersonaTool = {
 					result: { error: "Nothing to change." },
 				};
 			}
-			return await commit(
-				ctx,
-				mutations,
-				"users:persona:update",
-				`Updated persona "${current.name}".`,
-				{ subject: current.name },
-			);
+			return await commit(ctx, mutations, "users:persona:update", {
+				subject: current.name,
+			});
 		} catch (error) {
 			return toToolErrorResult(error);
 		}
@@ -719,8 +719,8 @@ export const removePersonaTool = {
 				ctx,
 				removePersonaMutations(input.uuid),
 				"users:persona:remove",
-				`Removed persona "${current.name}". The cases it already owned were preserved.`,
 				{ subject: current.name },
+				{ casesPreserved: true },
 			);
 		} catch (error) {
 			return toToolErrorResult(error);

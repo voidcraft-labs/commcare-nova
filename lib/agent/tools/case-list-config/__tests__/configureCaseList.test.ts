@@ -54,7 +54,7 @@ describe("configureCaseList", () => {
 		expect(result.result.columnUuids).toEqual([PHONE_COLUMN]);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(result.result.searchInputUuids).toEqual([NAME_SEARCH]);
-		expect(result.result.message).toContain("Configured the case list");
+
 		expect(result.result.summary).toEqual({ location: "Patient" });
 
 		const config = h.currentDoc().modules[MOD_A].caseListConfig;
@@ -100,10 +100,7 @@ describe("configureCaseList", () => {
 			searchFirst: true,
 		});
 		expect(enabled.result).not.toHaveProperty("error");
-		expect(enabled.result).toHaveProperty(
-			"message",
-			expect.stringContaining("open on Search"),
-		);
+		expect(enabled.result).toHaveProperty("ok", true);
 		expect(h.currentDoc().modules[MOD_A].caseSearchConfig).toEqual({
 			searchScreenTitle: "Find a patient",
 			searchFirst: true,
@@ -113,10 +110,7 @@ describe("configureCaseList", () => {
 			searchFirst: null,
 		});
 		expect(disabled.result).not.toHaveProperty("error");
-		expect(disabled.result).toHaveProperty(
-			"message",
-			expect.stringContaining("browse before Search"),
-		);
+		expect(disabled.result).toHaveProperty("ok", true);
 		// Turning Search first off preserves the after-submit destination the
 		// worker saw while it was enabled; the reducer pins that default explicitly.
 		expect(toPersistableDoc(h.currentDoc())).toEqual(

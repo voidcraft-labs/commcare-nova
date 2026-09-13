@@ -592,7 +592,7 @@ describe("shared case-operation tools", () => {
 		expect(moved.result).toMatchObject({
 			afterOperationUuid: null,
 			operationOrder: [CREATE_UUID],
-			message: 'Moved case operation "create_visit" to the beginning.',
+			ok: true,
 		});
 		expect(moved.mutations).toEqual([]);
 		expect(h.recordMutations).not.toHaveBeenCalled();

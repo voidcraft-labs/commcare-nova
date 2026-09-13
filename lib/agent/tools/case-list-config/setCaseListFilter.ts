@@ -79,7 +79,7 @@ export type SetCaseListFilterKind = Predicate["kind"] | "cleared";
  * structured `result.uuid` shape on the atomic-op tools.
  */
 export interface SetCaseListFilterSuccess {
-	message: string;
+	ok: true;
 	kind: SetCaseListFilterKind;
 	summary: ToolCallSummary;
 }
@@ -144,12 +144,12 @@ export const setCaseListFilterTool = {
 				result:
 					filter === null
 						? {
-								message: `Cleared case list filter on module "${mod.name}" (${moduleUuid}).`,
+								ok: true,
 								kind: "cleared",
 								summary: { location: mod.name },
 							}
 						: {
-								message: `Set case list filter (kind: ${filter.kind}) on module "${mod.name}" (${moduleUuid}).`,
+								ok: true,
 								kind: filter.kind,
 								summary: { location: mod.name },
 							},

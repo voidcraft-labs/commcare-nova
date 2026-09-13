@@ -110,8 +110,7 @@ describe("attachOptionMedia", () => {
 		).toBeUndefined();
 		const options = optionsOf(h.currentDoc());
 		expect(options[0].media).toBeUndefined();
-		const success = cleared.result as { message?: string };
-		expect(success.message).toContain("Cleared");
+		expect(cleared.result).toHaveProperty("ok", true);
 	});
 
 	it("refuses a non-select field", async () => {

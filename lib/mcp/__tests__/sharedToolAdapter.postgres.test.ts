@@ -115,7 +115,7 @@ it("adds fields once, preserves returned identities and drains matching event en
 			),
 		);
 		expect(payload).toEqual({
-			message: expect.stringContaining("Successfully added 1 field"),
+			ok: true,
 			fields: [
 				{
 					uuid: fieldUuid,
@@ -391,7 +391,7 @@ it("commits a real conversion plus patch as one change, with no prefix or log on
 				await client.callTool({ name: "edit_field", arguments: args }),
 			),
 		);
-		expect(result).toEqual(expect.any(String));
+		expect(result).toHaveProperty("ok", true);
 		const app = await loadApp(doc.appId);
 		expect(app?.mutation_seq).toBe(1);
 		expect(app?.blueprint.fields[fieldUuid]).toMatchObject({
@@ -440,7 +440,7 @@ it.each([false, true])(
 				return {
 					kind: "mutate",
 					mutations: result.mutations,
-					result: { message: "Saved.", summary: { subject: "App" } },
+					result: { ok: true, summary: { subject: "App" } },
 				};
 			},
 		};
@@ -490,7 +490,7 @@ it.each([false, true])(
 							},
 						],
 					});
-				else expect(JSON.parse(resultText(response))).toBe("Saved.");
+				else expect(JSON.parse(resultText(response))).toEqual({ ok: true });
 				expect(await events(doc.appId)).toEqual([
 					{
 						kind: "mutation",
@@ -598,7 +598,7 @@ it.each(["child", "sibling"] as const)(
 				),
 			);
 			if (destination === "child") {
-				expect(result).toEqual(expect.any(String));
+				expect(result).toHaveProperty("ok", true);
 				const app = await loadApp(doc.appId);
 				expect(app?.blueprint.fields[fieldUuid]).toMatchObject({
 					caseWrite: { caseType: "child", property: "case_name" },
@@ -701,8 +701,14 @@ it("reports real conversion impact before consent and retains the saved-value no
 			),
 		);
 		expect(consent).toEqual({
-			message: expect.stringContaining("Nothing was changed."),
 			needsConfirmation: {
+				caseType: "patient",
+				newlyHeldCases: 1,
+				consequence:
+					"Values move to Data to review; affected cases are excluded until review.",
+				recovery:
+					"Review the values in Case data or revert the property conversion.",
+				confirmation: { confirmConversion: true },
 				property: "weight",
 				fromType: "decimal",
 				toType: "int",
@@ -728,10 +734,17 @@ it("reports real conversion impact before consent and retains the saved-value no
 				}),
 			),
 		);
-		expect(confirmed).toEqual(expect.any(String));
-		expect(confirmed).toContain(
-			"Data note: 1 saved case value could not convert",
-		);
+		expect(confirmed).toMatchObject({
+			ok: true,
+			field: { uuid: fieldUuid, kind: "int" },
+			dataReview: {
+				values: 1,
+				location: "Case data",
+				reasons: [expect.any(String)],
+				additionalReasons: 0,
+			},
+		});
+		expect(confirmed).not.toHaveProperty("summary");
 		expect((await loadApp(doc.appId))?.blueprint.fields[fieldUuid].kind).toBe(
 			"int",
 		);
@@ -797,7 +810,11 @@ it("admits a staged conversion whose required calculation arrives in the same ca
 				}),
 			),
 		);
-		expect(accepted).toEqual(expect.any(String));
+		expect(accepted).toMatchObject({
+			ok: true,
+			field: { uuid: fieldUuid, kind: "hidden" },
+			conversion: { from: "text", to: "hidden" },
+		});
 		expect((await loadApp(doc.appId))?.blueprint.fields[fieldUuid]).toEqual({
 			uuid: fieldUuid,
 			id: "patient_name",

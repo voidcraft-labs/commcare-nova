@@ -100,16 +100,36 @@ export const editFieldInputSchema = fieldAddressSchema
 
 export type EditFieldInput = z.infer<typeof editFieldInputSchema>;
 
-/** Success carries the LLM-facing `message` + a UI-only `summary` for the chat
- *  transcript; failure is an error record. The `needsConfirmation` arm is
+/** Success reports retained identity and consequential effects. The
+ *  `needsConfirmation` arm is
  *  the consent round for a failable kind conversion: nothing was changed,
  *  the counts state what the conversion would set aside, and the same call
  *  with `confirmConversion: true` proceeds. */
+interface FieldConversionResult {
+	from: FieldKind;
+	to: FieldKind;
+	otherWriters: Array<{ fieldUuid: string; formUuid: string | null }>;
+	caseProperty?: {
+		caseType: string;
+		property: string;
+		declaredType?: CasePropertyDataType;
+	};
+}
+
 export type EditFieldResult =
-	| (MutationSuccess & { options?: CreatedOptionIdentity[] })
+	| (MutationSuccess & {
+			field: { uuid: string; id: string; kind: FieldKind };
+			options?: CreatedOptionIdentity[];
+			conversion?: FieldConversionResult;
+			valueSource?: {
+				set: "calculate" | "default_value";
+				cleared: "calculate" | "default_value";
+			};
+	  })
 	| { error: string }
 	| {
 			needsConfirmation: {
+				caseType: string;
 				property: string;
 				fromType: CasePropertyDataType;
 				toType: CasePropertyDataType;
@@ -117,8 +137,11 @@ export type EditFieldResult =
 				uncastable: number;
 				alreadyHeld: number;
 				samples: readonly unknown[];
+				newlyHeldCases: number;
+				consequence: "Values move to Data to review; affected cases are excluded until review.";
+				recovery: "Review the values in Case data or revert the property conversion.";
+				confirmation: { confirmConversion: true };
 			};
-			message: string;
 			/** Transcript presentation — `awaitingConsent` keeps the row
 			 *  from claiming a completed edit, and its presence keeps the
 			 *  model-directed `message` prose off the user-facing detail
@@ -209,7 +232,7 @@ function editPatchToFieldPatch(
 
 export const editFieldTool = {
 	description:
-		"Update a field. Pass its current kind to edit in place, or a different kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. `id` is the form-local question name used in friendly XPath; changing it keeps UUID-backed references attached and never renames case data. Set `caseWrite` to a complete {caseType, property} pair to retarget this writer, or null to stop this field from writing a case property. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
+		"Update a field. Set kind to convert it. A value sets a property, null REMOVES it, leaving it out keeps it. `id` is the form-local question name used in friendly XPath; changing it keeps UUID-backed references attached and never renames case data. Set `caseWrite` to a complete {caseType, property} pair to retarget this writer, or null to stop this field from writing a case property. A conversion that would set saved case values aside returns needsConfirmation instead of converting — relay it and re-call with confirmConversion: true once the user agrees.",
 	inputSchema: editFieldInputSchema,
 	async execute(
 		input: EditFieldInput,
@@ -278,7 +301,7 @@ export const editFieldTool = {
 			const fieldUuid: Uuid = resolved.field.uuid;
 			// Property-wide conversion effects, appended to the success
 			// message by the convert stage below.
-			let conversionNote = "";
+			let conversion: FieldConversionResult | undefined;
 
 			// Pre-dispatch rename guard, checked BEFORE the convert stage so
 			// a rejected rename fails the whole call with nothing persisted
@@ -456,9 +479,6 @@ export const editFieldTool = {
 					});
 					if (impact.uncastable > 0) {
 						const newlyHeld = impact.uncastable - impact.alreadyHeld;
-						const examples = impact.samples
-							.map((sample) => JSON.stringify(sample))
-							.join(", ");
 						const fieldLabel =
 							"label" in resolved.field && resolved.field.label
 								? projectProseTemplate(resolved.field.label, doc).text ||
@@ -469,6 +489,7 @@ export const editFieldTool = {
 							mutations: [],
 							result: {
 								needsConfirmation: {
+									caseType: risk.caseType,
 									property: risk.property,
 									fromType: risk.fromType,
 									toType: risk.toType,
@@ -476,11 +497,13 @@ export const editFieldTool = {
 									uncastable: impact.uncastable,
 									alreadyHeld: impact.alreadyHeld,
 									samples: impact.samples,
+									newlyHeldCases: newlyHeld,
+									consequence:
+										"Values move to Data to review; affected cases are excluded until review.",
+									recovery:
+										"Review the values in Case data or revert the property conversion.",
+									confirmation: { confirmConversion: true },
 								},
-								message:
-									`Nothing was changed. Converting "${currentId}" to ${newKind} retypes the case property "${risk.property}" from ${risk.fromType} to ${risk.toType}, and ${impact.uncastable} of ${impact.totalWithValue} saved values can't convert (for example: ${examples}). ` +
-									`Each of those values would move to Data to review, and its case would be held out of the running app until someone decides it there — ${newlyHeld} case${newlyHeld === 1 ? "" : "s"} newly held${impact.alreadyHeld > 0 ? `, ${impact.alreadyHeld} already held for other waiting values` : ""}. Converting the property back restores the values automatically. ` +
-									`Tell the user what would happen; if they agree, repeat this call with confirmConversion: true.`,
 								summary: {
 									location:
 										doc.forms[resolved.formUuid]?.name ?? resolved.formUuid,
@@ -498,26 +521,24 @@ export const editFieldTool = {
 				});
 				workingDoc = afterConvert;
 
-				// Name the property-wide effects so the SA can relay them
-				// without re-reading the blueprint: peer writers carried
-				// across (by their containing form), and the declaration
-				// following the writers.
-				if (plan.peers.length > 0) {
-					const peerForms = plan.peers.map((p) => {
-						const peerFormUuid = findContainingForm(workingDoc, p.uuid);
-						const name = peerFormUuid
-							? workingDoc.forms[peerFormUuid]?.name
-							: undefined;
-						return name ? `"${name}"` : "another form";
-					});
-					conversionNote += ` Also converted the property's other writer${plan.peers.length === 1 ? "" : "s"} of the same kind (in ${peerForms.join(", ")}) so every form stays in agreement.`;
-				}
-				if (plan.redeclaredTo !== undefined) {
-					// Worded from the plan's actual declaration — a hidden
-					// conversion PINS the source type ("text"), it doesn't
-					// declare "hidden" (not a data type).
-					conversionNote += ` The case property's declared data_type is now "${plan.redeclaredTo}".`;
-				}
+				conversion = {
+					from: fromKind,
+					to: newKind,
+					otherWriters: plan.peers.map((peer) => ({
+						fieldUuid: peer.uuid,
+						formUuid: findContainingForm(workingDoc, peer.uuid) ?? null,
+					})),
+					...("caseWrite" in planField &&
+						planField.caseWrite && {
+							caseProperty: {
+								caseType: planField.caseWrite.caseType,
+								property: planField.caseWrite.property,
+								...(plan.redeclaredTo !== undefined && {
+									declaredType: plan.redeclaredTo,
+								}),
+							},
+						}),
+				};
 			}
 
 			// Re-read the field record after conversion by its STABLE uuid,
@@ -638,53 +659,29 @@ export const editFieldTool = {
 				};
 			}
 
-			const postField = workingDoc.fields[fieldUuid];
-			// `kind` is always required on the patch, so only list it as a
-			// change when it was an actual conversion. A `null` update is a
-			// clear — reported as such.
-			const changedKeys = Object.entries(updates)
-				.filter(
-					([k, v]) =>
-						v !== undefined &&
-						(k !== "kind" || newKind !== resolved.field.kind) &&
-						(k !== "id" || newId !== currentId),
-				)
-				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
-			if (valueSourceSwap !== undefined) {
-				changedKeys.push(`${valueSourceSwap.cleared} (cleared)`);
-			}
-			const valueSourceNote =
-				valueSourceSwap === undefined
-					? ""
-					: ` Set ${valueSourceSwap.set} and cleared ${valueSourceSwap.cleared}: a hidden field carries one value source, and a calculate re-evaluates after the default is seeded, so the default could never be seen.`;
-			const renameNote =
-				newId && newId !== currentId ? ` (renamed from "${currentId}")` : "";
-			// `resolved` already carries the form's uuid — read the display
-			// name directly rather than re-traversing `moduleOrder` →
-			// `formOrder` to get back to the same uuid.
+			const postField = commit.newDoc.fields[fieldUuid];
+			if (!postField)
+				return {
+					kind: "mutate",
+					mutations: commit.mutations,
+					result: {
+						error: `Field ${fieldUuid} was removed by a concurrent edit.`,
+					},
+				};
 			const formName =
-				workingDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
+				commit.newDoc.forms[resolved.formUuid]?.name ?? resolved.formUuid;
 			const label =
-				postField && "label" in postField && postField.label
-					? projectProseTemplate(postField.label, workingDoc).text
+				"label" in postField && postField.label
+					? projectProseTemplate(postField.label, commit.newDoc).text
 					: "";
-			const kind = postField?.kind ?? "unknown";
-			// Report honestly when the call carried only the `kind` discriminator
-			// and no rename — nothing actually changed, so don't claim a change
-			// list ("Changed: .") the SA would read as a successful edit.
-			const changeNote =
-				changedKeys.length > 0
-					? `Changed: ${changedKeys.join(", ")}.`
-					: "No property values changed.";
-			// The workspace continues against the guarded writer's committed doc (a
-			// peer's concurrent edit re-applied onto the fresh stored doc merged
-			// in), NOT the tool's local `workingDoc`. The message strings above
-			// read `workingDoc` only for this call's own display values.
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}${valueSourceNote}`,
+					ok: true,
+					field: { uuid: fieldUuid, id: postField.id, kind: postField.kind },
+					...(conversion && { conversion }),
+					...(valueSourceSwap && { valueSource: valueSourceSwap }),
 					...(preparedOptionsSource?.kind === "inline" && {
 						options: preparedOptionsSource.options.map((option) => ({
 							uuid: option.uuid,
@@ -693,7 +690,7 @@ export const editFieldTool = {
 					}),
 					summary: {
 						location: formName,
-						subject: label || finalId,
+						subject: label || postField.id,
 					} satisfies ToolCallSummary,
 				},
 			};

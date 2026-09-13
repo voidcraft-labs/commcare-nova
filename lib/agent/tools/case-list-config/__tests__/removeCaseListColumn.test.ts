@@ -53,7 +53,6 @@ describe("removeCaseListColumn", () => {
 		}
 		expect(result.result.uuid).toBe(TARGET_UUID);
 		expect(result.result.remaining).toBe(1);
-		expect(result.result.message).toContain(String(TARGET_UUID));
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {

@@ -121,7 +121,7 @@ describe("addFields — identifier guard through admitted input and canonical wo
 			fields: [textItem("age", GRP)],
 		});
 
-		expect(result.result).toHaveProperty("message");
+		expect(result.result).toHaveProperty("ok", true);
 		expect(result.mutations).toHaveLength(1);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
@@ -133,7 +133,7 @@ describe("addFields — identifier guard through admitted input and canonical wo
 			fields: [textItem("weight"), textItem("height")],
 		});
 
-		expect(result.result).toHaveProperty("message");
+		expect(result.result).toHaveProperty("ok", true);
 		expect(result.mutations).toHaveLength(2);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		const ids = Object.values(h.currentDoc().fields).map((f) => f?.id);

@@ -61,7 +61,7 @@ export type UpdateCaseListColumnInput = z.infer<
 >;
 
 export interface UpdateCaseListColumnSuccess {
-	message: string;
+	ok: true;
 	uuid: Uuid;
 	summary: ToolCallSummary;
 }
@@ -119,7 +119,7 @@ export const updateCaseListColumnTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Updated case list column ${columnUuid} on module "${mod.name}". New kind: ${column.kind}, header "${column.header}".`,
+					ok: true,
 					uuid: columnUuid,
 					summary: { location: mod.name, subject: column.header },
 				},

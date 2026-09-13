@@ -1,8 +1,9 @@
 /** Pure result projection; actual dispatch and persistence live in the Postgres suite. */
 import { expect, it } from "vitest";
+import { savedDataReview } from "@/lib/agent/toolResults";
 import { projectResult } from "../resultProjection";
 
-it("projects complete read values without interpreting their keys", () => {
+it("preserves read data, including keys also used by the chat UI", () => {
 	for (const data of [
 		null,
 		"Text",
@@ -12,45 +13,41 @@ it("projects complete read values without interpreting their keys", () => {
 		expect(projectResult({ kind: "read", data })).toEqual(data);
 	}
 });
-it("removes only chat presentation while retaining created identities and failure details", () => {
-	for (const [result, expected] of [
-		[{ message: "Saved.", summary: { subject: "private UI" } }, "Saved."],
-		[
-			{
-				message: "Saved.",
-				summary: { subject: "private UI" },
-				uuid: "identity",
-				options: [{ uuid: "option" }],
-			},
-			{ message: "Saved.", uuid: "identity", options: [{ uuid: "option" }] },
-		],
-		[
-			{ error: "Choose a different name." },
-			{ error: "Choose a different name." },
-		],
-		["Already removed.", "Already removed."],
-		[null, null],
-	]) {
-		expect(projectResult({ kind: "mutate", mutations: [], result })).toEqual(
-			expected,
-		);
-	}
-});
-it("preserves saved-data notes after message-only collapse and alongside structural receipts", () => {
-	const note = "Data note: 2 saved values were kept for review.";
-	for (const [result, expected] of [
-		[
-			{ message: "Converted.", summary: { subject: "field" } },
-			`Converted.\n\n${note}`,
-		],
-		[
-			{ message: "Converted.", summary: {}, uuid: "field" },
-			{ message: `Converted.\n\n${note}`, uuid: "field" },
-		],
-		[{ error: "Refused." }, { error: "Refused." }],
+
+it("removes write presentation while retaining identities, confirmation and errors", () => {
+	for (const result of [
+		{ ok: true },
+		{ ok: true, uuid: "identity", options: [{ uuid: "option" }] },
+		{ needsConfirmation: { confirmConversion: true } },
+		{ error: "Choose a different name." },
 	]) {
 		expect(
-			projectResult({ kind: "mutate", mutations: [], result }, note),
-		).toEqual(expected);
+			projectResult({
+				kind: "mutate",
+				mutations: [],
+				result: { ...result, summary: { subject: "private UI" } },
+			}),
+		).toEqual(result);
+	}
+});
+
+it("retains a saved-data consequence even when later tool reporting fails", () => {
+	const dataReview = savedDataReview({
+		parked: 2,
+		failureReasons: ["a", "b", "c", "d"],
+	});
+	expect(dataReview).toEqual({
+		values: 2,
+		reasons: ["a", "b", "c"],
+		additionalReasons: 1,
+		location: "Case data",
+	});
+	for (const result of [
+		{ ok: true, uuid: "field" },
+		{ error: "Could not finish reporting the change." },
+	]) {
+		expect(
+			projectResult({ kind: "mutate", mutations: [], result }, dataReview),
+		).toEqual({ ...result, dataReview });
 	}
 });

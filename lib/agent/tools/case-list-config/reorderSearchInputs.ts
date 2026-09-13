@@ -47,7 +47,7 @@ export type ReorderSearchInputsInput = z.infer<
 >;
 
 export interface ReorderSearchInputsSuccess {
-	message: string;
+	ok: true;
 	order: Uuid[];
 	summary: ToolCallSummary;
 }
@@ -104,7 +104,7 @@ export const reorderSearchInputsTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Reordered ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"} on module "${mod.name}".`,
+					ok: true,
 					order: [...searchInputUuids],
 					summary: { location: mod.name, count: searchInputUuids.length },
 				},

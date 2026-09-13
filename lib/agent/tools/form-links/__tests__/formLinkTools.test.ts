@@ -156,8 +156,6 @@ const order = (doc: BlueprintDoc) =>
 
 const errorOf = (result: { result: unknown }): string =>
 	z.object({ error: z.string() }).parse(result.result).error;
-const messageOf = (result: { result: unknown }): string =>
-	z.object({ message: z.string() }).parse(result.result).message;
 
 describe("form-link author boundary", () => {
 	it("admits the complete link shape and refuses what has no meaning", () => {
@@ -317,9 +315,6 @@ describe("addFormLinks", () => {
 			linkUuids: [L1],
 			pinnedPostSubmit: "app_home",
 		});
-		const message = messageOf(result);
-		expect(message).toContain('post_submit explicitly to "app_home"');
-		expect(message).toContain("update_form");
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBe("app_home");
 	});
 
@@ -557,9 +552,7 @@ describe("removeFormLink", () => {
 			pinnedPostSubmit: "app_home",
 			summary: { location: "Source" },
 		});
-		expect(messageOf(result)).toContain(
-			`Removed link 2 (${ELSE}, to module "Care")`,
-		);
+
 		expect(order(h.currentDoc())).toEqual([L1]);
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBe("app_home");
 	});
@@ -595,9 +588,7 @@ describe("moveFormLink", () => {
 			afterLinkUuid: L2,
 			linkOrder: [L2, L1, ELSE],
 		});
-		expect(messageOf(after)).toContain(
-			`Moved link 2 (${L1}, to form "Note") after link 1 (${L2}`,
-		);
+
 		expect(order(h.currentDoc())).toEqual([L2, L1, ELSE]);
 
 		const front = await h.runTool(moveFormLinkTool, {
@@ -609,7 +600,6 @@ describe("moveFormLink", () => {
 			afterLinkUuid: null,
 			linkOrder: [L1, L2, ELSE],
 		});
-		expect(messageOf(front)).toContain("checked first");
 	});
 
 	it("refuses moving a conditional link after the otherwise link and names both", async () => {
@@ -648,7 +638,6 @@ describe("moveFormLink", () => {
 			afterLinkUuid: L1,
 		});
 		expect(same.mutations).toEqual([]);
-		expect(messageOf(same)).toContain("already in that position");
 
 		const self = await h.runTool(moveFormLinkTool, {
 			...address,

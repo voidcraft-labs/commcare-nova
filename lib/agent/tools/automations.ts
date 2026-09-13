@@ -34,7 +34,27 @@ import {
 } from "./common";
 import type { MutationSuccess } from "./shared/toolCallSummary";
 
-export const getAutomationsInputSchema = z.object({}).strict();
+export const getAutomationsInputSchema = z
+	.object({
+		automationUuid: uuidSchema
+			.optional()
+			.describe("One automation to inspect; omit to read all definitions."),
+		includeSetupGuide: z
+			.boolean()
+			.optional()
+			.describe(
+				"Include this automation's manual CommCare HQ setup guide. Requires automationUuid.",
+			),
+	})
+	.strict()
+	.refine(
+		(input) =>
+			input.includeSetupGuide !== true || input.automationUuid !== undefined,
+		{
+			path: ["automationUuid"],
+			message: "Choose one automation for its setup guide.",
+		},
+	);
 
 export const addAutomationsInputSchema = z
 	.object({
@@ -76,7 +96,9 @@ interface SetupGuideResult {
 type AutomationMutationResult =
 	| (MutationSuccess & {
 			automationUuids: readonly Uuid[];
-			setupGuides?: readonly SetupGuideResult[];
+			setupRequired?: true;
+			hqUpdated?: false;
+			unchanged?: true;
 	  })
 	| { error: string };
 
@@ -147,10 +169,10 @@ function allIdentities(
 
 export const getAutomationsTool = {
 	description:
-		"Read every representable automatic case-update rule and conditional alert in display order, with stable UUIDs and freshly derived manual CommCare HQ setup guidance. Nova describes the locally representable matching subset but never executes these automations; match counts are available only in Builder Preview.",
+		"Read automation definitions in display order, or one by automationUuid. Request includeSetupGuide for that rule when preparing manual CommCare HQ setup. Preview does not execute automations; matching counts are available in the Builder.",
 	inputSchema: getAutomationsInputSchema,
 	async execute(
-		_input: z.infer<typeof getAutomationsInputSchema>,
+		input: z.infer<typeof getAutomationsInputSchema>,
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
@@ -162,12 +184,24 @@ export const getAutomationsTool = {
 			// working doc. Only the places stay external — they are rows, not
 			// Blueprint.
 			const doc = ctx.snapshot.doc;
-			const organization = await readPlacesForGuidance(ctx);
+			const automations = orderedAutomations(doc).filter(
+				(automation) =>
+					input.automationUuid === undefined ||
+					automation.uuid === input.automationUuid,
+			);
+			if (input.automationUuid !== undefined && automations.length === 0)
+				return { kind: "read", data: { error: "Automation not found." } };
+			const organization =
+				input.includeSetupGuide === true
+					? await readPlacesForGuidance(ctx)
+					: undefined;
 			return {
 				kind: "read",
-				data: orderedAutomations(doc).map((automation) => ({
+				data: automations.map((automation) => ({
 					automation,
-					...setupGuideResult(doc, automation, organization.locations),
+					executesInPreview: false,
+					...(organization &&
+						setupGuideResult(doc, automation, organization.locations)),
 				})),
 			};
 		} catch (error) {
@@ -181,7 +215,7 @@ export const getAutomationsTool = {
 
 export const addAutomationsTool = {
 	description:
-		"Add automatic record-update rules or conditional alerts. Returns setup guidance for CommCare HQ; saving here does not install or activate them there. Preview does not execute automations.",
+		"Add automatic record-update rules or conditional alerts. Saving here does not install or activate them in CommCare HQ. Read getAutomations with includeSetupGuide for an HQ handoff. Preview does not execute automations.",
 	inputSchema: addAutomationsInputSchema,
 	async execute(
 		input: z.infer<typeof addAutomationsInputSchema>,
@@ -233,13 +267,12 @@ export const addAutomationsTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Added ${names.length} ${names.length === 1 ? "automation" : "automations"}: ${names.join(", ")}. Nova will not run them in Preview; use each generated guide to configure CommCare HQ manually.`,
+					ok: true,
 					automationUuids: input.automations.map(
 						(automation) => automation.uuid,
 					),
-					setupGuides: input.automations.map((automation) =>
-						setupGuideResult(commit.newDoc, automation, organization.locations),
-					),
+					setupRequired: true,
+					hqUpdated: false,
 					summary: { count: names.length },
 				},
 			};
@@ -251,7 +284,7 @@ export const addAutomationsTool = {
 
 export const updateAutomationTool = {
 	description:
-		"Replace an automation with its complete desired state. Its identity and kind stay fixed; preserve identities of retained nested items. Returns updated setup guidance for CommCare HQ.",
+		"Replace an automation with its complete desired state. Its identity and kind stay fixed; preserve identities of retained nested items. Read getAutomations with includeSetupGuide for the current HQ setup guide.",
 	inputSchema: updateAutomationInputSchema,
 	async execute(
 		input: z.infer<typeof updateAutomationInputSchema>,
@@ -284,17 +317,16 @@ export const updateAutomationTool = {
 					 * set: the snapshot itself proves the no-op, and there is no
 					 * fresher authority to adopt — which is exactly why
 					 * `adoptAuthoritativeSnapshot` is a protocol error here. */
-					const organization = await readPlacesForGuidance(ctx);
 					return {
 						kind: "mutate",
 						mutations: [],
 						result: {
-							message: `Automation "${before.name}" already has the requested settings.`,
+							ok: true,
 							automationUuids: [before.uuid],
-							setupGuides: [
-								setupGuideResult(doc, before, organization.locations),
-							],
-							summary: { subject: before.name },
+							setupRequired: true,
+							hqUpdated: false,
+							unchanged: true,
+							summary: { subject: before.name, noop: true },
 						},
 					};
 				}
@@ -327,21 +359,17 @@ export const updateAutomationTool = {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						message: `Automation "${persistedAutomation.name}" already has the requested settings.`,
+						ok: true,
 						automationUuids: [persistedAutomation.uuid],
-						setupGuides: [
-							setupGuideResult(
-								authoring.blueprint,
-								persistedAutomation,
-								authoring.organization.locations,
-							),
-						],
-						summary: { subject: persistedAutomation.name },
+						setupRequired: true,
+						hqUpdated: false,
+						unchanged: true,
+						summary: { subject: persistedAutomation.name, noop: true },
 					},
 				};
 			}
-			// Keep every fallible external projection before the write. The guide
-			// is pure over this authorized snapshot plus the committed document.
+			// Fence the place references against the same organization revision
+			// used to prepare this mutation.
 			const organization = await readPlacesForGuidance(ctx);
 			const commit = await guardedMutate(ctx, mutations, "automations", {
 				expectedOrganizationRevision: organization.revision,
@@ -360,15 +388,10 @@ export const updateAutomationTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Updated automation "${committedAutomation.name}". Its setup guide has been regenerated; Nova will not execute it in Preview.`,
+					ok: true,
 					automationUuids: [input.automation.uuid],
-					setupGuides: [
-						setupGuideResult(
-							commit.newDoc,
-							committedAutomation,
-							organization.locations,
-						),
-					],
+					setupRequired: true,
+					hqUpdated: false,
 					summary: { subject: committedAutomation.name },
 				},
 			};
@@ -410,8 +433,9 @@ export const removeAutomationTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Removed automation "${automation.name}" from Nova. A copy configured manually in CommCare HQ is unchanged.`,
+					ok: true,
 					automationUuids: [automation.uuid],
+					hqUpdated: false,
 					summary: { subject: automation.name },
 				},
 			};

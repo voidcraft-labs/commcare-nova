@@ -51,9 +51,9 @@ export const removeMediaAssetInputSchema = z
 
 export type RemoveMediaAssetInput = z.infer<typeof removeMediaAssetInputSchema>;
 
-/** A successful deletion or an Elm-shape refusal/error string. */
+/** A completed deletion or a refusal. */
 export type RemoveMediaAssetResult =
-	| { removed: true; message: string }
+	| { removed: true; assetId: string; filename: string }
 	| { error: string };
 
 export const removeMediaAssetTool = {
@@ -170,7 +170,8 @@ export const removeMediaAssetTool = {
 			kind: "read" as const,
 			data: {
 				removed: true,
-				message: `Deleted media asset "${input.assetId}" (${asset.originalFilename}).`,
+				assetId: input.assetId,
+				filename: asset.originalFilename,
 			},
 		};
 	},

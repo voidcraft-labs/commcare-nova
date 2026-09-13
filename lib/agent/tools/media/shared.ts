@@ -237,15 +237,13 @@ export async function requireToolProjectId(appId: string): Promise<string> {
 
 /**
  * One resolved item of a batch media tool: the mutations it emits, the
- * verdict expectations its set slots impose, and the line the success
- * message reports for it. Tools that need extra per-item facts for their
+ * verdict expectations its set slots impose. Tools that need extra per-item facts for their
  * summary (e.g. `attachFieldMedia`'s distinct-field count) intersect this
  * with their own field.
  */
 export interface ResolvedMediaBatchItem {
 	mutations: Mutation[];
 	expectations: MediaAttachExpectation[];
-	line: string;
 }
 
 /** Outcome of {@link commitMediaBatch}: the flattened mutation batch, or the
@@ -297,12 +295,6 @@ export async function commitMediaBatch(args: {
 	);
 	if (!commit.ok) return { ok: false, error: commit.error };
 	return { ok: true, mutations: commit.mutations };
-}
-
-/** Join a batch's per-item lines into one sentence-cased success message. */
-export function joinBatchLines(lines: readonly string[]): string {
-	const joined = `${lines.join("; ")}.`;
-	return joined.charAt(0).toUpperCase() + joined.slice(1);
 }
 
 /**

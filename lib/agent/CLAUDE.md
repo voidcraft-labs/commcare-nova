@@ -430,7 +430,7 @@ Action legality is structural in `caseOperationInputSchema`: create requires a n
 
 ### After-submit link authoring — `linkUuid` identity over the shared planners
 
-The shared form-link family (`tools/form-links/`) registers unchanged in chat and MCP: batch `addFormLinks` and singular `updateFormLink` / `removeFormLink` / `moveFormLink`; there is no separate read tool because `getForm` returns `formLinks` with each link's `uuid` in the order it is checked. A link is addressed only by `moduleUuid` + `formUuid` + `linkUuid`, never by position or by what it points at. Every tool is a thin boundary over the planners in `lib/doc/formLinkMutations.ts` (`planFormLinkAdd` / `planFormLinkUpdate` / `planFormLinkRemove` / `planFormLinkMove`), the same planners the builder dispatches, so the three editors refuse the same shapes for the same reasons: the one otherwise link is last, a conditional link never lands after it, a link never targets its own form or a loop. `linkRefusalMessage` in `tools/form-links/shared.ts` is the one place a planner's `FormLinkRefusal` becomes prose, and it names the links involved by position, UUID, and destination. Batch add plans each link against a working overlay with the previous link as its anchor; a fallback pin the planner wrote for an earlier link is withdrawn when a later link of the same batch is the otherwise link, so the batch is judged as one shape. A planner's `pinsFallback` reaches the result as `pinnedPostSubmit` and as a sentence in the message naming the stored destination and `update_form` as the tool that changes it; a retarget's `droppedDatums` (carried values the new destination never reads, removed rather than refused) reaches it as `droppedDatums` plus a sentence naming them. The tool summary's subject is `linkSubject` (position + destination, no uuid); `linkLabel` (with the uuid, the handle the model edits by) is the message form. Conditions and datums are canonical `XPathExpression` ASTs at this boundary like every other expression slot; `update_form_link` takes the link's complete desired shape and the planner writes only the slots that changed; move translates `afterLinkUuid` into the planner's landing index and reports the order from `commit.newDoc`.
+The shared form-link family (`tools/form-links/`) registers unchanged in chat and MCP: batch `addFormLinks` and singular `updateFormLink` / `removeFormLink` / `moveFormLink`; there is no separate read tool because `getForm` returns `formLinks` with each link's `uuid` in the order it is checked. A link is addressed only by `moduleUuid` + `formUuid` + `linkUuid`, never by position or by what it points at. Every tool is a thin boundary over the planners in `lib/doc/formLinkMutations.ts` (`planFormLinkAdd` / `planFormLinkUpdate` / `planFormLinkRemove` / `planFormLinkMove`), the same planners the builder dispatches, so the three editors refuse the same shapes for the same reasons: the one otherwise link is last, a conditional link never lands after it, a link never targets its own form or a loop. `linkRefusalMessage` in `tools/form-links/shared.ts` is the one place a planner's `FormLinkRefusal` becomes prose, and it names the links involved by position, UUID, and destination. Batch add plans each link against a working overlay with the previous link as its anchor; a fallback pin the planner wrote for an earlier link is withdrawn when a later link of the same batch is the otherwise link, so the batch is judged as one shape. A planner's `pinsFallback` reaches the result as `pinnedPostSubmit`; a retarget's `droppedDatums` names carried values removed because the new destination never reads them. The tool summary's subject is `linkSubject` (position + destination, no uuid); `linkLabel` includes the UUID when a refusal needs to identify a link. The authored boundary binds conditions and datums into canonical `XPathExpression` ASTs before the shared tool runs; `update_form_link` takes the link's complete desired shape and the planner writes only the slots that changed; move translates `afterLinkUuid` into the planner's landing index and reports the order from `commit.newDoc`.
 
 ### Automation authoring: canonical intent plus a derived setup guide
 
@@ -444,6 +444,12 @@ kind. A full update is only a boundary convenience: it diffs through
 uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
 schema.
 
+Write results include the automation identities, `setupRequired`, and
+`hqUpdated: false`. `getAutomations` normally returns authored configuration;
+`automationUuid` with `includeSetupGuide: true` supplies one regenerated guide
+and its omitted criteria. Guidance resolves the current workspace document and
+Project places, so a later handoff reflects intervening edits.
+
 The shared input schema admits only schedules that project into one current HQ
 HTML setup form, including schedule-wide content type and timing, Weekly/Monthly shared content,
 event ordering/separation/windows, day/offset laws, and survey expiration plus
@@ -456,8 +462,10 @@ it contains `{case.foo}`; the HQ projection doubles its braces before Python
 Formatter sees it. Case substitutions are explicit `case-property` parts
 carrying scope plus the Nova `(caseType, property)` identity. Case-owner and
 message-recipient substitutions are explicit closed `context-property` parts.
-SA and MCP write that shape directly, and only the derived HQ guide prints
-executable `{case...}` / `{recipient...}` tokens. Custom case properties named
+The SA editor and MCP author ordinary strings with `{{#case/property}}` or
+`{{#recipient/property}}` insertions; the authoring boundary binds them into that
+canonical shape. Only the derived HQ guide prints executable
+`{case...}` / `{recipient...}` tokens. Custom case properties named
 `owner`, `host`, or `last_modified_by` are refused in every message case scope
 because HQ's formatter context shadows them; use an actual context-property
 part for case-owner/recipient values or rename the custom case property.

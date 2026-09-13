@@ -165,7 +165,7 @@ function hasCompleteSearchDisplay(
 }
 
 export interface ConfigureCaseListSuccess {
-	readonly message: string;
+	readonly ok: true;
 	readonly columnUuids: readonly Uuid[];
 	readonly searchInputUuids: readonly Uuid[];
 	readonly summary: ToolCallSummary;
@@ -369,45 +369,11 @@ export const configureCaseListTool = {
 				};
 			}
 
-			const actions = [
-				...(columnUuids.length > 0
-					? [
-							`added ${columnUuids.length} case-list column${columnUuids.length === 1 ? "" : "s"}`,
-						]
-					: []),
-				...(searchInputUuids.length > 0
-					? [
-							`added ${searchInputUuids.length} search input${searchInputUuids.length === 1 ? "" : "s"}`,
-						]
-					: []),
-				...("filter" in input
-					? [
-							input.filter === null
-								? "cleared the available-case filter"
-								: "set the available-case filter",
-						]
-					: []),
-				...(hasCompleteSearchDisplay(input)
-					? ["composed the search screen"]
-					: []),
-				...(input.searchFirst !== undefined
-					? [
-							input.searchFirst === true
-								? "set the module to open on Search"
-								: "set the module to browse before Search",
-						]
-					: []),
-				...(input.resultsColumnOrder !== undefined ? ["arranged Results"] : []),
-				...(input.detailsColumnOrder !== undefined ? ["arranged Details"] : []),
-				...(input.searchInputOrder !== undefined
-					? ["arranged search inputs"]
-					: []),
-			];
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Configured the case list for module "${originalModule.name}": ${actions.join(", ")}.`,
+					ok: true,
 					columnUuids,
 					searchInputUuids,
 					summary: { location: originalModule.name },
