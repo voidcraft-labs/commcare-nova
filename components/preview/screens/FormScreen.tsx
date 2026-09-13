@@ -1672,6 +1672,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const handleSubmit = async (): Promise<void> => {
 		if (clearInFlightRef.current) return;
+
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
 		 * can run after the synchronous reset but before React commits fresh props. */
@@ -1681,6 +1682,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			start.appId !== appId
 		)
 			return;
+		// Mouse activation retains focus until this point so validation cannot
+		// move the button mid-click. Now let the field commit its local draft.
+		const active = document.activeElement;
+		if (
+			active instanceof HTMLElement &&
+			formBodyElRef.current?.contains(active)
+		)
+			active.blur();
 		const submittedBase = { ...submissionContextRef.current };
 		/* A submission program is derived from the committed blueprint, while
 		 * answers and after-submit routing come from this tab's document. Flush
