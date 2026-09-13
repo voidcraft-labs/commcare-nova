@@ -1,5 +1,5 @@
+import { childRecordWriterWorkflowIds } from "./childRecordConstruction";
 import type { AppDesignContract } from "./contract";
-import { parentFormChildWriterWorkflowIds } from "./nestedMenuConstruction";
 import { hasCompleteReadSurfaces } from "./readWorkflows";
 
 /** Stable workflow order for both graph admission and plan derivation. */
@@ -39,6 +39,7 @@ function workflowOrder(
 function deriveModuleConstructionOwners(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
+	viewerByRecord: ReadonlyMap<string, string>,
 ): Map<string, string> {
 	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
 	const index = (id: string | undefined) =>
@@ -60,6 +61,20 @@ function deriveModuleConstructionOwners(
 			earliest(module.workflowIds);
 		if (owner !== undefined) owners.set(module.id, owner);
 	}
+	for (const [recordId, moduleId] of viewerByRecord) {
+		const module = contract.moduleCompositions.find(
+			(item) => item.id === moduleId,
+		);
+		if (module === undefined || module.listIds.length === 0) continue;
+		const firstWriter = earliest(
+			childRecordWriterWorkflowIds(contract, recordId),
+		);
+		if (
+			firstWriter !== undefined &&
+			index(firstWriter) < index(owners.get(moduleId))
+		)
+			owners.set(moduleId, firstWriter);
+	}
 	for (const module of contract.moduleCompositions) {
 		if (module.listIds.length === 0) continue;
 		const parent = contract.moduleCompositions.find(
@@ -72,10 +87,10 @@ function deriveModuleConstructionOwners(
 		const firstWriter =
 			differentRecord && module.hostRecordId !== undefined
 				? earliest(
-						parentFormChildWriterWorkflowIds(
+						childRecordWriterWorkflowIds(
 							contract,
-							parent.id,
 							module.hostRecordId,
+							parent.id,
 						),
 					)
 				: undefined;
@@ -107,7 +122,27 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 			.filter((workflow) => workflow.id !== contract.charter.initialWorkflowId)
 			.map((workflow) => workflow.id),
 	];
-	const moduleOwners = deriveModuleConstructionOwners(contract, ownershipOrder);
+	// One accepted viewer is enough for direct child-field writes. Prefer a
+	// list that can be born without forms, then a top-level home; leave other
+	// views with their own tasks. Stable design order settles equivalent homes.
+	const viewerByRecord = new Map<string, string>();
+	for (const module of [...contract.moduleCompositions].sort(
+		(a, b) =>
+			Number(b.listIds.length > 0) - Number(a.listIds.length > 0) ||
+			Number(a.parentModuleCompositionId !== undefined) -
+				Number(b.parentModuleCompositionId !== undefined),
+	)) {
+		if (
+			module.hostRecordId !== undefined &&
+			!viewerByRecord.has(module.hostRecordId)
+		)
+			viewerByRecord.set(module.hostRecordId, module.id);
+	}
+	const moduleOwners = deriveModuleConstructionOwners(
+		contract,
+		ownershipOrder,
+		viewerByRecord,
+	);
 	const rank = new Map(ownershipOrder.map((id, index) => [id, index]));
 	const add = (
 		workflowId: string | undefined,
@@ -120,6 +155,9 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 		)
 			prerequisites.get(workflowId)?.add(dependency);
 	};
+	for (const [recordId, moduleId] of viewerByRecord)
+		for (const writer of childRecordWriterWorkflowIds(contract, recordId))
+			add(writer, moduleOwners.get(moduleId));
 	for (const form of contract.formCompositions)
 		add(form.workflowId, moduleOwners.get(form.moduleCompositionId));
 	for (const workflow of contract.workflows) {
@@ -154,10 +192,10 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 					(rank.get(right) ?? Number.MAX_SAFE_INTEGER),
 			)[0];
 		add(owner, firstParentFormOwner);
-		for (const writer of parentFormChildWriterWorkflowIds(
+		for (const writer of childRecordWriterWorkflowIds(
 			contract,
-			parent.id,
 			module.hostRecordId,
+			parent.id,
 		))
 			add(writer, owner);
 	}

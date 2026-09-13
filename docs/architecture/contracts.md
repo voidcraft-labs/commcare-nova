@@ -453,7 +453,7 @@ Worker starting conditions describe the situation in which a task is useful;
 they do not schedule construction. Nova derives dependencies from forms, menu
 homes, selection and shared data definitions. It fixes ownership with the
 initial workflow first and design order breaking ties. Record catalogs belong
-to their first consumer, including list and property use and parent catalogs
+to their first consumer, including list, in-form summary and property use and parent catalogs
 needed by a child, rather than the first workflow that saves a record instance.
 Menu membership is worker-facing meaning, not construction ownership. The
 planner may establish an accepted child list with the workflow that first writes
@@ -461,7 +461,10 @@ its records, then add its own forms in their original workflow slices. Graph
 admission uses that same ownership derivation. Ownership is fixed before sorting
 construction dependencies, including each form's module, so scheduling cannot
 change which slice creates a home. Construction cycles and prerequisites for the
-initial workflow are rejected before acceptance. The shared form-creation path
+initial workflow are rejected before acceptance. A direct child-record writer
+also gets an accepted viewer first, including a top-level history list. The
+planner chooses one viewer, preferring a list and then a top-level home, so
+other views can retain their own task ownership. The shared form-creation path
 converts a viewer into a form-bearing module in one admitted mutation batch;
 a no-matches registration keeps its existing case-list entry behavior.
 External actions are separate from Blueprint effects. Current plan admission

@@ -1,8 +1,8 @@
 /** Deterministic coherence checks for the lean Design Contract. */
 
 import type { z } from "zod";
+import { childRecordWriterWorkflowIds } from "@/lib/agent/design/childRecordConstruction";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
-import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import {
 	moduleSelectionIntent,
 	selectionConsumerWorkflowIds,
@@ -1072,10 +1072,10 @@ export function validateDesignGraph(
 							"A different-record child menu must be owned by the same workflow as or a later workflow than the parent menu's first form, so the parent case selection exists before the child is built.",
 						);
 					}
-					const firstChildWriter = parentFormChildWriterWorkflowIds(
+					const firstChildWriter = childRecordWriterWorkflowIds(
 						contract,
-						parent.id,
 						composition.hostRecordId,
+						parent.id,
 					).sort(
 						(left, right) =>
 							(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -

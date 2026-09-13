@@ -30,6 +30,7 @@ import {
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import { deriveConstructionSchedule } from "./constructionOwnership";
 import { assignReadWorkflowOwners } from "./readWorkflows";
+import { workflowDataReferences } from "./workflowReferences";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -250,6 +251,10 @@ function deriveOwnerByElement(
 				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
 		)[0] ?? initial;
 	const ownerByElement = new Map<string, string>();
+	const dataReferences = contract.workflows.map((workflow) => ({
+		workflowId: workflow.id,
+		...workflowDataReferences(contract, workflow),
+	}));
 	const moduleOwnersByListId = new Map<string, string[]>();
 	for (const composition of contract.moduleCompositions) {
 		const moduleOwner = moduleOwnerById.get(composition.id) ?? initial;
@@ -294,22 +299,14 @@ function deriveOwnerByElement(
 		);
 	}
 	for (const record of contract.records) {
-		const references = contract.workflows.filter(
-			(workflow) =>
-				workflow.contextRecordId === record.id ||
-				workflow.recordEffects.some(
-					(effect) =>
-						effect.recordId === record.id ||
-						effect.sourceRecordId === record.id,
-				) ||
-				workflow.readback.some((readback) => readback.recordId === record.id),
-		);
 		// A catalog entry is needed when its first form or list is built, even
 		// if a later workflow is the first one that creates a record instance.
 		ownerByElement.set(
 			record.id,
 			earliest([
-				...references.map((workflow) => workflow.id),
+				...dataReferences
+					.filter((references) => references.recordIds.has(record.id))
+					.map((references) => references.workflowId),
 				...contract.moduleCompositions
 					.filter((module) => module.hostRecordId === record.id)
 					.flatMap((module) => moduleOwnerById.get(module.id) ?? []),
@@ -317,19 +314,9 @@ function deriveOwnerByElement(
 		);
 
 		for (const property of record.properties) {
-			const directUsers = contract.workflows.filter(
-				(workflow) =>
-					workflow.inputs.some((input) => input.propertyId === property.id) ||
-					workflow.decisions.some((decision) =>
-						decision.inputPropertyIds.includes(property.id),
-					) ||
-					workflow.recordEffects.some((effect) =>
-						effect.writes.some((write) => write.propertyId === property.id),
-					) ||
-					workflow.readback.some((readback) =>
-						readback.propertyIds.includes(property.id),
-					),
-			);
+			const directUsers = dataReferences
+				.filter((references) => references.propertyIds.has(property.id))
+				.map((references) => references.workflowId);
 			const listUsers = contract.lists
 				.filter((list) =>
 					[
@@ -342,10 +329,7 @@ function deriveOwnerByElement(
 					const owner = listOwnerById.get(list.id);
 					return owner === undefined ? [] : [owner];
 				});
-			ownerByElement.set(
-				property.id,
-				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
-			);
+			ownerByElement.set(property.id, earliest([...directUsers, ...listUsers]));
 		}
 	}
 	// Property consumers and child catalogs also need their record types. Move
@@ -426,32 +410,12 @@ function requiredPrerequisiteWorkflowIds(
 			new Set(dependencies),
 		]),
 	);
-	const recordByProperty = new Map<string, string>(
-		contract.records.flatMap((record) =>
-			record.properties.map((property) => [property.id, record.id]),
-		),
-	);
 	for (const workflow of contract.workflows) {
-		const references = new Set<string>();
-		if (workflow.contextRecordId !== undefined)
-			references.add(workflow.contextRecordId);
-		for (const input of workflow.inputs)
-			if (input.propertyId !== undefined) references.add(input.propertyId);
-		for (const decision of workflow.decisions)
-			for (const id of decision.inputPropertyIds) references.add(id);
-		for (const effect of workflow.recordEffects) {
-			references.add(effect.recordId);
-			if (effect.sourceRecordId !== undefined)
-				references.add(effect.sourceRecordId);
-			for (const write of effect.writes) references.add(write.propertyId);
-		}
-		for (const readback of workflow.readback) {
-			references.add(readback.recordId);
-			for (const id of readback.propertyIds) references.add(id);
-		}
-		for (const id of references) {
-			const recordId = recordByProperty.get(id);
-			if (recordId !== undefined) references.add(recordId);
+		const { recordIds, propertyIds } = workflowDataReferences(
+			contract,
+			workflow,
+		);
+		for (const id of [...recordIds, ...propertyIds]) {
 			const owner = ownerByElement.get(id);
 			if (owner !== undefined && owner !== workflow.id)
 				required.get(workflow.id)?.add(owner);

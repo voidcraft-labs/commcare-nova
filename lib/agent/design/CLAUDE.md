@@ -175,8 +175,15 @@ valid direct Builder or MCP edit.
   order as the tie-breaker before construction dependencies are sorted. Each form depends on its module owner; parent placement, parent
   selection and child writers supply the other dependencies. Graph admission
   rejects construction cycles and any prerequisite for the initial workflow.
+  A direct child-record writer also depends on an accepted viewer regardless of
+  menu nesting. Prefer a list that can be created before its forms, then a
+  top-level home; move that viewer to the first writer when possible. Other
+  views keep their task ownership. `childRecordConstruction.ts` supplies the
+  shared writer lookup for global and nested placement constraints.
   Catalog entries belong to their first consumer, including lists, properties
-  and child catalogs. The first workflow that saves a record instance need not
+  and child catalogs. `workflowReferences.ts` supplies the same typed data-use
+  traversal to planning and briefs, including flat and grouped in-form record
+  summaries even when workflow readback does not repeat those values. The first workflow that saves a record instance need not
   own its definition. Shared catalog and property use adds the actual owner as
   a slice dependency. Worker starting conditions remain unchanged in the brief.
   A module whose parent has a different owner gains that

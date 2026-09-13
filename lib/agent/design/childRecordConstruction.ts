@@ -1,8 +1,8 @@
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 
 /**
- * Workflows whose forms live in `parentModuleCompositionId` and create the
- * record displayed by its different-record child menu.
+ * Workflows whose forms create a record hosted by another menu. An optional
+ * module narrows this to writers within a particular parent menu.
  *
  * Direct child-field writes require a viewer before their form lands. Design
  * records the intended create, before an executor chooses that implementation
@@ -10,16 +10,24 @@ import type { AppDesignContract } from "@/lib/agent/design/contract";
  * either implementation available, including when its parent is created in the
  * same slice.
  */
-export function parentFormChildWriterWorkflowIds(
+export function childRecordWriterWorkflowIds(
 	contract: AppDesignContract,
-	parentModuleCompositionId: string,
 	childHostRecordId: string,
+	parentModuleCompositionId?: string,
 ): string[] {
 	const parentFormWorkflowIds = new Set(
 		contract.formCompositions
 			.filter(
 				(composition) =>
-					composition.moduleCompositionId === parentModuleCompositionId,
+					(parentModuleCompositionId === undefined ||
+						composition.moduleCompositionId === parentModuleCompositionId) &&
+					composition.mode !== "standalone" &&
+					contract.moduleCompositions.some(
+						(module) =>
+							module.id === composition.moduleCompositionId &&
+							module.hostRecordId !== undefined &&
+							module.hostRecordId !== childHostRecordId,
+					),
 			)
 			.map((composition) => composition.workflowId),
 	);

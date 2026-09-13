@@ -46,6 +46,7 @@ import {
 	moduleSelectionIntent,
 	selectionRealizationWorkflowId,
 } from "@/lib/agent/design/selectionCoverage";
+import { workflowDataReferences } from "@/lib/agent/design/workflowReferences";
 import { slugifyId } from "@/lib/domain/idSlug";
 import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -556,32 +557,15 @@ export function deriveSliceExecutionBrief(args: {
 		(item) => item.readback,
 	);
 	const usedPropertyIds = new Set<string>();
-	for (const input of workflow.inputs) {
-		if (input.propertyId !== undefined) usedPropertyIds.add(input.propertyId);
-	}
-	for (const decision of workflow.decisions) {
-		for (const id of decision.inputPropertyIds) usedPropertyIds.add(id);
-	}
-	for (const effect of workflow.recordEffects) {
-		for (const write of effect.writes) usedPropertyIds.add(write.propertyId);
-	}
-	for (const reading of readback) {
-		for (const id of reading.propertyIds) usedPropertyIds.add(id);
-	}
+	const recordIds = new Set<string>();
 	const actorIds = new Set(
 		[workflow, ...readWorkflows].flatMap((item) => item.actorIds),
 	);
-	const recordIds = new Set<string>();
 	for (const covered of [workflow, ...readWorkflows]) {
-		if (covered.contextRecordId !== undefined)
-			recordIds.add(covered.contextRecordId);
+		const references = workflowDataReferences(args.contract, covered);
+		for (const id of references.recordIds) recordIds.add(id);
+		for (const id of references.propertyIds) usedPropertyIds.add(id);
 	}
-	for (const effect of workflow.recordEffects) {
-		recordIds.add(effect.recordId);
-		if (effect.sourceRecordId !== undefined)
-			recordIds.add(effect.sourceRecordId);
-	}
-	for (const reading of readback) recordIds.add(reading.recordId);
 	const lists = args.contract.lists.filter(
 		(list) =>
 			elements.has(list.id) ||
