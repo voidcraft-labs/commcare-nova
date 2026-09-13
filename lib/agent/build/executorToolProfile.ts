@@ -19,7 +19,7 @@ export interface ExecutorToolProfile {
 
 const READS_BY_AREA = {
 	app: ["searchBlueprint"],
-	"case-catalog": ["searchBlueprint"],
+	"case-catalog": ["searchBlueprint", "getCaseProperty"],
 	users: ["getUsers"],
 	"organization-shape": ["getOrganization"],
 	navigation: ["getModule", "getForm", "searchBlueprint"],
@@ -33,7 +33,11 @@ const READS_BY_AREA = {
 
 const MUTATIONS_BY_AREA = {
 	app: ["updateApp"],
-	"case-catalog": ["generateSchema", "renameCaseProperties"],
+	"case-catalog": [
+		"generateSchema",
+		"updateCaseProperty",
+		"renameCaseProperties",
+	],
 	users: [
 		"addUserProperties",
 		"updateUserProperty",

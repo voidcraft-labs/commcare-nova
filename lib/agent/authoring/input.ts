@@ -179,6 +179,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 			}),
 	};
 	const scopes: ScopedInput[] = [{ path: [], options: root }];
+	if (toolName === "updateCaseProperty")
+		root.currentCaseType = z.string().parse(input.caseType);
 	if (toolName === "updateModule" && input.case_type !== undefined)
 		root.currentCaseType =
 			z.string().nullable().parse(input.case_type) ?? undefined;

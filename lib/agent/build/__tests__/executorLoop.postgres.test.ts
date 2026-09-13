@@ -396,6 +396,125 @@ function results(messages: readonly ModelMessage[]) {
 }
 
 describe("persisted executor Responses journeys", () => {
+	it("repairs a catalog rule after recovery and publishes only the corrected candidate", async () => {
+		const f = await fixture();
+		const schema = structuredClone(f.calls.schema);
+		const definition: Call = {
+			...schema,
+			input: {
+				caseTypes: [
+					{
+						...schema.input.caseTypes[0],
+						properties: [
+							...schema.input.caseTypes[0].properties,
+							{
+								name: "beds",
+								label: "Beds",
+								data_type: "int",
+								validation: "between(., 1, 50)",
+								validation_msg: "Enter 1 to 50.",
+							},
+						],
+					},
+				],
+			},
+		};
+		const first = await withResponsesPeer(
+			(_request, response) =>
+				respondWithCalls(response, [
+					definition,
+					f.calls.module,
+					f.calls.finish,
+				]),
+			(provider) =>
+				f.run(
+					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+					{ budget: { maxModelSteps: 1 } },
+				),
+		);
+		expect(first).toMatchObject({
+			kind: "budget-exhausted",
+			axis: "model-steps",
+		});
+		const privateWorkspace = await f.reopenWorkspace();
+		expect(
+			privateWorkspace
+				.currentSnapshot()
+				.doc.caseTypes?.[0].properties.find(
+					(property) => property.name === "beds",
+				),
+		).toHaveProperty("validation");
+		expect(
+			await h
+				.db()
+				.selectFrom("apps")
+				.select("id")
+				.where("id", "=", f.proposedAppId)
+				.execute(),
+		).toEqual([]);
+		const before = await openDesignModelContext(f.contextSpec);
+		expect(
+			results(before.messages).find((part) => part.toolCallId === "finish")
+				?.output,
+		).toMatchObject({
+			type: "json",
+			value: { code: "WORKFLOW_NEEDS_CORRECTION" },
+		});
+		const repaired = await withResponsesPeer(
+			(_request, response) =>
+				respondWithCalls(response, [
+					{
+						id: "inspect-property",
+						name: "getCaseProperty",
+						input: { caseType: f.caseType, property: "beds" },
+					},
+					{
+						id: "repair-property",
+						name: "updateCaseProperty",
+						input: {
+							caseType: f.caseType,
+							property: "beds",
+							updates: { validation: ". >= 1 and . <= 50" },
+						},
+					},
+					{ ...f.calls.finish, id: "finish-repaired" },
+				]),
+			(provider) =>
+				f.run(
+					productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+				),
+		);
+		expect(repaired).toMatchObject({ kind: "committed" });
+		const canonical = await loadCanonicalBlueprintAtSequence(h.db(), {
+			appId: f.proposedAppId,
+			seq: 1,
+			expectedDigest: null,
+		});
+		expect(
+			canonical.doc.caseTypes?.[0].properties.find(
+				(property) => property.name === "beds",
+			),
+		).toMatchObject({
+			data_type: "int",
+			validation: { parts: [{ kind: "text", text: ". >= 1 and . <= 50" }] },
+		});
+		const steps = await loadChangeSetSteps(f.changeSet.id);
+		expect(steps.map((step) => step.toolName)).toEqual([
+			"generateSchema",
+			"createModule",
+			"updateCaseProperty",
+		]);
+		const context = await openDesignModelContext(f.contextSpec);
+		expect(
+			results(context.messages).find(
+				(part) => part.toolCallId === "inspect-property",
+			)?.output,
+		).toMatchObject({
+			type: "json",
+			value: { property: { validation: "between(., 1, 50)" } },
+		});
+	});
+
 	it("stages and materializes one response in order and skips calls after finish", async () => {
 		const f = await fixture();
 		let requests = 0;

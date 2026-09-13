@@ -100,8 +100,14 @@ there. Do not catch a commit conflict as a preparation error or rebind an alread
 prepared operation after a peer edit. The pilot's call deduplication lasts only
 for its process; production must use the durable call ledger.
 
-Read results use the same authored content shapes accepted by edits. Preserve
-existing child identities when replacing content. A read/edit cycle must not
+Read results use the same authored content shapes accepted by edits.
+`getCaseProperty` reads one exact catalog definition. `updateCaseProperty`
+merges an explicit patch into that definition under the workspace gate; null
+clears optional settings and omission preserves them. Type conversion remains
+with `editField`, and identity changes remain with `renameCaseProperties`.
+Catalog edits do not rewrite existing form content.
+
+Preserve existing child identities when replacing content. A read/edit cycle must not
 silently drop media, validation messages, navigation, or option identities.
 Production option edits preserve identity and attached media by retained identity
 or unique value. Field reads expose the editable validation, repeat, and choice

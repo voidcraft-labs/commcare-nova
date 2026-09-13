@@ -33,6 +33,10 @@ import { removeCaseOperationTool } from "@/lib/agent/tools/case-operations/remov
 import { updateCaseOperationTool } from "@/lib/agent/tools/case-operations/updateCaseOperation";
 import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
+import {
+	getCasePropertyTool,
+	updateCasePropertyTool,
+} from "@/lib/agent/tools/caseProperties";
 import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
@@ -437,6 +441,20 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "generateSchema",
 		mcpName: "generate_schema",
 		tool: generateSchemaTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "getCaseProperty",
+		mcpName: "get_case_property",
+		tool: getCasePropertyTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "updateCaseProperty",
+		mcpName: "update_case_property",
+		tool: updateCasePropertyTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

@@ -770,6 +770,8 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches. When there are more, the result says how many and your agent should search something more specific. |
 | `rename_case_properties` | Rename one or more case properties everywhere in the app as one simultaneous, lossless change. |
+| `get_case_property` | Read one record property's type, wording, choices, and catalog rules by `caseType` and `property`. |
+| `update_case_property` | Change that property's wording, choices, or catalog rules with an `updates` object. Omit a setting to keep it; use `null` to clear an optional setting. Existing form questions retain their own content. |
 
 A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so a new sectioned form is best authored in one `add_fields` call (each question with `parentUuid` naming its section; Nova assigns identities and orders parents before children), and an existing form is re-paged with `set_form_sections` rather than a run of `move_field` calls, which the commit gate would refuse half-way. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
 
@@ -855,6 +857,14 @@ blank case name is invalid. An active blank external ID clears it, while an
 omitted or irrelevant writer leaves the existing external ID unchanged.
 
 ### Renaming case properties
+
+For changes to a property's definition, `get_case_property` reads the current
+settings and `update_case_property` edits only the settings supplied. For
+example, `updates: { "label": "Number of beds" }` changes the catalog label.
+Question labels and rules already authored in forms remain unchanged.
+Clearing a catalog validation also requires clearing its accompanying
+`validation_msg`, if present. Changing a question's type uses `edit_field`,
+which handles the property's other writers and saved-data conversion together.
 
 `rename_case_properties` takes the complete nonempty relation for one
 app-wide change:

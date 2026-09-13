@@ -39,7 +39,7 @@
 		"inspectDesign",
 		"finishDesign"
 	],
-	"executorToolsetDigest": "55e9f0c3fea240de79f4d514210be409869ad81affe36163a36ac4dee609d038",
+	"executorToolsetDigest": "e73cd876c2e8c0c950d387b4cbc7967dbdbb1420e7466768914ff5e6db00f4c3",
 	"executorToolOrder": [
 		"getAuthoringGuide",
 		"getAutomations",
@@ -47,6 +47,7 @@
 		"getTranslatableContent",
 		"getLookupTables",
 		"getLookupTableRows",
+		"getCaseProperty",
 		"getField",
 		"getForm",
 		"getModule",
@@ -70,6 +71,7 @@
 		"createModule",
 		"editField",
 		"generateSchema",
+		"updateCaseProperty",
 		"moveField",
 		"setFormSections",
 		"moveModule",
