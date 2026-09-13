@@ -91,7 +91,7 @@ export const designReviewerComposition: RoleComposition = {
 			liveOnly(
 				"prompt",
 				"Review prompt",
-				'Built per call and not stored. In order: the source package rendered as tagged blocks (<nova:source tag="S1">), the tag legend, the same capability catalog the author reads, then the proposed contract as JSON with @handle symbols in place of raw identities, and one closing instruction. Attached images ride beside it, each labeled with its tag.',
+				"Built for each review from the source package with stable source labels, its source legend, the shared capability catalog, and the proposed contract with named references. Attached images appear beside their labels.",
 				REVIEW_PROMPT,
 			),
 			liveOnly(

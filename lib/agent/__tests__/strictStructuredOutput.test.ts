@@ -16,6 +16,7 @@ import {
 } from "@/lib/agent/design/review";
 import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import { designSourceLabel } from "@/lib/agent/design/sourceReferences";
 import {
 	strictStructuredSchema,
 	strictWireJsonSchema,
@@ -258,10 +259,11 @@ describe("the validation bridge", () => {
 	});
 
 	it("round-trips a wire-shaped review into the persisted UUID vocabulary", async () => {
+		const pkg = fixturePackage();
 		const schema = strictStructuredSchema(
 			designReviewSchemaFor({
 				contract: CONTRACT,
-				pkg: fixturePackage(),
+				pkg,
 				bindings: REVIEW_BINDINGS,
 			}),
 		);
@@ -275,7 +277,11 @@ describe("the validation bridge", () => {
 					// Handle + raw-contract-id arms, a tag citation with the strict
 					// null spelling in its optional slots, and a platform citation.
 					evidenceRefs: [
-						{ source: "S1", sectionPath: null, figureMarker: null },
+						{
+							source: designSourceLabel(pkg.request.blocks[0].ref),
+							sectionPath: null,
+							figureMarker: null,
+						},
 						{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" },
 					],
 					affectedElements: ["@task_visit", ids.taskRegister],
