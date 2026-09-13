@@ -378,6 +378,14 @@ state projects it back to the selected revision. Existing workspace operations
 and the source contract retain the evidence needed for replay after a source is
 removed from the candidate; no separate receipt registry exists. Submission,
 acceptance, and materialization retain their current Project-data checks.
+For the September 2026 cutover, run `scripts/scan-design-choice-workspaces.ts`
+before deploying over old data. The separate
+`scripts/migrate-design-choice-workspaces.ts --execute` retires open private
+workspaces containing incorrect historical evidence at a table's current
+revision. Unsubmitted work in those workspaces must be reauthored from the saved
+sources; history, immutable artifacts, identity bindings, and app/Project data
+remain intact. Held runs block repair. Re-run the scan afterward. These scripts
+are operator tools, never a compatibility path in runtime authoring.
 `inspectDesign` reads selected exact state only when
 a model needs a narrow workspace lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.

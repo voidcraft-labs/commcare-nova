@@ -168,6 +168,14 @@ The full related suites pass 845 tests, including refusal of stale first-time
 references and replay after a source removal and table change. Independent
 review and publication of the evidence boundary are pending. The remaining
 role guidance is still open.
+Independent review identified a historical metadata trap: old private operations
+could contain model-authored evidence that finalization rejected but a new
+selection kept reusing. A separate scan and one-time migration now retire
+affected open workspaces without adding runtime compatibility. The Postgres
+repair journey verifies valid drafts and held runs are preserved, incorrect
+history is detected after source removal, and reset keeps history, identities,
+and Project data. The read-only local scan found one clean open workspace and
+no affected metadata. The correction is awaiting independent review.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.
