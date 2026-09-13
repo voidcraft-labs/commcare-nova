@@ -150,7 +150,13 @@ describe("actual SA edit-turn Responses wire", () => {
 				defer_loading: true,
 				parameters: {
 					required: ["moduleUuid"],
-					properties: { moduleUuid: { type: "string" }, name: {} },
+					properties: {
+						moduleUuid: {
+							type: "string",
+							description: "Module name or stable ID.",
+						},
+						name: {},
+					},
 				},
 			});
 			const input = body.input ?? [];

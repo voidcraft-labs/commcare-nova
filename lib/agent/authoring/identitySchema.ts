@@ -57,13 +57,31 @@ function reference(root: Json, ref: string): Json {
 }
 function resolved(root: Json, node: Json): Json {
 	const seen = new Set<string>();
-	while (typeof node.$ref === "string") {
-		if (seen.has(node.$ref))
-			throw new Error(`Cyclic identity schema alias: ${node.$ref}`);
-		seen.add(node.$ref);
-		node = reference(root, node.$ref);
+	while (true) {
+		if (typeof node.$ref === "string") {
+			if (seen.has(node.$ref))
+				throw new Error(`Cyclic identity schema alias: ${node.$ref}`);
+			seen.add(node.$ref);
+			node = reference(root, node.$ref);
+			continue;
+		}
+		// Zod wraps a described shared reference in allOf. Its old UUID wording
+		// belongs to the same slot and must be replaced with the authored name.
+		const child =
+			Array.isArray(node.allOf) && node.allOf.length === 1
+				? object(node.allOf[0])
+				: undefined;
+		if (
+			child &&
+			Object.keys(node).every((key) =>
+				["allOf", "description", "title", "$comment"].includes(key),
+			)
+		) {
+			node = child;
+			continue;
+		}
+		return node;
 	}
-	return node;
 }
 function familyAt(
 	tool: string,

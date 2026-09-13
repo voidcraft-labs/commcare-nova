@@ -30,7 +30,7 @@ it("classifies every reference in the real shared grammar without changing its c
 it("widens references where they are used while leaving shared creation IDs strict", () => {
 	const canonical = z.toJSONSchema(
 		z.object({
-			moduleUuid: uuidSchema,
+			moduleUuid: uuidSchema.describe("Stable module UUID from a prior read."),
 			operations: z.array(
 				z.object({
 					operationUuid: uuidSchema,
@@ -41,6 +41,11 @@ it("widens references where they are used while leaving shared creation IDs stri
 		{ target: "draft-7", reused: "ref" },
 	);
 	projectNamedIdentitySchemas("addCaseOperations", canonical);
+	expect(canonical.properties?.moduleUuid).toEqual({
+		type: "string",
+		minLength: 1,
+		description: "Module name or stable ID.",
+	});
 	const schema = z.fromJSONSchema(canonical, { registry: z.registry() });
 	const input = {
 		moduleUuid: "Visits",
