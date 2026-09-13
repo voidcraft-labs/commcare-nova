@@ -117,7 +117,7 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "field":
 				return call("field", quote(value.uuid));
 			case "session-user":
-				return call("user", quote(value.field));
+				return call("external-user", quote(value.field));
 			case "session-user-property":
 				return call("user", quote(value.userPropertyUuid));
 			case "session-context":

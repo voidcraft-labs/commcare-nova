@@ -140,6 +140,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		};
 	}
 	private table(name: string) {
+		const identity = this.tables.find((table) => table.id === name);
+		if (identity) return identity;
 		return one(
 			this.tables,
 			(table) => table.id === name || table.name === name || table.tag === name,
@@ -148,6 +150,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 	}
 	resolveField = (segments: readonly string[]): Uuid | undefined => {
 		const name = segments.join("/");
+		const identity = this.fields.find((field) => field.uuid === name);
+		if (identity) return identity.uuid;
 		const ids = new Set(
 			this.fields
 				.filter((field) => field.path === name || field.uuid === name)
@@ -170,6 +174,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			return { kind: "field", uuid };
 		}
 		if (value === "search") {
+			const identity = this.inputs.find((input) => input.uuid === name);
+			if (identity) return { kind: "input", searchInputUuid: identity.uuid };
 			const input = one(
 				this.inputs,
 				(input) => input.uuid === name || input.name === name,
@@ -204,6 +210,10 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const column = this.column(table, name);
 			return { kind: "table-column", tableId: table.id, columnId: column.id };
 		}
+		if (value === "record" && path.length !== 2)
+			throw new Error(
+				"A record reference needs exactly one record type and property.",
+			);
 		const caseType =
 			value === "case"
 				? this.typeContext.currentCaseType
@@ -230,6 +240,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		return termSchema.parse({ kind: "prop", caseType: type.name, property });
 	}
 	private column(table: LookupTableDefinition, name: string) {
+		const identity = table.columns.find((column) => column.id === name);
+		if (identity) return identity;
 		return one(
 			table.columns,
 			(column) =>
@@ -253,6 +265,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				: kind === "location"
 					? (this.options.locations ?? [])
 					: Object.values(this.options.doc.organizationLevels ?? {});
+		const identity = values.find((value) => value.uuid === name);
+		if (identity) return identity.uuid;
 		return one(
 			values,
 			(value) =>
@@ -340,7 +354,8 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const property = this.options.doc.userProperties?.[term.userPropertyUuid];
 			return property ? `user(${quote(property.slug)})` : undefined;
 		}
-		if (term.kind === "session-user") return `user(${quote(term.field)})`;
+		if (term.kind === "session-user")
+			return `external-user(${quote(term.field)})`;
 		if (
 			term.kind === "prop" &&
 			!term.via &&
@@ -351,7 +366,18 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			const column = this.table(term.tableId).columns.find(
 				(column) => column.id === term.columnId,
 			);
-			return column ? `#row/${column.wireName}` : undefined;
+			if (column) {
+				try {
+					if (
+						this.column(this.table(term.tableId), column.wireName).id ===
+						term.columnId
+					)
+						return `#row/${column.wireName}`;
+				} catch {
+					/* Fall back to the scoped stable column address. */
+				}
+			}
+			return undefined;
 		}
 		return undefined;
 	}

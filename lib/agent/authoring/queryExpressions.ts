@@ -201,6 +201,10 @@ function compiler(bindings: QueryBindings) {
 				arity(name, args, 1);
 				return { kind: "session-context", field: string(args[0]) };
 			}
+			if (name === "external-user") {
+				arity(name, args, 1);
+				return { kind: "session-user", field: string(args[0]) };
+			}
 			if (name === "location") {
 				arity(name, args, 1);
 				return {

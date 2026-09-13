@@ -36,9 +36,9 @@ export function parseInterpolatedText<Reference>(
 			cursor += 2;
 			continue;
 		}
-		if (source.startsWith("\\{{", cursor)) {
-			text += "{{";
-			cursor += 3;
+		if (source.startsWith("\\{", cursor)) {
+			text += "{";
+			cursor += 2;
 			continue;
 		}
 		if (!source.startsWith("{{", cursor)) {
@@ -88,7 +88,7 @@ export function printInterpolatedText<Reference>(
 				"text" in part &&
 				typeof part.text === "string"
 			)
-				return part.text.replaceAll("\\", "\\\\").replaceAll("{{", "\\{{");
+				return part.text.replaceAll("\\", "\\\\").replaceAll("{", "\\{");
 			return `{{${reference(part as Reference)}}}`;
 		})
 		.join("");

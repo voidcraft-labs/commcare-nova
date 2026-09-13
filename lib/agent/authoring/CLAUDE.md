@@ -32,9 +32,18 @@ with `via` stores the originating case type. Nested `where` clauses change both
 parse and print scope. The existing type checker owns relation traversal and
 numeric inference; do not duplicate those rules here.
 
+Print a name only when it resolves back to the same identity; an ambiguous label
+falls back to its scoped stable address. Existing identities take precedence
+over a coincidentally identical display label. External worker values print as
+`external-user(...)`, keeping them distinct from authored worker properties even
+when a predicate may legally contain both names. Canonical prose admission
+already rejects that collision for prose references.
+
 `messages.ts` gives automation messages the same literal escaping as form text.
 The record catalog binds case, parent, and host references. The canonical
 automation validator still owns allowed properties, shadowing, and message limits.
+Literal opening braces are escaped individually, including a single brace next
+to a reference; otherwise text and an insertion can merge into a new delimiter.
 
 `experimental` is reachable only from the local comparison script. Its native
 tools cover one client workflow. The JavaScript adapter preserves the comparison

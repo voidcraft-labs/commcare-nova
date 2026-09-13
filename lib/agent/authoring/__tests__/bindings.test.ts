@@ -2,6 +2,7 @@ import { v7 as uuidv7 } from "uuid";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
+import { parseAuthoredXPath } from "@/lib/doc/expressionText";
 import { type CaseType, proseText } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
@@ -13,6 +14,7 @@ import { AuthoringScope } from "../bindings";
 import { parseAuthoringMessage, printAuthoringMessage } from "../messages";
 import { queryPrinter } from "../printQueryExpression";
 import { parseQueryPredicate, parseQueryValue } from "../queryExpressions";
+import { normalizeText, printAuthoringText } from "../text";
 
 const household: CaseType = {
 	name: "Household",
@@ -31,6 +33,9 @@ it("binds related names on their destination while preserving the canonical orig
 	const doc = { ...makeCanonicalGenesisDoc(), caseTypes: [household, patient] };
 	const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });
 	const printer = queryPrinter(scope);
+	expect(() => parseQueryValue("#record/Patient/age/typo", scope)).toThrow(
+		"exactly one",
+	);
 	const value = parseQueryValue("via(ancestor('parent'), #case/region)", scope);
 	expect(value).toEqual({
 		kind: "term",
@@ -100,6 +105,23 @@ it("resolves identically named columns within the requested table and preserves 
 			value,
 		);
 	}
+	const initial = parseQueryValue(
+		"lookup('Districts', 'name', #row/code = 'north')",
+		scope,
+	);
+	const collisionTables = tables.map((table) => ({
+		...table,
+		columns: table.columns.map((column, index) =>
+			index === 1 ? { ...column, label: "code" } : column,
+		),
+	}));
+	const collisionScope = new AuthoringScope({ doc, tables: collisionTables });
+	expect(() =>
+		collisionScope.forTable(tables[0].id).reference("row", ["code"]),
+	).toThrow("ambiguous");
+	const printed = queryPrinter(collisionScope).value(initial);
+	expect(printed).toContain(tables[0].columns[0].id);
+	expect(parseQueryValue(printed, collisionScope)).toEqual(initial);
 	expect(() => parseQueryValue("#row/code", scope)).toThrow("data-table scope");
 	expect(() =>
 		parseQueryValue("lookup('Missing', 'name', true())", scope),
@@ -127,6 +149,14 @@ it("rejects ambiguous field names and binds authored worker information by stabl
 		term: { kind: "field", uuid: a },
 	});
 	const value = parseQueryValue("user('region')", scope);
+	const external = parseQueryValue("external-user('region')", scope);
+	expect(external).toEqual({
+		kind: "term",
+		term: { kind: "session-user", field: "region" },
+	});
+	expect(parseQueryValue(queryPrinter(scope).value(external), scope)).toEqual(
+		external,
+	);
 	expect(value).toEqual({
 		kind: "term",
 		term: { kind: "session-user-property", userPropertyUuid: uuid },
@@ -160,7 +190,7 @@ it("roundtrips message text and binds parent versus host references without chan
 		caseType: "Household",
 		property: "region",
 	});
-	expect(printAuthoringMessage(message)).toBe(source);
+	expect(printAuthoringMessage(message)).toBe(source.replace("\\{{", "\\{\\{"));
 	expect(
 		parseAuthoringMessage(printAuthoringMessage(message), "Patient", [
 			patient,
@@ -186,4 +216,44 @@ it("roundtrips message text and binds parent versus host references without chan
 			household,
 		]),
 	).toThrow("no parent");
+});
+
+it("keeps literal opening braces separate from an adjacent prose or message reference", () => {
+	const uuid = testUuid("region");
+	const doc = {
+		...makeCanonicalGenesisDoc(),
+		userProperties: { [uuid]: { uuid, slug: "region", label: "Region" } },
+	};
+	for (const text of ["{", "{{", "\\{", "{{prefix"]) {
+		const prose = {
+			parts: [
+				{ kind: "text" as const, text },
+				{ kind: "user-property-ref" as const, userPropertyUuid: uuid },
+				{ kind: "text" as const, text: "}" },
+			],
+		};
+		const printed = printAuthoringText(prose, doc);
+		expect(
+			normalizeText(printed, (source) =>
+				parseAuthoredXPath(doc, undefined, () => undefined, source),
+			),
+		).toEqual(prose);
+		const message = {
+			parts: [
+				{ kind: "text" as const, text },
+				{
+					kind: "case-property" as const,
+					caseType: "Patient",
+					scope: "case" as const,
+					property: "age",
+				},
+				{ kind: "text" as const, text: "}" },
+			],
+		};
+		expect(
+			parseAuthoringMessage(printAuthoringMessage(message), "Patient", [
+				patient,
+			]),
+		).toEqual(message);
+	}
 });
