@@ -208,6 +208,7 @@ export function assessAcceptedWorkflow(args: {
 			// existing record. A generated-ID create cannot supply that update.
 			if (
 				operation.action === "create" &&
+				operation.target.kind === "new" &&
 				operation.target.idFrom !== undefined
 			)
 				effects.push({

@@ -246,7 +246,8 @@ describe("accepted workflow structural conformance", () => {
 				draft.forms[formUuid].caseOperations?.[0],
 				"create",
 			);
-			if (operation.action !== "create") throw new Error("Expected create");
+			if (operation.action !== "create" || operation.target.kind !== "new")
+				throw new Error("Expected create");
 			delete operation.target.idFrom;
 		});
 		assertAdmittedDoc(generated);
