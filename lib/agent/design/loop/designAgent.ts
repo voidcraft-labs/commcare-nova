@@ -18,18 +18,16 @@ import type {
 	ToolInputRefinement,
 	UIMessage,
 } from "ai";
-import { ToolLoopAgent, zodSchema } from "ai";
+import { ToolLoopAgent, type ToolSet, zodSchema } from "ai";
 import { z } from "zod";
 import {
 	buildCapabilityCatalog,
 	renderCapabilityCatalog,
 } from "@/lib/agent/design/capabilityCatalog";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
-import {
-	DESIGN_AGENT_SYSTEM,
-	renderPlatformConstraintsSection,
-} from "@/lib/agent/design/prompts";
+import { DESIGN_AGENT_SYSTEM } from "@/lib/agent/design/prompts";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import { novaOpenAITools } from "@/lib/agent/openaiProvider";
 import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import {
 	modelMessagesContainCompaction,
@@ -42,6 +40,7 @@ import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type {
 	createDesignLoopActions,
 	createDesignToolExecutionQueue,
+	designLoopToolDefinitions,
 } from "./tools";
 
 /** The design registration of the client pause tool: same schema, same
@@ -50,7 +49,7 @@ import type {
  *  leading recommendation wherever real candidates exist, free text as the
  *  ever-present fallback the user already has rather than an option. */
 export const DESIGN_ASK_QUESTIONS_DESCRIPTION =
-	"Ask the user clarifying questions; execution pauses for their answers. Always available, any number of rounds. Give a question 2-4 concrete options whenever real alternatives or sensible defaults exist — your recommended option first when you have one, its label ending with a short marker meaning 'Recommended' written in the conversation's language (' (Recommended)' in English, ' (Recomendado)' in Spanish). The user can always answer in free text instead of picking an option, so never add an option that means 'something else'; an empty options list is only for questions with no concrete candidates. If a question asks for data or a document, the user may attach a file while answering; it arrives right after the answers. Assume only what the user would not want to be asked.";
+	"Ask for a decision needed to design the app, then pause for the answer. Offer 2-4 concrete choices when useful, with your recommendation first and marked Recommended in the conversation language. Free text and attachments are already available; omit catch-all choices. Use an empty options list when there are no useful candidates.";
 
 export const DESIGN_WAIT_FOR_INPUT_TOOL = "waitForInput";
 
@@ -65,7 +64,7 @@ const waitForInputInputSchema = z
 	.strict();
 
 export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
-	"Pause this design only when the user's latest message explicitly says more requirements or source material are coming, or asks Nova not to begin yet. First acknowledge what they shared in one short visible sentence, then call this tool. Do not use it when you need the user to answer a material question; use askQuestions instead. Do not use it merely because the design is difficult or incomplete.";
+	"Pause when the user says more requirements or source material are coming, or asks you to wait. To ask for a decision, use askQuestions.";
 
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
@@ -76,9 +75,8 @@ export interface DesignAgentArgs {
 		typeof createDesignToolExecutionQueue
 	>;
 	/** Static instruction suffix: the capability catalog plus the citable
-	 *  platform constraints, byte-identical across a deploy's sessions. */
+	 *  platform constraints once, byte-identical across a deploy's sessions. */
 	readonly catalogText: string;
-	readonly constraintsText: string;
 	readonly instructions: string;
 	/** Per-session prompt-cache affinity (`nova:design:<sessionId>`). */
 	readonly promptCacheKey: string;
@@ -558,35 +556,25 @@ export async function projectDesignStepMessages(
 }
 
 /**
- * The three parts every design session's system prompt is composed from,
- * as the loop runner passes them to `createDesignAgent`: the static phase
- * instructions, the generated capability catalog, and the citable platform
- * constraints. Zero-arg on purpose: nothing about a session changes them.
+ * The brief and generated capability catalog sent in every design session.
+ * The catalog includes the citable platform constraints once.
  */
 export function designAuthorInstructionParts(): {
 	readonly instructions: string;
 	readonly catalogText: string;
-	readonly constraintsText: string;
 } {
 	return {
 		instructions: DESIGN_AGENT_SYSTEM,
 		catalogText: renderCapabilityCatalog(buildCapabilityCatalog()),
-		constraintsText: renderPlatformConstraintsSection(),
 	};
 }
 
-/**
- * The design agent's system prompt: the static phase instructions, the
- * generated capability catalog, and the platform constraints, separated by
- * blank lines. `createDesignAgent` sends exactly this string, so a reader of
- * the three parts reads the prompt.
- */
+/** Production and anatomy compose the same static prefix. */
 export function composeDesignInstructions(
 	instructions: string,
 	catalogText: string,
-	constraintsText: string,
 ): string {
-	return [instructions, "", catalogText, "", constraintsText].join("\n");
+	return [instructions, catalogText].join("\n\n");
 }
 
 /**
@@ -611,36 +599,44 @@ export function designAgentOwnedToolDefinitions() {
 	};
 }
 
+/** Preserve each native tool's schema and execution binding while letting the
+ * provider load design operations on demand. Questions, pauses, and completion
+ * remain immediately available. Hosted discovery never enters the local queue. */
+function deferredDesignTools<T extends ToolSet>(tools: T): T {
+	return Object.fromEntries(
+		Object.entries(tools).map(([name, definition]) => [
+			name,
+			name === "finishDesign"
+				? definition
+				: {
+						...definition,
+						providerOptions: { openai: { deferLoading: true } },
+					},
+		]),
+	) as T;
+}
+
+export function designAgentToolDefinitions<
+	T extends ReturnType<typeof designLoopToolDefinitions>,
+>(loopTools: T) {
+	return {
+		toolSearch: novaOpenAITools.toolSearch(),
+		...designAgentOwnedToolDefinitions(),
+		...deferredDesignTools(loopTools),
+	};
+}
+
 export function createDesignAgent(args: DesignAgentArgs) {
 	const freshStateDigests = new Set<string>();
-	const ownedTools = designAgentOwnedToolDefinitions();
+	const definitions = designAgentToolDefinitions(args.tools);
 	const stableTools = {
-		askQuestions: ownedTools.askQuestions,
+		...definitions,
 		[DESIGN_WAIT_FOR_INPUT_TOOL]: {
-			...ownedTools[DESIGN_WAIT_FOR_INPUT_TOOL],
+			...definitions[DESIGN_WAIT_FOR_INPUT_TOOL],
 			execute: async (input: unknown) => args.toolExecutionQueue.pause(input),
 		},
-		inspectProjectData: args.tools.inspectProjectData,
-		setDesignRoot: args.tools.setDesignRoot,
-		updateActors: args.tools.updateActors,
-		updateRecords: args.tools.updateRecords,
-		updateWorkflows: args.tools.updateWorkflows,
-		updateLists: args.tools.updateLists,
-		updateAccess: args.tools.updateAccess,
-		updateNavigation: args.tools.updateNavigation,
-		updateModuleCompositions: args.tools.updateModuleCompositions,
-		placeModules: args.tools.placeModules,
-		updateFormCompositions: args.tools.updateFormCompositions,
-		updateLookupTables: args.tools.updateLookupTables,
-		updateExternalRequirements: args.tools.updateExternalRequirements,
-		updateDecisions: args.tools.updateDecisions,
-		updateAssumptions: args.tools.updateAssumptions,
-		updateOpenQuestions: args.tools.updateOpenQuestions,
-		updateFindingDispositions: args.tools.updateFindingDispositions,
-		inspectDesign: args.tools.inspectDesign,
-		finishDesign: args.tools.finishDesign,
 	};
-	type StableDesignTools = typeof stableTools;
+	type StableDesignTools = Omit<typeof stableTools, "toolSearch">;
 	const registerToolInput =
 		<NAME extends keyof StableDesignTools>(toolName: NAME) =>
 		(
@@ -677,7 +673,6 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		instructions: composeDesignInstructions(
 			args.instructions,
 			args.catalogText,
-			args.constraintsText,
 		),
 		stopWhen: ({ steps }) =>
 			designStepBudgetReached(

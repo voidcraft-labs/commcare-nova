@@ -240,15 +240,12 @@ describe("review source and capability composition", () => {
 			renderCapabilityCatalog(catalog),
 			[],
 		);
-		expect(rendered).toContain(catalog.catalogDigest.slice(0, 16));
 		expect(rendered).toContain(
 			`Field kinds: ${catalog.fieldKinds.join(", ")}.`,
 		);
 		expect(rendered).toContain(
 			`Case property data shapes: ${catalog.caseDataShapes.join(", ")}.`,
 		);
-		for (const tool of catalog.toolSurface)
-			expect(rendered).toContain(tool.saName);
 		for (const constraint of catalog.constraints)
 			expect(rendered).toContain(
 				`- ${constraint.code}: ${constraint.statement}`,

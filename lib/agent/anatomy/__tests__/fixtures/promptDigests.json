@@ -4,19 +4,22 @@
 		"version": "build-executor-v21"
 	},
 	"designInstructions": {
-		"digest": "b7b7f08ecd99585a88c39cf66b6d571ac42180735d01735b8bc9dcff807fe354",
-		"version": "design-agent-v32"
+		"digest": "46f5a9139d2e863bb8640e43b27df3f6860e9ab474e46454fa13aebe729a80bb",
+		"version": "design-agent-v33"
 	},
 	"designReviewerSystem": {
-		"digest": "40969318f4a7b49975c6ec96bfdfef63da37b4efac19f03d9ef1bbeaf7072dff",
-		"version": "design-reviewer-v21"
+		"digest": "5950fc55965f4bf9b3f9467c480f8928cd84edc5812f900a191a4050973034c2",
+		"version": "design-reviewer-v22"
 	},
 	"extractSystem": {
 		"digest": "39df659a59ec1a50aa7fff1686f8456cef8811a8a391e32c817605fb50a821e5",
 		"version": 4
 	},
-	"designToolsetDigest": "3cc831ee8f845c774145371871d3485ef8a53b2425718049cb66d9e7fed46022",
+	"designToolsetDigest": "473ed9b08c30d114f3bde003bb0c0675cee3bc5eab3a128a0e3b0f6f3fc4edfa",
 	"designToolOrder": [
+		"toolSearch",
+		"askQuestions",
+		"waitForInput",
 		"inspectProjectData",
 		"setDesignRoot",
 		"updateActors",

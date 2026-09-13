@@ -6,7 +6,7 @@
  * and atomically persists one immutable artifact.
  */
 
-import { jsonSchema } from "ai";
+import { asSchema, jsonSchema, type ToolSet } from "ai";
 import { type ZodError, z } from "zod";
 import {
 	type DesignArtifactWriteAuthority,
@@ -1064,7 +1064,6 @@ async function persistStagedDesignPart(args: {
 	operation: DesignArtifactWorkspaceOperation;
 	workspaceRevision: number;
 	workspaceHandleBindings: readonly DesignIdentityHandleBinding[];
-	successMessage: string;
 }) {
 	const handleBindings = [
 		...collectDesignIdentityHandleBindings(
@@ -1098,7 +1097,6 @@ async function persistStagedDesignPart(args: {
 		return {
 			ok: true,
 			deduplicated: result.deduplicated,
-			message: args.successMessage,
 		};
 	} catch (error) {
 		const handled = workspaceError(error);
@@ -1511,7 +1509,7 @@ const semanticCollectionDefinition = (
 	collection: (typeof CONTRACT_COLLECTIONS)[number],
 	description: string,
 ): DesignLoopToolDefinition => ({
-	description: `${description} Upsert or remove complete items. Give each new element a readable @handle and reuse it in references. Emit this together with other known design updates in the same response.`,
+	description: `${description} Upsert complete items or remove them by name.`,
 	inputSchema: strictWireWithHandles(
 		designCollectionUpdateInputSchemas[collection],
 	),
@@ -1534,7 +1532,7 @@ export function designLoopToolDefinitions() {
 		},
 		setDesignRoot: {
 			description:
-				"Set the design identity and/or complete app charter in the implicit design workspace. Give a new design identity a readable @handle. Emit this with other known semantic design calls in the same response.",
+				"Set the app name, purpose, scope, first workflow, and optional language choices.",
 			inputSchema: strictWireWithHandles(setDesignRootInputSchema),
 			strict: true,
 		},
@@ -1616,28 +1614,26 @@ export function designLoopToolDefinitions() {
 
 /**
  * The digest a design context persists as its `toolset_digest`: the mounted
- * tools in insertion order, each as `{ name, description, strict,
- * inputSchema }`. The runner computes it over the bound tools when a context
+ * tools in insertion order, including schemas, descriptions, strictness,
+ * provider tools, and loading settings. It excludes execution closures.
+ * The runner computes it over the bound tools when a context
  * opens; a reader recomputes it over the definitions alone to compare with
  * what a session persisted.
  */
-export async function designToolsetDigest(
-	tools: Record<
-		string,
-		{
-			readonly description: string;
-			readonly strict?: boolean;
-			readonly inputSchema: { readonly jsonSchema: unknown };
-		}
-	>,
-): Promise<string> {
+export async function designToolsetDigest(tools: ToolSet): Promise<string> {
 	return canonicalJsonDigest(
 		await Promise.all(
 			Object.entries(tools).map(async ([name, definition]) => ({
 				name,
+				type: definition.type,
 				description: definition.description,
 				strict: definition.strict,
-				inputSchema: await definition.inputSchema.jsonSchema,
+				providerOptions: definition.providerOptions,
+				inputSchema: await asSchema(definition.inputSchema).jsonSchema,
+				...(definition.type === "provider" && {
+					id: definition.id,
+					args: definition.args,
+				}),
 			})),
 		),
 	);
@@ -1766,10 +1762,6 @@ export function createDesignLoopActions(
 			operation: parsed.data,
 			workspaceRevision: workspace.workspace.revision,
 			workspaceHandleBindings: workspace.handleBindings,
-			successMessage:
-				kind === "contract"
-					? "The design update is saved. Continue with other known semantic updates, then finish the complete design."
-					: "The revision update is saved. Continue with the affected design items and blocking dispositions, then finish the revision.",
 		});
 	};
 

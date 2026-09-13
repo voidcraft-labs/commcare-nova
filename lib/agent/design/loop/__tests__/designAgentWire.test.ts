@@ -1,6 +1,7 @@
 /** The installed SDK decodes complete Responses streams and executes the actual
  * design tool registry. External Project inspection is controlled solely to
  * observe provider ordering; native Project authority has its own suite. */
+import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { did } from "@/lib/agent/design/__tests__/fixtures";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -69,8 +70,22 @@ describe("design agent Responses contract", () => {
 				});
 				expect(request.parallel_tool_calls).toBe(true);
 			}
-			const byName = new Map(first.tools?.map((tool) => [tool.name, tool]));
+			const byName = new Map(
+				first.tools
+					?.filter((tool) => tool.type === "function")
+					.map((tool) => [tool.name, tool]),
+			);
 			expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
+			expect(
+				first.tools?.filter((tool) => tool.type === "tool_search"),
+			).toHaveLength(1);
+			for (const name of DESIGN_TOOL_NAMES) {
+				expect(byName.get(name)?.defer_loading, name).toBe(
+					["askQuestions", "waitForInput", "finishDesign"].includes(name)
+						? undefined
+						: true,
+				);
+			}
 			for (const name of DESIGN_TOOL_NAMES.filter(
 				(name) => name !== "askQuestions",
 			)) {
@@ -89,6 +104,76 @@ describe("design agent Responses contract", () => {
 				byName.get("inspectProjectData")?.parameters?.properties?.tableId,
 			).not.toHaveProperty("anyOf");
 		});
+	});
+
+	it("retains hosted discovery across steps without queuing it as a design operation", async () => {
+		const persisted: ModelMessage[] = [];
+		let inspections = 0;
+		await withDesignResponses(
+			[
+				[
+					{ type: "search", query: "inspect available Project tables" },
+					{
+						type: "tool",
+						name: "inspectProjectData",
+						input: catalogInput,
+						callId: "inspect_after_search",
+					},
+				],
+				answer,
+			],
+			async (model, requests) => {
+				await consumeDesignAgent(
+					wireAgent(
+						model,
+						{
+							onStepCompleted: async (step) => {
+								persisted.push(...step.responseMessages);
+							},
+						},
+						async () => {
+							inspections++;
+							return {
+								kind: "catalog",
+								projectRevision: parseLookupRevision("0"),
+								complete: true,
+								tables: [],
+							};
+						},
+					),
+				);
+				expect(inspections).toBe(1);
+				expect(
+					persisted.flatMap((message) =>
+						message.role === "assistant" && typeof message.content !== "string"
+							? message.content
+							: [],
+					),
+				).toContainEqual(
+					expect.objectContaining({
+						type: "tool-call",
+						toolName: "toolSearch",
+						providerExecuted: true,
+					}),
+				);
+				expect(requests[1]?.input).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							type: "tool_search_call",
+							execution: "server",
+						}),
+						expect.objectContaining({
+							type: "tool_search_output",
+							execution: "server",
+						}),
+						expect.objectContaining({
+							type: "function_call_output",
+							call_id: "inspect_after_search",
+						}),
+					]),
+				);
+			},
+		);
 	});
 
 	it("forces the first five exact required questions while retaining the stable decoded client tool", async () => {
@@ -128,9 +213,12 @@ describe("design agent Responses contract", () => {
 					expect(wireInput).toContain(question.question);
 				for (const question of questions.slice(5))
 					expect(wireInput).not.toContain(question.question);
-				expect(requests[0]?.tools?.map((tool) => tool.name).sort()).toEqual(
-					DESIGN_TOOL_NAMES,
-				);
+				expect(
+					requests[0]?.tools
+						?.filter((tool) => tool.type === "function")
+						.map((tool) => tool.name)
+						.sort(),
+				).toEqual(DESIGN_TOOL_NAMES);
 				const calls = result.steps.flatMap((step) => step.toolCalls);
 				expect(calls).toHaveLength(1);
 				expect(calls[0]).toMatchObject({

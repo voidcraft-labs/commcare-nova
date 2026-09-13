@@ -83,12 +83,11 @@ describe("prompt segments", () => {
 	});
 
 	it("composes the design author instructions the runner sends, versioned", () => {
-		const { instructions, catalogText, constraintsText } =
-			designAuthorInstructionParts();
+		const { instructions, catalogText } = designAuthorInstructionParts();
 		expect(instructions).toBe(DESIGN_AGENT_SYSTEM);
 		expectVersionedPrompt(
 			"The design author instructions",
-			composeDesignInstructions(instructions, catalogText, constraintsText),
+			composeDesignInstructions(instructions, catalogText),
 			DESIGN_PROMPT_VERSIONS.agent,
 			fixture.designInstructions,
 			"DESIGN_PROMPT_VERSIONS.agent",

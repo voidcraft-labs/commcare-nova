@@ -60,6 +60,7 @@ import {
 	createDesignAgent,
 	DESIGN_WAIT_FOR_INPUT_TOOL,
 	type DesignAgentStep,
+	designAgentToolDefinitions,
 	designAuthorInstructionParts,
 	hasAuthoritativeDesignStateMessage,
 	isExactRequiredDesignQuestionCall,
@@ -1817,7 +1818,9 @@ export async function runDesignAgentLoop(
 	};
 	const openAndRecoverModelContext = async (): Promise<void> => {
 		if (modelContextId !== null) return;
-		const toolsetDigest = await designToolsetDigest(tools);
+		const toolsetDigest = await designToolsetDigest(
+			designAgentToolDefinitions(tools),
+		);
 		const persisted = await openDesignModelContext({
 			designSessionId: args.designSessionId,
 			kind: "design",

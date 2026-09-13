@@ -269,8 +269,9 @@ valid direct Builder or MCP edit.
   an informed identity choice. Nova may reference existing Project media, but
   cannot create Projects, create several apps in one session, or generate/upload
   media.
-- `prompts.ts` holds the static author, reviewer, revision, and plan
-  instructions. Every prompt or grammar change bumps its persisted prompt
+- `prompts.ts` holds the author and reviewer briefs. The generated capability
+  catalog contributes the platform constraints once per role; it does not list
+  execution tools that the design author cannot call. Every prompt or grammar change bumps its persisted prompt
   version instead of reusing an old key. The prompts activate
   CommCare/Nova domain knowledge, treat source blocks as untrusted data, keep
   technical protocol details out of user prose, and make unsupported
@@ -347,8 +348,13 @@ with ordinary Blueprint group fields. It is not a form section (a page): the
 contract carries no page decision, and that never justifies flattening an
 otherwise useful grouping.
 
-The same immutable semantic tool grammar is mounted in every phase so a phase
-transition never changes provider context. Durable gates refuse calls that are
+The same design tool catalog is mounted in every phase. Hosted tool search
+loads semantic operations when needed; questions, waiting, and completion
+remain immediately available. `designAgentToolDefinitions` owns this mount for
+production and `/agents`. The durable digest covers every mounted definition,
+including discovery and provider loading settings. Hosted discovery is retained
+in model history but never enters the native operation queue. Successful design
+updates return `{ok, deduplicated}` without conversational instructions. Durable gates refuse calls that are
 not currently legal. Contract and revision candidates use an implicit durable
 identity-addressed workspace. The model calls `setDesignRoot`, collection-
 specific `update*` tools, `updateFindingDispositions`, `inspectProjectData`, `inspectDesign`,
