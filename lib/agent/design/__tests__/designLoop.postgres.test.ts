@@ -980,6 +980,119 @@ describe("semantic design loop", () => {
 		});
 	});
 
+	it("rechecks the required question after a crash following the paid response commit", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const contract = makeContract();
+		const question = {
+			id: did(1250),
+			question: "Which thresholds should the pilot use?",
+			blocking: true,
+			relatedElementIds: [ids.taskVisit],
+		};
+		contract.openQuestions = [question];
+		const tools = mount(pkg);
+		await authorWholeContract(tools, contract);
+		expect(await call(tools.finishDesign)).toMatchObject({
+			diagnostic: { code: "design-construction-needs-input" },
+		});
+		const questionInput = {
+			header: REQUIRED_DESIGN_QUESTIONS_HEADER,
+			questions: [{ question: question.question, options: [] }],
+		};
+		const wrongInput = {
+			...questionInput,
+			questions: [{ question: "What is your favorite color?", options: [] }],
+		};
+		await withDesignResponses(
+			[
+				[
+					{
+						type: "tool",
+						name: "askQuestions",
+						callId: "wrong-required-card",
+						input: wrongInput,
+					},
+				],
+				[
+					{
+						type: "tool",
+						name: "askQuestions",
+						callId: "correct-required-card",
+						input: questionInput,
+					},
+				],
+			],
+			async (_model, requests, transport) => {
+				const chunks: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
+				const messages: NovaUIMessage[] = [
+					{
+						id: "m1",
+						role: "user",
+						parts: [{ type: "text", text: "Track CHW visits." }],
+					},
+				];
+				const args: DesignLoopRunnerArgs = {
+					designSessionId: sessionId,
+					projectId: PROJECT,
+					threadId: messageRef().threadId,
+					runId: RUN_ID,
+					actorUserId: ACTOR,
+					holderNonce: NONCE,
+					responseMessageId: "pilot-question",
+					messages,
+					pkg,
+					designCtx: new DesignGenerationContext({
+						apiKey: "synthetic-local-only",
+						transport,
+						userId: ACTOR,
+						projectId: PROJECT,
+						runId: RUN_ID,
+						designSessionId: sessionId,
+					}),
+					writer: {
+						write: (chunk) => {
+							chunks.push(chunk);
+						},
+					},
+					signal: new AbortController().signal,
+					head: () => null,
+					packageDeps,
+				};
+				const controller = new AbortController();
+				await expect(
+					runDesignAgentLoop({
+						...args,
+						signal: controller.signal,
+						onAgentStep: () => controller.abort(),
+					}),
+				).rejects.toHaveProperty("name", "AbortError");
+				const replay: typeof chunks = [];
+				const outcome = await runDesignAgentLoop({
+					...args,
+					writer: { write: (chunk) => replay.push(chunk) },
+				});
+				const cards = replay.filter(
+					(chunk) => chunk.type === "tool-input-available",
+				);
+				expect(outcome).toEqual({
+					kind: "awaiting-input",
+					headRevisionId: null,
+				});
+				expect(requests).toHaveLength(2);
+				expect(cards).toHaveLength(1);
+				expect(cards).toMatchObject([
+					{
+						type: "tool-input-available",
+						toolCallId: "correct-required-card",
+						toolName: "askQuestions",
+						input: questionInput,
+					},
+				]);
+			},
+		);
+	});
+
 	it("resumes a native required-question card and applies the person's confirmed decision before acceptance", async () => {
 		const pkg = await makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });

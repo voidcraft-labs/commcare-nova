@@ -1658,7 +1658,7 @@ const semanticCollectionDefinition = (
 });
 
 /**
- * The 20 design-loop tool definitions in exactly the order the loop mounts
+ * The design author tool definitions in exactly the order the loop mounts
  * them. Key order is load-bearing: `designLoopRunner.ts` hashes the mounted
  * tools in insertion order into the persisted `toolset_digest`, and a changed
  * digest rolls every open design session to a new context generation.

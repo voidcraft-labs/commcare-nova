@@ -369,7 +369,7 @@ export function designResponseAppendKey(args: {
 	readonly stepKey: string;
 	readonly responseDigest: string;
 }): string {
-	return `${designResponsePrefix(args)}${args.stepKey}:${args.responseDigest}`;
+	return `${designResponsePrefix(args)}${args.stepKey}:${args.responseDigest}${designResponseTurnSuffix(args.turnProvenanceId)}`;
 }
 
 export function designWaitResponseAppendKey(args: {
@@ -440,7 +440,7 @@ interface RecoverableDesignQuestion {
 	readonly acknowledgement: string | null;
 }
 
-function questionResponseTurnSuffix(turnProvenanceId: string): string {
+function designResponseTurnSuffix(turnProvenanceId: string): string {
 	return `:turn:${canonicalJsonDigest({ turnProvenanceId })}`;
 }
 
@@ -464,10 +464,7 @@ function recoverableDesignQuestionForTurn(args: {
 	)?.appendKey;
 	if (
 		responseKey === undefined ||
-		!(
-			responseKey.startsWith(`design-response:${args.turnProvenanceId}:`) ||
-			responseKey.endsWith(questionResponseTurnSuffix(args.turnProvenanceId))
-		)
+		!responseKey.endsWith(designResponseTurnSuffix(args.turnProvenanceId))
 	)
 		return null;
 	const messages = items
@@ -1878,6 +1875,41 @@ export async function runDesignAgentLoop(
 				DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE;
 		}
 	};
+	let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
+	let activeRequiredQuestionAuthorizationKey: string | null = null;
+	const requiredUserQuestions = async (): Promise<readonly OpenQuestion[]> => {
+		const pending = repair.requiredUserQuestions();
+		const questions =
+			pending.length > 0
+				? pending
+				: await readRequiredDesignQuestionsFromWorkspace({
+						designSessionId: args.designSessionId,
+						gates: evaluateDesignGates(await loadAncestry()),
+						authority,
+					});
+		/* An answer binds to the exact question identity, so a question the
+		 * user already answered is never demanded again; only genuinely new
+		 * or re-authored questions come back to them. */
+		const unanswered = unansweredRequiredDesignQuestions(
+			args.messages,
+			questions,
+			modelContextProtocolKeys,
+		);
+		if (unanswered.length === 0) {
+			activeRequiredQuestionBatch = [];
+			activeRequiredQuestionAuthorizationKey = null;
+			return [];
+		}
+		activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
+		const authorizationKey = requiredDesignQuestionAuthorizationKey(unanswered);
+		activeRequiredQuestionAuthorizationKey = authorizationKey;
+		if (!modelContextAppendKeys.has(authorizationKey)) {
+			const authorization = requiredDesignQuestionMessage(unanswered);
+			await appendContext(authorizationKey, [authorization]);
+			modelContext = [...(modelContext ?? []), authorization];
+		}
+		return unanswered;
+	};
 	const openParts = createOpenPartTracker();
 	const replayRecoveredWait = (wait: SuccessfulDesignWait): void => {
 		if (uiMessagesContainCompletedDesignWait(args.messages, wait.toolCallId)) {
@@ -1901,7 +1933,16 @@ export async function runDesignAgentLoop(
 		currentGenerationHasCompletedStep: modelContextGenerationHasCompletedStep,
 		turnProvenanceId,
 	});
-	if (recoveredQuestion !== null) {
+	const requiredAtRecovery =
+		recoveredQuestion === null ? [] : await requiredUserQuestions();
+	if (
+		recoveredQuestion !== null &&
+		(requiredAtRecovery.length === 0 ||
+			isExactRequiredDesignQuestionCall(
+				recoveredQuestion.input,
+				requiredDesignQuestionBatch(requiredAtRecovery),
+			))
+	) {
 		const alreadyVisible = args.messages.some((message) =>
 			message.parts.some(
 				(part) =>
@@ -1987,44 +2028,6 @@ export async function runDesignAgentLoop(
 		 * whose response bytes were not durably observed by that process. */
 		const modelAttemptId = randomUUID();
 		const stepEventKeys = new Map<number, string>();
-		let activeRequiredQuestionBatch: readonly OpenQuestion[] = [];
-		let activeRequiredQuestionAuthorizationKey: string | null = null;
-		const requiredUserQuestions = async (): Promise<
-			readonly OpenQuestion[]
-		> => {
-			const pending = repair.requiredUserQuestions();
-			const questions =
-				pending.length > 0
-					? pending
-					: await readRequiredDesignQuestionsFromWorkspace({
-							designSessionId: args.designSessionId,
-							gates: evaluateDesignGates(await loadAncestry()),
-							authority,
-						});
-			/* An answer binds to the exact question identity, so a question the
-			 * user already answered is never demanded again; only genuinely new
-			 * or re-authored questions come back to them. */
-			const unanswered = unansweredRequiredDesignQuestions(
-				args.messages,
-				questions,
-				modelContextProtocolKeys,
-			);
-			if (unanswered.length === 0) {
-				activeRequiredQuestionBatch = [];
-				activeRequiredQuestionAuthorizationKey = null;
-				return [];
-			}
-			activeRequiredQuestionBatch = requiredDesignQuestionBatch(unanswered);
-			const authorizationKey =
-				requiredDesignQuestionAuthorizationKey(unanswered);
-			activeRequiredQuestionAuthorizationKey = authorizationKey;
-			if (!modelContextAppendKeys.has(authorizationKey)) {
-				const authorization = requiredDesignQuestionMessage(unanswered);
-				await appendContext(authorizationKey, [authorization]);
-				modelContext = [...(modelContext ?? []), authorization];
-			}
-			return unanswered;
-		};
 		const agent = createDesignAgent({
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
@@ -2127,7 +2130,7 @@ export async function runDesignAgentLoop(
 				);
 				const responseKey =
 					cardKey !== null
-						? `${cardKey}:response:${stepKey}:${step.responseDigest}${questionResponseTurnSuffix(turnProvenanceId)}`
+						? `${cardKey}:response:${stepKey}:${step.responseDigest}${designResponseTurnSuffix(turnProvenanceId)}`
 						: completedWait !== null
 							? designWaitResponseAppendKey({
 									turnProvenanceId,
@@ -2244,7 +2247,7 @@ export async function runDesignAgentLoop(
 				break;
 			}
 		}
-		if (phase === "review") {
+		if (phase === "review" && (await requiredUserQuestions()).length === 0) {
 			livePulsePhase = "review";
 			pulse("review", 0);
 			try {
