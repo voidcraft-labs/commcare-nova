@@ -11,7 +11,7 @@ import { registerDeleteApp } from "../tools/deleteApp";
 import { registerGetApp } from "../tools/getApp";
 import { registerListApps } from "../tools/listApps";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_apps_", { authSchema: "migrated" });
 const ACTOR = "member";
@@ -120,10 +120,13 @@ it("creates a shared starter, returns persisted identities, reads it and deletes
 				arguments: { app_id: born.app_id },
 			}),
 		);
-		expect(text.startsWith(`Project: Clinic team (${PROJECT})\n\n`)).toBe(true);
-		expect(text).toContain("Clinic intake");
-		expect(text).toContain(`uuid ${form_uuid}`);
-		expect(text).toContain("question_1");
+		expect(JSON.parse(text)).toMatchObject({
+			project: { id: PROJECT, name: "Clinic team" },
+			app: {
+				name: "Clinic intake",
+				modules: [{ forms: [{ uuid: form_uuid, fields: 1 }] }],
+			},
+		});
 		const deleted = JSON.parse(
 			resultText(
 				await client.callTool({
@@ -243,10 +246,17 @@ it("refuses Project/viewer creation and foreign or underprivileged app reads/wri
 			await client.callTool({ name: "delete_app", arguments: { app_id: own } }),
 		).toEqual(error("not_found", "App not found.", { app_id: own }));
 		expect(
-			resultText(
-				await client.callTool({ name: "get_app", arguments: { app_id: own } }),
+			JSON.parse(
+				resultText(
+					await client.callTool({
+						name: "get_app",
+						arguments: { app_id: own },
+					}),
+				),
 			),
-		).toContain("question_1");
+		).toMatchObject({
+			app: { appId: own, modules: [{ forms: [{ fields: 1 }] }] },
+		});
 	});
 	expect(
 		await h.db().selectFrom("apps").selectAll().orderBy("id").execute(),

@@ -1,0 +1,94 @@
+{
+	"series": "Production editor/MCP authoring integration before separate app-overview guidance",
+	"trials": [
+		{
+			"trial": "authored-production-creation-1",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"finishReason": "stop",
+			"steps": 10,
+			"requests": 10,
+			"inputTokensByStep": [
+				47323, 47564, 48836, 49251, 49525, 50019, 50634, 51491, 52046, 52323
+			],
+			"usage": {
+				"inputTokens": 499012,
+				"inputTokenDetails": {
+					"noCacheTokens": 39904,
+					"cacheReadTokens": 446662,
+					"cacheWriteTokens": 12446
+				},
+				"outputTokens": 5158,
+				"outputTokenDetails": {
+					"textTokens": 1592,
+					"reasoningTokens": 3566
+				},
+				"totalTokens": 504170
+			},
+			"observations": {
+				"registrationBounds": {
+					"rejected": [-1, 121],
+					"accepted": [0, 17, 18, 120]
+				},
+				"registrationNameAndAgeRequired": true,
+				"registrationPhoneVisibleFromAge": 18,
+				"followupPhoneVisibleAt17": true,
+				"followupPhoneVisibleAt18": true,
+				"followupPhoneRequired": false,
+				"followupBlankAllowed": true,
+				"followupSubmissionChangesOnlyPhone": true,
+				"surveyPreserved": true,
+				"repairUnrelatedContentPreserved": null
+			}
+		},
+		{
+			"trial": "authored-production-repair-1",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"finishReason": "stop",
+			"steps": 11,
+			"requests": 11,
+			"inputTokensByStep": [
+				12336, 13005, 13294, 14459, 14944, 15188, 15376, 15548, 16178, 16466,
+				17321
+			],
+			"usage": {
+				"inputTokens": 164115,
+				"inputTokenDetails": {
+					"noCacheTokens": 3841,
+					"cacheReadTokens": 154339,
+					"cacheWriteTokens": 5935
+				},
+				"outputTokens": 2461,
+				"outputTokenDetails": {
+					"textTokens": 1235,
+					"reasoningTokens": 1226
+				},
+				"totalTokens": 166576
+			},
+			"observations": {
+				"registrationBounds": {
+					"rejected": [-1, 121],
+					"accepted": [0, 17, 18, 120]
+				},
+				"registrationNameAndAgeRequired": true,
+				"registrationPhoneVisibleFromAge": 18,
+				"followupPhoneVisibleAt17": false,
+				"followupPhoneVisibleAt18": true,
+				"followupPhoneRequired": false,
+				"followupBlankAllowed": true,
+				"followupSubmissionChangesOnlyPhone": true,
+				"surveyPreserved": true,
+				"repairUnrelatedContentPreserved": true
+			}
+		}
+	],
+	"totalProgramConservativeSpendUsd": 0.8023684999999993,
+	"limitations": [
+		"Two diagnostic trials of the earlier client workflow, not held-out or repeated quality estimates.",
+		"Provider usage is for whole requests; initial deferred catalog estimates are a separate measurement.",
+		"Preview used real local scenario rows with submission projection only; no submission, device runtime, deployed HQ, or live Search UI assertion.",
+		"No CCZ artifact check was performed for these two trials.",
+		"Repair preservation was adjudicated by excluding only the three requested changed fields from the before/after comparison."
+	]
+}

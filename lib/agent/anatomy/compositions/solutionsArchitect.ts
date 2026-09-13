@@ -180,7 +180,7 @@ function appStateItem(app: AppInput | undefined): ContextItem {
 			label: "App state snapshot",
 			needs: "app",
 			explanation:
-				"Pick a local app to render the per-turn summary the route appends after the history: the same summarizer the retry continuation and the MCP edit prompt use.",
+				"Pick a local app to render the app overview the route appends after the history. Retry continuations and get_app use the same overview.",
 			source: { file: PROMPTS, symbol: "buildAppStateMessage" },
 		});
 	}

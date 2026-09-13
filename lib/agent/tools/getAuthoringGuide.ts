@@ -4,13 +4,15 @@ import type { ReadToolResult } from "./common";
 
 const inputSchema = z
 	.object({
-		topic: z.enum(["fields", "formLogic", "recordQueries", "automations"]),
+		topic: z.enum(
+			Object.keys(AUTHORING_REFERENCE) as (keyof typeof AUTHORING_REFERENCE)[],
+		),
 	})
 	.strict();
 
 export const getAuthoringGuideTool = {
 	description:
-		"Read the authoring reference for field types, form calculations and wording, record filters and relationships, or automations. Includes syntax and examples for less common features.",
+		"Read focused guidance for workflows, fields, form logic and wording, record queries, languages, people and places, shared data, or automations.",
 	inputSchema,
 	async execute(
 		input: z.infer<typeof inputSchema>,

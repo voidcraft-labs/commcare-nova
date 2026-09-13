@@ -37,7 +37,7 @@ import { downloadAssetBytes } from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));

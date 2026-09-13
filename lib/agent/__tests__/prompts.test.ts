@@ -55,14 +55,12 @@ function fixtureEmptyDoc(): BlueprintDoc {
 }
 
 describe("buildAppStateMessage", () => {
-	it("renders the fresh summary as a clearly-labeled reference message", () => {
+	it("carries current app orientation in a separate reference message", () => {
 		const msg = buildAppStateMessage(fixtureDoc("Vaccine Tracker", "Patients"));
 		expect(msg).not.toBeNull();
 		expect(msg?.role).toBe("user");
 		const content = msg?.content;
-		/* The label is the handle `EDIT_PREAMBLE` teaches — the model finds
-		 * the summary by this name. */
-		expect(content).toContain("Current app state");
+		expect(content).toContain("Current app overview");
 		expect(content).toContain("Vaccine Tracker");
 		expect(content).toContain("Patients");
 	});

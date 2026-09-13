@@ -25,8 +25,8 @@ import {
 	type SharedToolModule,
 } from "../adapters/sharedToolAdapter";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
 import { promptDoc } from "./promptFixtures";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_shared_", { authSchema: "migrated" });
 const ACTOR = "editor";

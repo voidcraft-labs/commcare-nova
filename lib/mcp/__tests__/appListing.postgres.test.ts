@@ -5,7 +5,7 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { registerListApps } from "../tools/listApps";
 import { registerSearchApps } from "../tools/searchApps";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_listing_", { authSchema: "migrated" });
 const ACTOR = "member";

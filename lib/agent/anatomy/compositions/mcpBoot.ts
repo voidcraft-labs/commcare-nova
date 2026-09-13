@@ -3,7 +3,7 @@
  * agent. No Nova model runs here; the client mounts the MCP tools itself.
  *
  * Build mode boots the MCP-only build composition, edit mode boots the
- * architect's edit prompt with the complete app-state block inlined, and
+ * architect's edit prompt without app state, and
  * the terminal marker is last by contract.
  */
 
@@ -13,7 +13,11 @@ import {
 	MCP_BUILD_SEGMENTS,
 	SOLUTIONS_ARCHITECT_SEGMENTS,
 } from "@/lib/agent/prompts";
-import { agentPromptSegments, renderAgentPrompt } from "@/lib/mcp/prompts";
+import {
+	agentPromptSegments,
+	type PromptMode,
+	renderAgentPrompt,
+} from "@/lib/mcp/prompts";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type {
 	ContextItem,
@@ -23,7 +27,6 @@ import type {
 	ToolDefinitionView,
 } from "../types";
 import {
-	missingItem,
 	moment,
 	segmentViews,
 	specById,
@@ -39,7 +42,7 @@ const MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "build-interactive",
 		label: "Build, interactive",
-		why: "The plugin's build skill: the MCP build composition plus the interactive block, so the client agent may ask a handful of questions.",
+		why: "Build guidance with questions available for consequential choices.",
 		needs: [],
 		source: RENDERER,
 	},
@@ -53,15 +56,8 @@ const MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "edit-interactive",
 		label: "Edit, interactive",
-		why: "An existing app: the architect's edit prompt with the complete app-state block inlined before the marker, because a boot prompt fetched once has no cache prefix to protect.",
-		needs: ["app"],
-		source: RENDERER,
-	},
-	{
-		id: "edit-autonomous",
-		label: "Edit, autonomous",
-		why: "Not a workflow the plugin exposes; shown so the renderer's four combinations are all visible.",
-		needs: ["app"],
+		why: "Edit guidance. The client reads the current app separately through get_app.",
+		needs: [],
 		source: RENDERER,
 	},
 ];
@@ -124,7 +120,7 @@ function mcpTools(): ToolDefinitionView[] {
 export const mcpBootComposition: RoleComposition = {
 	role: "mcp-boot",
 	moments: MOMENTS,
-	async compose(momentId, inputs) {
+	async compose(momentId) {
 		const spec = specById(MOMENTS, momentId, "MCP boot");
 		const edit = spec.id.startsWith("edit");
 		const interactive = spec.id.endsWith("interactive");
@@ -133,26 +129,16 @@ export const mcpBootComposition: RoleComposition = {
 			source: { file: "lib/mcp/server.ts", symbol: "registerNovaTools" },
 			note: "What the MCP server registers: the MCP-only tools, then every shared tool under its snake_case name with app_id added. The client decides how to present them to its model.",
 		});
-		if (edit && inputs.app === undefined) {
-			return moment(spec, [
-				missingItem({
-					id: "system",
-					label: "Boot prompt",
-					needs: "app",
-					explanation:
-						"Pick a local app to render the edit prompt: the architect's segments, the interaction block, the complete app-state block, then the marker.",
-					source: RENDERER,
-				}),
-				tools,
-			]);
-		}
-		const doc = edit ? inputs.app?.doc : undefined;
-		const text = renderAgentPrompt(interactive, doc);
+		const mode: PromptMode = edit
+			? "edit"
+			: interactive
+				? "build"
+				: "autonomous_build";
+		const text = renderAgentPrompt(mode);
 		/* The renderer's own pieces. The base prompt piece is shown as the
 		 * segments its builder joins, so the architect's and the build
 		 * prompt's parts read the same here as on their own pages. */
-		const pieces = agentPromptSegments(interactive, doc);
-		const editable = pieces.some((piece) => piece.id === "app-state");
+		const pieces = agentPromptSegments(mode);
 		const segments: PromptSegmentView[] = pieces.flatMap((piece) => {
 			if (piece.id === "architect") {
 				return segmentViews(
@@ -174,8 +160,8 @@ export const mcpBootComposition: RoleComposition = {
 						symbol:
 							piece.id === "interaction-mode"
 								? "INTERACTIVITY_INSTRUCTIONS"
-								: piece.id === "app-state"
-									? "appStateBlockFor"
+								: piece.id === "reference"
+									? "agentPromptSegments"
 									: "PROMPT_END_MARKER",
 					},
 					...(piece.generated && { generated: piece.generated }),
@@ -187,10 +173,8 @@ export const mcpBootComposition: RoleComposition = {
 			text,
 			segments,
 			source: RENDERER,
-			origin: editable ? "derived" : "composed",
-			note: editable
-				? "The app-state block is the largest and most app-specific section, so the marker after it is what turns a truncated delivery into a refusal."
-				: "Delivered as an MCP tool result. The marker is last so a size-capped delivery is detectable.",
+			origin: "composed",
+			note: "Static guidance delivered in one MCP result. App state and detailed references are read separately.",
 		});
 		return moment(spec, [system, tools]);
 	},

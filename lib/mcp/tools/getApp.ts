@@ -1,25 +1,8 @@
-/**
- * `nova.get_app` — render a blueprint summary for one owned app.
- *
- * Scope: `nova.read`.
- *
- * Uses the same `summarizeBlueprint` renderer the SA edit-mode prompt
- * consumes. Any drift between the two would create divergent mental
- * models of an app across surfaces (SA reads one summary, MCP clients
- * get another); co-using the renderer makes that impossible by
- * construction and keeps a single canonical domain-vocabulary view.
- * The `Project:` line is prepended HERE, not in the renderer — tenancy
- * is an MCP concern (the chat SA always works inside one app), and the
- * shared renderer stays blueprint-only.
- *
- * Returns the summary as text content. Pure read — no persistence, no
- * event-log write, no progress emission — scoped to the ownership
- * gate.
- */
+/** Authorized app overview. Detailed content is available through scoped reads. */
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
+import { appOverview } from "@/lib/agent/appOverview";
 import { listUserProjects } from "@/lib/projects/membership";
 import {
 	type McpToolErrorResult,
@@ -44,18 +27,10 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 		"get_app",
 		{
 			description:
-				"Get a blueprint summary (human-readable markdown) for one of your apps, headed by the Nova Project the app belongs to.",
-			/* The summary scales with the app and is the largest thing
-			 * this surface returns — the biggest app in production renders
-			 * 73,534 chars, past what a host delivers by default. See
-			 * `../resultSize`. */
+				"Get an app overview: workflows, record model, languages, and configured capabilities. Read individual modules, forms or fields for their content and settings.",
 			_meta: LARGE_RESULT_META,
 			inputSchema: z.object({
-				app_id: z
-					.string()
-					.describe(
-						"App id to summarize. Must be an app the authenticated user owns.",
-					),
+				app_id: z.string().describe("App ID. Requires access to its Project."),
 			}),
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -69,14 +44,17 @@ export function registerGetApp(server: McpServer, ctx: ToolContext): void {
 				const projectName = projects.find(
 					(p) => p.id === loaded.access.projectId,
 				)?.name;
-				const projectLine = `Project: ${
-					projectName ?? "(name unavailable)"
-				} (${loaded.access.projectId})`;
 				return {
 					content: [
 						{
 							type: "text",
-							text: `${projectLine}\n\n${summarizeBlueprint(loaded.doc)}`,
+							text: JSON.stringify({
+								project: {
+									id: loaded.access.projectId,
+									name: projectName ?? null,
+								},
+								app: appOverview(loaded.doc),
+							}),
 						},
 					],
 				};

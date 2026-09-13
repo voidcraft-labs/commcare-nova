@@ -22,7 +22,7 @@ function tool(name: string) {
 	if (!found) throw new Error(`Tool ${name} was not delivered to the client`);
 	return found;
 }
-it.each(["get_agent_prompt", "get_app", "search_blueprint", "add_fields"])(
+it.each(["get_app", "search_blueprint", "add_fields"])(
 	"%s declares the host's 100,000-character ceiling",
 	(name) => {
 		expect(tool(name)._meta?.["anthropic/maxResultSizeChars"]).toBe(100_000);
@@ -51,10 +51,9 @@ it("publishes each user-authoring tool once with its external name", () => {
 		]),
 	);
 });
-it("delivers prompt continuation and compatibility inputs to clients", () => {
+it("delivers current prompt and compatibility inputs to clients", () => {
 	expect(tool("get_agent_prompt").inputSchema.properties).toMatchObject({
 		mode: { enum: ["build", "autonomous_build", "edit"] },
-		cursor: { type: "string", maxLength: 512 },
 	});
 	expect(
 		tool("check_project_space_compatibility").inputSchema.required,
