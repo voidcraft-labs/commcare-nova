@@ -46,13 +46,13 @@ valid direct Builder or MCP edit.
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
 - `contract.ts` owns the one Design Contract vocabulary. The server sets
-  `schemaVersion: 4`; authors do not supply format metadata. Current readers
+  `schemaVersion: 5`; authors do not supply format metadata. Current readers
   verify sealed bytes and parse only the current schema. Obsolete private
   sessions are retired by the separate [format cutover](../../../docs/architecture/design-format-cutover.md),
   not converted on read. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
   ownership, property/record coherence, menu closure, charter coverage,
-  a dependency-free initial workflow, acyclic workflow and record hierarchies,
+  an initial workflow with no construction dependencies, acyclic record and menu hierarchies,
   and a blocking user question for every unresolved construction dependency.
   A structurally incoherent contract is never persisted. New-artifact
   construction admission additionally requires every controlled choice to
@@ -170,10 +170,15 @@ valid direct Builder or MCP edit.
   selection exists and no later than a parent-menu workflow that creates its
   records. Its list and list-only properties travel with that owner; its later
   forms retain their own workflows. Authored workflow membership stays unchanged.
-  Ownership is fixed from semantic workflow order before construction dependencies
-  are sorted. Each form depends on its module owner; parent placement, parent
+  The model describes worker `startingConditions`; it does not supply construction
+  dependency IDs. Ownership is fixed with the initial workflow first and design
+  order as the tie-breaker before construction dependencies are sorted. Each form depends on its module owner; parent placement, parent
   selection and child writers supply the other dependencies. Graph admission
   rejects construction cycles and any prerequisite for the initial workflow.
+  Catalog entries belong to their first consumer, including lists, properties
+  and child catalogs. The first workflow that saves a record instance need not
+  own its definition. Shared catalog and property use adds the actual owner as
+  a slice dependency. Worker starting conditions remain unchanged in the brief.
   A module whose parent has a different owner gains that
   exact owner workflow as a prerequisite; sibling position adds no dependency;
   same-slice construction keeps
@@ -418,7 +423,7 @@ state projects it back to the selected revision. Existing workspace operations
 and the source contract retain the evidence needed for replay after a source is
 removed from the candidate; no separate receipt registry exists. Submission,
 acceptance, and materialization retain their current Project-data checks.
-Workspace operations use storage version 5. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
+Workspace operations use storage version 6. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
 retires older private design sessions, including their obsolete choice-evidence
 operations. It preserves sealed artifacts, conversation messages, billing,
 canonical apps and Project data. Current readers exclude retired scopes before

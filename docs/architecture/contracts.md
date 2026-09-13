@@ -409,8 +409,8 @@ may supply labels and let Nova derive codes, or supply explicit codes when their
 values matter. Review and execution receive the accepted pairs. Project lookup
 choices retain their separate source and revision contract.
 
-Current design readers accept contract version 4 and workspace storage version
-5. The [one-time format cutover](design-format-cutover.md) retires incompatible
+Current design readers accept contract version 5 and workspace storage version
+6. The [one-time format cutover](design-format-cutover.md) retires incompatible
 private sessions while preserving canonical apps, conversations and billing.
 Retirement removes a session from typed artifact selection and run authority;
 it never upgrades historical meaning during a read.
@@ -449,6 +449,12 @@ form when every actor can see each requested property. If all of its constructio
 belongs to earlier work, its workflow element joins the last prerequisite's
 group and its requirements remain in that slice's brief. Completion still
 requires the exact nonempty committed receipts for the whole plan.
+Worker starting conditions describe the situation in which a task is useful;
+they do not schedule construction. Nova derives dependencies from forms, menu
+homes, selection and shared data definitions. It fixes ownership with the
+initial workflow first and design order breaking ties. Record catalogs belong
+to their first consumer, including list and property use and parent catalogs
+needed by a child, rather than the first workflow that saves a record instance.
 Menu membership is worker-facing meaning, not construction ownership. The
 planner may establish an accepted child list with the workflow that first writes
 its records, then add its own forms in their original workflow slices. Graph

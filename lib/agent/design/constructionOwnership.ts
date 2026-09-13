@@ -94,18 +94,19 @@ function deriveModuleConstructionOwners(
 	return owners;
 }
 
-/** Fix ownership before adding construction dependencies. Recomputing owners
- * after sorting would let a dependency change which workflow creates its home. */
+/** Construction follows the actual menu and form graph. Worker starting
+ * conditions do not schedule software. Use the chosen initial workflow first,
+ * then design order to break ties, and fix owners before sorting dependencies. */
 export function deriveConstructionSchedule(contract: AppDesignContract) {
 	const prerequisites = new Map<string, Set<string>>(
-		contract.workflows.map((workflow) => [
-			workflow.id,
-			new Set<string>(workflow.prerequisiteWorkflowIds),
-		]),
+		contract.workflows.map((workflow) => [workflow.id, new Set<string>()]),
 	);
-	const semanticOrder = workflowOrder(contract, prerequisites);
-	const ownershipOrder =
-		semanticOrder ?? contract.workflows.map((workflow) => workflow.id);
+	const ownershipOrder = [
+		contract.charter.initialWorkflowId,
+		...contract.workflows
+			.filter((workflow) => workflow.id !== contract.charter.initialWorkflowId)
+			.map((workflow) => workflow.id),
+	];
 	const moduleOwners = deriveModuleConstructionOwners(contract, ownershipOrder);
 	const rank = new Map(ownershipOrder.map((id, index) => [id, index]));
 	const add = (
@@ -163,7 +164,6 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 	return {
 		moduleOwners,
 		prerequisites,
-		orderedWorkflowIds:
-			semanticOrder === null ? null : workflowOrder(contract, prerequisites),
+		orderedWorkflowIds: workflowOrder(contract, prerequisites),
 	};
 }

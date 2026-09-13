@@ -685,11 +685,7 @@ describe("lean Design Contract graph", () => {
 		]);
 	});
 
-	it("rejects workflow dependency cycles and duplicate local handles", () => {
-		const cycle = cloneContract(makeContract());
-		cycle.workflows[0]?.prerequisiteWorkflowIds.push(ids.taskVisit);
-		expect(messages(cycle)).toContain("must not form a cycle");
-
+	it("rejects duplicate local handles", () => {
 		const handles = cloneContract(makeContract());
 		const workflow = handles.workflows[0];
 		if (!workflow) throw new Error("fixture workflow missing");
@@ -702,20 +698,18 @@ describe("lean Design Contract graph", () => {
 		expect(messages(handles)).toContain("handles must be unique");
 	});
 
-	it("accepts convergent workflow dependencies and requires a root first workflow", () => {
+	it("admits related worker tasks without interpreting them as a build schedule", () => {
 		const diamond = cloneContract(makeContract());
 		const visit = fixtureValue(diamond.workflows[1], "visit workflow");
 		const parallel = {
 			...structuredClone(visit),
 			id: did(801),
 			name: "Parallel visit preparation",
-			prerequisiteWorkflowIds: [ids.taskRegister],
 		};
 		const convergent = {
 			...structuredClone(visit),
 			id: did(802),
 			name: "Convergent follow-up",
-			prerequisiteWorkflowIds: [ids.taskVisit, parallel.id],
 		};
 		diamond.workflows.push(parallel, convergent);
 		diamond.charter.includedWorkflowIds.push(parallel.id, convergent.id);
@@ -751,12 +745,6 @@ describe("lean Design Contract graph", () => {
 			});
 		}
 		expect(appDesignContractSchema.safeParse(diamond).success).toBe(true);
-
-		const dependentRoot = cloneContract(makeContract());
-		dependentRoot.charter.initialWorkflowId = ids.taskVisit;
-		expect(messages(dependentRoot)).toContain(
-			"initial workflow must not depend",
-		);
 	});
 
 	it("requires form-only inputs to declare a data shape", () => {

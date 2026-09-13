@@ -31,6 +31,7 @@ import {
 import legacyContract from "./fixtures/design-contract-v1.json";
 import selectionContract from "./fixtures/design-contract-v2.json";
 import valuesContract from "./fixtures/design-contract-v3.json";
+import scheduledContract from "./fixtures/design-contract-v4.json";
 
 const h = setupAppStateTestDb("retire_design_formats_", {
 	poolMax: 3,
@@ -160,7 +161,12 @@ async function seedUsage(sessionId: string, accounted: boolean) {
 
 async function seedWorkspace(
 	sessionId: string,
-	storageVersion: 2 | 3 | 4 | typeof DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
+	storageVersion:
+		| 2
+		| 3
+		| 4
+		| 5
+		| typeof DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
 ) {
 	const workspaceId = randomUUID();
 	const lineage = {
@@ -197,7 +203,15 @@ async function seedWorkspace(
 									removeIds: [],
 								},
 							]
-						: [],
+						: storageVersion === 5
+							? [
+									{
+										collection: "workflows",
+										upserts: scheduledContract.workflows,
+										removeIds: [],
+									},
+								]
+							: [],
 	};
 	await h
 		.db()
@@ -245,7 +259,7 @@ async function immutableSnapshot(appId: string, sessionId: string) {
 }
 
 describe("one-time design-format retirement", () => {
-	it.each([selectionContract, valuesContract])(
+	it.each([selectionContract, valuesContract, scheduledContract])(
 		"retires a version-$schemaVersion design without rewriting its sealed metadata",
 		async (contract) => {
 			const sessionId = await h.seedDesignSession({
@@ -274,7 +288,7 @@ describe("one-time design-format retirement", () => {
 		},
 	);
 
-	it.each([2, 3, 4] as const)(
+	it.each([2, 3, 4, 5] as const)(
 		"retires version-%i workspace-only sessions and preserves current private work",
 		async (storageVersion) => {
 			const oldSession = await h.seedDesignSession({

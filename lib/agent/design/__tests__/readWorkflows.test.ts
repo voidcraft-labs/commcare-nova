@@ -26,8 +26,8 @@ function readingContract() {
 		goal: "Read the patient's name and age without changing their record.",
 		trigger: "Open a patient from the list.",
 		contextRecordId: ids.recPatient,
-		prerequisiteWorkflowIds: [ids.taskRegister],
-		prerequisites: ["The patient is registered."],
+
+		startingConditions: ["The patient is registered."],
 		inputs: [],
 		decisions: [],
 		recordEffects: [],
@@ -101,7 +101,7 @@ describe("read-only workflows", () => {
 			readback: structuredClone(first.readback),
 			contextRecordId: contract.records[0].id,
 		});
-		last.prerequisiteWorkflowIds = [first.id];
+
 		contract.records.splice(1, 1);
 		contract.formCompositions.splice(1, 1);
 		const list = {
@@ -145,11 +145,6 @@ describe("read-only workflows", () => {
 				}),
 			]),
 		);
-		// A semantic dependency in the opposite direction cannot be met by
-		// emitting an empty reading slice before its screen exists.
-		last.prerequisiteWorkflowIds = [reading.id];
-		expect(appDesignContractSchema.safeParse(contract).success).toBe(false);
-
 		// An existing summary form already serves the task; a later alternative
 		// list must not turn its otherwise valid dependency chain into a cycle.
 		const form = makeWorkflowChainContract(3).formCompositions[1];
@@ -175,21 +170,26 @@ describe("read-only workflows", () => {
 		};
 		const withForm = appDesignContractSchema.parse(contract);
 		expect(designConstructionIssues(withForm)).toEqual([]);
-		expect(
-			deriveBuildPlan({ contract: withForm, revision }).slices.map(
-				(slice) => slice.workflowId,
-			),
-		).toEqual([first.id, reading.id, last.id]);
+		const withFormPlan = deriveBuildPlan({ contract: withForm, revision });
+		expect(withFormPlan.slices).toHaveLength(3);
+		const readingSlice = fixtureValue(
+			withFormPlan.slices.find((slice) => slice.workflowId === reading.id),
+			"reading slice",
+		);
+		const laterSlice = fixtureValue(
+			withFormPlan.slices.find((slice) => slice.workflowId === last.id),
+			"later menu slice",
+		);
+		expect(readingSlice.prerequisiteSliceIds).not.toContain(laterSlice.id);
 	});
 
 	it("retains a grouped task's context when its history and construction owner use different records", () => {
 		const contract = makeWorkflowChainContract(3);
 		const [context, history] = contract.records;
-		const ownerWorkflow = contract.workflows[2];
 		const reading = {
 			...readingContract().workflow,
 			contextRecordId: context.id,
-			prerequisiteWorkflowIds: [ownerWorkflow.id],
+
 			readback: [
 				{
 					recordId: history.id,
@@ -222,7 +222,7 @@ describe("read-only workflows", () => {
 			contract: parsed,
 			revision,
 			plan,
-			sliceId: plan.slices[2].id,
+			sliceId: plan.slices[1].id,
 		});
 		expect(brief.readWorkflows).toEqual([reading]);
 		expect(brief.records.map((record) => record.id)).toContain(context.id);
@@ -324,9 +324,9 @@ describe("read-only workflows", () => {
 		).toBe(false);
 	});
 
-	it("keeps the read task after its last prerequisite and preserves its external setup", () => {
+	it("preserves external setup on the slice that constructs the reading surface", () => {
 		const { contract, workflow } = readingContract();
-		workflow.prerequisiteWorkflowIds = [ids.taskVisit];
+
 		const requirement = {
 			id: did(9800),
 			name: "Assign the device's records",
@@ -344,13 +344,13 @@ describe("read-only workflows", () => {
 			revision,
 		});
 		const owner = fixtureValue(
-			plan.slices.find((slice) => slice.workflowId === ids.taskVisit),
-			"visit slice",
+			plan.slices.find((slice) => slice.workflowId === ids.taskRegister),
+			"registration slice",
 		);
 		expect(
 			owner.constructionGroups.flatMap((group) => group.elements),
 		).toContainEqual({ kind: "workflow", id: workflow.id });
-		expect(owner.prerequisiteSliceIds).toEqual([plan.slices[0].id]);
+		expect(owner.prerequisiteSliceIds).toEqual([]);
 		expect(owner.externalActionIds).toEqual(
 			plan.externalActions.map((action) => action.id),
 		);

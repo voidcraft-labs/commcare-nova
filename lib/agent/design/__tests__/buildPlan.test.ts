@@ -60,8 +60,7 @@ function messages(
 function childFormBeforeItsHome(childIndex = 1) {
 	const contract = cloneContract(makeWorkflowChainContract(3));
 	for (const workflow of contract.workflows) {
-		workflow.prerequisiteWorkflowIds = [];
-		workflow.prerequisites = [];
+		workflow.startingConditions = [];
 	}
 	const parent = fixtureValue(contract.moduleCompositions[2], "parent module");
 	const child = fixtureValue(
@@ -130,20 +129,6 @@ describe("deterministic build planning", () => {
 		);
 	});
 
-	it("rejects a construction cycle before admitting a design", () => {
-		const contract = childFormBeforeItsHome();
-		fixtureValue(
-			contract.workflows[2],
-			"parent workflow",
-		).prerequisiteWorkflowIds = [did(3001)];
-		const result = appDesignContractSchema.safeParse(contract);
-		expect(result.success).toBe(false);
-		if (result.success) throw new Error("Expected a construction cycle");
-		expect(result.error.issues.map((issue) => issue.message)).toContain(
-			"Workflow and module construction prerequisites must not form a cycle.",
-		);
-	});
-
 	it("rejects an initial workflow that needs a later module even without a cycle", () => {
 		const result = appDesignContractSchema.safeParse(childFormBeforeItsHome(0));
 		expect(result.success).toBe(false);
@@ -152,6 +137,31 @@ describe("deterministic build planning", () => {
 		expect(result.error.issues.map((issue) => issue.message)).toContain(
 			"The initial workflow must not depend on another workflow to construct its module or forms.",
 		);
+	});
+
+	it("builds a record catalog for its first consumer while preserving worker starting conditions", () => {
+		const contract = makeContract();
+		contract.charter.initialWorkflowId = ids.taskVisit;
+		const before = structuredClone(contract);
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+		});
+		expect(plan.slices.map((slice) => slice.workflowId)).toEqual([
+			ids.taskVisit,
+			ids.taskRegister,
+		]);
+		const first = plan.slices[0];
+		expect(first.constructionGroups.flatMap((group) => group.elements)).toEqual(
+			expect.arrayContaining([
+				{ kind: "record", id: ids.recPatient },
+				{ kind: "record", id: ids.recVisit },
+			]),
+		);
+		expect(first.prerequisiteSliceIds).toEqual([]);
+		expect(plan.slices[1].prerequisiteSliceIds).toEqual([first.id]);
+		expect(contract).toEqual(before);
+		expect(contract.workflows[1].startingConditions).not.toHaveLength(0);
 	});
 
 	it("derives one dependency-ordered slice per workflow", () => {
@@ -201,8 +211,8 @@ describe("deterministic build planning", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"child workflow",
 		);
-		childWorkflow.prerequisiteWorkflowIds = [];
-		childWorkflow.prerequisites = [];
+
+		childWorkflow.startingConditions = [];
 		const plan = deriveBuildPlan({
 			contract,
 			revision: { id: ids.revisionId, digest: "1".repeat(64) },
@@ -225,8 +235,7 @@ describe("deterministic build planning", () => {
 	it("adds a different-record parent's first form owner as a prerequisite", () => {
 		const contract = cloneContract(makeThirteenWorkflowContract());
 		for (const workflow of contract.workflows) {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
+			workflow.startingConditions = [];
 		}
 		const parent = fixtureValue(
 			contract.moduleCompositions[0],
@@ -297,8 +306,7 @@ describe("deterministic build planning", () => {
 		(laterForm) => {
 			const contract = cloneContract(makeThirteenWorkflowContract());
 			for (const workflow of contract.workflows) {
-				workflow.prerequisiteWorkflowIds = [];
-				workflow.prerequisites = [];
+				workflow.startingConditions = [];
 			}
 			const parent = fixtureValue(
 				contract.moduleCompositions[0],
@@ -341,7 +349,7 @@ describe("deterministic build planning", () => {
 			);
 			writerWrite.propertyId = childProperty.id;
 			if (laterForm) {
-				childOwner.prerequisiteWorkflowIds = [writer.id];
+				contract.workflows.splice(1, 2, writer, childOwner);
 				child.role = "form-and-queue";
 				const list = {
 					...fixtureValue(makeContract().lists[0], "list"),
@@ -397,8 +405,7 @@ describe("deterministic build planning", () => {
 	it("does not create workflow prerequisites from sibling placement", () => {
 		const contract = makeThirteenWorkflowContract();
 		for (const workflow of contract.workflows) {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
+			workflow.startingConditions = [];
 		}
 		const plan = deriveBuildPlan({
 			contract,
@@ -548,8 +555,7 @@ describe("deterministic build planning", () => {
 		const contract = makeWorkflowChainContract(2);
 		contract.records = [];
 		contract.workflows.forEach((workflow, index) => {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
+			workflow.startingConditions = [];
 			workflow.inputs = [
 				{
 					handle: `workflow_${index + 1}_value`,
@@ -827,30 +833,6 @@ describe("deterministic build planning", () => {
 			expect(result.success).toBe(cyclic.length === 0);
 		},
 	);
-
-	it("admits a dense 24-workflow dependency DAG with every declared edge preserved", () => {
-		const contract = makeWorkflowChainContract(24);
-		contract.workflows.forEach((workflow, index) => {
-			workflow.prerequisiteWorkflowIds = contract.workflows
-				.slice(0, index)
-				.map((prerequisite) => prerequisite.id);
-		});
-		const plan = deriveBuildPlan({
-			contract,
-			revision: { id: ids.revisionId, digest: "b".repeat(64) },
-		});
-		expect(plan.slices.map((slice) => slice.prerequisiteSliceIds)).toEqual(
-			plan.slices.map((_, index) =>
-				plan.slices.slice(0, index).map((slice) => slice.id),
-			),
-		);
-		expect(
-			plan.slices.reduce(
-				(count, slice) => count + slice.prerequisiteSliceIds.length,
-				0,
-			),
-		).toBe(276);
-	});
 
 	it("refuses an unknown prerequisite at its exact coordinate", () => {
 		const plan = makeBuildPlan();

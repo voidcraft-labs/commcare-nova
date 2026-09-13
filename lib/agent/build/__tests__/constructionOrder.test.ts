@@ -42,8 +42,8 @@ function historyDesign() {
 	Object.assign(review, {
 		name: "Review visit",
 		goal: "Read an earlier visit without changing it.",
-		prerequisiteWorkflowIds: [ids.taskVisit],
-		prerequisites: ["A visit has been recorded."],
+
+		startingConditions: ["A visit has been recorded."],
 		contextRecordId: record.id,
 		inputs: [],
 		decisions: [],

@@ -304,19 +304,18 @@ function deriveOwnerByElement(
 				) ||
 				workflow.readback.some((readback) => readback.recordId === record.id),
 		);
-		const creators = references.filter((workflow) =>
-			workflow.recordEffects.some(
-				(effect) => effect.recordId === record.id && effect.kind === "create",
-			),
-		);
+		// A catalog entry is needed when its first form or list is built, even
+		// if a later workflow is the first one that creates a record instance.
 		ownerByElement.set(
 			record.id,
-			earliest(
-				(creators.length > 0 ? creators : references).map(
-					(workflow) => workflow.id,
-				),
-			),
+			earliest([
+				...references.map((workflow) => workflow.id),
+				...contract.moduleCompositions
+					.filter((module) => module.hostRecordId === record.id)
+					.flatMap((module) => moduleOwnerById.get(module.id) ?? []),
+			]),
 		);
+
 		for (const property of record.properties) {
 			const directUsers = contract.workflows.filter(
 				(workflow) =>
@@ -347,6 +346,35 @@ function deriveOwnerByElement(
 				property.id,
 				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
 			);
+		}
+	}
+	// Property consumers and child catalogs also need their record types. Move
+	// catalog ownership earlier without moving the worker's forms or tasks.
+	for (const record of contract.records) {
+		ownerByElement.set(
+			record.id,
+			earliest([
+				ownerByElement.get(record.id) ?? initial,
+				...record.properties.flatMap(
+					(property) => ownerByElement.get(property.id) ?? [],
+				),
+			]),
+		);
+	}
+	const recordById = new Map<string, AppDesignContract["records"][number]>(
+		contract.records.map((record) => [record.id, record]),
+	);
+	for (const record of contract.records) {
+		const owner = ownerByElement.get(record.id) ?? initial;
+		const seen = new Set<string>([record.id]);
+		let parentId = record.parentRecordId;
+		while (parentId !== undefined && !seen.has(parentId)) {
+			seen.add(parentId);
+			ownerByElement.set(
+				parentId,
+				earliest([owner, ownerByElement.get(parentId) ?? initial]),
+			);
+			parentId = recordById.get(parentId)?.parentRecordId;
 		}
 	}
 	for (const list of contract.lists) {
@@ -390,6 +418,7 @@ function requiredPrerequisiteWorkflowIds(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
 	constructionPrerequisites: ReadonlyMap<string, ReadonlySet<string>>,
+	ownerByElement: ReadonlyMap<string, string>,
 ): Map<string, string[]> {
 	const required = new Map(
 		[...constructionPrerequisites].map(([id, dependencies]) => [
@@ -397,6 +426,37 @@ function requiredPrerequisiteWorkflowIds(
 			new Set(dependencies),
 		]),
 	);
+	const recordByProperty = new Map<string, string>(
+		contract.records.flatMap((record) =>
+			record.properties.map((property) => [property.id, record.id]),
+		),
+	);
+	for (const workflow of contract.workflows) {
+		const references = new Set<string>();
+		if (workflow.contextRecordId !== undefined)
+			references.add(workflow.contextRecordId);
+		for (const input of workflow.inputs)
+			if (input.propertyId !== undefined) references.add(input.propertyId);
+		for (const decision of workflow.decisions)
+			for (const id of decision.inputPropertyIds) references.add(id);
+		for (const effect of workflow.recordEffects) {
+			references.add(effect.recordId);
+			if (effect.sourceRecordId !== undefined)
+				references.add(effect.sourceRecordId);
+			for (const write of effect.writes) references.add(write.propertyId);
+		}
+		for (const readback of workflow.readback) {
+			references.add(readback.recordId);
+			for (const id of readback.propertyIds) references.add(id);
+		}
+		for (const id of references) {
+			const recordId = recordByProperty.get(id);
+			if (recordId !== undefined) references.add(recordId);
+			const owner = ownerByElement.get(id);
+			if (owner !== undefined && owner !== workflow.id)
+				required.get(workflow.id)?.add(owner);
+		}
+	}
 	/* Module selection is realized only after every affected case-loading form
 	 * exists. Choose the latest covered workflow in the same deterministic order
 	 * used for slices, then make every other covered workflow its prerequisite.
@@ -621,6 +681,7 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 		contract,
 		orderedWorkflowIds,
 		schedule.prerequisites,
+		ownerByElement,
 	);
 	assignReadWorkflowOwners({
 		contract,

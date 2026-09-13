@@ -4,18 +4,18 @@
 		"version": "build-executor-v21"
 	},
 	"designInstructions": {
-		"digest": "8458656d46c0a9a6ce82b20261f2314861b1e624511e1ae6058f082a29094f66",
-		"version": "design-agent-v39"
+		"digest": "1ba24ae3663afb94731b20718619de6146d2682eab11cbc500969429d612ba3f",
+		"version": "design-agent-v40"
 	},
 	"designReviewerSystem": {
-		"digest": "41a54a685137f90f5d373cf3e0f4208eacb2018795e82abae8850ec220782515",
-		"version": "design-reviewer-v27"
+		"digest": "da40590f1d0cc9eac3f77cc7ffbdd72ab04c17bb39a408fff76ddd87976c8edf",
+		"version": "design-reviewer-v28"
 	},
 	"extractSystem": {
 		"digest": "39df659a59ec1a50aa7fff1686f8456cef8811a8a391e32c817605fb50a821e5",
 		"version": 4
 	},
-	"designToolsetDigest": "de3096d5265dd57000332a532d837905f1908c37aeec5eeaf4b4b91d81a202d4",
+	"designToolsetDigest": "1da7c8e6d33eed949189a889fb66c8eddb5d4dc97046aa6e83ca4690fc8b2c3d",
 	"designToolOrder": [
 		"toolSearch",
 		"askQuestions",

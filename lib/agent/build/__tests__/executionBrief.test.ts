@@ -417,8 +417,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"visit workflow",
 		);
-		visit.prerequisiteWorkflowIds = [];
-		visit.prerequisites = [];
+
+		visit.startingConditions = [];
 		contract.workflows = [visit];
 		contract.charter.includedWorkflowIds = [ids.taskVisit];
 		contract.charter.initialWorkflowId = ids.taskVisit;
@@ -465,8 +465,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"visit workflow",
 		);
-		visit.prerequisiteWorkflowIds = [];
-		visit.prerequisites = [];
+
+		visit.startingConditions = [];
 		contract.workflows = [visit];
 		contract.charter.includedWorkflowIds = [ids.taskVisit];
 		contract.charter.initialWorkflowId = ids.taskVisit;
@@ -636,8 +636,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"child workflow",
 		);
-		childWorkflow.prerequisiteWorkflowIds = [];
-		childWorkflow.prerequisites = [];
+
+		childWorkflow.startingConditions = [];
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
 		const slice = fixtureValue(
 			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
@@ -926,17 +926,8 @@ describe("deriveSliceExecutionBrief", () => {
 					action: position === index ? "create" : "reuse",
 				})),
 			);
-			expect(brief.prerequisiteWorkflows).toEqual(
-				index === 0
-					? []
-					: [
-							{
-								id: did(3000 + index - 1),
-								name: `Workflow ${index}`,
-								goal: `Complete workflow ${index}.`,
-							},
-						],
-			);
+			expect(brief.prerequisiteWorkflows).toEqual([]);
+
 			expect(brief.lists).toEqual([]);
 			expect(brief.access).toEqual([]);
 			expect(brief.externalRequirements).toEqual([]);
@@ -949,8 +940,7 @@ describe("deriveSliceExecutionBrief", () => {
 	it("carries the materialized preceding sibling into a later root-module brief", () => {
 		const contract = makeThirteenWorkflowContract();
 		for (const workflow of contract.workflows) {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
+			workflow.startingConditions = [];
 		}
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
 		const secondSlice = fixtureValue(

@@ -1,10 +1,11 @@
 # Design format cutover
 
-Design contract version 4 records menu intent once, derives selection consumers
+Design contract version 5 records menu intent once, derives selection consumers
 from their forms, and keeps each inline choice's saved value and wording together.
 One record is the selection default; authors specify several-record selection
-only when the workflow needs it. Workspace storage version 5 uses that shape
-and the current authoring boundary.
+only when the workflow needs it. Workspace storage version 6 uses that shape
+and the current authoring boundary. Worker starting conditions remain in the
+design; construction dependencies are derived by Nova.
 Serving code reads only these current formats. Older private design sessions
 are retired once; they are not translated into new designs during reads.
 
@@ -54,6 +55,6 @@ Never start strict current readers over unretired old artifacts. Rolling back
 the application after retirement also requires code that understands retired
 sessions; restarting the old writer is not a valid rollback.
 
-The Postgres retirement tests exercise real stored version-1, version-2 and version-3 contracts, obsolete
+The Postgres retirement tests exercise real stored version-1 through version-4 contracts, obsolete
 workspace operations, current workspace preservation, app and session lock
 races, billing blockers, retained history and new app-edit authority.

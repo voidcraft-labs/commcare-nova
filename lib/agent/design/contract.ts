@@ -533,8 +533,9 @@ function makeWorkflowSchema<InputSchema extends z.ZodTypeAny>(
 			goal: z.string().min(1),
 			trigger: z.string().min(1),
 			contextRecordId: designIdSchema.optional(),
-			prerequisiteWorkflowIds: z.array(designIdSchema),
-			prerequisites: z.array(z.string().min(1)),
+			startingConditions: z
+				.array(z.string().min(1))
+				.describe("What must already be true for the worker to do this task."),
 			inputs: z.array(inputSchema),
 			decisions: z.array(workflowDecisionSchema),
 			recordEffects: z.array(workflowRecordEffectSchema),
