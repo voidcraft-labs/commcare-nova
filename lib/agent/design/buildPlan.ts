@@ -22,13 +22,9 @@ import {
 	buildPlanLookupMaterializationSchema,
 } from "@/lib/agent/design/lookupMaterializationTypes";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
-import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
-import {
-	constructionWorkflowOrder,
-	deriveModuleConstructionOwners,
-} from "./constructionOwnership";
+import { deriveConstructionSchedule } from "./constructionOwnership";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -256,6 +252,7 @@ export function normalizeStoredBuildPlan(stored: unknown): BuildPlan {
 function deriveOwnerByElement(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
+	moduleOwnerById: ReadonlyMap<string, string>,
 ): Map<string, string> {
 	const initial = contract.charter.initialWorkflowId;
 	const rank = new Map(orderedWorkflowIds.map((id, index) => [id, index]));
@@ -266,10 +263,6 @@ function deriveOwnerByElement(
 				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
 		)[0] ?? initial;
 	const ownerByElement = new Map<string, string>();
-	const moduleOwnerById = deriveModuleConstructionOwners(
-		contract,
-		orderedWorkflowIds,
-	);
 	const moduleOwnersByListId = new Map<string, string[]>();
 	for (const composition of contract.moduleCompositions) {
 		const moduleOwner = moduleOwnerById.get(composition.id) ?? initial;
@@ -418,86 +411,14 @@ function deriveOwnerByElement(
 function requiredPrerequisiteWorkflowIds(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
-	ownerByElement: ReadonlyMap<string, string>,
+	constructionPrerequisites: ReadonlyMap<string, ReadonlySet<string>>,
 ): Map<string, string[]> {
-	const required: Map<string, Set<string>> = new Map(
-		contract.workflows.map((workflow) => [
-			workflow.id,
-			new Set<string>(workflow.prerequisiteWorkflowIds),
+	const required = new Map(
+		[...constructionPrerequisites].map(([id, dependencies]) => [
+			id,
+			new Set(dependencies),
 		]),
 	);
-	const moduleById = new Map(
-		contract.moduleCompositions.map((composition) => [
-			composition.id,
-			composition,
-		]),
-	);
-	const workflowRank = new Map(
-		orderedWorkflowIds.map((workflowId, index) => [workflowId, index]),
-	);
-	const addPlacementOwner = (
-		compositionId: string,
-		anchorId: string | undefined,
-	): void => {
-		if (anchorId === undefined) return;
-		const owner = ownerByElement.get(compositionId);
-		const anchorOwner = ownerByElement.get(anchorId);
-		if (
-			owner !== undefined &&
-			anchorOwner !== undefined &&
-			owner !== anchorOwner
-		) {
-			required.get(owner)?.add(anchorOwner);
-		}
-	};
-	for (const composition of contract.moduleCompositions) {
-		const parent =
-			composition.parentModuleCompositionId === undefined
-				? undefined
-				: moduleById.get(composition.parentModuleCompositionId);
-		addPlacementOwner(composition.id, parent?.id);
-		/* A different-record child consumes a case selection created by the
-		 * parent menu's first form. A form-and-queue parent can be born earlier
-		 * from its list alone, so depending only on the parent module owner would
-		 * let the child run before that form exists. Graph admission proves this
-		 * form owner is not later than the child owner. */
-		if (
-			parent !== undefined &&
-			composition.hostRecordId !== undefined &&
-			parent.hostRecordId !== composition.hostRecordId
-		) {
-			const parentFormOwner = contract.formCompositions
-				.filter((form) => form.moduleCompositionId === parent.id)
-				.map((form) => form.workflowId)
-				.sort(
-					(left, right) =>
-						(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
-						(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
-				)[0];
-			const childOwner = ownerByElement.get(composition.id);
-			if (
-				parentFormOwner !== undefined &&
-				childOwner !== undefined &&
-				parentFormOwner !== childOwner
-			) {
-				required.get(childOwner)?.add(parentFormOwner);
-			}
-			/* Direct child-field writes require a viewer module before their form
-			 * lands. When the writer lives in this parent menu,
-			 * schedule the child viewer's owner first. If one workflow owns both,
-			 * the executor uses the bounded top-level bootstrap and reparents the
-			 * child before finalizing the slice. */
-			for (const writerWorkflowId of parentFormChildWriterWorkflowIds(
-				contract,
-				parent.id,
-				composition.hostRecordId,
-			)) {
-				if (childOwner !== undefined && writerWorkflowId !== childOwner) {
-					required.get(writerWorkflowId)?.add(childOwner);
-				}
-			}
-		}
-	}
 	/* Module selection is realized only after every affected case-loading form
 	 * exists. Choose the latest covered workflow in the same deterministic order
 	 * used for slices, then make every other covered workflow its prerequisite.
@@ -704,18 +625,23 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 				.join("; ")}`,
 		);
 	}
-	const orderedWorkflowIds = constructionWorkflowOrder(contract);
+	const schedule = deriveConstructionSchedule(contract);
+	const { orderedWorkflowIds } = schedule;
 	if (orderedWorkflowIds === null)
-		throw new Error("Accepted design has cyclic workflow prerequisites.");
+		throw new Error("Accepted design has cyclic construction prerequisites.");
 	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
 		contract.workflows.map((workflow) => [workflow.id, workflow]),
 	);
 	const initial = contract.charter.initialWorkflowId;
-	const ownerByElement = deriveOwnerByElement(contract, orderedWorkflowIds);
+	const ownerByElement = deriveOwnerByElement(
+		contract,
+		orderedWorkflowIds,
+		schedule.moduleOwners,
+	);
 	const requiredPrerequisites = requiredPrerequisiteWorkflowIds(
 		contract,
 		orderedWorkflowIds,
-		ownerByElement,
+		schedule.prerequisites,
 	);
 	const refsFor = (
 		workflowId: string,

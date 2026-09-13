@@ -155,6 +155,10 @@ valid direct Builder or MCP edit.
   selection exists and no later than a parent-menu workflow that creates its
   records. Its list and list-only properties travel with that owner; its later
   forms retain their own workflows. Authored workflow membership stays unchanged.
+  Ownership is fixed from semantic workflow order before construction dependencies
+  are sorted. Each form depends on its module owner; parent placement, parent
+  selection and child writers supply the other dependencies. Graph admission
+  rejects construction cycles and any prerequisite for the initial workflow.
   A module whose parent has a different owner gains that
   exact owner workflow as a prerequisite; sibling position adds no dependency;
   same-slice construction keeps

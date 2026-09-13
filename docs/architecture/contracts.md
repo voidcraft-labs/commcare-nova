@@ -423,7 +423,10 @@ first export-ready app.
 Menu membership is worker-facing meaning, not construction ownership. The
 planner may establish an accepted child list with the workflow that first writes
 its records, then add its own forms in their original workflow slices. Graph
-admission uses that same ownership derivation. The shared form-creation path
+admission uses that same ownership derivation. Ownership is fixed before sorting
+construction dependencies, including each form's module, so scheduling cannot
+change which slice creates a home. Construction cycles and prerequisites for the
+initial workflow are rejected before acceptance. The shared form-creation path
 converts a viewer into a form-bearing module in one admitted mutation batch;
 a no-matches registration keeps its existing case-list entry behavior.
 External actions are separate from Blueprint effects. Current plan admission

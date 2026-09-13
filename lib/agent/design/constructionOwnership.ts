@@ -2,17 +2,20 @@ import type { AppDesignContract } from "./contract";
 import { parentFormChildWriterWorkflowIds } from "./nestedMenuConstruction";
 
 /** Stable workflow order for both graph admission and plan derivation. */
-export function constructionWorkflowOrder(
+function workflowOrder(
 	contract: AppDesignContract,
+	prerequisites: ReadonlyMap<string, ReadonlySet<string>>,
 ): string[] | null {
-	const remaining = new Set(contract.workflows.map((workflow) => workflow.id));
+	const remaining = new Set<string>(
+		contract.workflows.map((workflow) => workflow.id),
+	);
 	const emitted: string[] = [];
 	while (remaining.size > 0) {
 		const ready = contract.workflows
 			.filter(
 				(workflow) =>
 					remaining.has(workflow.id) &&
-					workflow.prerequisiteWorkflowIds.every(
+					[...(prerequisites.get(workflow.id) ?? [])].every(
 						(dependency) => !remaining.has(dependency),
 					),
 			)
@@ -32,7 +35,7 @@ export function constructionWorkflowOrder(
  * A list can establish its home before that home's forms are added. Schedule
  * such a child after its parent selection exists and by its first case writer.
  * Form-only homes retain their first form's owner. */
-export function deriveModuleConstructionOwners(
+function deriveModuleConstructionOwners(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
 ): Map<string, string> {
@@ -88,4 +91,67 @@ export function deriveModuleConstructionOwners(
 		if (owner !== undefined) owners.set(module.id, owner);
 	}
 	return owners;
+}
+
+/** Fix ownership before adding construction dependencies. Recomputing owners
+ * after sorting would let a dependency change which workflow creates its home. */
+export function deriveConstructionSchedule(contract: AppDesignContract) {
+	const prerequisites = new Map<string, Set<string>>(
+		contract.workflows.map((workflow) => [
+			workflow.id,
+			new Set<string>(workflow.prerequisiteWorkflowIds),
+		]),
+	);
+	const semanticOrder = workflowOrder(contract, prerequisites);
+	const ownershipOrder =
+		semanticOrder ?? contract.workflows.map((workflow) => workflow.id);
+	const moduleOwners = deriveModuleConstructionOwners(contract, ownershipOrder);
+	const rank = new Map(ownershipOrder.map((id, index) => [id, index]));
+	const add = (
+		workflowId: string | undefined,
+		dependency: string | undefined,
+	) => {
+		if (
+			workflowId !== undefined &&
+			dependency !== undefined &&
+			workflowId !== dependency
+		)
+			prerequisites.get(workflowId)?.add(dependency);
+	};
+	for (const form of contract.formCompositions)
+		add(form.workflowId, moduleOwners.get(form.moduleCompositionId));
+	for (const module of contract.moduleCompositions) {
+		const parent = contract.moduleCompositions.find(
+			(candidate) => candidate.id === module.parentModuleCompositionId,
+		);
+		if (!parent) continue;
+		const owner = moduleOwners.get(module.id);
+		add(owner, moduleOwners.get(parent.id));
+		if (
+			module.hostRecordId === undefined ||
+			module.hostRecordId === parent.hostRecordId
+		)
+			continue;
+		const firstParentFormOwner = contract.formCompositions
+			.filter((form) => form.moduleCompositionId === parent.id)
+			.map((form) => form.workflowId)
+			.sort(
+				(left, right) =>
+					(rank.get(left) ?? Number.MAX_SAFE_INTEGER) -
+					(rank.get(right) ?? Number.MAX_SAFE_INTEGER),
+			)[0];
+		add(owner, firstParentFormOwner);
+		for (const writer of parentFormChildWriterWorkflowIds(
+			contract,
+			parent.id,
+			module.hostRecordId,
+		))
+			add(writer, owner);
+	}
+	return {
+		moduleOwners,
+		prerequisites,
+		orderedWorkflowIds:
+			semanticOrder === null ? null : workflowOrder(contract, prerequisites),
+	};
 }

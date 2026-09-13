@@ -8,10 +8,7 @@ import {
 	selectionConsumerWorkflowIds,
 } from "@/lib/agent/design/selectionCoverage";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
-import {
-	constructionWorkflowOrder,
-	deriveModuleConstructionOwners,
-} from "./constructionOwnership";
+import { deriveConstructionSchedule } from "./constructionOwnership";
 
 type Path = Array<string | number>;
 
@@ -992,15 +989,31 @@ export function validateDesignGraph(
 		});
 	});
 
+	const schedule = deriveConstructionSchedule(contract);
+	if (schedule.orderedWorkflowIds === null) {
+		issue(
+			ctx,
+			["moduleCompositions"],
+			"Workflow and module construction prerequisites must not form a cycle.",
+		);
+	}
+	if (
+		(schedule.prerequisites.get(contract.charter.initialWorkflowId)?.size ??
+			0) > 0
+	) {
+		issue(
+			ctx,
+			["charter", "initialWorkflowId"],
+			"The initial workflow must not depend on another workflow to construct its module or forms.",
+		);
+	}
 	const workflowRank = new Map(
 		(
-			constructionWorkflowOrder(contract) ??
+			schedule.orderedWorkflowIds ??
 			contract.workflows.map((workflow) => workflow.id)
 		).map((id, index) => [id, index]),
 	);
-	const moduleOwners = deriveModuleConstructionOwners(contract, [
-		...workflowRank.keys(),
-	]);
+	const moduleOwners = schedule.moduleOwners;
 	const compositionOwner = (
 		composition: AppDesignContract["moduleCompositions"][number],
 	) => moduleOwners.get(composition.id);
