@@ -37,13 +37,10 @@ export const DESIGN_STATE_MESSAGE_HEADING =
 	"# Design session state (server-derived)";
 
 export interface DesignWorkspaceStateSummary {
-	readonly artifactKind: "contract" | "revision";
-	readonly counts: Readonly<Record<string, number>>;
 	readonly missingRootFields: readonly string[];
 	/** Exact private candidate. This is regenerated after compaction so the
 	 * model never has to reconstruct it through many inspection turns. */
 	readonly candidate: Readonly<Record<string, unknown>>;
-	readonly sourceContract: Readonly<Record<string, unknown>> | null;
 }
 
 export interface MessageSourceProjection {
@@ -157,10 +154,9 @@ export function applySourceProjection<M extends UIMessage>(
 /**
  * The per-turn state message: the volatile tail that makes resume
  * explicit, never assumed. It carries the open findings and a bounded durable
- * workspace checkpoint; exact candidate/source content stays recoverable
- * through inspectDesign. A redrive, process loss, or provider
- * compaction therefore cannot erase accepted authoring work or force a large
- * artifact back into one prompt tail.
+ * workspace checkpoint. The current candidate is included once; selected
+ * earlier content remains available through inspectDesign. Recovery and
+ * provider compaction regenerate this state from the durable workspace.
  */
 export function renderDesignStateMessage(args: {
 	gates: DesignGateState;
@@ -173,9 +169,7 @@ export function renderDesignStateMessage(args: {
 		readonly summary: string;
 		readonly findings: unknown;
 	}> | null;
-	/** Private staged authoring survives provider compaction and process loss.
-	 * This bounded summary tells the model where to resume; exact items remain
-	 * available through inspectDesign. */
+	/** The current private candidate, regenerated from durable authoring work. */
 	workspace: DesignWorkspaceStateSummary | null;
 }): string {
 	const lines: string[] = [
@@ -183,56 +177,41 @@ export function renderDesignStateMessage(args: {
 		"",
 		args.gates.expectedNext,
 	];
-	if (args.gates.blockingQuestions.length > 0) {
-		lines.push("", "Blocking open questions on the accepted design:");
+	if (
+		args.gates.blockingQuestions.length > 0 &&
+		!args.gates.verdicts.submitContract.legal
+	) {
+		lines.push("", "Questions awaiting answers:");
 		for (const question of args.gates.blockingQuestions) {
 			lines.push(`- ${question}`);
 		}
 	}
-	lines.push("", "## Resolved answers and source outline");
-	lines.push(
-		args.claims.length > 0
-			? JSON.stringify(
-					projectDesignSourceRefs(
-						sourceClaimSchema.omit({ id: true }).array(),
-						args.claims.map(({ statement, sourceRefs }) => ({
-							statement,
-							sourceRefs,
-						})),
-					),
-					null,
-					1,
-				)
-			: "None yet.",
-	);
-	if (args.openReviews && args.openReviews.length > 0) {
-		lines.push("", "## Review findings awaiting disposition");
-		lines.push(
-			"Disposition each finding by its printed handle (its id, for example @f1).",
-		);
-		lines.push(JSON.stringify(args.openReviews, null, 1));
-	}
-	if (args.workspace) {
-		lines.push(
-			"",
-			args.workspace.artifactKind === "revision"
-				? "## Revision phase packet"
-				: "## Authoring phase packet",
-		);
+	if (args.claims.length > 0) {
+		lines.push("", "## Resolved answers and source outline");
 		lines.push(
 			JSON.stringify(
-				{
-					counts: args.workspace.counts,
-					missingRootFields: args.workspace.missingRootFields,
-					...(args.workspace.sourceContract !== null && {
-						reviewedParent: args.workspace.sourceContract,
-					}),
-					currentCandidate: args.workspace.candidate,
-				},
+				projectDesignSourceRefs(
+					sourceClaimSchema.omit({ id: true }).array(),
+					args.claims.map(({ statement, sourceRefs }) => ({
+						statement,
+						sourceRefs,
+					})),
+				),
 				null,
 				1,
 			),
 		);
+	}
+	if (args.openReviews && args.openReviews.length > 0) {
+		lines.push("", "## Review findings awaiting disposition");
+		lines.push(JSON.stringify(args.openReviews, null, 1));
+	}
+	if (args.workspace) {
+		lines.push("", "## Current design");
+		if (args.workspace.missingRootFields.length > 0) {
+			lines.push(`Missing: ${args.workspace.missingRootFields.join(", ")}.`);
+		}
+		lines.push(JSON.stringify(args.workspace.candidate, null, 1));
 	}
 	return lines.join("\n");
 }

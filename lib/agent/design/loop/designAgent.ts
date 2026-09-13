@@ -224,6 +224,26 @@ function isDesignStateMessage(message: ModelMessage): boolean {
 	);
 }
 
+/** Keep one server state in the working context. The durable ledger retains
+ * every state; user messages, reasoning and tool pairs keep their order and
+ * content. Provenance, rather than a matching heading or body, identifies
+ * which messages the server may replace. */
+export function projectDesignWorkingContext(
+	items: readonly {
+		readonly appendKey: string;
+		readonly message: ModelMessage;
+	}[],
+): ModelMessage[] {
+	const isServerState = (item: (typeof items)[number]) =>
+		(item.appendKey.startsWith("state:") ||
+			item.appendKey.startsWith("compaction-state:")) &&
+		isDesignStateMessage(item.message);
+	const newestState = items.findLastIndex(isServerState);
+	return items
+		.filter((item, index) => index === newestState || !isServerState(item))
+		.map((item) => item.message);
+}
+
 const REQUIRED_QUESTION_HEADING =
 	"# Required design questions (server-derived)";
 export const REQUIRED_DESIGN_QUESTIONS_HEADER = "Required design decisions";

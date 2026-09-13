@@ -301,7 +301,18 @@ describe("durable design loop runner", () => {
 			}),
 		};
 		await withDesignResponses(
-			[[correction], [wait("correction-pause")]],
+			[
+				[correction],
+				[
+					{
+						type: "tool",
+						name: "inspectDesign",
+						callId: "inspect-reviewed-root",
+						input: { selection: { kind: "sourceRoot" } },
+					},
+				],
+				[wait("correction-pause")],
+			],
 			async (_model, requests, transport) => {
 				expect(
 					(
@@ -311,6 +322,18 @@ describe("durable design loop runner", () => {
 					).kind,
 				).toBe("awaiting-input");
 				expect(JSON.stringify(requests[1]?.input)).toContain(claim);
+				expect(JSON.stringify(requests[1]?.input)).not.toContain(
+					"reviewedParent",
+				);
+				const inspected = requests[2]?.input?.find(
+					(item) =>
+						item.type === "function_call_output" &&
+						item.call_id === "inspect-reviewed-root",
+				);
+				expect(inspected).toBeDefined();
+				expect(String(inspected?.output)).toContain(
+					fixture.draft.envelope.payload.charter.appName,
+				);
 				expect(
 					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
 						fixture.draft.id,
@@ -573,6 +596,20 @@ describe("durable design loop runner", () => {
 				expect(JSON.stringify(requests[1].input)).toContain(
 					"One more requirements document is coming.",
 				);
+				expect(
+					JSON.stringify(requests[1].input).match(
+						/# Design session state \(server-derived\)/g,
+					),
+				).toHaveLength(1);
+				const after = await h
+					.db()
+					.selectFrom("design_model_context_items")
+					.selectAll()
+					.execute();
+				expect(after).toEqual(expect.arrayContaining(before));
+				expect(
+					after.filter((item) => item.append_key.startsWith("state:")),
+				).toHaveLength(2);
 				expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual(
 					[],
 				);
@@ -790,9 +827,18 @@ describe("durable design loop runner", () => {
 					.selectFrom("design_model_context_items")
 					.selectAll()
 					.execute();
+				const checkpointItem = fixtureValue(
+					items.find((item) =>
+						JSON.stringify(item.message).includes("opaque-checkpoint"),
+					),
+					"durable provider checkpoint",
+				);
 				expect(
-					items.filter((item) =>
-						item.append_key.startsWith("compaction-state:"),
+					items.filter(
+						(item) =>
+							BigInt(item.ordinal) > BigInt(checkpointItem.ordinal) &&
+							(item.append_key.startsWith("state:") ||
+								item.append_key.startsWith("compaction-state:")),
 					),
 				).toHaveLength(1);
 				const serialized = JSON.stringify(input);

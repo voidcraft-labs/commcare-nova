@@ -1,4 +1,6 @@
+import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
+import { projectDesignWorkingContext } from "../designAgent";
 import { DESIGN_STATE_MESSAGE_HEADING } from "../packageRender";
 import {
 	catalogInput,
@@ -8,6 +10,60 @@ import {
 } from "./designAgentPeer";
 
 describe("design agent provider compaction checkpoint", () => {
+	it("replaces only server state while preserving identical user text and complete tool exchanges", () => {
+		const oldState: ModelMessage = {
+			role: "user",
+			content: `${DESIGN_STATE_MESSAGE_HEADING}\nOld findings and candidate.`,
+		};
+		const currentState: ModelMessage = {
+			role: "user",
+			content: `${DESIGN_STATE_MESSAGE_HEADING}\nCurrent findings and candidate.`,
+		};
+		const call: ModelMessage = {
+			role: "assistant",
+			content: [
+				{
+					type: "reasoning",
+					text: "Inspect the saved design.",
+					providerOptions: { openai: { encryptedContent: "opaque-reasoning" } },
+				},
+				{
+					type: "tool-call",
+					toolCallId: "read",
+					toolName: "inspectDesign",
+					input: { selection: { kind: "root" } },
+				},
+			],
+		};
+		const result: ModelMessage = {
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolCallId: "read",
+					toolName: "inspectDesign",
+					output: { type: "json", value: { ok: true, name: "Garden" } },
+				},
+			],
+		};
+		const copiedUser = structuredClone(oldState);
+		const items = [
+			{ appendKey: "state:earlier", message: oldState },
+			{ appendKey: "ui-turn:user-copy", message: copiedUser },
+			{ appendKey: "response:read", message: call },
+			{ appendKey: "response:read", message: result },
+			{ appendKey: "compaction-state:current", message: currentState },
+		];
+		const before = structuredClone(items);
+		expect(projectDesignWorkingContext(items)).toEqual([
+			copiedUser,
+			call,
+			result,
+			currentState,
+		]);
+		expect(items).toEqual(before);
+	});
+
 	it("replays opaque checkpoint bytes, retains tool pairs and appends one fresh state across native SDK steps", async () => {
 		await withDesignResponses(
 			[

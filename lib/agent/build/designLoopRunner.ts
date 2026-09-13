@@ -40,7 +40,6 @@ import {
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import {
 	type AppDesignContract,
-	appDesignContractBaseSchema,
 	appDesignContractSchema,
 	type DesignConstructionIssue,
 	designConstructionQuestionRequirements,
@@ -63,6 +62,7 @@ import {
 	designAuthorInstructionParts,
 	hasAuthoritativeDesignStateMessage,
 	isExactRequiredDesignQuestionCall,
+	projectDesignWorkingContext,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
 	requiredDesignQuestionAuthorizationKey,
 	requiredDesignQuestionBatch,
@@ -1740,21 +1740,15 @@ export async function runDesignAgentLoop(
 					workspace === null || workspaceKind === null
 						? null
 						: {
-								artifactKind: workspaceKind,
-								...designWorkspaceCandidateSummary(
+								missingRootFields: designWorkspaceCandidateSummary(
 									workspaceKind,
 									workspace.candidate,
-								),
+								).missingRootFields,
 								candidate: projectDesignAuthoringValues(
 									designWorkspaceIdentitySchema,
 									workspace.candidate,
 									workspace.handleBindings,
 								) as Record<string, unknown>,
-								sourceContract: projectDesignAuthoringValues(
-									appDesignContractBaseSchema,
-									workspace.sourceContract,
-									workspace.handleBindings,
-								) as Record<string, unknown> | null,
 							},
 			}),
 		};
@@ -1777,9 +1771,9 @@ export async function runDesignAgentLoop(
 	/** Context generations retain the same logical-turn budget. */
 	let modelContextGeneration = 0;
 	/* One model-visible context for the whole design attempt. Durable phase
-	 * transitions append state and tool receipts to this sequence; they never
-	 * reconstruct a phase-local prompt. Provider compaction inside
-	 * `prepareStep` is the sole legal prefix replacement. */
+	 * transitions append state and tool receipts to this sequence. Requests
+	 * retain the newest server state; every other message keeps its order and
+	 * content until provider compaction supplies a replacement prefix. */
 	let modelContext: ModelMessage[] | null = null;
 	let modelContextCurrentItems: DesignModelContextItem[] = [];
 	let modelContextPredecessorItems: readonly DesignModelContextItem[] = [];
@@ -2177,8 +2171,8 @@ export async function runDesignAgentLoop(
 			},
 		});
 		/* Deploy-compatibility projection happens once, when this logical context
-		 * is first seeded. Every later phase uses the exact growing ModelMessage
-		 * sequence captured below. */
+		 * is first seeded. Later phases retain the growing ModelMessage sequence
+		 * below; request projection omits superseded server state packets. */
 		const sanitized = await sanitizeHistoricalToolParts(
 			[...args.messages],
 			agent.tools,
@@ -2312,12 +2306,12 @@ export async function runDesignAgentLoop(
 		}
 		terminalCorrectionStepAllowance = 0;
 		const stateMessage = await stateMessageFor(gates);
-		const stateKey = `state:${canonicalJsonDigest(stateMessage)}`;
+		const stateKey = `state:${modelContextCurrentItems.length}:${canonicalJsonDigest(stateMessage)}`;
 		if (!modelContextAppendKeys.has(stateKey)) {
 			modelContext = [...modelContext, stateMessage];
 			await appendContext(stateKey, [stateMessage]);
 		}
-		const prompt = modelContext;
+		const prompt = projectDesignWorkingContext(modelContextCurrentItems);
 		const result = await agent.stream({ prompt, abortSignal: args.signal });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 

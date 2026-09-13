@@ -323,9 +323,7 @@ describe("durable design gate transitions", () => {
 		expect(answered.head).toEqual(accepted);
 		expect(legality(answered)).toEqual(AUTHOR);
 		expect(answered.blockingQuestions).toEqual(waiting.blockingQuestions);
-		expect(answered.expectedNext).toBe(
-			"Continue the implicit workspace with native semantic design calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.",
-		);
+		expect(answered.expectedNext).toBe("Design the app from the requirements.");
 		const rendered = renderDesignStateMessage({
 			gates: answered,
 			claims: [],
@@ -337,6 +335,7 @@ describe("durable design gate transitions", () => {
 			"",
 			answered.expectedNext,
 		]);
+		expect(rendered).not.toContain("Which queue should open first?");
 	});
 });
 

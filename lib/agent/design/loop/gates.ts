@@ -321,24 +321,24 @@ function deriveExpectedNext(
 	plan: DesignBuildPlanRecord | null,
 ): string {
 	if (plan !== null) {
-		return "The design phase is complete; the build continues from the persisted plan.";
+		return "The design is ready to build.";
 	}
 	// The accepted artifact keeps its old questions as context. New source
 	// evidence already reopens authoring; asking the same questions again would
 	// contradict the legal next action and ignore the user's answer.
 	if (blockingQuestions.length > 0 && !verdicts.submitContract.legal) {
-		return "Ask the user the accepted design's blocking open questions with askQuestions; the answers reopen design work.";
+		return "Ask the questions below before continuing.";
 	}
 	if (verdicts.submitRevision.legal) {
-		return "Update the reviewed design and blocking finding dispositions with the native semantic calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
+		return "Revise the design using the review below.";
 	}
 	if (verdicts.reviewDraft.legal) {
 		return "The saved draft is ready for independent review.";
 	}
 	if (verdicts.submitContract.legal) {
-		return "Continue the implicit workspace with native semantic design calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
+		return "Design the app from the requirements.";
 	}
-	return "No design finalizer is legal right now; ask the user with askQuestions if something is genuinely unclear.";
+	return "The design is accepted.";
 }
 
 /**

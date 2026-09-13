@@ -485,6 +485,16 @@ when the stored operation envelope is identical and every supplied binding is
 already proven in the session ledger; replay adds no workspace steps or handles.
 
 `designAgent.ts` owns the one stable agent grammar and compaction preparation.
+`projectDesignWorkingContext` keeps the newest server state in each request.
+It identifies state through durable append provenance, so matching user text
+is preserved. Every other message keeps its content and order, including
+reasoning, hosted tool discovery and complete tool exchanges. The ledger keeps
+all states. Each author phase appends its freshly derived state even when the
+candidate has returned to an earlier value. The state includes the current
+candidate once; the reviewed source remains available through `inspectDesign`
+source selections. Empty claim sections and repeated continuation instructions
+are omitted. New user content reopens authoring without separately presenting
+the accepted design's old questions as still awaiting answers.
 A retained state packet suppresses fresh derivation only when its durable append
 key proves a server `state:` or `compaction-state:` write after the newest provider
 checkpoint. User text, including a copied state heading or an old server packet,
@@ -511,12 +521,12 @@ ledger admits it exactly once into the run and monthly totals, including across
 overlapping recovery. Recovery does not re-emit that historical step's live
 usage, tool, text, or reasoning events. Already finalized turns and other
 instructions stay charged exactly where they were. Automatic provider
-compaction is the only operation allowed to replace a prefix; Nova durably
-appends an exact server state packet after the boundary before the next provider
-request, without deleting retained suffix items. The durable workspace remains
-authority and supports bounded inspection. `designLoopRunner.ts`
-advances phases by appending exact durable state, not by reconstructing phase
-prompts.
+compaction replaces the earlier conversation with the provider checkpoint;
+Nova durably appends exact server state after that boundary before the next
+provider request. Superseded server states are omitted from requests; other
+retained suffix items remain intact. The durable workspace remains authority
+and supports bounded inspection. `designLoopRunner.ts` advances phases by
+appending exact durable state and applying this same request projection.
 
 A real deployment change to the pinned model, prompt, tool digest, or context
 format creates a new context generation linked to the immutable prior one.
