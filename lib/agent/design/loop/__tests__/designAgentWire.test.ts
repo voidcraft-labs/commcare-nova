@@ -23,7 +23,6 @@ const DESIGN_TOOL_NAMES = [
 	"inspectDesign",
 	"inspectProjectData",
 	"placeModules",
-	"requestReview",
 	"setDesignRoot",
 	"updateAccess",
 	"updateActors",
@@ -44,65 +43,52 @@ const DESIGN_TOOL_NAMES = [
 const answer = [{ type: "text" as const, text: "I can prepare that design." }];
 
 describe("design agent Responses contract", () => {
-	it("preserves one successful streamed tool grammar across all four phases", async () => {
-		await withDesignResponses(
-			[answer, answer, answer, answer],
-			async (model, requests) => {
-				for (const phase of [
-					"author",
-					"review",
-					"revision",
-					"awaiting-input",
-				] as const) {
-					const result = await consumeDesignAgent(wireAgent(model, { phase }));
-					expect(result.text).toBe("I can prepare that design.");
-					expect(result.finishReason).toBe("stop");
-				}
-				const first = requests[0];
-				if (!first) throw new Error("No provider request captured");
-				for (const request of requests) {
-					expect(JSON.stringify(request.tools)).toBe(
-						JSON.stringify(first.tools),
-					);
-					expect(request.tool_choice).not.toEqual({
-						type: "function",
-						name: "askQuestions",
-					});
-					expect(request.model).toBe(MODEL_ROLES.designAuthor.modelId);
-					expect(request.store).toBe(false);
-					expect(request.include).toContain("reasoning.encrypted_content");
-					expect(request.reasoning?.effort).toBe(
-						MODEL_ROLES.designAuthor.reasoningEffort,
-					);
-					expect(request.reasoning?.summary).toBeTruthy();
-					expect(request.prompt_cache_key).toBe("nova:design:session-probe");
-					expect(request.prompt_cache_options).toEqual({
-						mode: "implicit",
-						ttl: "30m",
-					});
-					expect(request.parallel_tool_calls).toBe(true);
-				}
-				const byName = new Map(first.tools?.map((tool) => [tool.name, tool]));
-				expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
-				for (const name of DESIGN_TOOL_NAMES.filter(
-					(name) => name !== "askQuestions",
-				)) {
-					const tool = byName.get(name);
-					expect(tool?.strict, name).toBe(true);
-					expect(tool?.parameters?.additionalProperties, name).toBe(false);
-					expect(tool?.parameters?.required, name).toEqual(
-						Object.keys(tool?.parameters?.properties ?? {}),
-					);
-				}
-				expect(byName.get("askQuestions")?.strict).toBe(false);
-				expect(
-					byName.get("inspectProjectData")?.parameters?.properties?.tableId,
-				).toHaveProperty("pattern");
-				expect(
-					byName.get("inspectProjectData")?.parameters?.properties?.tableId,
-				).not.toHaveProperty("anyOf");
-			},
-		);
+	it("sends the authoring tools with stateless Responses settings", async () => {
+		await withDesignResponses([answer], async (model, requests) => {
+			const result = await consumeDesignAgent(wireAgent(model));
+			expect(result.text).toBe("I can prepare that design.");
+			expect(result.finishReason).toBe("stop");
+			const first = requests[0];
+			if (!first) throw new Error("No provider request captured");
+			for (const request of requests) {
+				expect(request.tool_choice).not.toEqual({
+					type: "function",
+					name: "askQuestions",
+				});
+				expect(request.model).toBe(MODEL_ROLES.designAuthor.modelId);
+				expect(request.store).toBe(false);
+				expect(request.include).toContain("reasoning.encrypted_content");
+				expect(request.reasoning?.effort).toBe(
+					MODEL_ROLES.designAuthor.reasoningEffort,
+				);
+				expect(request.reasoning?.summary).toBeTruthy();
+				expect(request.prompt_cache_key).toBe("nova:design:session-probe");
+				expect(request.prompt_cache_options).toEqual({
+					mode: "implicit",
+					ttl: "30m",
+				});
+				expect(request.parallel_tool_calls).toBe(true);
+			}
+			const byName = new Map(first.tools?.map((tool) => [tool.name, tool]));
+			expect([...byName.keys()].sort()).toEqual(DESIGN_TOOL_NAMES);
+			for (const name of DESIGN_TOOL_NAMES.filter(
+				(name) => name !== "askQuestions",
+			)) {
+				const tool = byName.get(name);
+				expect(tool?.strict, name).toBe(true);
+				expect(tool?.parameters?.additionalProperties, name).toBe(false);
+				expect(tool?.parameters?.required, name).toEqual(
+					Object.keys(tool?.parameters?.properties ?? {}),
+				);
+			}
+			expect(byName.get("askQuestions")?.strict).toBe(false);
+			expect(
+				byName.get("inspectProjectData")?.parameters?.properties?.tableId,
+			).toHaveProperty("pattern");
+			expect(
+				byName.get("inspectProjectData")?.parameters?.properties?.tableId,
+			).not.toHaveProperty("anyOf");
+		});
 	});
 
 	it("forces the first five exact required questions while retaining the stable decoded client tool", async () => {

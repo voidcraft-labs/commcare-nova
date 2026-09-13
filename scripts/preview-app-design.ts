@@ -39,7 +39,7 @@ import { DesignGenerationContext } from "../lib/agent/design/designGenerationCon
 import { createDesignAgent } from "../lib/agent/design/loop/designAgent";
 import {
 	collectDesignIdentityHandleBindings,
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 	projectDesignIdentityHandles,
 	renderDesignValidationIssues,
@@ -223,7 +223,7 @@ async function main(): Promise<void> {
 
 	/* Reuse production descriptions and strict wire schemas while replacing
 	 * persistence with the same pure workspace replay used by the store. */
-	const realTools = createDesignLoopTools({
+	const { tools: realTools } = createDesignLoopActions({
 		designSessionId: sessionId,
 		runId: "preview",
 		authority: {
@@ -345,11 +345,11 @@ async function main(): Promise<void> {
 		};
 	};
 
-	const requestReview = async () => {
+	const reviewDraft = async () => {
 		if (state.contract === null || state.lifecycle !== "draft") {
 			return { error: "No unreviewed draft exists." };
 		}
-		console.log("\n[requestReview] running the independent reviewer…");
+		console.log("\n[reviewDraft] running the independent reviewer…");
 		const reviewed = await runDesignReviewer(
 			ctx,
 			{
@@ -370,7 +370,7 @@ async function main(): Promise<void> {
 		write(`review-${state.openReviewCount}.json`, reviewed.artifact);
 		const blocking = reviewed.artifact.findings.filter(findingBlocksAcceptance);
 		console.log(
-			`[requestReview] ${reviewed.artifact.findings.length} findings (${blocking.length} blocking)`,
+			`[reviewDraft] ${reviewed.artifact.findings.length} findings (${blocking.length} blocking)`,
 		);
 		if (blocking.length === 0) {
 			state.lifecycle = "accepted";
@@ -523,10 +523,6 @@ async function main(): Promise<void> {
 						: finishContract(input),
 				),
 		},
-		requestReview: {
-			...realTools.requestReview,
-			execute: (input: unknown) => ordered(input, requestReview),
-		},
 	};
 
 	const readline = createInterface({
@@ -542,11 +538,14 @@ async function main(): Promise<void> {
 
 	for (let turn = 0; turn < 20 && state.plan === null; turn += 1) {
 		const phase = phaseFor(state);
+		if (phase === "review") {
+			await reviewDraft();
+			continue;
+		}
 		const agent = createDesignAgent({
 			model: ctx.model(MODEL_ROLES.designAuthor.modelId),
 			tools: tools as never,
 			toolExecutionQueue,
-			phase,
 			catalogText,
 			constraintsText: renderPlatformConstraintsSection(),
 			instructions: DESIGN_AGENT_SYSTEM,

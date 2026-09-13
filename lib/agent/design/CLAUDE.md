@@ -350,11 +350,16 @@ transition never changes provider context. Durable gates refuse calls that are
 not currently legal. Contract and revision candidates use an implicit durable
 identity-addressed workspace. The model calls `setDesignRoot`, collection-
 specific `update*` tools, `updateFindingDispositions`, `inspectProjectData`, `inspectDesign`,
-`finishDesign`, and `requestReview`; it never names the artifact kind,
+and `finishDesign`; it never names the artifact kind,
 workspace, or optimistic revision. It may emit several known calls in one
 response. The server serializes their effects in provider order, and the small
 `finishDesign` call replays and validates the whole candidate before one
-immutable artifact insert. `inspectProjectData` returns a byte-bounded,
+immutable artifact insert. The runner then starts the independent reviewer
+directly; the author never calls a tool to start review. A saved clean review
+resumes acceptance without another model call, provided its source package is
+still current and authorized Project data still satisfies the design. Blocking
+findings return to the author in the saved design state. A durable user pause
+wins over pending review on recovery. `inspectProjectData` returns a byte-bounded,
 cursor-paged authorized Project table catalog or one cursor-bound page of at
 most 100 rows; it never accepts names as identity. Catalog cursors bind the
 exact Project revision and table/column position, so the author must read until

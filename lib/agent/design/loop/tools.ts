@@ -67,11 +67,12 @@ import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import {
 	type DesignAncestry,
 	type DesignGateState,
-	type DesignLoopToolName,
+	type DesignLoopActionName,
 	type DesignRepairTracker,
 	type DesignStageToolName,
 	type DesignSubmissionValidationStage,
 	evaluateDesignGates,
+	pendingReviewAcceptance,
 } from "@/lib/agent/design/loop/gates";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
@@ -1067,7 +1068,7 @@ async function gatesFor(deps: DesignLoopToolDeps): Promise<DesignGateState> {
 function refuse(
 	deps: DesignLoopToolDeps,
 	gates: DesignGateState,
-	name: DesignLoopToolName,
+	name: DesignLoopActionName,
 ): ToolError | null {
 	const verdict = gates.verdicts[name];
 	if (verdict.legal) {
@@ -1078,7 +1079,7 @@ function refuse(
 	return { error: verdict.refusal };
 }
 
-function gateNameForKind(kind: DesignArtifactKind): DesignLoopToolName {
+function gateNameForKind(kind: DesignArtifactKind): DesignLoopActionName {
 	return kind === "contract" ? "submitContract" : "submitRevision";
 }
 
@@ -1328,7 +1329,7 @@ function constructionSubmissionRejection(args: {
 
 async function projectLookupEvidenceRejection(args: {
 	deps: DesignLoopToolDeps;
-	toolName: DesignLoopToolName;
+	toolName: DesignLoopActionName;
 	contract: AppDesignContract;
 	handleBindings: readonly DesignIdentityHandleBinding[];
 }) {
@@ -1637,7 +1638,7 @@ export function designCreationIdentityIssue(
 }
 
 /** One design tool's provider-facing definition: what the model sees, with
- * no server binding. `createDesignLoopTools` attaches `execute` to exactly
+ * no server binding. `createDesignLoopActions` attaches `execute` to exactly
  * these objects, so the mounted grammar and this pure catalog cannot drift. */
 export interface DesignLoopToolDefinition {
 	readonly description: string;
@@ -1749,12 +1750,6 @@ export function designLoopToolDefinitions() {
 			inputSchema: strictWireOnly(finishDesignInputSchema),
 			strict: true,
 		},
-		requestReview: {
-			description:
-				"Ask the server to run the independent fresh-context reviewer over the current draft. The persisted review's findings come back as the result; a clean review is accepted on the spot.",
-			inputSchema: strictWireOnly(z.object({}).strict()),
-			strict: true,
-		},
 	} satisfies Record<string, DesignLoopToolDefinition>;
 }
 
@@ -1787,13 +1782,13 @@ export async function designToolsetDigest(
 	);
 }
 
-export function createDesignLoopTools(
+export function createDesignLoopActions(
 	deps: DesignLoopToolDeps,
 	executionQueue = createDesignToolExecutionQueue(),
 ) {
 	/* The AI SDK may invoke calls from one response concurrently. Input
 	 * refinement reserves provider order before execution; each server callback
-	 * attaches its work to that reservation, including update -> finish -> review
+	 * attaches its work to that reservation, including update -> finish
 	 * chains and the client-side askQuestions terminal. */
 	const inResponseOrder = executionQueue.run;
 	const definitions = designLoopToolDefinitions();
@@ -2120,36 +2115,37 @@ export function createDesignLoopTools(
 				draft.envelope.complexity === undefined
 					? undefined
 					: DESIGN_EFFORT_TIME_ESTIMATES[draft.envelope.complexity.depth],
-			message: `The draft persisted as revision ${draft.revision}. Request its independent review with requestReview.`,
 		};
 	};
 
-	const requestReviewInternal = {
-		...definitions.requestReview,
-		execute: async () => {
-			const gates = await gatesFor(deps);
-			const refusal = refuse(deps, gates, "requestReview");
+	const reviewDraft = async () => {
+		const gates = await gatesFor(deps);
+		let review = pendingReviewAcceptance(gates);
+		if (review === null) {
+			const refusal = refuse(deps, gates, "reviewDraft");
 			if (refusal) return refusal;
-			const draft = gates.head;
-			if (draft === null) return { error: "No draft exists to review." };
-			const pkg =
-				draft.sourcePackageDigest === deps.currentPkg.packageDigest
-					? deps.currentPkg
-					: await deps.rebuildPackageForDigest(draft.sourcePackageDigest);
-			if (pkg === null) {
-				deps.repair.noteSequenceError();
-				return {
-					error:
-						"The sources for this draft no longer reproduce exactly. Stage and finalize a fresh Design Contract from the current sources.",
-				};
-			}
-			/* The session's handle ledger renders the contract in symbol
-			 * vocabulary and resolves the symbols the reviewer emits — one
-			 * read-only load feeds both directions. */
-			const bindings = await readDesignIdentityHandleBindings({
-				designSessionId: deps.designSessionId,
-				authority: deps.authority,
-			});
+		}
+		const draft = gates.head;
+		if (draft === null) return { error: "No draft exists to review." };
+		const pkg =
+			draft.sourcePackageDigest === deps.currentPkg.packageDigest
+				? deps.currentPkg
+				: await deps.rebuildPackageForDigest(draft.sourcePackageDigest);
+		if (pkg === null) {
+			deps.repair.noteSequenceError();
+			return {
+				error:
+					"The sources for this draft no longer reproduce exactly. Stage and finalize a fresh Design Contract from the current sources.",
+			};
+		}
+		/* The session's handle ledger renders the contract in symbol
+		 * vocabulary and resolves the symbols the reviewer emits — one
+		 * read-only load feeds both directions. */
+		const bindings = await readDesignIdentityHandleBindings({
+			designSessionId: deps.designSessionId,
+			authority: deps.authority,
+		});
+		if (review === null) {
 			const reviewed = await runDesignReviewer(
 				deps.ctx,
 				{
@@ -2162,18 +2158,18 @@ export function createDesignLoopTools(
 				deps.onReviewActivity,
 			);
 			if (reviewed.kind === "not-produced") {
-				deps.repair.noteSubmissionRejection("requestReview", {
+				deps.repair.noteSubmissionRejection("reviewDraft", {
 					stage: "schema",
 					fingerprints: [`review:${reviewed.reason}`],
 				});
 				return {
-					error: `The independent review did not come back usable this time (${reviewed.reason}). The draft stays unreviewed; request the review again.`,
+					error: `The independent review did not produce a usable result (${reviewed.reason}). The draft remains unreviewed.`,
 				};
 			}
 			if (reviewed.reasoningText) {
 				deps.onReviewerReasoning?.(reviewed.reasoningText);
 			}
-			const review = await insertDesignReview({
+			review = await insertDesignReview({
 				envelope: reviewEnvelope({
 					draft,
 					review: reviewed.artifact,
@@ -2183,84 +2179,55 @@ export function createDesignLoopTools(
 				authority: deps.authority,
 			});
 			deps.ancestryChanged();
-			deps.repair.noteAccepted("requestReview");
-			const findings = review.envelope.payload.findings;
-			const gated = findings.filter(findingBlocksAcceptance);
-			/* The agent reads and writes symbols: finding ids project to their
-			 * positional `@f` handles (what a disposition's findingId takes) and
-			 * affected elements back through the ledger — the same vocabulary
-			 * the next state packet prints. */
-			const findingHandleBindings = deriveFindingHandleBindings([
-				...gates.headReviews.map((entry) => entry.envelope.payload),
-				review.envelope.payload,
-			]);
-			const projectedFindings = projectDesignIdentityHandles(findings, [
-				...bindings,
-				...findingHandleBindings,
-			]);
-			if (gated.length === 0) {
-				const lookupEvidenceRejection = await projectLookupEvidenceRejection({
-					deps,
-					toolName: "requestReview",
+			deps.repair.noteAccepted("reviewDraft");
+		}
+
+		const findings = review.envelope.payload.findings;
+		const gated = findings.filter(findingBlocksAcceptance);
+		if (gated.length === 0) {
+			const lookupEvidenceRejection = await projectLookupEvidenceRejection({
+				deps,
+				toolName: "reviewDraft",
+				contract: draft.envelope.payload,
+				handleBindings: bindings,
+			});
+			if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
+			const accepted = await insertDesignRevision({
+				envelope: contractEnvelope({
+					designSessionId: deps.designSessionId,
+					packageDigest: draft.sourcePackageDigest,
 					contract: draft.envelope.payload,
-					handleBindings: bindings,
-				});
-				if (lookupEvidenceRejection !== null) return lookupEvidenceRejection;
-				const accepted = await insertDesignRevision({
-					envelope: contractEnvelope({
-						designSessionId: deps.designSessionId,
-						packageDigest: draft.sourcePackageDigest,
-						contract: draft.envelope.payload,
-						revision: draft.revision + 1,
-						parentId: draft.id,
-						inputDigests: [draft.artifactDigest, review.artifactDigest],
-						promptVersion: draft.envelope.promptVersion,
-						finishReason: draft.envelope.producer.finishReason,
-					}),
-					lifecycle: "accepted",
-					authority: deps.authority,
-					dispositions: [],
-				});
-				deps.ancestryChanged();
-				const blocking = accepted.envelope.payload.openQuestions.filter(
-					(question) => question.blocking,
-				);
-				const plan =
-					blocking.length === 0
-						? await persistDerivedPlan(deps, accepted)
-						: null;
-				return {
-					ok: true,
-					reviewId: review.id,
-					summary: review.envelope.payload.summary,
-					findings: projectedFindings,
-					accepted: true,
-					acceptedRevisionId: accepted.id,
-					planId: plan?.id,
-					message:
-						blocking.length > 0
-							? "The review raised no gated findings, so the server accepted the design. Ask the user its blocking open questions."
-							: "The review raised no blocking findings, so the server accepted the design and derived its build plan. Tell the user briefly that the build is starting, then stop.",
-				};
-			}
-			const handleByFindingId = new Map(
-				findingHandleBindings.map((binding) => [
-					binding.designId,
-					binding.handle,
-				]),
+					revision: draft.revision + 1,
+					parentId: draft.id,
+					inputDigests: [draft.artifactDigest, review.artifactDigest],
+					promptVersion: draft.envelope.promptVersion,
+					finishReason: draft.envelope.producer.finishReason,
+				}),
+				lifecycle: "accepted",
+				authority: deps.authority,
+				dispositions: [],
+			});
+			deps.ancestryChanged();
+			const blocking = accepted.envelope.payload.openQuestions.filter(
+				(question) => question.blocking,
 			);
-			const gatedHandles = gated.map(
-				(finding) => handleByFindingId.get(finding.id) ?? finding.id,
-			);
+			const plan =
+				blocking.length === 0 ? await persistDerivedPlan(deps, accepted) : null;
 			return {
 				ok: true,
 				reviewId: review.id,
 				summary: review.envelope.payload.summary,
-				findings: projectedFindings,
-				accepted: false,
-				message: `The review has blocking design corrections or user decisions: ${gatedHandles.join(", ")}. Update the affected semantic design items and record exactly one disposition per blocking finding — a disposition's findingId is the finding's printed handle, for example {"handle":"@f1"}; advisory findings take no disposition — then finish the revision.`,
+				accepted: true,
+				acceptedRevisionId: accepted.id,
+				planId: plan?.id,
 			};
-		},
+		}
+		return {
+			ok: true,
+			reviewId: review.id,
+			summary: review.envelope.payload.summary,
+			accepted: false,
+		};
 	};
 
 	const finishRevision = async (input: unknown) => {
@@ -2369,8 +2336,6 @@ export function createDesignLoopTools(
 			ok: true,
 			revisionId: revision.id,
 			accepted: false,
-			message:
-				"The revision persisted as a new draft. Request a fresh independent review; only a review with no blocking findings can accept the design.",
 		};
 	};
 
@@ -2385,32 +2350,28 @@ export function createDesignLoopTools(
 			}),
 	};
 
-	const requestReview = {
-		...requestReviewInternal,
-		execute: (input: unknown) =>
-			inResponseOrder(input, () => requestReviewInternal.execute()),
-	};
-
 	return {
-		inspectProjectData,
-		setDesignRoot,
-		updateActors,
-		updateRecords,
-		updateWorkflows,
-		updateLists,
-		updateAccess,
-		updateNavigation,
-		updateModuleCompositions,
-		placeModules,
-		updateFormCompositions,
-		updateLookupTables,
-		updateExternalRequirements,
-		updateDecisions,
-		updateAssumptions,
-		updateOpenQuestions,
-		updateFindingDispositions,
-		inspectDesign,
-		finishDesign,
-		requestReview,
+		reviewDraft,
+		tools: {
+			inspectProjectData,
+			setDesignRoot,
+			updateActors,
+			updateRecords,
+			updateWorkflows,
+			updateLists,
+			updateAccess,
+			updateNavigation,
+			updateModuleCompositions,
+			placeModules,
+			updateFormCompositions,
+			updateLookupTables,
+			updateExternalRequirements,
+			updateDecisions,
+			updateAssumptions,
+			updateOpenQuestions,
+			updateFindingDispositions,
+			inspectDesign,
+			finishDesign,
+		},
 	};
 }

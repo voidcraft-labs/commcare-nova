@@ -102,22 +102,22 @@ function legality(gates: DesignGateState) {
 }
 const AUTHOR = {
 	submitContract: true,
-	requestReview: false,
+	reviewDraft: false,
 	submitRevision: false,
 };
 const REVIEW = {
 	submitContract: false,
-	requestReview: true,
+	reviewDraft: true,
 	submitRevision: false,
 };
 const CORRECT = {
 	submitContract: false,
-	requestReview: false,
+	reviewDraft: false,
 	submitRevision: true,
 };
 const DONE = {
 	submitContract: false,
-	requestReview: false,
+	reviewDraft: false,
 	submitRevision: false,
 };
 

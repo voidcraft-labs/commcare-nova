@@ -7,7 +7,6 @@ import {
 	designResponseAppendKey,
 	designTerminalOmissionCanCorrect,
 	designTerminalOmissionCorrectionPrefix,
-	designToolPulsePhase,
 	designTurnProvenanceId,
 	designWaitForInputCanPause,
 	designWaitResponseAppendKey,
@@ -25,16 +24,6 @@ import {
 	designStepBudgetReached,
 } from "@/lib/agent/design/loop/designAgent";
 import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
-
-describe("designToolPulsePhase", () => {
-	it("switches to review as soon as requestReview starts", () => {
-		expect(designToolPulsePhase("requestReview", "revise")).toBe("review");
-	});
-
-	it("keeps the current phase for semantic design updates", () => {
-		expect(designToolPulsePhase("updateWorkflows", "revise")).toBe("revise");
-	});
-});
 
 describe("design POST step budget", () => {
 	it("counts completed steps from prior transient stream attempts", () => {

@@ -1,5 +1,5 @@
 /**
- * Point-in-time package re-render for `requestReview`.
+ * Point-in-time package re-render for `reviewDraft`.
  *
  * The store requires a review to bind the exact package digest the reviewed
  * draft bound (`artifactStore.insertDesignReview`), and the loop moves the

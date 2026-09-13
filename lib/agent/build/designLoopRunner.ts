@@ -76,6 +76,7 @@ import {
 	type DesignSubmissionValidationStage,
 	designLoopStepBudget,
 	evaluateDesignGates,
+	pendingReviewAcceptance,
 } from "@/lib/agent/design/loop/gates";
 import { rebuildPackageForDigest } from "@/lib/agent/design/loop/packageRebuild";
 import {
@@ -84,7 +85,7 @@ import {
 	renderDesignStateMessage,
 } from "@/lib/agent/design/loop/packageRender";
 import {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 	type DesignProjectDataCatalogTableSegment,
 	type DesignProjectDataInspectionResult,
@@ -216,14 +217,6 @@ function readDesignToolDiagnostic(output: Record<string, unknown> | null): {
 			? { issueCount }
 			: {}),
 	};
-}
-
-export function designToolPulsePhase(
-	toolName: string,
-	current: DesignPulsePhase,
-): DesignPulsePhase {
-	if (toolName === "requestReview") return "review";
-	return current;
 }
 
 const DESIGN_UPDATE_STEP_LABELS: Readonly<Record<string, string>> = {
@@ -1532,7 +1525,7 @@ export async function runDesignAgentLoop(
 	let livePulsePhase: DesignPulsePhase = initialGates.verdicts.submitRevision
 		.legal
 		? "revise"
-		: initialGates.verdicts.requestReview.legal
+		: initialGates.verdicts.reviewDraft.legal
 			? "review"
 			: "design";
 	const instructionParts = designAuthorInstructionParts();
@@ -1582,7 +1575,10 @@ export async function runDesignAgentLoop(
 		}),
 	};
 	const toolExecutionQueue = createDesignToolExecutionQueue();
-	const tools = createDesignLoopTools(toolDeps, toolExecutionQueue);
+	const { tools, reviewDraft } = createDesignLoopActions(
+		toolDeps,
+		toolExecutionQueue,
+	);
 	const recoveredPlan = await ensureDerivedBuildPlan(toolDeps, initialGates);
 	const stateMessageFor = async (
 		gates: DesignGateState,
@@ -1622,9 +1618,8 @@ export async function runDesignAgentLoop(
 				openReviews:
 					openReviews.length > 0
 						? (() => {
-								/* The SAME positional numbering the requestReview result
-								 * printed: continuous across the head's reviews in ordinal
-								 * order. */
+								/* Finding handles remain continuous across the head's
+								 * reviews in ordinal order. */
 								const projectionBindings = [
 									...ledgerBindings,
 									...deriveFindingHandleBindings(
@@ -1663,14 +1658,18 @@ export async function runDesignAgentLoop(
 	};
 
 	type InternalPhase = "author" | "review" | "revision" | "awaiting-input";
-	const phaseFor = (gates: DesignGateState): InternalPhase =>
-		gates.verdicts.submitRevision.legal
-			? "revision"
-			: gates.verdicts.requestReview.legal
-				? "review"
-				: gates.verdicts.submitContract.legal
-					? "author"
-					: "awaiting-input";
+	const reviewAdmissionRefusals = new Set<string>();
+	const phaseFor = (gates: DesignGateState): InternalPhase => {
+		if (
+			pendingReviewAcceptance(gates) !== null &&
+			gates.head !== null &&
+			!reviewAdmissionRefusals.has(gates.head.id)
+		)
+			return "review";
+		if (gates.verdicts.submitRevision.legal) return "revision";
+		if (gates.verdicts.submitContract.legal) return "author";
+		return gates.verdicts.reviewDraft.legal ? "review" : "awaiting-input";
+	};
 	let modelStepsSpent = 0;
 	/** Context generations retain the same logical-turn budget. */
 	let modelContextGeneration = 0;
@@ -1827,6 +1826,12 @@ export async function runDesignAgentLoop(
 		const gates = evaluateDesignGates(await loadAncestry());
 		if (gates.plan !== null) break;
 		const phase = phaseFor(gates);
+		livePulsePhase =
+			phase === "review"
+				? "review"
+				: phase === "revision"
+					? "revise"
+					: "design";
 		const recoveredOmission = recoverTerminalOmissionOnNextLoop
 			? recoverableDesignTerminalOmissionForTurn({
 					currentItems: modelContextCurrentItems,
@@ -1901,7 +1906,6 @@ export async function runDesignAgentLoop(
 			model: args.designCtx.model(MODEL_ROLES.designAuthor.modelId),
 			tools,
 			toolExecutionQueue,
-			phase,
 			...instructionParts,
 			promptCacheKey: promptCacheKeys.design(args.designSessionId),
 			fatalError: () => repair.fatalError(),
@@ -2117,6 +2121,52 @@ export async function runDesignAgentLoop(
 				break;
 			}
 		}
+		if (phase === "review") {
+			livePulsePhase = "review";
+			pulse("review", 0);
+			try {
+				args.signal.throwIfAborted();
+				const outcome = await reviewDraft();
+				if (repair.fatalError() !== undefined) break;
+				const afterReview = evaluateDesignGates(await loadAncestry());
+				if (
+					"error" in outcome &&
+					pendingReviewAcceptance(afterReview) !== null &&
+					afterReview.head !== null
+				) {
+					// A clean review cannot override changed external data. Give
+					// the author the admission finding alongside the saved review.
+					reviewAdmissionRefusals.add(afterReview.head.id);
+					const message: ModelMessage = {
+						role: "user",
+						content: JSON.stringify({ reviewAdmission: outcome }),
+					};
+					const key = `review-admission:${afterReview.head.id}:${durableModelValueDigest(message)}`;
+					if (!modelContextAppendKeys.has(key)) {
+						await appendContext(key, [message]);
+						modelContext = [...(modelContext ?? []), message];
+					}
+				}
+				livePulsePhase =
+					phaseFor(afterReview) === "revision" ? "revise" : "review";
+			} catch (error) {
+				args.signal.throwIfAborted();
+				const classified = classifyError(error);
+				if (
+					repair.fatalError() !== undefined ||
+					!shouldRetryTurn(classified, turnRetries)
+				) {
+					failure = classified;
+					break;
+				}
+				turnRetries += 1;
+				args.onRecoverableRetry?.(classified);
+				await new Promise((resolve) =>
+					setTimeout(resolve, turnRetryDelayMs(turnRetries)),
+				);
+			}
+			continue;
+		}
 		/* A completed response is already paid work and its input terminal wins
 		 * even when it consumed the final permitted step. Apply the ceiling only
 		 * after giving that durable response its recovery path. */
@@ -2196,7 +2246,6 @@ export async function runDesignAgentLoop(
 						outcomeEmitted: false,
 						phase: livePulsePhase,
 					});
-					livePulsePhase = designToolPulsePhase(chunk.toolName, livePulsePhase);
 					const updateLabel = DESIGN_UPDATE_STEP_LABELS[chunk.toolName];
 					if (updateLabel !== undefined) {
 						narrator = createSubmissionStepNarrator([
@@ -2206,9 +2255,6 @@ export async function runDesignAgentLoop(
 							],
 						]);
 						narratorPhase = livePulsePhase;
-					} else if (chunk.toolName === "requestReview") {
-						narrator = null;
-						pulse("review", 0);
 					} else if (chunk.toolName === "finishDesign") {
 						narrator = null;
 						pulse(livePulsePhase, 0);
@@ -2274,12 +2320,6 @@ export async function runDesignAgentLoop(
 							: calledFrom === "revise" && output?.accepted !== false
 								? "revise"
 								: "review";
-					} else if (toolName === "requestReview") {
-						livePulsePhase = failed
-							? "review"
-							: output?.accepted === true
-								? "review"
-								: "revise";
 					}
 					pulse(livePulsePhase, 0);
 					return;

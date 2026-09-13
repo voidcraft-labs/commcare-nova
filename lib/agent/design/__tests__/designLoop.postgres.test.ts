@@ -30,7 +30,7 @@ import {
 	DesignRepairTracker,
 } from "@/lib/agent/design/loop/gates";
 import {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 	type DesignLoopToolDeps,
 } from "@/lib/agent/design/loop/tools";
@@ -174,7 +174,7 @@ function mount(
 		requiredQuestionsWereAnswered?: DesignLoopToolDeps["requiredQuestionsWereAnswered"];
 	} = {},
 ) {
-	return createDesignLoopTools(
+	const actions = createDesignLoopActions(
 		{
 			designSessionId: sessionId,
 			runId: RUN_ID,
@@ -228,6 +228,7 @@ function mount(
 		} satisfies DesignLoopToolDeps,
 		options.executionQueue,
 	);
+	return { ...actions.tools, reviewDraft: actions.reviewDraft };
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -338,7 +339,7 @@ function resolvedContract(contract: AppDesignContract): AppDesignContract {
 }
 
 async function authorWholeContract(
-	tools: ReturnType<typeof createDesignLoopTools>,
+	tools: ReturnType<typeof createDesignLoopActions>["tools"],
 	contract: AppDesignContract,
 ): Promise<void> {
 	const projected = modelContract(contract);
@@ -452,7 +453,7 @@ describe("semantic design loop", () => {
 			const contract = withLookup ? makeLookupContract() : makeContract();
 			await authorWholeContract(tools, contract);
 			expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
-			expect(await call(tools.requestReview)).toMatchObject({
+			expect(await tools.reviewDraft()).toMatchObject({
 				ok: true,
 				accepted: true,
 			});
@@ -530,7 +531,7 @@ describe("semantic design loop", () => {
 			})
 			.execute();
 
-		const result = await call(mount(pkg).requestReview);
+		const result = await mount(pkg).reviewDraft();
 		expect(result).toMatchObject({ ok: true, accepted: true });
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		if (accepted === null) throw new Error("accepted revision missing");
@@ -564,7 +565,7 @@ describe("semantic design loop", () => {
 		 * the freshly submitted draft (a stale memo would refuse with "No
 		 * draft exists to review"), and the acceptance path re-reads again to
 		 * derive the plan from the accepted head. */
-		expect(await call(tools.requestReview)).toMatchObject({
+		expect(await tools.reviewDraft()).toMatchObject({
 			ok: true,
 			accepted: true,
 		});
@@ -1054,14 +1055,6 @@ describe("semantic design loop", () => {
 						input: {},
 					},
 				],
-				[
-					{
-						type: "tool",
-						name: "requestReview",
-						callId: "review-confirmed-design",
-						input: {},
-					},
-				],
 				[{ type: "text", text: JSON.stringify(cleanReview()) }],
 			],
 			async (_model, requests, transport) => {
@@ -1156,7 +1149,7 @@ describe("semantic design loop", () => {
 				});
 				if (result.kind !== "planned")
 					throw new Error(`Expected planned design: ${JSON.stringify(result)}`);
-				expect(requests).toHaveLength(4);
+				expect(requests).toHaveLength(3);
 				expect(JSON.stringify(requests[1].input)).toContain(
 					"Use clinic protocol thresholds for the pilot.",
 				);
@@ -1228,19 +1221,8 @@ describe("semantic design loop", () => {
 		});
 		const initialDraftId = String(initialDraft.revisionId);
 		const immutableDraft = await readDesignRevision(initialDraftId);
-		const reviewResult = await call(tools.requestReview);
+		const reviewResult = await tools.reviewDraft();
 		expect(reviewResult).toMatchObject({ accepted: false });
-		expect(reviewResult.message).not.toContain("expectedRevision");
-		/* Findings return in the agent's symbol vocabulary: the server-minted
-		 * finding identity projects to its positional @f handle and affected
-		 * elements to their declared handles — the exact symbols the next
-		 * state packet prints and a disposition consumes. */
-		const blockingFinding = object(array(reviewResult.findings)[0]);
-		if (blockingFinding === undefined) throw new Error("finding missing");
-		expect(blockingFinding.id).toEqual({ handle: "@f1" });
-		expect(blockingFinding.affectedElementIds).toEqual([
-			{ handle: handleForFixtureId(ids.taskVisit) },
-		]);
 
 		/* An unknown finding handle refuses before the generic resolver could
 		 * mint a plausible wrong identity for it. */
@@ -1306,7 +1288,7 @@ describe("semantic design loop", () => {
 			accepted: false,
 		});
 		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
-		expect(await call(tools.requestReview)).toMatchObject({
+		expect(await tools.reviewDraft()).toMatchObject({
 			ok: true,
 			accepted: true,
 		});

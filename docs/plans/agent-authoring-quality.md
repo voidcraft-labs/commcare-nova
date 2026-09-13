@@ -145,6 +145,11 @@ evidence, not general app quality. The existing versioned attempt lifecycle
 supersedes incompatible private work and opens a fresh context; persisted app
 and mutation shapes have not changed. Further deterministic construction and
 broader quality evidence remain open.
+The review lifecycle slice removes the author-model request whose only purpose
+was to start independent review. The runner reviews saved drafts directly, reuses
+a recorded clean review after interruption, and preserves user pauses, source
+currency, Project-data admission, and bounded failure. Controlled provider and
+Postgres journeys verify those boundaries; independent review is pending.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

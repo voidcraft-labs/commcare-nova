@@ -20,7 +20,7 @@ describe("design turn step budget", () => {
 });
 
 describe("DesignRepairTracker", () => {
-	it.each(["submitContract", "requestReview", "submitRevision"] as const)(
+	it.each(["submitContract", "reviewDraft", "submitRevision"] as const)(
 		"tracks complete rejection-set equality for %s regardless of order or duplicate diagnostics",
 		(kind) => {
 			const tracker = new DesignRepairTracker();
