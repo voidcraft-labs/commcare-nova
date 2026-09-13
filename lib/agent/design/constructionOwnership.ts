@@ -122,7 +122,11 @@ export function deriveConstructionSchedule(contract: AppDesignContract) {
 	for (const form of contract.formCompositions)
 		add(form.workflowId, moduleOwners.get(form.moduleCompositionId));
 	for (const workflow of contract.workflows) {
-		if (!hasCompleteReadSurfaces(contract, workflow)) continue;
+		if (
+			!hasCompleteReadSurfaces(contract, workflow) ||
+			contract.formCompositions.some((form) => form.workflowId === workflow.id)
+		)
+			continue;
 		for (const module of contract.moduleCompositions) {
 			if (module.workflowIds.includes(workflow.id))
 				add(workflow.id, moduleOwners.get(module.id));

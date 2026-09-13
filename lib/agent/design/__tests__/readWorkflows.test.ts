@@ -149,6 +149,38 @@ describe("read-only workflows", () => {
 		// emitting an empty reading slice before its screen exists.
 		last.prerequisiteWorkflowIds = [reading.id];
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(false);
+
+		// An existing summary form already serves the task; a later alternative
+		// list must not turn its otherwise valid dependency chain into a cycle.
+		const form = makeWorkflowChainContract(3).formCompositions[1];
+		form.moduleCompositionId = firstModule.id;
+		form.mode = "selected-record";
+		form.layout = {
+			kind: "flat",
+			rationale: "Show the saved value for this record.",
+			items: [
+				{
+					kind: "record-summary",
+					id: did(9911),
+					recordId: contract.records[0].id,
+					propertyIds: first.readback[0].propertyIds,
+					purpose: "Read the saved value",
+				},
+			],
+		};
+		contract.formCompositions.splice(1, 0, form);
+		firstModule.workflowIds.push(reading.id);
+		firstModule.selection = {
+			cases: "one",
+			workflowIds: [reading.id],
+		};
+		const withForm = appDesignContractSchema.parse(contract);
+		expect(designConstructionIssues(withForm)).toEqual([]);
+		expect(
+			deriveBuildPlan({ contract: withForm, revision }).slices.map(
+				(slice) => slice.workflowId,
+			),
+		).toEqual([first.id, reading.id, last.id]);
 	});
 
 	it("retains a grouped task's context when its history and construction owner use different records", () => {
