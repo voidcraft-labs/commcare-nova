@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
 	readDesignBuildPlan,
@@ -8,7 +9,11 @@ import {
 	readDesignRevisionsForSession,
 	readDesignSourcePackage,
 } from "@/lib/agent/design/artifactStore";
-import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
+import {
+	designArtifactEnvelopeSchema,
+	sealArtifactEnvelope,
+	verifyArtifactEnvelope,
+} from "@/lib/agent/design/envelope";
 import { DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION } from "@/lib/agent/design/formats";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { claimAndReserveRun, completeAndSettleRun } from "@/lib/db/apps";
@@ -38,11 +43,11 @@ const oldRun = "historical-design";
 /** Original contracts captured at 1237d2e5 (v1) and e4ea6aa7 (v2). */
 async function seedRevision(
 	sessionId: string,
-	payload: unknown = legacyContract,
+	payload: { schemaVersion: number } = legacyContract,
 ) {
 	const envelope = sealArtifactEnvelope({
 		artifactType: "design-contract",
-		artifactSchemaVersion: 1,
+		artifactSchemaVersion: payload.schemaVersion,
 		artifactId: randomUUID(),
 		designSessionId: sessionId,
 		revision: 1,
@@ -54,6 +59,11 @@ async function seedRevision(
 		createdAt: new Date().toISOString(),
 		payload,
 	});
+	designArtifactEnvelopeSchema(
+		"design-contract",
+		z.object({ schemaVersion: z.number() }).passthrough(),
+	).parse(envelope);
+	verifyArtifactEnvelope(envelope);
 	await h
 		.db()
 		.insertInto("design_revisions")
