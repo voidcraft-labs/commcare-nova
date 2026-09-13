@@ -35,7 +35,6 @@ const DESIGN_TOOL_NAMES = [
 	"updateLists",
 	"updateLookupTables",
 	"updateModuleCompositions",
-	"updateNavigation",
 	"updateOpenQuestions",
 	"updateRecords",
 	"updateWorkflows",

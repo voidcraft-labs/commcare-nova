@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-	normalizeStoredDesignArtifactWorkspaceOperation,
-	replayDesignWorkspace,
-} from "../artifactWorkspaceOperations";
-import { appDesignContractSchema } from "../contract";
+import { replayDesignWorkspace } from "../artifactWorkspaceOperations";
 import { placeDesignMenus } from "../modulePlacement";
-import { did, fixtureValue, makeNestedMenuContract } from "./fixtures";
+import { did } from "./fixtures";
 
 const menus = [
 	{ id: "search", name: "Search" },
@@ -111,63 +107,4 @@ describe("design menu placement", () => {
 		).toEqual([did(1), did(4), did(2), did(3)]);
 		expect(base.moduleCompositions).toBe(storedMenus);
 	});
-});
-
-it("retains legacy selection inference when a current placement moves a stored module", () => {
-	const contract = makeNestedMenuContract();
-	const legacy = [
-		normalizeStoredDesignArtifactWorkspaceOperation({
-			kind: "contract",
-			root: { id: contract.id, charter: contract.charter, schemaVersion: 1 },
-			collections: [],
-		}),
-		...Object.entries(contract).flatMap(([collection, items]) =>
-			Array.isArray(items) && items.length > 0
-				? [
-						normalizeStoredDesignArtifactWorkspaceOperation({
-							kind: "contract",
-							collections: [
-								{
-									collection,
-									upserts:
-										collection === "moduleCompositions"
-											? items.map((item) =>
-													Object.fromEntries(
-														Object.entries(item).filter(
-															([key]) => key !== "selection",
-														),
-													),
-												)
-											: items,
-									removeIds: [],
-								},
-							],
-						}),
-					]
-				: [],
-		),
-	];
-	const child = fixtureValue(contract.moduleCompositions[1], "child");
-	const parent = fixtureValue(contract.moduleCompositions[0], "parent");
-	const before = appDesignContractSchema.parse(
-		replayDesignWorkspace({ kind: "contract", operations: legacy }),
-	);
-	const after = appDesignContractSchema.parse(
-		replayDesignWorkspace({
-			kind: "contract",
-			operations: [
-				...legacy,
-				{
-					kind: "contract",
-					collections: [],
-					placements: [{ moduleId: child.id, parentModuleId: parent.id }],
-				},
-			],
-		}),
-	);
-	expect(after).toEqual(before);
-	expect(after.moduleCompositions[1]?.selection).toEqual(
-		before.moduleCompositions[1]?.selection,
-	);
-	expect(after.moduleCompositions[1]?.selection).toBeDefined();
 });

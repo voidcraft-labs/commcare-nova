@@ -431,7 +431,6 @@ const DESIGN_COLLECTION_ENTITY_KINDS = {
 	workflows: "workflow",
 	lists: "list",
 	access: "access",
-	navigation: "navigation",
 	moduleCompositions: "module_composition",
 	formCompositions: "form_composition",
 	lookupTables: "lookup_table_intent",
@@ -1553,10 +1552,6 @@ export function designLoopToolDefinitions() {
 			"access",
 			"Update actor access policies.",
 		),
-		updateNavigation: semanticCollectionDefinition(
-			"navigation",
-			"Update worker navigation intent.",
-		),
 		updateModuleCompositions: semanticCollectionDefinition(
 			"moduleCompositions",
 			"Update worker-facing module composition. New modules append within their parent. Existing modules keep position; changing parent moves to its last child position. Use placeModules for exact sibling order.",
@@ -1807,10 +1802,6 @@ export function createDesignLoopActions(
 	const updateAccess = semanticCollectionTool(
 		"access",
 		definitions.updateAccess,
-	);
-	const updateNavigation = semanticCollectionTool(
-		"navigation",
-		definitions.updateNavigation,
 	);
 	const placeModules = {
 		...definitions.placeModules,
@@ -2224,7 +2215,6 @@ export function createDesignLoopActions(
 			updateWorkflows,
 			updateLists,
 			updateAccess,
-			updateNavigation,
 			updateModuleCompositions,
 			placeModules,
 			updateFormCompositions,

@@ -232,7 +232,6 @@ const DESIGN_UPDATE_STEP_LABELS: Readonly<Record<string, string>> = {
 	updateWorkflows: "Shaping the workflows",
 	updateLists: "Designing the worklists",
 	updateAccess: "Setting who sees what",
-	updateNavigation: "Laying out navigation",
 	updateModuleCompositions: "Composing the menus",
 	placeModules: "Arranging the menus",
 	updateFormCompositions: "Composing the forms",

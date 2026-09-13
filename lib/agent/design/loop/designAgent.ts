@@ -655,7 +655,6 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		updateWorkflows: registerToolInput("updateWorkflows"),
 		updateLists: registerToolInput("updateLists"),
 		updateAccess: registerToolInput("updateAccess"),
-		updateNavigation: registerToolInput("updateNavigation"),
 		updateModuleCompositions: registerToolInput("updateModuleCompositions"),
 		placeModules: registerToolInput("placeModules"),
 		updateFormCompositions: registerToolInput("updateFormCompositions"),

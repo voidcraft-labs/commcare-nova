@@ -18,7 +18,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { Kysely, Transaction } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 import { z } from "zod";
 import {
 	ORCHESTRATION_KIND_CLASSIFICATION,
@@ -28,6 +28,7 @@ import { designIdSchema } from "@/lib/agent/design/ids";
 import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
 import { completeAndSettleRunInTransaction } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
+import { nonRetiredDesignSession } from "@/lib/db/designSessionReadScope";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
@@ -419,6 +420,11 @@ async function readOrchestrationHeadFrom(
 ): Promise<OrchestrationHead | null> {
 	const rows = await db
 		.selectFrom("design_orchestration_events")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_orchestration_events.design_session_id"),
+			),
+		)
 		.select(["revision", "event_id", "predecessor_event_id", "kind"])
 		.select(["predecessor_digest"])
 		.select((eb) =>

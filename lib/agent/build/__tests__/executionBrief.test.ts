@@ -50,6 +50,47 @@ function briefAt(index: number) {
 }
 
 describe("deriveSliceExecutionBrief", () => {
+	it("carries destination access with its menu's workflow", () => {
+		const contract = makeWorkflowChainContract(3);
+		contract.actors.push(fixtureValue(makeContract().actors[1], "supervisor"));
+		const destination = fixtureValue(
+			contract.moduleCompositions[1],
+			"destination",
+		);
+		const policy = {
+			...fixtureValue(makeContract().access[0], "access policy"),
+			targets: [{ kind: "module-composition" as const, id: destination.id }],
+		};
+		contract.access = [policy];
+		const plan = deriveBuildPlan({
+			contract,
+			revision: REVISION,
+			planId: ids.planId,
+		});
+		const briefs = plan.slices.map((slice) =>
+			deriveSliceExecutionBrief({
+				contract,
+				revision: REVISION,
+				plan,
+				sliceId: slice.id,
+			}),
+		);
+		expect(briefs.map((brief) => brief.access)).toEqual([[], [policy], []]);
+		expect(
+			plan.slices.map((slice) =>
+				slice.constructionGroups
+					.flatMap((group) => group.elements)
+					.some((element) => element.id === policy.id),
+			),
+		).toEqual([false, true, false]);
+		expect(briefs[1]?.moduleRealizations).toContainEqual(
+			expect.objectContaining({
+				compositionId: destination.id,
+				action: "create",
+			}),
+		);
+	});
+
 	it("carries the complete registration scope and its ordered construction checklist", () => {
 		const brief = briefAt(0);
 		const contract = makeContract();
@@ -58,7 +99,6 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(brief.actors).toEqual(contract.actors);
 		expect(brief.lists).toEqual(contract.lists);
 		expect(brief.access).toEqual(contract.access);
-		expect(brief.navigation).toEqual(contract.navigation);
 		expect(
 			brief.constructionChecklist.map((group) =>
 				group.items.map((item) => item.kind),
@@ -75,7 +115,7 @@ describe("deriveSliceExecutionBrief", () => {
 				"composition-item",
 			],
 			["list"],
-			["access", "navigation", "module-composition"],
+			["access", "module-composition"],
 		]);
 		expect(brief.constructionChecklist[0]?.items).toEqual([
 			{
@@ -358,11 +398,7 @@ describe("deriveSliceExecutionBrief", () => {
 		contract.workflows = [visit];
 		contract.charter.includedWorkflowIds = [ids.taskVisit];
 		contract.charter.initialWorkflowId = ids.taskVisit;
-		contract.navigation[0] = {
-			...fixtureValue(contract.navigation[0], "main navigation"),
-			workflowIds: [ids.taskVisit],
-			listIds: [],
-		};
+
 		contract.moduleCompositions[0] = {
 			...fixtureValue(contract.moduleCompositions[0], "patient module"),
 			role: "form-host",
@@ -414,10 +450,7 @@ describe("deriveSliceExecutionBrief", () => {
 		contract.formCompositions = contract.formCompositions.filter(
 			(form) => form.workflowId === ids.taskVisit,
 		);
-		contract.navigation[0] = {
-			...fixtureValue(contract.navigation[0], "main navigation"),
-			workflowIds: [ids.taskVisit],
-		};
+
 		const parent = fixtureValue(
 			contract.moduleCompositions.find(
 				(composition) => composition.id === ids.modulePatients,
@@ -454,7 +487,6 @@ describe("deriveSliceExecutionBrief", () => {
 			workflowIds: [ids.taskVisit],
 			hostRecordId: parent.hostRecordId,
 			actorIds: [...parent.actorIds],
-			navigationIds: [],
 			listIds: [viewerListId],
 			orderRationale: "Keep the follow-up action before the secondary viewer.",
 			icon: { kind: "builtin", slug: "default" },
@@ -809,7 +841,6 @@ describe("deriveSliceExecutionBrief", () => {
 			);
 			expect(brief.lists).toEqual([]);
 			expect(brief.access).toEqual([]);
-			expect(brief.navigation).toEqual([]);
 			expect(brief.externalRequirements).toEqual([]);
 			expect(brief.externalActions).toEqual([]);
 		}

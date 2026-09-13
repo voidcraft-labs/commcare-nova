@@ -1,0 +1,404 @@
+{
+	"schemaVersion": 1,
+	"id": "00000000-0000-4000-8000-000000000001",
+	"charter": {
+		"appName": "CHW patient visits",
+		"objective": "Help community health workers register patients and record visits with supervisor oversight.",
+		"includedWorkflowIds": [
+			"00000000-0000-4000-8000-000000000070",
+			"00000000-0000-4000-8000-000000000071"
+		],
+		"excludedWorkflows": ["Billing"],
+		"deliveryContext": "offline-first",
+		"initialWorkflowId": "00000000-0000-4000-8000-000000000070"
+	},
+	"actors": [
+		{
+			"id": "00000000-0000-4000-8000-000000000010",
+			"name": "Community health worker",
+			"goals": ["Register patients and record visits quickly"],
+			"responsibilities": ["Conduct home visits"],
+			"workContext": ["Often works offline"],
+			"constraints": ["Short visit windows"]
+		},
+		{
+			"id": "00000000-0000-4000-8000-000000000011",
+			"name": "Supervisor",
+			"goals": ["Monitor visit coverage"],
+			"responsibilities": ["Review the patient queue"],
+			"workContext": ["Clinic office"],
+			"constraints": []
+		}
+	],
+	"records": [
+		{
+			"id": "00000000-0000-4000-8000-000000000020",
+			"name": "Patient",
+			"purpose": "A person receiving home visits.",
+			"lifecycleStates": ["active"],
+			"properties": [
+				{
+					"id": "00000000-0000-4000-8000-000000000030",
+					"name": "Patient name",
+					"meaning": "The patient's full name.",
+					"dataShape": "text",
+					"sensitivity": "ordinary",
+					"requiredWhen": "Always during registration"
+				},
+				{
+					"id": "00000000-0000-4000-8000-000000000031",
+					"name": "Age",
+					"meaning": "The patient's age in years.",
+					"dataShape": "integer",
+					"sensitivity": "ordinary"
+				},
+				{
+					"id": "00000000-0000-4000-8000-000000000032",
+					"name": "Risk level",
+					"meaning": "The triage level used for follow-up.",
+					"dataShape": "single-choice",
+					"sensitivity": "sensitive",
+					"choiceValues": ["routine", "priority"]
+				}
+			]
+		},
+		{
+			"id": "00000000-0000-4000-8000-000000000021",
+			"name": "Visit",
+			"purpose": "One completed home visit.",
+			"parentRecordId": "00000000-0000-4000-8000-000000000020",
+			"relationshipMeaning": "A visit belongs to the visited patient.",
+			"lifecycleStates": ["recorded"],
+			"properties": [
+				{
+					"id": "00000000-0000-4000-8000-000000000033",
+					"name": "Visit summary",
+					"meaning": "What happened during the visit.",
+					"dataShape": "text",
+					"sensitivity": "sensitive"
+				}
+			]
+		}
+	],
+	"workflows": [
+		{
+			"id": "00000000-0000-4000-8000-000000000070",
+			"name": "Register patient",
+			"actorIds": ["00000000-0000-4000-8000-000000000010"],
+			"goal": "Create a usable patient record.",
+			"trigger": "A community health worker meets a new patient.",
+			"prerequisiteWorkflowIds": [],
+			"prerequisites": ["The worker knows the patient's name"],
+			"inputs": [
+				{
+					"handle": "patient_name",
+					"name": "Patient name",
+					"purpose": "Identify the patient",
+					"propertyId": "00000000-0000-4000-8000-000000000030"
+				},
+				{
+					"handle": "age",
+					"name": "Age",
+					"purpose": "Support triage",
+					"propertyId": "00000000-0000-4000-8000-000000000031"
+				}
+			],
+			"decisions": [
+				{
+					"handle": "triage",
+					"name": "Triage patient",
+					"statement": "Patients under five are priority; others are routine.",
+					"inputPropertyIds": ["00000000-0000-4000-8000-000000000031"],
+					"outcomes": ["priority", "routine"]
+				}
+			],
+			"recordEffects": [
+				{
+					"handle": "create_patient",
+					"recordId": "00000000-0000-4000-8000-000000000020",
+					"kind": "create",
+					"writes": [
+						{
+							"propertyId": "00000000-0000-4000-8000-000000000030",
+							"value": "Patient name answer",
+							"unanswered": "preserve"
+						},
+						{
+							"propertyId": "00000000-0000-4000-8000-000000000031",
+							"value": "Age answer",
+							"unanswered": "preserve"
+						},
+						{
+							"propertyId": "00000000-0000-4000-8000-000000000032",
+							"value": "Triage outcome",
+							"unanswered": "preserve"
+						}
+					],
+					"outcome": "An active patient record is available for visits."
+				}
+			],
+			"authoredFeatures": [],
+			"readback": [
+				{
+					"recordId": "00000000-0000-4000-8000-000000000020",
+					"purpose": "Confirm the saved patient",
+					"propertyIds": [
+						"00000000-0000-4000-8000-000000000030",
+						"00000000-0000-4000-8000-000000000032"
+					]
+				}
+			],
+			"exceptions": ["A missing name blocks submission"],
+			"externalRequirementIds": [],
+			"acceptanceExamples": [
+				{
+					"name": "Register a priority patient",
+					"given": ["The worker is signed in"],
+					"when": ["The worker submits a name and an age under five"],
+					"expectedResults": ["The patient is saved with priority risk"]
+				}
+			]
+		},
+		{
+			"id": "00000000-0000-4000-8000-000000000071",
+			"name": "Record visit",
+			"actorIds": ["00000000-0000-4000-8000-000000000010"],
+			"goal": "Save a visit against an existing patient.",
+			"trigger": "The worker completes a home visit.",
+			"contextRecordId": "00000000-0000-4000-8000-000000000020",
+			"prerequisiteWorkflowIds": ["00000000-0000-4000-8000-000000000070"],
+			"prerequisites": ["The patient is registered"],
+			"inputs": [
+				{
+					"handle": "visit_summary",
+					"name": "Visit summary",
+					"purpose": "Record what happened",
+					"propertyId": "00000000-0000-4000-8000-000000000033"
+				}
+			],
+			"decisions": [],
+			"recordEffects": [
+				{
+					"handle": "create_visit",
+					"recordId": "00000000-0000-4000-8000-000000000021",
+					"kind": "create",
+					"sourceRecordId": "00000000-0000-4000-8000-000000000020",
+					"writes": [
+						{
+							"propertyId": "00000000-0000-4000-8000-000000000033",
+							"value": "Visit summary answer",
+							"unanswered": "preserve"
+						}
+					],
+					"outcome": "A visit is linked to the selected patient."
+				}
+			],
+			"authoredFeatures": [],
+			"readback": [
+				{
+					"recordId": "00000000-0000-4000-8000-000000000021",
+					"purpose": "Confirm the recorded visit",
+					"propertyIds": ["00000000-0000-4000-8000-000000000033"]
+				}
+			],
+			"exceptions": ["A missing patient prevents the visit"],
+			"externalRequirementIds": [],
+			"acceptanceExamples": [
+				{
+					"name": "Record one visit",
+					"given": ["A patient exists"],
+					"when": ["The worker submits a visit summary"],
+					"expectedResults": ["A linked visit is saved"]
+				}
+			]
+		}
+	],
+	"lists": [
+		{
+			"id": "00000000-0000-4000-8000-000000000090",
+			"name": "Patients",
+			"actorIds": [
+				"00000000-0000-4000-8000-000000000010",
+				"00000000-0000-4000-8000-000000000011"
+			],
+			"recordId": "00000000-0000-4000-8000-000000000020",
+			"purpose": "Find a patient and start a visit.",
+			"filters": ["Active patients"],
+			"sort": ["Patient name ascending"],
+			"scanPropertyIds": [
+				"00000000-0000-4000-8000-000000000030",
+				"00000000-0000-4000-8000-000000000032"
+			],
+			"detailPropertyIds": ["00000000-0000-4000-8000-000000000031"],
+			"searchPropertyIds": ["00000000-0000-4000-8000-000000000030"],
+			"emptyStateMeaning": "No patients are available yet."
+		}
+	],
+	"access": [
+		{
+			"id": "00000000-0000-4000-8000-000000000100",
+			"actorId": "00000000-0000-4000-8000-000000000011",
+			"targets": [
+				{
+					"kind": "list",
+					"id": "00000000-0000-4000-8000-000000000090"
+				}
+			],
+			"capabilities": ["discover", "view"],
+			"condition": "The worker has the supervisor role"
+		}
+	],
+	"navigation": [
+		{
+			"id": "00000000-0000-4000-8000-000000000110",
+			"name": "Patient care",
+			"purpose": "Keep registration and patient work together.",
+			"actorIds": [
+				"00000000-0000-4000-8000-000000000010",
+				"00000000-0000-4000-8000-000000000011"
+			],
+			"workflowIds": [
+				"00000000-0000-4000-8000-000000000070",
+				"00000000-0000-4000-8000-000000000071"
+			],
+			"listIds": ["00000000-0000-4000-8000-000000000090"],
+			"orderRationale": "Registration comes before follow-up."
+		}
+	],
+	"moduleCompositions": [
+		{
+			"id": "00000000-0000-4000-8000-000000000170",
+			"name": "Patient care",
+			"purpose": "Give workers one patient-centered home for registration, selection, and follow-up.",
+			"role": "form-and-queue",
+			"selection": {
+				"workflowIds": ["00000000-0000-4000-8000-000000000071"],
+				"cases": "one"
+			},
+			"workflowIds": [
+				"00000000-0000-4000-8000-000000000070",
+				"00000000-0000-4000-8000-000000000071"
+			],
+			"hostRecordId": "00000000-0000-4000-8000-000000000020",
+			"actorIds": [
+				"00000000-0000-4000-8000-000000000010",
+				"00000000-0000-4000-8000-000000000011"
+			],
+			"navigationIds": ["00000000-0000-4000-8000-000000000110"],
+			"listIds": ["00000000-0000-4000-8000-000000000090"],
+			"orderRationale": "Keep registration available before the patient queue and follow-up work.",
+			"icon": {
+				"kind": "builtin",
+				"slug": "patient"
+			},
+			"roleSeparationRationale": "The shared patient context is clearer than separate registration and visit menus."
+		}
+	],
+	"formCompositions": [
+		{
+			"id": "00000000-0000-4000-8000-000000000171",
+			"workflowId": "00000000-0000-4000-8000-000000000070",
+			"moduleCompositionId": "00000000-0000-4000-8000-000000000170",
+			"name": "Register patient",
+			"purpose": "Capture the minimum identity and triage information.",
+			"mode": "registration",
+			"icon": {
+				"kind": "builtin",
+				"slug": "register"
+			},
+			"variant": "shared",
+			"actorIds": ["00000000-0000-4000-8000-000000000010"],
+			"layout": {
+				"kind": "sectioned",
+				"rationale": "Separate patient identity from the age-based triage step so the short form scans cleanly.",
+				"sections": [
+					{
+						"id": "00000000-0000-4000-8000-000000000173",
+						"headingMarkdown": "## Patient",
+						"purpose": "Identify the person being registered.",
+						"items": [
+							{
+								"kind": "input",
+								"id": "00000000-0000-4000-8000-000000000175",
+								"inputHandle": "patient_name",
+								"labelMarkdown": "**Patient name**",
+								"hintMarkdown": "Enter the name the household uses."
+							}
+						]
+					},
+					{
+						"id": "00000000-0000-4000-8000-000000000174",
+						"headingMarkdown": "## Triage",
+						"purpose": "Collect the value used for the priority decision.",
+						"items": [
+							{
+								"kind": "guidance",
+								"id": "00000000-0000-4000-8000-000000000177",
+								"markdown": "Children under five are marked **priority** for follow-up."
+							},
+							{
+								"kind": "input",
+								"id": "00000000-0000-4000-8000-000000000176",
+								"inputHandle": "age",
+								"labelMarkdown": "Age in years",
+								"hintMarkdown": "Use 0 for a child under one year."
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"id": "00000000-0000-4000-8000-000000000172",
+			"workflowId": "00000000-0000-4000-8000-000000000071",
+			"moduleCompositionId": "00000000-0000-4000-8000-000000000170",
+			"name": "Record visit",
+			"purpose": "Record what happened during the selected patient's visit.",
+			"mode": "selected-record",
+			"icon": {
+				"kind": "builtin",
+				"slug": "follow_up"
+			},
+			"variant": "shared",
+			"actorIds": ["00000000-0000-4000-8000-000000000010"],
+			"layout": {
+				"kind": "sectioned",
+				"rationale": "The patient context and visit note should read as one focused task.",
+				"sections": [
+					{
+						"id": "00000000-0000-4000-8000-000000000178",
+						"headingMarkdown": "## Visit notes",
+						"purpose": "Capture a concise account of the visit.",
+						"items": [
+							{
+								"kind": "input",
+								"id": "00000000-0000-4000-8000-000000000179",
+								"inputHandle": "visit_summary",
+								"labelMarkdown": "What happened during this visit?",
+								"hintMarkdown": "Include important observations and agreed next steps."
+							}
+						]
+					}
+				]
+			}
+		}
+	],
+	"lookupTables": [],
+	"externalRequirements": [],
+	"decisions": [
+		{
+			"id": "00000000-0000-4000-8000-000000000120",
+			"question": "How should visits relate to patients?",
+			"decision": "Each visit is a child record of one patient.",
+			"rationale": "This preserves visit history without overwriting the patient."
+		}
+	],
+	"assumptions": [
+		{
+			"id": "00000000-0000-4000-8000-000000000130",
+			"statement": "Workers can identify the correct patient before recording a visit.",
+			"consequenceIfWrong": "The workflow needs stronger patient matching."
+		}
+	],
+	"openQuestions": []
+}

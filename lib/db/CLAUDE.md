@@ -973,6 +973,17 @@ boundary and
 integrity rules live in `lib/agent/design/artifactStore.ts`
 (`lib/agent/design/CLAUDE.md` is the contract).
 
+Retired design sessions retain their sealed artifacts, model records and usage
+accounts, but are outside current typed artifact reads and run authority.
+`designSessionReadScope.ts` supplies the SQL predicate before JSON parsing.
+Both the session and its app holder are rechecked under the normal app-first
+locks; an app's new edit lease cannot authorize writes to its retired design.
+The one-time [format cutover](../../docs/architecture/design-format-cutover.md)
+retargets app-bound conversations to the existing app and preserves their
+messages. Pre-app conversations keep their historical session. Retirement
+refuses held or unsettled runs, unfinished app builds and unaccounted model or
+localization usage; it neither forgives billing nor abandons canonical work.
+
 `design_artifact_workspaces` is the private mutable authoring carrier for one
 contract, revision, or plan candidate; `design_artifact_workspace_steps` is
 its append-only operation ledger. Every open/read/stage/finalize transaction

@@ -28,12 +28,10 @@ import {
 	buildPlanSchema,
 	buildPlanSchemaFor,
 	newPlanAdmissionMessages,
-	normalizeStoredBuildPlan,
 } from "@/lib/agent/design/buildPlan";
 import {
 	type AppDesignContract,
 	appDesignContractSchema,
-	normalizeStoredAppDesignContract,
 } from "@/lib/agent/design/contract";
 import {
 	type DesignArtifactEnvelope,
@@ -60,6 +58,7 @@ import {
 	toPersistedSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { releaseDesignLookupProtectionsInTransaction } from "@/lib/db/designLookupMaterializations";
+import { nonRetiredDesignSession } from "@/lib/db/designSessionReadScope";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
@@ -303,6 +302,11 @@ export async function readSourcePackageInTx(
 ): Promise<DesignSourcePackageRecord | null> {
 	const row = await db
 		.selectFrom("design_source_packages")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_source_packages.design_session_id"),
+			),
+		)
 		.select([
 			"id",
 			"design_session_id",
@@ -440,6 +444,11 @@ export async function insertDesignRevision(args: {
 		}
 		const pkg = await tx
 			.selectFrom("design_source_packages")
+			.where(
+				nonRetiredDesignSession(
+					sql.ref("design_source_packages.design_session_id"),
+				),
+			)
 			.select(["id"])
 			.where("design_session_id", "=", parsed.designSessionId)
 			.where("package_digest", "=", parsed.sourcePackageDigest)
@@ -629,6 +638,9 @@ export async function readLatestAcceptedDesignRevision(
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("design_revisions")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_revisions.design_session_id")),
+		)
 		.select(["id"])
 		.where("design_session_id", "=", designSessionId)
 		.where("lifecycle", "=", "accepted")
@@ -662,6 +674,9 @@ export async function readLatestDesignRevision(
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("design_revisions")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_revisions.design_session_id")),
+		)
 		.select(["id"])
 		.where("design_session_id", "=", designSessionId)
 		.orderBy("revision", "desc")
@@ -679,6 +694,9 @@ export async function countDesignRevisions(
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("design_revisions")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_revisions.design_session_id")),
+		)
 		.select(({ fn }) => fn.countAll<string>().as("n"))
 		.where("design_session_id", "=", designSessionId)
 		.executeTakeFirst();
@@ -690,6 +708,9 @@ export async function countDesignRevisions(
 function revisionRowsQuery(db: Db) {
 	return db
 		.selectFrom("design_revisions")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_revisions.design_session_id")),
+		)
 		.select([
 			"id",
 			"design_session_id",
@@ -731,7 +752,7 @@ function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 	const storedContractDigest = canonicalJsonDigest(storedEnvelope.payload);
 	const envelope: DesignArtifactEnvelope<AppDesignContract> = {
 		...storedEnvelope,
-		payload: normalizeStoredAppDesignContract(storedEnvelope.payload),
+		payload: appDesignContractSchema.parse(storedEnvelope.payload),
 	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
@@ -828,6 +849,9 @@ export async function insertDesignReview(args: {
 		}
 		const prior = await tx
 			.selectFrom("design_reviews")
+			.where(
+				nonRetiredDesignSession(sql.ref("design_reviews.design_session_id")),
+			)
 			.select(({ fn }) => fn.countAll<string>().as("n"))
 			.where("design_revision_id", "=", args.designRevisionId)
 			.executeTakeFirst();
@@ -897,6 +921,7 @@ export async function readDesignReviewsForRevisions(
 function reviewRowsQuery(db: Db) {
 	return db
 		.selectFrom("design_reviews")
+		.where(nonRetiredDesignSession(sql.ref("design_reviews.design_session_id")))
 		.select([
 			"id",
 			"design_session_id",
@@ -964,6 +989,22 @@ export async function readDispositions(
 	const db = await getAppDb();
 	const rows = await db
 		.selectFrom("design_review_dispositions")
+		.where(({ exists, selectFrom }) =>
+			exists(
+				selectFrom("design_reviews")
+					.select("id")
+					.whereRef(
+						"design_reviews.id",
+						"=",
+						"design_review_dispositions.review_id",
+					)
+					.where(
+						nonRetiredDesignSession(
+							sql.ref("design_reviews.design_session_id"),
+						),
+					),
+			),
+		)
 		.select([
 			"review_id",
 			"finding_id",
@@ -1166,6 +1207,9 @@ export async function readLatestDesignBuildPlanForRevision(
 	const db = await getAppDb();
 	const row = await db
 		.selectFrom("design_build_plans")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_build_plans.design_session_id")),
+		)
 		.select(["id"])
 		.where("design_revision_id", "=", designRevisionId)
 		.orderBy("created_at", "desc")
@@ -1181,6 +1225,9 @@ async function readBuildPlanRecordInTx(
 ): Promise<DesignBuildPlanRecord | null> {
 	const row = await db
 		.selectFrom("design_build_plans")
+		.where(
+			nonRetiredDesignSession(sql.ref("design_build_plans.design_session_id")),
+		)
 		.select([
 			"id",
 			"design_session_id",
@@ -1209,7 +1256,7 @@ async function readBuildPlanRecordInTx(
 	verifyArtifactEnvelope(storedEnvelope);
 	const envelope: DesignArtifactEnvelope<BuildPlan> = {
 		...storedEnvelope,
-		payload: normalizeStoredBuildPlan(storedEnvelope.payload),
+		payload: buildPlanSchema.parse(storedEnvelope.payload),
 	};
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||

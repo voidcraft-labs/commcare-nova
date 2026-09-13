@@ -81,7 +81,6 @@ function historyDesign() {
 		parentModuleCompositionId: parent.id,
 		hostRecordId: record.id,
 		workflowIds: [review.id],
-		navigationIds: [],
 		listIds: [listId],
 		selection: { cases: "one", workflowIds: [review.id] },
 	});
