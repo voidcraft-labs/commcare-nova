@@ -25,6 +25,10 @@ import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
+import {
+	constructionWorkflowOrder,
+	deriveModuleConstructionOwners,
+} from "./constructionOwnership";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -262,11 +266,9 @@ function deriveOwnerByElement(
 				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
 		)[0] ?? initial;
 	const ownerByElement = new Map<string, string>();
-	const moduleOwnerById = new Map(
-		contract.moduleCompositions.map((composition) => [
-			composition.id,
-			earliest(composition.workflowIds),
-		]),
+	const moduleOwnerById = deriveModuleConstructionOwners(
+		contract,
+		orderedWorkflowIds,
 	);
 	const moduleOwnersByListId = new Map<string, string[]>();
 	for (const composition of contract.moduleCompositions) {
@@ -480,8 +482,8 @@ function requiredPrerequisiteWorkflowIds(
 			) {
 				required.get(childOwner)?.add(parentFormOwner);
 			}
-			/* The Blueprint validator requires a viewer module before any form
-			 * creates that case type. When the writer lives in this parent menu,
+			/* Direct child-field writes require a viewer module before their form
+			 * lands. When the writer lives in this parent menu,
 			 * schedule the child viewer's owner first. If one workflow owns both,
 			 * the executor uses the bounded top-level bootstrap and reparents the
 			 * child before finalizing the slice. */
@@ -669,36 +671,6 @@ function stableId(
 	);
 }
 
-function workflowOrder(contract: AppDesignContract): string[] {
-	const initial = contract.charter.initialWorkflowId;
-	const order = new Map(
-		contract.workflows.map((workflow, index) => [workflow.id, index]),
-	);
-	const remaining = new Set(contract.workflows.map((workflow) => workflow.id));
-	const emitted: string[] = [];
-	while (remaining.size > 0) {
-		const ready = [...remaining]
-			.filter((id) =>
-				(
-					contract.workflows.find((workflow) => workflow.id === id)
-						?.prerequisiteWorkflowIds ?? []
-				).every((dependency) => !remaining.has(dependency)),
-			)
-			.sort((a, b) => {
-				if (a === initial) return -1;
-				if (b === initial) return 1;
-				return (order.get(a) ?? 0) - (order.get(b) ?? 0);
-			});
-		if (ready.length === 0)
-			throw new Error("Accepted design has cyclic workflow prerequisites.");
-		for (const id of ready) {
-			remaining.delete(id);
-			emitted.push(id);
-		}
-	}
-	return emitted;
-}
-
 interface DeriveBuildPlanArgs {
 	readonly contract: AppDesignContract;
 	readonly revision: { readonly id: string; readonly digest: string };
@@ -732,7 +704,9 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 				.join("; ")}`,
 		);
 	}
-	const orderedWorkflowIds = workflowOrder(contract);
+	const orderedWorkflowIds = constructionWorkflowOrder(contract);
+	if (orderedWorkflowIds === null)
+		throw new Error("Accepted design has cyclic workflow prerequisites.");
 	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
 		contract.workflows.map((workflow) => [workflow.id, workflow]),
 	);

@@ -411,6 +411,20 @@ export function canonicalAppGenesis(
 	};
 }
 
+/** Prepare an existing viewer to host its first menu form in the same batch. */
+export function moduleFormHostMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): Mutation[] {
+	const mod = doc.modules[moduleUuid];
+	if (!mod?.caseListOnly) return [];
+	const patch: ModuleAuthoringPatch = { caseListOnly: false };
+	if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
+		patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
+	}
+	return modulePatchMutations(mod, patch);
+}
+
 /**
  * A new form of `type` in `moduleUuid`, born with a default first field:
  *   - `registration` → a `case_name` writer (needs the module's case type)
@@ -456,13 +470,7 @@ export function formScaffoldMutations(
 	for (const field of fields) {
 		mutations.push(...declareCaseTypeForField(doc, field));
 	}
-	if (mod.caseListOnly) {
-		const patch: ModuleAuthoringPatch = { caseListOnly: false };
-		if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
-			patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
-		}
-		mutations.push(...modulePatchMutations(mod, patch));
-	}
+	mutations.push(...moduleFormHostMutations(doc, moduleUuid));
 	const after = anchorForIndex(doc.formOrder[moduleUuid] ?? [], index);
 	mutations.push({
 		kind: "addForm",

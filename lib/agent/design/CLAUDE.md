@@ -148,13 +148,21 @@ valid direct Builder or MCP edit.
   materialization root, an acyclic dependency graph, and supported external-
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
-  external requirement as an element. Module composition is owned once by its
-  earliest workflow. A module whose parent has a different owner gains that
+  external requirement as an element. `constructionOwnership.ts` supplies the
+  same workflow order and module ownership to graph admission and planning.
+  A form-only home belongs to its first form's workflow. A home with an accepted
+  list can be created before its forms: a child is scheduled after its parent
+  selection exists and no later than a parent-menu workflow that creates its
+  records. Its list and list-only properties travel with that owner; its later
+  forms retain their own workflows. Authored workflow membership stays unchanged.
+  A module whose parent has a different owner gains that
   exact owner workflow as a prerequisite; sibling position adds no dependency;
   same-slice construction keeps
   the parent first and requires that owner to carry the parent's own form or
-  case-list surface. A list placed in that module, and properties used only by
-  that list, travel with the workflow that materializes the module. Selection
+  case-list surface. The executor creates a form-and-queue home as a viewer
+  when none of its forms belong to the current slice. Shared form creation
+  converts it to a form-bearing module atomically when its first menu form is
+  added, using the same mutation preparation as Builder. Selection
   is owned by the module composition, including a form-host module that uses
   only its default Results screen; it never needs a synthetic WorkList. Its
   explicit one/several setting names every selected-record/close workflow

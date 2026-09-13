@@ -46,6 +46,11 @@ under its form, and `create_module` nests forms, fields, choices, and born
 case-list columns under its module. Continue from that result: no read-after-write
 is required just to discover a new UUID.
 
+Adding a form to a module that currently shows only a case list keeps that list
+and makes the form available in the same step. No separate module-setting change
+is needed. A registration form reached from an empty search result remains
+outside the menu.
+
 Machine-authored inline choices have exactly
 `{ "optionUuid"?: "...", "value": "...", "label": "Wording" }`.
 A choice's `value` is the answer the app stores, not its wording: a lowercase

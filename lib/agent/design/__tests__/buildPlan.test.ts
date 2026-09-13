@@ -197,64 +197,107 @@ describe("deterministic build planning", () => {
 		);
 	});
 
-	it("schedules a child viewer before a parent-menu form creates its cases", () => {
-		const contract = cloneContract(makeThirteenWorkflowContract());
-		for (const workflow of contract.workflows) {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
-		}
-		const parent = fixtureValue(
-			contract.moduleCompositions[0],
-			"parent module",
-		);
-		const child = fixtureValue(contract.moduleCompositions[1], "child module");
-		const parentOwner = fixtureValue(contract.workflows[0], "parent owner");
-		const childOwner = fixtureValue(contract.workflows[1], "child owner");
-		const writer = fixtureValue(contract.workflows[2], "parent form writer");
-		const writerForm = fixtureValue(
-			contract.formCompositions[2],
-			"parent form writer composition",
-		);
-		const childRecord = fixtureValue(
-			contract.records.find((record) => record.id === child.hostRecordId),
-			"child record",
-		);
-		const childProperty = fixtureValue(
-			childRecord.properties[0],
-			"child property",
-		);
-		const writerEffect = fixtureValue(
-			writer.recordEffects[0],
-			"writer create effect",
-		);
-		const writerWrite = fixtureValue(writerEffect.writes[0], "writer value");
-		parent.workflowIds = [parentOwner.id, writer.id];
-		child.parentModuleCompositionId = parent.id;
-		writerForm.moduleCompositionId = parent.id;
-		writerForm.mode = "selected-record";
-		writer.contextRecordId = parent.hostRecordId;
-		parent.selection = { workflowIds: [writer.id], cases: "one" };
-		contract.moduleCompositions.splice(2, 1);
-		writerEffect.recordId = fixtureValue(
-			child.hostRecordId,
-			"child host record",
-		);
-		writerWrite.propertyId = childProperty.id;
+	it.each([false, true])(
+		"schedules a child viewer before its writer when its own form is later: %s",
+		(laterForm) => {
+			const contract = cloneContract(makeThirteenWorkflowContract());
+			for (const workflow of contract.workflows) {
+				workflow.prerequisiteWorkflowIds = [];
+				workflow.prerequisites = [];
+			}
+			const parent = fixtureValue(
+				contract.moduleCompositions[0],
+				"parent module",
+			);
+			const child = fixtureValue(
+				contract.moduleCompositions[1],
+				"child module",
+			);
+			const parentOwner = fixtureValue(contract.workflows[0], "parent owner");
+			const childOwner = fixtureValue(contract.workflows[1], "child owner");
+			const writer = fixtureValue(contract.workflows[2], "parent form writer");
+			const writerForm = fixtureValue(
+				contract.formCompositions[2],
+				"parent form writer composition",
+			);
+			const childRecord = fixtureValue(
+				contract.records.find((record) => record.id === child.hostRecordId),
+				"child record",
+			);
+			const childProperty = fixtureValue(
+				childRecord.properties[0],
+				"child property",
+			);
+			const writerEffect = fixtureValue(
+				writer.recordEffects[0],
+				"writer create effect",
+			);
+			const writerWrite = fixtureValue(writerEffect.writes[0], "writer value");
+			parent.workflowIds = [parentOwner.id, writer.id];
+			child.parentModuleCompositionId = parent.id;
+			writerForm.moduleCompositionId = parent.id;
+			writerForm.mode = "selected-record";
+			writer.contextRecordId = parent.hostRecordId;
+			parent.selection = { workflowIds: [writer.id], cases: "one" };
+			contract.moduleCompositions.splice(2, 1);
+			writerEffect.recordId = fixtureValue(
+				child.hostRecordId,
+				"child host record",
+			);
+			writerWrite.propertyId = childProperty.id;
+			if (laterForm) {
+				childOwner.prerequisiteWorkflowIds = [writer.id];
+				child.role = "form-and-queue";
+				const list = {
+					...fixtureValue(makeContract().lists[0], "list"),
+					id: did(9001),
+					actorIds: child.actorIds,
+					recordId: childRecord.id,
+					scanPropertyIds: [childProperty.id],
+					detailPropertyIds: [childProperty.id],
+					searchPropertyIds: [],
+				};
+				child.listIds = [list.id];
+				contract.lists.push(list);
+			}
 
-		const plan = deriveBuildPlan({
-			contract,
-			revision: { id: ids.revisionId, digest: "1".repeat(64) },
-			planId: ids.planId,
-		});
-		const writerSlice = fixtureValue(
-			plan.slices.find((slice) => slice.workflowId === writer.id),
-			"writer slice",
-		);
-		const prerequisites = writerSlice.prerequisiteSliceIds.map(
-			(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
-		);
-		expect(prerequisites).toContain(childOwner.id);
-	});
+			const plan = deriveBuildPlan({
+				contract,
+				revision: { id: ids.revisionId, digest: "1".repeat(64) },
+				planId: ids.planId,
+			});
+			const writerSlice = fixtureValue(
+				plan.slices.find((slice) => slice.workflowId === writer.id),
+				"writer slice",
+			);
+			const prerequisites = writerSlice.prerequisiteSliceIds.map(
+				(id) => plan.slices.find((slice) => slice.id === id)?.workflowId,
+			);
+			if (laterForm) {
+				expect(prerequisites).not.toContain(childOwner.id);
+				const owned = writerSlice.constructionGroups.flatMap(
+					(group) => group.elements,
+				);
+				expect(owned).toEqual(
+					expect.arrayContaining([
+						{ kind: "module-composition", id: child.id },
+						{ kind: "list", id: did(9001) },
+					]),
+				);
+				const laterSlice = fixtureValue(
+					plan.slices.find((slice) => slice.workflowId === childOwner.id),
+					"later form slice",
+				);
+				expect(laterSlice.prerequisiteSliceIds).toContain(writerSlice.id);
+				expect(
+					laterSlice.constructionGroups.flatMap((group) => group.elements),
+				).not.toContainEqual({ kind: "module-composition", id: child.id });
+				expect(child.workflowIds).toEqual([childOwner.id]);
+			} else {
+				expect(prerequisites).toContain(childOwner.id);
+			}
+		},
+	);
 
 	it("does not create workflow prerequisites from sibling placement", () => {
 		const contract = makeThirteenWorkflowContract();
