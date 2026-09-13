@@ -1,12 +1,15 @@
 /** Deterministic parity between accepted workflow-input requiredness and the
  * exact realized form fields in a private build candidate. */
 
-import type { BlueprintDoc } from "@/lib/domain";
+import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import { type BlueprintDoc, moduleUuidOfForm } from "@/lib/domain";
+import type { ModuleHandleBinding } from "./acceptedModulePlacement";
 import {
-	type ModuleHandleBinding,
-	realizedModuleUuid,
-} from "./acceptedModulePlacement";
-import type { SliceExecutionBrief } from "./executionBrief";
+	blueprintFormHandle,
+	blueprintInputHandle,
+	formCompositionInputs,
+	type SliceExecutionBrief,
+} from "./executionBrief";
 
 export interface AcceptedInputRequirementIssue {
 	readonly code: "ACCEPTED_INPUT_REQUIREMENT_MISMATCH";
@@ -26,22 +29,6 @@ export interface AcceptedInputRequirementIssue {
 	};
 }
 
-function formFieldUuids(doc: BlueprintDoc, formUuid: string): string[] {
-	const found: string[] = [];
-	const pending = [formUuid];
-	const visited = new Set<string>();
-	while (pending.length > 0) {
-		const parentUuid = pending.pop();
-		if (parentUuid === undefined || visited.has(parentUuid)) continue;
-		visited.add(parentUuid);
-		for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
-			found.push(fieldUuid);
-			pending.push(fieldUuid);
-		}
-	}
-	return found;
-}
-
 /** Compare one exact, machine-addressable part of accepted intent with the
  * realized candidate. Record-catalog requiredness is deliberately ignored:
  * the workflow input owns whether this question is required in this form.
@@ -58,69 +45,47 @@ export function acceptedInputRequirementIssues(
 	const inputsByHandle = new Map(
 		brief.workflow.inputs.map((input) => [input.handle, input]),
 	);
+	const bindings = new Map(handles.map((binding) => [binding.handle, binding]));
 	for (const realization of brief.formRealizations) {
-		const moduleUuid = realizedModuleUuid(
-			doc,
-			brief,
-			realization.moduleCompositionId,
-			handles,
+		const formBinding = bindings.get(
+			blueprintFormHandle(realization.compositionId),
 		);
-		const moduleUuids = moduleUuid === null ? [] : [moduleUuid];
-		const formUuids = moduleUuids.flatMap((moduleUuid) =>
-			(doc.formOrder[moduleUuid] ?? []).filter((formUuid) => {
-				const form = doc.forms[formUuid];
-				return (
-					form?.name === realization.name &&
-					form.type === realization.blueprintFormType
-				);
-			}),
-		);
-		const loweredItems =
-			realization.layoutLowering.kind === "root-fields"
-				? realization.layoutLowering.items
-				: realization.layoutLowering.groups.flatMap((group) => group.items);
-		for (const item of loweredItems) {
-			if (
-				item.blueprintFieldKind !== "workflow-input" ||
-				item.inputHandle === undefined
-			) {
-				continue;
-			}
+		if (formBinding?.entityKind !== "form") continue;
+		const form = doc.forms[formBinding.uuid];
+		if (!form) continue;
+		const moduleUuid = moduleUuidOfForm(doc, form.uuid);
+		if (!moduleUuid) continue;
+		for (const item of formCompositionInputs(realization)) {
 			const input = inputsByHandle.get(item.inputHandle);
-			const blueprintFieldId = item.blueprintFieldId ?? item.inputHandle;
-			if (input === undefined) continue;
+			const fieldBinding = bindings.get(
+				blueprintInputHandle(item.compositionItemId),
+			);
+			if (!input || fieldBinding?.entityKind !== "field") continue;
+			const field = doc.fields[fieldBinding.uuid];
+			if (!field || findContainingForm(doc, field.uuid) !== form.uuid) continue;
 			const acceptedRequired = input.requiredWhen !== undefined;
-			for (const formUuid of formUuids) {
-				for (const fieldUuid of formFieldUuids(doc, formUuid)) {
-					const field = doc.fields[fieldUuid];
-					if (field?.id !== blueprintFieldId) continue;
-					const realizedRequired =
-						"required" in field && field.required !== undefined;
-					if (realizedRequired === acceptedRequired) continue;
-					issues.push({
-						code: "ACCEPTED_INPUT_REQUIREMENT_MISMATCH",
-						message: acceptedRequired
-							? `Accepted input ${item.inputHandle} is required when "${input.requiredWhen}", but field ${blueprintFieldId} has no required condition. Add the accepted condition to this field.`
-							: `Accepted input ${item.inputHandle} has no required condition, but field ${blueprintFieldId} is required. Remove the field's required rule; record-level requiredness does not apply automatically to this form.`,
-						location: {
-							kind: "field",
-							moduleUuid:
-								moduleUuids.find((moduleUuid) =>
-									(doc.formOrder[moduleUuid] ?? []).includes(formUuid),
-								) ?? "",
-							formUuid,
-							fieldUuid,
-						},
-						details: {
-							formCompositionId: realization.compositionId,
-							inputHandle: item.inputHandle,
-							blueprintFieldId,
-							acceptedRequiredWhen: input.requiredWhen ?? null,
-							realizedRequired,
-						},
-					});
-				}
-			}
+			const realizedRequired =
+				"required" in field && field.required !== undefined;
+			if (realizedRequired === acceptedRequired) continue;
+			issues.push({
+				code: "ACCEPTED_INPUT_REQUIREMENT_MISMATCH",
+				message: acceptedRequired
+					? `Input ${item.inputHandle} needs a required condition for "${input.requiredWhen}".`
+					: `Input ${item.inputHandle} is optional in this workflow. Remove its required condition.`,
+				location: {
+					kind: "field",
+					moduleUuid,
+					formUuid: form.uuid,
+					fieldUuid: field.uuid,
+				},
+				details: {
+					formCompositionId: realization.compositionId,
+					inputHandle: item.inputHandle,
+					blueprintFieldId: field.id,
+					acceptedRequiredWhen: input.requiredWhen ?? null,
+					realizedRequired,
+				},
+			});
 		}
 	}
 	return issues;

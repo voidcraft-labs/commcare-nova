@@ -47,7 +47,12 @@ import {
 	remainingWallClockMs,
 	type SliceExecutionBudget,
 } from "../budgets";
-import { briefDigest, deriveSliceExecutionBrief } from "../executionBrief";
+import {
+	blueprintInputHandle,
+	briefDigest,
+	deriveSliceExecutionBrief,
+	formCompositionInputs,
+} from "../executionBrief";
 import {
 	buildExecutorTools,
 	type ExecutorConversationContext,
@@ -720,6 +725,24 @@ describe("persisted executor Responses journeys", () => {
 				);
 				await expect(f.run(step, { context })).rejects.toBe(lost);
 				const before = await loadChangeSetSteps(f.changeSet.id);
+				const acceptedInput = fixtureValue(
+					formCompositionInputs(
+						fixtureValue(f.brief.formRealizations[0], "form"),
+					)[0],
+					"input",
+				);
+				const binding = {
+					handle: blueprintInputHandle(acceptedInput.compositionItemId),
+					uuid: acceptedInput.compositionItemId,
+					entityKind: "field",
+				};
+				const restoredWorkspace = await f.reopenWorkspace();
+				expect(
+					restoredWorkspace.currentExecutionCheckpoint().handles,
+				).toContainEqual(binding);
+				expect(
+					restoredWorkspace.currentSnapshot().doc.fields[binding.uuid]?.id,
+				).toBe("workflow_1_value");
 				expect(before.map((step) => step.toolName)).toEqual([
 					"generateSchema",
 					"createModule",
@@ -735,6 +758,9 @@ describe("persisted executor Responses journeys", () => {
 				expect((await loadChangeSetSteps(f.changeSet.id))[0]).toEqual(
 					before[0],
 				);
+				expect(
+					(await f.reopenWorkspace()).currentExecutionCheckpoint().handles,
+				).toContainEqual(binding);
 			},
 		);
 		expect(requests).toBe(1);
