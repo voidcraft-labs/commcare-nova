@@ -33,7 +33,7 @@ const READS_BY_AREA = {
 
 const MUTATIONS_BY_AREA = {
 	app: ["updateApp"],
-	"case-catalog": ["updateCaseProperty", "renameCaseProperties"],
+	"case-catalog": ["updateCaseProperty"],
 	users: [
 		"addUserProperties",
 		"updateUserProperty",

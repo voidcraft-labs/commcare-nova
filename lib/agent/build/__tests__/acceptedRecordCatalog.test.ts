@@ -21,6 +21,7 @@ import {
 	prepareAcceptedRecordCatalog,
 } from "../acceptedRecordCatalog";
 import { deriveSliceExecutionBrief } from "../executionBrief";
+import { buildExecutorTools } from "../executorLoop";
 
 function record(names: readonly string[]): RecordConcept {
 	return {
@@ -180,5 +181,10 @@ describe("accepted record preparation", () => {
 		// not a catalog expression to copy or guess at.
 		expect(patient.properties[0].requiredWhen).toBeDefined();
 		expect(brief.toolProfile.mutationTools).not.toContain("generateSchema");
+		expect(brief.toolProfile.mutationTools).not.toContain(
+			"renameCaseProperties",
+		);
+		expect(buildExecutorTools()).not.toHaveProperty("generateSchema");
+		expect(buildExecutorTools()).not.toHaveProperty("renameCaseProperties");
 	});
 });

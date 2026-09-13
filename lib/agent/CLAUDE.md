@@ -93,7 +93,8 @@ decisions. Editor and MCP tools retain both capabilities. The full accepted reco
 set determines property keys before a slice selects its relevant subset. Only
 explicit `case_name` and `external_id` names select standard scalar roles; a
 business property named `status` receives a distinct custom key. These two scalar
-roles must be unique per record and text-typed at construction admission.
+roles must be unique per record and text-typed at construction admission. Attachment answers remain form-only; a
+record property without a storage carrier is refused before design acceptance.
 
 The build repair helper receives one accepted workflow brief, current private
 candidate, server diagnostics, builder report, and descriptions of the exact

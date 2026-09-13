@@ -1372,6 +1372,19 @@ export function designConstructionIssues(
 						"A record property needs a concrete data shape before its field and storage can be authored.",
 				});
 			}
+			if (property.dataShape === "attachment") {
+				issues.push({
+					path: [
+						"records",
+						recordIndex,
+						"properties",
+						propertyIndex,
+						"dataShape",
+					],
+					message:
+						"Attachments belong to form inputs; they cannot be stored as record properties.",
+				});
+			}
 			if (
 				(property.dataShape === "single-choice" ||
 					property.dataShape === "multiple-choice") &&

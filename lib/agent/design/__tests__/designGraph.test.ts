@@ -570,58 +570,71 @@ describe("lean Design Contract graph", () => {
 		expect(constructionMessages(contract)).toBe("");
 	});
 
-	it("admits a form-only workflow with no record mutation", () => {
-		const contract = cloneContract(makeContract());
-		const workflow = fixtureValue(contract.workflows[0], "first workflow");
-		workflow.inputs = [
-			{
-				handle: "survey_answer",
-				name: "Survey answer",
-				purpose: "Collect a standalone response",
-				dataShape: "text",
-			},
-		];
-		workflow.decisions = [];
-		workflow.recordEffects = [];
-		workflow.readback = [];
-		const sharedModule = fixtureValue(
-			contract.moduleCompositions[0],
-			"shared module composition",
-		);
-		sharedModule.workflowIds = [ids.taskVisit];
-		contract.moduleCompositions.unshift({
-			id: did(780),
-			name: "Standalone survey",
-			purpose: "Host the form-only survey without a record context.",
-			role: "form-host",
-			workflowIds: [ids.taskRegister],
-			actorIds: [ids.actorChw],
-			listIds: [],
-			orderRationale: "Keep the standalone task available before record work.",
-			icon: { kind: "builtin", slug: "default" },
-			roleSeparationRationale:
-				"A standalone form cannot share the patient record host.",
-		});
-		const formComposition = fixtureValue(
-			contract.formCompositions[0],
-			"first form composition",
-		);
-		formComposition.moduleCompositionId = did(780);
-		formComposition.mode = "standalone";
-		formComposition.layout = {
-			kind: "flat",
-			rationale: "One standalone answer has no useful grouping boundary.",
-			items: [
+	it.each(["text", "attachment"] as const)(
+		"admits a form-only %s workflow with no record mutation",
+		(dataShape) => {
+			const contract = cloneContract(makeContract());
+			const workflow = fixtureValue(contract.workflows[0], "first workflow");
+			workflow.inputs = [
 				{
-					kind: "input",
-					id: did(781),
-					inputHandle: "survey_answer",
-					labelMarkdown: "Survey answer",
+					handle: "survey_answer",
+					name: "Survey answer",
+					purpose: "Collect a standalone response",
+					dataShape,
 				},
-			],
-		};
+			];
+			workflow.decisions = [];
+			workflow.recordEffects = [];
+			workflow.readback = [];
+			const sharedModule = fixtureValue(
+				contract.moduleCompositions[0],
+				"shared module composition",
+			);
+			sharedModule.workflowIds = [ids.taskVisit];
+			contract.moduleCompositions.unshift({
+				id: did(780),
+				name: "Standalone survey",
+				purpose: "Host the form-only survey without a record context.",
+				role: "form-host",
+				workflowIds: [ids.taskRegister],
+				actorIds: [ids.actorChw],
+				listIds: [],
+				orderRationale:
+					"Keep the standalone task available before record work.",
+				icon: { kind: "builtin", slug: "default" },
+				roleSeparationRationale:
+					"A standalone form cannot share the patient record host.",
+			});
+			const formComposition = fixtureValue(
+				contract.formCompositions[0],
+				"first form composition",
+			);
+			formComposition.moduleCompositionId = did(780);
+			formComposition.mode = "standalone";
+			formComposition.layout = {
+				kind: "flat",
+				rationale: "One standalone answer has no useful grouping boundary.",
+				items: [
+					{
+						kind: "input",
+						id: did(781),
+						inputHandle: "survey_answer",
+						labelMarkdown: "Survey answer",
+					},
+				],
+			};
+			expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+			expect(constructionMessages(contract)).toBe("");
+		},
+	);
+
+	it("refuses attachment-valued record properties during construction admission", () => {
+		const contract = cloneContract(makeContract());
+		contract.records[0].properties[0].dataShape = "attachment";
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(constructionMessages(contract)).toBe("");
+		expect(constructionMessages(contract)).toContain(
+			"Attachments belong to form inputs",
+		);
 	});
 
 	it("keeps a child create effect from turning a selected-context workflow into registration", () => {

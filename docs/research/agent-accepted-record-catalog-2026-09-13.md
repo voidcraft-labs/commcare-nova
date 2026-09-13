@@ -35,7 +35,9 @@ after making property keys server-owned. The final boundary keeps business
 properties distinct, stores accepted wording as literal canonical text, and
 keeps accepted keys fixed during construction. The explicit `case_name` and
 `external_id` design conventions retain their scalar meaning and require unique,
-text-typed declarations. Contextual form rules are not copied into the catalog.
+text-typed declarations. Construction admission also rejects attachment-valued
+record properties while admitting form-only attachments. Contextual form rules
+are not copied into the catalog.
 
 Separately, real local submission checks exercised the earlier partial garden
 app saved by the 30-request trial. They proved registration requirements and
