@@ -1,0 +1,332 @@
+{
+	"scenario": "community-garden-history",
+	"model": "gpt-5.6-sol",
+	"reasoningEffort": "medium",
+	"limits": {
+		"requests": 24,
+		"wallClockSeconds": 480,
+		"requestReservationUsd": 25
+	},
+	"costMethod": "Repository prices, all input uncached, multiplied by 1.25; conservative estimates, not invoice totals",
+	"arms": [
+		{
+			"label": "revised",
+			"head": "4f1cd2a4",
+			"result": {
+				"kind": "failed",
+				"errorType": "internal",
+				"message": "The design step didn't come back usable this time. Everything already decided is saved; send your message again to continue from there.",
+				"recoverable": true
+			},
+			"requests": 24,
+			"conservativeEstimatedUsd": 4.23958125,
+			"usage": [
+				{
+					"request": 1,
+					"inputTokens": 5587,
+					"outputTokens": 561
+				},
+				{
+					"request": 2,
+					"inputTokens": 17134,
+					"outputTokens": 172
+				},
+				{
+					"request": 3,
+					"inputTokens": 17329,
+					"outputTokens": 644
+				},
+				{
+					"request": 4,
+					"inputTokens": 17996,
+					"outputTokens": 2263
+				},
+				{
+					"request": 5,
+					"inputTokens": 20284,
+					"outputTokens": 912
+				},
+				{
+					"request": 6,
+					"inputTokens": 21219,
+					"outputTokens": 166
+				},
+				{
+					"request": 7,
+					"inputTokens": 21408,
+					"outputTokens": 147
+				},
+				{
+					"request": 8,
+					"inputTokens": 21578,
+					"outputTokens": 262
+				},
+				{
+					"request": 9,
+					"inputTokens": 21867,
+					"outputTokens": 1041
+				},
+				{
+					"request": 10,
+					"inputTokens": 22935,
+					"outputTokens": 431
+				},
+				{
+					"request": 11,
+					"inputTokens": 23391,
+					"outputTokens": 193
+				},
+				{
+					"request": 12,
+					"inputTokens": 23611,
+					"outputTokens": 74
+				},
+				{
+					"request": 13,
+					"inputTokens": 23760,
+					"outputTokens": 298
+				},
+				{
+					"request": 14,
+					"inputTokens": 24081,
+					"outputTokens": 132
+				},
+				{
+					"request": 15,
+					"inputTokens": 24236,
+					"outputTokens": 242
+				},
+				{
+					"request": 16,
+					"inputTokens": 24505,
+					"outputTokens": 194
+				},
+				{
+					"request": 17,
+					"inputTokens": 24722,
+					"outputTokens": 22
+				},
+				{
+					"request": 18,
+					"inputTokens": 11225,
+					"outputTokens": 1696
+				},
+				{
+					"request": 19,
+					"inputTokens": 38645,
+					"outputTokens": 877
+				},
+				{
+					"request": 20,
+					"inputTokens": 39724,
+					"outputTokens": 421
+				},
+				{
+					"request": 21,
+					"inputTokens": 40170,
+					"outputTokens": 162
+				},
+				{
+					"request": 22,
+					"inputTokens": 40355,
+					"outputTokens": 226
+				},
+				{
+					"request": 23,
+					"inputTokens": 40604,
+					"outputTokens": 464
+				},
+				{
+					"request": 24,
+					"inputTokens": 41095,
+					"outputTokens": 212
+				}
+			],
+			"nativeCallsPerAuthorResponse": [
+				["setDesignRoot"],
+				["updateActors"],
+				["updateRecords"],
+				["updateWorkflows"],
+				["updateLists"],
+				["updateAccess"],
+				["updateNavigation"],
+				["updateModuleCompositions"],
+				["updateFormCompositions"],
+				["updateDecisions"],
+				["updateAssumptions"],
+				["finishDesign"],
+				["updateLists"],
+				["updateNavigation"],
+				["updateModuleCompositions"],
+				["updateAccess"],
+				["finishDesign"],
+				["setDesignRoot"],
+				["updateWorkflows"],
+				["updateLists"],
+				["updateNavigation"],
+				["updateModuleCompositions"],
+				["updateAccess"]
+			],
+			"toolRejections": [
+				{
+					"error": "The submission failed Nova's design validation. Correct these exact items, then finalize again:\n- moduleCompositions.0.listIds.1: A module may place only lists for the record it hosts.",
+					"diagnostic": {
+						"code": "design-schema-rejected",
+						"validationStage": "schema",
+						"issueCount": 1
+					}
+				}
+			],
+			"persistedRevisionCount": 1,
+			"acceptedDesign": false,
+			"builtApp": false,
+			"stop": "Trial request limit during revision; production returned internal/recoverable.",
+			"reviewEvidence": {
+				"boundary": "Author-visible server projection from request-19.json; the first snapshot serialized the canonical review Map as an empty object",
+				"reviews": [
+					{
+						"summary": "The design is largely coherent: registration works first and offline, plot finding avoids live search, weekly checks are correctly stored as child records, latest-check summaries are rolled up to plots, and corrections cannot alter names or past checks. One material gap remains: workers have no way to view the preserved check history from a plot.",
+						"findings": [
+							{
+								"id": "@f1",
+								"severity": "important",
+								"dispositionClass": "design-correction",
+								"claim": "Weekly checks are stored as child records, but the navigation and lists expose only plots; there is no worker-facing history list or detail path for viewing a selected plot\u2019s earlier checks. This makes the promised plot history inaccessible in the app even though the records are preserved.",
+								"evidenceRefs": [
+									{
+										"kind": "message",
+										"threadId": "15855f2e-7716-4636-8599-bf3b15818024",
+										"messageId": "garden-request",
+										"partIndex": 0
+									}
+								],
+								"affectedElementIds": [
+									"@weekly_check",
+									"@record_weekly_check",
+									"@plots_navigation",
+									"@plots_module",
+									"@decision_child_checks"
+								],
+								"proposedResolution": "Add an offline history view reachable from the selected plot. Show only that plot\u2019s Weekly check children, sorted by check date newest first, with date and soil condition visible and the optional note available in details. Keep the history read-only so earlier checks cannot be edited or deleted, and ensure a newly submitted check appears immediately."
+							}
+						]
+					}
+				]
+			}
+		},
+		{
+			"label": "previous",
+			"head": "0b575ef8",
+			"result": {
+				"kind": "failed",
+				"errorType": "design-submission-nonconvergent",
+				"message": "Nova preserved the unfinished design workspace, but couldn't produce an executable design. No design, plan, or app was accepted. Everything already decided is saved; send a message to run that phase again.",
+				"recoverable": true
+			},
+			"requests": 8,
+			"conservativeEstimatedUsd": 2.2144749999999997,
+			"usage": [
+				{
+					"request": 1,
+					"inputTokens": 29275,
+					"outputTokens": 6882
+				},
+				{
+					"request": 2,
+					"inputTokens": 36629,
+					"outputTokens": 94
+				},
+				{
+					"request": 3,
+					"inputTokens": 36767,
+					"outputTokens": 14
+				},
+				{
+					"request": 4,
+					"inputTokens": 36856,
+					"outputTokens": 1761
+				},
+				{
+					"request": 5,
+					"inputTokens": 38877,
+					"outputTokens": 91
+				},
+				{
+					"request": 6,
+					"inputTokens": 39012,
+					"outputTokens": 14
+				},
+				{
+					"request": 7,
+					"inputTokens": 39129,
+					"outputTokens": 762
+				},
+				{
+					"request": 8,
+					"inputTokens": 39979,
+					"outputTokens": 14
+				}
+			],
+			"nativeCallsPerAuthorResponse": [
+				[
+					"setDesignRoot",
+					"updateActors",
+					"updateRecords",
+					"updateWorkflows",
+					"updateLists",
+					"updateNavigation",
+					"updateModuleCompositions",
+					"updateFormCompositions",
+					"updateAccess",
+					"updateDecisions",
+					"updateAssumptions"
+				],
+				["placeModules"],
+				["finishDesign"],
+				[
+					"setDesignRoot",
+					"updateWorkflows",
+					"updateNavigation",
+					"updateModuleCompositions",
+					"updateFormCompositions",
+					"updateAccess"
+				],
+				["placeModules"],
+				["finishDesign"],
+				["setDesignRoot", "updateWorkflows"],
+				["finishDesign"]
+			],
+			"toolRejections": [
+				{
+					"error": "The submission failed Nova's design validation. Correct these exact items, then finalize again:\n- moduleCompositions.0.listIds.1: A module may place only lists for the record it hosts.",
+					"diagnostic": {
+						"code": "design-schema-rejected",
+						"validationStage": "schema",
+						"issueCount": 1
+					}
+				},
+				{
+					"error": "The submission failed Nova's design validation. Correct these exact items, then finalize again:\n- moduleCompositions.1.hostRecordId: A child menu that displays cases created by a parent-menu form must be owned by the same workflow as or an earlier workflow than the first such form, so its required viewer exists before that form is built.",
+					"diagnostic": {
+						"code": "design-schema-rejected",
+						"validationStage": "schema",
+						"issueCount": 1
+					}
+				},
+				{
+					"error": "The submission cannot yet be built. Correct these exact items, then finalize again:\n- navigation.0: Every accepted navigation entry needs exactly one module composition before construction. Give repeated destinations distinct navigation identities instead of reusing one entry across modules.",
+					"diagnostic": {
+						"code": "design-construction-rejected",
+						"validationStage": "construction",
+						"issueCount": 1
+					}
+				}
+			],
+			"persistedRevisionCount": 0,
+			"acceptedDesign": false,
+			"builtApp": false,
+			"stop": "Production submission nonconvergence after three distinct design admission failures; no reviewer call."
+		}
+	],
+	"totalConservativeEstimatedUsd": 7.3106612499999954
+}
