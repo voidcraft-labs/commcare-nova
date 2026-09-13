@@ -2,6 +2,10 @@
  * serving code; sealed history and billing records are retained verbatim. */
 import { type Kysely, sql, type Transaction } from "kysely";
 import {
+	DESIGN_CONTRACT_SCHEMA_VERSION,
+	DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
+} from "@/lib/agent/design/formats";
+import {
 	lockActorGenerationGateForAppHolder,
 	lockActorGenerationGateForSessionHolder,
 } from "@/lib/db/actorGenerationGate";
@@ -37,11 +41,11 @@ async function oldFormatCounts(db: Db, sessionId: string) {
 	}>`select
 		(select count(*)::int from design_revisions
 		 where design_session_id = ${sessionId}::uuid
-		 and envelope->'payload'->>'schemaVersion' is distinct from '2') as revisions,
+		 and envelope->'payload'->>'schemaVersion' is distinct from ${String(DESIGN_CONTRACT_SCHEMA_VERSION)}) as revisions,
 		(select count(*)::int from design_artifact_workspace_steps step
 		 join design_artifact_workspaces workspace on workspace.id = step.workspace_id
 		 where workspace.design_session_id = ${sessionId}::uuid
-		 and step.operation->>'storageVersion' is distinct from '3') as operations,
+		 and step.operation->>'storageVersion' is distinct from ${String(DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION)}) as operations,
 		(select count(*)::int from threads where design_session_id = ${sessionId}::uuid) as threads,
 		(exists (
 			select 1 from design_model_steps step

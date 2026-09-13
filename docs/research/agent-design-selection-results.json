@@ -1,0 +1,476 @@
+{
+	"sourceCommit": "e4ea6aa7e50c16b686d07ffb18613a73551ebb1a",
+	"harnessSha256": "1fe6decef2045d2228825cf859bbe19d3708ec65d92cd32c97a44a7164aafaea",
+	"task": "Build one app for a community garden coordinator working offline. Register each plot with its required name, location description, and number of beds (a whole number from 1 to 50). Workers find plots by name, open a plot, and record a weekly check with a required check date and soil condition: Dry, Damp, or Wet. They may add a note. Each check must remain in the plot's history; a new check must not overwrite an earlier one. After a check, the worker should see the plot's most recent check date and condition in the plot list. Include a way to correct the plot's location or bed count without changing its name or past checks. Use clear, concise English wording and arrange each form around its task. We do not need worker roles, shared lookup tables, media, approvals, or integrations. These requirements are complete; choose sensible defaults for other design decisions and build it.",
+	"models": {
+		"designAuthor": {
+			"modelId": "gpt-5.6-sol",
+			"reasoningEffort": "medium",
+			"msPerModelStep": 60000
+		},
+		"designReviewer": {
+			"modelId": "gpt-5.6-sol",
+			"reasoningEffort": "medium",
+			"msPerModelStep": 60000
+		},
+		"buildExecutor": {
+			"modelId": "gpt-5.6-luna",
+			"reasoningEffort": "xhigh",
+			"msPerModelStep": 90000
+		}
+	},
+	"limits": {
+		"designRequests": 36,
+		"constructionRequests": 30,
+		"secondsPerPhase": 720,
+		"totalInvestigationCeilingUsd": 200
+	},
+	"outcome": {
+		"reason": "design-request-cap",
+		"immutableDrafts": 3,
+		"independentReviews": 3,
+		"acceptedDesigns": 0,
+		"buildPlans": 0,
+		"constructionAttempts": 0,
+		"appBuilt": false
+	},
+	"conservativeTrialCostUsd": 9.1932375,
+	"conservativeInvestigationCostUsd": 21.157523750000014,
+	"completedInvestigationRequests": 193,
+	"lastAuthorRequest": {
+		"bytes": 474141,
+		"serverStateMessages": 4,
+		"stateMessageCharacters": 207372
+	},
+	"reviews": [
+		{
+			"summary": "The app is largely coherent and offline-capable: plot lookup uses local cases, checks are preserved as child records, and corrections cannot alter plot names or history. Two corrections are needed before acceptance: the latest-check rollup currently uses submission order rather than the check date, and the soil-condition choices lack explicit worker-facing labels.",
+			"findings": [
+				{
+					"severity": "important",
+					"claim": "The plot\u2019s latest-check summary is overwritten by every new submission, even when the entered check date is older than the currently displayed date. That does not reliably represent the plot\u2019s \u201cmost recent check date and condition.\u201d Preserve every submitted child check, but update both parent summary fields only when no latest date exists or the entered check date is on or after the saved latest date; add an example confirming that a backdated check remains in history without replacing a newer summary."
+				},
+				{
+					"severity": "important",
+					"claim": "The soil-condition choice source specifies only saved values (`dry`, `damp`, `wet`) and does not explicitly define the required nonblank worker-facing labels \u201cDry,\u201d \u201cDamp,\u201d and \u201cWet.\u201d The source already supplies those labels, so they should be authored directly rather than inferred from internal values."
+				}
+			]
+		},
+		{
+			"summary": "The core offline design is sound: plots are locally searchable, weekly checks are preserved as child records, backdated checks do not replace a newer summary, and correction leaves plot names and history untouched. One material navigation defect remains: history is searched globally by copied plot name rather than opened in the selected plot\u2019s relationship context.",
+			"findings": [
+				{
+					"severity": "important",
+					"claim": "\u201cCheck history\u201d does not reliably present a selected plot\u2019s history. It opens a global weekly-check queue and asks the worker to search the copied plot name again. Name matching can mix records from different plots with identical or similar names, and the worker loses the plot context they already selected. This conflicts with the requested plot-centered workflow and the design\u2019s own child relationship."
+				}
+			]
+		},
+		{
+			"summary": "The offline plot registration, correction, weekly-check history model, and latest-check display are otherwise coherent. One navigation defect must be corrected so workers can reliably open a selected plot\u2019s history, including when no checks exist yet.",
+			"findings": [
+				{
+					"severity": "important",
+					"claim": "The check-history path is internally inconsistent. The selected-plot module does not include Review check history among the workflows that consume its plot selection, even though the child history module requires that selected plot context. In addition, Review check history names Record weekly check as a prerequisite while its stated prerequisites and empty state correctly allow opening history before any check has been recorded. This may leave history without the selected plot context or incorrectly make the empty-history view unavailable."
+				}
+			]
+		}
+	],
+	"requests": [
+		{
+			"number": 1,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 87265,
+			"sha256": "febf83e4eadbea8b8c95fd47e3bdaf5c8d00c2bcb1a11a576c95cc393ce204d5",
+			"inputTokens": 5504,
+			"outputTokens": 973,
+			"conservativeCostUsd": 0.0708875
+		},
+		{
+			"number": 2,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 134532,
+			"sha256": "aea10deef3c8a2e6c53fba73c6f486db49c21131b25807d0d86b3cd4b9309fba",
+			"inputTokens": 16740,
+			"outputTokens": 152,
+			"conservativeCostUsd": 0.110325
+		},
+		{
+			"number": 3,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 135557,
+			"sha256": "26990eda65dc587235a73de663103d1f07115245871f0d56188a59f116c6cd6b",
+			"inputTokens": 16915,
+			"outputTokens": 738,
+			"conservativeCostUsd": 0.13339375
+		},
+		{
+			"number": 4,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 139457,
+			"sha256": "dc7f178286edabb3743904a8d90dff5b54d7c6ac4f5f746e24daf74a2f71ecf4",
+			"inputTokens": 17676,
+			"outputTokens": 2498,
+			"conservativeCostUsd": 0.20415
+		},
+		{
+			"number": 5,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 153733,
+			"sha256": "f58adeeef0fad2f0536e4f5acd5bf6a41a6c55401c86218df0dc9827358d9d63",
+			"inputTokens": 20199,
+			"outputTokens": 356,
+			"conservativeCostUsd": 0.13959375
+		},
+		{
+			"number": 6,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 157446,
+			"sha256": "3aa20a9a9069ccd5596681288e421501d59f0ca23351715dbe51eed386e92595",
+			"inputTokens": 20578,
+			"outputTokens": 376,
+			"conservativeCostUsd": 0.1427125
+		},
+		{
+			"number": 7,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 160934,
+			"sha256": "bc434d4158af20117b478ba31b8c4348f4c3a884ec2a1dc00c2eadf11ac10b92",
+			"inputTokens": 20981,
+			"outputTokens": 967,
+			"conservativeCostUsd": 0.16739375
+		},
+		{
+			"number": 8,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 166028,
+			"sha256": "fd4fed6710c5e5ddc890f6921f585f3c0f62135f8c6f84b5d19b707e64ec40b1",
+			"inputTokens": 21975,
+			"outputTokens": 328,
+			"conservativeCostUsd": 0.14964375
+		},
+		{
+			"number": 9,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 169469,
+			"sha256": "6e854bed6a7285073a8264094b1555cda21ba5b08f056c3908faf3f152b523eb",
+			"inputTokens": 22326,
+			"outputTokens": 407,
+			"conservativeCostUsd": 0.1548
+		},
+		{
+			"number": 10,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 173913,
+			"sha256": "01594213e5d52d8a409da02d8e25f765730900678bc63a19e2ad0dc023d689cc",
+			"inputTokens": 22758,
+			"outputTokens": 229,
+			"conservativeCostUsd": 0.15082500000000001
+		},
+		{
+			"number": 11,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 175331,
+			"sha256": "fce509924a7608818e819aa9e64fc6108936e320641e3a8a93b133371831ac76",
+			"inputTokens": 23014,
+			"outputTokens": 23,
+			"conservativeCostUsd": 0.1447
+		},
+		{
+			"number": 12,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 177354,
+			"sha256": "e2a0fa0a629a7d4bdb7f7299b4117506b6e1db4203993dbaf0a219a38c3372c9",
+			"inputTokens": 23148,
+			"outputTokens": 1012,
+			"conservativeCostUsd": 0.182625
+		},
+		{
+			"number": 13,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 186498,
+			"sha256": "074a4abd15229612329675ff3494d1eeeba0c54ea8350a358cda3229e02a0906",
+			"inputTokens": 24185,
+			"outputTokens": 184,
+			"conservativeCostUsd": 0.15805625
+		},
+		{
+			"number": 14,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 187547,
+			"sha256": "807984f122bfa562e789ffa9b9bbcb32f8178c797191c78fb2f3b75ce89edc12",
+			"inputTokens": 24392,
+			"outputTokens": 421,
+			"conservativeCostUsd": 0.16823749999999998
+		},
+		{
+			"number": 15,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 189834,
+			"sha256": "f698e68cbabbbe58b333eeda8cb345551b8d3b43b867c70fb08b50a6b7f36308",
+			"inputTokens": 24840,
+			"outputTokens": 239,
+			"conservativeCostUsd": 0.16421249999999998
+		},
+		{
+			"number": 16,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 192550,
+			"sha256": "499d521cdb180538dd170fb18248eff258baf8fc33cb9f33b730091b33e2ca15",
+			"inputTokens": 25102,
+			"outputTokens": 14,
+			"conservativeCostUsd": 0.15741249999999998
+		},
+		{
+			"number": 17,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "reviewer",
+			"requestBytes": 58190,
+			"sha256": "10772bed7c009e602df77890f42d5b2c7c4d676f44a264a513aff82a11316885",
+			"inputTokens": 12097,
+			"outputTokens": 2562,
+			"conservativeCostUsd": 0.17168125
+		},
+		{
+			"number": 18,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 266128,
+			"sha256": "25b97ed397440dc057fdd092ad4b0020572a222a04d7a59e36e5614c91b43fbb",
+			"inputTokens": 40833,
+			"outputTokens": 1377,
+			"conservativeCostUsd": 0.30684374999999997
+		},
+		{
+			"number": 19,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 278137,
+			"sha256": "6af5cfc99a48efc02d00e289fac3f25d46dbff8f25ddae304bdf91213e62f746",
+			"inputTokens": 42579,
+			"outputTokens": 1169,
+			"conservativeCostUsd": 0.30995625
+		},
+		{
+			"number": 20,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 283936,
+			"sha256": "bac0554ff9bf19bf417c28f01d671717905c3529c4ccef74eb2f133965b61cc0",
+			"inputTokens": 43773,
+			"outputTokens": 402,
+			"conservativeCostUsd": 0.28865625
+		},
+		{
+			"number": 21,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 286105,
+			"sha256": "2525c7327a432f125924854eb0cf9f4431fe44608a2a4b96956107cb680bb2a5",
+			"inputTokens": 44202,
+			"outputTokens": 285,
+			"conservativeCostUsd": 0.28695
+		},
+		{
+			"number": 22,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 289803,
+			"sha256": "98fab7eea9712349a9d92ce6617d8fb5adfdf2a87569835b1e8f2e689c6fbba2",
+			"inputTokens": 44512,
+			"outputTokens": 385,
+			"conservativeCostUsd": 0.2926375
+		},
+		{
+			"number": 23,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 291916,
+			"sha256": "4ce35f00bd60c21981b76f169d53518a0cde546245725d991ca6b257fac6c997",
+			"inputTokens": 44924,
+			"outputTokens": 167,
+			"conservativeCostUsd": 0.2870375
+		},
+		{
+			"number": 24,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 294251,
+			"sha256": "e3bf3439123198c1b366bc9882a26c799750ec38abee48b2d3b398a4352a98e6",
+			"inputTokens": 45118,
+			"outputTokens": 22,
+			"conservativeCostUsd": 0.2828125
+		},
+		{
+			"number": 25,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "reviewer",
+			"requestBytes": 59931,
+			"sha256": "53df5328ff3d42129bea589564fd3798f84d519962b50854dcfcc4649135c1a3",
+			"inputTokens": 12488,
+			"outputTokens": 1851,
+			"conservativeCostUsd": 0.1474625
+		},
+		{
+			"number": 26,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 371669,
+			"sha256": "ea55d92e678749ca26407735774b127cbc9fafb5c7642e81d7ae350859d7a754",
+			"inputTokens": 61417,
+			"outputTokens": 965,
+			"conservativeCostUsd": 0.42004374999999994
+		},
+		{
+			"number": 27,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 379848,
+			"sha256": "08dbb71611a2733c1b4583a8dfe656c3c3be89969188289e5c1fa1ea1268ffcc",
+			"inputTokens": 62407,
+			"outputTokens": 167,
+			"conservativeCostUsd": 0.39630625
+		},
+		{
+			"number": 28,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 380857,
+			"sha256": "6c11edcea63b55a78db5cdcc5c2e9469e6ca29b3a77289c28a5cc9c4f600c86a",
+			"inputTokens": 62597,
+			"outputTokens": 451,
+			"conservativeCostUsd": 0.40814375
+		},
+		{
+			"number": 29,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 383336,
+			"sha256": "e59e8a7583d26b8089b2306d1ccdbf6aa395e1ac8a3d67085c7a377c2515b5b7",
+			"inputTokens": 63075,
+			"outputTokens": 117,
+			"conservativeCostUsd": 0.39860624999999994
+		},
+		{
+			"number": 30,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 384163,
+			"sha256": "9631942e46ec2200f884c77bd859b5a2aafc6a523c94bcc4a1393f2a27763da6",
+			"inputTokens": 63217,
+			"outputTokens": 97,
+			"conservativeCostUsd": 0.39874374999999995
+		},
+		{
+			"number": 31,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 386138,
+			"sha256": "615b1e65c0695179baccdd8885425e54ecc4a6879a5852318a2e3763e7fc4a7d",
+			"inputTokens": 63341,
+			"outputTokens": 14,
+			"conservativeCostUsd": 0.39640624999999996
+		},
+		{
+			"number": 32,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 386711,
+			"sha256": "410640b460a2279c0974ab7619fca57f41ab7406ed7213499ef36a68c25ef40b",
+			"inputTokens": 63439,
+			"outputTokens": 526,
+			"conservativeCostUsd": 0.41621875
+		},
+		{
+			"number": 33,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 391629,
+			"sha256": "853908b4efb2369aa3351a23a6c00ebff9c4c02e2811c5a2e31f336c36ad967b",
+			"inputTokens": 63990,
+			"outputTokens": 14,
+			"conservativeCostUsd": 0.4004625
+		},
+		{
+			"number": 34,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "reviewer",
+			"requestBytes": 60586,
+			"sha256": "ac67c17c96c2f73d82dbe8334260380ebcbe64d867eab38e5c44684519993431",
+			"inputTokens": 12584,
+			"outputTokens": 1648,
+			"conservativeCostUsd": 0.14045
+		},
+		{
+			"number": 35,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 468943,
+			"sha256": "d50457cd5dff1912fe0ede80aa588f6bc3cb9753536245b6c6cd695b4bc34a03",
+			"inputTokens": 80451,
+			"outputTokens": 657,
+			"conservativeCostUsd": 0.52745625
+		},
+		{
+			"number": 36,
+			"phase": "design",
+			"model": "gpt-5.6-sol",
+			"role": "author",
+			"requestBytes": 474141,
+			"sha256": "d0bacdd76c7ba4721f57666c4f95c6c756a3558d0d8511de913874253ca66ba1",
+			"inputTokens": 81133,
+			"outputTokens": 275,
+			"conservativeCostUsd": 0.51739375
+		}
+	]
+}

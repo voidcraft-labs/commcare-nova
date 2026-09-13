@@ -51,6 +51,7 @@ import {
 	lookupWireNameSchema,
 } from "@/lib/lookup/schema";
 import { automaticTranslationCapability } from "@/lib/translation/capabilityPolicy";
+import { DESIGN_CONTRACT_SCHEMA_VERSION } from "./formats";
 
 /**
  * Semantic fact shapes the accepted design can lower to at least one real
@@ -604,25 +605,11 @@ const formIconDecisionSchema = z.discriminatedUnion("kind", [
 export const moduleSelectionSchema = z.discriminatedUnion("cases", [
 	z
 		.object({
-			workflowIds: z
-				.array(designIdSchema)
-				.min(1)
-				.max(32)
-				.describe(
-					"Every workflow with a selected-record or close form affected by this module's one-case setting, listed once. Include same-record child consumers when this is a queue-only parent.",
-				),
 			cases: z.literal("one"),
 		})
 		.strict(),
 	z
 		.object({
-			workflowIds: z
-				.array(designIdSchema)
-				.min(1)
-				.max(32)
-				.describe(
-					"Every workflow whose selected-record or close form will receive the same shared answers for the complete selection, listed once. Include same-record child consumers when this is a queue-only parent.",
-				),
 			cases: z.literal("several"),
 			maximum: z.number().int().min(1).max(100),
 		})
@@ -644,7 +631,11 @@ export const moduleCompositionSchema = z
 		purpose: z.string().min(1).max(1_000),
 		parentModuleCompositionId: designIdSchema.optional(),
 		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
-		selection: moduleSelectionSchema.optional(),
+		selection: moduleSelectionSchema
+			.optional()
+			.describe(
+				"Workers choose one record by default. Choose several when the same answers should apply to every selected record.",
+			),
 		entryPoint: designEntryPointSchema.optional(),
 		caseListEntryPoint: designEntryPointSchema.optional(),
 		workflowIds: z.array(designIdSchema).min(1).max(32),
@@ -1086,7 +1077,7 @@ export type OpenQuestion = z.infer<typeof openQuestionSchema>;
 
 /** The one current Design Contract vocabulary. Project lookup intent belongs
  * directly to this model rather than to a parallel compatibility shape. */
-export const DESIGN_CONTRACT_SCHEMA_VERSION = 2;
+export { DESIGN_CONTRACT_SCHEMA_VERSION } from "./formats";
 
 export const appDesignContractBaseSchema = z
 	.object({

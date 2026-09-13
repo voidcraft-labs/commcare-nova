@@ -63,16 +63,6 @@ export function selectionConsumerWorkflowIds(
 		.map((workflow) => workflow.id);
 }
 
-export function sameIdentitySet(
-	left: readonly string[],
-	right: readonly string[],
-): boolean {
-	return (
-		new Set(left).size === new Set(right).size &&
-		left.every((id) => right.includes(id))
-	);
-}
-
 export type ModuleSelectionIntent =
 	| {
 			readonly workflowIds: readonly DesignId[];
@@ -104,28 +94,19 @@ export function moduleSelectionIntent(
 				);
 	const inheritedSelection =
 		parent?.role === "queue-only" &&
-		parent.hostRecordId === composition.hostRecordId &&
-		parent.selection !== undefined
-			? parent.selection
+		parent.hostRecordId === composition.hostRecordId
+			? (parent.selection ?? { cases: "one" as const })
 			: undefined;
-	if (
-		composition.selection === undefined &&
-		inheritedSelection !== undefined &&
-		!contract.formCompositions.some(
-			(form) =>
-				form.moduleCompositionId === composition.id &&
-				isCaseLoadingFormComposition(form),
-		)
-	) {
-		return undefined;
-	}
-	const primary = composition.selection ?? inheritedSelection;
-	if (primary === undefined) return undefined;
-	const workflowSet = new Set(
-		[composition.selection, inheritedSelection].flatMap(
-			(selection) => selection?.workflowIds ?? [],
-		),
-	);
+	const ownConsumers = selectionConsumerWorkflowIds(contract, composition);
+	if (ownConsumers.length === 0) return undefined;
+	const primary = composition.selection ??
+		inheritedSelection ?? { cases: "one" as const };
+	const workflowSet = new Set([
+		...ownConsumers,
+		...(inheritedSelection !== undefined && parent !== undefined
+			? selectionConsumerWorkflowIds(contract, parent)
+			: []),
+	]);
 	const workflowIds = contract.workflows
 		.filter((workflow) => workflowSet.has(workflow.id))
 		.map((workflow) => workflow.id);

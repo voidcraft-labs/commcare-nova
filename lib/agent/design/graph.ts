@@ -4,7 +4,7 @@ import type { z } from "zod";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import {
-	sameIdentitySet,
+	moduleSelectionIntent,
 	selectionConsumerWorkflowIds,
 } from "@/lib/agent/design/selectionCoverage";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
@@ -1215,84 +1215,45 @@ export function validateDesignGraph(
 				);
 			}
 		});
-		const parentSelection =
-			composition.parentModuleCompositionId === undefined
-				? undefined
-				: contract.moduleCompositions.find(
-						(parent) =>
-							parent.id === composition.parentModuleCompositionId &&
-							parent.role === "queue-only" &&
-							parent.hostRecordId === composition.hostRecordId,
-					)?.selection;
-		const expectedSelectionWorkflowIds = selectionConsumerWorkflowIds(
-			contract,
-			composition,
+		const selectionParent = contract.moduleCompositions.find(
+			(parent) =>
+				parent.id === composition.parentModuleCompositionId &&
+				parent.role === "queue-only" &&
+				parent.hostRecordId === composition.hostRecordId,
 		);
+		const parentSelection =
+			selectionParent === undefined
+				? undefined
+				: moduleSelectionIntent(contract, selectionParent);
+		const consumers = selectionConsumerWorkflowIds(contract, composition);
 		const selectionPath: Path = [
 			"moduleCompositions",
 			compositionIndex,
 			"selection",
 		];
-		if (
-			expectedSelectionWorkflowIds.length > 0 &&
-			composition.selection === undefined &&
-			parentSelection === undefined
-		) {
-			issue(
-				ctx,
-				selectionPath,
-				"A module with selected-record or close forms must declare one module-wide selection setting and name every affected workflow. A same-record child may inherit that setting from its queue-only parent.",
+		for (const workflowId of consumers) {
+			const workflow = contract.workflows.find(
+				(item) => item.id === workflowId,
 			);
-		}
-		if (composition.selection !== undefined) {
-			const selection = composition.selection;
 			if (
-				new Set(selection.workflowIds).size !== selection.workflowIds.length
+				workflow !== undefined &&
+				workflow.contextRecordId !== composition.hostRecordId
 			) {
-				issue(
-					ctx,
-					[...selectionPath, "workflowIds"],
-					"A module selection must name each affected workflow exactly once.",
-				);
-			}
-			selection.workflowIds.forEach((workflowId, workflowIndex) => {
-				expect(
-					workflows,
-					workflowId,
-					[...selectionPath, "workflowIds", workflowIndex],
-					"workflow",
-				);
-				const selectionWorkflow = contract.workflows.find(
-					(workflow) => workflow.id === workflowId,
-				);
-				if (
-					selectionWorkflow !== undefined &&
-					selectionWorkflow.contextRecordId !== composition.hostRecordId
-				) {
-					issue(
-						ctx,
-						[...selectionPath, "workflowIds", workflowIndex],
-						"Every module selection workflow must use the module's record as its selected context.",
-					);
-				}
-			});
-			if (expectedSelectionWorkflowIds.length === 0) {
 				issue(
 					ctx,
 					selectionPath,
-					"A module selection needs at least one selected-record or close form in this module, or in a same-record child beneath a queue-only module.",
-				);
-			}
-			if (
-				!sameIdentitySet(selection.workflowIds, expectedSelectionWorkflowIds)
-			) {
-				issue(
-					ctx,
-					[...selectionPath, "workflowIds"],
-					"Module selection workflowIds must exactly name every selected-record and close workflow affected by this module-wide setting, with no unrelated workflow.",
+					"Every form that consumes this selection must use the module's record as its selected context.",
 				);
 			}
 		}
+		if (composition.selection !== undefined && consumers.length === 0) {
+			issue(
+				ctx,
+				selectionPath,
+				"A module selection needs at least one selected-record or close form in this module, or in a same-record child beneath a queue-only module.",
+			);
+		}
+
 		if (
 			parentSelection !== undefined &&
 			composition.selection !== undefined &&

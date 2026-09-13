@@ -1,7 +1,9 @@
 # Design format cutover
 
-Design contract version 2 records menu intent once, in module compositions.
-Workspace storage version 3 uses that shape and the current authoring boundary.
+Design contract version 3 records menu intent once, in module compositions,
+and derives selection consumers from their forms. One record is the default;
+authors specify several-record selection only when the workflow needs it.
+Workspace storage version 4 uses that shape and the current authoring boundary.
 Serving code reads only these current formats. Older private design sessions
 are retired once; they are not translated into new designs during reads.
 
@@ -51,6 +53,6 @@ Never start strict current readers over unretired old artifacts. Rolling back
 the application after retirement also requires code that understands retired
 sessions; restarting the old writer is not a valid rollback.
 
-The Postgres retirement tests exercise real stored version-1 contracts, version-2
+The Postgres retirement tests exercise real stored version-1 and version-2 contracts, obsolete
 workspace operations, current workspace preservation, app and session lock
 races, billing blockers, retained history and new app-edit authority.

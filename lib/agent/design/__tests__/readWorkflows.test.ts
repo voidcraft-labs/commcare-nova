@@ -172,7 +172,6 @@ describe("read-only workflows", () => {
 		firstModule.workflowIds.push(reading.id);
 		firstModule.selection = {
 			cases: "one",
-			workflowIds: [reading.id],
 		};
 		const withForm = appDesignContractSchema.parse(contract);
 		expect(designConstructionIssues(withForm)).toEqual([]);

@@ -82,7 +82,7 @@ function historyDesign() {
 		hostRecordId: record.id,
 		workflowIds: [review.id],
 		listIds: [listId],
-		selection: { cases: "one", workflowIds: [review.id] },
+		selection: { cases: "one" },
 	});
 	const form = fixtureValue(
 		contract.formCompositions.find((form) => form.id === ids.formReview),

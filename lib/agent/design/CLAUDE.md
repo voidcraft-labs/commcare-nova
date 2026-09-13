@@ -46,7 +46,7 @@ valid direct Builder or MCP edit.
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
 - `contract.ts` owns the one Design Contract vocabulary. The server sets
-  `schemaVersion: 2`; authors do not supply format metadata. Current readers
+  `schemaVersion: 3`; authors do not supply format metadata. Current readers
   verify sealed bytes and parse only the current schema. Obsolete private
   sessions are retired by the separate [format cutover](../../../docs/architecture/design-format-cutover.md),
   not converted on read. `graph.ts` runs inside
@@ -177,10 +177,10 @@ valid direct Builder or MCP edit.
   converts it to a form-bearing module atomically when its first menu form is
   added, using the same mutation preparation as Builder. Selection
   is owned by the module composition, including a form-host module that uses
-  only its default Results screen; it never needs a synthetic WorkList. Its
-  explicit one/several setting names every selected-record/close workflow
-  affected by that module, including same-record child consumers beneath a
-  queue-only parent. Planning makes the latest affected workflow depend on
+  only its default Results screen; it never needs a synthetic WorkList. Workers choose one record by default. An optional
+  several-record setting supplies the maximum; the server derives its consumers
+  from selected-record and close forms, including same-record children beneath
+  a queue-only parent. The author never maintains a second workflow list. Planning makes the latest affected workflow depend on
   the others and lowers one deterministic selection realization for each
   affected module only after all relevant forms exist. That final workflow may
   receive `configureCaseSelection` without receiving the rest of the case-list
@@ -354,10 +354,9 @@ selected-record and close inputs that write directly to the selected record edit
 their preloaded current values in place; sparse blank replacement is a distinct
 interaction, not explanatory copy layered onto the native one. Several-case
 forms instead start those inputs blank and apply each nonblank shared answer to
-the complete selection, while blank preserves each case's existing value. A
-module selection is the exact module-wide consumer set, not one representative
-workflow and not a WorkList feature; the author and reviewer must judge the
-one/several interaction for every selected-record and close form it affects.
+the complete selection, while blank preserves each case's existing value. The server derives the affected forms from their module placement.
+The author and reviewer judge whether sharing answers across several records
+is appropriate for those forms.
 The stateless reviewer reads
 the whole form for repeated information and runtime-copy mismatches, then
 checks module minimality/reuse, parent-versus-child form hosts, queue-only
@@ -413,7 +412,7 @@ state projects it back to the selected revision. Existing workspace operations
 and the source contract retain the evidence needed for replay after a source is
 removed from the candidate; no separate receipt registry exists. Submission,
 acceptance, and materialization retain their current Project-data checks.
-Workspace operations use storage version 3. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
+Workspace operations use storage version 4. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
 retires older private design sessions, including their obsolete choice-evidence
 operations. It preserves sealed artifacts, conversation messages, billing,
 canonical apps and Project data. Current readers exclude retired scopes before

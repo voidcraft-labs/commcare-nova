@@ -253,7 +253,7 @@ finding handles (§4.4): the three never share a resolution path.
 ### 3.5 Lists, access, and navigation
 
 A list records the record type, actors, purpose, filters, sort intent, scan
-properties, detail properties, search properties, selection workflow, and
+properties, detail properties, search properties, and
 empty-state meaning.
 
 Access records actor capabilities over record, workflow, list, or navigation
@@ -686,8 +686,8 @@ It is not a model-authored mutation label or a commit-time coverage claim.
 
 A shared module composition is owned by its earliest workflow. Every list
 placed in that module, plus properties used only by that list, is owned by the
-same workflow that materializes the module; `selectionWorkflowId` describes
-what opening a row does, not who constructs the shared queue. Later workflow
+same workflow that materializes the module. Module selection consumers are
+derived from their forms; they do not determine who constructs the shared queue. Later workflow
 slices receive exact module `reuse` and list-usage context without a second
 case-list authoring surface. Each form composition, section, and item stays
 with its own workflow slice.

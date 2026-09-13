@@ -724,11 +724,6 @@ describe("lean Design Contract graph", () => {
 			"module composition",
 		);
 		moduleComposition.workflowIds.push(parallel.id, convergent.id);
-		const selection = fixtureValue(
-			moduleComposition.selection,
-			"module selection",
-		);
-		selection.workflowIds.push(parallel.id, convergent.id);
 		const visitComposition = fixtureValue(
 			diamond.formCompositions[1],
 			"visit form composition",
@@ -1190,61 +1185,35 @@ describe("lean Design Contract graph", () => {
 		]);
 	});
 
-	it("requires exact module-wide workflow coverage without requiring a WorkList", () => {
+	it("derives selection consumers and defaults to one record", () => {
 		const valid = cloneContract(makeContract());
-		const module = valid.moduleCompositions[0];
-		const selection = module?.selection;
-		if (module === undefined || selection === undefined)
-			throw new Error("fixture selection missing");
-		module.selection = {
-			workflowIds: selection.workflowIds,
-			cases: "several",
-			maximum: 12,
-		};
+		const module = fixtureValue(valid.moduleCompositions[0], "patient module");
+		module.selection = { cases: "several", maximum: 12 };
+		expect(appDesignContractSchema.safeParse(valid).success).toBe(true);
+		addPatientReviewWorkflow(valid);
 		expect(appDesignContractSchema.safeParse(valid).success).toBe(true);
 
 		const wrongContext = cloneContract(makeContract());
-		if (wrongContext.moduleCompositions[0]?.selection === undefined)
-			throw new Error("fixture selection missing");
-		wrongContext.moduleCompositions[0].selection = {
-			workflowIds: [ids.taskRegister],
-			cases: "several",
-			maximum: 12,
-		};
+		wrongContext.workflows[1].contextRecordId = ids.recVisit;
 		expect(messages(wrongContext)).toContain(
 			"use the module's record as its selected context",
 		);
-		expect(messages(wrongContext)).toContain(
-			"must exactly name every selected-record and close workflow",
-		);
 
-		const incomplete = cloneContract(makeContract());
-		addPatientReviewWorkflow(incomplete);
-		expect(messages(incomplete)).toContain(
-			"must exactly name every selected-record and close workflow",
-		);
-		fixtureValue(incomplete.moduleCompositions[0], "patient module").selection =
-			{
-				workflowIds: [ids.taskVisit, ids.taskReview],
-				cases: "one",
-			};
-		expect(appDesignContractSchema.safeParse(incomplete).success).toBe(true);
-
-		const duplicate = cloneContract(makeContract());
-		fixtureValue(duplicate.moduleCompositions[0], "patient module").selection =
-			{
-				workflowIds: [ids.taskVisit, ids.taskVisit],
-				cases: "one",
-			};
-		expect(messages(duplicate)).toContain(
-			"name each affected workflow exactly once",
-		);
-
-		const missing = cloneContract(makeContract());
-		if (missing.moduleCompositions[0] === undefined)
-			throw new Error("fixture module composition missing");
-		delete missing.moduleCompositions[0].selection;
-		expect(messages(missing)).toContain("module-wide selection setting");
+		const implicit = cloneContract(makeContract());
+		const explicitPlan = deriveBuildPlan({
+			contract: implicit,
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			planId: ids.planId,
+		});
+		delete implicit.moduleCompositions[0].selection;
+		const parsed = appDesignContractSchema.parse(implicit);
+		expect(
+			deriveBuildPlan({
+				contract: parsed,
+				revision: { id: ids.revisionId, digest: "b".repeat(64) },
+				planId: ids.planId,
+			}),
+		).toEqual(explicitPlan);
 
 		const listless = cloneContract(makeContract());
 		const listlessModule = fixtureValue(
@@ -1278,16 +1247,20 @@ describe("lean Design Contract graph", () => {
 		}
 		delete child.selection;
 		parent.selection = {
-			workflowIds: [ids.taskVisit],
 			cases: "several",
 			maximum: 12,
 		};
 		expect(appDesignContractSchema.safeParse(nested).success).toBe(true);
 
 		child.selection = {
-			workflowIds: [ids.taskVisit],
 			cases: "one",
 		};
+		expect(messages(nested)).toContain(
+			"same-record child beneath a queue-only module",
+		);
+
+		delete parent.selection;
+		child.selection = { cases: "several", maximum: 12 };
 		expect(messages(nested)).toContain(
 			"same-record child beneath a queue-only module",
 		);

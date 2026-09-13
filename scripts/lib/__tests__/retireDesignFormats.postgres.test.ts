@@ -9,6 +9,7 @@ import {
 	readDesignSourcePackage,
 } from "@/lib/agent/design/artifactStore";
 import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
+import { DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION } from "@/lib/agent/design/formats";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { claimAndReserveRun, completeAndSettleRun } from "@/lib/db/apps";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
@@ -23,6 +24,7 @@ import {
 	scanObsoleteDesignFormats,
 } from "../retireDesignFormats";
 import legacyContract from "./fixtures/design-contract-v1.json";
+import selectionContract from "./fixtures/design-contract-v2.json";
 
 const h = setupAppStateTestDb("retire_design_formats_", {
 	poolMax: 3,
@@ -33,9 +35,11 @@ const project = "proj-1";
 const digest = "a".repeat(64);
 const oldRun = "historical-design";
 
-/** Captured from makeContract at 1237d2e5, before navigation intent retired.
- * Seal the original shape, rather than pretending a v2 contract is old data. */
-async function seedRevision(sessionId: string) {
+/** Original contracts captured at 1237d2e5 (v1) and e4ea6aa7 (v2). */
+async function seedRevision(
+	sessionId: string,
+	payload: unknown = legacyContract,
+) {
 	const envelope = sealArtifactEnvelope({
 		artifactType: "design-contract",
 		artifactSchemaVersion: 1,
@@ -48,7 +52,7 @@ async function seedRevision(sessionId: string) {
 		promptVersion: "design-agent-v33",
 		producer: { provider: "test", modelId: "fixture", finishReason: "stop" },
 		createdAt: new Date().toISOString(),
-		payload: legacyContract,
+		payload,
 	});
 	await h
 		.db()
@@ -60,7 +64,7 @@ async function seedRevision(sessionId: string) {
 			parent_revision_id: null,
 			lifecycle: "draft",
 			artifact_digest: envelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(legacyContract),
+			contract_digest: canonicalJsonDigest(payload),
 			source_package_digest: digest,
 			producer_model: "fixture",
 			prompt_version: envelope.promptVersion,
@@ -143,7 +147,10 @@ async function seedUsage(sessionId: string, accounted: boolean) {
 	return contextId;
 }
 
-async function seedWorkspace(sessionId: string, storageVersion: 2 | 3) {
+async function seedWorkspace(
+	sessionId: string,
+	storageVersion: 2 | 3 | typeof DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
+) {
 	const workspaceId = randomUUID();
 	const lineage = {
 		schemaVersion: 1,
@@ -163,7 +170,15 @@ async function seedWorkspace(sessionId: string, storageVersion: 2 | 3) {
 							removeIds: [],
 						},
 					]
-				: [],
+				: storageVersion === 3
+					? [
+							{
+								collection: "moduleCompositions",
+								upserts: selectionContract.moduleCompositions,
+								removeIds: [],
+							},
+						]
+					: [],
 	};
 	await h
 		.db()
@@ -211,62 +226,94 @@ async function immutableSnapshot(appId: string, sessionId: string) {
 }
 
 describe("one-time design-format retirement", () => {
-	it("retires old workspace-only sessions and preserves current private work", async () => {
-		const oldSession = await h.seedDesignSession({
+	it("retires a version-2 design without rewriting its sealed selection metadata", async () => {
+		const sessionId = await h.seedDesignSession({
 			owner_user_id: actor,
 			project_id: project,
 		});
-		const currentSession = await h.seedDesignSession({
-			owner_user_id: actor,
-			project_id: project,
-		});
-		const oldWorkspace = await seedWorkspace(oldSession, 2);
-		const currentWorkspace = await seedWorkspace(currentSession, 3);
-		const steps = await h
-			.pool()
-			.query(
-				"SELECT operation::text FROM design_artifact_workspace_steps ORDER BY workspace_id",
-			);
+		const revisionId = await seedRevision(sessionId, selectionContract);
+		const readBytes = () =>
+			h
+				.pool()
+				.query("SELECT envelope::text FROM design_revisions WHERE id = $1", [
+					revisionId,
+				]);
+		const before = await readBytes();
+		await expect(readDesignRevision(revisionId)).rejects.toThrow();
 		expect(await scanObsoleteDesignFormats()).toMatchObject([
-			{
-				sessionId: oldSession,
-				obsoleteRevisions: 0,
-				obsoleteOperations: 1,
-				status: "ready",
-			},
+			{ sessionId, status: "ready", obsoleteRevisions: 1 },
 		]);
-		expect(await retireObsoleteDesignSession(oldSession)).toMatchObject({
+		expect((await readBytes()).rows).toEqual(before.rows);
+		expect(await retireObsoleteDesignSession(sessionId)).toMatchObject({
 			status: "retired",
 		});
-		expect(await retireObsoleteDesignSession(currentSession)).toMatchObject({
-			status: "current",
-		});
-		expect(
-			(
-				await h
-					.pool()
-					.query(
-						"SELECT operation::text FROM design_artifact_workspace_steps ORDER BY workspace_id",
-					)
-			).rows,
-		).toEqual(steps.rows);
-		expect(
-			await h
-				.db()
-				.selectFrom("design_artifact_workspaces")
-				.select("status")
-				.where("id", "=", oldWorkspace)
-				.executeTakeFirst(),
-		).toEqual({ status: "superseded" });
-		expect(
-			await h
-				.db()
-				.selectFrom("design_artifact_workspaces")
-				.select("status")
-				.where("id", "=", currentWorkspace)
-				.executeTakeFirst(),
-		).toEqual({ status: "open" });
+		expect((await readBytes()).rows).toEqual(before.rows);
+		expect(await readDesignRevision(revisionId)).toBeNull();
+		expect(await scanObsoleteDesignFormats()).toEqual([]);
 	});
+
+	it.each([2, 3] as const)(
+		"retires version-%i workspace-only sessions and preserves current private work",
+		async (storageVersion) => {
+			const oldSession = await h.seedDesignSession({
+				owner_user_id: actor,
+				project_id: project,
+			});
+			const currentSession = await h.seedDesignSession({
+				owner_user_id: actor,
+				project_id: project,
+			});
+			const oldWorkspace = await seedWorkspace(oldSession, storageVersion);
+			const currentWorkspace = await seedWorkspace(
+				currentSession,
+				DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
+			);
+			const steps = await h
+				.pool()
+				.query(
+					"SELECT operation::text FROM design_artifact_workspace_steps ORDER BY workspace_id",
+				);
+			expect(await scanObsoleteDesignFormats()).toMatchObject([
+				{
+					sessionId: oldSession,
+					obsoleteRevisions: 0,
+					obsoleteOperations: 1,
+					status: "ready",
+				},
+			]);
+			expect(await retireObsoleteDesignSession(oldSession)).toMatchObject({
+				status: "retired",
+			});
+			expect(await retireObsoleteDesignSession(currentSession)).toMatchObject({
+				status: "current",
+			});
+			expect(
+				(
+					await h
+						.pool()
+						.query(
+							"SELECT operation::text FROM design_artifact_workspace_steps ORDER BY workspace_id",
+						)
+				).rows,
+			).toEqual(steps.rows);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_artifact_workspaces")
+					.select("status")
+					.where("id", "=", oldWorkspace)
+					.executeTakeFirst(),
+			).toEqual({ status: "superseded" });
+			expect(
+				await h
+					.db()
+					.selectFrom("design_artifact_workspaces")
+					.select("status")
+					.where("id", "=", currentWorkspace)
+					.executeTakeFirst(),
+			).toEqual({ status: "open" });
+		},
+	);
 
 	it("refuses a stale paused holder and an unfinished canonical app", async () => {
 		const sessionId = await h.seedDesignSession({
