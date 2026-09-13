@@ -149,7 +149,11 @@ The review lifecycle slice removes the author-model request whose only purpose
 was to start independent review. The runner reviews saved drafts directly, reuses
 a recorded clean review after interruption, and preserves user pauses, source
 currency, Project-data admission, and bounded failure. Controlled provider and
-Postgres journeys verify those boundaries; independent review is pending.
+Postgres journeys verify those boundaries. Independent review cleared the slice
+after two reproduced question-recovery failures were fixed: saved questions now
+replay only for the same logical input and against the current required batch.
+The separate in-memory design harness was retired because it had diverged from
+production. Publication remains pending.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.
