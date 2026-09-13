@@ -153,5 +153,63 @@
 			"phoneRequired": false
 		}
 	],
-	"knownGap": "Preview accepts a fractional answer in an int field before submission. Investigating the shared numeric value boundary; do not treat integer validity as passed."
+	"knownGap": "Preview accepts a fractional answer in an int field before submission. Investigating the shared numeric value boundary; do not treat integer validity as passed.",
+	"numericValidationFollowup": {
+		"boundary": "Saved canonical app from the original executor trial, production Preview engine, no database access or model call",
+		"observations": [
+			{
+				"age": "2.5",
+				"canSubmit": false,
+				"ageValue": "2.5",
+				"ageError": "This question needs a whole number.",
+				"phoneVisible": false,
+				"phoneRequired": false
+			},
+			{
+				"age": "-1",
+				"canSubmit": false,
+				"ageValue": "-1",
+				"ageError": "Enter an age from 0 to 120.",
+				"phoneVisible": false,
+				"phoneRequired": false
+			},
+			{
+				"age": "0",
+				"canSubmit": true,
+				"ageValue": "0",
+				"phoneVisible": false,
+				"phoneRequired": false
+			},
+			{
+				"age": "17",
+				"canSubmit": true,
+				"ageValue": "17",
+				"phoneVisible": false,
+				"phoneRequired": false
+			},
+			{
+				"age": "18",
+				"canSubmit": true,
+				"ageValue": "18",
+				"phoneVisible": true,
+				"phoneRequired": false
+			},
+			{
+				"age": "120",
+				"canSubmit": true,
+				"ageValue": "120",
+				"phoneVisible": true,
+				"phoneRequired": false
+			},
+			{
+				"age": "121",
+				"canSubmit": false,
+				"ageValue": "121",
+				"ageError": "Enter an age from 0 to 120.",
+				"phoneVisible": true,
+				"phoneRequired": false
+			}
+		],
+		"labels": ["Thank you, Ada Example."]
+	}
 }

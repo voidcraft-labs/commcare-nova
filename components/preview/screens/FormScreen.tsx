@@ -1932,12 +1932,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
-				// Deliberately does not name the reason. Submit is blocked by
-				// a missing required answer, an authored validation rule, OR
-				// a temporal answer that is not yet a value of its type, and
-				// the focused question announces its OWN message a moment
-				// later: naming one of the three here would contradict the
-				// other two.
+				// The focused question supplies the specific correction.
 				announce("Review the highlighted question.");
 				const firstInvalid = controller.firstInvalidFieldTarget();
 				if (firstInvalid !== undefined) showPageOf(firstInvalid);
@@ -2442,6 +2437,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									<button
 										type="button"
 										onClick={handleSubmit}
+										onMouseDown={(event) => {
+											// Keep blur validation from moving Submit between press
+											// and release. Submission validates and focuses the answer.
+											if (
+												event.button === 0 &&
+												formBodyElRef.current?.contains(document.activeElement)
+											) {
+												event.preventDefault();
+											}
+										}}
 										disabled={
 											submitStatus.kind === "running" ||
 											clearRunning ||

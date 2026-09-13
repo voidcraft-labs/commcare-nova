@@ -47,3 +47,13 @@ The next construction work should move exact accepted question identities,
 layout, and record facts into Nova. This trial still spent model work copying
 those decisions into creation calls. Further evaluation must include held-out
 workflows, preservation edits, full-plan conformance, and actual submissions.
+
+## Numeric validation follow-up
+
+The original failure remains recorded above. Replaying the same saved canonical
+app after the Preview fix rejects `2.5` and keeps that exact answer visible for
+correction. The observed age bounds, phone visibility, optionality, and
+personalized note still pass. This replay made no model call or database write.
+The production browser journey also checks invalid submission, focus, correction,
+and the outbound submission boundary; engine coverage checks both synchronous
+and worker evaluation. No additional agent instruction was needed.

@@ -50,7 +50,8 @@ test("Numeric answers remain editable and block submission until corrected", asy
 		await expect(page.getByText("This question needs a number.")).toBeVisible();
 		expect(submissions).toHaveLength(0);
 		await quantity.fill("2.5");
-		await submit.click();
+		await submit.focus();
+		await submit.press("Enter");
 		await expect(page.getByRole("alert")).toHaveText(
 			"Transport unavailable. Try again.",
 		);

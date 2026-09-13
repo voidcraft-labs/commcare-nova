@@ -90,6 +90,8 @@ function Capture() {
 }
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing root");
+// Match the bounded Preview viewport that gives FormScreen its height.
+element.style.height = "calc(100vh - 32px)";
 const root = createRoot(element);
 pushBuilderHistory(`/build/native-form/${MODULE}/${FORM}`);
 root.render(
