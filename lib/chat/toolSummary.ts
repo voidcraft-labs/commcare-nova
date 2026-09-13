@@ -383,6 +383,7 @@ interface MutationOutput {
 	summary?: ToolCallSummary;
 	error?: string;
 	outcome?: string;
+	needs?: "confirmation" | "repair" | "refresh";
 }
 
 /** Narrow a part's output to the mutating-success shape, or null. */
@@ -525,16 +526,18 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
 	}
-	// `configureCaseSelection` uses a successful tool invocation to return a
-	// typed, mutation-free coordination/repair outcome. Its summary still owns
-	// the friendly module breadcrumb, but the message must remain visible so the
-	// row explains why no change landed and what Nova will do next.
+	// Coordination results describe an unapplied change. Presentation belongs
+	// here rather than in the model-facing tool payload.
 	const mutationOutput = outputOf(part);
-	if (
-		mutationOutput?.outcome === "needs_changes" &&
-		typeof mutationOutput.message === "string"
-	) {
-		return mutationOutput.message;
+	if (mutationOutput?.outcome === "needs_changes") {
+		switch (mutationOutput.needs) {
+			case "confirmation":
+				return "Linked workflows also need this change. Nothing has changed yet.";
+			case "repair":
+				return "A linked workflow needs attention before this change can be applied.";
+			case "refresh":
+				return "The linked workflows changed during review. Nothing has changed yet.";
+		}
 	}
 	// A structured summary already drives the action + breadcrumb — no prose
 	// needed. Only fall back to the prose `message` (or a bare-string result)

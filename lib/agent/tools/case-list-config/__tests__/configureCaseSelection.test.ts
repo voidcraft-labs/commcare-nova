@@ -1,7 +1,9 @@
 /** Admitted domain commands through the actual workspace and reducer over
  * controlled host receipts. No browser layout or SQL transaction claim. */
+import type { ToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { toolDetail } from "@/lib/chat/toolSummary";
 import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -283,6 +285,16 @@ describe("configureCaseSelection", () => {
 			blockers: [],
 		});
 		expect(first.result.confirmationToken).toMatch(/^[a-f0-9]{64}$/);
+		expect(
+			toolDetail({
+				type: "tool-configureCaseSelection",
+				toolCallId: "confirmation",
+				state: "output-available",
+				input: {},
+				output: first.result,
+			} as ToolUIPart),
+		).toBe("Linked workflows also need this change. Nothing has changed yet.");
+		expect(first.result).not.toHaveProperty("message");
 
 		const retry = await h.runTool(configureCaseSelectionTool, {
 			moduleUuid: MOD_A,
