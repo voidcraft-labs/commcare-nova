@@ -1074,10 +1074,6 @@ export function renderBriefMessage(
 			}`,
 		),
 		section("Workflow", `${brief.slice.name}: ${brief.slice.goal}`),
-		section(
-			"Available operations",
-			`Reads: ${brief.toolProfile.readTools.join(", ")}.\nChanges: ${brief.toolProfile.mutationTools.join(", ")}.`,
-		),
 		jsonSection("Workflow requirements", resolveReferences(brief.workflow)),
 		jsonSection(
 			"Reading saved records",

@@ -1187,6 +1187,7 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(message).not.toContain("blueprintModuleHandle");
 		expect(message).not.toContain("blueprintFormHandle");
 		expect(sections.has("Semantic construction checklist")).toBe(false);
+		expect(sections.has("Available operations")).toBe(false);
 		expect(sections.has("External actions")).toBe(false);
 	});
 

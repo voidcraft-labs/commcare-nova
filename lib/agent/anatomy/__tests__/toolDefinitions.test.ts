@@ -75,7 +75,7 @@ describe("design loop tool definitions", () => {
 });
 
 describe("executor tool definitions", () => {
-	it("digest and order the stable native registry as the attempt persists it", () => {
+	it("keeps the complete construction catalog available for inspection", () => {
 		const tools = buildExecutorTools();
 		expect(Object.keys(tools)).toEqual(fixture.executorToolOrder);
 		expect(canonicalJsonDigest(tools)).toBe(fixture.executorToolsetDigest);

@@ -108,7 +108,7 @@ async function toolItem(): Promise<ContextItem> {
 			file: "lib/agent/build/executorLoop.ts",
 			symbol: "executorToolDefinitions",
 		},
-		note: "Shared tools load through hosted search. The server enforces the accepted workflow's permissions when each call runs.",
+		note: "This is the full construction catalog. Each live workflow exposes only its permitted subset through hosted search; dispatch also checks permission when a call runs. Recorded messages show which definitions were loaded.",
 	});
 }
 

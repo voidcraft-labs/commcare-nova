@@ -3,9 +3,8 @@
  * The accepted plan names Blueprint areas, not tools. This is the single
  * exhaustive lowering table from those semantic areas to the read and
  * mutation operations the server admits for that slice. Correction operations
- * live in the same area as creation. The provider-facing tool grammar stays
- * immutable across slices; this profile remains the execution brief and hard
- * dispatch allowlist.
+ * live in the same area as creation. This profile selects the discoverable
+ * tools and independently supplies the hard dispatch allowlist.
  */
 
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";

@@ -4,7 +4,7 @@ import {
 	type PromptSegment,
 } from "@/lib/agent/promptSegments";
 
-export const EXECUTOR_PROMPT_VERSION = "build-executor-v22";
+export const EXECUTOR_PROMPT_VERSION = "build-executor-v23";
 
 export const EXECUTOR_SEGMENTS: readonly PromptSegment[] = [
 	{

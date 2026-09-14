@@ -289,11 +289,11 @@ const SERVER_TOOLS: Readonly<
 	},
 };
 
-/** The immutable mounted tool definitions for every slice. Keeping the full
- * deferred registry stable preserves prompt-cache shape. The server-side
- * dispatch check enforces each slice's permissions. */
+/** Expose the operations this workflow can use. Definitions stay stable within
+ * an attempt; dispatch independently checks permission when a call runs. Omit
+ * the brief only when inspecting the full construction catalog. */
 export function buildExecutorTools(
-	_brief?: SliceExecutionBrief,
+	brief?: SliceExecutionBrief,
 ): Record<
 	string,
 	{ description: string; inputSchema: JSONSchema7; deferred?: true }
@@ -302,15 +302,11 @@ export function buildExecutorTools(
 		string,
 		{ description: string; inputSchema: JSONSchema7; deferred?: true }
 	> = {};
-	for (const name of [
-		...STABLE_EXECUTOR_TOOL_PROFILE.readTools,
-		...STABLE_EXECUTOR_TOOL_PROFILE.mutationTools,
-	]) {
+	const profile = brief?.toolProfile ?? STABLE_EXECUTOR_TOOL_PROFILE;
+	for (const name of [...profile.readTools, ...profile.mutationTools]) {
 		const entry = CHANGE_SET_TOOL_REGISTRY.get(name);
 		if (entry === undefined) {
-			throw new Error(
-				`The stable executor profile names unknown tool ${name}.`,
-			);
+			throw new Error(`The executor profile names unknown tool ${name}.`);
 		}
 		tools[name] = {
 			description: entry.tool.description,
