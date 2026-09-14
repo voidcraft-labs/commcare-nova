@@ -4,7 +4,7 @@
 
 This document describes the implemented multilingual capability and its
 structured language identity model. The complete manual authoring/runtime
-path, the durable initial-build translation finalizer, and the structured
+path, requested translation during app construction, and the structured
 identity model are all implemented on the current stack: the domain overlay,
 the generated ISO/CLDR language registry, translation-unit inventory and
 resolver, granular mutation dialect, validity rules, exact JSON persistence,
@@ -420,8 +420,7 @@ free-code entry: the registry is the selectable world. The dialog asks for an
 existing “Start with” language; copy is always available. The workspace
 reports whether the exact direction belongs to the automatic launch set, but
 this ordinary edit gesture never initiates a paid model call: automatic
-translation currently runs only as the explicit finalizer of an accepted
-initial-build contract.
+translation is an explicit architect operation during an initial build.
 
 The translation workspace uses source/target rows grouped by owning screen and
 form. Context is concrete, for example “Intake → Patient name → Hint.” It has
@@ -483,17 +482,14 @@ mutations use the same document grammar and commit gate as the Builder.
 language, owner, role, text, and status filters, and exposes context plus
 protected segments from the central inventory. An external agent may author
 translations through the bounded translation mutations. Nova's durable
-translator runs only as part of an accepted initial-build localization intent
-whose exact direction is Available.
+translator is an explicit construction operation whose exact direction must be
+Available. The architect calls it for requested translation during a build.
 
 There is deliberately no high-level existing-app automatic-translation tool.
-The initial-build finalizer owns paid-run admission, durable recovery, and
-exact-once accounting for accepted build intent; exposing its Sol runner through
-an ordinary mutation tool would bypass those guarantees. A future existing-app
-Builder/chat action needs its own general durable edit-translation lifecycle and
-must not reuse design-build lineage tables. Until then, the bounded inventory
-and update tools are the honest manual/external-agent surface even for a pair
-that is Available during initial build.
+The build's requested translation uses the same authorized model-response ledger
+and private workspace as the architect. Ordinary edits, Builder and MCP retain
+the bounded inventory and translation mutations; they do not start a hidden
+paid translation job.
 
 The follow-up SA responds in the language the user is speaking unless the user
 asks for a different response language. That conversational choice is separate
@@ -503,13 +499,11 @@ discuss an English-source app without changing its source language. Prompt
 guidance must never infer an app-language mutation merely from conversation
 language.
 
-The design author and reviewer capture explicit localization intent in the
-accepted Design Contract as identity objects: canonical source, runtime
-default, target languages, seed languages, and whether each target is
-copy-only or AI-translated. Distinctness compares `languageTag(...)`, so two
-spellings of one identity can never pass as distinct. They ask when a
-meaningful distinction such as writing system, regional variant, or runtime
-default is ambiguous.
+The shared Markdown plan describes the requested source, runtime default,
+target languages and any copy-only choices. The architect configures those
+choices through the language tools. Distinctness compares `languageTag(...)`.
+A consequential ambiguity about script, regional variety or runtime default
+belongs in the conversation; conversation language alone is not such a request.
 
 ## AI translation service
 
@@ -525,14 +519,14 @@ oversized unit stays alone without truncating its source. Each batch includes:
   descriptor is the registry-derived prose ("Mandarin Chinese (Simplified
   script, Singapore conventions)"), environment-stable so batch digests stay
   deterministic;
-- app objective and relevant workflow context;
+- app name and relevant workflow context;
 - unit roles and breadcrumbs;
 - sibling labels/options where they disambiguate meaning;
 - protected prose-reference tokens;
 - a bounded durable terminology glossary from prior accepted batches.
 
-The system prompt names the three standards and instructs the model to follow
-the target's script and regional conventions.
+The system prompt asks for natural worker-facing text that follows the target's
+script and regional conventions.
 
 An explicitly incomplete provider response is refused even when the SDK parsed
 a complete-looking object. Its usage and failure remain durable; it cannot
@@ -546,11 +540,13 @@ accepted, so boundary whitespace, carriage returns, and literal backslash-`n`
 cannot become a durably replayed commit failure. Markdown delimiter preservation
 is measured by the acceptance harness and judged by the bilingual reviewer;
 Nova has no general markdown-validity oracle and does not claim one. Paid
-results and usage are stored durably. Translation stages against a pinned
-source snapshot and reaches the canonical document only after the complete
-change set validates. The initial app is frozen throughout this finalizer;
-source drift refuses the commit rather than merging model output onto a
-different base.
+results and usage are stored durably before staging. Each batch has an independent
+conversation, with at most three responses to resolve invalid output. Its identity
+includes the source fingerprints, payload, model, prompt and schema. Recovery
+reuses accepted responses. Translation stages all accepted values together against
+the invocation's current workspace and reaches the app through its normal save
+gate. Current translations are preserved; missing, outdated and unreviewed copied
+values are translated. Adding a target and its translations is atomic.
 
 All AI output begins as Needs review. Translation failure never silently
 degrades an accepted “translate with Nova” build into copy-only output.
@@ -628,42 +624,28 @@ checked-in launch manifest by itself.
 
 ## Initial build integration
 
-Workflow slices build canonical source-language content. Localization is a
-post-slice finalizer because the complete string inventory does not exist until
-every included workflow has materialized.
-
-The accepted design must also give every list and navigation entry exactly one
-module-composition owner. An orphan work queue is not deferred executor work:
-it is an incomplete design that must be repaired before planning, so a build
-cannot materialize part of the source app and then discover that the remaining
-worker-facing inventory has no constructible host.
+The architect writes canonical source-language content and requests translation
+against the current app inventory. It can refine either language through the
+same shared authoring tools before saving and reviewing the app.
 
 ```text
-design → independent review → workflow slices → requested translations
-       → full validation and export compilation → finish
+Markdown plan → independent review → authoring and requested translation
+              → valid checkpoints → actual app review → finish
 ```
 
-Translation is not a `BuildPlan` construction slice. The plan's construction
-groups still cover every included workflow exactly once. The orchestrator has a
-durable translating state and a localization receipt. Authoritative completion
-requires every workflow receipt, the optional localization receipt, a canonical
-head equal to the final receipt, full validation, and both export compilations.
+Translation is an authoring operation, with no separate build plan or finalizer.
+The architect and peer judge the actual app against the request and shared plan.
+Code enforces authorized saves, canonical validity and exact completion. The
+initial app remains reserved for that build until it finishes. A failed batch
+returns an actionable error with no partial translation write; it does not
+silently substitute copied text for the requested translation. Recorded batch
+messages, reasoning summaries, repair feedback and usage appear in `/agents`.
 
-The initial app stays frozen until translation and final proof complete.
-Progress says which language is being translated without logging customer
-content. A retry resumes the exact durable attempt and does not rebill completed
-accepted batches. A deterministic translation failure is a build failure to
-explain or recover, not permission to release a different app than the accepted
-contract.
-
-A failed structured-output generation is terminal for its exact
-input/model/prompt/schema identity, so an ordinary retry never purchases a
-different random sample. The accepted attempt remains resumable: a real
-deployed protocol correction appends a new immutable generation at the same
-semantic batch index only for the failed or now-invalid generation. Valid
-accepted semantic predecessors remain authoritative across model, prompt, and
-schema upgrades, so recovery neither regenerates nor rebills the accepted
-prefix; exact-once usage accounting still retains every failed call's cost.
+Each batch allows at most three responses, with concise repair feedback for
+invalid output. Its durable context binds the invocation, batch input, source
+fingerprints, model, prompt and schema. Recovery reuses accepted responses for
+that context and retains every call's usage. All accepted values stage together
+through the private workspace; a failed batch publishes none of them.
 
 Later source edits derive Missing/Out-of-date status immediately. Nova never
 makes an unannounced paid call after a keystroke. Existing-app authors and
@@ -802,8 +784,8 @@ The capability holds only while all of the following remain true:
   coverage;
 - SA and MCP expose identical language semantics and bounded inventories, and
   every registry rejection message names the identifiers to use;
-- an initial multilingual build proves post-slice translation durability,
-  retry, billing, receipt ordering, frozen visibility, and final compilation;
+- an initial multilingual build proves requested translation durability,
+  bounded repair, billing, exact receipts, atomic staging and final compilation;
 - compiler fixtures prove two or more languages through HQ JSON, every XForm,
   suite locales, app strings, language picker labels, local CCZ, and HQ
   upload, plus the wire plan's grandfathered spellings, macro widening, and

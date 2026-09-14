@@ -5,6 +5,15 @@ import * as designTurnSteps from "./20260911010000_design_turn_steps";
 import * as retireDesignContinuationReceipts from "./20260911020000_retire_design_continuation_receipts";
 import * as retiredDesignSessions from "./20260913000000_retired_design_sessions";
 import * as designConformanceReports from "./20260913010000_design_conformance_reports";
+import * as authoringPlans from "./20260914000000_authoring_plans";
+import * as authoringWorkspaces from "./20260914010000_authoring_workspaces";
+import * as lookupAuthoringReceipts from "./20260914020000_lookup_authoring_receipts";
+import * as authoringEvents from "./20260914030000_authoring_events";
+import * as modelStepAccounting from "./20260914040000_model_step_accounting";
+import * as organizationAuthoringReceipts from "./20260914050000_organization_authoring_receipts";
+import * as completeFoldSnapshots from "./20260914060000_complete_fold_snapshots";
+import * as authoringFormat from "./20260914070000_authoring_format";
+import * as authoringFoldHorizon from "./20260914080000_authoring_fold_horizon";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -87,6 +96,9 @@ export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
+	"20260914010000_authoring_workspaces": authoringWorkspaces,
+	"20260914030000_authoring_events": authoringEvents,
+	"20260914020000_lookup_authoring_receipts": lookupAuthoringReceipts,
 	"20260505152732_baseline": baseline,
 	"20260506022302_add_case_name_column": addCaseNameColumn,
 	"20260627000000_add_cases_project_id": addCasesProjectId,
@@ -160,6 +172,13 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260911020000_retire_design_continuation_receipts":
 		retireDesignContinuationReceipts,
 	"20260913000000_retired_design_sessions": retiredDesignSessions,
+	"20260914000000_authoring_plans": authoringPlans,
+	"20260914040000_model_step_accounting": modelStepAccounting,
+	"20260914050000_organization_authoring_receipts":
+		organizationAuthoringReceipts,
+	"20260914060000_complete_fold_snapshots": completeFoldSnapshots,
+	"20260914070000_authoring_format": authoringFormat,
+	"20260914080000_authoring_fold_horizon": authoringFoldHorizon,
 	"20260913010000_design_conformance_reports": designConformanceReports,
 };
 

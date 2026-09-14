@@ -5,8 +5,8 @@
  *
  *   - **Stage rejections** (`ChangeSetStagingRejectedError`) — the request
  *     was refused BEFORE a step appended: malformed input, an invalid
- *     target/anchor/identity against the private overlay, a policy fence, an
- *     unrecorded required read set. These are the executor's ordinary
+ *     target/anchor/identity against the private overlay, or a policy fence.
+ *     These are ordinary
  *     `{ error }` results; a protocol-level rejection may persist a small
  *     idempotent rejection receipt but never advances the workspace.
  *     (A validator FINDING is deliberately not a rejection: the private
@@ -34,9 +34,7 @@ export type ChangeSetStageErrorCode =
 	| "TOOL_INPUT_INVALID"
 	| "TOOL_NOT_ALLOWED"
 	| "EXCLUSIVE_NOT_ALONE"
-	| "EXCLUSIVE_SET_CLOSED"
-	| "READ_SET_UNRECORDED"
-	| "HANDLE_RESOLUTION_FAILED";
+	| "EXCLUSIVE_SET_CLOSED";
 
 /**
  * A staging request refused before its step appended. `code` is durable on

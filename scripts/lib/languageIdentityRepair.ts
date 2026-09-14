@@ -18,10 +18,6 @@
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import { z } from "zod";
-import {
-	type DesignLocalizationIntent,
-	designLocalizationIntentSchema,
-} from "../../lib/agent/design/contract";
 import { loadAppInTransaction } from "../../lib/db/apps";
 import {
 	type CanonicalAppChangeSuffixRow,
@@ -59,6 +55,93 @@ import { safePersistedSequence } from "../../lib/utils/persistedSequence";
 // the retired superRefine invariants are deliberately omitted because the
 // rewritten output is validated with the current canonical schemas, which is
 // the gate that matters.
+
+// This operator-only migration still reads historical localization attempts.
+// Freeze their target format here so retiring the design runtime cannot change a repair.
+const designLanguageSchema = appLanguageIdentitySchema.superRefine(
+	(identity, ctx) => {
+		for (const message of identityIssues(identity)) {
+			ctx.addIssue({ code: "custom", message });
+		}
+	},
+);
+
+const designTargetLanguageSchema = z
+	.object({
+		language: designLanguageSchema,
+		seedFrom: designLanguageSchema.describe(
+			"Configured language whose effective strings initialize this target before any requested translation.",
+		),
+		strategy: z.enum(["copy-only", "translate-with-nova"]),
+	})
+	.strict();
+
+const designLocalizationIntentSchema = z
+	.object({
+		sourceLanguage: designLanguageSchema,
+		defaultLanguage: designLanguageSchema,
+		targets: z.array(designTargetLanguageSchema).max(32),
+	})
+	.strict()
+	.superRefine((intent, ctx) => {
+		const sourceTag = languageTag(intent.sourceLanguage);
+		const configured = new Set<LanguageTag>([sourceTag]);
+		for (const [index, target] of intent.targets.entries()) {
+			const tag = languageTag(target.language);
+			if (configured.has(tag)) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["targets", index, "language"],
+					message:
+						"Every app language must be a distinct identity, and a target cannot repeat the source language.",
+				});
+			}
+			configured.add(tag);
+		}
+		if (!configured.has(languageTag(intent.defaultLanguage))) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["defaultLanguage"],
+				message:
+					"The runtime default language must be the source or one of the configured targets.",
+			});
+		}
+		const seedByTarget = new Map(
+			intent.targets.map((target) => [
+				languageTag(target.language),
+				languageTag(target.seedFrom),
+			]),
+		);
+		for (const [index, target] of intent.targets.entries()) {
+			if (!configured.has(languageTag(target.seedFrom))) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["targets", index, "seedFrom"],
+					message:
+						"A target language must start from the source or another configured target.",
+				});
+				continue;
+			}
+			const seen = new Set<LanguageTag>();
+			let cursor: LanguageTag = languageTag(target.language);
+			while (cursor !== sourceTag) {
+				if (seen.has(cursor)) {
+					ctx.addIssue({
+						code: "custom",
+						path: ["targets", index, "seedFrom"],
+						message:
+							"Language copy dependencies must reach the source language without a cycle.",
+					});
+					break;
+				}
+				seen.add(cursor);
+				const next = seedByTarget.get(cursor);
+				if (next === undefined) break;
+				cursor = next;
+			}
+		}
+	});
+type DesignLocalizationIntent = z.infer<typeof designLocalizationIntentSchema>;
 
 const OLD_LANGUAGE_CODE_PATTERN = /^[a-z]{2,3}(?:-[a-z]+)?$/;
 const oldLanguageCodeSchema = z.string().regex(OLD_LANGUAGE_CODE_PATTERN);

@@ -24,11 +24,10 @@ protocol error, never a silent overwrite.
 - `canonicalWorkspace.ts` — `CanonicalMutationWorkspace`, the one
   implementation both canonical surfaces use. The private change-set
   workspace (`lib/agent/change-set/workspace.ts`) implements the same
-  tool-facing contract over durable staged state; its extensions —
-  `appId: string | null` (a genesis change set has no app row) and automatic
-  external read-set capture — stay inside that host. Shared tool bodies receive
-  one workspace contract and never supply design attribution or explicit
-  read-set bookkeeping.
+  tool-facing contract over durable staged state; its nullable app identity and durable
+  request receipts stay inside that host. `WorkspaceSnapshot.mode` distinguishes
+  canonical from private operation explicitly. Shared tool bodies receive one
+  workspace contract and never supply design attribution.
 
 ## Invariants
 
@@ -43,14 +42,14 @@ protocol error, never a silent overwrite.
    boundary.** `invoke` allocates the invocation ordinal before any await
    and runs bodies strictly in that order; an out-of-order start throws
    instead of corrupting the document, and no body ever reads a torn or
-   stale-overwritten doc (`__tests__/canonicalWorkspace.test.ts` pins it
+   stale-overwritten doc (`__tests__/canonicalWorkspace.test.ts` exercises it
    with a delayed first branch). The ordinal captures DISPATCH order —
    whether dispatch matches model-emit order remains the SDK-boundary
    property it always was: an await inserted upstream of `invoke` reorders
    dispatch itself, which a dependent sibling call surfaces as a visible
    missing-target error, never as silent state corruption. Ordering-
    dependent creation therefore rides one semantic creation call or the
-   executor's server-ordered native call sequence.
+   architect's server-ordered native call sequence.
 3. **The optimistic gate lives in the workspace.** `applyBatch` /
    `applyStages` run the whole-document verdict (with the unioned lookup
    context) against the invocation's snapshot before anything reaches the

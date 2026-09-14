@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { languageTagSchema, uuidSchema } from "@/lib/domain";
+import {
+	languageTagSchema,
+	orderedCaseOperations,
+	uuidSchema,
+} from "@/lib/domain";
 import {
 	evaluateForm,
 	FormEvaluationInputError,
@@ -24,7 +28,8 @@ export const evaluateFormInputSchema = formAddressSchema
 			.array(
 				z.object({ path: pathSchema, value: z.string().max(10000) }).strict(),
 			)
-			.max(500),
+			.max(500)
+			.describe("Applied in order. Repeat a path to check changing an answer."),
 		repeats: z
 			.array(
 				z
@@ -55,7 +60,7 @@ export const evaluateFormInputSchema = formAddressSchema
 
 export const evaluateFormTool = {
 	description:
-		"Run a form with supplied answers using Preview's engine and the worker's actual records and lookup data. Returns validation, question state and a proposed submission. Saves nothing; capture and submission transactions require the running app.",
+		"Run a form with supplied answers using Preview's engine and the worker's actual records and lookup data. Returns validation, question state and proposed case values. Saves nothing; capture, case operations and submission checks require the running app.",
 	inputSchema: evaluateFormInputSchema,
 	async execute(
 		input: z.infer<typeof evaluateFormInputSchema>,
@@ -67,6 +72,26 @@ export const evaluateFormTool = {
 		try {
 			const context = await loadFormEvaluationContext(ctx, input.personaUuid);
 			const result = await evaluateForm(ctx.snapshot.doc, input, context);
+			const { submission, ...observation } = result;
+			const proposedValues = submission && {
+				kind: submission.kind,
+				...(submission.kind === "registration"
+					? { primary: submission.primary }
+					: {}),
+				...(submission.kind === "followup" || submission.kind === "close"
+					? { caseIds: submission.caseIds, patch: submission.patch }
+					: {}),
+				...(submission.kind !== "survey" && submission.children.length
+					? { children: submission.children }
+					: {}),
+				...(submission.usercase ? { worker: submission.usercase } : {}),
+				...(submission.closeConditionAnswers
+					? { closeCondition: "not-evaluated" as const }
+					: {}),
+				...(orderedCaseOperations(ctx.snapshot.doc.forms[input.formUuid]).length
+					? { caseOperations: "not-evaluated" as const }
+					: {}),
+			};
 			return {
 				kind: "read" as const,
 				data: {
@@ -74,7 +99,8 @@ export const evaluateFormTool = {
 					workspaceRevision: ctx.snapshot.revision,
 					workerId: context.identity.ownerId,
 					lookupRevision: context.lookup.projectRevision,
-					...result,
+					...observation,
+					...(proposedValues ? { proposedValues } : {}),
 				},
 			};
 		} catch (error) {

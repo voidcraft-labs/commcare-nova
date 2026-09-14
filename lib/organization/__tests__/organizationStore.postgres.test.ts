@@ -177,6 +177,106 @@ async function seedOrgApp(): Promise<void> {
 	});
 }
 
+it("replays a place creation without changing its identity or making another row", async () => {
+	await seedOrgApp();
+	const invocation = { ...scope(), requestId: "create-place" };
+	const input = {
+		levelUuid: REGION,
+		parentId: null,
+		name: "North",
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+	};
+	const [first, second] = await Promise.all([
+		createLocation(invocation, input, "0"),
+		createLocation(invocation, input, "0"),
+	]);
+	expect(second).toEqual(first);
+	expect((await readOrganization(scope())).locations).toHaveLength(1);
+	expect(
+		await createLocation(
+			{ ...invocation, changeSource: { kind: "mcp", runId: "replacement" } },
+			input,
+			"0",
+		),
+	).toEqual(first);
+	await expect(
+		createLocation(invocation, { ...input, name: "Different" }, "0"),
+	).rejects.toMatchObject({ code: "conflict" });
+	await h
+		.pool()
+		.query("UPDATE auth_member SET role='viewer' WHERE \"userId\"=$1", [
+			ACTOR_A,
+		]);
+	await expect(createLocation(invocation, input, "0")).rejects.toMatchObject({
+		code: "not_found",
+	});
+});
+
+it("rolls back the archive and its Blueprint change if the durable answer cannot commit", async () => {
+	await seedOrgApp();
+	const { district, facility } = await seedChain();
+	await assignPersona(PERSONA_ASHA, facility);
+	const before = await readOrganization(scope());
+	const appBefore = await loadApp(APP_ID);
+	const invocation = { ...scope(), requestId: "archive-branch" };
+	await h
+		.pool()
+		.query(
+			"CREATE FUNCTION fail_organization_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt fault'; END $$; CREATE TRIGGER organization_receipt_fault BEFORE INSERT ON organization_authoring_receipts FOR EACH ROW EXECUTE FUNCTION fail_organization_receipt();",
+		);
+	try {
+		await expect(
+			setLocationArchived(invocation, district, true, before.revision),
+		).rejects.toThrow("receipt fault");
+		expect(await readOrganization(scope())).toEqual(before);
+		expect(await loadApp(APP_ID)).toEqual(appBefore);
+	} finally {
+		await h
+			.pool()
+			.query(
+				"DROP TRIGGER organization_receipt_fault ON organization_authoring_receipts; DROP FUNCTION fail_organization_receipt();",
+			);
+	}
+	const first = await setLocationArchived(
+		invocation,
+		district,
+		true,
+		before.revision,
+	);
+	expect(first.unassignedPersonaCount).toBe(1);
+	expect(first.blueprintChange?.mutations.length).toBeGreaterThan(0);
+	await setLocationArchived(scope(), district, false, first.revision);
+	await assignPersona(PERSONA_ASHA, facility);
+	const current = await loadApp(APP_ID);
+	const replay = await setLocationArchived(
+		invocation,
+		district,
+		true,
+		before.revision,
+	);
+	expect(replay).toMatchObject({
+		revision: first.revision,
+		archivedCount: first.archivedCount,
+		unassignedPersonaCount: 1,
+	});
+	expect(replay.blueprintChange?.mutations).toEqual([]);
+	if (!current) throw new Error("The app disappeared");
+	expect(replay.blueprintChange?.committedDoc).toEqual(
+		hydratePersistedBlueprint(current.blueprint),
+	);
+	expect(await personaLocations(PERSONA_ASHA)).toEqual({
+		primaryUuid: facility,
+	});
+	expect(
+		(await readOrganization(scope())).locations.every(
+			(place) => place.archivedAt === null,
+		),
+	).toBe(true);
+});
+
 async function seedWorkflowOrgApp(): Promise<void> {
 	await h.seedAppWithBlueprint(workflowOrgDoc(), {
 		id: APP_ID,
@@ -370,7 +470,7 @@ async function assignPersona(
 ): Promise<void> {
 	await commitGuardedBatch({
 		appId: APP_ID,
-		batchId: `assign-${personaUuid}-${primaryUuid}`,
+		batchId: crypto.randomUUID(),
 		mutations: admitMutationBatch([
 			{
 				kind: "updatePersona",

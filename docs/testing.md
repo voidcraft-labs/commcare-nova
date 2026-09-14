@@ -600,30 +600,10 @@ actual missing-instance exception during initialization. Ordinary CI checks the
 complete declared instance set; structural collector tests cover union across
 both AST families, scoped naming and source refusal without claiming execution.
 
-Durable build tests persist real source/review/accepted-plan envelopes through
-the artifact boundary. Concurrency checks use multiple pool connections and
-observe database lock waiters before releasing the controller; `Promise.all`
-on a one-connection pool proves only queued execution. Completion and attempt
-cleanup have native rollback controls, including a database-triggered late
-failure. Stored orchestration kinds reach the actual app-freeze SQL query;
-exact schema/classification equality belongs in the compiler test.
-
-Artifact integrity tests alter relational metadata independently of sealed
-envelopes and require refusal; re-hashing an unchanged payload cannot prove
-those joins. Legacy payload normalization must preserve verification against
-the original stored digest. Semantic workspace tests reconstruct a complete
-contract through persisted operations and separately exercise partial replay,
-identity ordering, disposition updates, combined operation counts and UTF-8
-byte limits. They do not claim model quality or database authority.
-
-Source-package projection tests use complete asset metadata and real image
-bytes. Native tests retain the actual Project-filtered media lookup, stored
-extract adapter, persisted source rows and reconstruction; only object-storage
-bytes are controlled. They prove rejection of pending or mismatched assets,
-first-occurrence attachment replay, and refusal after source changes. They do
-not prove GCS service behavior or live model interpretation. Importing the
-office extractor currently reports Bluebird's inert native-Promise probe under
-the async detector; record that diagnostic rather than calling the run clean.
+Source material tests retain actual Project-filtered media lookup, persisted
+extraction results, and reconstruction. Only external storage bytes and provider
+responses are controlled. Assert refusal for pending or mismatched assets and
+source changes; these tests do not establish live model interpretation.
 
 Document mutation tests start from admitted stored documents, serialize the
 commands, pass the real mutation and commit gates, and assert resulting state.
@@ -639,55 +619,16 @@ prove sensitive text was removed. Disposed runtime tests own pending watches,
 queued edits, subscriptions and reader cancellation instead of relying on
 unmount alone to hide unfinished work.
 
-External-action receipts have no registered completion producer in this
-application. Tests prove new blocked plans are refused, then explicitly seed
-verified historical plan envelopes to exercise the retained receipt reader.
-Typed raw receipt fixtures prove scope and evidence matching, not an external
-operation or user-confirmation workflow that the product does not implement.
+Shared authoring grammar tests validate complete payloads with an independent
+JSON Schema validator and exercise the actual canonical preparation boundary.
+Creation identities, options, named references, lookup data, null/omission, and
+semantic refinements need observable state outcomes. Counting schema nodes or
+finding phrases in a prompt does not prove a call is expressible.
 
-Build-plan tests admit complete contract graphs before planning and compare
-independent construction ownership and area expectations. Native persistence
-tests use real source/review/accepted lineage and reseal altered plans before
-calling the writer; a correct digest alone cannot prove accepted semantics.
-Dependency tests include dense DAGs, disconnected cycles and nodes leading to
-cycles, with exact diagnostic coordinates. Historical plan reads remain a
-separate compatibility contract.
-
-Executor and design-tool grammar tests validate complete payloads with an
-independent JSON Schema validator, then exercise the actual canonical parse
-seam. Creation handles, nested options, existing references, external lookup
-identities, strict null spelling and semantic refinements have separate
-assertions. Counting widened schema nodes does not prove any complete call
-is expressible. These offline tests do not claim provider acceptance or
-persisted dispatch; native loop and artifact tests own those boundaries.
-
-Execution-brief tests admit full design contracts, then assert workflow-local
-records and properties, construction order, menu placement context, exact
-layout lowering, and lossless rendered JSON. Record-key cases include full
-UUID-suffix collisions, reserved names, truncation, and catalog-order changes.
-These are deterministic compiler-input proofs; serializing a mocked tool map
-or finding a phrase in a prompt does not prove executor behavior.
-
-Answered-question claim fixtures use the actual card's flat index-to-answer
-result. They compare full statements and transcript coordinates, independent
-UUIDv5 output, replay and cumulative extension; malformed completed cards pass
-through the real metadata gate before the defensive seeder is exercised.
-This is source projection, not proof that an authenticated POST or model
-correctly interprets the answer.
-
-Review vocabulary and strict review-result tests use the actual source-package
-producer, including request, document, image and answered-question evidence.
-An independent JSON Schema validator checks complete wire payloads before the
-actual canonical parser. Exact grounding, disposition, decision and correction
-coordinates have separate cases. These prove schema and projection behavior;
-native persisted review and model-loop tests own authority and execution.
-
-Design-gate transitions and ancestry caching use actual source, revision,
-review and plan writers against migrated PostgreSQL. Repeated review cycles,
-new input, historical plans and rejected-load recovery must observe the rows
-those owners produce. Pure repair-accounting tests separately cover exact
-diagnostic-set equality, independent budgets, reset boundaries and fatal-state
-retention.
+Markdown planning tests use the real revision and review writers against
+migrated Postgres. They exercise concurrent ownership, exact passage edits,
+request replay, source/revision changes, and permission loss. The document's
+wording and headings are not a schema and must not become text-pinning tests.
 
 Durable model-context tests use migrated PostgreSQL and actual independent
 connections blocked at the session authority row. Test exact replay with later
@@ -699,22 +640,22 @@ proves that recovered file URLs and decoded response messages can be sent
 again; an object-shape assertion alone does not prove provider serialization.
 
 
-The native design-runner suite mounts the real SDK agent, tool registry, source
-package, artifact store and durable model ledger against local Responses HTTP
-and migrated PostgreSQL. It proves paid wait replay without another call, new
-input, provider-ordered question/wait arbitration, one durable terminal correction,
-accepted-plan recovery, and cancellation before and during a partial HTTP response.
-A full runner continuation also rejects a user-authored state heading as authority
-after a real decoded compaction item. Provider output is scripted; model quality
-and live-provider acceptance are outside this proof.
+The unified orchestrator tests retain the real SDK, shared tools, private
+workspace, plan/review store, and durable model ledger against a local Responses
+HTTP peer and migrated Postgres. They resume at unanswered calls, private writes,
+canonical checkpoints, and active or completed peer reviews. Assertions inspect
+actual saved state, semantic receipts, usage, and emitted progress. Separate
+loop tests interrupt headers and partial responses and prove cancellation joins
+owned work. Scripted provider responses establish lifecycle behavior, not model
+judgment or live-provider acceptance.
 
-Native orchestrator checks retain the real event chain, accepted artifacts,
-attempts, change sets and executor loop. The model outcome boundary supplies a
-pause, failure or empty executor response; assertions inspect durable outcomes and
-actual emitted chunks. A held PostgreSQL authority row proves orchestration cannot
-return while its heartbeat still writes, even after the model throws. These checks
-retain the SDK's reported PROMISE diagnostics and Bluebird's inert import probe;
-HTTP sockets, streams, timers and database operations are explicitly drained.
+A paid quality trial uses the production orchestration path with synthetic
+requests and an isolated local Project. Its transport captures credential-free
+requests, reserves conservative spend before dispatch, and retains unknown
+charges. Inspect the resulting app, source, plan, messages, reasoning summaries,
+failed tools, and corrections. Keep failures in the evidence and use a fresh
+reviewer for app quality. Do not present a schema pass or scripted fixture as a
+model-generated result.
 
 For the actual AI SDK, keep protocol conversion and streaming adapters real.
 A private Responses HTTP peer can emit ordered tools, valid structured output,

@@ -11,12 +11,12 @@ const openai = createOpenAI({ apiKey });
 
 async function main() {
 	const result = streamText({
-		model: openai(MODEL_ROLES.designAuthor.modelId),
+		model: openai(MODEL_ROLES.architect.modelId),
 		output: Output.object({ schema: z.object({ answer: z.string() }) }),
 		prompt: "What is 15 * 37? Show your work.",
 		maxOutputTokens: 256,
 		providerOptions: reasoningProviderOptions(
-			MODEL_ROLES.designAuthor.reasoningEffort,
+			MODEL_ROLES.architect.reasoningEffort,
 		),
 	});
 

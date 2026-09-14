@@ -17,13 +17,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { BlueprintDoc } from "@/lib/domain";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { createFormInputSchema, createFormTool } from "../createForm";
 import { createModuleInputSchema, createModuleTool } from "../createModule";
-import { updateFormTool } from "../updateForm";
+import { updateFormInputSchema, updateFormTool } from "../updateForm";
 
 /** Controlled persistence receipt: proves one admitted batch, not SQL atomicity. */
 function makeHarness(initialDoc: BlueprintDoc) {
@@ -112,6 +113,33 @@ function formAddress(doc: BlueprintDoc) {
 	if (!formUuid) throw new Error("Fixture must contain a form");
 	return { moduleUuid, formUuid };
 }
+
+it("refines a form's purpose without replacing its identity, fields or behavior", async () => {
+	const doc = completeDoc();
+	const harness = makeHarness(doc);
+	const address = formAddress(doc);
+	const before = toPersistableDoc(doc);
+	const purpose = "Register a patient for follow-up visits.";
+	await harness.runTool(
+		updateFormTool,
+		updateFormInputSchema.parse({ ...address, purpose }),
+	);
+	const described = toPersistableDoc(harness.currentDoc());
+	expect(described).toEqual({
+		...before,
+		forms: {
+			...before.forms,
+			[address.formUuid]: { ...before.forms[address.formUuid], purpose },
+		},
+	});
+	await harness.runTool(updateFormTool, updateFormInputSchema.parse(address));
+	expect(toPersistableDoc(harness.currentDoc())).toEqual(described);
+	await harness.runTool(
+		updateFormTool,
+		updateFormInputSchema.parse({ ...address, purpose: null }),
+	);
+	expect(toPersistableDoc(harness.currentDoc())).toEqual(before);
+});
 
 describe("field assembly — whole-call admission", () => {
 	it("addFields rejects the complete batch when one field cannot be assembled", async () => {

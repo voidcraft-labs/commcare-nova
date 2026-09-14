@@ -130,9 +130,16 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 				type: "survey",
 				fields: [
 					{
+						kind: "text",
+						id: "delivering",
+						label: "Delivering",
+						default_value: "'yes'",
+					},
+					{
 						kind: "repeat",
 						id: "visits",
 						label: "Visits",
+						relevant: "#form/delivering = 'yes'",
 						repeat: { mode: "user_controlled" },
 					},
 					{
@@ -183,6 +190,34 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 			expect.objectContaining({ path: "total", value: "6" }),
 		]),
 	);
+	const hidden = await evaluateForm(
+		doc,
+		{
+			formUuid,
+			repeats: [{ path: "visits", count: 2 }],
+			answers: [
+				{ path: "visits[0]/rating", value: "0" },
+				{ path: "visits[1]/rating", value: "0" },
+				{ path: "delivering", value: "no" },
+			],
+		},
+		context,
+	);
+	expect(hidden.valid).toBe(true);
+	for (const path of ["visits", "visits[0]/rating", "visits[1]/rating"]) {
+		const field = hidden.fields.find((f) => f.path === path);
+		expect(field).toMatchObject({
+			visible: false,
+			required: false,
+			valid: true,
+		});
+		expect(field).not.toHaveProperty("error");
+	}
+	expect(hidden.fields.find((f) => f.path === "total")).toMatchObject({
+		kind: "hidden",
+		visible: false,
+		value: "0",
+	});
 	await expect(
 		evaluateForm(
 			doc,

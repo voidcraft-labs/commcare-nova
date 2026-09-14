@@ -77,22 +77,12 @@ const progress: DesignProgressView = {
 	stage: "building",
 	stageLabel: "Building your app",
 	working: true,
-	pulseStep: null,
-	outline: {
-		objective: "Track follow-up visits",
-		actors: ["Clinic nurses"],
-		tasks: ["Register a client"],
-		records: [],
-		lists: [],
-		assumptions: [],
-		blockingQuestions: [],
-		outOfScope: [],
-		reviewed: true,
+	plan: {
+		revision: 1,
+		markdown:
+			"Track follow-up visits for clinic nurses.\n\nRegister each client, then record their follow-up visits.",
+		reviewedRevision: 1,
 	},
-	plannedSliceNames: ["Registration", "Follow-up"],
-	sliceProgress: null,
-	currentSliceName: "Registration",
-	committedSliceNames: [],
 	materialized: false,
 	failure: null,
 };
@@ -111,8 +101,6 @@ function Controls() {
 								? {
 										...progress,
 										materialized: true,
-										committedSliceNames: ["Registration"],
-										currentSliceName: "Follow-up",
 									}
 								: progress
 						}

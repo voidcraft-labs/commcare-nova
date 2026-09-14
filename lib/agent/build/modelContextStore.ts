@@ -9,13 +9,17 @@ import {
 	persistModelMessage,
 	rehydrateModelMessage,
 } from "@/lib/agent/modelMessagePersistence";
+import { CommitReauthError, RunHolderLostError } from "@/lib/db/commitGuard";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
+import { getCurrentPeriod } from "@/lib/db/period";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
+import { writeRunSummaryInTransaction } from "@/lib/db/runSummary";
+import { estimateCost } from "@/lib/db/usage";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 
-export type DesignModelContextKind = "design" | "executor";
+export type DesignModelContextKind = "architect" | "peer" | "translator";
 
 export interface DesignModelContextAuthority {
 	readonly actorUserId: string;
@@ -29,12 +33,10 @@ export interface DesignModelContextSpec {
 	readonly kind: DesignModelContextKind;
 	readonly modelId: string;
 	readonly promptVersion: string;
+	/** Definitions at context creation; phase changes preserve the conversation. */
 	readonly toolsetDigest: string;
+	/** A peer review uses its review id; the architect keeps one conversation. */
 	readonly contextVersion: string;
-	/** Executor-only semantic generation key. A new slice attempt receives a
-	 * fresh immutable generation even when its provider contract is unchanged;
-	 * recovery of that exact attempt reopens the same generation. */
-	readonly semanticScopeKey?: string;
 	readonly authority: DesignModelContextAuthority;
 }
 
@@ -46,11 +48,10 @@ export interface DesignModelContextState {
 	readonly messages: ModelMessage[];
 	readonly items: readonly DesignModelContextItem[];
 	/** The latest immutable predecessor generation that contains a provider
-	 * response, for design terminal recovery. Provider-contract rollovers can
+	 * response, for architect recovery. Provider-contract rollovers can
 	 * append reseeds or state without making another provider call; those
 	 * item-only generations must not hide the response that still proves an
-	 * outer pause or correction a killed process did not record. Executor
-	 * generations never consume this projection. */
+	 * outer pause or correction a killed process did not record. Peer reviews start from current source, plan and app. */
 	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly appendKeys: ReadonlySet<string>;
 	/** Server protocol provenance retained across immutable generations. */
@@ -113,6 +114,16 @@ export interface DurableModelUsageIdentity {
 	readonly stepKey: string;
 }
 
+const modelStepAdmissionSchema = z
+	.object({
+		actorUserId: z.string(),
+		runId: z.string(),
+		holderDigest: z.string(),
+		projectId: z.string(),
+		billingPeriod: z.string(),
+	})
+	.strict();
+
 export type DesignModelStepEvent =
 	| {
 			readonly eventKind: "started";
@@ -122,6 +133,7 @@ export type DesignModelStepEvent =
 	| {
 			readonly eventKind: "completed";
 			readonly responseDigest: string;
+			readonly appendKey: string;
 			readonly usage?: Record<string, unknown>;
 	  };
 
@@ -182,14 +194,15 @@ async function readItems(
 	});
 }
 
-/** Read only the newest predecessor that contains an actual provider response.
- * Reseed, state, and protocol-only rollover generations are skipped, so several
- * deployments between a committed terminal and recovery cannot hide it. */
+/** Carry the latest nonempty conversation across a provider-contract change.
+ * A request saved before a failed provider call is meaningful history too.
+ * Empty rollover generations fall back to their predecessor. */
 async function readLatestPredecessorItems(
 	tx: Transaction<AppDatabase>,
 	context: {
 		readonly design_session_id: string;
 		readonly context_kind: string;
+		readonly context_version: string;
 		readonly generation: number;
 	},
 ): Promise<DesignModelContextItem[]> {
@@ -203,14 +216,10 @@ async function readLatestPredecessorItems(
 		.select("context.id")
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
-		.where("context.generation", "<", context.generation)
-		.where((eb) =>
-			eb.or([
-				eb("item.append_key", "like", "design-response:%"),
-				eb("item.append_key", "like", "design-wait:%"),
-				eb("item.append_key", "like", "%:response:design:%"),
-			]),
+		.$if(context.context_kind === "translator", (q) =>
+			q.where("context.context_version", "=", context.context_version),
 		)
+		.where("context.generation", "<", context.generation)
 		.orderBy("context.generation", "desc")
 		.limit(1)
 		.executeTakeFirst();
@@ -266,6 +275,7 @@ async function readStepsThroughGeneration(
 	context: {
 		readonly design_session_id: string;
 		readonly context_kind: string;
+		readonly context_version: string;
 		readonly generation: number;
 		readonly id: string;
 	},
@@ -292,12 +302,17 @@ async function readStepsThroughGeneration(
 			"step.event_digest",
 			"step.request_digest",
 			"step.response_digest",
+			"step.response_append_key",
 			"step.created_by_run_id",
 			"step.created_at",
+			"step.admission",
 			sql<string | null>`${sql.ref("step.usage")}::text`.as("usage_text"),
 		])
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
+		.$if(context.context_kind === "translator", (q) =>
+			q.where("context.context_version", "=", context.context_version),
+		)
 		.where("context.generation", "<=", context.generation)
 		.orderBy("context.generation", "asc")
 		.orderBy("step.created_at", "asc")
@@ -319,11 +334,13 @@ async function readStepsThroughGeneration(
 						stepKey: row.step_key,
 						eventKind: row.event_kind,
 						requestDigest: row.request_digest,
+						admission: modelStepAdmissionSchema.parse(row.admission),
 					}
 				: {
 						stepKey: row.step_key,
 						eventKind: row.event_kind,
 						responseDigest: row.response_digest,
+						appendKey: row.response_append_key,
 						...(usage !== undefined && { usage }),
 					};
 		if (canonicalJsonDigest(event) !== row.event_digest) {
@@ -347,7 +364,10 @@ async function readStepsThroughGeneration(
 		}
 		if (row.event_kind === "started") {
 			totalStartedStepCount += 1;
-			if (row.turn_provenance_id === null && context.context_kind === "design")
+			if (
+				row.turn_provenance_id === null &&
+				context.context_kind === "architect"
+			)
 				throw new DesignModelContextError(
 					"A design provider start is missing its logical user turn provenance.",
 				);
@@ -392,29 +412,8 @@ function providerContractMatches(
 	return (
 		row.model_id === spec.modelId &&
 		row.prompt_version === spec.promptVersion &&
-		row.toolset_digest === spec.toolsetDigest &&
-		row.context_version === persistedContextVersion(spec)
+		row.context_version === spec.contextVersion
 	);
-}
-
-/** The suffix that binds an executor generation to its slice attempt inside
- * the persisted `context_version`. The writer below and `semanticScopeOf`
- * are its only two sides. */
-const SEMANTIC_SCOPE_SEPARATOR = ":semantic-scope:";
-
-function persistedContextVersion(spec: DesignModelContextSpec): string {
-	return spec.semanticScopeKey === undefined
-		? spec.contextVersion
-		: `${spec.contextVersion}${SEMANTIC_SCOPE_SEPARATOR}${spec.semanticScopeKey}`;
-}
-
-/** The semantic scope key a persisted `context_version` carries, if any:
- * the inverse of the suffix `persistedContextVersion` writes. */
-export function semanticScopeOf(contextVersion: string): string | null {
-	const index = contextVersion.indexOf(SEMANTIC_SCOPE_SEPARATOR);
-	if (index === -1) return null;
-	const scope = contextVersion.slice(index + SEMANTIC_SCOPE_SEPARATOR.length);
-	return scope.length > 0 ? scope : null;
 }
 
 async function assertCurrentContext(
@@ -423,6 +422,7 @@ async function assertCurrentContext(
 		readonly id: string;
 		readonly design_session_id: string;
 		readonly context_kind: string;
+		readonly context_version: string;
 	},
 ): Promise<void> {
 	const latest = await tx
@@ -430,11 +430,14 @@ async function assertCurrentContext(
 		.select("id")
 		.where("design_session_id", "=", context.design_session_id)
 		.where("context_kind", "=", context.context_kind)
+		.$if(context.context_kind === "translator", (q) =>
+			q.where("context_version", "=", context.context_version),
+		)
 		.orderBy("generation", "desc")
 		.executeTakeFirstOrThrow();
 	if (latest.id !== context.id) {
 		throw new DesignModelContextError(
-			"The model context was superseded by a newer provider contract or semantic scope.",
+			"The model context was superseded by a newer provider contract or review.",
 		);
 	}
 }
@@ -444,6 +447,7 @@ async function readAppendKeysThroughGeneration(
 	context: {
 		readonly design_session_id: string;
 		readonly context_kind: string;
+		readonly context_version: string;
 		readonly generation: number;
 	},
 ): Promise<Set<string>> {
@@ -458,6 +462,9 @@ async function readAppendKeysThroughGeneration(
 		.distinct()
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
+		.$if(context.context_kind === "translator", (q) =>
+			q.where("context.context_version", "=", context.context_version),
+		)
 		.where("context.generation", "<=", context.generation)
 		.execute();
 	return new Set(rows.map((row) => row.append_key));
@@ -466,20 +473,7 @@ async function readAppendKeysThroughGeneration(
 export async function openDesignModelContext(
 	spec: DesignModelContextSpec,
 ): Promise<DesignModelContextState> {
-	if (spec.semanticScopeKey !== undefined && spec.kind !== "executor") {
-		throw new DesignModelContextError(
-			"Only an executor context may declare a semantic scope key.",
-		);
-	}
-	if (
-		spec.semanticScopeKey !== undefined &&
-		spec.semanticScopeKey.trim() === ""
-	) {
-		throw new DesignModelContextError(
-			"An executor semantic scope key must not be blank.",
-		);
-	}
-	const contextVersion = persistedContextVersion(spec);
+	const contextVersion = spec.contextVersion;
 	return withAppTx(async (tx) => {
 		await authorize(tx, spec.designSessionId, spec.authority);
 		let row = await tx
@@ -487,40 +481,40 @@ export async function openDesignModelContext(
 			.selectAll()
 			.where("design_session_id", "=", spec.designSessionId)
 			.where("context_kind", "=", spec.kind)
+			.$if(spec.kind === "translator", (q) =>
+				q.where("context_version", "=", spec.contextVersion),
+			)
 			.orderBy("generation", "desc")
 			.forUpdate()
 			.executeTakeFirst();
 		if (row === undefined) {
-			row =
-				(await tx
-					.insertInto("design_model_contexts")
-					.values({
-						id: randomUUID(),
-						design_session_id: spec.designSessionId,
-						context_kind: spec.kind,
-						generation: 0,
-						supersedes_context_id: null,
-						model_id: spec.modelId,
-						prompt_version: spec.promptVersion,
-						toolset_digest: spec.toolsetDigest,
-						context_version: contextVersion,
-						revision: 0,
-					})
-					.onConflict((conflict) =>
-						conflict
-							.columns(["design_session_id", "context_kind", "generation"])
-							.doNothing(),
-					)
-					.returningAll()
-					.executeTakeFirst()) ??
-				(await tx
-					.selectFrom("design_model_contexts")
-					.selectAll()
-					.where("design_session_id", "=", spec.designSessionId)
-					.where("context_kind", "=", spec.kind)
-					.orderBy("generation", "desc")
-					.forUpdate()
-					.executeTakeFirstOrThrow());
+			const previous = await tx
+				.selectFrom("design_model_contexts")
+				.select("generation")
+				.where("design_session_id", "=", spec.designSessionId)
+				.where("context_kind", "=", spec.kind)
+				.orderBy("generation", "desc")
+				.executeTakeFirst();
+			// The session/app authority lock already serializes context creation.
+			row = await tx
+				.insertInto("design_model_contexts")
+				.values({
+					id: randomUUID(),
+					design_session_id: spec.designSessionId,
+					context_kind: spec.kind,
+					generation: previous
+						? safePersistedSequence(previous.generation, "context generation") +
+							1
+						: 0,
+					supersedes_context_id: null,
+					model_id: spec.modelId,
+					prompt_version: spec.promptVersion,
+					toolset_digest: spec.toolsetDigest,
+					context_version: contextVersion,
+					revision: 0,
+				})
+				.returningAll()
+				.executeTakeFirstOrThrow();
 		}
 		if (!providerContractMatches(row, spec)) {
 			const previous = row;
@@ -561,7 +555,7 @@ export async function openDesignModelContext(
 				? new Set(appendKeys)
 				: await readAppendKeysThroughGeneration(tx, row);
 		const predecessorItems =
-			spec.kind === "design" && generation > 0
+			spec.kind === "architect" && generation > 0
 				? await readLatestPredecessorItems(tx, row)
 				: [];
 		return {
@@ -600,7 +594,13 @@ export async function appendDesignModelContext(args: {
 		await authorize(tx, args.designSessionId, args.authority);
 		const context = await tx
 			.selectFrom("design_model_contexts")
-			.select(["id", "design_session_id", "context_kind", "revision"])
+			.select([
+				"id",
+				"design_session_id",
+				"context_kind",
+				"context_version",
+				"revision",
+			])
 			.where("id", "=", args.contextId)
 			.forUpdate()
 			.executeTakeFirst();
@@ -675,8 +675,10 @@ export async function completeDesignModelStep(args: {
 	readonly responseDigest: string;
 	readonly usage?: Record<string, unknown>;
 	readonly authority: DesignModelContextAuthority;
-}): Promise<number> {
-	if (args.messages.length === 0) {
+	/** A failed/aborted response contributes usage but cannot supply actions. */
+	readonly accountingOnly?: boolean;
+}): Promise<number | null> {
+	if (args.messages.length === 0 && !args.accountingOnly) {
 		throw new DesignModelContextError(
 			"A completed model step must persist its response messages.",
 		);
@@ -691,14 +693,34 @@ export async function completeDesignModelStep(args: {
 	const event: DesignModelStepEvent = {
 		eventKind: "completed",
 		responseDigest: args.responseDigest,
+		appendKey: args.appendKey,
 		...(args.usage !== undefined && { usage: args.usage }),
 	};
 	const eventDigest = canonicalJsonDigest({ stepKey: args.stepKey, ...event });
 	return withAppTx(async (tx) => {
-		await authorize(tx, args.designSessionId, args.authority);
+		let live = !args.accountingOnly;
+		try {
+			await authorize(tx, args.designSessionId, args.authority);
+		} catch (error) {
+			if (
+				!(
+					error instanceof RunHolderLostError ||
+					error instanceof CommitReauthError
+				)
+			)
+				throw error;
+			live = false;
+		}
 		const context = await tx
 			.selectFrom("design_model_contexts")
-			.select(["id", "design_session_id", "context_kind", "revision"])
+			.select([
+				"id",
+				"design_session_id",
+				"context_kind",
+				"context_version",
+				"revision",
+				"model_id",
+			])
 			.where("id", "=", args.contextId)
 			.forUpdate()
 			.executeTakeFirst();
@@ -707,7 +729,44 @@ export async function completeDesignModelStep(args: {
 				"The completed model step is outside this design session.",
 			);
 		}
-		await assertCurrentContext(tx, context);
+		const start = await tx
+			.selectFrom("design_model_steps")
+			.selectAll()
+			.where("context_id", "=", args.contextId)
+			.where("step_key", "=", args.stepKey)
+			.where("event_kind", "=", "started")
+			.executeTakeFirstOrThrow();
+		const admission = modelStepAdmissionSchema.parse(start.admission);
+		if (
+			admission.actorUserId !== args.authority.actorUserId ||
+			admission.runId !== args.authority.runId ||
+			start.created_by_run_id !== admission.runId ||
+			admission.projectId !== args.authority.expectedProjectId ||
+			admission.holderDigest !==
+				canonicalJsonDigest(args.authority.holderNonce) ||
+			start.event_digest !==
+				canonicalJsonDigest({
+					stepKey: args.stepKey,
+					eventKind: "started",
+					requestDigest: start.request_digest,
+					admission,
+				})
+		) {
+			throw new DesignModelContextError(
+				"The response does not belong to this admitted provider request.",
+			);
+		}
+		const latest = await tx
+			.selectFrom("design_model_contexts")
+			.select("id")
+			.where("design_session_id", "=", args.designSessionId)
+			.where("context_kind", "=", context.context_kind)
+			.$if(context.context_kind === "translator", (q) =>
+				q.where("context_version", "=", context.context_version),
+			)
+			.orderBy("generation", "desc")
+			.executeTakeFirstOrThrow();
+		live &&= latest.id === context.id;
 		const replayItems = await tx
 			.selectFrom("design_model_context_items")
 			.select(["append_index", "item_digest"])
@@ -724,37 +783,47 @@ export async function completeDesignModelStep(args: {
 			.executeTakeFirst();
 		if (replayItems.length > 0 || replayStep !== undefined) {
 			if (
-				replayItems.length !== digests.length ||
-				replayItems.some((row, index) => row.item_digest !== digests[index]) ||
-				replayStep?.event_digest !== eventDigest
+				replayStep?.event_digest !== eventDigest ||
+				(replayItems.length > 0 &&
+					(replayItems.length !== digests.length ||
+						replayItems.some((row, i) => row.item_digest !== digests[i])))
 			) {
 				throw new DesignModelContextError(
 					`Completed model step ${args.stepKey} was replayed with different response evidence.`,
 				);
 			}
-			return safePersistedSequence(
-				context.revision,
-				`design_model_contexts.revision for ${context.id}`,
-			);
+			return live && replayItems.length > 0
+				? safePersistedSequence(context.revision, "model context revision")
+				: null;
 		}
 		const revision = safePersistedSequence(
 			context.revision,
-			`design_model_contexts.revision for ${context.id}`,
+			"model context revision",
 		);
-		await tx
-			.insertInto("design_model_context_items")
-			.values(
-				durableMessages.map((message, index) => ({
-					context_id: context.id,
-					ordinal: revision + index + 1,
-					append_key: args.appendKey,
-					append_index: index,
-					item_digest: digests[index] as string,
-					message: JSON.stringify(message),
-					created_by_run_id: args.authority.runId,
-				})),
-			)
-			.execute();
+		if (live) {
+			await tx
+				.insertInto("design_model_context_items")
+				.values(
+					durableMessages.map((message, i) => ({
+						context_id: context.id,
+						ordinal: revision + i + 1,
+						append_key: args.appendKey,
+						append_index: i,
+						item_digest: digests[i] as string,
+						message: JSON.stringify(message),
+						created_by_run_id: admission.runId,
+					})),
+				)
+				.execute();
+			await tx
+				.updateTable("design_model_contexts")
+				.set({
+					revision: revision + durableMessages.length,
+					updated_at: new Date(),
+				})
+				.where("id", "=", context.id)
+				.execute();
+		}
 		await tx
 			.insertInto("design_model_steps")
 			.values({
@@ -764,17 +833,62 @@ export async function completeDesignModelStep(args: {
 				event_digest: eventDigest,
 				request_digest: null,
 				response_digest: args.responseDigest,
+				response_append_key: args.appendKey,
 				usage: args.usage === undefined ? null : JSON.stringify(args.usage),
-				created_by_run_id: args.authority.runId,
+				created_by_run_id: admission.runId,
 			})
 			.execute();
-		const nextRevision = revision + args.messages.length;
-		await tx
-			.updateTable("design_model_contexts")
-			.set({ revision: nextRevision, updated_at: new Date() })
-			.where("id", "=", context.id)
-			.executeTakeFirstOrThrow();
-		return nextRevision;
+		if (args.usage !== undefined) {
+			const usage = parseModelUsage(args.usage, "completed provider usage");
+			const inputTokens = usage.inputTokens ?? 0;
+			const outputTokens = usage.outputTokens ?? 0;
+			const cacheReadTokens = usage.inputTokenDetails?.cacheReadTokens ?? 0;
+			const cacheWriteTokens = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+			const zero = {
+				stepCount: 0,
+				inputTokens: 0,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				costEstimate: 0,
+			};
+			await writeRunSummaryInTransaction(
+				tx,
+				{ kind: "design-session", designSessionId: args.designSessionId },
+				admission.runId,
+				{
+					...zero,
+					runId: admission.runId,
+					startedAt: start.created_at.toISOString(),
+					finishedAt: new Date().toISOString(),
+					promptMode: "build",
+					appReady: false,
+					moduleCount: 0,
+					model: context.model_id,
+					toolCallCount: 0,
+				},
+				[
+					{
+						contextId: context.id,
+						stepKey: args.stepKey,
+						stepCount: 1,
+						inputTokens,
+						outputTokens,
+						cacheReadTokens,
+						cacheWriteTokens,
+						costEstimate: estimateCost(
+							context.model_id,
+							inputTokens,
+							outputTokens,
+							cacheReadTokens,
+							cacheWriteTokens,
+						),
+					},
+				],
+				{ userId: admission.actorUserId, period: admission.billingPeriod },
+			);
+		}
+		return live ? revision + durableMessages.length : null;
 	});
 }
 
@@ -785,71 +899,64 @@ export async function recordDesignModelStepEvent(args: {
 	readonly designSessionId: string;
 	readonly contextId: string;
 	readonly stepKey: string;
-	readonly event: DesignModelStepEvent;
+	readonly event: Extract<DesignModelStepEvent, { eventKind: "started" }>;
 	readonly turnBudget?: {
 		readonly limit: number;
 	};
 	readonly authority: DesignModelContextAuthority;
-}): Promise<void> {
-	const eventPayload =
-		args.event.eventKind === "started"
-			? {
-					stepKey: args.stepKey,
-					eventKind: args.event.eventKind,
-					requestDigest: args.event.requestDigest,
-				}
-			: { stepKey: args.stepKey, ...args.event };
-	const turnProvenanceId =
-		args.event.eventKind === "started"
-			? (args.event.turnProvenanceId ?? null)
-			: null;
-	const eventDigest = canonicalJsonDigest(eventPayload);
-	await withAppTx(async (tx) => {
+}): Promise<boolean> {
+	return withAppTx(async (tx) => {
 		await authorize(tx, args.designSessionId, args.authority);
 		const context = await tx
 			.selectFrom("design_model_contexts")
-			.select(["id", "design_session_id", "context_kind"])
+			.select(["id", "design_session_id", "context_kind", "context_version"])
 			.where("id", "=", args.contextId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (context?.design_session_id !== args.designSessionId) {
+		if (context?.design_session_id !== args.designSessionId)
 			throw new DesignModelContextError(
 				"The model step is outside this design session.",
 			);
-		}
 		await assertCurrentContext(tx, context);
-		if (
-			context.context_kind === "design" &&
-			args.event.eventKind === "started" &&
-			turnProvenanceId === null
-		)
+		const turnProvenanceId = args.event.turnProvenanceId ?? null;
+		if (context.context_kind === "architect" && turnProvenanceId === null)
 			throw new DesignModelContextError(
 				"Every design provider start requires its logical user turn provenance.",
 			);
 		const existing = await tx
 			.selectFrom("design_model_steps")
-			.select(["event_digest", "turn_provenance_id"])
+			.select(["event_digest", "turn_provenance_id", "admission"])
 			.where("context_id", "=", args.contextId)
 			.where("step_key", "=", args.stepKey)
-			.where("event_kind", "=", args.event.eventKind)
+			.where("event_kind", "=", "started")
 			.executeTakeFirst();
-		if (existing !== undefined) {
+		const admission = {
+			actorUserId: args.authority.actorUserId,
+			runId: args.authority.runId,
+			holderDigest: canonicalJsonDigest(args.authority.holderNonce),
+			projectId: args.authority.expectedProjectId,
+			billingPeriod: existing
+				? modelStepAdmissionSchema.parse(existing.admission).billingPeriod
+				: getCurrentPeriod(),
+		};
+		const eventDigest = canonicalJsonDigest({
+			stepKey: args.stepKey,
+			eventKind: "started",
+			requestDigest: args.event.requestDigest,
+			admission,
+		});
+		if (existing) {
 			if (
 				existing.event_digest !== eventDigest ||
 				existing.turn_provenance_id !== turnProvenanceId
-			) {
+			)
 				throw new DesignModelContextError(
-					`Model step ${args.stepKey} was replayed with different ${args.event.eventKind} evidence.`,
+					`Model step ${args.stepKey} was replayed with different started evidence.`,
 				);
-			}
-			return;
+			return false;
 		}
 		if (args.turnBudget !== undefined) {
-			if (
-				context.context_kind !== "design" ||
-				args.event.eventKind !== "started" ||
-				args.event.turnProvenanceId === undefined
-			)
+			if (turnProvenanceId === null)
 				throw new DesignModelContextError(
 					"A design turn reservation requires started-step provenance.",
 				);
@@ -862,7 +969,10 @@ export async function recordDesignModelStepEvent(args: {
 				)
 				.select(sql<string>`count(*)`.as("count"))
 				.where("context.design_session_id", "=", args.designSessionId)
-				.where("context.context_kind", "=", "design")
+				.where("context.context_kind", "=", context.context_kind)
+				.$if(context.context_kind === "translator", (q) =>
+					q.where("context.context_version", "=", context.context_version),
+				)
 				.where("step.event_kind", "=", "started")
 				.where("step.turn_provenance_id", "=", turnProvenanceId)
 				.executeTakeFirstOrThrow();
@@ -873,6 +983,11 @@ export async function recordDesignModelStepEvent(args: {
 			.insertInto("design_model_steps")
 			.values({
 				context_id: args.contextId,
+				step_key: args.stepKey,
+				event_kind: "started",
+				event_digest: eventDigest,
+				admission: JSON.stringify(admission),
+				turn_provenance_id: turnProvenanceId,
 				turn_provenance_digest:
 					turnProvenanceId === null
 						? null
@@ -882,25 +997,12 @@ export async function recordDesignModelStepEvent(args: {
 								turnProvenanceId,
 								eventDigest,
 							}),
-				step_key: args.stepKey,
-				event_kind: args.event.eventKind,
-				turn_provenance_id:
-					args.event.eventKind === "started"
-						? (args.event.turnProvenanceId ?? null)
-						: null,
-				event_digest: eventDigest,
-				request_digest:
-					args.event.eventKind === "started" ? args.event.requestDigest : null,
-				response_digest:
-					args.event.eventKind === "completed"
-						? args.event.responseDigest
-						: null,
-				usage:
-					args.event.eventKind === "completed" && args.event.usage !== undefined
-						? JSON.stringify(args.event.usage)
-						: null,
+				request_digest: args.event.requestDigest,
+				response_digest: null,
+				usage: null,
 				created_by_run_id: args.authority.runId,
 			})
 			.execute();
+		return true;
 	});
 }

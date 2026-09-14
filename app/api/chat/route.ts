@@ -1118,7 +1118,7 @@ export async function POST(req: Request) {
 		// design author owns a new build, while the editor owns follow-up turns.
 		model: appReady
 			? MODEL_ROLES.followUpEditor.modelId
-			: MODEL_ROLES.designAuthor.modelId,
+			: MODEL_ROLES.architect.modelId,
 		promptMode: appReady ? "edit" : "build",
 		appReady,
 		moduleCount: loadedApp?.module_count ?? 0,
@@ -1984,7 +1984,7 @@ export async function POST(req: Request) {
 						appReady: wonEdit,
 						model: wonEdit
 							? MODEL_ROLES.followUpEditor.modelId
-							: MODEL_ROLES.designAuthor.modelId,
+							: MODEL_ROLES.architect.modelId,
 					});
 					/* The context was built with the PRE-WAIT mode, and a stale-mode
 					 * adoption above may have won under the other one. Everything
@@ -2256,25 +2256,15 @@ export async function POST(req: Request) {
 				 * after the authoritative claim/reacquire and thread binding. */
 				writer.writePrivateHolderNonce(holderNonce);
 
-				/* ── The design-build turn ─────────────────────────────────────
-				 *
-				 * A design-session run never mounts the SA: the server-owned
-				 * BUILD ORCHESTRATOR is the whole method — source package →
-				 * bounded design pipeline → slice executor → materialization →
-				 * later slices — and this branch owns its terminal mapping onto
-				 * the run/credit machinery. It returns before the SA seed below;
-				 * edit-shaped turns continue on the SA path unchanged — including
-				 * a serialize-wait that admitted as BUILD but won its claim as an
-				 * EDIT after the awaited build completed (`bindChargeableMode`
-				 * flipped `appReady`; the session binding survives only as thread
-				 * lineage there). */
+				// New-app turns share one architect conversation from planning through
+				// construction. The route owns claims, billing and stream settlement.
 				if (designSessionRun !== undefined && !appReady) {
 					const design = designSessionRun;
 					/* The orchestration's cancellation seam. The run deliberately
 					 * ignores browser disconnects (it drains server-side), so
 					 * nothing fires this mid-run; aborting when the branch settles
 					 * cancels any model call a throw left in flight, and the
-					 * orchestrator's own step/slice budgets remain the primary
+					 * architect's durable step budget remain the primary
 					 * runaway bound. */
 					const orchestrationAbort = new AbortController();
 					try {
@@ -2324,65 +2314,33 @@ export async function POST(req: Request) {
 								return { blueprint: finalApp.blueprint, head };
 							},
 							deps: {
-								/* The design agent's step fan-out: per-step usage on the
-								 * accumulator (steps count as steps), tool-call/result and
-								 * reasoning-summary conversation events, all through the
-								 * same handler the SA rides. */
-								onAgentStep: (step) =>
+								onAgentStep: (step, role) =>
 									ctx.handleAgentStep(
 										step,
-										"Design agent",
-										MODEL_ROLES.designAuthor.modelId,
-										"design-author",
+										role === "architect"
+											? "Architect"
+											: role === "peer"
+												? "Peer"
+												: "Translator",
+										(role === "architect"
+											? MODEL_ROLES.architect
+											: role === "peer"
+												? MODEL_ROLES.peer
+												: MODEL_ROLES.translator
+										).modelId,
+										role === "architect"
+											? "design-author"
+											: role === "peer"
+												? "design-review"
+												: "translation",
 									),
-								/* Reasoning summaries from the calls that never touch a
-								 * thread (the independent reviewer, executor steps) land
-								 * beside the run's other events, joined to artifacts by
-								 * run id. Never fatal. */
-								onReasoningSummary: (text) => {
-									try {
-										ctx.emitConversation({
-											type: "assistant-reasoning",
-											text,
-										});
-									} catch {
-										/* Event logging never fails the run. */
-									}
-								},
-								onDesignToolOutcome: (event) => {
-									try {
-										ctx.emitConversation({
-											type: "design-tool-outcome",
-											...event,
-										});
-									} catch {
-										/* Event logging never fails the run. */
-									}
-								},
-								onExecutorToolOutcome: (event) => {
-									try {
-										ctx.emitConversation({
-											type: "executor-tool-outcome",
-											...event,
-										});
-									} catch {
-										/* Event logging never fails the run. */
-									}
-								},
-								/* A transient design-turn fault being redriven renders as
-								 * a RECOVERABLE warning with the real classified type, the
-								 * same admin-inspect breadcrumb as an SA turn retry. */
-								onRecoverableRetry: (classified) => {
-									ctx.emitError(
-										{
-											...classified,
-											message: turnRetryMessage(classified.type),
-											recoverable: true,
-										},
-										"route:design-turn-retry",
-										{ runContinues: true },
-									);
-								},
+								onToolResult: (_role, call, output) =>
+									ctx.emitConversation({
+										type: "tool-result",
+										toolCallId: call.toolCallId,
+										toolName: call.toolName,
+										output,
+									}),
 							},
 						});
 						if (outcome.kind === "completed") {

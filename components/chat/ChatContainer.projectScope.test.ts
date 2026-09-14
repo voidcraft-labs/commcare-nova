@@ -131,12 +131,12 @@ describe("interrupted-turn request routing", () => {
 		expect(chatRequestIsRedrive("submit-message", undefined)).toBe(false);
 	});
 
-	it("offers only a stopped recoverable build an exact-plan resume", () => {
+	it("offers only a stopped recoverable build an resume", () => {
 		expect(
 			designBuildCanResume(
 				{
 					failure: { message: "Temporary failure", recoverable: true },
-					seededStage: null,
+					stage: null,
 				},
 				true,
 				"ready",
@@ -146,7 +146,7 @@ describe("interrupted-turn request routing", () => {
 			designBuildCanResume(
 				{
 					failure: { message: "Build defect", recoverable: false },
-					seededStage: null,
+					stage: null,
 				},
 				true,
 				"ready",
@@ -156,7 +156,7 @@ describe("interrupted-turn request routing", () => {
 			designBuildCanResume(
 				{
 					failure: { message: "Temporary failure", recoverable: true },
-					seededStage: null,
+					stage: null,
 				},
 				true,
 				"streaming",
@@ -164,7 +164,7 @@ describe("interrupted-turn request routing", () => {
 		).toBe(false);
 		expect(
 			designBuildCanResume(
-				{ failure: null, seededStage: "incomplete" },
+				{ failure: null, stage: "incomplete" },
 				true,
 				"ready",
 			),
@@ -176,8 +176,7 @@ describe("interrupted-turn request routing", () => {
 		rememberDesignBuildResumeEligibility(resumable, {
 			designSessionId: "design-1",
 			failure: { message: "Infrastructure stopped", recoverable: true },
-			seededStage: null,
-			completion: null,
+			stage: null,
 		});
 		expect([...resumable]).toEqual(["design-1"]);
 		expect(
@@ -202,8 +201,7 @@ describe("interrupted-turn request routing", () => {
 		rememberDesignBuildResumeEligibility(resumable, {
 			designSessionId: "design-1",
 			failure: null,
-			seededStage: null,
-			completion: { appId: "app-1", appSeq: 13, plannedSlices: 13 },
+			stage: "ready",
 		});
 		expect(resumable.size).toBe(0);
 	});
@@ -240,7 +238,7 @@ describe("design progress activity ownership", () => {
 		).toBe(true);
 		expect(
 			designProgressOwnsActivityStatus(
-				{ active: true, stage: "reviewing-implementation" },
+				{ active: true, stage: "reviewing-app" },
 				"streaming",
 			),
 		).toBe(true);
@@ -291,7 +289,7 @@ describe("design progress activity ownership", () => {
 	it("locks only an actually unfinished initial build", () => {
 		const historicalDesignThread = {
 			active: true,
-			stage: "understanding",
+			stage: "planning",
 		} as const;
 		expect(designProgressLocksInitialBuild(historicalDesignThread, true)).toBe(
 			true,
@@ -301,7 +299,7 @@ describe("design progress activity ownership", () => {
 		);
 		expect(
 			designProgressLocksInitialBuild(
-				{ active: false, stage: "understanding" },
+				{ active: false, stage: "planning" },
 				true,
 			),
 		).toBe(true);

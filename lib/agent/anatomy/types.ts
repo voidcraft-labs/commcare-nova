@@ -15,20 +15,16 @@ import type { BlueprintDoc } from "@/lib/domain";
 /** The model roles the anatomy describes, one page each. */
 export type AnatomyRoleId =
 	| "solutions-architect"
-	| "design-author"
-	| "design-reviewer"
-	| "build-executor"
-	| "executor-helper"
+	| "architect"
+	| "peer"
 	| "document-extractor"
 	| "translator"
 	| "mcp-boot";
 
 export const ANATOMY_ROLE_IDS: readonly AnatomyRoleId[] = [
 	"solutions-architect",
-	"design-author",
-	"design-reviewer",
-	"build-executor",
-	"executor-helper",
+	"architect",
+	"peer",
 	"document-extractor",
 	"translator",
 	"mcp-boot",
@@ -76,8 +72,6 @@ export interface ToolDefinitionView {
 	readonly providerTool?: { readonly id: string; readonly args: unknown };
 	readonly providerOptions?: unknown;
 	readonly deferred?: boolean;
-	/** Executor only: whether this slice's `allowedTools` admits the tool. */
-	readonly allowed?: boolean;
 }
 
 interface ItemBase {
@@ -101,9 +95,6 @@ export type ContextItem =
 	| (ItemBase & {
 			readonly kind: "tools";
 			readonly tools: readonly ToolDefinitionView[];
-			/** The tool names whose definitions feed the persisted toolset digest,
-			 * when that set is narrower than the mounted set. */
-			readonly digestCovers?: readonly string[];
 	  })
 	| (ItemBase & {
 			readonly kind: "output-schema";
@@ -179,45 +170,25 @@ export interface DesignSessionInput {
 
 export interface RecordedContext {
 	readonly contextId: string;
-	readonly kind: "design" | "executor";
+	readonly kind: "architect" | "peer" | "translator";
 	readonly generation: number;
 	readonly supersedesContextId: string | null;
 	readonly modelId: string;
 	readonly promptVersion: string;
 	readonly toolsetDigest: string;
 	readonly contextVersion: string;
-	/** Executor only: the slice attempt this generation belongs to, parsed
-	 * from the context version's semantic scope and joined to the attempt row. */
-	readonly slice?: {
-		readonly attemptId: string;
-		readonly sliceId: string | null;
-		readonly attempt: number | null;
-		readonly status: string | null;
-	};
 	readonly items: readonly RecordedItem[];
 	readonly steps: readonly RecordedStep[];
 }
 
 /** The family an append key belongs to, so a timeline can chip it. */
 export type RecordedItemKind =
-	| "seed"
-	| "user-turn"
-	| "answer"
-	| "state-packet"
-	| "compaction-state"
-	| "compaction-reseed"
-	| "required-questions"
-	| "question-card"
-	| "correction"
-	| "wait"
+	| "source"
+	| "plan"
 	| "response"
-	| "slice-brief"
-	| "candidate-checkpoint"
-	| "slice-focus"
 	| "tool-result"
-	| "empty-step-nudge"
-	| "blocker"
-	| "auto-blocker"
+	| "feedback"
+	| "previous-conversation"
 	| "unknown";
 
 export interface RecordedItem {

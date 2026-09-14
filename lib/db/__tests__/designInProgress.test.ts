@@ -8,7 +8,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrchestrationHead } from "@/lib/agent/build/orchestratorState";
-import { asDesignId } from "@/lib/agent/design/ids";
 import {
 	type DesignInProgressRow,
 	projectDesignInProgress,
@@ -16,9 +15,6 @@ import {
 } from "@/lib/db/designInProgress";
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
-const REVISION = "22222222-2222-4222-8222-222222222222";
-const QUESTION_ID = "55555555-5555-4555-8555-555555555555";
-const SLICE_ID = "66666666-6666-4666-8666-666666666666";
 
 function row(
 	overrides: Partial<DesignInProgressRow> = {},
@@ -107,8 +103,8 @@ describe("projectDesignInProgress", () => {
 		).toBe("2026-08-01T10:00:00.000Z");
 	});
 
-	it("reports understanding for a session whose orchestration never started", () => {
-		expect(projectDesignInProgress(row(), null).stage).toBe("understanding");
+	it("reports planning for a session whose orchestration never started", () => {
+		expect(projectDesignInProgress(row(), null).stage).toBe("planning");
 	});
 
 	it("says the build stopped when a run failed before any orchestration event", () => {
@@ -121,16 +117,15 @@ describe("projectDesignInProgress", () => {
 	});
 
 	it("says the build stopped when a run died mid-phase, not the phase it died in", () => {
-		/* The head's last event says `designing`, but the session's error
+		/* The head's last event says `planning`, but the session's error
 		 * marker (set by every failed settle, cleared by every fresh claim)
 		 * proves that run is dead — active-work copy here is a spinner over
 		 * a dead run, observed live on a failed author call. */
 		const summary = projectDesignInProgress(
 			row({ last_error_type: "provider_error" }),
 			head({
-				kind: "designing",
-				designSessionId: SESSION,
-				sourcePackageDigest: "b".repeat(64),
+				kind: "planning",
+				sourceDigest: "b".repeat(64),
 			}),
 		);
 		expect(summary.stage).toBe("incomplete");
@@ -144,9 +139,8 @@ describe("projectDesignInProgress", () => {
 		const summary = projectDesignInProgress(
 			row(holder(new Date(Date.now() - 60_000))),
 			head({
-				kind: "designing",
-				designSessionId: SESSION,
-				sourcePackageDigest: "b".repeat(64),
+				kind: "planning",
+				sourceDigest: "b".repeat(64),
 			}),
 		);
 		expect(summary.stage).toBe("incomplete");
@@ -157,22 +151,18 @@ describe("projectDesignInProgress", () => {
 		const summary = projectDesignInProgress(
 			row(holder(new Date(Date.now() + 300_000))),
 			head({
-				kind: "designing",
-				designSessionId: SESSION,
-				sourcePackageDigest: "b".repeat(64),
+				kind: "planning",
+				sourceDigest: "b".repeat(64),
 			}),
 		);
-		expect(summary.stage).toBe("designing");
+		expect(summary.stage).toBe("planning");
 	});
 
 	it("reports the paused stage while the design waits on an answer", () => {
 		const summary = projectDesignInProgress(
 			row({ awaiting_input: true }),
 			head({
-				kind: "awaiting-user",
-				designSessionId: SESSION,
-				designRevisionId: REVISION,
-				blockingQuestionIds: [asDesignId(QUESTION_ID)],
+				kind: "awaiting-input",
 			}),
 		);
 		expect(summary.stage).toBe("needs-input");
@@ -208,19 +198,15 @@ describe("projectDesignInProgress", () => {
 		expect(summary.recoverable).toBe(false);
 	});
 
-	it("reads a pre-app slice as the first workflow", () => {
+	it("reports construction before app birth", () => {
 		expect(
 			projectDesignInProgress(
 				row(),
 				head({
-					kind: "executing-slice",
-					designRevisionId: REVISION,
-					buildPlanId: REVISION,
-					sliceId: asDesignId(SLICE_ID),
-					changeSetId: REVISION,
-					attempt: 1,
+					kind: "building",
+					appId: null,
 				}),
 			).stage,
-		).toBe("building-first-workflow");
+		).toBe("building");
 	});
 });

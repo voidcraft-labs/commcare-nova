@@ -305,7 +305,6 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 	const [order, setOrder] = useState<ToolOrder>("weight");
 	const deferred = useDeferredValue(query.trim().toLowerCase());
 	const tools = item.tools;
-	const digestCovers = item.digestCovers ? new Set(item.digestCovers) : null;
 	const visible = useMemo(() => {
 		const matches =
 			deferred.length === 0
@@ -353,9 +352,6 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 				{strictCounts.unset > 0 && (
 					<Badge>{strictCounts.unset} strictness unset</Badge>
 				)}
-				{digestCovers && (
-					<Badge>{digestCovers.size} in the persisted digest</Badge>
-				)}
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<div className="relative min-w-0 flex-1 basis-56">
@@ -400,11 +396,7 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 			) : (
 				<ol className="divide-y divide-nova-border">
 					{visible.map((tool) => (
-						<ToolRow
-							key={tool.name}
-							tool={tool}
-							inDigest={digestCovers?.has(tool.name)}
-						/>
+						<ToolRow key={tool.name} tool={tool} />
 					))}
 				</ol>
 			)}
@@ -412,13 +404,7 @@ function ToolCatalog({ item }: { item: WeighedItem & { kind: "tools" } }) {
 	);
 }
 
-function ToolRow({
-	tool,
-	inDigest,
-}: {
-	tool: WeighedTool;
-	inDigest?: boolean;
-}) {
+function ToolRow({ tool }: { tool: WeighedTool }) {
 	const [open, setOpen] = useState(false);
 	return (
 		<li>
@@ -430,11 +416,6 @@ function ToolRow({
 							{tool.deferred && <Badge>loaded on demand</Badge>}
 							{tool.providerTool && <Badge>provider tool</Badge>}
 							{tool.strict === true && <Badge variant="violet">strict</Badge>}
-							{tool.allowed === true && (
-								<Badge variant="emerald">allowed this slice</Badge>
-							)}
-							{tool.allowed === false && <Badge>not allowed this slice</Badge>}
-							{inDigest === false && <Badge>outside the digest</Badge>}
 						</span>
 						{!open && (
 							<span className="mt-0.5 line-clamp-1 block text-nova-text-secondary text-xs">

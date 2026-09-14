@@ -626,6 +626,49 @@ export interface AppDeploymentResourcesTable {
  * `design_sessions(id)`; the remaining design/plan identity columns stay
  * opaque until the orchestrator unit adds its tables and foreign keys.
  */
+export interface AuthoringPlansTable {
+	session_id: string;
+	revision: ColumnType<string | number, number | undefined, number>;
+	review_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	review_complete: ColumnType<boolean, boolean | undefined, boolean>;
+	reviewed_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number | null
+	>;
+}
+export interface AuthoringPlanRevisionsTable {
+	session_id: string;
+	revision: BigIntColumn;
+	markdown: string;
+	editor: string;
+	run_id: string;
+	request_id: string;
+	request_digest: string;
+	created_at: Timestamp;
+}
+
+export interface AuthoringReviewsTable {
+	created_at: Timestamp;
+	id: string;
+	session_id: string;
+	request_id: string;
+	plan_revision: BigIntColumn;
+	source_digest: string | null;
+	app_seq: ColumnType<string | number | null, number | null, never>;
+	context_id: ColumnType<string | null, string | null | undefined, string>;
+	summary: ColumnType<string | null, string | null | undefined, string>;
+	completed_revision: ColumnType<
+		string | number | null,
+		number | null | undefined,
+		number
+	>;
+}
+
 export interface DesignChangeSetsTable {
 	id: string;
 	design_session_id: string;
@@ -652,6 +695,42 @@ export interface DesignChangeSetsTable {
 	committed_snapshot_digest: string | null;
 	created_at: Timestamp;
 	updated_at: Timestamp;
+}
+
+export interface AuthoringWorkspacesTable {
+	id: string;
+	design_session_id: string;
+	plan_revision: BigIntColumn;
+	kind: string;
+	app_id: string | null;
+	proposed_app_id: string | null;
+	base_seq: ColumnType<string | number | null, number | null, never>;
+	base_project_id: string;
+	base_snapshot_digest: string;
+	revision: ColumnType<string | number, number | undefined, number>;
+	next_ordinal: ColumnType<string | number, number | undefined, number>;
+	exclusive_kind: string | null;
+	owner_user_id: string;
+	owner_run_id: string;
+	status: string;
+	committed_seq: ColumnType<string | number | null, number | null, number>;
+	committed_batch_id: string | null;
+	committed_snapshot_digest: string | null;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+
+export interface LookupAuthoringReceiptsTable {
+	project_id: string;
+	target_key: string;
+	request_id: string;
+	input_digest: string;
+	receipt: JSONColumnType<
+		import("@/lib/lookup/types").LookupAuthoringBatchReceipt
+	>;
+	actor_id: string;
+	run_id: string;
+	created_at: Timestamp;
 }
 
 /** One durable staging request — the idempotency ledger's receipt row. */
@@ -712,6 +791,20 @@ export interface DesignCommittedSlicesTable {
 	build_plan_digest: string;
 	slice_id: string;
 	slice_attempt_id: string;
+	change_set_id: string;
+	app_id: string;
+	seq: BigIntColumn;
+	batch_id: string;
+	committed_snapshot_digest: string;
+	mutation_count: number;
+	committed_at: Timestamp;
+}
+
+export interface AuthoringCheckpointsTable {
+	id: string;
+	design_session_id: string;
+	request_id: string;
+	plan_revision: BigIntColumn;
 	change_set_id: string;
 	app_id: string;
 	seq: BigIntColumn;
@@ -869,6 +962,16 @@ export interface DesignModelContextItemsTable {
 
 /** Payload-free, append-only request lifecycle evidence for one model step. */
 export interface DesignModelStepsTable {
+	response_append_key: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	admission: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null | undefined,
+		never
+	>;
 	turn_provenance_digest: ColumnType<
 		string | null,
 		string | null | undefined,
@@ -1126,6 +1229,7 @@ export interface DesignArtifactWorkspaceStepsTable {
  */
 export interface DesignSessionsTable {
 	id: string;
+	authoring_version: ColumnType<number, number | undefined, number>;
 	mode: string;
 	project_id: string;
 	owner_user_id: string;
@@ -1253,7 +1357,24 @@ export interface AppDatabase {
 	app_location_references: AppLocationReferencesTable;
 	app_deployments: AppDeploymentsTable;
 	app_deployment_resources: AppDeploymentResourcesTable;
+	authoring_plans: AuthoringPlansTable;
+	authoring_reviews: AuthoringReviewsTable;
+	authoring_plan_revisions: AuthoringPlanRevisionsTable;
 	design_change_sets: DesignChangeSetsTable;
+	authoring_workspaces: AuthoringWorkspacesTable;
+	organization_authoring_receipts: {
+		app_id: string;
+		request_id: string;
+		input_digest: string;
+		receipt_digest: string;
+		receipt: JSONColumnType<Record<string, unknown>, string, never>;
+		created_at: Timestamp;
+	};
+	lookup_authoring_receipts: LookupAuthoringReceiptsTable;
+	authoring_requests: DesignChangeSetRequestsTable;
+	authoring_steps: Omit<DesignChangeSetStepsTable, "read_set">;
+	authoring_step_stages: DesignChangeSetStepStagesTable;
+	authoring_checkpoints: AuthoringCheckpointsTable;
 	design_change_set_requests: DesignChangeSetRequestsTable;
 	design_change_set_steps: DesignChangeSetStepsTable;
 	design_change_set_step_stages: DesignChangeSetStepStagesTable;
@@ -1269,6 +1390,7 @@ export interface AppDatabase {
 	design_artifact_workspace_steps: DesignArtifactWorkspaceStepsTable;
 	design_sessions: DesignSessionsTable;
 	design_orchestration_events: DesignOrchestrationEventsTable;
+	authoring_events: DesignOrchestrationEventsTable;
 	design_slice_attempts: DesignSliceAttemptsTable;
 	design_slice_attempt_budget_claims: DesignSliceAttemptBudgetClaimsTable;
 	design_external_action_receipts: DesignExternalActionReceiptsTable;

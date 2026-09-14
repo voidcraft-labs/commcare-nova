@@ -1,18 +1,5 @@
-/**
- * The four one-shot structured roles: design reviewer, executor helper,
- * document extractor, translator. Each is one call with a static system
- * prompt, one user message built per call, and a strict output schema.
- *
- * The user message is never stored anywhere Nova can read it back, so the
- * compositions show its exact composition as a `missing` item that needs a
- * live call, and render the output schema as the provider receives it.
- */
+/** Structured extraction and durable translation batch compositions. */
 
-import {
-	ARCHITECT_SYSTEM,
-	architectBlockerDecisionWireSchemaFor,
-} from "@/lib/agent/build/executionBlocker";
-import { DESIGN_REVIEWER_SYSTEM } from "@/lib/agent/design/prompts";
 import {
 	EXTRACT_SYSTEM,
 	extractDocumentSchema,
@@ -27,6 +14,7 @@ import type {
 	RoleComposition,
 	SourceRef,
 } from "../types";
+import { newestContext, recordedItemsOf } from "./recordedItems";
 import {
 	missingItem,
 	moment,
@@ -44,7 +32,7 @@ function oneShotSystem(
 		text,
 		segments: [{ id: "system", title, text, source }],
 		source,
-		note: "One static string. The call passes no cache key: nothing about it is shared with a next call.",
+		note: "Static instructions from current code. Recorded runs may have used a different prompt version.",
 	});
 }
 
@@ -56,102 +44,6 @@ function liveOnly(
 ): ContextItem {
 	return missingItem({ id, label, needs: "live-call", explanation, source });
 }
-
-// ── Design reviewer ──────────────────────────────────────────────────────
-
-const REVIEWER = {
-	file: "lib/agent/design/reviewer.ts",
-	symbol: "runDesignReviewer",
-};
-const REVIEW_PROMPT = {
-	file: "lib/agent/design/prompts.ts",
-	symbol: "renderReviewPrompt",
-};
-
-const REVIEWER_MOMENTS: readonly MomentSpec[] = [
-	{
-		id: "review",
-		label: "The review call",
-		why: "A fresh context per contract revision: the exact source package, the tag legend, the capability catalog, and the handle-projected contract. No author reasoning, no prior review prose.",
-		needs: ["live-call"],
-		source: REVIEWER,
-	},
-];
-
-export const designReviewerComposition: RoleComposition = {
-	role: "design-reviewer",
-	moments: REVIEWER_MOMENTS,
-	async compose(momentId) {
-		const spec = specById(REVIEWER_MOMENTS, momentId, "design reviewer");
-		return moment(spec, [
-			oneShotSystem(DESIGN_REVIEWER_SYSTEM, "Reviewer instructions", {
-				file: "lib/agent/design/prompts.ts",
-				symbol: "DESIGN_REVIEWER_SYSTEM",
-			}),
-			liveOnly(
-				"prompt",
-				"Review prompt",
-				"Built for each review from the source package with stable source labels, its source legend, the shared capability catalog, and the proposed contract with named references. Attached images appear beside their labels.",
-				REVIEW_PROMPT,
-			),
-			liveOnly(
-				"output-schema",
-				"Output schema",
-				"Strict, and derived per session: the citable source tags, the contract's printed symbols, and the platform constraint codes are exact enums, so an out-of-set citation is grammatically inexpressible. The Zod transform resolves the symbols back to identities after the parse.",
-				{
-					file: "lib/agent/design/reviewerSchema.ts",
-					symbol: "designReviewSchemaFor",
-				},
-			),
-		]);
-	},
-};
-
-// ── Executor helper ──────────────────────────────────────────────────────
-
-const HELPER = {
-	file: "lib/agent/build/executionBlocker.ts",
-	symbol: "resolveExecutionBlocker",
-};
-
-const HELPER_MOMENTS: readonly MomentSpec[] = [
-	{
-		id: "decision",
-		label: "The blocker decision",
-		why: "Bought when the executor reports a blocker or repeats a substantive failure. The decision returns inside the executor's tool result; the helper never speaks to the user.",
-		needs: ["live-call"],
-		source: HELPER,
-	},
-];
-
-export const executorHelperComposition: RoleComposition = {
-	role: "executor-helper",
-	moments: HELPER_MOMENTS,
-	async compose(momentId) {
-		const spec = specById(HELPER_MOMENTS, momentId, "executor helper");
-		return moment(spec, [
-			oneShotSystem(ARCHITECT_SYSTEM, "Architect instructions", {
-				file: "lib/agent/build/executionBlocker.ts",
-				symbol: "ARCHITECT_SYSTEM",
-			}),
-			liveOnly(
-				"prompt",
-				"Blocker prompt",
-				"The accepted workflow brief, current private candidate with readable content and derived field actions, builder report, server diagnostics, and descriptions of the operations authorized for this slice. The candidate carries its workspace revision and snapshot digest. Unreadable sections are identified explicitly.",
-				HELPER,
-			),
-			outputSchemaItem({
-				schema: architectBlockerDecisionWireSchemaFor(),
-				projection: "strict",
-				source: {
-					file: "lib/agent/build/executionBlocker.ts",
-					symbol: "architectBlockerDecisionWireSchemaFor",
-				},
-				note: "Nova's strict projection: every property required, optional slots null-unioned, defaults stripped.",
-			}),
-		]);
-	},
-};
 
 // ── Document extractor ───────────────────────────────────────────────────
 
@@ -222,16 +114,23 @@ export const documentExtractorComposition: RoleComposition = {
 // ── Translator ───────────────────────────────────────────────────────────
 
 const TRANSLATOR = {
-	file: "lib/agent/translation/translator.ts",
-	symbol: "createProductionTranslationBatchRunner",
+	file: "lib/agent/translation/translateLanguage.ts",
+	symbol: "translateLanguage",
 };
 
 const TRANSLATOR_MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "batch",
 		label: "One batch",
-		why: "After the last slice commits, the finalizer groups translation units by owning screen under a token bound and runs one call per batch. Output and usage persist before the canonical commit, so recovery never re-translates.",
+		why: "A requested translation groups current app text into bounded batches. Responses and usage persist before the workspace saves all accepted translations together. Invalid output receives bounded feedback in the same batch conversation.",
 		needs: ["live-call"],
+		source: TRANSLATOR,
+	},
+	{
+		id: "recorded",
+		label: "Recorded batch",
+		why: "The newest translation batch in this session, including responses, repair feedback and recorded usage. The run timeline includes all batches.",
+		needs: ["design-session"],
 		source: TRANSLATOR,
 	},
 ];
@@ -239,22 +138,30 @@ const TRANSLATOR_MOMENTS: readonly MomentSpec[] = [
 export const translatorComposition: RoleComposition = {
 	role: "translator",
 	moments: TRANSLATOR_MOMENTS,
-	async compose(momentId) {
+	async compose(momentId, inputs) {
 		const spec = specById(TRANSLATOR_MOMENTS, momentId, "translator");
+		const recorded =
+			momentId === "recorded" && inputs.session
+				? newestContext(inputs.session.contexts, "translator")
+				: undefined;
 		return moment(spec, [
 			oneShotSystem(TRANSLATION_SYSTEM, "Translator instructions", {
 				file: "lib/agent/translation/translator.ts",
 				symbol: "TRANSLATION_SYSTEM",
 			}),
-			liveOnly(
-				"prompt",
-				"Batch payload",
-				"One user message holding JSON: sourceLanguage, targetLanguage, appObjective, the accepted glossary, and the units, each with unitId, sourceText, role, breadcrumb, context, valueKind, contentPolicy, and protectedTokens.",
-				{
-					file: "lib/agent/translation/translator.ts",
-					symbol: "translationPromptPayload",
-				},
-			),
+			...(recorded
+				? recordedItemsOf(recorded)
+				: [
+						liveOnly(
+							"prompt",
+							"Batch payload",
+							"One user message holding JSON: sourceLanguage, targetLanguage, appObjective, the accepted glossary, and the units, each with unitId, sourceText, role, breadcrumb, context, valueKind, contentPolicy, and protectedTokens.",
+							{
+								file: "lib/agent/translation/translator.ts",
+								symbol: "translationPromptPayload",
+							},
+						),
+					]),
 			outputSchemaItem({
 				schema: translationBatchOutputSchema,
 				projection: "strict",

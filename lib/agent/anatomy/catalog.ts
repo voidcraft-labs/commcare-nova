@@ -4,36 +4,27 @@
  * ledger, ceilings, strictness, call site), and the four lifecycles that
  * connect the roles on the map.
  *
- * Every fact is read from the production constant that governs it. A new
- * model role or call site registers here; `__tests__/catalog.test.ts` sweeps
- * the source tree for `MODEL_ROLES.` references so a call site this catalog
- * does not name fails the build.
+ * Facts come from the production constants that govern each call site.
  */
 
 import {
-	BASE_BUDGET,
-	BLOCKER_RESOLUTION_ALLOWANCE,
-	CEILINGS,
-} from "@/lib/agent/build/budgets";
-import { ARCHITECT_MAX_OUTPUT_TOKENS } from "@/lib/agent/build/executionBlocker";
-import { EXECUTOR_PROMPT_VERSION } from "@/lib/agent/build/executorPrompt";
-import { designAgentOwnedToolDefinitions } from "@/lib/agent/design/loop/designAgent";
-import {
-	DESIGN_LOOP_STEP_BUDGET,
-	DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE,
-} from "@/lib/agent/design/loop/gates";
-import { designLoopToolDefinitions } from "@/lib/agent/design/loop/tools";
-import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
-import { DESIGN_REVIEWER_MAX_OUTPUT_TOKENS } from "@/lib/agent/design/reviewer";
+	ARCHITECT_MAX_STEPS,
+	PEER_MAX_STEPS,
+} from "@/lib/agent/build/architectLoop";
 import { EXTRACT_MAX_OUTPUT_TOKENS } from "@/lib/agent/documentExtraction";
 import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
+import {
+	buildArchitectPeerPrompt,
+	buildArchitectPrompt,
+} from "@/lib/agent/prompts";
 import {
 	SOLUTIONS_ARCHITECT_MAX_RETRIES,
 	SOLUTIONS_ARCHITECT_MAX_STEPS,
 } from "@/lib/agent/solutionsArchitect";
+import { TRANSLATION_MAX_STEPS } from "@/lib/agent/translation/translateLanguage";
 import {
 	TRANSLATION_MAX_OUTPUT_TOKENS,
-	TRANSLATION_PROMPT_VERSION,
+	TRANSLATION_SYSTEM,
 } from "@/lib/agent/translation/translator";
 import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import {
@@ -42,6 +33,7 @@ import {
 	type ReasoningEffort,
 	reasoningProviderOptions,
 } from "@/lib/models";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AnatomyRoleId, SourceRef } from "./types";
 
 export type ModelRoleKey = keyof typeof MODEL_ROLES;
@@ -105,31 +97,6 @@ function roleModel(key: ModelRoleKey) {
 	} as const;
 }
 
-const minutes = (ms: number) => `${Math.round(ms / 60_000)} min`;
-
-/** "strict: true on 20 tools; strict: false on askQuestions", read from the
- * definitions rather than typed by hand, so a new tool changes the sentence. */
-function strictnessSentence(
-	definitions: Readonly<Record<string, { readonly strict?: boolean }>>,
-): string {
-	const strict = Object.entries(definitions)
-		.filter(([, definition]) => definition.strict === true)
-		.map(([name]) => name);
-	const loose = Object.entries(definitions)
-		.filter(([, definition]) => definition.strict !== true)
-		.map(([name]) => name);
-	const describe = (names: readonly string[]) =>
-		names.length <= 2 ? names.join(" and ") : `${names.length} tools`;
-	if (loose.length === 0) return `strict: true on all ${strict.length} tools`;
-	if (strict.length === 0) return `strict: false on all ${loose.length} tools`;
-	return `strict: true on ${describe(strict)}; strict: false on ${describe(loose)}`;
-}
-
-const DESIGN_AUTHOR_TOOL_STRICTNESS = strictnessSentence({
-	...designAgentOwnedToolDefinitions(),
-	...designLoopToolDefinitions(),
-});
-
 export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 	"solutions-architect": {
 		role: "solutions-architect",
@@ -155,145 +122,45 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 				detail:
 					"The SDK retries a failed request; a mid-stream fault re-drives the whole turn instead.",
 			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.followUpEditor.msPerModelStep),
-			},
 		],
 		source: {
 			file: "lib/agent/solutionsArchitect.ts",
 			symbol: "createSolutionsArchitect",
 		},
 	},
-	"design-author": {
-		role: "design-author",
-		title: "Design author",
-		tagline:
-			"Turns the source package into a reviewed Design Contract through one durable model context.",
-		...roleModel("designAuthor"),
-		promptVersion: DESIGN_PROMPT_VERSIONS.agent,
-		cacheKey: promptCacheKeys.design("<designSessionId>"),
-		ledger: "durable-context",
-		callShape: "tool-loop",
-		toolStrictness: DESIGN_AUTHOR_TOOL_STRICTNESS,
-		outputStrictness: "no structured output",
-		ceilings: [
-			{
-				label: "Steps per user turn",
-				value: String(DESIGN_LOOP_STEP_BUDGET),
-				detail: `A new user turn owns a new allowance; a context rollover mints none. Plus ${DESIGN_TERMINAL_CORRECTION_STEP_ALLOWANCE} for a genuine terminal omission.`,
-			},
-			{
-				label: "Compaction",
-				value: `${(OPENAI_COMPACTION_THRESHOLD / 1000).toFixed(0)}k tokens`,
-				detail:
-					"Provider-side. After a checkpoint Nova appends a fresh state packet.",
-			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.designAuthor.msPerModelStep),
-			},
-		],
-		source: {
-			file: "lib/agent/build/designLoopRunner.ts",
-			symbol: "createDesignAgent",
-		},
-	},
-	"design-reviewer": {
-		role: "design-reviewer",
-		title: "Design reviewer",
-		tagline:
-			"Critiques one exact contract revision from a fresh context, with no author reasoning in view.",
-		...roleModel("designReviewer"),
-		promptVersion: DESIGN_PROMPT_VERSIONS.reviewer,
-		cacheKey: null,
-		ledger: "none",
-		callShape: "one-shot-structured",
-		toolStrictness: "no tools",
-		outputStrictness:
-			"strict projection of the per-session reviewer schema (symbols on the wire)",
-		ceilings: [
-			{
-				label: "Output tokens",
-				value: DESIGN_REVIEWER_MAX_OUTPUT_TOKENS.toLocaleString("en-US"),
-			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.designReviewer.msPerModelStep),
-			},
-		],
-		source: {
-			file: "lib/agent/design/reviewer.ts",
-			symbol: "runDesignReviewer",
-		},
-	},
-	"build-executor": {
-		role: "build-executor",
-		title: "Build executor",
-		tagline:
-			"Compiles one reviewed workflow slice into a private change set, one fresh context per attempt.",
-		...roleModel("buildExecutor"),
-		promptVersion: EXECUTOR_PROMPT_VERSION,
-		cacheKey: promptCacheKeys.executor("<designSessionId>"),
+	architect: {
+		role: "architect",
+		title: "Architect",
+		tagline: "Plans and builds the app in one durable conversation.",
+		...roleModel("architect"),
+		promptVersion: canonicalJsonDigest(buildArchitectPrompt()),
+		cacheKey: "nova:architect:<designSessionId>",
 		ledger: "durable-context",
 		callShape: "single-step-loop",
-		toolStrictness:
-			"strict: false on every tool; allowedTools narrows per slice",
+		toolStrictness: "strict: false on function tools",
 		outputStrictness: "no structured output",
-		ceilings: [
-			{
-				label: "Steps per slice",
-				value: `${BASE_BUDGET.maxModelSteps} to ${CEILINGS.maxModelSteps}`,
-				detail:
-					"budgetForSlice: the base, plus an allowance per construction group and for risk, capped at the ceiling.",
-			},
-			{
-				label: "Mutation calls",
-				value: `${BASE_BUDGET.maxMutationCalls} to ${CEILINGS.maxMutationCalls}`,
-			},
-			{
-				label: "Commit attempts",
-				value: String(BASE_BUDGET.maxCommitAttempts),
-			},
-			{
-				label: "Blocker allowance",
-				value: `${BLOCKER_RESOLUTION_ALLOWANCE.modelSteps} steps each, ${BASE_BUDGET.maxBlockerResolutions} max`,
-			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.buildExecutor.msPerModelStep),
-			},
-		],
+		ceilings: [{ label: "Steps per turn", value: String(ARCHITECT_MAX_STEPS) }],
 		source: {
-			file: "lib/agent/build/executorLoop.ts",
-			symbol: "productionExecutorStep",
+			file: "lib/agent/build/orchestrator.ts",
+			symbol: "runBuildOrchestration",
 		},
 	},
-	"executor-helper": {
-		role: "executor-helper",
-		title: "Executor helper",
+	peer: {
+		role: "peer",
+		title: "Peer",
 		tagline:
-			"Decides what a blocked executor should do next from the accepted brief and exact diagnostics.",
-		...roleModel("executorHelper"),
-		promptVersion: null,
-		cacheKey: null,
-		ledger: "none",
-		callShape: "one-shot-structured",
-		toolStrictness: "no tools",
-		outputStrictness: "strict projection of the blocker-decision schema",
-		ceilings: [
-			{
-				label: "Output tokens",
-				value: ARCHITECT_MAX_OUTPUT_TOKENS.toLocaleString("en-US"),
-			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.executorHelper.msPerModelStep),
-			},
-		],
+			"Independently reviews the plan or saved app and edits the same plan.",
+		...roleModel("peer"),
+		promptVersion: canonicalJsonDigest(buildArchitectPeerPrompt()),
+		cacheKey: "nova:peer:<designSessionId>",
+		ledger: "durable-context",
+		callShape: "single-step-loop",
+		toolStrictness: "strict: false on function tools",
+		outputStrictness: "no structured output",
+		ceilings: [{ label: "Steps per review", value: String(PEER_MAX_STEPS) }],
 		source: {
-			file: "lib/agent/build/executionBlocker.ts",
-			symbol: "resolveExecutionBlocker",
+			file: "lib/agent/build/orchestrator.ts",
+			symbol: "runBuildOrchestration",
 		},
 	},
 	"document-extractor": {
@@ -314,10 +181,6 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 				label: "Output tokens",
 				value: EXTRACT_MAX_OUTPUT_TOKENS.toLocaleString("en-US"),
 			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.documentExtractor.msPerModelStep),
-			},
 		],
 		source: {
 			file: "lib/agent/documentExtraction.ts",
@@ -328,27 +191,24 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		role: "translator",
 		title: "Translator",
 		tagline:
-			"Translates one batch of worker-facing content into a target language after the last slice commits.",
+			"Translates batches of worker-facing content from the current app.",
 		...roleModel("translator"),
-		promptVersion: TRANSLATION_PROMPT_VERSION,
-		cacheKey: null,
-		ledger: "none",
-		callShape: "one-shot-structured",
+		promptVersion: canonicalJsonDigest(TRANSLATION_SYSTEM),
+		cacheKey: "nova:translator:<designSessionId>",
+		ledger: "durable-context",
+		callShape: "single-step-loop",
 		toolStrictness: "no tools",
 		outputStrictness: "strict projection of the translation batch schema",
 		ceilings: [
+			{ label: "Steps per batch", value: String(TRANSLATION_MAX_STEPS) },
 			{
 				label: "Output tokens",
 				value: TRANSLATION_MAX_OUTPUT_TOKENS.toLocaleString("en-US"),
 			},
-			{
-				label: "Step pace",
-				value: minutes(MODEL_ROLES.translator.msPerModelStep),
-			},
 		],
 		source: {
-			file: "lib/agent/translation/translator.ts",
-			symbol: "createProductionTranslationBatchRunner",
+			file: "lib/agent/translation/translateLanguage.ts",
+			symbol: "translateLanguage",
 		},
 	},
 	"mcp-boot": {
@@ -363,7 +223,7 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 		cacheKey: null,
 		ledger: "none",
 		callShape: "client-agent",
-		toolStrictness: "the client's choice; Nova serves canonical schemas",
+		toolStrictness: "the client's choice; Nova serves shared authoring schemas",
 		outputStrictness: "none",
 		ceilings: [],
 		source: { file: "lib/mcp/prompts.ts", symbol: "renderAgentPrompt" },
@@ -412,53 +272,29 @@ export const LIFECYCLES: readonly Lifecycle[] = [
 		id: "chat-build",
 		title: "Chat build",
 		summary:
-			"A conversation becomes a reviewed design, then a plan, then an app, before anyone can edit it.",
+			"One architect develops a plan and builds the app, with independent peer review and atomic saved workflows.",
 		steps: [
-			{ kind: "input", label: "Source package: thread, attachments, answers" },
+			{ kind: "input", label: "User requests and attachments" },
 			{
 				kind: "role",
-				role: "design-author",
-				note: "loops until finishDesign, pausing for askQuestions or waitForInput",
+				role: "architect",
+				note: "Plans before construction; carries the same conversation through the build.",
 			},
-			{ kind: "handoff", label: "hands: a contract revision" },
 			{
 				kind: "role",
-				role: "design-reviewer",
-				note: "a fresh context per revision; blockers send it back",
-			},
-			{ kind: "handoff", label: "hands: an accepted revision" },
-			{
-				kind: "server",
-				label: "Lookup materialization and deterministic plan",
-				note: "No model call. One slice per included workflow, in topological order.",
-			},
-			{ kind: "handoff", label: "hands: one slice brief at a time" },
-			{
-				kind: "role",
-				role: "build-executor",
-				note: "a fresh context per slice attempt",
-			},
-			{ kind: "handoff", label: "on a blocker: exact diagnostics" },
-			{
-				kind: "role",
-				role: "executor-helper",
-				note: "guidance returns inside the failed tool result",
-			},
-			{
-				kind: "handoff",
-				label: "after the last slice: the canonical snapshot",
+				role: "peer",
+				note: "Reads the sources and edits the plan while the architect is paused.",
 			},
 			{
 				kind: "server",
-				label: "Localization finalizer",
-				note: "Copy-only targets never call a model.",
+				label: "Validated private workspace and atomic saved workflows",
 			},
 			{
 				kind: "role",
-				role: "translator",
-				note: "translate-with-nova targets only, batched by screen",
+				role: "peer",
+				note: "Inspects and evaluates the saved app; feedback returns to the architect.",
 			},
-			{ kind: "server", label: "Complete: the app is edit-shaped" },
+			{ kind: "server", label: "Complete app and settled usage" },
 		],
 	},
 	{
@@ -517,12 +353,10 @@ export function lifecyclesFor(role: AnatomyRoleId): readonly Lifecycle[] {
 
 /** Every `MODEL_ROLES` key, mapped to the anatomy role that calls it. */
 export const MODEL_ROLE_TO_ANATOMY: Readonly<
-	Record<ModelRoleKey, AnatomyRoleId>
+	Partial<Record<ModelRoleKey, AnatomyRoleId>>
 > = {
-	designAuthor: "design-author",
-	designReviewer: "design-reviewer",
-	executorHelper: "executor-helper",
-	buildExecutor: "build-executor",
+	architect: "architect",
+	peer: "peer",
 	followUpEditor: "solutions-architect",
 	documentExtractor: "document-extractor",
 	translator: "translator",

@@ -28,7 +28,6 @@
  * sequence-1 baseline fold.
  */
 
-import { assertDesignLookupMaterializationCurrentInTransaction } from "@/lib/agent/design/lookupMaterialization";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { lockActorGenerationGate } from "@/lib/db/actorGenerationGate";
 import {
@@ -38,8 +37,9 @@ import {
 	prepareGenesisCandidate,
 	writePreparedGenesisInTransaction,
 } from "@/lib/db/appGenesis";
+import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
 import { executeCanonicalCommitSidecars } from "@/lib/db/canonicalCommitSidecars";
-import { releaseDesignLookupProtectionsInTransaction } from "@/lib/db/designLookupMaterializations";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { type LockedSessionRow, lockSessionRow } from "@/lib/db/designSessions";
 import { designSessionReservation } from "@/lib/db/leaseView";
 import { drainPendingCaseSchemaIndexes } from "@/lib/db/materializeCaseStoreSchemas";
@@ -61,8 +61,6 @@ import {
 	loadCanonicalBlueprintAtSequence,
 } from "./baseLoader";
 import { ChangeSetIntegrityError, ChangeSetScopeLostError } from "./errors";
-import type { ReadSetStatus } from "./readSets";
-import { evaluateReadSetCurrency, normalizeReadSet } from "./readSets";
 import { loadChangeSet, loadChangeSetSteps, lockChangeSetRow } from "./store";
 import type { DesignChangeSet } from "./types";
 
@@ -79,16 +77,11 @@ export type MaterializeGenesisOutcome =
 			 * candidate. Steps are retained; the executor amends and retries. */
 			readonly kind: "gate-rejected";
 			readonly message: string;
-	  }
-	| {
-			/** A captured external read set is no longer current. The change set
-			 * stays open; the orchestrator refreshes or supersedes. */
-			readonly kind: "read-set-stale";
-			readonly stale: readonly ReadSetStatus[];
 	  };
 
 export interface MaterializeGenesisArgs {
 	readonly changeSetId: string;
+	readonly requestId?: string;
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly holderNonce: string;
@@ -125,11 +118,8 @@ export async function materializeAppFromGenesis(
 	const replayed = await replayIfMaterialized(preRead, args);
 	if (replayed !== undefined) return replayed;
 
-	/* Preflight read-set classification against fresh (unlocked) state — the
-	 * structured report the orchestrator acts on. The locked verdicts inside
-	 * the transaction (lookup context, media admission) remain the
-	 * authority; a race between this read and the transaction surfaces as a
-	 * gate rejection there. */
+	// The transaction below replays these steps and resolves current resources
+	// under the canonical kernel's locks.
 	const steps = await loadChangeSetSteps(args.changeSetId);
 	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
 	if (steps.length === 0) {
@@ -139,17 +129,6 @@ export async function materializeAppFromGenesis(
 				"This change set has no staged steps, so there is nothing to materialize.",
 		};
 	}
-	const readSet = normalizeReadSet(steps.flatMap((step) => step.readSet));
-	const readSetStatus = await evaluateReadSetCurrency({
-		appId: null,
-		dependencies: readSet,
-	});
-	if (deadlineExpired(args.deadlineAt)) return deadlineRejection();
-	const stale = readSetStatus.filter((status) => status.state !== "current");
-	if (stale.length > 0) {
-		return { kind: "read-set-stale", stale };
-	}
-
 	/* The receipt-row identity is minted OUTSIDE the retryable transaction so
 	 * a serialization retry reuses it. */
 	const receiptId = crypto.randomUUID();
@@ -170,6 +149,11 @@ export async function materializeAppFromGenesis(
 					);
 				}
 				verifySessionForTransfer(session, args, holder, proposedAppId);
+				await lockPlanForBuild(
+					tx,
+					preRead.designSessionId,
+					preRead.planRevision,
+				);
 
 				const changeSet = await lockChangeSetRow(tx, args.changeSetId);
 				if (changeSet === undefined) {
@@ -242,19 +226,6 @@ export async function materializeAppFromGenesis(
 						},
 					},
 				});
-				await assertDesignLookupMaterializationCurrentInTransaction(tx, {
-					designSessionId: changeSet.designSessionId,
-					designRevisionId: changeSet.designRevisionId,
-					designRevisionDigest: changeSet.designRevisionDigest,
-					projectId: changeSet.baseProjectId,
-				});
-				/* Canonical sequence-one lookup reference edges now protect every
-				 * dependency. Retire the accepted-design bridge in this same
-				 * transaction so there is never an unprotected interval. */
-				await releaseDesignLookupProtectionsInTransaction(
-					tx,
-					changeSet.designSessionId,
-				);
 
 				/* The committed-slice receipt and `open → committed` flip ride the
 				 * same closed sidecar vocabulary every canonical commit uses. */
@@ -266,17 +237,17 @@ export async function materializeAppFromGenesis(
 					committedSnapshot: candidate.persistable,
 					sidecars: [
 						{
-							kind: "commit-design-change-set",
+							kind: "commit-authoring-workspace",
 							changeSetId: changeSet.id,
+							requestId: args.requestId ?? changeSet.id,
 							expectedRevision: changeSet.revision,
 							receiptId,
-							sliceAttemptId: changeSet.attemptId,
 							designSessionId: changeSet.designSessionId,
-							designRevisionId: changeSet.designRevisionId,
-							designRevisionDigest: changeSet.designRevisionDigest,
-							buildPlanId: changeSet.buildPlanId,
-							buildPlanDigest: changeSet.buildPlanDigest,
-							sliceId: changeSet.sliceId,
+							planRevision: changeSet.planRevision,
+							actorUserId: args.actorUserId,
+							runId: args.runId,
+							holderNonce: args.holderNonce,
+							projectId: changeSet.baseProjectId,
 							mutationCount: batch.length,
 						},
 					],
@@ -348,7 +319,10 @@ export async function materializeAppFromGenesis(
 
 		return { kind: "materialized", receipt, replayed: false };
 	} catch (error) {
-		if (error instanceof GenesisGateRejectedError) {
+		if (
+			error instanceof GenesisGateRejectedError ||
+			error instanceof BlueprintCommitRejectedError
+		) {
 			/* A concurrent duplicate may have won and committed — the honest
 			 * answer is then the stored receipt, not a conflict report. */
 			const fresh = await loadChangeSet(args.changeSetId);
@@ -416,7 +390,7 @@ async function materializedReceipt(
 ): Promise<AppMaterializationReceipt> {
 	const db = await getAppDb();
 	const stored = await db
-		.selectFrom("design_committed_slices")
+		.selectFrom("authoring_checkpoints")
 		.select(["id", "app_id", "batch_id", "committed_snapshot_digest"])
 		.where("change_set_id", "=", changeSet.id)
 		.executeTakeFirst();
@@ -516,8 +490,7 @@ function verifyOpenGenesisSet(
 	}
 	if (
 		changeSet.designSessionId !== preRead.designSessionId ||
-		changeSet.designRevisionDigest !== preRead.designRevisionDigest ||
-		changeSet.buildPlanDigest !== preRead.buildPlanDigest
+		changeSet.planRevision !== preRead.planRevision
 	) {
 		throw new ChangeSetIntegrityError(
 			`Change set ${changeSet.id} no longer matches the lineage it resolved with before its lock.`,

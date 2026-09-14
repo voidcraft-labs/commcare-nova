@@ -2,7 +2,10 @@
 
 Client-side form preview running entirely from the in-memory blueprint, with no
 XForm parsing. The non-writing authoring evaluator uses this same engine in a
-bounded Node thread; it has no database or submission writer. Three subsystems own it: the XPath
+bounded Node thread; it has no database or submission writer. Its observations
+use the engine’s effective relevance through groups and repeats: an irrelevant
+question is neither visible nor required and its old validation error does not
+block the form. Computed hidden values remain inspectable with their field kind. Three subsystems own it: the XPath
 evaluator, form engine, and preview UI. **Preview is part of valid by
 construction.** Every XPath function, signature, path initializer, and instance
 namespace Nova admits for a surface must execute faithfully in that surface's

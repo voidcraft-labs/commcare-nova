@@ -594,19 +594,9 @@ describe("automation shared tools", () => {
 		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
 	});
 
-	it("does not perform a fallible organization read after an add commits", async () => {
-		let committed = false;
-		mocks.readOrganization.mockImplementation(async () => {
-			if (committed) throw new Error("organization changed after commit");
-			return { revision: "1", locations: [] };
-		});
+	it("adds an automation when optional organization guidance is unavailable", async () => {
+		mocks.readOrganization.mockRejectedValue(new Error("guidance unavailable"));
 		const h = makeHarness(doc());
-		h.recordMutations.mockImplementation(
-			async (prepared: PreparedMutationCandidate) => {
-				committed = true;
-				return { events: [], committedDoc: prepared.nextDoc };
-			},
-		);
 
 		const added = await h.runTool(addAutomationsTool, {
 			automations: [rule()],
@@ -614,30 +604,17 @@ describe("automation shared tools", () => {
 
 		expect(added.mutations).toHaveLength(1);
 		expect(added.result).not.toHaveProperty("error");
-		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
-		expect(h.recordMutations).toHaveBeenCalledWith(
-			expect.anything(),
-			"automations",
-			{ expectedOrganizationRevision: "1" },
-		);
+		expect(h.currentDoc().automations?.[RULE_UUID]).toEqual(rule());
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
+		expect(mocks.readAuthoring).not.toHaveBeenCalled();
 	});
 
-	it("does not perform a fallible organization read after an update commits", async () => {
+	it("updates an automation when optional organization guidance is unavailable", async () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
 		existing.automationOrder = [RULE_UUID];
-		let committed = false;
-		mocks.readOrganization.mockImplementation(async () => {
-			if (committed) throw new Error("organization changed after commit");
-			return { revision: "1", locations: [] };
-		});
+		mocks.readOrganization.mockRejectedValue(new Error("guidance unavailable"));
 		const h = makeHarness(existing);
-		h.recordMutations.mockImplementation(
-			async (prepared: PreparedMutationCandidate) => {
-				committed = true;
-				return { events: [], committedDoc: prepared.nextDoc };
-			},
-		);
 
 		const updated = await h.runTool(updateAutomationTool, {
 			automation: { ...rule(), name: "Updated safely" },
@@ -645,31 +622,25 @@ describe("automation shared tools", () => {
 
 		expect(updated.mutations).toHaveLength(1);
 		expect(updated.result).not.toHaveProperty("error");
-		expect(mocks.readOrganization).toHaveBeenCalledTimes(1);
-		expect(h.recordMutations).toHaveBeenCalledWith(
-			expect.anything(),
-			"automations",
-			{ expectedOrganizationRevision: "1" },
+		expect(h.currentDoc().automations?.[RULE_UUID]?.name).toBe(
+			"Updated safely",
 		);
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
+		expect(mocks.readAuthoring).not.toHaveBeenCalled();
 	});
 
-	it("passes the organization revision to the writer and propagates its refusal without changing the workspace", async () => {
-		mocks.readOrganization.mockResolvedValue({ revision: "7", locations: [] });
+	it("propagates a commit refusal without changing the workspace", async () => {
 		const h = makeHarness(doc());
 		h.recordMutations.mockRejectedValueOnce(
-			new BlueprintCommitRejectedError("organization revision changed"),
+			new BlueprintCommitRejectedError("referenced place is unavailable"),
 		);
 		const before = structuredClone(h.currentDoc());
 
 		await expect(
 			h.runTool(addAutomationsTool, { automations: [rule()] }),
-		).rejects.toThrow("organization revision changed");
+		).rejects.toThrow("referenced place is unavailable");
 		expect(h.currentDoc()).toEqual(before);
-		expect(h.recordMutations).toHaveBeenCalledWith(
-			expect.anything(),
-			"automations",
-			{ expectedOrganizationRevision: "7" },
-		);
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
 	});
 
 	it("refuses duplicate nested identities and kind changes without saving", async () => {

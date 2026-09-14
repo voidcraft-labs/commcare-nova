@@ -1,5 +1,5 @@
 import type { ModelMessage } from "ai";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
 	respondWithObject,
@@ -14,10 +14,10 @@ import {
 	recoverableCompletedModelSteps,
 } from "@/lib/agent/build/modelContextStore";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import { productionModelStep } from "@/lib/agent/modelStep";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { CommitReauthError, RunHolderLostError } from "@/lib/db/commitGuard";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { productionExecutorStep } from "../executorLoop";
 
 const h = setupAppStateTestDb("design_model_context_", { poolMax: 3 });
 const ACTOR = "context-owner";
@@ -35,7 +35,7 @@ const authority = {
 
 const spec = () => ({
 	designSessionId,
-	kind: "executor" as const,
+	kind: "peer" as const,
 	modelId: "executor-model",
 	promptVersion: "executor-v1",
 	toolsetDigest: "0".repeat(64),
@@ -112,6 +112,83 @@ beforeEach(async () => {
 		},
 	});
 });
+
+it.each(["holder", "membership", "month", "aborted"])(
+	"accounts an admitted response exactly once after %s changes, without supplying stale actions",
+	async (change) => {
+		const { opened, completion } = await started();
+		const start = (await storedRows(opened.id)).steps[0];
+		const period = String(start.admission?.billingPeriod);
+		try {
+			if (change === "holder")
+				await h
+					.pool()
+					.query("UPDATE design_sessions SET run_holder_nonce=$2 WHERE id=$1", [
+						designSessionId,
+						crypto.randomUUID(),
+					]);
+			if (change === "membership")
+				await h
+					.pool()
+					.query("UPDATE auth_member SET role='viewer' WHERE \"userId\"=$1", [
+						ACTOR,
+					]);
+			if (change === "month") {
+				vi.useFakeTimers({ toFake: ["Date"] });
+				vi.setSystemTime(new Date(Date.now() + 40 * 86400_000));
+			}
+			const response =
+				change === "aborted"
+					? {
+							...completion,
+							messages: [],
+							responseDigest: durableModelValueDigest([]),
+							accountingOnly: true,
+						}
+					: completion;
+			expect(await completeDesignModelStep(response)).toBeNull();
+			expect(await completeDesignModelStep(response)).toBeNull();
+			const rows = await storedRows(opened.id);
+			expect(rows.items).toEqual([]);
+			expect(rows.context.revision).toBe("0");
+			expect(
+				rows.steps.filter((step) => step.event_kind === "completed"),
+			).toHaveLength(1);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_model_step_usage_accounts")
+					.select(["run_id", "step_key"])
+					.execute(),
+			).toEqual([{ run_id: RUN_ID, step_key: completion.stepKey }]);
+			expect(
+				await h
+					.db()
+					.selectFrom("run_summaries")
+					.select(["run_id", "step_count", "input_tokens", "output_tokens"])
+					.execute(),
+			).toEqual([
+				{
+					run_id: RUN_ID,
+					step_count: 1,
+					input_tokens: "12",
+					output_tokens: "4",
+				},
+			]);
+			expect(
+				await h
+					.db()
+					.selectFrom("usage_months")
+					.select(["user_id", "period", "input_tokens", "output_tokens"])
+					.execute(),
+			).toEqual([
+				{ user_id: ACTOR, period, input_tokens: "12", output_tokens: "4" },
+			]);
+		} finally {
+			if (change === "month") vi.useRealTimers();
+		}
+	},
+);
 
 describe("durable model context", () => {
 	it.each(["digest", "encoding"] as const)(
@@ -287,19 +364,14 @@ describe("durable model context", () => {
 		},
 	);
 
-	it.each([
-		"modelId",
-		"promptVersion",
-		"toolsetDigest",
-		"contextVersion",
-	] as const)(
-		"supersedes on %s changes and fences all three stale writer methods",
+	it.each(["modelId", "promptVersion", "contextVersion"] as const)(
+		"supersedes on %s changes without admitting a stale response into the conversation",
 		async (field) => {
 			const { opened, completion } = await started();
 			const before = await storedRows(opened.id);
 			const changed = {
 				...spec(),
-				[field]: field === "toolsetDigest" ? "a".repeat(64) : "next-version",
+				[field]: "next-version",
 			};
 			const next = await openDesignModelContext(changed);
 			expect(next.generation).toBe(1);
@@ -307,7 +379,6 @@ describe("durable model context", () => {
 			expect(next.messages).toEqual([]);
 			expect((await openDesignModelContext(changed)).id).toBe(next.id);
 			for (const write of [
-				() => completeDesignModelStep(completion),
 				() => appendDesignModelContext(completion),
 				() =>
 					recordDesignModelStepEvent({
@@ -321,6 +392,8 @@ describe("durable model context", () => {
 				await expect(write()).rejects.toThrow("superseded");
 				expect(await storedRows(opened.id)).toEqual(before);
 			}
+			expect(await completeDesignModelStep(completion)).toBeNull();
+			expect((await storedRows(opened.id)).items).toEqual([]);
 		},
 	);
 
@@ -332,7 +405,6 @@ describe("durable model context", () => {
 			const operations = [
 				() => openDesignModelContext(spec()),
 				() => appendDesignModelContext(completion),
-				() => completeDesignModelStep(completion),
 				() =>
 					recordDesignModelStepEvent({
 						...completion,
@@ -441,7 +513,7 @@ describe("durable model context", () => {
 		expect(await storedRows(opened.id)).toEqual(before);
 	});
 
-	it.each(["completion", "revision"] as const)(
+	it.each(["completion", "revision", "accounting"] as const)(
 		"rolls response items and completion back after a late %s write fails",
 		async (point) => {
 			const { opened, completion } = await started();
@@ -449,15 +521,25 @@ describe("durable model context", () => {
 			await h
 				.pool()
 				.query(`CREATE FUNCTION fail_model_completion() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected model completion fault'; END $$;
-		CREATE TRIGGER model_completion_fault BEFORE ${point === "completion" ? "INSERT ON design_model_steps FOR EACH ROW WHEN (NEW.event_kind = 'completed')" : "UPDATE ON design_model_contexts FOR EACH ROW"} EXECUTE FUNCTION fail_model_completion();`);
+		CREATE TRIGGER model_completion_fault BEFORE ${point === "completion" ? "INSERT ON design_model_steps FOR EACH ROW WHEN (NEW.event_kind = 'completed')" : point === "revision" ? "UPDATE ON design_model_contexts FOR EACH ROW" : "INSERT ON run_summaries FOR EACH ROW"} EXECUTE FUNCTION fail_model_completion();`);
 			await expect(completeDesignModelStep(completion)).rejects.toThrow(
 				"injected model completion fault",
 			);
 			expect(await storedRows(opened.id)).toEqual(before);
+			expect(
+				await h
+					.db()
+					.selectFrom("design_model_step_usage_accounts")
+					.selectAll()
+					.execute(),
+			).toEqual([]);
+			expect(
+				await h.db().selectFrom("usage_months").selectAll().execute(),
+			).toEqual([]);
 			await h
 				.pool()
 				.query(
-					`DROP TRIGGER model_completion_fault ON ${point === "completion" ? "design_model_steps" : "design_model_contexts"}; DROP FUNCTION fail_model_completion();`,
+					`DROP TRIGGER model_completion_fault ON ${point === "completion" ? "design_model_steps" : point === "revision" ? "design_model_contexts" : "run_summaries"}; DROP FUNCTION fail_model_completion();`,
 				);
 			expect(await completeDesignModelStep(completion)).toBe(1);
 			expect((await openDesignModelContext(spec())).messages).toEqual(
@@ -561,7 +643,7 @@ describe("durable model context", () => {
 	it("rehydrates the exact append-only transcript and deduplicates an append key", async () => {
 		const spec = {
 			designSessionId,
-			kind: "executor" as const,
+			kind: "peer" as const,
 			modelId: "executor-model",
 			promptVersion: "executor-v1",
 			toolsetDigest: "a".repeat(64),
@@ -597,7 +679,7 @@ describe("durable model context", () => {
 	it("supersedes instead of rewriting a context under a changed provider contract", async () => {
 		const spec = {
 			designSessionId,
-			kind: "design" as const,
+			kind: "architect" as const,
 			modelId: "design-model",
 			promptVersion: "design-v1",
 			toolsetDigest: "b".repeat(64),
@@ -616,7 +698,7 @@ describe("durable model context", () => {
 			},
 			authority,
 		});
-		const oldResponseKey = `design-response:user-turn-1:old-generation:1:${"8".repeat(64)}`;
+		const oldResponseKey = "response:old-generation:1";
 		await completeDesignModelStep({
 			designSessionId,
 			contextId: original.id,
@@ -631,7 +713,7 @@ describe("durable model context", () => {
 
 		const successor = await openDesignModelContext({
 			...spec,
-			toolsetDigest: "c".repeat(64),
+			promptVersion: "v2",
 		});
 		expect(successor.id).not.toBe(original.id);
 		expect(successor.generation).toBe(1);
@@ -668,7 +750,7 @@ describe("durable model context", () => {
 
 		const reopened = await openDesignModelContext({
 			...spec,
-			toolsetDigest: "c".repeat(64),
+			promptVersion: "v2",
 		});
 		expect(reopened.id).toBe(successor.id);
 		expect(reopened.generation).toBe(1);
@@ -684,26 +766,25 @@ describe("durable model context", () => {
 
 		const successorAfterItemOnlyGeneration = await openDesignModelContext({
 			...spec,
-			toolsetDigest: "d".repeat(64),
+			promptVersion: "v3",
 		});
 		expect(successorAfterItemOnlyGeneration.generation).toBe(2);
 		expect(successorAfterItemOnlyGeneration.predecessorItems).toEqual([
 			{
-				appendKey: oldResponseKey,
-				message: { role: "assistant", content: "old exact response" },
+				appendKey: "state:item-only-rollover",
+				message: { role: "user", content: "new server state" },
 			},
 		]);
 	});
 
-	it("reopens one slice attempt but starts a fresh executor generation for the next attempt", async () => {
+	it("resumes one peer review and opens an independent conversation for the next review", async () => {
 		const spec = {
 			designSessionId,
-			kind: "executor" as const,
+			kind: "peer" as const,
 			modelId: "executor-model",
 			promptVersion: "executor-v2",
 			toolsetDigest: "d".repeat(64),
-			contextVersion: "v1",
-			semanticScopeKey: "slice-a:attempt-a",
+			contextVersion: "review-a",
 			authority,
 		};
 		const first = await openDesignModelContext(spec);
@@ -724,7 +805,7 @@ describe("durable model context", () => {
 
 		const next = await openDesignModelContext({
 			...spec,
-			semanticScopeKey: "slice-b:attempt-b",
+			contextVersion: "review-b",
 		});
 		expect(next.id).not.toBe(first.id);
 		expect(next.generation).toBe(first.generation + 1);
@@ -746,7 +827,7 @@ describe("durable model context", () => {
 	it("records idempotent payload-free provider step boundaries", async () => {
 		const spec = {
 			designSessionId,
-			kind: "executor" as const,
+			kind: "peer" as const,
 			modelId: "executor-model",
 			promptVersion: "executor-v1",
 			toolsetDigest: "e".repeat(64),
@@ -772,15 +853,15 @@ describe("durable model context", () => {
 			event: started,
 			authority,
 		});
-		await recordDesignModelStepEvent({
+		const messages: ModelMessage[] = [{ role: "assistant", content: "Done" }];
+		await completeDesignModelStep({
 			designSessionId,
 			contextId: opened.id,
 			stepKey: "attempt-1:1",
-			event: {
-				eventKind: "completed",
-				responseDigest: "1".repeat(64),
-				usage: { inputTokens: 100, outputTokens: 20 },
-			},
+			appendKey: "response:attempt-1:1",
+			messages,
+			responseDigest: durableModelValueDigest(messages),
+			usage: { inputTokens: 100, outputTokens: 20 },
 			authority,
 		});
 		const rows = await h
@@ -799,7 +880,7 @@ describe("durable model context", () => {
 		expect(rows[1]).toMatchObject({
 			event_kind: "completed",
 			request_digest: null,
-			response_digest: "1".repeat(64),
+			response_digest: durableModelValueDigest(messages),
 			usage: { inputTokens: 100, outputTokens: 20 },
 		});
 		const recovered = await openDesignModelContext(spec);
@@ -857,7 +938,11 @@ describe("durable model context", () => {
 				});
 			},
 			async (provider) => {
-				const step = productionExecutorStep(provider("gpt-5.6-luna"));
+				const step = productionModelStep(
+					provider("gpt-5.6-luna"),
+					"xhigh",
+					"local-test",
+				);
 				const recovered = await openDesignModelContext(spec());
 				expect(recovered.messages).toEqual([message]);
 				const args = {
@@ -917,7 +1002,7 @@ describe("durable model context", () => {
 
 describe("durable design turn admission", () => {
 	it("keeps starts across rollover, deduplicates replay, and grants a different turn its own allowance", async () => {
-		const designSpec = { ...spec(), kind: "design" as const };
+		const designSpec = { ...spec(), kind: "architect" as const };
 		let context = await openDesignModelContext(designSpec);
 		const reserve = (stepKey: string, turn: string) =>
 			recordDesignModelStepEvent({
@@ -951,7 +1036,10 @@ describe("durable design turn admission", () => {
 		expect(reopened.startedStepsByTurn.get("answered-question-b")).toBe(1);
 	});
 	it("serializes competing reservations for the last step", async () => {
-		const context = await openDesignModelContext({ ...spec(), kind: "design" });
+		const context = await openDesignModelContext({
+			...spec(),
+			kind: "architect",
+		});
 		const outcomes = await Promise.allSettled(
 			["a", "b"].map((stepKey) =>
 				recordDesignModelStepEvent({
@@ -977,7 +1065,10 @@ describe("durable design turn admission", () => {
 		expect((await storedRows(context.id)).steps).toHaveLength(1);
 	});
 	it("refuses a design provider start without logical input provenance", async () => {
-		const context = await openDesignModelContext({ ...spec(), kind: "design" });
+		const context = await openDesignModelContext({
+			...spec(),
+			kind: "architect",
+		});
 		await expect(
 			recordDesignModelStepEvent({
 				designSessionId,

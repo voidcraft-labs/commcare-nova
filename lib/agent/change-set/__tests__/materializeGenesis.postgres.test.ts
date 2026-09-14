@@ -7,15 +7,20 @@
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { asDesignId } from "@/lib/agent/design/ids";
+import { readToolLookupDefinitions } from "@/lib/agent/lookupContext";
+import {
+	beginPlanReview,
+	finishPlanReview,
+	writeAppPlan,
+} from "@/lib/agent/planning/store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
-import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	createAndClaimDesignSessionRun,
+	loadDesignSession,
 	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -28,24 +33,24 @@ import {
 import type { Mutation } from "@/lib/doc/types";
 import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { asUuid } from "@/lib/domain/uuid";
+import { applyAuthorizedLookupAuthoringBatch } from "@/lib/lookup/agentService";
 import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
 } from "../baseLoader";
+import { commitDesignChangeSet } from "../commit";
 import { evaluateOverlayFindings, findingFingerprint } from "../diagnostics";
 import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import { ChangeSetScopeLostError } from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
-import { rehydrateChangeSet } from "../runtime";
-import { changeSetHandleSchema } from "../schemas";
 import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
-	type StageHandleAllocation,
 	stageChangeSetRequest,
 } from "../store";
+import { ChangeSetMutationWorkspace } from "../workspace";
 
 /* Route `withSchemaContext` to a store bound to the per-test database —
  * production parity, just bypassing the singleton's Cloud SQL connector
@@ -87,8 +92,7 @@ interface ClaimedGenesisFixture {
 	readonly changeSetId: string;
 }
 
-/** Claim a real design session through the production protocol, seed its
- *  artifact lineage, and open one genesis change set under it. */
+/** Claim a real session, write and review its Markdown plan, then open private work. */
 async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
 	const claimed = await createAndClaimDesignSessionRun({
@@ -97,31 +101,36 @@ async function claimedGenesisFixture(): Promise<ClaimedGenesisFixture> {
 		runId: RUN,
 		cost: 100,
 	});
-	const lineage = await h.seedDesignLineage({
-		existingSessionId: claimed.designSessionId,
+	const authority = {
+		sessionId: claimed.designSessionId,
+		actorUserId: ACTOR,
+		projectId: PROJECT,
+		runId: RUN,
+		holderNonce: claimed.holderNonce,
+	};
+	await writeAppPlan({
+		authority,
+		writer: { editor: "architect" },
+		requestId: "plan",
+		expectedRevision: 0,
+		change: {
+			markdown: "Create the intake form and make it easy to complete.",
+		},
 	});
+	const review = await beginPlanReview(authority, "review");
+	await finishPlanReview(authority, review.reviewId);
 	const changeSet = await beginGenesisChangeSet({
 		proposedAppId: claimed.proposedAppId,
 		projectId: PROJECT,
 		baseSnapshotDigest: emptyGenesisBase(claimed.proposedAppId).digest,
 		lineage: {
 			designSessionId: claimed.designSessionId,
-			designRevisionId: lineage.designRevisionId,
-			designRevisionDigest: lineage.designRevisionDigest,
-			buildPlanId: lineage.buildPlanId,
-			buildPlanDigest: lineage.buildPlanDigest,
-			sliceId: asDesignId(lineage.sliceId),
-			attemptId: lineage.attemptId,
+			planRevision: 1,
 		},
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
+		holderNonce: claimed.holderNonce,
 	});
-	await h
-		.db()
-		.updateTable("design_slice_attempts")
-		.set({ change_set_id: changeSet.id })
-		.where("id", "=", lineage.attemptId)
-		.execute();
 	return {
 		designSessionId: claimed.designSessionId,
 		proposedAppId: claimed.proposedAppId,
@@ -135,7 +144,6 @@ async function persistPrivateMutation(
 	changeSetId: string,
 	mutations: readonly Mutation[],
 	requestId = "genesis-stage-1",
-	handles: readonly StageHandleAllocation[] = [],
 ): Promise<void> {
 	const admitted = admitMutationBatch(mutations);
 	const changeSet = await loadChangeSet(changeSetId);
@@ -149,6 +157,9 @@ async function persistPrivateMutation(
 		candidate.prepared.nextDoc,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
+	const session = await loadDesignSession(changeSet.designSessionId);
+	if (!session?.run_holder_nonce)
+		throw new Error("Missing live session holder");
 	await stageChangeSetRequest({
 		changeSetId,
 		requestId,
@@ -161,13 +172,17 @@ async function persistPrivateMutation(
 		expectedRevision: 0,
 		actorUserId: ACTOR,
 		runId: RUN,
+		chatRunHolder: {
+			source: "chat",
+			mode: "build",
+			runId: RUN,
+			nonce: session.run_holder_nonce,
+		},
 		outcome: {
 			kind: "stage",
+			replayResult: { kind: "mutate", mutations: [], result: { ok: true } },
 			mutations: admitted,
 			stageSlices: [],
-			handles,
-			retainedHandleUuids: handles.map((binding) => binding.uuid),
-			readSet: [],
 			exclusiveKind: null,
 			diagnostics: {
 				candidateDigest: candidate.candidateDigest,
@@ -196,6 +211,146 @@ function materializeArgs(fixture: ClaimedGenesisFixture) {
 }
 
 describe("materializeAppFromGenesis", () => {
+	it.each(["renamed", "deleted"])(
+		"checks current lookup identities after a previously read table is %s",
+		async (change) => {
+			const fixture = await claimedGenesisFixture();
+			const scope = {
+				designSessionId: fixture.designSessionId,
+				projectId: PROJECT,
+				actorId: ACTOR,
+				runId: RUN,
+				requestId: "catalog-create",
+				chatRunHolder: {
+					source: "chat" as const,
+					mode: "build" as const,
+					runId: RUN,
+					nonce: fixture.holderNonce,
+				},
+			};
+			const created = await applyAuthorizedLookupAuthoringBatch(scope, {
+				createTables: [
+					{
+						key: "catalog",
+						name: "Items",
+						tag: "items",
+						columns: [
+							{
+								key: "item",
+								wireName: "item",
+								label: "Item",
+								dataType: "text",
+							},
+						],
+						rows: [],
+					},
+				],
+			});
+			const table = created.tables[0];
+			const column = table?.columnIds[0];
+			if (!table?.revisions || !column)
+				throw new Error("Missing table creation receipt");
+			const workspace = await ChangeSetMutationWorkspace.open(
+				{
+					actorUserId: ACTOR,
+					runId: RUN,
+					chatRunHolder: scope.chatRunHolder,
+					lookupDefinitions: (ids) =>
+						readToolLookupDefinitions(
+							{ projectId: PROJECT, actorId: ACTOR, role: "owner" },
+							ids,
+						),
+					conversionImpact: async () => {
+						throw new Error("No field conversion expected");
+					},
+				},
+				fixture.changeSetId,
+			);
+			await workspace.stageDispatch({
+				toolName: "createModule",
+				requestId: "choose-item",
+				input: {
+					name: "Intake",
+					forms: [
+						{
+							name: "Choose item",
+							type: "survey",
+							fields: [
+								{
+									id: "item",
+									kind: "single_select",
+									label: "Item",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table.tableId,
+										valueColumnId: column.id,
+										labelColumnId: column.id,
+									},
+								},
+							],
+						},
+					],
+				},
+			});
+			expect((await workspace.inspect()).canCommit).toBe(true);
+			await applyAuthorizedLookupAuthoringBatch(
+				{ ...scope, requestId: "catalog-change" },
+				{
+					updateTables: [
+						{
+							tableId: table.tableId,
+							expectedTableRevision: table.revisions.tableRevision,
+							...(change === "deleted"
+								? { delete: true }
+								: {
+										name: "Equipment",
+										tag: "equipment",
+										columnOperations: [
+											{
+												kind: "update" as const,
+												columnId: column.id,
+												label: "Equipment",
+												wireName: "equipment",
+											},
+										],
+									}),
+						},
+					],
+				},
+			);
+			if (change === "deleted") {
+				expect((await workspace.inspect()).canCommit).toBe(false);
+				expect(
+					await materializeAppFromGenesis(materializeArgs(fixture)),
+				).toMatchObject({ kind: "gate-rejected" });
+				expect(await h.readAppRow(fixture.proposedAppId)).toBeUndefined();
+				await workspace.stageDispatch({
+					toolName: "editField",
+					requestId: "replace-source",
+					input: {
+						fieldUuid: "item",
+						updates: {
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{ value: "drill", label: "Drill" },
+									{ value: "saw", label: "Saw" },
+								],
+							},
+						},
+					},
+				});
+			}
+			expect((await workspace.inspect()).canCommit).toBe(true);
+			const saved = await materializeAppFromGenesis({
+				...materializeArgs(fixture),
+				expectedRevision: workspace.current().revision,
+			});
+			expect(saved).toMatchObject({ kind: "materialized" });
+			expect(await h.readAppRow(fixture.proposedAppId)).toBeDefined();
+		},
+	);
+
 	it("materializes a genesis app that uses a shipped built-in icon", async () => {
 		const fixture = await claimedGenesisFixture();
 		const genesis = canonicalAppGenesis(
@@ -220,86 +375,86 @@ describe("materializeAppFromGenesis", () => {
 		);
 	});
 
-	it("imports handles committed by the genesis slice into a later app slice", async () => {
+	it("continues from the exact first checkpoint without another execution protocol", async () => {
 		const fixture = await claimedGenesisFixture();
-		const genesis = canonicalAppGenesis(
-			emptyBlueprintDoc(fixture.proposedAppId),
-		);
-		const rootHandle = changeSetHandleSchema.parse("@root_module");
 		await persistPrivateMutation(
 			fixture.changeSetId,
-			genesis.mutations,
-			"handled-genesis",
-			[
-				{
-					handle: rootHandle,
-					uuid: genesis.moduleUuid,
-					entityKind: "module",
-				},
-			],
+			exportReadyBatch(fixture.proposedAppId),
 		);
-		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
-		if (outcome.kind !== "materialized") {
-			throw new Error(`expected materialized, got ${outcome.kind}`);
-		}
-		const committedRoot = await loadChangeSet(fixture.changeSetId);
-		if (committedRoot === undefined) throw new Error("missing committed root");
-
-		const priorAttempt = await h
-			.db()
-			.selectFrom("design_slice_attempts")
-			.selectAll()
-			.where("id", "=", committedRoot.attemptId)
-			.executeTakeFirstOrThrow();
-		const attemptId = crypto.randomUUID();
-		const sliceId = asDesignId(crypto.randomUUID());
-		await h
-			.db()
-			.insertInto("design_slice_attempts")
-			.values({
-				...priorAttempt,
-				id: attemptId,
-				slice_id: sliceId,
-				attempt: 1,
-				base_kind: "app",
-				base_app_id: fixture.proposedAppId,
-				base_proposed_app_id: null,
-				base_seq: outcome.receipt.seq,
-				base_snapshot_digest: outcome.receipt.snapshotDigest,
-				change_set_id: null,
-				brief_digest: canonicalJsonDigest(`brief:${attemptId}`),
-				execution_run_ids: JSON.stringify([RUN]),
-				status: "running",
-				failure_code: null,
-				wall_clock_ms_used: 0,
-				wall_clock_accrued_at: new Date(),
-				created_at: new Date(),
-				updated_at: new Date(),
-			})
-			.execute();
+		const birth = await materializeAppFromGenesis(materializeArgs(fixture));
+		if (birth.kind !== "materialized")
+			throw new Error("The app did not materialize");
 		const next = await beginAppEditChangeSet({
 			appId: fixture.proposedAppId,
 			expectedProjectId: PROJECT,
+			lineage: { designSessionId: fixture.designSessionId, planRevision: 1 },
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
-			lineage: {
-				designSessionId: committedRoot.designSessionId,
-				designRevisionId: committedRoot.designRevisionId,
-				designRevisionDigest: committedRoot.designRevisionDigest,
-				buildPlanId: committedRoot.buildPlanId,
-				buildPlanDigest: committedRoot.buildPlanDigest,
-				attemptId,
-				sliceId,
+			holderNonce: fixture.holderNonce,
+		});
+		expect(next.baseSeq).toBe(1);
+		expect(next.baseSnapshotDigest).toBe(birth.receipt.snapshotDigest);
+		const holder = {
+			source: "chat" as const,
+			mode: "build" as const,
+			runId: RUN,
+			nonce: fixture.holderNonce,
+		};
+		const mutations = admitMutationBatch([
+			{ kind: "setAppName", name: "Refined intake" },
+		]);
+		await stageChangeSetRequest({
+			changeSetId: next.id,
+			requestId: "name",
+			toolName: "updateApp",
+			inputDigest: canonicalJsonDigest({ name: "Refined intake" }),
+			expectedRevision: 0,
+			actorUserId: ACTOR,
+			runId: RUN,
+			chatRunHolder: holder,
+			outcome: {
+				kind: "stage",
+				replayResult: { kind: "mutate", mutations: [], result: { ok: true } },
+				mutations,
+				stageSlices: [],
+				exclusiveKind: null,
+				diagnostics: {
+					candidateDigest: canonicalJsonDigest("advisory"),
+					findingCount: 0,
+					findingFingerprints: [],
+					canCommit: false,
+				},
 			},
 		});
-		const imported = (await rehydrateChangeSet(next)).handles;
-		expect(imported).toEqual([
-			expect.objectContaining({
-				handle: rootHandle,
-				uuid: genesis.moduleUuid,
-				entityKind: "module",
-			}),
-		]);
+		const commitArgs = {
+			changeSetId: next.id,
+			actorUserId: ACTOR,
+			runId: RUN,
+			chatRunHolder: holder,
+			kind: "chat" as const,
+			expectedRevision: 1,
+		};
+		const checkpoint = await commitDesignChangeSet(commitArgs);
+		if (checkpoint.kind !== "committed")
+			throw new Error(`Checkpoint refused: ${checkpoint.kind}`);
+		expect(checkpoint.receipt.seq).toBe(2);
+		const retry = await commitDesignChangeSet(commitArgs);
+		expect(retry).toMatchObject({
+			kind: "committed",
+			replayed: true,
+			receipt: checkpoint.receipt,
+		});
+		expect((await h.readAppRow(fixture.proposedAppId))?.app_name).toBe(
+			"Refined intake",
+		);
+		expect(
+			await h
+				.db()
+				.selectFrom("authoring_checkpoints")
+				.select("seq")
+				.orderBy("seq")
+				.execute(),
+		).toEqual([{ seq: "1" }, { seq: "2" }]);
 	});
 
 	it("materializes one complete sequence-1 app with the transferred holder and reservation", async () => {
@@ -308,12 +463,6 @@ describe("materializeAppFromGenesis", () => {
 			fixture.changeSetId,
 			exportReadyBatch(fixture.proposedAppId),
 		);
-		await h
-			.db()
-			.updateTable("design_slice_attempts")
-			.set({ outcome_evidence_state: "collecting" })
-			.where("design_session_id", "=", fixture.designSessionId)
-			.executeTakeFirstOrThrow();
 
 		const outcome = await materializeAppFromGenesis(materializeArgs(fixture));
 		if (outcome.kind !== "materialized") {
@@ -364,23 +513,12 @@ describe("materializeAppFromGenesis", () => {
 		);
 		const receiptRow = await h
 			.db()
-			.selectFrom("design_committed_slices")
+			.selectFrom("authoring_checkpoints")
 			.select(["app_id", "seq"])
 			.where("change_set_id", "=", fixture.changeSetId)
 			.executeTakeFirst();
 		expect(receiptRow?.app_id).toBe(fixture.proposedAppId);
 		expect(Number(receiptRow?.seq)).toBe(1);
-
-		/* The slice attempt is committed. */
-		const attempt = await h
-			.db()
-			.selectFrom("design_slice_attempts")
-			.select(["status", "change_set_id", "outcome_evidence_state"])
-			.where("design_session_id", "=", fixture.designSessionId)
-			.executeTakeFirst();
-		expect(attempt?.status).toBe("committed");
-		expect(attempt?.change_set_id).toBe(fixture.changeSetId);
-		expect(attempt?.outcome_evidence_state).toBe("complete");
 
 		/* Sequence 1 is fold-replay exact: the immutable baseline reproduces
 		 * the receipt's snapshot digest. */
@@ -465,7 +603,7 @@ describe("materializeAppFromGenesis", () => {
 		]);
 		await expect(
 			materializeAppFromGenesis(materializeArgs(fixture)),
-		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
+		).resolves.toMatchObject({ kind: "gate-rejected" });
 		expect(await h.readAppRow(fixture.proposedAppId)).toBeUndefined();
 		expect(
 			await h
@@ -527,7 +665,7 @@ describe("materializeAppFromGenesis", () => {
       OR NOT EXISTS (SELECT 1 FROM app_changes WHERE app_id = NEW.app_id)
       OR NOT EXISTS (SELECT 1 FROM app_change_fold_baselines WHERE app_id = NEW.app_id)
       OR NOT EXISTS (SELECT 1 FROM case_type_schemas WHERE app_id = NEW.app_id)
-      OR NOT EXISTS (SELECT 1 FROM design_committed_slices WHERE app_id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM authoring_checkpoints WHERE app_id = NEW.app_id)
      THEN RAISE EXCEPTION 'audit failure before required writes'; END IF;
      RAISE EXCEPTION 'audit late transfer failure after all required writes';
     END IF;
@@ -549,7 +687,7 @@ describe("materializeAppFromGenesis", () => {
      OR EXISTS (SELECT 1 FROM app_changes WHERE app_id = $1)
      OR EXISTS (SELECT 1 FROM app_change_fold_baselines WHERE app_id = $1)
      OR EXISTS (SELECT 1 FROM case_type_schemas WHERE app_id = $1)
-     OR EXISTS (SELECT 1 FROM design_committed_slices WHERE app_id = $1) AS present
+     OR EXISTS (SELECT 1 FROM authoring_checkpoints WHERE app_id = $1) AS present
    `,
 				[fixture.proposedAppId],
 			);

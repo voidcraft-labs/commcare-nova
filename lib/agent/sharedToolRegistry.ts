@@ -122,19 +122,6 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
 
 /**
- * External mutable state a tool's batch or success result depends on. Each
- * entry's policy names its kinds; the organization revision is the one a
- * commit fences (`expectedOrganizationRevision` on the tool's write).
- */
-export type ExternalReadSetKind =
-	| "organization"
-	| "lookup-definition"
-	| "lookup-column"
-	| "media-asset"
-	| "project-scope"
-	| "case-data";
-
-/**
  * Runtime capabilities a tool's execution requires. The policy test keeps
  * every external-WRITE capability off stageable classifications, and the
  * source guards (`lib/agent/__tests__/toolSourceGuards.test.ts`) restrict
@@ -168,12 +155,7 @@ export type ToolRuntimeCapability =
  *   case-store saga (a module removal retiring a case type, a field edit
  *   migrating rows) is `allowed`; the batch-exclusive mutation KINDS
  *   (`renameCaseProperties`, `retireCaseType`) carry that exclusivity.
- * - `readSets` — the external read-set kinds the tool reads (see
- *   {@link ExternalReadSetKind}).
  * - `capabilities` — what the tool's execution requires of its host surface.
- * - `emitsFinalGuidanceFrom` — read sets whose CURRENT state the tool's
- *   success message projects (e.g. automation setup guidance from the
- *   organization), fenced at commit via `expectedOrganizationRevision`.
  */
 export interface ToolExecutionPolicy {
 	readonly effect:
@@ -182,9 +164,7 @@ export interface ToolExecutionPolicy {
 		| "mutate-external"
 		| "mixed-transaction";
 	readonly staging: "allowed" | "exclusive" | "forbidden";
-	readonly readSets: readonly ExternalReadSetKind[];
 	readonly capabilities: readonly ToolRuntimeCapability[];
-	readonly emitsFinalGuidanceFrom?: readonly ExternalReadSetKind[];
 }
 
 export interface SharedToolRegistryEntry {
@@ -199,13 +179,11 @@ export interface SharedToolRegistryEntry {
 const READ_POLICY: ToolExecutionPolicy = {
 	effect: "read-blueprint",
 	staging: "allowed",
-	readSets: [],
 	capabilities: [],
 };
 const BLUEPRINT_WRITE_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
-	readSets: [],
 	capabilities: ["canonical-blueprint-write"],
 };
 /** Blueprint writers whose batch may compose the case-store saga (row
@@ -214,32 +192,26 @@ const BLUEPRINT_WRITE_POLICY: ToolExecutionPolicy = {
 const BLUEPRINT_WRITE_WITH_MIGRATION_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
-	readSets: [],
 	capabilities: ["canonical-blueprint-write", "case-store-migration"],
 };
 const MEDIA_ATTACH_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
-	readSets: ["media-asset"],
 	capabilities: ["canonical-blueprint-write", "media-read"],
 };
 const AUTOMATION_WRITE_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
-	readSets: ["organization"],
 	capabilities: ["canonical-blueprint-write", "organization-read"],
-	emitsFinalGuidanceFrom: ["organization"],
 };
 const PLACE_ROW_WRITE_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-external",
 	staging: "forbidden",
-	readSets: ["organization"],
 	capabilities: ["organization-write"],
 };
 const LOOKUP_WRITE_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-external",
 	staging: "forbidden",
-	readSets: ["lookup-definition", "lookup-column", "project-scope"],
 	capabilities: ["lookup-write"],
 };
 
@@ -259,9 +231,7 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: ["organization"],
 			capabilities: ["organization-read"],
-			emitsFinalGuidanceFrom: ["organization"],
 		},
 	},
 	{
@@ -342,7 +312,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: ["lookup-definition", "lookup-column"],
 			capabilities: ["lookup-read"],
 		},
 	},
@@ -354,7 +323,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: ["lookup-definition", "lookup-column"],
 			capabilities: ["lookup-read"],
 		},
 	},
@@ -408,7 +376,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "mutate-blueprint",
 			staging: "allowed",
-			readSets: ["lookup-definition", "lookup-column"],
 			capabilities: ["canonical-blueprint-write", "lookup-read"],
 		},
 	},
@@ -476,13 +443,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: [
-				"project-scope",
-				"case-data",
-				"lookup-definition",
-				"lookup-column",
-				"organization",
-			],
 			capabilities: ["case-read", "lookup-read", "organization-read"],
 		},
 	},
@@ -557,7 +517,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "mutate-blueprint",
 			staging: "exclusive",
-			readSets: [],
 			capabilities: ["canonical-blueprint-write", "case-store-migration"],
 		},
 	},
@@ -786,7 +745,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: ["media-asset"],
 			capabilities: ["media-read"],
 		},
 	},
@@ -798,7 +756,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "mutate-external",
 			staging: "forbidden",
-			readSets: ["media-asset", "project-scope"],
 			capabilities: ["media-write"],
 		},
 	},
@@ -817,7 +774,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "read-blueprint",
 			staging: "allowed",
-			readSets: ["organization"],
 			capabilities: ["organization-read"],
 		},
 	},
@@ -892,7 +848,6 @@ export const SHARED_TOOL_REGISTRY = [
 		policy: {
 			effect: "mixed-transaction",
 			staging: "forbidden",
-			readSets: ["organization"],
 			capabilities: ["organization-write", "canonical-blueprint-write"],
 		},
 	},

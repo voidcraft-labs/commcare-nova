@@ -1,9 +1,9 @@
-import { CREATION_IDENTITY_SPECS } from "@/lib/agent/change-set/creationIdentities";
 import {
 	type AuthorableIdentityFamily,
 	classifyIdentity,
 } from "@/lib/agent/identitySchema";
 import { CANONICAL_UUID_PATTERN, LOOKUP_UUID_V7_PATTERN } from "@/lib/domain";
+import { CREATION_IDENTITY_SPECS } from "./creationIdentities";
 import { AuthoringInputError } from "./errors";
 
 type Json = Record<string, unknown>;

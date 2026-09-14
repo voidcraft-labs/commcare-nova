@@ -14,7 +14,7 @@ import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 // The SDK and provider run unchanged. Socket ownership, final results and
 // rejection are the evidence; SDK-internal inert promise allocations are not
 // replaced with mocks merely to silence async-hooks diagnostics.
-const MODEL = MODEL_ROLES.designReviewer.modelId;
+const MODEL = MODEL_ROLES.peer.modelId;
 const schema = z.object({
 	answer: z.literal("yes"),
 	note: z.string().optional(),

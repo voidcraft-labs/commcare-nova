@@ -4,30 +4,17 @@ The authoring boundary accepts the content an author wants to write. The canonic
 document still stores typed expressions, protected prose, and stable identities.
 Do not expose those storage structures merely because the reducer accepts them.
 
-The SA editor, build executor, and shared MCP tools use this boundary. They
+The SA editor, build architect, and shared MCP tools use this boundary. They
 validate authored shapes and prepare input inside the authorized, serialized
-workspace invocation. The executor performs durable replay lookup first, then
-supplies accepted module/form construction facts and records their exact
-implementation bindings alongside the staged mutations.
-Accepted workflow inputs bind to field identities in the same preparation.
-Creation uses their form-local names or explicit accepted identities; existing
-bindings survive renames and moves. These lineage keys never enter tool inputs
-or the canonical document, and they do not infer a case write from an input's
-association with a record property.
-Accepted catalog preparation uses canonical literal text and the same creation
-identity allocator; it does not reinterpret accepted labels as answer references.
+workspace invocation. Private builds look up durable request receipts before
+preparing new work, so recovery returns the original result and identities.
 Canonical schemas and the existing commit gate remain authoritative.
 
 `readableSchema.ts` simplifies the root-local definitions emitted by the Zod
 projection: small values stay beside their arguments, while substantial reused
 structures remain shared. It visits schema positions only, preserving literal
 data and admission constraints. The same projection serves MCP and both editors.
-The executor brief renders design relationships with readable names, preserving
-the canonical identities in durable storage and leaving source prose untouched.
-Module and form IDs remain exact creation addresses. Names come from actual
-declarations; references never invent declarations for later workflows.
-
-The editor and executor mount hosted OpenAI tool search and defer shared definitions. MCP
+The editor and architect mount hosted OpenAI tool search and defer shared definitions. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.
@@ -40,7 +27,7 @@ Write results report completed operations with `ok: true`, created identities,
 and any consequential side effects. Confirmation and rejection remain explicit.
 `ok` does not distinguish a canonical save from private staging, or a change from
 an already satisfied request. `summary` belongs to transcript presentation: SDK
-`toModelOutput` omits it on live steps and resumed history; MCP and the executor
+`toModelOutput` omits it on live steps and resumed history; MCP and the architect
 project it out as well. Read payloads retain their data keys. Saved values set
 aside by a committed migration travel separately as `dataReview`, including when
 a later reporting step fails. Automation writes return setup requirements;
@@ -122,9 +109,10 @@ back to the same authoring representation. Literal braces and backslashes must
 round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths retain their existing XPath semantics.
 Connect wrapper paths are admitted by the canonical Connect validator.
 
-Preparation and canonical admission run inside `CanonicalMutationWorkspace`.
-Authorization, reference validation, valid atomic writes, and concurrency remain
-there. Do not catch a commit conflict as a preparation error or rebind an already
+Preparation runs inside the authorized workspace invocation. The canonical
+workspace validates immediate edits; a private workspace can retain incomplete
+work until publication passes the same kernel. Authorization, reference
+validation, atomic writes, and concurrency remain with those owners. Do not catch a commit conflict as a preparation error or rebind an already
 prepared operation after a peer edit. The pilot's call deduplication lasts only
 for its process; production must use the durable call ledger.
 
@@ -141,7 +129,10 @@ Production option edits preserve identity and attached media by retained identit
 or unique value. Field reads expose the editable validation, repeat, and choice
 shapes; option media remains a separate read-only fact. Translation source proofs
 are opaque SHA-256 transport tokens, resolved against the current canonical proof
-before the original concurrency checks. No second proof is persisted.
+before the original concurrency checks. Translation review takes one revision
+over the exact language, unit, current source and stored entry. Preparation
+recovers the canonical review arguments within the same invocation; the model
+does not echo the translated value. No second proof is persisted.
 
 The local evaluator captures credential-free request bodies in a private folder,
 limits model steps and requests, records conservative spend, and soft-deletes its

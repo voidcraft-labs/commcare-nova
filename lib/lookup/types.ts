@@ -33,18 +33,21 @@ export interface LookupScope {
 /** App-bound authority used by shared SA/MCP Project-data writers. The
  * transaction re-resolves the app Project and current membership; `role` is
  * deliberately absent because a caller snapshot cannot authorize a write. */
-export interface LookupAgentWriteScope {
-	appId: string;
+export type LookupAgentWriteScope = {
 	projectId: string;
 	actorId: string;
 	runId: string;
+	requestId: string;
 	chatRunHolder?: {
 		source: "chat";
 		mode: "build" | "edit";
 		runId: string;
 		nonce: string;
 	};
-}
+} & (
+	| { appId: string; designSessionId?: never }
+	| { designSessionId: string; appId?: never }
+);
 
 export interface LookupColumn {
 	id: LookupColumnId;

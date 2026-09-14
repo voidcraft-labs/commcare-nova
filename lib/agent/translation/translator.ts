@@ -2,7 +2,7 @@
 
 import type { LanguageModelUsage } from "ai";
 import { z } from "zod";
-import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
+import type { StructuredModelRunContext } from "@/lib/agent/modelRunContext";
 import type { SubGenerationObjectResult } from "@/lib/agent/subGeneration";
 import {
 	localeFileValueIssue,
@@ -20,10 +20,6 @@ import {
 import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import type {
-	PersistedTranslationBatchOutput,
-	PersistedTranslationUsage,
-} from "./store";
 
 export const TRANSLATION_PROMPT_VERSION = "translation-v2";
 export const TRANSLATION_SCHEMA_VERSION = "translation-output-v1";
@@ -53,6 +49,10 @@ export const translationBatchOutputSchema = z
 			.min(1),
 	})
 	.strict();
+
+export type TranslationBatchOutput = z.infer<
+	typeof translationBatchOutputSchema
+>;
 
 export interface TranslationGlossaryEntry {
 	readonly source: string;
@@ -95,7 +95,7 @@ export interface TranslationBatchInput {
 }
 
 export interface TranslationBatchRunResult
-	extends SubGenerationObjectResult<PersistedTranslationBatchOutput> {}
+	extends SubGenerationObjectResult<TranslationBatchOutput> {}
 
 export type TranslationBatchRunner = (
 	input: TranslationBatchInput,
@@ -365,14 +365,12 @@ export function translationPromptPayload(input: TranslationBatchInput) {
 	};
 }
 
-export const TRANSLATION_SYSTEM = `You translate static worker-facing content for a data-collection app.
+export const TRANSLATION_SYSTEM = `Translate app text for frontline workers. Write naturally in the requested language, script and regional variety. Use the app context and glossary to keep domain terms consistent. Keep short labels short and preserve meaningful formatting.
 
-Each language is one exact identity: an ISO 639:2023 Set 3 individual-language code, an ISO 15924 script where the language is written in more than one, and an ISO 3166-1 region where regional conventions differ; the request also names each language in prose. Translate from the exact source language into the exact target language, writing in the target's script and following its regional conventions. Use the app objective, role, breadcrumb, context, sibling content, and accepted glossary to preserve domain meaning and terminology. Keep concise UI labels concise. Preserve formatting that carries meaning.
-
-Return every requested unitId exactly once and no other unitId. Copy every protected token exactly, including brackets, spelling, and case, exactly once; tokens may move for target-language grammar but may never be translated, added, or removed. Do not explain the translation. Do not invent content absent from the source.`;
+Return each requested unit exactly once. Preserve every protected token exactly once, moving it where the target language's grammar requires. Translate the source faithfully without adding content or explanations.`;
 
 export function createProductionTranslationBatchRunner(
-	context: DesignGenerationContext,
+	context: StructuredModelRunContext,
 ): TranslationBatchRunner {
 	return async (input, signal) =>
 		context.runStructured({
@@ -390,7 +388,12 @@ export function createProductionTranslationBatchRunner(
 
 export function normalizeTranslationUsage(
 	usage: LanguageModelUsage | undefined,
-): PersistedTranslationUsage | null {
+): {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+} | null {
 	if (usage === undefined) return null;
 	return {
 		inputTokens: usage.inputTokens ?? 0,
@@ -402,7 +405,7 @@ export function normalizeTranslationUsage(
 
 export function validateTranslationBatchOutput(
 	units: readonly EncodedTranslationUnit[],
-	output: PersistedTranslationBatchOutput,
+	output: TranslationBatchOutput,
 ): ReadonlyMap<string, LocalizedValue> {
 	const expected = new Map(units.map((unit) => [unit.unitId, unit]));
 	const translated = new Map<string, LocalizedValue>();
@@ -438,7 +441,7 @@ export function validateTranslationBatchOutput(
 
 export function glossaryEntriesFromAcceptedBatch(
 	units: readonly EncodedTranslationUnit[],
-	output: PersistedTranslationBatchOutput,
+	output: TranslationBatchOutput,
 ): readonly TranslationGlossaryEntry[] {
 	const byId = new Map(output.translations.map((item) => [item.unitId, item]));
 	return units.flatMap((unit) => {

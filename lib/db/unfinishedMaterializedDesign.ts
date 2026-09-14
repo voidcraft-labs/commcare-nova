@@ -21,7 +21,7 @@ export async function hasUnfinishedMaterializedDesignInTransaction(
 			AND session.app_id = ${appId}
 			AND COALESCE((
 				SELECT event.kind
-				FROM design_orchestration_events AS event
+				FROM authoring_events AS event
 				WHERE event.design_session_id = session.id
 				ORDER BY event.revision DESC
 				LIMIT 1

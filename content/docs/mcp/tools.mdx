@@ -104,13 +104,13 @@ For a function's scope and argument count, use `get_authoring_guide` with
 `topic: "expressions"` and `functionName`.
 
 `evaluate_form` runs a form with supplied answers using the production Preview
-engine. It reports question state, validation and a proposed submission without
+engine. It reports question state, validation and proposed case values without
 saving records. Existing records and lookup data come from the authorized worker's
 current data; a private new app has no saved records yet. Repeat rows, a selected
 worker, language and Search answers can be supplied when relevant. Evaluation is
-limited to 30 seconds and 128 MiB. Media capture and the submission transaction
-still need the running app; an evaluation result does not prove deployment or
-successful storage.
+limited to 30 seconds and 128 MiB. Conditional closing and additional case
+operations remain unevaluated. Media capture and the submission transaction
+need the running app; evaluation does not prove deployment or successful storage.
 
 Validation and repeat settings read back in their editable shapes. Choice lists
 retain option identities; attached option media is reported separately and changed
@@ -167,11 +167,9 @@ automatic-translation action.
 Read `get_languages`, then call `get_translatable_content` for the target before
 writing. A `set` operation must repeat the unit's current `sourceFingerprint`
 as `expectedSourceFingerprint`; it is machine-authored and starts as Needs
-review. A `review` operation repeats the explicit entry's stored fingerprint as
-`expectedSourceFingerprint`, the unit's current fingerprint as
-`expectedCurrentSourceFingerprint`, and the exact target value returned by the
-read. These independent fences refuse the whole batch if either side changed
-concurrently. Preserve answer and record insertions such as `{{name}}` when
+review. A `review` operation supplies the unit's `revision` from that read.
+Nova checks the exact source and translation behind it and refuses the whole
+batch if either changed. Preserve answer and record insertions such as `{{name}}` when
 translating wording; replacing an insertion with its current display text would
 lose the reference.
 

@@ -41,7 +41,6 @@ export function itemContentDigest(item: ContextItem): string {
 					description: tool.description,
 					inputSchema: tool.inputSchema,
 					strict: tool.strict ?? null,
-					allowed: tool.allowed ?? null,
 				})),
 			});
 		case "output-schema":

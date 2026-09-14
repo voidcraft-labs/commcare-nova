@@ -5,7 +5,7 @@
  * write; errors log but never bubble, so a storage outage degrades
  * observability without blocking the response.
  */
-import { type Kysely, sql } from "kysely";
+import { type Kysely, sql, type Transaction } from "kysely";
 import { log } from "@/lib/logger";
 import {
 	type GenerationTarget,
@@ -169,6 +169,164 @@ function withContributions(
 	return total;
 }
 
+/** The same accounting owner can commit with a durable provider response. */
+export async function writeRunSummaryInTransaction(
+	tx: Transaction<AppDatabase>,
+	target: RunSummaryTarget,
+	runId: string,
+	summary: RunSummaryDoc,
+	contributions: readonly DurableRunSummaryContribution[],
+	billing?: RunSummaryBillingTarget,
+): Promise<DurableRunSummaryWriteResult> {
+	// Serialize even the first insert, including callers that own a larger
+	// transaction and cannot retry just this write after a unique violation.
+	await sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(["run-summary", target.kind, target.kind === "app" ? target.appId : target.designSessionId, runId])}, 0))`.execute(
+		tx,
+	);
+	/* Inline `selectFrom` + row lock (not the shared target-query
+	 * helper): the row-lock privilege scanner must statically prove
+	 * the locked table. */
+	const existingQuery = tx
+		.selectFrom("run_summaries")
+		.selectAll()
+		.where("run_id", "=", runId)
+		.forUpdate();
+	const existing = await (target.kind === "app"
+		? existingQuery.where("app_id", "=", target.appId)
+		: existingQuery.where("design_session_id", "=", target.designSessionId)
+	).executeTakeFirst();
+
+	const modelStepContributions = contributions.filter(
+		(
+			contribution,
+		): contribution is Exclude<
+			DurableRunSummaryContribution,
+			TranslationRunSummaryContribution
+		> => !isTranslationContribution(contribution),
+	);
+	const translationContributions = contributions.filter(
+		isTranslationContribution,
+	);
+	const insertedModelStepAccounts =
+		modelStepContributions.length === 0
+			? []
+			: await tx
+					.insertInto("design_model_step_usage_accounts")
+					.values(
+						modelStepContributions.map((contribution) => ({
+							context_id: contribution.contextId,
+							step_key: contribution.stepKey,
+							event_kind: "completed",
+							run_id: runId,
+						})),
+					)
+					.onConflict((conflict) => conflict.doNothing())
+					.returning(["context_id", "step_key"])
+					.execute();
+	const insertedTranslationAccounts =
+		translationContributions.length === 0
+			? []
+			: await tx
+					.insertInto("design_localization_batch_usage_accounts")
+					.values(
+						translationContributions.map((contribution) => ({
+							batch_id: contribution.translationBatchId,
+							run_id: runId,
+						})),
+					)
+					.onConflict((conflict) => conflict.doNothing())
+					.returning("batch_id")
+					.execute();
+	const insertedModelStepKeys = new Set(
+		insertedModelStepAccounts.map(
+			(account) => `${account.context_id}\u0000${account.step_key}`,
+		),
+	);
+	const insertedTranslationKeys = new Set(
+		insertedTranslationAccounts.map((account) => account.batch_id),
+	);
+	const admittedContributions = contributions.filter((contribution) =>
+		isTranslationContribution(contribution)
+			? insertedTranslationKeys.has(contribution.translationBatchId)
+			: insertedModelStepKeys.has(
+					`${contribution.contextId}\u0000${contribution.stepKey}`,
+				),
+	);
+	const admittedSummary = withContributions(summary, admittedContributions);
+	const monthlyUsageAccrued =
+		billing !== undefined && admittedSummary.costEstimate > 0;
+	if (monthlyUsageAccrued) {
+		await insertMonthlyUsage(tx, billing, admittedSummary);
+	}
+
+	if (!existing) {
+		await tx
+			.insertInto("run_summaries")
+			.values({
+				...generationTargetColumns(target),
+				run_id: runId,
+				started_at: admittedSummary.startedAt,
+				finished_at: admittedSummary.finishedAt,
+				prompt_mode: admittedSummary.promptMode,
+				app_ready: admittedSummary.appReady,
+				module_count: admittedSummary.moduleCount,
+				step_count: admittedSummary.stepCount,
+				model: admittedSummary.model,
+				input_tokens: admittedSummary.inputTokens,
+				output_tokens: admittedSummary.outputTokens,
+				cache_read_tokens: admittedSummary.cacheReadTokens,
+				cache_write_tokens: admittedSummary.cacheWriteTokens,
+				cost_estimate: admittedSummary.costEstimate,
+				tool_call_count: admittedSummary.toolCallCount,
+			})
+			.execute();
+		return {
+			action: "created",
+			admittedContributions,
+			monthlyUsageAccrued,
+			runCostEstimate: admittedSummary.costEstimate,
+		};
+	}
+
+	/* Pinned fields (started_at / prompt_mode / app_ready / model) are
+	 * omitted from the SET, so the first write's values stand. Keep the
+	 * latest-finish projection monotonic when overlapping POSTs finalize out
+	 * of order. */
+	const incomingIsLatest = existing.finished_at <= admittedSummary.finishedAt;
+	let update = tx
+		.updateTable("run_summaries")
+		.set({
+			finished_at: incomingIsLatest
+				? admittedSummary.finishedAt
+				: existing.finished_at,
+			module_count: incomingIsLatest
+				? admittedSummary.moduleCount
+				: existing.module_count,
+			step_count: existing.step_count + admittedSummary.stepCount,
+			tool_call_count: existing.tool_call_count + admittedSummary.toolCallCount,
+			input_tokens: Number(existing.input_tokens) + admittedSummary.inputTokens,
+			output_tokens:
+				Number(existing.output_tokens) + admittedSummary.outputTokens,
+			cache_read_tokens:
+				Number(existing.cache_read_tokens) + admittedSummary.cacheReadTokens,
+			cache_write_tokens:
+				Number(existing.cache_write_tokens) + admittedSummary.cacheWriteTokens,
+			cost_estimate: existing.cost_estimate + admittedSummary.costEstimate,
+		})
+		.where("run_id", "=", runId);
+	update =
+		target.kind === "app"
+			? update.where("app_id", "=", target.appId)
+			: update.where("design_session_id", "=", target.designSessionId);
+	await update.execute();
+	return {
+		action: "incremented",
+		admittedContributions,
+		monthlyUsageAccrued,
+		runCostEstimate: existing.cost_estimate + admittedSummary.costEstimate,
+	};
+}
+
 async function writeRunSummaryInternal(
 	target: RunSummaryTarget,
 	runId: string,
@@ -177,155 +335,16 @@ async function writeRunSummaryInternal(
 	billing?: RunSummaryBillingTarget,
 ): Promise<DurableRunSummaryWriteResult> {
 	const attempt = () =>
-		withAppTx(async (tx): Promise<DurableRunSummaryWriteResult> => {
-			/* Inline `selectFrom` + row lock (not the shared target-query
-			 * helper): the row-lock privilege scanner must statically prove
-			 * the locked table. */
-			const existingQuery = tx
-				.selectFrom("run_summaries")
-				.selectAll()
-				.where("run_id", "=", runId)
-				.forUpdate();
-			const existing = await (target.kind === "app"
-				? existingQuery.where("app_id", "=", target.appId)
-				: existingQuery.where("design_session_id", "=", target.designSessionId)
-			).executeTakeFirst();
-
-			const modelStepContributions = contributions.filter(
-				(
-					contribution,
-				): contribution is Exclude<
-					DurableRunSummaryContribution,
-					TranslationRunSummaryContribution
-				> => !isTranslationContribution(contribution),
-			);
-			const translationContributions = contributions.filter(
-				isTranslationContribution,
-			);
-			const insertedModelStepAccounts =
-				modelStepContributions.length === 0
-					? []
-					: await tx
-							.insertInto("design_model_step_usage_accounts")
-							.values(
-								modelStepContributions.map((contribution) => ({
-									context_id: contribution.contextId,
-									step_key: contribution.stepKey,
-									event_kind: "completed",
-									run_id: runId,
-								})),
-							)
-							.onConflict((conflict) => conflict.doNothing())
-							.returning(["context_id", "step_key"])
-							.execute();
-			const insertedTranslationAccounts =
-				translationContributions.length === 0
-					? []
-					: await tx
-							.insertInto("design_localization_batch_usage_accounts")
-							.values(
-								translationContributions.map((contribution) => ({
-									batch_id: contribution.translationBatchId,
-									run_id: runId,
-								})),
-							)
-							.onConflict((conflict) => conflict.doNothing())
-							.returning("batch_id")
-							.execute();
-			const insertedModelStepKeys = new Set(
-				insertedModelStepAccounts.map(
-					(account) => `${account.context_id}\u0000${account.step_key}`,
-				),
-			);
-			const insertedTranslationKeys = new Set(
-				insertedTranslationAccounts.map((account) => account.batch_id),
-			);
-			const admittedContributions = contributions.filter((contribution) =>
-				isTranslationContribution(contribution)
-					? insertedTranslationKeys.has(contribution.translationBatchId)
-					: insertedModelStepKeys.has(
-							`${contribution.contextId}\u0000${contribution.stepKey}`,
-						),
-			);
-			const admittedSummary = withContributions(summary, admittedContributions);
-			const monthlyUsageAccrued =
-				billing !== undefined && admittedSummary.costEstimate > 0;
-			if (monthlyUsageAccrued) {
-				await insertMonthlyUsage(tx, billing, admittedSummary);
-			}
-
-			if (!existing) {
-				await tx
-					.insertInto("run_summaries")
-					.values({
-						...generationTargetColumns(target),
-						run_id: runId,
-						started_at: admittedSummary.startedAt,
-						finished_at: admittedSummary.finishedAt,
-						prompt_mode: admittedSummary.promptMode,
-						app_ready: admittedSummary.appReady,
-						module_count: admittedSummary.moduleCount,
-						step_count: admittedSummary.stepCount,
-						model: admittedSummary.model,
-						input_tokens: admittedSummary.inputTokens,
-						output_tokens: admittedSummary.outputTokens,
-						cache_read_tokens: admittedSummary.cacheReadTokens,
-						cache_write_tokens: admittedSummary.cacheWriteTokens,
-						cost_estimate: admittedSummary.costEstimate,
-						tool_call_count: admittedSummary.toolCallCount,
-					})
-					.execute();
-				return {
-					action: "created",
-					admittedContributions,
-					monthlyUsageAccrued,
-					runCostEstimate: admittedSummary.costEstimate,
-				};
-			}
-
-			/* Pinned fields (started_at / prompt_mode / app_ready / model) are
-			 * omitted from the SET, so the first write's values stand. Keep the
-			 * latest-finish projection monotonic when overlapping POSTs finalize out
-			 * of order. */
-			const incomingIsLatest =
-				existing.finished_at <= admittedSummary.finishedAt;
-			let update = tx
-				.updateTable("run_summaries")
-				.set({
-					finished_at: incomingIsLatest
-						? admittedSummary.finishedAt
-						: existing.finished_at,
-					module_count: incomingIsLatest
-						? admittedSummary.moduleCount
-						: existing.module_count,
-					step_count: existing.step_count + admittedSummary.stepCount,
-					tool_call_count:
-						existing.tool_call_count + admittedSummary.toolCallCount,
-					input_tokens:
-						Number(existing.input_tokens) + admittedSummary.inputTokens,
-					output_tokens:
-						Number(existing.output_tokens) + admittedSummary.outputTokens,
-					cache_read_tokens:
-						Number(existing.cache_read_tokens) +
-						admittedSummary.cacheReadTokens,
-					cache_write_tokens:
-						Number(existing.cache_write_tokens) +
-						admittedSummary.cacheWriteTokens,
-					cost_estimate: existing.cost_estimate + admittedSummary.costEstimate,
-				})
-				.where("run_id", "=", runId);
-			update =
-				target.kind === "app"
-					? update.where("app_id", "=", target.appId)
-					: update.where("design_session_id", "=", target.designSessionId);
-			await update.execute();
-			return {
-				action: "incremented",
-				admittedContributions,
-				monthlyUsageAccrued,
-				runCostEstimate: existing.cost_estimate + admittedSummary.costEstimate,
-			};
-		});
+		withAppTx((tx) =>
+			writeRunSummaryInTransaction(
+				tx,
+				target,
+				runId,
+				summary,
+				contributions,
+				billing,
+			),
+		);
 	try {
 		try {
 			return await attempt();

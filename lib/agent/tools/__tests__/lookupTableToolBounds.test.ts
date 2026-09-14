@@ -61,6 +61,7 @@ const context: ToolInvocationContext = {
 	userId: "user-1",
 	runId: "run-1",
 	snapshot: {
+		mode: "canonical",
 		doc: surveyFixture(),
 		revision: 0,
 		canonicalSeq: null,

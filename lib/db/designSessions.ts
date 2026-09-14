@@ -180,6 +180,7 @@ export interface CreatedDesignSessionRun extends ClaimedDesignSessionRun {
 
 const SESSION_LEASE_SELECT = [
 	"id",
+	"authoring_version",
 	"mode",
 	"project_id",
 	"owner_user_id",
@@ -204,6 +205,7 @@ const SESSION_LEASE_SELECT = [
 
 export type LockedSessionRow = DesignSessionLeaseRow & {
 	id: string;
+	authoring_version: number;
 	mode: string;
 	project_id: string;
 	proposed_app_id: string | null;
@@ -269,7 +271,11 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 		// Retirement follows the same app → session lock order. Re-read after
 		// acquiring the app lock so a waiting writer cannot revive old work.
 		const session = await lockSessionRow(tx, args.designSessionId);
-		if (session === undefined || session.state === "retired")
+		if (
+			session === undefined ||
+			session.state === "retired" ||
+			session.authoring_version !== 1
+		)
 			throw new RunHolderLostError("released");
 		await assertProjectCapabilityInTransaction(
 			tx,
@@ -305,6 +311,7 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 	if (
 		session === undefined ||
 		session.state === "retired" ||
+		session.authoring_version !== 1 ||
 		session.app_id !== null ||
 		session.project_id !== args.expectedProjectId ||
 		session.owner_user_id !== args.actorUserId ||
@@ -339,6 +346,11 @@ function assertExpectedSessionProject(
 }
 
 function requireActiveBuildSession(row: LockedSessionRow): void {
+	if (row.authoring_version !== 1)
+		throw new DesignSessionStateError(
+			"not_active",
+			"This design needs the one-time authoring migration before it can continue.",
+		);
 	if (row.mode !== "build") {
 		throw new DesignSessionStateError(
 			"edit_mode_holds_no_run",
@@ -416,6 +428,7 @@ export async function createAndClaimDesignSessionRun(args: {
 			.insertInto("design_sessions")
 			.values({
 				id: designSessionId,
+				authoring_version: 1,
 				mode: "build",
 				project_id: args.projectId,
 				owner_user_id: args.actorUserId,
@@ -485,6 +498,7 @@ export async function createEditDesignSession(args: {
 			.insertInto("design_sessions")
 			.values({
 				id: designSessionId,
+				authoring_version: 1,
 				mode: "edit",
 				project_id: args.projectId,
 				owner_user_id: args.actorUserId,

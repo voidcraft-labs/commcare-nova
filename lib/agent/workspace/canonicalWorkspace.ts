@@ -144,6 +144,7 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 
 	currentSnapshot(): WorkspaceSnapshot {
 		return {
+			mode: this.mode,
 			doc: this.doc,
 			revision: this.revision,
 			canonicalSeq: this.canonicalSeq,

@@ -1462,8 +1462,8 @@ export class FormEngine {
 	 * suppresses the entire subtree of an irrelevant group/repeat, so every
 	 * submission-facing consumer must also inherit all ancestor visibility.
 	 */
-	private effectivelyVisiblePaths(
-		states: Readonly<EngineStoreState>,
+	effectivelyVisiblePaths(
+		states: Readonly<EngineStoreState> = this.store.getState(),
 	): ReadonlySet<string> {
 		const visible = new Set<string>();
 		const walk = (

@@ -12,6 +12,7 @@ import {
 	orderedCaseOperations,
 	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	searchInputRuntimeValueType,
+	type TranslationEntry,
 	type TranslationUnit,
 	translationUnitsById,
 	type Uuid,
@@ -31,7 +32,10 @@ import {
 	type AuthoredExpression,
 	parseAuthoringExpression,
 } from "./expressionSyntax";
-import { authoringFingerprint } from "./fingerprints";
+import {
+	authoringFingerprint,
+	translationReviewRevision,
+} from "./fingerprints";
 import { bindNamedIdentity } from "./identityBindings";
 import { namedIdentityInputs } from "./identitySchema";
 import { parseAuthoringMessage } from "./messages";
@@ -46,7 +50,7 @@ import {
 	type AuthoringValueDecoders,
 	decodeAuthoringValues,
 } from "./schema";
-import { normalizeExpression, normalizeText } from "./text";
+import { normalizeExpression, normalizeText, printAuthoringText } from "./text";
 import { authoringToolSchema } from "./toolSchema";
 
 type Input = Record<string, unknown>;
@@ -368,6 +372,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 	const units =
 		toolName === "updateTranslations" ? translationUnitsById(doc) : undefined;
 	const translated = new Map<number, TranslationUnit>();
+	const reviewed = new Map<number, TranslationEntry>();
 	if (units) {
 		const identity = appLanguageIdentitySchema.parse(
 			Object.fromEntries(
@@ -391,6 +396,29 @@ async function prepareInput<S extends z.ZodType>(args: {
 					`Translation ${String(update.unitId)} is no longer in this app.`,
 				);
 			translated.set(index, unit);
+			if (update.operation === "review") {
+				const entry = entries[unit.id];
+				if (
+					!entry ||
+					update.revision !==
+						translationReviewRevision(languageTag(identity), unit, entry)
+				)
+					throw new AuthoringInputError(
+						"The source or translation changed. Read the current translation before reviewing it.",
+					);
+				reviewed.set(index, entry);
+				delete update.revision;
+				update.expectedValue =
+					typeof entry.value === "string"
+						? entry.value
+						: printAuthoringText(entry.value, doc);
+				update.expectedSourceFingerprint = authoringFingerprint(
+					entry.sourceFingerprint,
+				);
+				update.expectedCurrentSourceFingerprint = authoringFingerprint(
+					unit.sourceFingerprint,
+				);
+			}
 			for (const key of [
 				"expectedSourceFingerprint",
 				"expectedCurrentSourceFingerprint",
@@ -581,6 +609,9 @@ async function prepareInput<S extends z.ZodType>(args: {
 		},
 		localized(value, path) {
 			const index = path[1];
+			const entry = typeof index === "number" ? reviewed.get(index) : undefined;
+			if (entry && path.at(-1) === "expectedValue")
+				return structuredClone(entry.value);
 			const unit =
 				typeof index === "number" ? translated.get(index) : undefined;
 			if (!unit)

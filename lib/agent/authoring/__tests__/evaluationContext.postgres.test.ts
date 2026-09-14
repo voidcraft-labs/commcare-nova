@@ -106,7 +106,17 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	});
 	expect(outcome.data).toMatchObject({
 		valid: true,
-		submission: { kind: "close", caseIds: [ownCase.caseId] },
+		proposedValues: {
+			kind: "close",
+			caseIds: [ownCase.caseId],
+			patch: { properties: { condition: "Worn" } },
+		},
+	});
+	expect(outcome.data).not.toHaveProperty("submission");
+	expect(outcome.data).toHaveProperty("proposedValues", {
+		kind: "close",
+		caseIds: [ownCase.caseId],
+		patch: { properties: { condition: "Worn" } },
 	});
 	expect(await own.query({ appId, caseType: "loan" })).toEqual(beforeRows);
 	expect(await own.count({ appId, caseType: "commcare-user" })).toBe(0);

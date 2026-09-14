@@ -1,182 +1,80 @@
-import { orderSlicesForExecution } from "./sliceOrder";
-
-export { orderSlicesForExecution } from "./sliceOrder";
-
-/**
- * The build orchestrator — the server-owned method behind a chat build
- * (§13.1): source resolution, the server-gated design agent loop
- * (`designLoopRunner.ts`), accepted-artifact selection, slice sequencing,
- * user questions, and completion policy. The model never decides whether
- * review happened, which revision is accepted, whether a slice may commit,
- * or whether the build is complete — every transition is a durable
- * orchestration event, and every slice's only completion authority is its
- * committed receipt (genesis: the materialization receipt).
- *
- * The design agent speaks for itself in the transcript (its chunks stream
- * through the loop runner). The orchestrator emits artifact-derived outline
- * and progress frames, each grounded in durable state; private executor text
- * does not become assistant narration.
- *
- * Every model-facing seam (source-package deps, the design loop, the
- * executor step) is injectable so the whole orchestration is testable
- * offline; the production defaults wire the real loop and executor.
- */
-
+import "server-only";
+import { randomUUID } from "node:crypto";
 import type { UIMessage, UIMessageChunk } from "ai";
-import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
+import { z } from "zod";
+import { AgentRunContext } from "@/lib/agent/agentRunContext";
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
+import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
+import { classifyError } from "@/lib/agent/errorClassifier";
+import type { AgentStep } from "@/lib/agent/generationContext";
+import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
+import type { SubGenerationUsageMeter } from "@/lib/agent/modelRunContext";
 import {
-	commitDesignChangeSet,
-	readCommittedSliceReceipt,
-	readCommittedSliceReceiptsForPlan,
-} from "@/lib/agent/change-set/commit";
+	type AgentModelStep,
+	type AgentModelStepFn,
+	productionModelStep,
+} from "@/lib/agent/modelStep";
+import { PlanConflictError } from "@/lib/agent/planning/plan";
 import {
-	materializeAppFromGenesis,
-	readMaterializedGenesisReceipt,
-} from "@/lib/agent/change-set/materializeGenesis";
+	activePlanReview,
+	beginPlanReview,
+	finishPlanReview,
+	latestPlanReview,
+	type PlanWriter,
+	readAppPlan,
+	writeAppPlan,
+} from "@/lib/agent/planning/store";
 import {
-	beginAppEditChangeSet,
-	beginGenesisChangeSet,
-	loadChangeSet,
-} from "@/lib/agent/change-set/store";
-import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
+	buildArchitectPeerPrompt,
+	buildArchitectPrompt,
+} from "@/lib/agent/prompts";
 import {
-	ChangeSetMutationWorkspace,
-	type ChangeSetWorkspaceHost,
-} from "@/lib/agent/change-set/workspace";
-import {
-	type DesignBuildPlanRecord,
-	type DesignRevisionRecord,
-	readDesignBuildPlan,
-	readDesignReviews,
-	readDesignRevision,
-} from "@/lib/agent/design/artifactStore";
-import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
-import { recordCanonicalConformance } from "@/lib/agent/design/conformanceStore";
-import type { AppDesignContract } from "@/lib/agent/design/contract";
-import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
-import { seedClaimsFromAnsweredRounds } from "@/lib/agent/design/loop/claimSeeding";
-import type { DesignAgentStep } from "@/lib/agent/design/loop/designAgent";
-import type {
-	DesignSourcePackage,
-	SourceClaimSeed,
-} from "@/lib/agent/design/sourcePackage";
-import { buildDesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { productionSourcePackageDeps } from "@/lib/agent/design/sourcePackageDeps";
-import { createExtractionCondenser } from "@/lib/agent/documentExtraction";
-import type { ClassifiedError } from "@/lib/agent/errorClassifier";
-import {
-	readToolLookupCatalog,
-	readToolLookupDefinitions,
-} from "@/lib/agent/lookupContext";
-import {
-	meterDurableSubGenerationUsage,
-	type SubGenerationUsageMeter,
-} from "@/lib/agent/modelRunContext";
-import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
-import {
-	finalizeInitialBuildLocalization,
-	type InitialBuildLocalizationArgs,
-	initialBuildHasLocalizationFinalizer,
-	LocalizationBuildError,
-	productionInitialBuildLocalizationDeps,
-} from "@/lib/agent/translation/finalizer";
-import {
-	type DesignLocalizationReceipt,
-	readLocalizationReceipt,
-} from "@/lib/agent/translation/store";
-import { compileCcz } from "@/lib/commcare/compiler";
-import { expandDoc } from "@/lib/commcare/expander";
-import { resolveAuthorizedAppSnapshot } from "@/lib/db/appAccess";
-import type { AppMaterializationReceipt } from "@/lib/db/appGenesis";
-import { refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
+	loadSourceMaterial,
+	readSource,
+	type SourceMaterialDeps,
+	SourceMaterialError,
+	sourceAttachmentsMessage,
+} from "@/lib/agent/sources";
+import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
+import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
+import { translateLanguage } from "@/lib/agent/translation/translateLanguage";
+import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
+import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
+import { loadApp, refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
 import {
 	loadDesignSession,
 	refreshDesignSessionLiveness,
-	setDesignSessionActiveArtifacts,
 	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
-import { getAppDb } from "@/lib/db/pg";
-import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
-import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { withAppTx } from "@/lib/db/pg";
 import type { PersistableDoc } from "@/lib/domain";
-import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { log } from "@/lib/logger";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import {
-	assertExactCommittedSliceReceipts,
-	BuildCompletionVerificationError,
-	refuseBuildCompletion,
-} from "./authoritativeCompletion";
-import { budgetForSlice, remainingWallClockMs } from "./budgets";
+	ARCHITECT_MAX_STEPS,
+	type ArchitectToolCall,
+	describeModelTools,
+	PEER_MAX_STEPS,
+	runArchitectLoop,
+} from "./architectLoop";
+import { AuthoringSession } from "./authoringSession";
 import {
-	type DesignLoopOutcome,
-	type DesignToolOutcomeEvent,
-	runDesignAgentLoop,
-} from "./designLoopRunner";
-import {
-	type ExecutionBlockerResolver,
-	resolveExecutionBlocker,
-} from "./executionBlocker";
-import {
-	briefDigest,
-	deriveSliceExecutionBrief,
-	type SliceExecutionBrief,
-} from "./executionBrief";
-import {
-	buildExecutorTools,
-	type ExecutorConversationContext,
-	type ExecutorStepFn,
-	type ExecutorToolOutcomeEvent,
-	productionExecutorStep,
-	runSliceExecutor,
-	type SliceExecutionOutcome,
-} from "./executorLoop";
-import { EXECUTOR_PROMPT_VERSION } from "./executorPrompt";
-import {
-	assertRequiredExternalActionsSatisfied,
-	ExternalActionRequiredError,
-} from "./externalActions";
-import {
-	type BuildFailureOperationalClass,
-	designBuildFailureLogLevel,
-} from "./failureReporting";
-import {
-	appendDesignModelContext,
-	completeDesignModelStep,
-	openDesignModelContext,
-	recordDesignModelStepEvent,
-	recoverableCompletedModelSteps,
-} from "./modelContextStore";
+	architectToolDefinitions,
+	editPlanInputSchema,
+	reviewInputSchema,
+	translateLanguageInputSchema,
+	writePlanInputSchema,
+} from "./authoringTools";
 import {
 	appendOrchestrationEvent,
+	type BuildOrchestratorState,
 	type OrchestrationHead,
 	readOrchestrationHead,
 } from "./orchestratorState";
-import {
-	deriveBuildPlanSummary,
-	deriveDesignOutline,
-	progressEnvelope,
-} from "./progress";
-import {
-	beginOrRecoverSliceAttempt,
-	beginSliceAttemptOutcomeCollection,
-	bindSliceAttemptChangeSet,
-	claimSliceAttemptBudget,
-	countSliceRebaseAttempts,
-	finishSliceAttemptOutcomeCollection,
-	markSliceAttempt,
-	recordSliceAttemptDiagnostic,
-	type SliceAttempt,
-	supersedeSliceAttempt,
-} from "./sliceAttempts";
+import { authoringStage } from "./progress";
 
-// ── Public contract ────────────────────────────────────────────────
-
-/** Structurally the DurableStreamWriter — everything the orchestrator emits
- *  rides the run's one write choke point. */
 export interface OrchestratorStreamWriter {
 	write(
 		chunk:
@@ -184,61 +82,36 @@ export interface OrchestratorStreamWriter {
 			| { type: string; data: unknown; transient?: boolean },
 	): void;
 }
-
 export type BuildOrchestrationOutcome =
 	| {
-			readonly kind: "completed";
-			readonly appId: string;
-			readonly finalSeq: number;
-			readonly finalBlueprint: PersistableDoc;
+			kind: "completed";
+			appId: string;
+			finalSeq: number;
+			finalBlueprint: PersistableDoc;
 	  }
-	| { readonly kind: "awaiting-input"; readonly pauseOwned: boolean }
+	| { kind: "awaiting-input"; pauseOwned: boolean }
 	| {
-			readonly kind: "failed";
-			readonly errorType: string;
-			readonly message: string;
-			readonly recoverable: boolean;
-			/** The materialized app when the failure struck AFTER the first
-			 * workflow committed (the run's holder lives on the app row then);
-			 * null while the failure left no app. */
-			readonly appId: string | null;
+			kind: "failed";
+			errorType: string;
+			message: string;
+			recoverable: boolean;
+			appId: string | null;
 	  };
-
 export interface BuildOrchestrationDeps {
-	readonly buildPackage: (args: {
-		designSessionId: string;
-		projectId: string;
-		threadId: string;
-		messages: readonly UIMessage[];
-		claims: readonly SourceClaimSeed[];
-	}) => Promise<DesignSourcePackage>;
-	readonly runDesignLoop: typeof runDesignAgentLoop;
-	readonly executorStep: ExecutorStepFn;
-	readonly resolveBlocker: ExecutionBlockerResolver;
-	readonly materialize: typeof materializeAppFromGenesis;
-	readonly commitSlice: typeof commitDesignChangeSet;
-	readonly finalizeLocalization: (
-		args: InitialBuildLocalizationArgs,
-	) => Promise<DesignLocalizationReceipt | null>;
-	/** Step fan-out for the design agent's loop (usage accounting,
-	 *  conversation events, the awaiting-input latch); the route wires
-	 *  `GenerationContext.handleAgentStep`. */
-	readonly onAgentStep?: (step: DesignAgentStep) => void;
-	/** Display-safe reasoning summaries from the calls that never touch a
-	 *  thread (the independent reviewer, each executor step) → the run
-	 *  event log. */
-	readonly onReasoningSummary?: (text: string) => void;
-	/** Payload-free private design-tool lifecycle annotations. */
-	readonly onDesignToolOutcome?: (event: DesignToolOutcomeEvent) => void;
-	/** Payload-free private-compiler outcome annotations for run inspection. */
-	readonly onExecutorToolOutcome?: (
-		event: ExecutorToolOutcomeEvent,
+	readonly modelStep: AgentModelStepFn;
+	readonly peerStep: AgentModelStepFn;
+	readonly translationStep: AgentModelStepFn;
+	readonly sourceDeps: SourceMaterialDeps;
+	readonly onToolResult?: (
+		role: "architect" | "peer" | "translator",
+		call: ArchitectToolCall,
+		output: unknown,
+	) => void;
+	readonly onAgentStep?: (
+		step: AgentStep,
+		role: "architect" | "peer" | "translator",
 	) => void | Promise<void>;
-	/** A transient design-turn failure being redriven, rendered as a
-	 *  recoverable warning with the real classified type. */
-	readonly onRecoverableRetry?: (classified: ClassifiedError) => void;
 }
-
 export interface RunBuildOrchestrationArgs {
 	readonly designSessionId: string;
 	readonly proposedAppId: string;
@@ -254,56 +127,61 @@ export interface RunBuildOrchestrationArgs {
 	readonly apiKey: string;
 	readonly meter: SubGenerationUsageMeter | undefined;
 	readonly signal: AbortSignal;
-	/** The route-owned lifecycle tail. It converges case-store schemas and
-	 * then atomically exact-sequence-CASes the app to complete, settles the
-	 * charge, and appends the durable `finished` event. A transient throw leaves
-	 * the frozen plan resumable. */
-	readonly finalizeCompletion: (args: {
-		readonly appId: string;
-		readonly expectedSeq: number;
-		readonly expectedHead: OrchestrationHead | null;
-	}) => Promise<{
-		readonly blueprint: PersistableDoc;
-		readonly head: OrchestrationHead;
-	}>;
-	readonly deps?: Partial<BuildOrchestrationDeps>;
-	/** The bound app when this session already materialized (a resumed or
-	 *  multi-slice build); null pre-app. */
 	readonly materializedAppId: string | null;
+	readonly deps?: Partial<BuildOrchestrationDeps>;
+	readonly finalizeCompletion: (args: {
+		appId: string;
+		expectedSeq: number;
+		expectedHead: OrchestrationHead | null;
+	}) => Promise<{ blueprint: PersistableDoc; head: OrchestrationHead }>;
 }
 
-// ── Slice ordering ─────────────────────────────────────────────────
-
-/** Topological order with the materialization root first. A root with
- *  prerequisite SLICES is a plan defect (nothing can commit before the
- *  app exists) and fails loudly. */
-// ── The orchestration ──────────────────────────────────────────────
-
-const HEARTBEAT_INTERVAL_MS = 60_000;
-
+/** The architect carries the conversation from the request through the saved
+ * app. The peer temporarily edits the same plan. Code owns durable effects. */
 export async function runBuildOrchestration(
 	args: RunBuildOrchestrationArgs,
 ): Promise<BuildOrchestrationOutcome> {
-	const deps = productionDeps(args);
-	let appId: string | null = args.materializedAppId;
-
-	/* Coalesce liveness work while a write is in flight. The run owns both
-	 * the interval and the current database operation, including failure. */
+	const authority = {
+		sessionId: args.designSessionId,
+		actorUserId: args.actorUserId,
+		projectId: args.projectId,
+		runId: args.runId,
+		holderNonce: args.holderNonce,
+	};
+	const context = new AgentRunContext({
+		apiKey: args.apiKey,
+		userId: args.actorUserId,
+		projectId: args.projectId,
+		runId: args.runId,
+		designSessionId: args.designSessionId,
+		meter: args.meter,
+	});
+	const runtime = new AuthoringSession(
+		authority,
+		args.proposedAppId,
+		(receipt) => {
+			args.writer.write({
+				type: "data-app-materialized",
+				data: receipt,
+				transient: true,
+			});
+		},
+	);
+	let head: OrchestrationHead | null = null;
 	let heartbeatTask: Promise<void> | undefined;
-	const heartbeat = () => {
-		if (heartbeatTask !== undefined) return;
+	const heartbeatTimer = setInterval(() => {
+		if (heartbeatTask) return;
 		heartbeatTask = (
-			appId === null
-				? refreshDesignSessionLiveness(
+			runtime.appId
+				? refreshBuildLiveness(runtime.appId, args.runId, args.holderNonce)
+				: refreshDesignSessionLiveness(
 						args.designSessionId,
 						args.runId,
 						args.holderNonce,
 					)
-				: refreshBuildLiveness(appId, args.runId, args.holderNonce)
 		)
 			.catch((error: unknown) => {
-				log.warn("design_build_liveness_failed", {
-					designSessionId: args.designSessionId,
+				log.warn("authoring_liveness_failed", {
 					runId: args.runId,
 					errorType: error instanceof Error ? error.name : "unknown",
 				});
@@ -311,1489 +189,660 @@ export async function runBuildOrchestration(
 			.finally(() => {
 				heartbeatTask = undefined;
 			});
+	}, 60_000);
+	heartbeatTimer.unref();
+	const emitState = async (state: BuildOrchestratorState) => {
+		if (head && canonicalJsonDigest(head.state) === canonicalJsonDigest(state))
+			return;
+		head = await appendOrchestrationEvent({
+			designSessionId: args.designSessionId,
+			runId: args.runId,
+			holderNonce: args.holderNonce,
+			actorUserId: args.actorUserId,
+			expectedProjectId: args.projectId,
+			expectedHead: head,
+			state,
+		});
+		args.writer.write({
+			type: "data-authoring-progress",
+			data: {
+				sessionId: args.designSessionId,
+				revision: head.revision,
+				stage: authoringStage(state),
+			},
+			transient: true,
+		});
 	};
-	const heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
-	heartbeatTimer.unref?.();
-
+	const emitPlan = async () => {
+		const plan = await readAppPlan(authority);
+		if (plan)
+			args.writer.write({
+				type: "data-authoring-plan",
+				data: {
+					sessionId: args.designSessionId,
+					plan: {
+						revision: plan.revision,
+						markdown: plan.markdown,
+						reviewedRevision: plan.reviewedRevision,
+					},
+				},
+				transient: true,
+			});
+	};
+	const emitText = (id: string, text: string) => {
+		if (!text.trim()) return;
+		args.writer.write({ type: "text-start", id });
+		args.writer.write({ type: "text-delta", id, delta: text });
+		args.writer.write({ type: "text-end", id });
+	};
 	try {
-		/* The turn's assistant message opens here: one identity plus the
-		 * producing model, carried by the start chunk upstream of the durable
-		 * tee. The design agent's own start chunk is dropped by the loop
-		 * runner, so this stamp is what `sanitizeHistoricalReasoningParts`
-		 * reads on later turns. */
+		args.signal.throwIfAborted();
+		head = await readOrchestrationHead(args.designSessionId);
+		if (head?.state.kind === "finished") {
+			const finished = head.state;
+			const saved = await withAppTx(async (tx) => {
+				const scope = await resolveAppScopeInTransaction(
+					tx,
+					finished.appId,
+					args.actorUserId,
+				);
+				if (scope.projectId !== args.projectId)
+					throw new PlanConflictError("The app has moved to another Project.");
+				return loadCanonicalBlueprintAtSequence(tx, {
+					appId: finished.appId,
+					seq: finished.appSeq,
+					expectedDigest: null,
+				});
+			});
+			return {
+				kind: "completed",
+				appId: head.state.appId,
+				finalSeq: head.state.appSeq,
+				finalBlueprint: saved.snapshot,
+			};
+		}
+		await runtime.initialize();
+		await emitPlan();
 		args.writer.write({
 			type: "start",
 			messageId: args.responseMessageId,
 			messageMetadata: {
-				model: MODEL_ROLES.designAuthor.modelId,
+				model: MODEL_ROLES.architect.modelId,
 				contextVersion: MODEL_CONTEXT_VERSION,
 			},
 		});
-		let head = await readOrchestrationHead(args.designSessionId);
-		const session = await loadDesignSession(args.designSessionId);
-		let accepted: {
-			revision: DesignRevisionRecord;
-			plan: DesignBuildPlanRecord;
-		} | null = null;
-		if (
-			session?.active_design_revision_id !== null &&
-			session?.active_design_revision_id !== undefined &&
-			session.active_build_plan_id !== null
-		) {
-			const [revision, plan] = await Promise.all([
-				readDesignRevision(session.active_design_revision_id),
-				readDesignBuildPlan(session.active_build_plan_id),
-			]);
-			if (
-				revision === null ||
-				plan === null ||
-				revision.designSessionId !== args.designSessionId ||
-				plan.designSessionId !== args.designSessionId ||
-				plan.designRevisionId !== revision.id ||
-				plan.designRevisionDigest !== revision.artifactDigest
-			) {
-				throw new Error(
-					"The design session's frozen accepted contract and plan do not share exact lineage.",
-				);
-			}
-			accepted = { revision, plan };
-		}
-
-		/* ── Design ─────────────────────────────────────────────────── */
-		if (accepted === null) {
-			const claims = seedClaimsFromAnsweredRounds(args.threadId, args.messages);
-			const pkg = await deps.buildPackage({
-				designSessionId: args.designSessionId,
-				projectId: args.projectId,
-				threadId: args.threadId,
-				messages: args.messages,
-				claims,
+		const sourceDeps =
+			args.deps?.sourceDeps ??
+			productionSourceMaterialDeps({
+				extractDocumentStructured: async (options) => {
+					const result = await context.runStructured({
+						...options,
+						prompt: options.prompt ?? options.instruction,
+						modelId: MODEL_ROLES.documentExtractor.modelId,
+						maxOutputTokens: options.maxOutputTokens ?? 128_000,
+						signal: args.signal,
+					});
+					return {
+						object: result.object,
+						truncated: result.finishReason === "length",
+					};
+				},
 			});
-			if (
-				head === null ||
-				head.state.kind === "awaiting-user" ||
-				head.state.kind === "awaiting-user-questions"
-			) {
-				head = await appendOrchestrationEvent({
-					designSessionId: args.designSessionId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					actorUserId: args.actorUserId,
-					expectedProjectId: args.projectId,
-					state: {
-						kind: "designing",
-						designSessionId: args.designSessionId,
-						sourcePackageDigest: pkg.packageDigest,
+		const source = await loadSourceMaterial({
+			projectId: args.projectId,
+			messages: args.messages as NovaUIMessage[],
+			deps: sourceDeps,
+		});
+		const attachmentMessage = sourceAttachmentsMessage(source);
+		const sourceMessages = [
+			...source.requests,
+			...(attachmentMessage
+				? [
+						{
+							key: `attachments:${durableModelValueDigest(attachmentMessage)}`,
+							message: attachmentMessage,
+						},
+					]
+				: []),
+		];
+		const turnId = source.requests.at(-1)?.key ?? args.responseMessageId;
+		const roleConfig = {
+			architect: MODEL_ROLES.architect,
+			peer: MODEL_ROLES.peer,
+			translator: MODEL_ROLES.translator,
+		};
+		const modelSteps = {
+			translator:
+				args.deps?.translationStep ??
+				productionModelStep(
+					context.model(roleConfig.translator.modelId),
+					roleConfig.translator.reasoningEffort,
+					`nova:translator:${args.designSessionId}`,
+				),
+			architect:
+				args.deps?.modelStep ??
+				productionModelStep(
+					context.model(roleConfig.architect.modelId),
+					roleConfig.architect.reasoningEffort,
+					`nova:architect:${args.designSessionId}`,
+				),
+			peer:
+				args.deps?.peerStep ??
+				productionModelStep(
+					context.model(roleConfig.peer.modelId),
+					roleConfig.peer.reasoningEffort,
+					`nova:peer:${args.designSessionId}`,
+				),
+		};
+		const phaseFor = (role: "architect" | "peer" | "translator") =>
+			role === "architect"
+				? "design-author"
+				: role === "peer"
+					? "design-review"
+					: "translation";
+		const commonLoop = (role: "architect" | "peer" | "translator") => ({
+			signal: args.signal,
+			modelStep: modelSteps[role],
+			maxSteps: role === "architect" ? ARCHITECT_MAX_STEPS : PEER_MAX_STEPS,
+			onReasoning: (
+				part: Parameters<
+					NonNullable<Parameters<AgentModelStepFn>[0]["onReasoning"]>
+				>[0],
+				identity: { contextId: string; stepKey: string },
+			) => {
+				if (role !== "architect") return;
+				const id = `${identity.contextId}:${identity.stepKey}:${part.id}`;
+				if (part.type === "reasoning-delta")
+					args.writer.write({ type: part.type, id, delta: part.text ?? "" });
+				else if (part.type === "reasoning-start")
+					args.writer.write({ type: "reasoning-start", id });
+				else args.writer.write({ type: "reasoning-end", id });
+			},
+			onToolResult: (call: ArchitectToolCall, output: unknown) =>
+				args.deps?.onToolResult?.(role, call, output),
+			onStep: async (
+				step: AgentModelStep,
+				identity: { contextId: string; stepKey: string },
+			) => {
+				context.trackDurableSubGeneration(
+					step.usage,
+					identity,
+					roleConfig[role].modelId,
+					{
+						step: true,
+						phase: phaseFor(role),
 					},
-					expectedHead: head,
-				});
-			}
-
-			const designCtx = new DesignGenerationContext({
-				apiKey: args.apiKey,
-				userId: args.actorUserId,
-				projectId: args.projectId,
-				runId: args.runId,
-				designSessionId: args.designSessionId,
-				...(args.meter !== undefined && { meter: args.meter }),
-				usagePhase: "design-review",
-			});
-			const loopOutcome: DesignLoopOutcome = await deps.runDesignLoop({
-				designSessionId: args.designSessionId,
-				projectId: args.projectId,
-				threadId: args.threadId,
-				runId: args.runId,
+				);
+				await args.deps?.onAgentStep?.(
+					{
+						...step,
+						toolCalls: [...step.toolCalls],
+						durableUsageIdentity: identity,
+					},
+					role,
+				);
+				if (role === "architect" && step.toolCalls.length > 0 && step.text)
+					emitText(`${identity.contextId}:${identity.stepKey}:text`, step.text);
+			},
+			onRecoveredUsage: (
+				usage: Parameters<AgentRunContext["trackDurableSubGeneration"]>[0],
+				identity: { contextId: string; stepKey: string },
+			) => {
+				context.trackDurableSubGeneration(
+					usage,
+					identity,
+					roleConfig[role].modelId,
+					{
+						step: true,
+						phase: phaseFor(role),
+					},
+				);
+			},
+		});
+		const spec = async (
+			role: "architect" | "peer",
+			contextVersion: string,
+			system: string,
+		) => ({
+			designSessionId: args.designSessionId,
+			kind: role,
+			modelId: roleConfig[role].modelId,
+			promptVersion: canonicalJsonDigest(system),
+			contextVersion,
+			toolsetDigest: canonicalJsonDigest(
+				await describeModelTools(
+					architectToolDefinitions({
+						role,
+						building: runtime.building,
+						hasApp: runtime.appId !== null,
+					}),
+				),
+			),
+			authority: {
 				actorUserId: args.actorUserId,
+				runId: args.runId,
 				holderNonce: args.holderNonce,
-				responseMessageId: args.responseMessageId,
-				messages: args.messages,
-				pkg,
-				designCtx,
-				writer: args.writer,
-				signal: args.signal,
-				head: () => head,
-				packageDeps: productionSourcePackageDeps(createExtractionCondenser()),
-				...(deps.onAgentStep !== undefined && {
-					onAgentStep: deps.onAgentStep,
-				}),
-				...(deps.onReasoningSummary !== undefined && {
-					onReviewerReasoning: deps.onReasoningSummary,
-				}),
-				...(deps.onDesignToolOutcome !== undefined && {
-					onToolOutcome: deps.onDesignToolOutcome,
-				}),
-				...(deps.onRecoverableRetry !== undefined && {
-					onRecoverableRetry: deps.onRecoverableRetry,
-				}),
-			});
-			heartbeat();
-
-			if (loopOutcome.kind === "failed") {
-				head = await appendFailure(args, head, {
-					errorType: loopOutcome.errorType,
-					detail: loopOutcome.diagnostics,
-					recoverable: loopOutcome.recoverable,
-					operationalClass: "unexpected-failure",
-				});
+				expectedProjectId: args.projectId,
+			},
+		});
+		const planTool = async (call: ArchitectToolCall, writer: PlanWriter) => {
+			if (call.toolName === "readPlan") {
+				const plan = await readAppPlan(authority);
 				return {
-					kind: "failed",
-					appId,
-					errorType: loopOutcome.errorType,
-					message: loopOutcome.message,
-					recoverable: loopOutcome.recoverable,
+					revision: plan?.revision ?? 0,
+					markdown: plan?.markdown ?? null,
 				};
 			}
-
-			if (loopOutcome.kind === "awaiting-input") {
-				/* The agent's explicit input terminal already streamed through the
-				 * loop. Only the durable pause remains: the event arm the stage fold
-				 * reads, and the awaiting-input flag on whichever row holds the run.
-				 * The historical state-arm name also covers a waitForInput terminal. */
-				await appendOrchestrationEvent({
-					designSessionId: args.designSessionId,
-					runId: args.runId,
-					holderNonce: args.holderNonce,
-					actorUserId: args.actorUserId,
-					expectedProjectId: args.projectId,
-					state: {
-						kind: "awaiting-user-questions",
-						designSessionId: args.designSessionId,
-						designRevisionId: loopOutcome.headRevisionId,
-					},
-					expectedHead: head,
-				});
-				const pause =
-					appId === null
-						? await setDesignSessionAwaitingInput(
-								args.designSessionId,
-								args.runId,
-								args.holderNonce,
-								true,
-								args.actorUserId,
-								args.projectId,
-							)
-						: await setAwaitingInput(
-								appId,
-								args.runId,
-								args.holderNonce,
-								"build",
-								true,
-								args.actorUserId,
-								args.projectId,
-							);
-				return { kind: "awaiting-input", pauseOwned: pause === "owned" };
-			}
-
-			const { revision, plan } = loopOutcome;
-			await setDesignSessionActiveArtifacts({
-				designSessionId: args.designSessionId,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				expectedProjectId: args.projectId,
-				activeDesignRevisionId: revision.id,
-				activeBuildPlanId: plan.id,
+			const change =
+				call.toolName === "writePlan"
+					? writePlanInputSchema.parse(call.input)
+					: editPlanInputSchema.parse(call.input);
+			const plan = await writeAppPlan({
+				authority,
+				writer,
+				requestId: call.toolCallId,
+				change,
 			});
-			accepted = { revision, plan };
-		}
-		const { revision, plan } = accepted;
-		await emitDesignSummaries(args, head, revision, plan);
-		if (
-			head === null ||
-			head.state.kind !== "planning" ||
-			head.state.designRevisionId !== revision.id
-		) {
-			head = await appendOrchestrationEvent({
-				designSessionId: args.designSessionId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				actorUserId: args.actorUserId,
-				expectedProjectId: args.projectId,
-				state: {
-					kind: "planning",
-					designRevisionId: revision.id,
-					designRevisionDigest: revision.artifactDigest,
-				},
-				expectedHead: head,
-			});
-		}
-
-		/* ── Execute slices ─────────────────────────────────────────── */
-		const contract = revision.envelope.payload;
-		const modelContextAuthority = {
-			actorUserId: args.actorUserId,
-			runId: args.runId,
-			holderNonce: args.holderNonce,
-			expectedProjectId: args.projectId,
+			await emitPlan();
+			return { revision: plan.revision };
 		};
-		const openExecutorContext = async (
-			semanticScopeKey: string,
-			brief: Parameters<typeof buildExecutorTools>[0],
-		): Promise<ExecutorConversationContext> => {
-			const persisted = await openDesignModelContext({
-				designSessionId: args.designSessionId,
-				kind: "executor",
-				modelId: MODEL_ROLES.buildExecutor.modelId,
-				promptVersion: EXECUTOR_PROMPT_VERSION,
-				toolsetDigest: canonicalJsonDigest(buildExecutorTools(brief)),
-				contextVersion: MODEL_CONTEXT_VERSION,
-				semanticScopeKey,
-				authority: modelContextAuthority,
-			});
-			/* Usage is read across the immutable generation chain and admitted by
-			 * durable (context, step) identity. Reopening the same attempt or opening
-			 * the next slice therefore cannot double-charge a paid response. */
-			if (args.meter !== undefined) {
-				for (const completed of recoverableCompletedModelSteps(
-					persisted.completedSteps,
-					args.runId,
-				)) {
-					meterDurableSubGenerationUsage(
-						args.meter,
-						{
-							contextId: completed.contextId,
-							stepKey: completed.stepKey,
-						},
-						completed.usage,
-						{
-							step: true,
-							model: MODEL_ROLES.buildExecutor.modelId,
-							phase: "build-executor",
-						},
-					);
+		const question = (call: ArchitectToolCall) => {
+			const input = askQuestionsInputSchema.parse(call.input);
+			for (const message of args.messages)
+				for (const part of message.parts) {
+					if (
+						part.type !== "tool-askQuestions" ||
+						part.toolCallId !== call.toolCallId
+					)
+						continue;
+					if (part.state === "output-available") {
+						if (canonicalJsonDigest(part.input) !== canonicalJsonDigest(input))
+							throw new PlanConflictError(
+								"The answered question card no longer matches this question.",
+							);
+						const answers = z.record(z.string(), z.string()).parse(part.output);
+						if (
+							input.questions.some(
+								(_, index) => !answers[String(index)]?.trim(),
+							)
+						)
+							throw new PlanConflictError(
+								"The question card is missing an answer.",
+							);
+						return { kind: "result" as const, output: answers };
+					}
 				}
-			}
+			args.writer.write({
+				type: "tool-input-available",
+				toolCallId: call.toolCallId,
+				toolName: "askQuestions",
+				input,
+			});
+			return { kind: "awaiting-input" as const };
+		};
+		const recoverableToolError = (error: unknown) => {
+			if (error instanceof z.ZodError)
+				return {
+					error: error.issues
+						.map(
+							(issue) => `${issue.path.join(".") || "input"}: ${issue.message}`,
+						)
+						.join("; "),
+				};
+			if (
+				error instanceof PlanConflictError ||
+				error instanceof AuthoringInputError ||
+				error instanceof SourceMaterialError ||
+				error instanceof ChangeSetStagingRejectedError
+			)
+				return { error: error.message };
+			throw error;
+		};
+		const peerReview = async (
+			requestId: string,
+			app: boolean,
+			focus?: string,
+		) => {
+			const active = await activePlanReview(authority);
+			if (
+				app &&
+				!active &&
+				(!runtime.appId || (await runtime.hasUnsavedWork()))
+			)
+				throw new PlanConflictError(
+					"Save the app changes before asking for an app review.",
+				);
+			const current = await runtime.snapshot(true);
+			const review = await beginPlanReview(authority, requestId, {
+				sourceDigest: source.digest,
+				appSeq: app ? current.canonicalSeq : null,
+			});
+			if (review.complete)
+				return {
+					revision: review.review.completed_revision,
+					plan: review.plan.markdown,
+					review: review.review.summary,
+				};
+			await emitState(
+				app && current.canonicalSeq !== null
+					? {
+							kind: "reviewing-app",
+							reviewId: review.reviewId,
+							appSeq: current.canonicalSeq,
+						}
+					: { kind: "reviewing-plan", reviewId: review.reviewId },
+			);
+			const system = buildArchitectPeerPrompt();
+			const peer = await runArchitectLoop({
+				...commonLoop("peer"),
+				spec: await spec("peer", review.reviewId, system),
+				system,
+				turnId: review.reviewId,
+				additions: [
+					...sourceMessages,
+					{
+						key: "review-context",
+						message: {
+							role: "user",
+							content: JSON.stringify({
+								plan: review.plan.markdown,
+								app: await runtime.overview(true),
+								focus: focus ?? null,
+							}),
+						},
+					},
+				],
+				tools: () =>
+					architectToolDefinitions({
+						role: "peer",
+						building: false,
+						hasApp: runtime.appId !== null,
+					}),
+				dispatch: async (call) => {
+					await runtime.authorize();
+					let output: unknown;
+					try {
+						if (["readPlan", "writePlan", "editPlan"].includes(call.toolName))
+							output = await planTool(call, {
+								editor: "peer",
+								reviewId: review.reviewId,
+							});
+						else if (call.toolName === "readSource")
+							output = readSource(source, call.input);
+						else if (call.toolName === "getApp")
+							output = await runtime.overview(true);
+						else output = await runtime.shared(call, "peer");
+					} catch (error) {
+						output = recoverableToolError(error);
+					}
+					return { kind: "result", output };
+				},
+				onFinish: async () => ({ kind: "complete" }),
+			});
+			const plan = await finishPlanReview(authority, review.reviewId, {
+				contextId: peer.contextId,
+				summary: peer.text,
+			});
+			await emitPlan();
+			await emitState(
+				runtime.building
+					? { kind: "building", appId: runtime.appId }
+					: { kind: "planning", sourceDigest: source.digest },
+			);
 			return {
-				contextId: persisted.id,
-				messages: [...persisted.messages],
-				items: persisted.items.map((item) => ({ ...item })),
-				appendKeys: new Set(persisted.appendKeys),
-				completedStepKeys: new Set(persisted.completedStepKeys),
-				append: async (appendKey, messages) => {
-					await appendDesignModelContext({
-						designSessionId: args.designSessionId,
-						contextId: persisted.id,
-						appendKey,
-						messages,
-						authority: modelContextAuthority,
-					});
-				},
-				recordStep: async (stepKey, event) => {
-					await recordDesignModelStepEvent({
-						designSessionId: args.designSessionId,
-						contextId: persisted.id,
-						stepKey,
-						event,
-						authority: modelContextAuthority,
-					});
-				},
-				completeStep: async (completion) => {
-					await completeDesignModelStep({
-						designSessionId: args.designSessionId,
-						contextId: persisted.id,
-						...completion,
-						authority: modelContextAuthority,
-					});
-				},
+				revision: plan.revision,
+				plan: plan.markdown,
+				review: peer.text,
 			};
 		};
-		for (;;) {
-			const ordered = orderSlicesForExecution(plan.envelope.payload);
-			const committedSlices = await committedSliceIds(plan.id);
-			let lastSeq = 1;
-			for (const slice of ordered) {
-				if (committedSlices.has(slice.id as string)) continue;
-				const budget = budgetForSlice(slice);
-				const brief = deriveSliceExecutionBrief({
-					contract,
-					revision: { id: revision.id, digest: revision.artifactDigest },
-					plan: plan.envelope.payload,
-					planDigest: plan.artifactDigest,
-					sliceId: slice.id,
-				});
-				const digest = briefDigest(brief);
-				try {
-					await assertRequiredExternalActionsSatisfied({
-						designSessionId: args.designSessionId,
-						projectId: args.projectId,
-						appId,
-						plan: plan.envelope.payload,
-						slice,
-					});
-				} catch (error) {
-					if (!(error instanceof ExternalActionRequiredError)) throw error;
-					head = await appendFailure(args, head, {
-						errorType: "external-action-required",
-						recoverable: true,
-						operationalClass: "expected-prerequisite",
-						detail: { sliceId: slice.id },
-					});
-					return {
-						kind: "failed",
-						appId,
-						errorType: "external-action-required",
-						message:
-							"A required external prerequisite is still outstanding. Complete it before continuing this build.",
-						recoverable: true,
-					};
-				}
-				let rebaseAttempts = await countSliceRebaseAttempts({
-					designSessionId: args.designSessionId,
-					buildPlanId: plan.id,
-					sliceId: slice.id as string,
-				});
-				for (;;) {
-					const isGenesis = appId === null;
-					const { attempt } = await beginOrRecoverSliceAttempt({
-						designSessionId: args.designSessionId,
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-						designRevisionId: revision.id,
-						designRevisionDigest: revision.artifactDigest,
-						buildPlanId: plan.id,
-						buildPlanDigest: plan.artifactDigest,
-						sliceId: slice.id as string,
-						baseTarget: isGenesis
-							? {
-									kind: "empty-genesis",
-									proposedAppId: args.proposedAppId,
-									digest: emptyGenesisBase(args.proposedAppId).digest,
-								}
-							: await appBaseTarget(appId as string),
-						executorModel: MODEL_ROLES.buildExecutor.modelId,
-						promptVersion: EXECUTOR_PROMPT_VERSION,
-						briefDigest: digest,
-					});
-					const changeSetId = await ensureChangeSet(
-						args,
-						attempt,
-						revision,
-						plan,
-						isGenesis,
-					);
-					const executorContext = await openExecutorContext(attempt.id, brief);
-					args.writer.write({
-						type: "data-build-slice-started",
-						data: progressEnvelope(args.designSessionId, head, {
-							sliceId: slice.id,
-							sliceName: slice.name,
-						}),
-						transient: true,
-					});
-					if (
-						head === null ||
-						head.state.kind !== "executing-slice" ||
-						head.state.changeSetId !== changeSetId
-					) {
-						head = await appendOrchestrationEvent({
-							designSessionId: args.designSessionId,
-							runId: args.runId,
-							holderNonce: args.holderNonce,
-							actorUserId: args.actorUserId,
-							expectedProjectId: args.projectId,
-							state: {
-								kind: "executing-slice",
-								designRevisionId: revision.id,
-								buildPlanId: plan.id,
-								sliceId: slice.id,
-								changeSetId,
-								attempt: attempt.attempt,
-							},
-							expectedHead: head,
-						});
-					}
-
-					const outcome = await executeOneSlice(args, deps, {
-						attempt,
-						changeSetId,
-						brief,
-						slice,
-						contract,
-						plan: plan.envelope.payload,
-						isGenesis,
-						appId,
-						budget,
-						executorContext,
-					});
-					heartbeat();
-					if (outcome.kind === "committed") {
-						const receipt = outcome.receipt;
-						if (isGenesis) {
-							const materialization = receipt as AppMaterializationReceipt;
-							appId = materialization.appId;
-							lastSeq = 1;
-							/* Genesis is a canonical slice commit too. Project it through
-							 * the same progress vocabulary as every later slice before the
-							 * strict activation receipt transfers the UI to app scope. */
-							args.writer.write({
-								type: "data-build-slice-committed",
-								data: progressEnvelope(args.designSessionId, head, {
-									sliceId: slice.id,
-									sliceName: slice.name,
-									seq: 1,
-								}),
-								transient: true,
-							});
-							args.writer.write({
-								type: "data-app-materialized",
-								data: materialization,
-								transient: true,
-							});
-						} else {
-							const sliceReceipt = receipt as CommittedSliceReceipt;
-							lastSeq = sliceReceipt.seq;
-							args.writer.write({
-								type: "data-build-slice-committed",
-								data: progressEnvelope(args.designSessionId, head, {
-									sliceId: slice.id,
-									sliceName: slice.name,
-									seq: sliceReceipt.seq,
-								}),
-								transient: true,
-							});
-						}
-						break;
-					}
-					if (
-						outcome.kind === "rebase-conflict" ||
-						outcome.kind === "read-set-stale"
-					) {
-						rebaseAttempts += 1;
-						if (rebaseAttempts <= budget.maxRebaseAttempts) {
-							await supersedeSliceAttempt({
-								designSessionId: args.designSessionId,
-								attemptId: attempt.id,
-								failureCode: outcome.kind,
-								actorUserId: args.actorUserId,
-								runId: args.runId,
-								holderNonce: args.holderNonce,
-								expectedProjectId: args.projectId,
-							});
-							continue;
-						}
-						await markSliceAttempt({
-							designSessionId: args.designSessionId,
-							attemptId: attempt.id,
-							to: "failed",
-							failureCode:
-								outcome.kind === "read-set-stale"
-									? "external-read-change-budget-exhausted"
-									: "rebase-budget-exhausted",
-							actorUserId: args.actorUserId,
-							runId: args.runId,
-							holderNonce: args.holderNonce,
-							expectedProjectId: args.projectId,
-						});
-						head = await appendFailure(args, head, {
-							errorType:
-								outcome.kind === "read-set-stale"
-									? "external-read-change-budget-exhausted"
-									: "rebase-budget-exhausted",
-							recoverable: false,
-							operationalClass: "unexpected-failure",
-							detail: { sliceId: slice.id, attemptId: attempt.id },
-						});
-						return {
-							kind: "failed",
-							appId,
-							errorType:
-								outcome.kind === "read-set-stale"
-									? "external-read-change-budget-exhausted"
-									: "rebase-budget-exhausted",
-							message: `This workflow's underlying app or Project data kept changing, so Nova stopped before saving an unsafe revision. ${failureIntactTail(appId)}`,
-							recoverable: false,
-						};
-					}
-					if (outcome.kind === "architect-decision") {
-						await markSliceAttempt({
-							designSessionId: args.designSessionId,
-							attemptId: attempt.id,
-							to: "failed",
-							failureCode: `architect-${outcome.decision.kind}`,
-							actorUserId: args.actorUserId,
-							runId: args.runId,
-							holderNonce: args.holderNonce,
-							expectedProjectId: args.projectId,
-						});
-						const errorType =
-							outcome.decision.kind === "ask-user" ||
-							outcome.decision.kind === "contract-revision"
-								? "accepted-design-not-executable"
-								: `architect-${outcome.decision.kind}`;
-						head = await appendFailure(args, head, {
-							errorType,
-							recoverable: false,
-							operationalClass: "unexpected-failure",
-							detail: {
-								sliceId: slice.id,
-								attemptId: attempt.id,
-								decisionKind: outcome.decision.kind,
-							},
-						});
-						return {
-							kind: "failed",
-							appId,
-							errorType,
-							message:
-								"The accepted workflow could not be compiled without changing its frozen design. Nova stopped and recorded an internal build defect; it did not ask you to redesign or reduce scope.",
-							recoverable: false,
-						};
-					}
-					/* budget-exhausted / protocol-failure */
-					await markSliceAttempt({
-						designSessionId: args.designSessionId,
-						attemptId: attempt.id,
-						to: "failed",
-						failureCode:
-							outcome.kind === "budget-exhausted"
-								? "budget-exhausted"
-								: outcome.code,
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					});
-					head = await appendFailure(args, head, {
-						errorType:
-							outcome.kind === "budget-exhausted"
-								? "execution-budget-exhausted"
-								: outcome.code,
-						recoverable: false,
-						operationalClass: "unexpected-failure",
-						detail: {
-							sliceId: slice.id,
-							attemptId: attempt.id,
-							...(outcome.kind === "budget-exhausted"
-								? {
-										axis: outcome.axis,
-										modelStepsSpent: outcome.spent.modelSteps,
-										modelStepsLimit: budget.maxModelSteps,
-										mutationCallsSpent: outcome.spent.mutationCalls,
-										mutationCallsLimit: budget.maxMutationCalls,
-										commitAttemptsSpent: outcome.spent.commitAttempts,
-										commitAttemptsLimit: budget.maxCommitAttempts,
-										wallClockMsSpent: outcome.spent.wallClockMs,
-										wallClockMsLimit: budget.maxWallClockMs,
-										/* The spent/limit pairs above are the base budget; each paid
-										 * blocker report extended the enforced step, call, and
-										 * wall-clock limits by one BLOCKER_RESOLUTION_ALLOWANCE. */
-										blockerReports: outcome.spent.blockerReports,
-									}
-								: { protocolCode: outcome.code }),
-						},
-					});
-					return {
-						kind: "failed",
-						appId,
-						errorType:
-							outcome.kind === "budget-exhausted"
-								? "execution-budget-exhausted"
-								: outcome.code,
-						message:
-							outcome.kind === "budget-exhausted"
-								? `${
-										outcome.axis === "wall-clock"
-											? "This workflow needed more time than one build attempt allows, so Nova stopped before saving it."
-											: outcome.axis === "commit-attempts"
-												? "This workflow needed more correction rounds than one build attempt allows, so Nova stopped before saving it."
-												: "This workflow needed more build steps than one attempt allows, so Nova stopped before saving it."
-									} ${failureIntactTail(appId)}`
-								: outcome.message,
-						recoverable: false,
-					};
-				}
-			}
-
-			/* ── Finished ───────────────────────────────────────────────── */
-			if (appId === null) {
-				throw new Error(
-					"The build plan committed no materialization root, so no app exists.",
-				);
-			}
+		// An interrupted peer still owns the plan. Resume that conversation
+		// before the lead tries to reopen its private workspace.
+		const activeReview = await activePlanReview(authority);
+		if (activeReview)
+			await peerReview(activeReview.request_id, activeReview.app_seq !== null);
+		const dispatch = async (call: ArchitectToolCall) => {
+			await runtime.authorize();
+			if (call.toolName === "askQuestions") return question(call);
+			args.writer.write({
+				type: "tool-input-available",
+				toolCallId: call.toolCallId,
+				toolName: call.toolName,
+				input: call.input,
+			});
+			let output: unknown;
 			try {
-				const existingLocalizationReceipt = await readLocalizationReceipt(
-					plan.id,
-				);
-				const hasLocalizationFinalizer =
-					initialBuildHasLocalizationFinalizer(contract);
-				if (existingLocalizationReceipt !== null && !hasLocalizationFinalizer) {
-					refuseBuildCompletion(
-						"Build completion refused: this accepted contract has no localization finalizer but its plan carries a localization receipt.",
+				if (["readPlan", "writePlan", "editPlan"].includes(call.toolName))
+					output = await planTool(call, { editor: "architect" });
+				else if (call.toolName === "readSource")
+					output = readSource(source, call.input);
+				else if (call.toolName === "getApp") output = await runtime.overview();
+				else if (
+					call.toolName === "reviewPlan" ||
+					call.toolName === "reviewApp"
+				)
+					output = await peerReview(
+						call.toolCallId,
+						call.toolName === "reviewApp",
+						reviewInputSchema.parse(call.input).focus,
 					);
-				}
-				const source = await assertAuthoritativePlanSource({
-					appId,
-					actorUserId: args.actorUserId,
-					designSessionId: args.designSessionId,
-					revision,
-					plan,
-					localizationReceipt: existingLocalizationReceipt,
-				});
-				lastSeq = source.sourceSeq;
-				let localizationReceipt = existingLocalizationReceipt;
-				if (hasLocalizationFinalizer) {
-					if (head?.state.kind !== "translating") {
-						head = await appendOrchestrationEvent({
-							designSessionId: args.designSessionId,
-							runId: args.runId,
-							holderNonce: args.holderNonce,
-							actorUserId: args.actorUserId,
-							expectedProjectId: args.projectId,
-							state: {
-								kind: "translating",
-								designRevisionId: revision.id,
-								buildPlanId: plan.id,
-								appId,
-								sourceSeq: source.sourceSeq,
+				else if (call.toolName === "startBuilding") {
+					const plan = await readAppPlan(authority);
+					const review =
+						plan?.reviewedRevision === null || !plan
+							? await peerReview(`${call.toolCallId}:plan`, false)
+							: undefined;
+					await runtime.ensureWorkspace();
+					await emitState({ kind: "building", appId: runtime.appId });
+					output = { building: true, ...(review && { ...review }) };
+				} else if (call.toolName === "translateLanguage") {
+					const { language } = translateLanguageInputSchema.parse(call.input);
+					output = await runtime.write(call, (ctx) =>
+						translateLanguage(
+							ctx,
+							{
+								language: language.language,
+								...(language.script != null && { script: language.script }),
+								...(language.region != null && { region: language.region }),
 							},
-							expectedHead: head,
-						});
-					}
-					localizationReceipt = await deps.finalizeLocalization({
-						lineage: {
-							designSessionId: args.designSessionId,
-							designRevisionId: revision.id,
-							designRevisionDigest: revision.artifactDigest,
-							buildPlanId: plan.id,
-							buildPlanDigest: plan.artifactDigest,
-							appId,
-						},
-						authority: {
-							actorUserId: args.actorUserId,
-							projectId: args.projectId,
-							runId: args.runId,
-							holderNonce: args.holderNonce,
-						},
-						contract,
-						sourceBlueprint: source.blueprint,
-						sourceSeq: source.sourceSeq,
-						meter: args.meter,
-						signal: args.signal,
-						onLanguage: (language) => {
-							if (head === null) return;
-							args.writer.write({
-								type: "data-build-localization-progress",
-								data: progressEnvelope(args.designSessionId, head, {
-									languageTag: language.languageTag,
-									languageName: language.languageName,
-									batch: language.batch,
-									batchCount: language.batchCount,
-								}),
-								transient: true,
-							});
-						},
-					});
-					if (localizationReceipt === null) {
-						throw new Error(
-							"The accepted localization intent completed without a receipt.",
+							{
+								...commonLoop("translator"),
+								designSessionId: args.designSessionId,
+								authority: {
+									actorUserId: args.actorUserId,
+									runId: args.runId,
+									holderNonce: args.holderNonce,
+									expectedProjectId: args.projectId,
+								},
+							},
+						),
+					);
+				} else if (call.toolName === "saveWork") {
+					output = await runtime.saveWork(call.toolCallId);
+					await emitState({ kind: "building", appId: runtime.appId });
+				} else output = await runtime.shared(call, "architect");
+			} catch (error) {
+				output = recoverableToolError(error);
+			}
+			args.writer.write({
+				type: "tool-output-available",
+				toolCallId: call.toolCallId,
+				output,
+			});
+			return { kind: "result" as const, output };
+		};
+		if (
+			!head ||
+			head.state.kind === "failed" ||
+			head.state.kind === "awaiting-input"
+		)
+			await emitState(
+				runtime.building
+					? { kind: "building", appId: runtime.appId }
+					: { kind: "planning", sourceDigest: source.digest },
+			);
+		const system = buildArchitectPrompt();
+		const result = await runArchitectLoop({
+			...commonLoop("architect"),
+			spec: await spec("architect", MODEL_CONTEXT_VERSION, system),
+			system,
+			turnId,
+			additions: sourceMessages,
+			currentState: async () => {
+				const plan = await readAppPlan(authority);
+				return {
+					role: "user",
+					content: JSON.stringify({
+						phase: runtime.building ? "building" : "planning",
+						...(plan && {
+							plan: plan.markdown,
+							planRevision: plan.revision,
+							reviewedRevision: plan.reviewedRevision,
+						}),
+						...(runtime.building && { workspace: await runtime.overview() }),
+					}),
+				};
+			},
+			tools: () =>
+				architectToolDefinitions({
+					role: "architect",
+					building: runtime.building,
+					hasApp: runtime.appId !== null,
+				}),
+			dispatch,
+			onFinish: async (_text, conversation) => {
+				const deliverReview = async (app: boolean) => {
+					const snapshot = await runtime.snapshot(true);
+					let review = await latestPlanReview(
+						authority,
+						source.digest,
+						app ? snapshot.canonicalSeq : null,
+					);
+					if (!review) {
+						await peerReview(
+							`${app ? "app" : "planning"}-finish:${turnId}:${snapshot.canonicalSeq ?? 0}`,
+							app,
+						);
+						review = await latestPlanReview(
+							authority,
+							source.digest,
+							app ? snapshot.canonicalSeq : null,
 						);
 					}
-					lastSeq = localizationReceipt.seq;
-				}
-				lastSeq = await assertAuthoritativePlanCompletion({
-					appId,
-					actorUserId: args.actorUserId,
-					designSessionId: args.designSessionId,
-					revision,
-					plan,
-					localizationReceipt,
-				});
-				const conformance = await recordCanonicalConformance({
-					designSessionId: args.designSessionId,
-					appId,
-					designRevisionId: revision.id,
-					buildPlanId: plan.id,
-					authority: {
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					},
-				});
-				if (
-					conformance.payload.appSeq !== lastSeq ||
-					conformance.payload.findings.length > 0 ||
-					conformance.payload.unreadable.length > 0
-				)
-					refuseBuildCompletion(
-						"The final app still has an unresolved workflow requirement or unreadable implementation evidence.",
-					);
-			} catch (error) {
-				if (error instanceof LocalizationBuildError) {
-					/* The exact failed protocol row remains terminal, so an unchanged
-					 * retry cannot purchase another random sample. Keep the enclosing
-					 * build resumable so a deployed model/prompt/schema generation can
-					 * append its permitted replacement and finish the frozen app. */
-					head = await appendFailure(args, head, {
-						errorType: error.code,
-						recoverable: true,
-						operationalClass: "unexpected-failure",
-					});
+					if (!review)
+						throw new Error("The completed peer review is unavailable.");
+					const key = `peer-feedback:${review.id}`;
+					// A tool result or this durable message is the acknowledgment.
+					// No extra model-authored disposition or receipt is needed.
+					if (
+						conversation.hasMessage(key) ||
+						conversation.hasMessage(`tool:${review.request_id}`) ||
+						(review.request_id.endsWith(":plan") &&
+							conversation.hasMessage(`tool:${review.request_id.slice(0, -5)}`))
+					)
+						return null;
 					return {
-						kind: "failed",
-						appId,
-						errorType: error.code,
-						message: error.message,
-						recoverable: true,
+						kind: "continue" as const,
+						key,
+						message: JSON.stringify({
+							plan: (await readAppPlan(authority))?.markdown,
+							review: review.summary,
+						}),
 					};
-				}
-				if (!(error instanceof BuildCompletionVerificationError)) throw error;
-				log.error("design_build_final_verification_failed", error, {
-					designSessionId: args.designSessionId,
-					buildPlanId: plan.id,
-				});
-				head = await appendFailure(args, head, {
-					errorType: "final-verification-failed",
-					recoverable: false,
-					operationalClass: "unexpected-failure",
-				});
-				return {
-					kind: "failed",
-					appId,
-					errorType: "final-verification-failed",
-					message:
-						"I couldn't finish verifying every workflow. Your saved app is still available.",
-					recoverable: false,
 				};
-			}
-			/* The route owns schema convergence and the lifecycle/credit tail. Its
-			 * final database decision keeps the exact holder live until the status,
-			 * charge, and durable terminal event commit together. */
-			const finalized = await args.finalizeCompletion({
-				appId,
-				expectedSeq: lastSeq,
-				expectedHead: head,
-			});
-			head = finalized.head;
-			args.writer.write({
-				type: "data-build-completion",
-				data: progressEnvelope(args.designSessionId, head, {
-					appId,
-					appSeq: lastSeq,
-					plannedSlices: ordered.length,
-				}),
-				transient: true,
-			});
-			return {
-				kind: "completed",
-				appId,
-				finalSeq: lastSeq,
-				finalBlueprint: finalized.blueprint,
-			};
+				if (!runtime.building) {
+					const plan = await readAppPlan(authority);
+					if (plan) {
+						const feedback = await deliverReview(false);
+						if (feedback) return feedback;
+					}
+					return { kind: "awaiting-input" };
+				}
+				if (await runtime.hasUnsavedWork())
+					return {
+						kind: "continue",
+						message:
+							"There are unsaved app changes. Save a complete workflow or resolve the reported issues before finishing.",
+					};
+				if (!runtime.appId)
+					return {
+						kind: "continue",
+						message: "The app has no saved workflow yet.",
+					};
+				const feedback = await deliverReview(true);
+				if (feedback) return feedback;
+				await runtime.discardEmptyWorkspace();
+				return { kind: "complete" };
+			},
+		});
+		if (result.kind === "awaiting-input") {
+			emitText(`${result.contextId}:final:${turnId}`, result.text);
+			await emitState({ kind: "awaiting-input" });
+			const pause = runtime.appId
+				? await setAwaitingInput(
+						runtime.appId,
+						args.runId,
+						args.holderNonce,
+						"build",
+						true,
+						args.actorUserId,
+						args.projectId,
+					)
+				: await setDesignSessionAwaitingInput(
+						args.designSessionId,
+						args.runId,
+						args.holderNonce,
+						true,
+						args.actorUserId,
+						args.projectId,
+					);
+			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
 		}
+		if (!runtime.appId)
+			throw new Error("A completed build must have a saved app.");
+		const finalApp = await loadApp(runtime.appId);
+		if (!finalApp) throw new Error("The saved app is unavailable.");
+		const finalized = await args.finalizeCompletion({
+			appId: runtime.appId,
+			expectedSeq: finalApp.mutation_seq,
+			expectedHead: head,
+		});
+		args.writer.write({
+			type: "data-authoring-progress",
+			data: {
+				sessionId: args.designSessionId,
+				revision: finalized.head.revision,
+				stage: "ready",
+			},
+			transient: true,
+		});
+		emitText(`${result.contextId}:final:${turnId}`, result.text);
+		return {
+			kind: "completed",
+			appId: runtime.appId,
+			finalSeq: finalApp.mutation_seq,
+			finalBlueprint: finalized.blueprint,
+		};
+	} catch (error) {
+		const classified = classifyError(error);
+		const session = await loadDesignSession(args.designSessionId);
+		if (session?.app_id) runtime.appId = session.app_id;
+		try {
+			await emitState({
+				kind: "failed",
+				failureId: randomUUID(),
+				recoverable: classified.recoverable,
+				errorType: classified.type,
+			});
+		} catch (stateError) {
+			log.warn("authoring_failure_record_unavailable", {
+				runId: args.runId,
+				errorType: stateError instanceof Error ? stateError.name : "unknown",
+			});
+		}
+		throw error;
 	} finally {
 		clearInterval(heartbeatTimer);
 		await heartbeatTask;
 		args.writer.write({ type: "finish" });
-	}
-}
-
-// ── Internals ──────────────────────────────────────────────────────
-
-function productionDeps(
-	args: RunBuildOrchestrationArgs,
-): BuildOrchestrationDeps {
-	const overrides = args.deps ?? {};
-	const executorContext = new DesignGenerationContext({
-		apiKey: args.apiKey,
-		userId: args.actorUserId,
-		projectId: args.projectId,
-		runId: args.runId,
-		designSessionId: args.designSessionId,
-		...(args.meter !== undefined && { meter: args.meter }),
-		usagePhase: "build-executor",
-	});
-	const translationContext = new DesignGenerationContext({
-		apiKey: args.apiKey,
-		userId: args.actorUserId,
-		projectId: args.projectId,
-		runId: args.runId,
-		designSessionId: args.designSessionId,
-	});
-	return {
-		buildPackage:
-			overrides.buildPackage ??
-			(async (packageArgs) =>
-				buildDesignSourcePackage({
-					...packageArgs,
-					messages: packageArgs.messages as Parameters<
-						typeof buildDesignSourcePackage
-					>[0]["messages"],
-					deps: productionSourcePackageDeps(createExtractionCondenser()),
-				})),
-		runDesignLoop: overrides.runDesignLoop ?? runDesignAgentLoop,
-		...(overrides.onAgentStep !== undefined && {
-			onAgentStep: overrides.onAgentStep,
-		}),
-		...(overrides.onReasoningSummary !== undefined && {
-			onReasoningSummary: overrides.onReasoningSummary,
-		}),
-		...(overrides.onDesignToolOutcome !== undefined && {
-			onDesignToolOutcome: overrides.onDesignToolOutcome,
-		}),
-		...(overrides.onExecutorToolOutcome !== undefined && {
-			onExecutorToolOutcome: overrides.onExecutorToolOutcome,
-		}),
-		...(overrides.onRecoverableRetry !== undefined && {
-			onRecoverableRetry: overrides.onRecoverableRetry,
-		}),
-		executorStep:
-			overrides.executorStep ??
-			productionExecutorStep(
-				executorContext.model(MODEL_ROLES.buildExecutor.modelId),
-				MODEL_ROLES.buildExecutor.reasoningEffort,
-				promptCacheKeys.executor(args.designSessionId),
-			),
-		resolveBlocker:
-			overrides.resolveBlocker ??
-			(async (blockerArgs) => {
-				const result = await resolveExecutionBlocker(
-					executorContext,
-					blockerArgs,
-					blockerArgs.signal,
-				);
-				if (result.kind !== "produced") {
-					throw new Error(
-						`The architect did not produce a blocker decision (${result.reason}).`,
-					);
-				}
-				if (result.reasoningText) {
-					overrides.onReasoningSummary?.(result.reasoningText);
-				}
-				return result.artifact;
-			}),
-		materialize: overrides.materialize ?? materializeAppFromGenesis,
-		commitSlice: overrides.commitSlice ?? commitDesignChangeSet,
-		finalizeLocalization:
-			overrides.finalizeLocalization ??
-			((localizationArgs) =>
-				finalizeInitialBuildLocalization(
-					localizationArgs,
-					productionInitialBuildLocalizationDeps(translationContext),
-				)),
-	};
-}
-
-/** The honest tail of a terminal slice-failure message: what survives depends
- * on whether the materialization root ever committed. */
-function failureIntactTail(appId: string | null): string {
-	return appId === null
-		? "No app was created yet, and your accepted design is safe. Nova recorded what stopped the build so it can be fixed."
-		: "Everything already saved to your app is intact.";
-}
-
-async function appendFailure(
-	args: RunBuildOrchestrationArgs,
-	head: OrchestrationHead | null,
-	failure: {
-		errorType: string;
-		recoverable: boolean;
-		operationalClass: BuildFailureOperationalClass;
-		/** Machine context for the operational log line: opaque ids, stable
-		 * codes, and aggregate counters only — never customer-authored text. */
-		detail?: Record<string, string | number | boolean>;
-	},
-): Promise<OrchestrationHead> {
-	/* Every terminal build failure passes through here, so this is the one
-	 * line that must account for the failure without a database visit. Product
-	 * resumability is independent of operational severity: an internal defect
-	 * may be safe to resume after a deploy and still belongs in Sentry. */
-	const cause = {
-		...failure.detail,
-		designSessionId: args.designSessionId,
-		runId: args.runId,
-		errorType: failure.errorType,
-		failureClass: failure.operationalClass,
-		recoverable: failure.recoverable,
-	};
-	if (designBuildFailureLogLevel(failure.operationalClass) === "warn") {
-		log.warn("design_build_failed", cause);
-	} else {
-		log.error("design_build_failed", undefined, cause);
-	}
-	return appendOrchestrationEvent({
-		designSessionId: args.designSessionId,
-		runId: args.runId,
-		holderNonce: args.holderNonce,
-		actorUserId: args.actorUserId,
-		expectedProjectId: args.projectId,
-		state: {
-			kind: "failed",
-			failureId: crypto.randomUUID(),
-			recoverable: failure.recoverable,
-			errorType: failure.errorType,
-		},
-		expectedHead: head,
-	});
-}
-
-async function emitDesignSummaries(
-	args: RunBuildOrchestrationArgs,
-	head: OrchestrationHead | null,
-	revision: DesignRevisionRecord,
-	plan: DesignBuildPlanRecord,
-): Promise<void> {
-	const reviews = await readDesignReviews(
-		revision.parentRevisionId ?? revision.id,
-	);
-	const outline = deriveDesignOutline(
-		revision.envelope.payload,
-		reviews.map((review) => review.envelope.payload),
-	);
-	args.writer.write({
-		type: "data-design-outline",
-		data: progressEnvelope(args.designSessionId, head, outline),
-		transient: true,
-	});
-	args.writer.write({
-		type: "data-build-plan-summary",
-		data: progressEnvelope(
-			args.designSessionId,
-			head,
-			deriveBuildPlanSummary(plan.envelope.payload),
-		),
-		transient: true,
-	});
-	/* No templated narration here: the design agent already spoke for
-	 * itself in the transcript, and these frames feed the outline card. */
-}
-
-interface CompletionLineageArgs {
-	readonly appId: string;
-	readonly actorUserId: string;
-	readonly designSessionId: string;
-	readonly revision: DesignRevisionRecord;
-	readonly plan: DesignBuildPlanRecord;
-}
-
-async function assertAuthoritativeCommittedSlices(
-	args: CompletionLineageArgs,
-): Promise<CommittedSliceReceipt> {
-	const expectedSlices = orderSlicesForExecution(args.plan.envelope.payload);
-	const receipts = await readCommittedSliceReceiptsForPlan(args.plan.id);
-	assertExactCommittedSliceReceipts({
-		expectedSlices,
-		receipts,
-		lineage: {
-			designSessionId: args.designSessionId,
-			designRevisionId: args.revision.id,
-			designRevisionDigest: args.revision.artifactDigest,
-			buildPlanId: args.plan.id,
-			buildPlanDigest: args.plan.artifactDigest,
-			appId: args.appId,
-		},
-	});
-
-	const db = await getAppDb();
-	const attempts = await db
-		.selectFrom("design_slice_attempts")
-		.select(["id", "slice_id", "change_set_id", "status"])
-		.where("design_session_id", "=", args.designSessionId)
-		.where("build_plan_id", "=", args.plan.id)
-		.execute();
-	for (const receipt of receipts) {
-		const attempt = attempts.find(
-			(candidate) => candidate.id === receipt.attemptId,
-		);
-		if (
-			attempt?.status !== "committed" ||
-			attempt.slice_id !== receipt.sliceId ||
-			attempt.change_set_id !== receipt.changeSetId
-		) {
-			refuseBuildCompletion(
-				`Build completion refused: slice ${receipt.sliceId} has no matching committed execution attempt.`,
-			);
-		}
-	}
-	const finalReceipt = receipts.at(-1);
-	if (finalReceipt === undefined) {
-		refuseBuildCompletion(
-			"Build completion refused: the accepted plan has no final committed slice receipt.",
-		);
-	}
-	return finalReceipt;
-}
-
-function assertLocalizationReceiptFollowsSlices(
-	args: CompletionLineageArgs,
-	sliceReceipt: CommittedSliceReceipt,
-	localizationReceipt: DesignLocalizationReceipt,
-): void {
-	if (
-		localizationReceipt.designSessionId !== args.designSessionId ||
-		localizationReceipt.designRevisionId !== args.revision.id ||
-		localizationReceipt.designRevisionDigest !== args.revision.artifactDigest ||
-		localizationReceipt.buildPlanId !== args.plan.id ||
-		localizationReceipt.buildPlanDigest !== args.plan.artifactDigest ||
-		localizationReceipt.appId !== args.appId ||
-		localizationReceipt.sourceSeq !== sliceReceipt.seq ||
-		localizationReceipt.sourceSnapshotDigest !==
-			sliceReceipt.committedSnapshotDigest
-	) {
-		refuseBuildCompletion(
-			"Build completion refused: the localization receipt does not descend from the final planned slice under the same accepted lineage.",
-		);
-	}
-}
-
-async function assertAuthoritativePlanSource(
-	args: CompletionLineageArgs & {
-		readonly localizationReceipt: DesignLocalizationReceipt | null;
-	},
-): Promise<{ readonly sourceSeq: number; readonly blueprint: PersistableDoc }> {
-	const finalReceipt = await assertAuthoritativeCommittedSlices(args);
-	const access = await resolveAuthorizedAppSnapshot(
-		args.appId,
-		args.actorUserId,
-		"view",
-	);
-	if (args.localizationReceipt !== null) {
-		assertLocalizationReceiptFollowsSlices(
-			args,
-			finalReceipt,
-			args.localizationReceipt,
-		);
-		return { sourceSeq: finalReceipt.seq, blueprint: access.app.blueprint };
-	}
-	if (
-		finalReceipt.seq !== access.baseSeq ||
-		finalReceipt.committedSnapshotDigest !==
-			canonicalJsonDigest(access.app.blueprint)
-	) {
-		refuseBuildCompletion(
-			"Build completion refused: the canonical app head no longer matches the final planned slice receipt.",
-		);
-	}
-	return { sourceSeq: finalReceipt.seq, blueprint: access.app.blueprint };
-}
-
-async function assertAuthoritativePlanCompletion(
-	args: CompletionLineageArgs & {
-		readonly localizationReceipt: DesignLocalizationReceipt | null;
-	},
-): Promise<number> {
-	const finalReceipt = await assertAuthoritativeCommittedSlices(args);
-
-	const access = await resolveAuthorizedAppSnapshot(
-		args.appId,
-		args.actorUserId,
-		"view",
-	);
-	if (args.localizationReceipt !== null) {
-		assertLocalizationReceiptFollowsSlices(
-			args,
-			finalReceipt,
-			args.localizationReceipt,
-		);
-	}
-	const authoritativeReceipt = args.localizationReceipt ?? finalReceipt;
-	if (
-		authoritativeReceipt.seq !== access.baseSeq ||
-		authoritativeReceipt.committedSnapshotDigest !==
-			canonicalJsonDigest(access.app.blueprint)
-	) {
-		refuseBuildCompletion(
-			"Build completion refused: the canonical app head no longer matches the final planned slice receipt.",
-		);
-	}
-	const boundary = await prepareExportBoundary({
-		mode: "ccz",
-		access: {
-			projectId: access.projectId,
-			role: access.role,
-			actorUserId: access.actorUserId,
-		},
-		doc: hydratePersistedBlueprint(access.app.blueprint),
-		compiledAtSeq: access.baseSeq,
-		// A build's export-readiness proof compiles the app as a downloadable
-		// artifact, which carries no target of its own. A newly built app has
-		// never been published, so this is `null` in practice; resolving it
-		// anyway keeps the proof identical to what the download path emits.
-		attachmentTarget: attachmentUrlTargetFor(
-			await attachmentDeploymentTargetFor({
-				appId: args.appId,
-				projectId: access.projectId,
-				role: access.role,
-				actorUserId: access.actorUserId,
-			}),
-		),
-	});
-	if (!boundary.ok) {
-		refuseBuildCompletion(
-			`Build completion refused: final export validation reported ${boundary.violations.length} finding(s).`,
-		);
-	}
-	const {
-		doc,
-		assets,
-		compiledAtSeq,
-		lookupNaming,
-		lookupWire,
-		attachmentTarget,
-	} = boundary.prepared;
-	try {
-		const hqJson = expandDoc(doc, {
-			assets,
-			attachmentTarget,
-			...(lookupNaming && { lookupNaming }),
-		});
-		compileCcz(hqJson, doc.appName, doc, {
-			assets,
-			compiledAtSeq,
-			...(lookupWire && { lookup: lookupWire }),
-		});
-	} catch (error) {
-		throw new BuildCompletionVerificationError(
-			`Build completion refused: final wire compilation failed: ${
-				error instanceof Error ? error.message : String(error)
-			}`,
-			{ cause: error },
-		);
-	}
-	return access.baseSeq;
-}
-
-async function committedSliceIds(planId: string): Promise<Set<string>> {
-	const db = await getAppDb();
-	const rows = await db
-		.selectFrom("design_committed_slices")
-		.select(["slice_id"])
-		.where("build_plan_id", "=", planId)
-		.execute();
-	return new Set(rows.map((row) => row.slice_id));
-}
-
-async function appBaseTarget(appId: string) {
-	const db = await getAppDb();
-	const row = await db
-		.selectFrom("apps")
-		.select(["mutation_seq"])
-		.where("id", "=", appId)
-		.executeTakeFirstOrThrow();
-	const { loadCanonicalBlueprintAtSequence } = await import(
-		"@/lib/agent/change-set/baseLoader"
-	);
-	const seq = safePersistedSequence(row.mutation_seq, "apps.mutation_seq");
-	const folded = await loadCanonicalBlueprintAtSequence(db, {
-		appId,
-		seq,
-		expectedDigest: null,
-	});
-	return { kind: "app" as const, appId, seq, digest: folded.digest };
-}
-
-async function ensureChangeSet(
-	args: RunBuildOrchestrationArgs,
-	attempt: SliceAttempt,
-	revision: DesignRevisionRecord,
-	plan: DesignBuildPlanRecord,
-	isGenesis: boolean,
-): Promise<string> {
-	if (attempt.changeSetId !== null) return attempt.changeSetId;
-	const lineage = {
-		designSessionId: args.designSessionId,
-		designRevisionId: revision.id,
-		designRevisionDigest: revision.artifactDigest,
-		buildPlanId: plan.id,
-		buildPlanDigest: plan.artifactDigest,
-		sliceId: attempt.sliceId as never,
-		attemptId: attempt.id,
-	};
-	try {
-		const changeSet = isGenesis
-			? await beginGenesisChangeSet({
-					proposedAppId: args.proposedAppId,
-					projectId: args.projectId,
-					baseSnapshotDigest: emptyGenesisBase(args.proposedAppId).digest,
-					lineage,
-					ownerUserId: args.actorUserId,
-					ownerRunId: args.runId,
-					attemptAuthority: {
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					},
-				})
-			: await beginAppEditChangeSet({
-					appId:
-						attempt.baseTarget.kind === "app" ? attempt.baseTarget.appId : "",
-					expectedProjectId: args.projectId,
-					lineage,
-					ownerUserId: args.actorUserId,
-					ownerRunId: args.runId,
-					attemptAuthority: {
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					},
-				});
-		await bindSliceAttemptChangeSet({
-			designSessionId: args.designSessionId,
-			attemptId: attempt.id,
-			changeSetId: changeSet.id,
-			actorUserId: args.actorUserId,
-			runId: args.runId,
-			holderNonce: args.holderNonce,
-			expectedProjectId: args.projectId,
-		});
-		return changeSet.id;
-	} catch (error) {
-		/* The one-open-set-per-attempt fence names a reopenable set: recover
-		 * it by attempt id. */
-		const db = await getAppDb();
-		const openRow = await db
-			.selectFrom("design_change_sets")
-			.select(["id"])
-			.where("attempt_id", "=", attempt.id)
-			.where("status", "=", "open")
-			.executeTakeFirst();
-		const open =
-			openRow === undefined ? undefined : await loadChangeSet(openRow.id, db);
-		if (
-			open !== undefined &&
-			open.designSessionId === lineage.designSessionId &&
-			open.designRevisionId === lineage.designRevisionId &&
-			open.designRevisionDigest === lineage.designRevisionDigest &&
-			open.buildPlanId === lineage.buildPlanId &&
-			open.buildPlanDigest === lineage.buildPlanDigest &&
-			open.sliceId === lineage.sliceId &&
-			open.attemptId === lineage.attemptId &&
-			open.ownerUserId === args.actorUserId &&
-			open.ownerRunId === args.runId &&
-			open.baseProjectId === args.projectId &&
-			(isGenesis
-				? open.kind === "genesis" &&
-					open.proposedAppId === args.proposedAppId &&
-					open.baseSnapshotDigest ===
-						emptyGenesisBase(args.proposedAppId).digest
-				: open.kind === "app-edit" &&
-					attempt.baseTarget.kind === "app" &&
-					open.appId === attempt.baseTarget.appId &&
-					open.baseSeq === attempt.baseTarget.seq &&
-					open.baseSnapshotDigest === attempt.baseTarget.digest)
-		) {
-			await bindSliceAttemptChangeSet({
-				designSessionId: args.designSessionId,
-				attemptId: attempt.id,
-				changeSetId: open.id,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				expectedProjectId: args.projectId,
-			});
-			return open.id;
-		}
-		throw error;
-	}
-}
-
-async function executeOneSlice(
-	args: RunBuildOrchestrationArgs,
-	deps: BuildOrchestrationDeps,
-	slice: {
-		attempt: SliceAttempt;
-		changeSetId: string;
-		brief: SliceExecutionBrief;
-		slice: BuildSlice;
-		contract: AppDesignContract;
-		plan: BuildPlan;
-		isGenesis: boolean;
-		appId: string | null;
-		budget: ReturnType<typeof budgetForSlice>;
-		executorContext: ExecutorConversationContext;
-	},
-): Promise<SliceExecutionOutcome> {
-	const lookupScope = {
-		projectId: args.projectId,
-		actorId: args.actorUserId,
-		role: args.projectRole,
-	};
-	const host: ChangeSetWorkspaceHost = {
-		actorUserId: args.actorUserId,
-		runId: args.runId,
-		chatRunHolder: {
-			mode: "build",
-			runId: args.runId,
-			nonce: args.holderNonce,
-			source: "chat",
-		},
-		conversionImpact: async () => {
-			throw new Error(
-				"A conversion-impact preview needs saved case rows, and a build slice runs before any exist for its new structure.",
-			);
-		},
-		lookupDefinitions: (tableIds) =>
-			readToolLookupDefinitions(lookupScope, tableIds),
-		lookupCatalog: () => readToolLookupCatalog(lookupScope),
-	};
-	const workspace = await ChangeSetMutationWorkspace.open(
-		host,
-		slice.changeSetId,
-	);
-	const commit = async (signal: AbortSignal, deadlineAt: number) => {
-		if (signal.aborted || Date.now() >= deadlineAt) {
-			return {
-				kind: "gate-rejected" as const,
-				message: "The slice execution deadline expired before commit.",
-			};
-		}
-		const fresh = await loadChangeSet(slice.changeSetId);
-		if (fresh === undefined) {
-			throw new Error("This change set no longer exists.");
-		}
-		if (signal.aborted || Date.now() >= deadlineAt) {
-			return {
-				kind: "gate-rejected" as const,
-				message: "The slice execution deadline expired before commit.",
-			};
-		}
-		if (slice.isGenesis) {
-			const outcome = await deps.materialize({
-				changeSetId: slice.changeSetId,
-				actorUserId: args.actorUserId,
-				runId: args.runId,
-				holderNonce: args.holderNonce,
-				expectedProjectId: args.projectId,
-				expectedRevision: fresh.revision,
-				deadlineAt,
-			});
-			if (outcome.kind === "materialized") {
-				return { kind: "committed" as const, receipt: outcome.receipt };
-			}
-			return outcome;
-		}
-		const outcome = await deps.commitSlice({
-			changeSetId: slice.changeSetId,
-			actorUserId: args.actorUserId,
-			runId: args.runId,
-			chatRunHolder: {
-				mode: "build",
-				runId: args.runId,
-				nonce: args.holderNonce,
-				source: "chat",
-			},
-			kind: "chat",
-			expectedRevision: fresh.revision,
-			deadlineAt,
-		});
-		return outcome;
-	};
-	const attemptAuthority = {
-		designSessionId: args.designSessionId,
-		attemptId: slice.attempt.id,
-		actorUserId: args.actorUserId,
-		runId: args.runId,
-		holderNonce: args.holderNonce,
-		expectedProjectId: args.projectId,
-	};
-	await beginSliceAttemptOutcomeCollection(attemptAuthority);
-	let outcomePersistenceFailed = false;
-	try {
-		return await runSliceExecutor({
-			workspace,
-			brief: slice.brief,
-			budget: slice.budget,
-			context: slice.executorContext,
-			contextScopeKey: slice.attempt.id,
-			step: deps.executorStep,
-			resolveBlocker: deps.resolveBlocker,
-			commit,
-			reconcileCommit: async () => {
-				if (slice.isGenesis) {
-					const receipt = await readMaterializedGenesisReceipt({
-						changeSetId: slice.changeSetId,
-						actorUserId: args.actorUserId,
-					});
-					return receipt === null ? null : { kind: "committed", receipt };
-				}
-				const receipt = await readCommittedSliceReceipt(slice.changeSetId);
-				return receipt === null ? null : { kind: "committed", receipt };
-			},
-			budgetLedger: {
-				/* The wall-clock budget grants what the attempt has not actively
-				 * spent — never elapsed time since the original start. A
-				 * process-death recovery can only run after the build liveness
-				 * horizon lapses, so an absolute deadline would arrive already
-				 * burned and fail every recovered attempt unexecuted. */
-				deadlineAt:
-					Date.now() +
-					remainingWallClockMs(
-						slice.budget,
-						slice.attempt.wallClockMsUsed,
-						slice.attempt.budgetSpent.blockerReports,
-					),
-				spent: slice.attempt.budgetSpent,
-				claim: (counter, limit, claimKey) =>
-					claimSliceAttemptBudget({
-						designSessionId: args.designSessionId,
-						attemptId: slice.attempt.id,
-						counter,
-						limit,
-						claimKey,
-						actorUserId: args.actorUserId,
-						runId: args.runId,
-						holderNonce: args.holderNonce,
-						expectedProjectId: args.projectId,
-					}),
-			},
-			signal: args.signal,
-			...(args.meter !== undefined && {
-				onUsage: (usage, identity) =>
-					meterDurableSubGenerationUsage(
-						args.meter as SubGenerationUsageMeter,
-						identity,
-						usage,
-						{
-							step: true,
-							model: MODEL_ROLES.buildExecutor.modelId,
-							phase: "build-executor",
-						},
-					),
-			}),
-			onProgress: (phase) => {
-				log.info("[buildOrchestrator] slice progress", {
-					designSessionId: args.designSessionId,
-					sliceId: slice.slice.id,
-					phase,
-				});
-			},
-			...(deps.onReasoningSummary !== undefined && {
-				onReasoning: deps.onReasoningSummary,
-			}),
-			onToolCall: (call) => {
-				log.info("[buildExecutor] model tool", {
-					designSessionId: args.designSessionId,
-					sliceId: slice.slice.id,
-					...call,
-				});
-			},
-			onToolOutcome: async (event) => {
-				if (
-					event.outcome === "wire-invalid" ||
-					event.outcome === "mutation-rejected" ||
-					event.outcome === "validator-repair"
-				) {
-					try {
-						await recordSliceAttemptDiagnostic({
-							...attemptAuthority,
-							outcome: event.outcome,
-						});
-					} catch (error) {
-						outcomePersistenceFailed = true;
-						throw error;
-					}
-				}
-				log.info("[buildExecutor] tool outcome", {
-					designSessionId: args.designSessionId,
-					sliceId: slice.slice.id,
-					...event,
-				});
-				await deps.onExecutorToolOutcome?.(event);
-			},
-		});
-	} finally {
-		if (!outcomePersistenceFailed) {
-			await finishSliceAttemptOutcomeCollection(attemptAuthority);
-		}
 	}
 }

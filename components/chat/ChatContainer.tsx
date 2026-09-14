@@ -908,6 +908,7 @@ export function ChatContainer({
 						designSessionId: opts.designSessionId,
 						materializedAppId,
 						stage: "incomplete",
+						revision: 0,
 					});
 				} else if (
 					designSessionScopeTracksProgress(

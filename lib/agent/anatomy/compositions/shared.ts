@@ -1,5 +1,5 @@
 /**
- * Helpers every role composition builds its items with, so the eight files
+ * Helpers every role composition builds its items with, so compositions
  * read as lists of what the model receives rather than as plumbing.
  */
 
@@ -98,7 +98,6 @@ async function resolveJsonSchema(inputSchema: unknown): Promise<unknown> {
 
 export async function toolViews(
 	definitions: Readonly<Record<string, ToolDefinitionSource>>,
-	allowed?: ReadonlySet<string>,
 ): Promise<ToolDefinitionView[]> {
 	return Promise.all(
 		Object.entries(definitions).map(async ([name, definition]) => ({
@@ -121,7 +120,6 @@ export async function toolViews(
 			...(definition.providerOptions !== undefined && {
 				providerOptions: wireJson(definition.providerOptions),
 			}),
-			...(allowed && { allowed: allowed.has(name) }),
 		})),
 	);
 }
@@ -132,7 +130,6 @@ export function toolsItem(args: {
 	tools: readonly ToolDefinitionView[];
 	source: SourceRef;
 	note?: string;
-	digestCovers?: readonly string[];
 }): ContextItem {
 	return {
 		kind: "tools",
@@ -142,7 +139,6 @@ export function toolsItem(args: {
 		source: args.source,
 		tools: args.tools,
 		...(args.note && { note: args.note }),
-		...(args.digestCovers && { digestCovers: args.digestCovers }),
 	};
 }
 

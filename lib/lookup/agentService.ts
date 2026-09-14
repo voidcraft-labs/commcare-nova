@@ -2,16 +2,19 @@ import "server-only";
 
 import type { Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
 import { exactRunHolderMatches } from "@/lib/db/runHolderWrites";
 import { runLeaseState } from "@/lib/db/runLiveness";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { applyLookupAuthoringBatchInTransaction } from "./authoringBatch";
 import { LookupError } from "./errors";
 import {
@@ -72,11 +75,43 @@ async function authorizeAgentScopeInTransaction(
 	scope: LookupAgentWriteScope,
 	capability: AppCapability,
 ): Promise<{ projectId: string; role: string }> {
+	if (scope.designSessionId !== undefined) {
+		if (scope.chatRunHolder?.mode !== "build")
+			throw new RunHolderLostError("released");
+		await assertDesignSessionRunAuthorityInTransaction(tx, {
+			designSessionId: scope.designSessionId,
+			actorUserId: scope.actorId,
+			expectedProjectId: scope.projectId,
+			holder: scope.chatRunHolder,
+		});
+		const role = await projectRoleForInTransaction(
+			tx,
+			scope.actorId,
+			scope.projectId,
+		);
+		if (role === null || !roleAllowsApp(role, capability))
+			throw new CommitReauthError("You no longer have access to this Project.");
+		if (capability !== "view") {
+			await lockPlanForBuild(tx, scope.designSessionId);
+			const workspace = await tx
+				.selectFrom("authoring_workspaces")
+				.select("id")
+				.where("design_session_id", "=", scope.designSessionId)
+				.where("status", "=", "open")
+				.executeTakeFirst();
+			if (!workspace)
+				throw new LookupError(
+					"invalid_input",
+					"Start building before changing Project data.",
+				);
+		}
+		return { projectId: scope.projectId, role };
+	}
 	const app = await tx
 		.selectFrom("apps")
 		.select(["project_id", "deleted_at", ...LEASE_COLUMNS])
 		.where("id", "=", scope.appId)
-		.forShare()
+		.forUpdate()
 		.executeTakeFirst();
 	if (app === undefined || app.deleted_at !== null) {
 		if (scope.chatRunHolder !== undefined) {
@@ -110,7 +145,10 @@ async function authorizeAgentScopeInTransaction(
 	}
 	if (scope.chatRunHolder !== undefined) {
 		const lease = runLeaseState(leaseView(app));
-		if (!exactRunHolderMatches(lease.holderIdentity, scope.chatRunHolder)) {
+		if (
+			!lease.live ||
+			!exactRunHolderMatches(lease.holderIdentity, scope.chatRunHolder)
+		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
 	}
@@ -130,7 +168,27 @@ async function applyAuthorized(
 			scope,
 			"edit",
 		);
-		return applyLookupAuthoringBatchInTransaction(
+		const targetKey =
+			scope.designSessionId !== undefined
+				? `session:${scope.designSessionId}`
+				: `app:${scope.appId}`;
+		const inputDigest = canonicalJsonDigest(input);
+		const prior = await tx
+			.selectFrom("lookup_authoring_receipts")
+			.select(["input_digest", "receipt"])
+			.where("project_id", "=", authorized.projectId)
+			.where("target_key", "=", targetKey)
+			.where("request_id", "=", scope.requestId)
+			.executeTakeFirst();
+		if (prior) {
+			if (prior.input_digest !== inputDigest)
+				throw new LookupError(
+					"invalid_input",
+					"This request already completed with different input.",
+				);
+			return prior.receipt;
+		}
+		const receipt = await applyLookupAuthoringBatchInTransaction(
 			tx,
 			{
 				projectId: authorized.projectId,
@@ -139,6 +197,19 @@ async function applyAuthorized(
 			},
 			input,
 		);
+		await tx
+			.insertInto("lookup_authoring_receipts")
+			.values({
+				project_id: authorized.projectId,
+				target_key: targetKey,
+				request_id: scope.requestId,
+				input_digest: inputDigest,
+				receipt: JSON.stringify(receipt),
+				actor_id: scope.actorId,
+				run_id: scope.runId,
+			})
+			.execute();
+		return receipt;
 	});
 }
 
