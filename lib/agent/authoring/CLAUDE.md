@@ -18,7 +18,14 @@ Accepted catalog preparation uses canonical literal text and the same creation
 identity allocator; it does not reinterpret accepted labels as answer references.
 Canonical schemas and the existing commit gate remain authoritative.
 
-The editor and executor mount hosted OpenAI tool search and defers shared definitions. MCP
+`readableSchema.ts` simplifies the root-local definitions emitted by the Zod
+projection: small values stay beside their arguments, while substantial reused
+structures remain shared. It visits schema positions only, preserving literal
+data and admission constraints. The same projection serves MCP and both editors.
+The executor brief renders design relationships with readable names, preserving
+the canonical identities in durable storage and leaving source prose untouched.
+
+The editor and executor mount hosted OpenAI tool search and defer shared definitions. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.
@@ -88,11 +95,10 @@ automation validator still owns allowed properties, shadowing, and message limit
 Literal opening braces are escaped individually, including a single brace next
 to a reference; otherwise text and an insertion can merge into a new delimiter.
 
-`experimental` is reachable only from the local comparison script. Its native
-tools cover one client workflow. The JavaScript adapter preserves the comparison
-for inspection; it is not a second production authoring path. The selected
-direction and limitations live in
-`docs/research/agent-authoring-pilot-2026-09-12.md`.
+The native and JavaScript prototypes have been retired. Their comparison and
+limitations remain in `docs/research/agent-authoring-pilot-2026-09-12.md`; Git
+history preserves the implementations. The local evaluator now uses production
+prompts and tools, with effects restricted to its disposable app.
 
 Resolve all names for one operation against its complete scope before preparing
 mutations. Creation allocates identities before binding expressions. A field or

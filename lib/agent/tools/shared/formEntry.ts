@@ -25,4 +25,4 @@ export const formEntryInputSchema = z
 	.strict();
 
 export const FORM_ENTRY_DESCRIPTION =
-	'How the form is reached when it is not a menu item. { kind: "search-no-matches" } makes it the module\'s no-matches registration form: offered on Results after a search finds nothing, its fields may read the answers as #search/<prompt name> (search-answer-ref), it returns to Results with the new case unless post_submit is explicitly app_home (required for multiple-selection modules). It carries no other post_submit value, links, or display condition. Also turns Search first on. null makes it a menu form again, turning Search first off and dropping its #search/ starting values; omitted keeps it.';
+	"Use search-no-matches for registration offered after an empty Search result. This enables Search first and lets fields read #search/name. Submission returns to Results unless post_submit is app_home, which several-case selection requires. No other destination, links, or display condition applies. Null restores a menu form, disables Search first, and removes Search-based starting values; omission keeps the current entry.";

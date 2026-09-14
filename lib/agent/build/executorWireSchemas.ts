@@ -1,6 +1,7 @@
 /** Shared authoring grammar, with accepted construction facts owned by Nova. */
 import type { JSONSchema7 } from "@ai-sdk/provider";
 import { z } from "zod";
+import { readableToolSchema } from "@/lib/agent/authoring/readableSchema";
 import { pruneDefinitions } from "@/lib/agent/authoring/schema";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
@@ -45,7 +46,7 @@ export function executorAuthoringSchema(toolName: string, schema: z.ZodType) {
 	}
 	const prior = byName.get(toolName);
 	if (prior) return prior;
-	const json = structuredClone(authoringToolSchema(toolName, schema).json);
+	let json = structuredClone(authoringToolSchema(toolName, schema).json);
 	if (toolName === "createForm") remove(json, json, ["type"]);
 	if (toolName === "createModule") {
 		remove(json, json, [
@@ -65,6 +66,7 @@ export function executorAuthoringSchema(toolName: string, schema: z.ZodType) {
 		visit(forms);
 	}
 	pruneDefinitions(json);
+	json = readableToolSchema(json);
 	const result = {
 		json: json as JSONSchema7,
 		authored: z.fromJSONSchema(json, { registry: z.registry() }),

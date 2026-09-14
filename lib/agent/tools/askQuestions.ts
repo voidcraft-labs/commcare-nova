@@ -48,6 +48,6 @@ export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
  */
 export const askQuestionsTool = {
 	description:
-		"Ask the user clarifying questions (max 5) when something is genuinely ambiguous — execution pauses for the answers. Give a question 2-4 concrete answer options whenever real candidates or sensible defaults exist, your recommended option first when you have one, its label ending with a short marker meaning 'Recommended' written in the conversation's language (' (Recommended)' in English, ' (Recomendado)' in Spanish). The user can always type a free-text answer instead of picking an option, so never add an option that means 'let me type it'; an empty options list is only for questions with no concrete candidates. If a question asks for data or a document, the user may attach a file while answering; it arrives right after the answers. Decide everything you can decide well yourself.",
+		"Ask up to five questions whose answers materially affect the app. Work pauses for the answers. Offer two to four useful choices when available, with your recommendation first and labeled Recommended in the conversation's language. Free text is always available, so it needs no separate option. The user can attach a file when answering. Decide routine details yourself.",
 	inputSchema: askQuestionsInputSchema,
 };

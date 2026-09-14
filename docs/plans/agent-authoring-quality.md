@@ -79,7 +79,7 @@ model-specific guidance small and supported by official sources.
 
 **Finish delivery.** Remove obsolete guidance and prototypes, update the
 implemented architecture and public docs, and verify the integrated stack.
-Every slice needs independent subagent review and all required CI. Report
+Each substantial PR needs a fresh subagent review and all required CI. Report
 actual reductions, app outcomes, and remaining limitations with comparable
 measurements. No single successful demonstration establishes general quality.
 

@@ -1,4 +1,4 @@
-/** Local, bounded authoring pilot. No production registration or data access.
+/** Local, bounded trial of production authoring. No production registration or data access.
  * node --conditions=react-server --import=tsx scripts/evaluate-agent-authoring.ts
  *   --confirm-paid --out <new-directory> --ledger <spend-ledger.json>
  */
@@ -10,16 +10,6 @@ import { asSchema, isStepCount, ToolLoopAgent } from "ai";
 import { z } from "zod";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
 import { estimateTokens } from "@/lib/agent/anatomy/tokens";
-import {
-	currentPilotTools,
-	deduplicatePilotCalls,
-	programmaticPilotTools,
-} from "@/lib/agent/authoring/experimental/comparison";
-import {
-	executePilotOperation,
-	nativePilotTools,
-	PILOT_GUIDANCE,
-} from "@/lib/agent/authoring/experimental/native";
 import {
 	createModelCallTransport,
 	createNovaOpenAI,
@@ -41,13 +31,19 @@ import {
 } from "@/lib/db/apps";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { initMcpCall } from "@/lib/mcp/context";
+import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	completedPilotCharge,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
+import {
+	authoringTrialTools,
+	deduplicatePilotCalls,
+} from "./lib/authoringPilotTools";
 
-const MODEL = "gpt-5.6-luna";
+const ROLE = MODEL_ROLES.followUpEditor;
+const MODEL = ROLE.modelId;
 const MAX_REQUESTS = 12;
 const ledgerSchema = z.object({
 	ceilingUsd: z.number().positive().max(200),
@@ -67,11 +63,10 @@ function argument(name: string): string {
 
 async function main() {
 	if (process.argv.includes("--help")) {
-		console.log(`Compare authoring interfaces on a disposable local app.
---variant native|programmatic|current  Interface (default: native)
+		console.log(`Evaluate production authoring on a disposable local app.
 --out <new-directory>                 Private request and result artifacts
 --ledger <json-file>                  Shared dollar ledger, at most $200
---dry-run                            Persist a fixture without a model call
+--dry-run                            Save app fixture and definitions without a model call
 --confirm-paid                       Authorize this bounded model trial
 --task <text-file>                    Task instead of the registration example
 --from-run <directory>                Fresh edit turn on that trial's exact app
@@ -82,13 +77,6 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 		return;
 	}
 	const dryRun = process.argv.includes("--dry-run");
-	const variant = z
-		.enum(["native", "programmatic", "current"])
-		.parse(
-			process.argv.includes("--variant")
-				? process.argv[process.argv.indexOf("--variant") + 1]
-				: "native",
-		);
 	if (!dryRun && !process.argv.includes("--confirm-paid"))
 		throw new Error(
 			"This pilot makes paid calls. Supply --confirm-paid after authorization.",
@@ -117,10 +105,10 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 			"scripts/lib/authoringPilotLedger.ts",
 			"scripts/lib/authoringPilotScenario.ts",
 			"lib/agent/anatomy/requestCapture.ts",
-			"lib/agent/authoring/experimental/comparison.ts",
-			"lib/agent/authoring/experimental/native.ts",
-			"lib/agent/authoring/experimental/normalize.ts",
-			"lib/agent/authoring/experimental/schemas.ts",
+			"scripts/lib/authoringPilotTools.ts",
+			"lib/agent/authoring/toolSchema.ts",
+			"lib/agent/authoring/readableSchema.ts",
+			"lib/agent/authoring/input.ts",
 			"lib/agent/authoring/text.ts",
 			"lib/doc/expressionText.ts",
 			"lib/commcare/xpath/expressionAst.ts",
@@ -237,9 +225,8 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 					runId,
 					appId: genesis.appId,
 					model: MODEL,
-					effort: "xhigh",
-					variant,
-					interfaceVersion: "authoring-pilot-v5",
+					effort: ROLE.reasoningEffort,
+					interfaceVersion: "production-authoring",
 					startedAt: new Date().toISOString(),
 					task,
 					turnMode: process.argv.includes("--from-run")
@@ -249,17 +236,8 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 						? argument("--from-run")
 						: null,
 				});
-				const instructions =
-					variant === "current"
-						? buildSolutionsArchitectPrompt()
-						: PILOT_GUIDANCE;
-				const tools = deduplicatePilotCalls(
-					variant === "current"
-						? currentPilotTools(workspace)
-						: variant === "programmatic"
-							? programmaticPilotTools(workspace, provider)
-							: nativePilotTools(workspace),
-				);
+				const instructions = buildSolutionsArchitectPrompt();
+				const tools = deduplicatePilotCalls(authoringTrialTools(workspace));
 				await save("instructions.json", { instructions });
 				const definitions = await Promise.all(
 					Object.entries(tools).map(async ([name, definition]) => ({
@@ -279,61 +257,9 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 				};
 				await save("tokens.json", tokens);
 				if (dryRun) {
-					const declared = await executePilotOperation(
-						workspace,
-						"declareRecords",
-						{
-							caseTypes: [
-								{
-									name: "client",
-									properties: [{ name: "case_name", label: "Client name" }],
-								},
-							],
-						},
-					);
-					const created = await executePilotOperation(
-						workspace,
-						"createModule",
-						{
-							name: "Clients",
-							case_type: "client",
-							case_list_columns: [
-								{ kind: "plain", field: "case_name", header: "Name" },
-							],
-							forms: [
-								{
-									name: "Register",
-									type: "registration",
-									fields: [
-										{
-											id: "client_name",
-											kind: "text",
-											caseWrite: { caseType: "client", property: "case_name" },
-											required: true,
-										},
-										{
-											id: "confirmation",
-											kind: "label",
-											label: "Registered {{client_name}}.",
-										},
-									],
-								},
-							],
-						},
-					);
-					const persisted = await loadApp(genesis.appId);
 					await save("dry-run.json", {
-						declared,
-						created,
-						blueprint: persisted?.blueprint,
+						blueprint: workspace.currentSnapshot().doc,
 					});
-					if (
-						!persisted ||
-						!Object.values(persisted.blueprint.fields).some(
-							(field) => field.id === "confirmation",
-						)
-					)
-						throw new Error("The dry run did not persist its workflow.");
 					console.log(JSON.stringify({ output, dryRun: true, tokens }));
 					return;
 				}
@@ -344,9 +270,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 					stopWhen: isStepCount(MAX_REQUESTS),
 					maxRetries: 0,
 					maxOutputTokens: 12_000,
-					providerOptions: {
-						openai: { store: false, reasoningEffort: "xhigh" },
-					},
+					providerOptions: reasoningProviderOptions(ROLE.reasoningEffort),
 					onStepEnd: async (step) => {
 						steps += 1;
 						const charge = completedPilotCharge(MODEL, step.usage, 1);
@@ -375,10 +299,9 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 						);
 					},
 				});
-				const initialState =
-					variant === "current"
-						? buildAppStateMessage(workspace.currentSnapshot().doc)
-						: null;
+				const initialState = buildAppStateMessage(
+					workspace.currentSnapshot().doc,
+				);
 				const result = await agent.generate({
 					messages: [
 						{ role: "user", content: task },

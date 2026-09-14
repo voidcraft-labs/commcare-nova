@@ -2,6 +2,7 @@ import { jsonSchema } from "ai";
 import { z } from "zod";
 import { CREATION_IDENTITY_SPECS } from "@/lib/agent/change-set/creationIdentities";
 import { projectNamedIdentitySchemas } from "./identitySchema";
+import { readableToolSchema } from "./readableSchema";
 import { authoringJsonSchema, pruneDefinitions } from "./schema";
 
 type Json = Record<string, unknown>;
@@ -59,7 +60,7 @@ function optional(node: Json, key: string) {
 
 const cache = new WeakMap<z.ZodType, Map<string, ReturnType<typeof project>>>();
 function project(toolName: string, canonical: z.ZodType) {
-	const json = structuredClone(authoringJsonSchema(canonical));
+	let json = structuredClone(authoringJsonSchema(canonical));
 	const identitySchema = structuredClone(json);
 	projectNamedIdentitySchemas(toolName, json);
 	for (const spec of CREATION_IDENTITY_SPECS[toolName] ?? [])
@@ -89,6 +90,7 @@ function project(toolName: string, canonical: z.ZodType) {
 			optional(parent, key),
 		);
 	pruneDefinitions(json);
+	json = readableToolSchema(json);
 	const authored = z.fromJSONSchema(json, { registry: z.registry() });
 	return {
 		identitySchema,
