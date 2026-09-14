@@ -3080,7 +3080,7 @@ describe("case_list_only expansion", () => {
 		expect(hq.modules[0].case_type).toBe("service");
 	});
 
-	it("sets parent_select on child case type modules", () => {
+	it("emits the chosen parent selector for a case-list-only module", () => {
 		const doc = buildDoc({
 			appName: "Test",
 			modules: [
@@ -3127,6 +3127,7 @@ describe("case_list_only expansion", () => {
 				},
 			],
 		});
+		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
 		const hq = expandDoc(doc);
 		expect(hq.modules[1].parent_select.active).toBe(true);
 		expect(hq.modules[1].parent_select.module_id).toBe(hq.modules[0].unique_id);

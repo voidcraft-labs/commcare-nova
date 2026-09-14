@@ -32,6 +32,10 @@ import {
 import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import {
+	nextPersistedSequence,
+	safePersistedSequence,
+} from "@/lib/utils/persistedSequence";
 
 import { loadAuthoringMigrationApp } from "./repairAuthoringBaselines";
 
@@ -43,7 +47,7 @@ const entrySchema = z
 	.object({
 		appId: z.string().min(1),
 		projectId: z.string().min(1),
-		baseSeq: z.number().int().nonnegative(),
+		baseSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
 		baseDigest: z.string(),
 		targetDigest: z.string(),
 		mutationDigest: z.string(),
@@ -249,13 +253,14 @@ export async function migrateCaseSelectionEntry(
 				receipt.actor_id !== ACTOR ||
 				receipt.kind !== "blueprint-migration" ||
 				receipt.run_id !== null ||
-				Number(receipt.seq) !== entry.baseSeq + 1 ||
+				safePersistedSequence(receipt.seq) !==
+					nextPersistedSequence(entry.baseSeq) ||
 				canonicalJsonDigest(receipt.mutations) !== entry.mutationDigest
 			)
 				throw new Error("Migration receipt does not match its frozen plan.");
 			const historical = await loadCanonicalBlueprintAtSequence(tx, {
 				appId: entry.appId,
-				seq: entry.baseSeq + 1,
+				seq: nextPersistedSequence(entry.baseSeq),
 				expectedDigest: entry.targetDigest,
 			});
 			if (historical.projectId !== entry.projectId)

@@ -352,8 +352,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		"This automation no longer fits the app. Open it and replace any case, form, place, or worker information that has changed.",
 
 	// ── Module-level ─────────────────────────────────────────────────
-	CASE_PARENT_SELECTION_INVALID: (e) => e.message,
-	CASE_PARENT_SELECTION_CONFLICT: (e) => e.message,
+	CASE_PARENT_SELECTION_INVALID: (e) =>
+		`${q(modName(e))} needs a compatible parent list. Choose a module for its parent record type, or turn off parent selection.`,
+	CASE_PARENT_SELECTION_CONFLICT: (e) =>
+		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
 	CASE_LIST_ONLY_HAS_FORMS: (e) =>

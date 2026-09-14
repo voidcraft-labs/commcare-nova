@@ -28,7 +28,7 @@ export function parentSelectionConflicts(
 					"CASE_PARENT_SELECTION_CONFLICT",
 					"module",
 					`Module "${doc.modules[moduleUuid].name}" would reuse a parent selected in its containing menu instead of its chosen parent module. Choose the containing module as this parent selector, or move this module out of that submenu.`,
-					{ moduleUuid },
+					{ moduleUuid, moduleName: doc.modules[moduleUuid].name },
 				),
 			);
 		},

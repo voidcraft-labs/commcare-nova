@@ -289,6 +289,7 @@ export function buildCaseChangesBlueprint(
 			},
 			{
 				uuid: CASE_CHANGES_SEED.archivedModuleUuid,
+				parentCaseModuleUuid: CASE_CHANGES_SEED.moduleUuid,
 				id: "archived_referrals",
 				name: CASE_CHANGES_SEED.archivedModuleName,
 				caseType: CASE_CHANGES_SEED.archivedCaseType,

@@ -204,6 +204,7 @@ describe("entry point parent selection", () => {
 				{
 					uuid: "module",
 					name: "Patients",
+					parentCaseModuleUuid: "households",
 					caseType: "patient",
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },

@@ -205,6 +205,7 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 			{
 				uuid: "mod-patients",
 				name: "Patients",
+				parentCaseModuleUuid: "mod-households",
 				caseType: "patient",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
