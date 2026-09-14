@@ -1,3 +1,4 @@
+import type { Mutation } from "@/lib/doc/types";
 /**
  * SA tool: `createModule` — add a new module to the app, together with
  * everything that makes it sound and complete, in one gated batch.
@@ -49,6 +50,7 @@
  */
 
 import { z } from "zod";
+import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import {
 	asUuid,
 	CASE_LOADING_FORM_TYPES,
@@ -60,6 +62,7 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
+import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
 import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
 import { closeConditionInputSchema } from "../planningSchemas";
 import { addFieldsItemSchema } from "../toolSchemas";
@@ -70,6 +73,7 @@ import {
 	stampColumnUuid,
 } from "./case-list-config/shared";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -93,6 +97,12 @@ const createModuleFormSchema = z
 				"Stable UUID for this new form. Omit when nothing in the call references it.",
 			),
 		name: z.string().min(1).describe("Form display name"),
+		recordName: xpathExpressionSchema
+			.optional()
+			.describe(
+				"Name of the record this form creates or updates, using an answer or an expression.",
+			),
+
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -102,7 +112,7 @@ const createModuleFormSchema = z
 			.array(addFieldsItemSchema)
 			.min(1)
 			.describe(
-				"The form's fields, in order (same per-field shape as addFields). A registration form must include a case_name writer.",
+				"The form's fields, in order (same per-field shape as addFields). Set recordName for registration.",
 			),
 		purpose: z
 			.string()
@@ -147,7 +157,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Case type (required if the module has registration/followup/close forms) — must already be recorded on the app (generateSchema). null for a survey-only module.",
+				"Record type for this module. A new name declares the type; null for surveys.",
 			),
 		purpose: z
 			.string()
@@ -169,7 +179,7 @@ export const createModuleInputSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				"Columns in display order. A module that saves records needs at least one visible column; a survey-only module has none.",
+				"Columns in display order. Record modules default to a Name column. A survey-only module has none.",
 			),
 		case_list_only: z
 			.boolean()
@@ -189,13 +199,14 @@ export const createModuleInputSchema = z
 	.superRefine((input, ctx) => {
 		if (
 			input.case_type != null &&
-			!input.case_list_columns?.some((column) => column.visibleInList !== false)
+			input.case_list_columns != null &&
+			!input.case_list_columns.some((column) => column.visibleInList !== false)
 		) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["case_list_columns"],
 				message:
-					"A case-managing module must be born with at least one visible Results field in case_list_columns. Re-issue createModule with a plain case_name column. Results columns belong to the module's case-list configuration, not addFields.",
+					"Keep at least one visible Results column, or omit columns to use Name.",
 			});
 		}
 		if (input.case_list_only === true && input.case_type == null) {
@@ -267,21 +278,6 @@ export const createModuleTool = {
 			selection,
 		} = input;
 		try {
-			/* The module's case type references the catalog by name — the
-			 * record itself landed earlier via generateSchema (or the field
-			 * assembly's declaration chokepoint, for a bare writer-declared
-			 * type). A name nothing answers to is a plan gap, not a doc state
-			 * to guess through. */
-			if (case_type && !doc.caseTypes?.some((ct) => ct.name === case_type)) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: `Module "${name}" wasn't created — the app has no data-model record for case type "${case_type}". Record it first with generateSchema (its properties, labels, and any parent link), then re-issue this call.`,
-					},
-				};
-			}
-
 			// Stage tag `module:create` — a positional index isn't available
 			// yet because the new module's slot only exists after the
 			// mutations apply. Downstream consumers that need the index read
@@ -298,7 +294,12 @@ export const createModuleTool = {
 			}
 			// Stamp each born column with a uuid. Position is the array they sit
 			// in, so writing them in order is all it takes.
-			const columns = (case_list_columns ?? []).map((column) =>
+			const columnInputs =
+				case_list_columns ??
+				(case_type
+					? [{ kind: "plain" as const, field: "case_name", header: "Name" }]
+					: []);
+			const columns = columnInputs.map((column) =>
 				stampColumnUuid(
 					column,
 					column.columnUuid === undefined
@@ -306,7 +307,10 @@ export const createModuleTool = {
 						: asUuid(column.columnUuid),
 				),
 			);
-			const mutations = [
+			const mutations: Mutation[] = [
+				...(case_type && !doc.caseTypes?.some((type) => type.name === case_type)
+					? [{ kind: "declareCaseType" as const, caseType: case_type }]
+					: []),
 				...addModuleMutations({
 					uuid: moduleUuid,
 					name,
@@ -385,11 +389,9 @@ export const createModuleTool = {
 					};
 				}
 				callEntityUuids.add(formUuid);
-				// Assemble every field into the same atomic module-creation batch.
-				// Catalog defaulting reads `doc.caseTypes` — the records
-				// generateSchema committed ahead of this call.
+				const formBase = applyToDoc(doc, mutations);
 				const assembly = assembleFieldMutations({
-					doc,
+					doc: formBase,
 					formUuid,
 					items: formInput.fields,
 					occupiedUuids: callEntityUuids,
@@ -423,27 +425,28 @@ export const createModuleTool = {
 				}
 				const closeCondition = resolveCloseCondition(formInput.close_condition);
 				mutations.push(
-					...addFormMutations(
-						doc,
-						moduleUuid,
-						{
-							uuid: formUuid,
-							name: formInput.name,
-							type: formInput.type,
-							...(formInput.purpose != null && {
-								purpose: formInput.purpose,
-							}),
-							...(formInput.post_submit && {
-								postSubmit: formInput.post_submit,
-							}),
-							...(closeCondition && { closeCondition }),
-						},
-						// The module is created by THIS batch — skip the
-						// doc-existence guard that would otherwise reject it.
-						{ moduleAddedInBatch: true },
-					),
+					...addFormMutations(formBase, moduleUuid, {
+						uuid: formUuid,
+						name: formInput.name,
+						type: formInput.type,
+						...(formInput.purpose != null && {
+							purpose: formInput.purpose,
+						}),
+						...(formInput.post_submit && {
+							postSubmit: formInput.post_submit,
+						}),
+						...(closeCondition && { closeCondition }),
+					}),
 				);
 				mutations.push(...assembly.mutations);
+				if (formInput.recordName !== undefined)
+					mutations.push(
+						...formRecordNameMutations(
+							applyToDoc(doc, mutations),
+							formUuid,
+							formInput.recordName,
+						),
+					);
 				createdForms.push({
 					uuid: formUuid,
 					name: formInput.name,

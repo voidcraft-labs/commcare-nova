@@ -3,7 +3,6 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
-	absenceSubjectConstraint,
 	ancestorPath,
 	checkValueExpression,
 	dateLiteral,
@@ -130,15 +129,7 @@ describe("term editor source decisions", () => {
 			checkValueExpression(term(seed), buildEditorTypeContext(ctx)),
 		).toEqual({ ok: true });
 	});
-	it("withholds a direct constant only where absence-check subjects forbid it", () => {
-		expect(
-			computeModeAdmission(ctx, absenceSubjectConstraint(), []).literal
-				.admitted,
-		).toBe(false);
-		expect(computeModeAdmission(ctx, ANY_CONSTRAINT, []).literal.admitted).toBe(
-			true,
-		);
-	});
+
 	it("treats zero, false, null and a saved connection as authored content", () => {
 		for (const value of [
 			literal(0),

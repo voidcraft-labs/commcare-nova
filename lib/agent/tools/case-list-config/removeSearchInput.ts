@@ -55,8 +55,7 @@ export type RemoveSearchInputResult =
 	| { error: string };
 
 export const removeSearchInputTool = {
-	description:
-		"Remove one search input from a module's case list, keyed by searchInputUuid. Returns the remaining search-input count so the SA confirms the edit landed on the right entry.",
+	description: "Remove a Search question or hidden value.",
 	inputSchema: removeSearchInputInputSchema,
 	async execute(
 		input: RemoveSearchInputInput,

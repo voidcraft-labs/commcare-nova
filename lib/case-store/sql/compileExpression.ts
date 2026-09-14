@@ -542,20 +542,28 @@ function compileConcat(
 	return eb.fn<string>("concat", partExprs);
 }
 
-/**
- * `coalesce(values)` → SQL `COALESCE(...)`. Empty-string-as-null
- * coercion lives at the AST layer (the validator hints on
- * `eq(prop, "")`); a JSONB-absent read returns SQL `NULL`, and
- * `COALESCE` correctly skips to the next argument.
- */
+/** Skip blank values while preserving the result's SQL type. Casting only
+ * the blank check avoids comparing numbers, dates or booleans with `''`. */
 function compileCoalesce(
 	values: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const valueExprs = values.map((v) => compileExpression(v, ctx));
-	// Kysely's typed `eb.fn.coalesce` is positional-args (up to
-	// five); the generic `eb.fn` form takes an array and works for
-	// any arity, matching the AST's open-ended `values` list.
+	const valueExprs = values.map((v, index) => {
+		const value = compileExpression(v, ctx);
+		// The last argument is the fallback, even when it is blank. Leave a
+		// literal null untyped so SQL can infer the other branches' result type.
+		if (
+			index === values.length - 1 ||
+			(v.kind === "term" && v.term.kind === "literal" && v.term.value === null)
+		)
+			return value;
+		return eb
+			.case()
+			.when(eb.cast(value, "text"), "=", "")
+			.then(null)
+			.else(value)
+			.end();
+	});
 	return eb.fn<unknown>("coalesce", valueExprs);
 }
 

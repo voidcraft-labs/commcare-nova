@@ -1040,6 +1040,17 @@ function emitAbsenceSegments(
 	p: Extract<Predicate, { kind: "is-blank" }>,
 	typeContext?: TypeContext,
 ): CsqlSegment[] {
+	if (p.left.kind === "term" && p.left.term.kind === "literal") {
+		return [
+			{
+				kind: "constant",
+				text:
+					p.left.term.value === null || p.left.term.value === ""
+						? "match-all()"
+						: "match-none()",
+			},
+		];
+	}
 	const left = emitComparisonOperandSegments(p.left, typeContext);
 	return [...left, { kind: "constant", text: " = ''" }];
 }

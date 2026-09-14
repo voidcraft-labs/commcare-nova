@@ -9,7 +9,7 @@
 // is no DOM to mount here.
 
 import { describe, expect, it } from "vitest";
-import { formLaunch, moduleScreenLanding } from "../moduleScreenNavigation";
+import { formLaunch, moduleScreenLanding } from "@/lib/domain/navigation";
 
 const CASE_FIRST = {
 	hasModule: true,

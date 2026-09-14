@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { ASYNC_XPATH_FUNCTIONS } from "@/lib/preview/xpath/asyncEvaluator";
 import { PREVIEW_EXECUTABLE_PATH_INITIALIZERS } from "@/lib/preview/xpath/evaluator";
 import { PREVIEW_EXECUTABLE_FUNCTIONS } from "@/lib/preview/xpath/functions";
-import { FUNCTION_REGISTRY } from "../../validator/functionRegistry";
 import { JAVAROSA_PATH_INITIALIZERS } from "../functionCapabilities";
 
 // Registration is a separate invariant from execution. Native value and Preview

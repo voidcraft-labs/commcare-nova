@@ -67,3 +67,31 @@ const digest = createHash("sha256").update(entrySource).digest("hex");
 console.log(
 	`xpath-worker sha256=${digest} bytes=${entryBytes} chunks=${chunks.length}`,
 );
+
+// The server evaluates whole forms in an isolated thread. Bundle the SAME
+// FormEngine and XPath dispatcher, with Node as the host. No evaluator copy.
+const formOutput = `${repositoryRoot}public/form-evaluation/`;
+await rm(formOutput, { recursive: true, force: true });
+await build({
+	entryPoints: {
+		worker: `${repositoryRoot}lib/preview/engine/formEvaluation.worker.ts`,
+	},
+	outdir: formOutput,
+	outExtension: { ".js": ".mjs" },
+	bundle: true,
+	splitting: true,
+	format: "esm",
+	platform: "node",
+	target: "node24",
+	alias: {
+		"server-only": `${repositoryRoot}node_modules/server-only/empty.js`,
+	},
+	minify: true,
+	treeShaking: true,
+	define: {
+		"process.env.NEXT_PUBLIC_NOVA_BUILD_ID": JSON.stringify(workerBuildId),
+	},
+	tsconfig: `${repositoryRoot}tsconfig.json`,
+	chunkNames: "chunks/[name]-[hash]",
+	logLevel: "silent",
+});

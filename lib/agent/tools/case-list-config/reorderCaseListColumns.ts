@@ -63,7 +63,7 @@ export type ReorderCaseListColumnsResult =
 
 export const reorderCaseListColumnsTool = {
 	description:
-		"Reorder the visible fields on either Results or Details. The two screens have independent arrangements. Pass the selected screen and its full visible uuid order from getModule.",
+		"Arrange the visible fields on Results or Details using that screen's complete ordered list.",
 	inputSchema: reorderCaseListColumnsInputSchema,
 	async execute(
 		input: ReorderCaseListColumnsInput,

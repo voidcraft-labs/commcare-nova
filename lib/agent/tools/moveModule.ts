@@ -81,7 +81,7 @@ export type MoveModuleResult = MoveModuleSuccess | { readonly error: string };
 
 export const moveModuleTool = {
 	description:
-		"Reorder or reparent one module by stable UUID. `after` names a destination sibling or null for first. Omit parentModuleUuid to keep the current menu, pass null for top-level, or pass a top-level module UUID for a child placement.",
+		"Reorder a module or move it into a top-level module. Omitted parent keeps its current menu; null moves it to the root.",
 	inputSchema: moveModuleInputSchema,
 	async execute(
 		input: MoveModuleInput,

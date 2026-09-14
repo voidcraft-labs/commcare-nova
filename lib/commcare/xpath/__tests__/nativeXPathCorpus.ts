@@ -120,3 +120,47 @@ export const nativeCoercionCases = [
 		expected: Number.NaN,
 	},
 ] as const;
+
+/** Blankness does not use truthiness or trim text. */
+export const blankValueCases = [
+	{ name: "empty value", source: "is-blank('')", expected: true },
+	{
+		name: "missing answer",
+		source: "is-blank(/data/group/other)",
+		expected: true,
+	},
+	{ name: "zero", source: "is-blank(0)", expected: false },
+	{ name: "false", source: "is-blank(false())", expected: false },
+	{ name: "whitespace", source: "is-blank(' \t\n')", expected: false },
+	{
+		name: "computed blank",
+		source: "is-blank(normalize-space('  '))",
+		expected: true,
+	},
+	{
+		name: "nested boolean",
+		source: "is-blank(is-blank('x'))",
+		expected: false,
+	},
+	{
+		name: "fallback after empty",
+		source: "coalesce('', 'fallback')",
+		expected: "fallback",
+	},
+	{
+		name: "fallback after missing",
+		source: "coalesce(/data/group/other, 'fallback')",
+		expected: "fallback",
+	},
+	{ name: "keep zero", source: "coalesce(0, 3)", expected: 0 },
+	{
+		name: "keep false",
+		source: "coalesce(false(), true())",
+		expected: false,
+	},
+	{
+		name: "keep whitespace",
+		source: "coalesce(' ', 'fallback')",
+		expected: " ",
+	},
+] as const;

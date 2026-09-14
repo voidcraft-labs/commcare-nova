@@ -23,7 +23,7 @@ import type {
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
-import { useConnectLintContext } from "./useConnectLintContext";
+import { useFormLintContext } from "./useFormLintContext";
 
 /**
  * Shared prop contract mirroring LearnConfig's: declared locally so each
@@ -66,7 +66,7 @@ export function DeliverConfig({
 	const lastTaskRef = useRef(task);
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
-	const getLintContext = useConnectLintContext(formUuid);
+	const getLintContext = useFormLintContext(formUuid);
 	// AST-stored slots ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
 	const entityIdText = useXPathText(du?.entity_id);

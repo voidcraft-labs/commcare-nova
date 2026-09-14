@@ -105,7 +105,7 @@ export type AddFieldsResult =
 
 export const addFieldsTool = {
 	description:
-		"Add fields to an existing form (a single field is a length-1 array). Appends by default; beforeFieldUuid/afterFieldUuid position the batch. parentUuid names containers (a group, repeat, or section) by stable identity. On a form split into sections, every top-level field is a section, so a question lands inside one.",
+		"Add questions or containers to a form. Parent names place fields inside groups, repeats or sections; insertion anchors set their order.",
 	inputSchema: addFieldsInputSchema,
 	async execute(
 		input: AddFieldsInput,

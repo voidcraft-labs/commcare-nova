@@ -2,13 +2,8 @@
 //
 // The form-settings row that leads to a form's case changes.
 //
-// It states the count rather than a label alone, because the count is
-// the fact an author is looking for: "this form changes three cases" is
-// the answer to "what does submitting this do?", and zero is a real,
-// ordinary answer (a survey changes nothing). Editing is a screen
-// change, not a popover: an ordered list with reorder and per-change
-// editors does not fit here, which is the same reason the display
-// condition hands off to its own URL.
+// This row describes configured advanced actions. Ordinary registration and
+// field writes belong to the form and are not counted here.
 
 "use client";
 
@@ -38,14 +33,14 @@ export function CaseChangesSection({
 		<section className="space-y-3">
 			<div>
 				<h3 className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-					Case changes
+					Additional case changes
 				</h3>
 				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 					{count === 0
-						? "Submitting this form records the answers and changes no cases."
+						? "No additional case changes are configured."
 						: count === 1
-							? "Submitting this form makes 1 change to your cases."
-							: `Submitting this form makes ${count} changes to your cases.`}
+							? "1 additional case change is configured."
+							: `${count} additional case changes are configured.`}
 				</p>
 			</div>
 			<Button

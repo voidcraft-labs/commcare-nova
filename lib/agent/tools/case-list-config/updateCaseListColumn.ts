@@ -72,7 +72,7 @@ export type UpdateCaseListColumnResult =
 
 export const updateCaseListColumnTool = {
 	description:
-		"Replace one column on a module's case list, keyed by columnUuid. The replacement is a full column body (kind + per-kind fields + optional sort / visibility). The existing uuid is preserved so the column's identity survives.",
+		"Replace one Results or Details column with its complete desired definition, preserving its identity.",
 	inputSchema: updateCaseListColumnInputSchema,
 	async execute(
 		input: UpdateCaseListColumnInput,

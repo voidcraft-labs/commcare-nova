@@ -3134,6 +3134,33 @@ test.describe("authenticated builder", () => {
 				await runSearch.click();
 			};
 
+			await test.step("the authored record name survives saving and names the submitted record", async () => {
+				await page.goto(fixture.routes.registerForm);
+				await page
+					.getByRole("button", { name: "Form settings", exact: true })
+					.click();
+				const settings = page
+					.getByRole("dialog")
+					.filter({ hasText: "Form settings" });
+				const naming = settings.getByRole("group", {
+					name: "Record name",
+					exact: true,
+				});
+				await naming.getByRole("button").click();
+				const editor = naming.locator('.cm-content[contenteditable="true"]');
+				await editor.press("ControlOrMeta+A");
+				await editor.press("Backspace");
+				await expect(editor).toHaveText("");
+				await page.keyboard.insertText("concat('Patient ', #form/case_name)");
+				const saved = page.waitForResponse(
+					(response) =>
+						response.request().method() === "PUT" &&
+						new URL(response.url()).pathname === `/api/apps/${fixture.appId}`,
+				);
+				await editor.press("ControlOrMeta+Enter");
+				expect((await saved).ok()).toBe(true);
+			});
+
 			await test.step("the Search canvas names the form Results offers, and the tree marks it", async () => {
 				await page.goto(fixture.routes.searchConfig);
 				await expect(
@@ -3209,7 +3236,9 @@ test.describe("authenticated builder", () => {
 				await main.getByRole("button", { name: "Submit", exact: true }).click();
 				await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
 				await expect(resultRows).toHaveCount(1);
-				await expect(resultRows.first()).toContainText(unmatchedName);
+				await expect(resultRows.first()).toContainText(
+					`Patient ${unmatchedName}`,
+				);
 				await expect(resultRows.first()).not.toContainText(caseName);
 				await expect(registerAction).toHaveCount(0);
 			});

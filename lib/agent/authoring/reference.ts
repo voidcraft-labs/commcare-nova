@@ -1,4 +1,9 @@
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
+import {
+	FUNCTION_REGISTRY,
+	functionArgumentCount,
+	QUERY_FUNCTIONS,
+} from "@/lib/domain/expressionFunctions";
 
 const fields = () =>
 	fieldKinds
@@ -13,7 +18,7 @@ const fields = () =>
 
 export const AUTHORING_REFERENCE = {
 	workflows:
-		() => `Design forms around the worker's tasks and the records that persist between visits. Registration creates a record; follow-up changes a selected record; close completes it. A survey collects information without selecting a record. Use caseWrite for a form's ordinary answers; advanced operations describe additional ordered effects on other records.
+		() => `Design forms around the worker's tasks and the records that persist between visits. Registration creates a record; follow-up changes a selected record; close completes it. A survey collects information without selecting a record. Set recordName to an answer or expression for the record's display name. New record modules declare their type and default to a Name column. Use caseWrite to save other answers; advanced operations describe additional ordered effects on other records.
 
 Modules organize navigation. A submenu relationship does not create a relationship between records. Each form has one owning module; different entry routes do not require copies of the form. Give each record lifecycle a usable way to begin, return and finish when the user's workflow needs those steps.
 
@@ -23,26 +28,24 @@ Search-first workflows begin with Search. Their registration form is offered aft
 
 After-submit navigation happens after answers leave form scope. Save a needed answer before using it in a later route. An entry point is a durable external address for a destination; changing that address can break distributed links. Generating an HQ link requires a verified deployment. Opening it can claim cases, so it is not a harmless verification probe.`,
 	fields,
-	formLogic:
-		() => `Form expressions use XPath. #form/name reads an answer. Nested fields accept a unique short name or their full path; exact paths take precedence. #case/property reads the record selected for this form. Registration and survey forms have no selected record. #user/property reads worker information. In a module's no-matches registration form, #search/name reads that module's Search answer.
+	forms:
+		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
 
-Use relevant for visibility, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. In validation, . is the current answer. For example, . >= 0 rejects negative ages. Hidden fields can calculate a value as answers change or use default_value once at form load. Writers for a single selected record start with its saved value. Several-case forms start blank unless a shared starting value or calculation is configured; blank preserves each record's value.
+Use relevant for visibility, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. In validation, . is the current answer: . >= 0 rejects negative ages. A hidden field calculates a value as answers change; default_value sets a starting value once at form load.
 
-Wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
+Writers for a single selected record start with its saved value. Several-case forms start blank unless a shared starting value or calculation is configured; blank preserves each record's value. After-submit links run after answers have left form scope; save a value before using it in a later route.`,
+	expressions:
+		() => `Expressions use XPath syntax: quoted text, numbers, true()/false(), =, !=, <, <=, >, >=, and, or, not(), +, -, *, div, mod. div produces a decimal. Record expressions also offer quotient(a,b) for integer division.
 
-Use the form's caseWrite destinations for ordinary record creation and updates. Advanced operations handle other records, related records, and repeated updates. A form's after-submit links run after its answers have left scope; save an answer to a record before using it there.`,
-	recordQueries:
-		() => `Record filters, Results columns, Search rules, and advanced operation values use expressions. #case/property reads the current record, #search/name reads a Search answer, and #user/property reads worker information. Quote literal text: 'active'. Numbers and true()/false() can be written directly.
+References depend on the current scope. #form/name reads a form answer; nested fields accept a unique short name or full path. #case/property reads the selected record. Registration and survey forms have no selected record. #user/property reads worker information. #search/name reads a Search answer in Search rules or that module's no-matches registration. Names bind to stable identities; ambiguous names need an exact path or ID.
 
-Use =, !=, <, <=, >, >=, and, or, not(), and +, -, *, div, mod. div produces a decimal; quotient(a,b) preserves integer division. Common values include concat(...), coalesce(...), if(condition,yes,no), number(value), date(value), datetime(value), date-add(date,quantity,'days'), format-date(date,format), and id-of('earlier_operation').
+Forms and record expressions share concat(...), coalesce(...), if(condition,yes,no), number(value), date(value), format-date(value,format), and is-blank(value). Blank means missing or empty; zero, false and whitespace are values. coalesce returns the first nonblank value, or its last argument if all are blank. Other functions depend on the expression's scope; request this guide with functionName for a function's availability and argument count.
 
-Conditions include is-blank(value), in(value,'a','b'), between(value,lower,upper), and all(...)/any(...). unbounded() omits a range end; optional fourth and fifth arguments to between set inclusive ends. selected-any(value,'a','b') and selected-all(value,'a','b') test several choices.
+Record filters, Results columns, Search rules and advanced operation values also support datetime(value), date-add(date,quantity,'days'), in(value,'a','b'), between(value,lower,upper), all(...), and any(...). unbounded() omits a range end; optional fourth and fifth arguments to between set inclusive ends. selected-any(value,'a','b') and selected-all(value,'a','b') test several choices.
 
-Relationships are children('CaseType'), ancestor('parent'), related('CaseType'), and self(). exists(relationship,condition), missing(relationship,condition), and count(relationship,condition) evaluate the condition on related records. via(ancestor('parent'), #case/property) reads a parent property.
+Relationships are children('CaseType'), ancestor('parent'), related('CaseType'), and self(). exists(relationship,condition), missing(relationship,condition), and count(relationship,condition) evaluate on related records. via(ancestor('parent'), #case/property) reads a parent property. id-of('earlier_operation') reads the record created by an earlier operation.
 
-lookup('Table','column',condition) reads a data-table value. Within its condition, #row/column reads that table's row. Names must be unambiguous; stable IDs from reads work when labels collide.
-
-Search supports when-provided(#search/name,condition), starts-with(#case/property,value), fuzzy(...), phonetic(...), and fuzzy-date(...). matches-pattern(value,'pattern') is available in Search required and validation rules. Conditions before record selection can use Search answers, worker information, and constants, but cannot read an unselected record.`,
+lookup('Table','column',condition) reads a data-table value; #row/column inside its condition reads that table's row. Search offers when-provided(#search/name,condition), starts-with(#case/property,value), fuzzy(...), phonetic(...), and fuzzy-date(...). matches-pattern(value,'pattern') runs in Search required and validation rules. Rules before record selection cannot read an unselected record.`,
 	languages:
 		() => `The conversation language, the app's source language, and its runtime default are separate choices. Source language describes the text authored in the app; the runtime default is what workers see first. For a new app, establish its source language before adding translation targets. Changing a language identity does not translate its content.
 
@@ -76,3 +79,19 @@ Recipient filters apply to recipients resolved as user accounts. A referenced fi
 
 Nova checks representability before saving. Setup guidance names the remaining steps in HQ; saving an automation in Nova does not install or activate it there.`,
 } as const;
+
+/** The same signatures validate calls; this guide does not maintain an inventory. */
+export function expressionFunctionReference(name: string): string | undefined {
+	const forms = FUNCTION_REGISTRY.get(name);
+	const records = QUERY_FUNCTIONS.get(name);
+	if (!forms && !records) return;
+	if (forms && records && forms === records)
+		return `${name}(): ${functionArgumentCount(forms)}. Available in forms and record expressions.`;
+	return [
+		`${name}().`,
+		forms && `Forms: ${functionArgumentCount(forms)}.`,
+		records && `Record expressions: ${functionArgumentCount(records)}.`,
+	]
+		.filter(Boolean)
+		.join(" ");
+}

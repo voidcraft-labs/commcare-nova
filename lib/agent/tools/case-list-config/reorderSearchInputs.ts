@@ -57,8 +57,7 @@ export type ReorderSearchInputsResult =
 	| { error: string };
 
 export const reorderSearchInputsTool = {
-	description:
-		"Reorder the search inputs on a module's case list. Pass the new full order as the array of existing search-input uuids — must contain every existing uuid exactly once.",
+	description: "Arrange Search questions using their complete ordered list.",
 	inputSchema: reorderSearchInputsInputSchema,
 	async execute(
 		input: ReorderSearchInputsInput,

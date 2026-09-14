@@ -111,7 +111,7 @@ function projectColumn(column: CatalogColumn): CatalogColumn {
  * segment without ever crossing the model-facing result ceiling. */
 export const getLookupTablesTool = {
 	description:
-		"List this app Project's data tables and columns in bounded snapshot pages. Copy table and column uuids into lookup-backed fields and expressions. Continue only with nextCursor until complete is true.",
+		"Read the Project data-table catalog with names, IDs and revisions. Continue with nextCursor until complete.",
 	inputSchema: getLookupTablesInputSchema,
 	async execute(
 		input: GetLookupTablesInput,

@@ -70,7 +70,7 @@ export type SetCaseSearchAdvancedResult =
 
 export const setCaseSearchAdvancedTool = {
 	description:
-		"Set a module's rare owner-availability rule (excludedOwnerIds). The value can use fixed owner ids, current-user/session values, or Search answers, but not case properties or relationships; null clears it. Search action text lives on setCaseSearchDisplay.",
+		"Set or clear the excluded-owner rule. It can use fixed owners, worker values and Search answers before record selection.",
 	inputSchema: setCaseSearchAdvancedInputSchema,
 	async execute(
 		input: SetCaseSearchAdvancedInput,

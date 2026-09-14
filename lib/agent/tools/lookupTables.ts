@@ -171,7 +171,7 @@ export const getLookupTableRowsInputSchema = z
 
 export const getLookupTableRowsTool = {
 	description:
-		"Read one ordered page of up to 100 rows from a Project data table. Optionally search the projected columns. To continue, repeat the same query and columnIds with the returned cursor; a changed table refuses instead of mixing snapshots.",
+		"Read or search an ordered page of data-table rows. Continue with the same query and returned cursor; a changed table requires a fresh read.",
 	inputSchema: getLookupTableRowsInputSchema,
 	async execute(
 		input: z.infer<typeof getLookupTableRowsInputSchema>,
@@ -213,7 +213,7 @@ export const createLookupTableToolInputSchema = z
 
 export const createLookupTableTool = {
 	description:
-		"Create one Project data table with its complete initial schema and optional rows in one atomic write. Give each column a request-local key and use that key in row cells. Returns every durable table, column, and row UUID in input order.",
+		"Create a Project data table with columns and optional rows. Row cells use the column keys supplied in this call; the result returns all created IDs.",
 	inputSchema: createLookupTableToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLookupTableToolInputSchema>,
@@ -366,7 +366,7 @@ export const editLookupColumnsToolInputSchema = z
 
 export const editLookupColumnsTool = {
 	description:
-		"Atomically add, rename, move, remove, or retype columns in one Project data table. UUID anchors are resolved under the table lock; null means first and an omitted add anchor appends. Destructive operations retain reference and accepted-design guards.",
+		"Add, edit, move or remove columns in a Project data table. References and saved values are checked before changes commit.",
 	inputSchema: editLookupColumnsToolInputSchema,
 	async execute(
 		input: z.infer<typeof editLookupColumnsToolInputSchema>,
@@ -448,7 +448,7 @@ export const editLookupRowsToolInputSchema = z
 
 export const editLookupRowsTool = {
 	description:
-		"Atomically add, wholly update, move, or remove rows in one Project data table. Row cells are UUID-addressed; omitted cells are missing and an explicit empty string remains a value. UUID anchors are resolved under the table lock.",
+		"Add, replace, move or remove data-table rows. An omitted cell is missing; an empty string is a value.",
 	inputSchema: editLookupRowsToolInputSchema,
 	async execute(
 		input: z.infer<typeof editLookupRowsToolInputSchema>,

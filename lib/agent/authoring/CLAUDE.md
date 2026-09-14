@@ -62,6 +62,12 @@ Owners bind before their children, and complete additions bind before content
 decoding. Unknown or ambiguous names refuse before mutation. Explicit IDs retain
 the owning tool's missing-item and no-op behavior. A name is never a stored alias.
 
+`lib/domain/expressionFunctions.ts` owns form and record-expression signatures.
+Both parsers validate arity from that catalog; `getAuthoringGuide` reads it for
+function lookup. Shared operations keep their semantics across contexts. The
+expressions guide explains reference scope once; form guidance covers wording
+and question behavior separately.
+
 `queryExpressions.ts` uses the existing Lezer grammar to produce canonical
 Predicate and ValueExpression nodes. It never evaluates code. Ordinary `div`
 uses real division, consistent with field XPath: an inferred integer result is

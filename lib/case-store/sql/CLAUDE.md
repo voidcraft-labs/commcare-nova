@@ -31,7 +31,7 @@ A new arm needing an off-surface Postgres feature follows the same shape: find t
 
 ## Numeric expressions
 
-Bare numeric literals carry an explicit SQL numeric type, so expressions such as
+Numeric and boolean literals carry their SQL type explicitly, so expressions such as
 `1 + 2` work as prepared statements. Whole numbers in int4 range use `integer`;
 fractions and wider numbers use `numeric`. Explicit authored types still win.
 Every arithmetic node preserves its grouping, including a nested right operand
@@ -45,6 +45,8 @@ Computed and bound scalar operands check their text projection for null or empty
 Comparing a numeric, boolean, or timestamp value directly to `''` makes Postgres
 cast the empty string into that type and can fail before filtering any rows.
 Property checks retain their storage-aware blank semantics.
+
+`coalesce` skips null and empty values, preserving the selected value's type. The last argument is the fallback even when blank, matching the form runtime.
 
 Typed temporal literals are the one intentional editor-draft exception: an optional date, time, or datetime control commits `""` while unset, and the live Results preview executes that AST immediately. `compileLiteral` must pass temporal strings through `nullif(value, '')` before the cast, so the unset draft becomes typed SQL `NULL` (and therefore no match) instead of a raw Postgres `22007` error. Non-empty malformed values still reach the cast and fail; this is not a general parse-error catch or a widening of valid temporal syntax.
 

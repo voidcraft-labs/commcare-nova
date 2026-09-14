@@ -724,3 +724,10 @@ response items and completion evidence. Avoid fabricated accepted plans or
 fixtures whose asserted properties do not exist on the stored record type.
 Question-card and transcript models own state; browser checks still own the
 actual focus and Motion binding.
+
+
+Form evaluation tests run the production engine in its isolated Node worker.
+`npm test` and `npm run test:changed` build the Preview worker assets first.
+When selecting these tests directly with `npx vitest`, run
+`npm run build:xpath-worker` after changes to the engine or evaluator. The worker
+host owns termination and joins it on success, failure and timeout.

@@ -97,7 +97,7 @@ export type MoveFieldToolResult =
 
 export const moveFieldTool = {
 	description:
-		"Move an existing field within its form by stable UUID — same identity, every reference preserved. Anchor with beforeFieldUuid/afterFieldUuid, or pass parentUuid to append into a group, repeat, or section (null = form root). On a form split into sections a question lands inside a section, never at the root.",
+		"Move a field within its form, preserving references. Choose an insertion anchor or parent container; null parent means the form root. A sectioned form keeps questions inside sections.",
 	inputSchema: moveFieldInputSchema,
 	async execute(
 		input: MoveFieldInput,

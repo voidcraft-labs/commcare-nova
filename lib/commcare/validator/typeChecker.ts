@@ -11,7 +11,10 @@
 
 import type { NodeType, SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
-import { FUNCTION_REGISTRY, type XPathType } from "./functionRegistry";
+import {
+	FUNCTION_REGISTRY,
+	type XPathType,
+} from "@/lib/domain/expressionFunctions";
 
 interface TypeError {
 	code: "TYPE_ERROR";

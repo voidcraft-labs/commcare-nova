@@ -4,7 +4,7 @@ import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
 import { type ReactNode, useCallback, useId, useState } from "react";
 import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
-import { useConnectLintContext } from "@/components/builder/detail/formSettings/useConnectLintContext";
+import { useFormLintContext } from "@/components/builder/detail/formSettings/useFormLintContext";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -309,7 +309,7 @@ export function FormSubConfigs({
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value === "" ? null : validateId(kind, value);
-	const getLintContext = useConnectLintContext(asUuid(formUuid));
+	const getLintContext = useFormLintContext(asUuid(formUuid));
 
 	// Flip a sub-config. Turning it ON seeds the derived id into a still-blank
 	// buffer so its "Advanced → ID" field opens showing the real value; an id

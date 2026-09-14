@@ -52,12 +52,9 @@ export function lowerXPathForJavaRosa(source: string): string {
 			if (cursor.type !== T.Invoke) return;
 			const node = cursor.node;
 			const nameNode = node.getChild(T.FunctionName.id);
-			if (
-				nameNode === null ||
-				source.slice(nameNode.from, nameNode.to) !== "normalize-space"
-			) {
-				return;
-			}
+			if (nameNode === null) return;
+			const name = source.slice(nameNode.from, nameNode.to);
+			if (name !== "normalize-space" && name !== "is-blank") return;
 
 			const argument = oneExpressionArgument(node);
 			if (argument === null) return false;
@@ -68,8 +65,10 @@ export function lowerXPathForJavaRosa(source: string): string {
 				from: node.from,
 				to: node.to,
 				replacement:
-					`replace(replace(${loweredArgument}, '[ \\t\\r\\n]+', ' '), ` +
-					`'^ | $', '')`,
+					name === "is-blank"
+						? `(string-length(string(${loweredArgument})) = 0)`
+						: `replace(replace(${loweredArgument}, '[ \\t\\r\\n]+', ' '), ` +
+							`'^ | $', '')`,
 			});
 			// The recursively lowered argument already owns any nested call. Do
 			// not produce overlapping edits for descendants of this invocation.

@@ -44,6 +44,7 @@
  * There is no conversion to a legacy nested-form shape. The engine walks
  * a rose-tree built at construction time — see `fieldTree.ts`.
  */
+
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -51,14 +52,10 @@ import type { BlueprintDocState } from "@/lib/doc/store";
 import {
 	caseSelectionCardinality,
 	type Field,
-	type Form,
 	fieldCaseWrite,
 	isCaptureFieldKind,
 	isContainer,
 	type LanguageTag,
-	materializableCaseTypes,
-	projectLocalizedFields,
-	resolveAppLanguage,
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -74,6 +71,7 @@ import type {
 	XPathWorkerInstances,
 } from "../xpath/workerProtocol";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
+import { buildEngineInput } from "./engineInput";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import {
@@ -243,53 +241,6 @@ export const DEFAULT_RUNTIME_STATE: RuntimeState = Object.freeze({
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-
-/**
- * Assemble the `FormEngineInput` for a given form from the current doc state.
- *
- * The engine takes domain types directly: the flat `fields` map, the
- * adjacency list in `fieldOrder`, and the form entity. There is no
- * intermediate wire-format representation — the engine's internal walkers
- * build a rose tree from these maps and operate on domain `Field` entities
- * throughout.
- */
-function buildEngineInput(
-	state: BlueprintDocState,
-	formUuid: Uuid,
-	language: LanguageTag | null,
-): FormEngineInput | undefined {
-	const form = state.forms[formUuid];
-	if (!form) return undefined;
-	const moduleUuid = findModuleForForm(state, formUuid);
-	const mod = moduleUuid === undefined ? undefined : state.modules[moduleUuid];
-	return {
-		form: form as Form,
-		formUuid,
-		...(language === null
-			? {}
-			: { language: resolveAppLanguage(state.localization, language) }),
-		fields:
-			language === null
-				? (state.fields as unknown as Record<string, Field>)
-				: projectLocalizedFields(
-						state,
-						resolveAppLanguage(state.localization, language),
-					),
-		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
-		caseTypes: materializableCaseTypes(state),
-		caseSelectionCardinality:
-			mod === undefined ? "single" : caseSelectionCardinality(mod),
-		userProperties: state.userProperties,
-		...(mod?.caseListConfig === undefined
-			? {}
-			: {
-					searchInputs: mod.caseListConfig.searchInputs.map((input) => ({
-						uuid: input.uuid,
-						name: input.name,
-					})),
-				}),
-	};
-}
 
 /**
  * Locate the module that owns a given form by scanning `formOrder`.

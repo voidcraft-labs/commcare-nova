@@ -40,6 +40,7 @@
 
 import { z } from "zod";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
+import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
@@ -49,6 +50,7 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
+import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
 import {
 	refineFormConnectMutations,
 	updateFormMutations,
@@ -59,6 +61,7 @@ import {
 } from "../planningSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -85,6 +88,11 @@ export const updateFormInputSchema = formAddressSchema
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
+		recordName: xpathExpressionSchema
+			.optional()
+			.describe(
+				"Name of the record this form creates or updates, using an answer or an expression.",
+			),
 		close_condition: closeConditionInputSchema
 			.nullable()
 			.optional()
@@ -96,7 +104,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "module" (its normal opening screen), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -133,7 +141,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Update form metadata: name, close condition (close forms only), one existing Connect participant's configuration, or post-submit navigation.",
+		"Edit a form's name, record naming rule, close condition, Connect settings or after-submit navigation.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -144,6 +152,7 @@ export const updateFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: rawFormUuid,
 			name,
+			recordName,
 			close_condition,
 			post_submit,
 			connect,
@@ -333,6 +342,14 @@ export const updateFormTool = {
 									},
 						)),
 			];
+			if (recordName !== undefined)
+				mutations.push(
+					...formRecordNameMutations(
+						applyToDoc(doc, mutations),
+						formUuid,
+						recordName,
+					),
+				);
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
 				return {

@@ -121,7 +121,7 @@ async function commitEntryPoint(
 
 export const getEntryPointsTool = {
 	description:
-		"List the app's authored deep links, their stable UUIDs and external IDs, destinations, and required case selections. This describes authoring; it does not verify or generate a released HQ link.",
+		"Read deep links, destinations and required record selections. This does not generate or verify a deployed HQ link.",
 	inputSchema: getEntryPointsInputSchema,
 	async execute(
 		_input: z.infer<typeof getEntryPointsInputSchema>,
@@ -146,7 +146,7 @@ export const getEntryPointsTool = {
 
 export const addEntryPointTool = {
 	description:
-		"Enable one named deep link to an eligible module, case list, or form. Destinations and references use UUIDs; the generated external ID remains stable through renames. A search-first list cannot open before selection through a direct link; choose a known-case form or eligible module instead. No-matches registration forms cannot be link destinations.",
+		"Create a deep link to an eligible module, Results screen or form. Search-before-selection and no-matches registration require their ordinary launch flow.",
 	inputSchema: addEntryPointInputSchema,
 	async execute(
 		input: z.infer<typeof addEntryPointInputSchema>,
@@ -175,7 +175,7 @@ export const addEntryPointTool = {
 
 export const updateEntryPointTool = {
 	description:
-		"Update a deep link by its immutable entryPointUuid. Omission keeps a setting and null clears the form's condition bypass. Changing the external ID can break links people already have; changing destination names does not require changing the ID.",
+		"Update a deep link. Changing its external ID breaks distributed links; destination renames preserve them.",
 	inputSchema: updateEntryPointInputSchema,
 	async execute(
 		input: z.infer<typeof updateEntryPointInputSchema>,

@@ -617,8 +617,9 @@ describe("createModule — atomic module + forms + case list", () => {
 		}
 	});
 
-	it("rejects a case-managing module without case-list columns on a complete app", async () => {
-		const parsed = createModuleInputSchema.safeParse({
+	it("creates usable Results by default with a new record module", async () => {
+		const harness = makeHarness(completeDoc());
+		const outcome = await harness.runTool(createModuleTool, {
 			name: "Households",
 			case_type: "household",
 			forms: [
@@ -639,13 +640,23 @@ describe("createModule — atomic module + forms + case list", () => {
 				},
 			],
 		});
-		expect(parsed.success).toBe(false);
-		if (!parsed.success) {
-			expect(parsed.error.issues[0]?.message).toContain(
-				"visible Results field",
-			);
-			expect(parsed.error.issues[0]?.message).toContain("not addFields");
-		}
+		expect(outcome.result).not.toHaveProperty("error");
+		const module = Object.values(harness.currentDoc().modules).find(
+			(module) => module.name === "Households",
+		);
+		if (!module?.caseListConfig)
+			throw new Error("Missing Results configuration.");
+		expect(module.caseListConfig.columns).toEqual([
+			expect.objectContaining({
+				kind: "plain",
+				field: "case_name",
+				header: "Name",
+			}),
+		]);
+		expect(module.caseListConfig.listColumnOrder).toEqual(
+			module.caseListConfig.columns.map((column) => column.uuid),
+		);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("rejects an all-hidden initial Results configuration before dispatch", () => {
@@ -681,9 +692,6 @@ describe("createModule — atomic module + forms + case list", () => {
 		expect(parsed.success).toBe(false);
 		if (!parsed.success) {
 			expect(parsed.error.issues[0]?.path).toEqual(["case_list_columns"]);
-			expect(parsed.error.issues[0]?.message).toContain(
-				"visible Results field",
-			);
 		}
 	});
 

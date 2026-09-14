@@ -43,7 +43,7 @@ export const SELECT_OPTION_VALUE_PATTERN = /^[^\s'"`]+$/;
  * not the first time the rule is heard.
  */
 export const SELECT_OPTION_VALUE_DESCRIPTION =
-	"The stored answer token, never shown to people: a lowercase slug with words joined by underscores (prefer_not_to_say), unique within the field, and kept stable once data exists. No spaces, quotes, or apostrophes: the device refuses a choice value holding a space, and a multi-select answer is a space-separated list of these tokens. The wording belongs in the label.";
+	"Stored answer value: a unique lowercase identifier such as prefer_not_to_say. Keep it stable after data is collected; wording belongs in label.";
 
 /** The rejection a schema returns when a value breaks the grammar. */
 export const SELECT_OPTION_VALUE_REJECTION =

@@ -47,6 +47,7 @@ import {
 	removeEntryPointTool,
 	updateEntryPointTool,
 } from "@/lib/agent/tools/entry-points";
+import { evaluateFormTool } from "@/lib/agent/tools/evaluateForm";
 import { addFormLinksTool } from "@/lib/agent/tools/form-links/addFormLinks";
 import { moveFormLinkTool } from "@/lib/agent/tools/form-links/moveFormLink";
 import { removeFormLinkTool } from "@/lib/agent/tools/form-links/removeFormLink";
@@ -130,7 +131,8 @@ export type ExternalReadSetKind =
 	| "lookup-definition"
 	| "lookup-column"
 	| "media-asset"
-	| "project-scope";
+	| "project-scope"
+	| "case-data";
 
 /**
  * Runtime capabilities a tool's execution requires. The policy test keeps
@@ -146,6 +148,7 @@ export type ToolRuntimeCapability =
 	| "media-write"
 	| "lookup-read"
 	| "lookup-write"
+	| "case-read"
 	| "case-store-migration"
 	| "deployment-write";
 
@@ -464,6 +467,24 @@ export const SHARED_TOOL_REGISTRY = [
 		tool: getFieldTool,
 		requires: "view",
 		policy: READ_POLICY,
+	},
+	{
+		saName: "evaluateForm",
+		mcpName: "evaluate_form",
+		tool: evaluateFormTool,
+		requires: "view",
+		policy: {
+			effect: "read-blueprint",
+			staging: "allowed",
+			readSets: [
+				"project-scope",
+				"case-data",
+				"lookup-definition",
+				"lookup-column",
+				"organization",
+			],
+			capabilities: ["case-read", "lookup-read", "organization-read"],
+		},
 	},
 	{
 		saName: "getForm",

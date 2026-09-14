@@ -187,7 +187,7 @@ function needsConfirmationResult(args: {
 
 export const configureCaseSelectionTool = {
 	description:
-		"Choose whether a module opens one case at a time or lets workers select a bounded set of cases before continuing. Multiple selection accepts an integer maximum from 1 through 100. null returns to one-case selection. Linked workflows may require coordinated selection changes. The first call either returns needs_changes with exact module confirmations and an effect-bound confirmation token for an atomic retry, or UUID-located blockers to repair; it applies no mutations in either case. If the reviewed effects change before retry, the stale confirmation applies nothing and returns a fresh review. If a case tile was configured to stay above forms, enabling multiple selection removes only that incompatible presentation setting and keeps the tile layout and grouping.",
+		"Choose single or multiple record selection. If linked modules need coordinated changes, the tool returns their effects and a confirmation token for an atomic retry. Enabling multiple selection removes an incompatible tile-above-form setting while preserving its layout.",
 	inputSchema: configureCaseSelectionInputSchema,
 	async execute(
 		input: ConfigureCaseSelectionInput,

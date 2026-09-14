@@ -3,6 +3,7 @@
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -21,6 +22,7 @@ import {
 	formField,
 	ifExpr,
 	input,
+	isBlank,
 	literal,
 	matchNone,
 	now,
@@ -33,6 +35,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
+import { checkPredicate } from "@/lib/domain/predicate/typeChecker";
 import type {
 	DateAddInterval,
 	ValueExpression,
@@ -587,6 +590,81 @@ describe("compileExpression — round-trip — concat arm", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — coalesce arm", () => {
+	test("blank values, literals and computed values agree with form evaluation", async ({
+		db,
+	}) => {
+		for (const [value, fallback, blank] of [
+			[null, "fallback", true],
+			["", "fallback", true],
+			[" ", "fallback", false],
+			["text", "fallback", false],
+			[0, 4, false],
+			[false, true, false],
+		] as const) {
+			const ctx = makeCtx(db);
+			const valueExpression = term(literal(value));
+			const predicate = isBlank(valueExpression);
+			expect(
+				checkPredicate(predicate, { caseTypes: [], knownInputs: [] }).ok,
+			).toBe(true);
+			const expression = compileExpression(
+				coalesce(valueExpression, term(literal(fallback))),
+				ctx,
+			);
+			const condition = compilePredicate(predicate, ctx);
+			const rows = await db
+				.selectNoFrom([
+					expression.as("value"),
+					sql<boolean>`${condition}`.as("blank"),
+				])
+				.execute();
+			expect(rows).toEqual([{ value: blank ? fallback : value, blank }]);
+			const formContext = EMPTY_PREVIEW_CONTEXT;
+			expect(evaluate(emitCaseListFilter(predicate), formContext)).toBe(blank);
+			const source =
+				value === null
+					? "''"
+					: typeof value === "string"
+						? `'${value}'`
+						: typeof value === "boolean"
+							? `${value}()`
+							: String(value);
+			expect(evaluate(`is-blank(${source})`, formContext)).toBe(blank);
+			expect(evaluate(`coalesce(${source}, '${fallback}')`, formContext)).toBe(
+				blank ? fallback : value,
+			);
+		}
+	});
+
+	test("coalesce skips stored and computed empty strings", async ({ db }) => {
+		await db
+			.insertInto("cases")
+			.values(
+				makeCaseRow({
+					case_id: PATIENT_CASE_ID,
+					case_type: "patient",
+					app_id: APP_ID,
+					project_id: OWNER_ID,
+					properties: JSON.stringify({ nickname: "" }),
+				}),
+			)
+			.execute();
+		const expression = compileExpression(
+			coalesce(
+				term(prop("patient", "nickname")),
+				concat(term(literal(""))),
+				term(literal("fallback")),
+			),
+			makeCtx(db),
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", PATIENT_CASE_ID)
+			.select(expression.as("value"))
+			.execute();
+		expect(rows).toEqual([{ value: "fallback" }]);
+	});
+
 	test("coalesce returns the first non-null value", async ({ db }) => {
 		await db
 			.insertInto("cases")

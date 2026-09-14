@@ -106,6 +106,7 @@ export const JAVAROSA_NATIVE_FUNCTIONS: ReadonlySet<string> = new Set([
 /** Nova spellings with a proven source-to-source JavaRosa lowering. */
 export const JAVAROSA_LOWERED_FUNCTIONS: ReadonlySet<string> = new Set([
 	"normalize-space",
+	"is-blank",
 ]);
 
 /**

@@ -11,6 +11,7 @@ interface StandalonePaths {
 	readonly publicSource: string;
 	readonly publicDestination: string;
 	readonly xpathWorkerSource: string;
+	readonly formEvaluationWorkerSource: string;
 	readonly staticSource: string;
 	readonly staticDestination: string;
 	readonly sharpSource: string;
@@ -31,6 +32,12 @@ function standalonePaths(repositoryRoot: string): StandalonePaths {
 			"public",
 			"xpath-worker",
 			"xpath-worker.js",
+		),
+		formEvaluationWorkerSource: path.join(
+			resolvedRoot,
+			"public",
+			"form-evaluation",
+			"worker.mjs",
 		),
 		staticSource: path.join(resolvedRoot, ".next", "static"),
 		staticDestination: path.join(standaloneRoot, ".next", "static"),
@@ -77,6 +84,12 @@ function standalonePreparationPlan(repositoryRoot: string): {
 				label: "built XPath worker",
 				kind: "file",
 				target: paths.xpathWorkerSource,
+				remedy: "Run `npm run build:xpath-worker` first.",
+			},
+			{
+				label: "built form evaluation worker",
+				kind: "file",
+				target: paths.formEvaluationWorkerSource,
 				remedy: "Run `npm run build:xpath-worker` first.",
 			},
 			{

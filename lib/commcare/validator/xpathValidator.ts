@@ -14,11 +14,12 @@ import { parser } from "@/lib/commcare/xpath";
 import type { XPathCarrierProfile } from "@/lib/commcare/xpath/carriers";
 import { analyzeXPathCompatibility } from "@/lib/commcare/xpath/compatibility";
 import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
-import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import {
 	FUNCTION_REGISTRY,
 	findCaseInsensitiveMatch,
-} from "./functionRegistry";
+	functionArityIssue,
+} from "@/lib/domain/expressionFunctions";
+import { extractPathRefs } from "@/lib/preview/xpath/dependencies";
 import { RESOLVED_REFERENCE_NAMESPACES } from "./reservedNamespaces";
 import { checkTypes } from "./typeChecker";
 
@@ -659,33 +660,13 @@ function validateFunctionCall(
 		return;
 	}
 
-	// Check custom validate first
-	if (spec.validate) {
-		const err = spec.validate(argCount);
-		if (err) {
-			errors.push({
-				code: "WRONG_ARITY",
-				message: `${funcName}() called with ${argCount} argument${argCount !== 1 ? "s" : ""}: ${err}`,
-				position: nameNode.from,
-			});
-			return;
-		}
-	}
-
-	// Check min/max
-	if (argCount < spec.minArgs) {
+	const issue = functionArityIssue(funcName, argCount, spec);
+	if (issue)
 		errors.push({
 			code: "WRONG_ARITY",
-			message: `${funcName}() requires ${spec.minArgs === spec.maxArgs ? `exactly ${spec.minArgs}` : `at least ${spec.minArgs}`} argument${spec.minArgs !== 1 ? "s" : ""}, got ${argCount}`,
+			message: issue,
 			position: nameNode.from,
 		});
-	} else if (spec.maxArgs !== -1 && argCount > spec.maxArgs) {
-		errors.push({
-			code: "WRONG_ARITY",
-			message: `${funcName}() accepts at most ${spec.maxArgs} argument${spec.maxArgs !== 1 ? "s" : ""}, got ${argCount}`,
-			position: nameNode.from,
-		});
-	}
 }
 
 /** Core recognizes instance()/current() only while building a path root. */

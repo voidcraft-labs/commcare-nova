@@ -1,5 +1,5 @@
-import { FUNCTION_REGISTRY } from "@/lib/commcare/validator/functionRegistry";
 import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
+import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
 import { javaRosaPow } from "./javaMathRuntime";
@@ -201,12 +201,10 @@ function requireJavaString(
 
 // ── Coalesce ────────────────────────────────────────────────────────
 
-register("coalesce", (args) => {
-	for (const a of args) {
-		const s = xpathToString(a);
-		if (s !== "") return s;
-	}
-	return "";
+register("is-blank", (args) => xpathToString(args[0]) === "");
+
+register("coalesce", () => {
+	throw new Error("coalesce() must be evaluated through the XPath dispatcher.");
 });
 
 // `cond()` is evaluated lazily by evaluator.ts before ordinary eager

@@ -14,11 +14,7 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
-import {
-	formLaunch,
-	moduleScreenLanding,
-	previewParentCaseResumeLocation,
-} from "@/components/preview/screens/moduleScreenNavigation";
+import { previewParentCaseResumeLocation } from "@/components/preview/screens/moduleScreenNavigation";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
@@ -30,7 +26,13 @@ import {
 	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { makeTranslationUnitId, moduleParent } from "@/lib/domain";
+import {
+	formLaunch,
+	makeTranslationUnitId,
+	moduleLanding,
+	moduleParent,
+	moduleScreenLanding,
+} from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
@@ -54,7 +56,7 @@ import {
 	useSetPreviewCaseTarget,
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
-import { moduleLanding, openModuleLanding } from "./moduleLanding";
+import { openModuleLanding } from "./moduleLanding";
 
 interface ModuleScreenProps {
 	/** This screen's identity, which module is being displayed. Passed from

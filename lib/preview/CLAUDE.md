@@ -1,7 +1,8 @@
 # Web Preview Engine
 
 Client-side form preview running entirely from the in-memory blueprint, with no
-XForm parsing and no server-side evaluator. Three subsystems own it: the XPath
+XForm parsing. The non-writing authoring evaluator uses this same engine in a
+bounded Node thread; it has no database or submission writer. Three subsystems own it: the XPath
 evaluator, form engine, and preview UI. **Preview is part of valid by
 construction.** Every XPath function, signature, path initializer, and instance
 namespace Nova admits for a surface must execute faithfully in that surface's
@@ -987,3 +988,16 @@ Results return remains; admission excludes that implicit return for a
 multiple-selection host.
 
 Unexpected lookup-preview, filter-preview, sample-data, and submission failures return stable retry copy. Typed domain refusals keep their actionable payloads; unexpected exception details stay in server telemetry.
+
+
+## Authoring evaluations
+
+`engine/evaluateForm.ts` owns one Node worker per non-writing form evaluation.
+`engine/evaluateFormSnapshot.ts` uses the same `buildEngineInput`, FormEngine,
+lookup projection and XPath dispatcher as Preview. The thread captures authorized
+records and lookup rows without materializing schemas, usercases or sample data.
+It is bounded to 30 seconds and a 128 MiB V8 heap, and the host always terminates and joins
+it. A result is question state and a proposed submission, not a storage receipt.
+The build script emits its server asset beside the separately bundled browser
+XPath worker; neither server execution nor form-engine code enters the browser
+XPath asset.

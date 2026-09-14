@@ -36,7 +36,7 @@ export type RemoveFormLinkResult =
 
 export const removeFormLinkTool = {
 	description:
-		"Remove one after-submit link by its linkUuid. Removing the otherwise link while conditional links remain leaves the form's post_submit as the fallback, stored explicitly if it was not set.",
+		"Remove an after-submit route. The form's post-submit setting remains the fallback.",
 	inputSchema: removeFormLinkInputSchema,
 	async execute(
 		input: RemoveFormLinkInput,
