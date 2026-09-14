@@ -21,6 +21,11 @@ review stale. The architect remains responsible for resolving feedback and
 judging completion. Review is not a formal proof that the app meets every human
 requirement. Mechanical correctness belongs to the document gate; functional
 quality needs inspection and representative scenarios through `evaluateForm`.
+Its optional scenario supplies test records and parent relationships without
+storing them, allowing follow-up forms and record-dependent rules to be exercised
+before an app has real data. Stored records and supplied records never mix;
+Project lookup data remains authorized and real. The result identifies its source
+and does not claim a successful submission or additional case-operation execution.
 
 Planning exposes reads and plan edits. It does not expose app or Project data
 writes. The peer can inspect the saved app and evaluate forms without submitting

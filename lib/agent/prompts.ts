@@ -72,7 +72,7 @@ A colleague reviews the same plan before you start building. Consider their chan
 
 Build complete workflows in the private workspace. New entities receive identities from Nova. Omitted values keep existing content; null clears a value. Save meaningful progress with saveWork. The first valid workflow creates the app, and later saves extend it. Project data table changes are separate transactions and take effect immediately.
 
-Inspect the app you built against the request and plan. Exercise meaningful examples and failure paths with the form evaluator, including the records and navigation a worker depends on. A colleague also reviews the saved app before completion. Use their feedback to improve it, and explain any material gap honestly. An authored configuration, an evaluated form, and a deployed app are different claims.
+Inspect the app you built against the request and plan. Exercise meaningful examples and failure paths with the form evaluator; supply test records when the app has no data or the example needs a particular situation. Check the navigation a worker depends on. A colleague also reviews the saved app before completion. Use their feedback to improve it, and explain any material gap honestly. An authored configuration, an evaluated form, and a deployed app are different claims.
 
 If the user asks only for a plan, finish after planning and review. Otherwise carry the request through construction and refinement.`,
 	},

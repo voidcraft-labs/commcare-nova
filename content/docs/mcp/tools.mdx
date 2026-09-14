@@ -105,8 +105,12 @@ For a function's scope and argument count, use `get_authoring_guide` with
 
 `evaluate_form` runs a form with supplied answers using the production Preview
 engine. It reports question state, validation and proposed case values without
-saving records. Existing records and lookup data come from the authorized worker's
-current data; a private new app has no saved records yet. Repeat rows, a selected
+saving records. By default, records and lookup data come from the authorized worker's
+current data. An optional `scenario` supplies test `records` for a new app or a
+particular situation. Each record has an `id`, `caseType`, optional `properties`
+and optional `parentId` referring to another test record. Use those IDs in
+`caseIds`. Test records replace stored records for that evaluation and are never
+saved; lookup data remains real. The result is labeled `scenario`. Repeat rows, a selected
 worker, language and Search answers can be supplied when relevant. Evaluation is
 limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction

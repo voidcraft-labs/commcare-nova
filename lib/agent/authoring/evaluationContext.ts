@@ -12,12 +12,17 @@ import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { ToolInvocationContext } from "../workspace/types";
+import {
+	type EvaluationScenario,
+	evaluationScenarioCases,
+} from "./evaluationScenario";
 
 /** Capture real, authorized data without Preview's usercase or schema writes.
  * An unpublished workspace has no case rows; Project lookup data is still real. */
 export async function loadFormEvaluationContext(
 	ctx: ToolInvocationContext,
 	personaUuid?: string,
+	scenario?: EvaluationScenario,
 ) {
 	async function authorize() {
 		if (ctx.appId) {
@@ -62,8 +67,10 @@ export async function loadFormEvaluationContext(
 		: previewAsMe(user, doc, projectSpace);
 	if (!identity)
 		throw new FormEvaluationInputError("Worker identity is unavailable.");
-	let cases: CaseDatabaseSnapshot = { rows: [], indices: [] };
-	if (ctx.appId) {
+	let cases: CaseDatabaseSnapshot = scenario
+		? evaluationScenarioCases(doc, identity.ownerId, scenario)
+		: { rows: [], indices: [] };
+	if (ctx.appId && scenario === undefined) {
 		const store = await withProjectContext(
 			ctx.projectId,
 			ctx.userId,

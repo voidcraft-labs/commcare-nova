@@ -31,6 +31,10 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 						id: "condition",
 						label: "Condition",
 						required: true,
+						validate: {
+							expr: "count(instance('casedb')/casedb/case[@case_type = 'loan'][@case_id != #loan/case_id][condition = #form/condition]) = 0",
+							msg: "Another loan already has this condition.",
+						},
 						caseWrite: { caseType: "loan", property: "condition" },
 					},
 				],
@@ -118,6 +122,46 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 		caseIds: [ownCase.caseId],
 		patch: { properties: { condition: "Worn" } },
 	});
+	const scenario = {
+		records: [
+			{ id: "example", caseType: "loan", properties: { condition: "Good" } },
+			{
+				id: "counterexample",
+				caseType: "loan",
+				properties: { condition: "Worn" },
+			},
+		],
+	};
+	const evaluateScenario = (caseId: string) =>
+		workspace.invoke({
+			toolName: "evaluateForm",
+			execute: (ctx) =>
+				evaluateFormTool.execute(
+					{
+						moduleUuid,
+						formUuid,
+						answers: [{ path: "condition", value: "Worn" }],
+						caseIds: [caseId],
+						scenario,
+					},
+					ctx,
+				),
+		});
+	expect((await evaluateScenario("example")).data).toMatchObject({
+		mode: "scenario",
+		valid: false,
+	});
+	// Actual rows cannot satisfy a selection in the supplied population.
+	expect((await evaluateScenario(ownCase.caseId)).data).toHaveProperty("error");
+	scenario.records.pop();
+	expect((await evaluateScenario("example")).data).toMatchObject({
+		mode: "scenario",
+		valid: true,
+		proposedValues: {
+			caseIds: ["example"],
+			patch: { properties: { condition: "Worn" } },
+		},
+	});
 	expect(await own.query({ appId, caseType: "loan" })).toEqual(beforeRows);
 	expect(await own.count({ appId, caseType: "commcare-user" })).toBe(0);
 	expect(
@@ -157,7 +201,7 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 	await expect(
 		workspace.invoke({
 			toolName: "evaluateForm",
-			execute: (ctx) => loadFormEvaluationContext(ctx),
+			execute: (ctx) => loadFormEvaluationContext(ctx, undefined, scenario),
 		}),
 	).rejects.toThrow();
 });
