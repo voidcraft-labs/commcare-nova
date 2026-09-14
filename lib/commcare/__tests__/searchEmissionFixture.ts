@@ -179,7 +179,7 @@ export function registrationLinkDoc(
 export function parentSelectDoc(): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [nameInput()];
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Inline",
 		modules: [
 			{
@@ -217,6 +217,8 @@ export function parentSelectDoc(): BlueprintDoc {
 			},
 		],
 	});
+	doc.modules[doc.moduleOrder[0]].parentCaseModuleUuid = doc.moduleOrder[1];
+	return doc;
 }
 
 export const searchEmissionScenarios = [

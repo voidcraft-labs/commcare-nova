@@ -99,6 +99,7 @@ export type GetModuleResult =
 			name: string;
 			opening: ReturnType<typeof moduleDestination>;
 			parent_module_uuid: Uuid | null;
+			parentCaseModuleUuid: Uuid | null;
 			child_module_uuids: Uuid[];
 			case_type: string | null;
 			icon: ModuleIconSlug | MediaAssetId | null;
@@ -150,6 +151,7 @@ export const getModuleTool = {
 				name: mod.name,
 				opening: moduleDestination(doc, moduleUuid),
 				parent_module_uuid: mod.parentModuleUuid ?? null,
+				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,
 				child_module_uuids: childModuleUuids(doc, moduleUuid),
 				case_type: mod.caseType ?? null,
 				icon: projectModuleIcon(mod.icon),

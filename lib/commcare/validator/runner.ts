@@ -51,6 +51,7 @@ import { runFieldRules } from "./rules/field";
 import { runFormRules } from "./rules/form";
 import { MEDIA_ASSET_RULES } from "./rules/media";
 import { MODULE_RULES } from "./rules/module";
+import { parentSelectionConflicts } from "./rules/parentSelection";
 import type { XPathError } from "./xpathValidator";
 
 /** Optional context for a validation run. */
@@ -109,6 +110,7 @@ export interface RunValidationOptions {
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"ENTRY_POINT_INVALID",
 	// APP_RULES products.
+	"CASE_PARENT_SELECTION_CONFLICT",
 	"NO_MODULES",
 	"EMPTY_APP_NAME",
 	"APP_TEXT_UNREPRESENTABLE",
@@ -257,14 +259,15 @@ export function runValidation(
 		}
 	}
 
-	errors.push(
-		...validateLookupReferences(
-			doc,
-			lookupContext,
-			options?.lookupReferenceExtractors ??
-				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
-		),
+	const lookupFindings = validateLookupReferences(
+		doc,
+		lookupContext,
+		options?.lookupReferenceExtractors ??
+			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 	);
+	errors.push(...lookupFindings);
+	if (lookupFindings.length === 0)
+		errors.push(...parentSelectionConflicts(doc, lookupContext));
 
 	errors.push(...runDeepValidation(doc, scope));
 

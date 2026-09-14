@@ -101,6 +101,7 @@ import { removeFormTool } from "@/lib/agent/tools/removeForm";
 import { removeModuleTool } from "@/lib/agent/tools/removeModule";
 import { renameCasePropertiesTool } from "@/lib/agent/tools/renameCaseProperties";
 import { searchBlueprintTool } from "@/lib/agent/tools/searchBlueprint";
+import { setCaseTypeParentTool } from "@/lib/agent/tools/setCaseTypeParent";
 import { setFieldOptionsSourceTool } from "@/lib/agent/tools/setFieldOptionsSource";
 import { setFormSectionsTool } from "@/lib/agent/tools/setFormSections";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
@@ -420,6 +421,13 @@ export const SHARED_TOOL_REGISTRY = [
 		tool: getCasePropertyTool,
 		requires: "view",
 		policy: READ_POLICY,
+	},
+	{
+		saName: "setCaseTypeParent",
+		mcpName: "set_case_type_parent",
+		tool: setCaseTypeParentTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
 	},
 	{
 		saName: "updateCaseProperty",

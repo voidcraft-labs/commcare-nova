@@ -133,6 +133,8 @@ export function followupNestedDoc(
 		],
 	});
 	nestSecondModule(doc);
+	if (options.parentSelect)
+		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
 	admitNestedDoc(doc);
 	return doc;
 }

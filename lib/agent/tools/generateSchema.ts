@@ -163,7 +163,7 @@ export const generateSchemaTool = {
 					result: {
 						error: `Nothing was recorded — ${conflicts.join(
 							"; ",
-						)}. Use updateCaseProperty to edit an existing definition, or pass only new properties to generateSchema.`,
+						)}. Use updateCaseProperty for existing properties or setCaseTypeParent for a parent relationship. generateSchema adds new definitions.`,
 					},
 				};
 			}

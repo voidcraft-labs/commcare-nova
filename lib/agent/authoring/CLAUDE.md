@@ -121,7 +121,7 @@ Read results use the same authored content shapes accepted by edits.
 merges an explicit patch into that definition under the workspace gate; null
 clears optional settings and omission preserves them. Type conversion remains
 with `editField`, and identity changes remain with `renameCaseProperties`.
-Catalog edits do not rewrite existing form content.
+Catalog edits do not rewrite existing form content. `setCaseTypeParent` edits ancestry through `setCaseTypeMeta`; saved case links remain unchanged. Module `parentCaseModuleUuid` independently chooses the parent-selection route. Form and operation reads expose ordinary answer-derived writes and preloaded field identities, so an empty advanced-operation list cannot be mistaken for a form with no record effects.
 
 Preserve existing child identities when replacing content. A read/edit cycle must not
 silently drop media, validation messages, navigation, or option identities.

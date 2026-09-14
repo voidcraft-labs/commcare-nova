@@ -34,6 +34,9 @@ export function appOverview(doc: BlueprintDoc) {
 				name: module.name,
 				...(module.purpose && { purpose: module.purpose }),
 				...(module.parentModuleUuid && { parentUuid: module.parentModuleUuid }),
+				...(module.parentCaseModuleUuid && {
+					parentCaseModuleUuid: module.parentCaseModuleUuid,
+				}),
 				...(module.caseType && { caseType: module.caseType }),
 				...(module.caseListConfig && {
 					caseList: {

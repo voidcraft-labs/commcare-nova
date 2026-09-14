@@ -26,6 +26,7 @@ import {
 	projectLocalizedModule,
 	resolveAppLanguage,
 } from "@/lib/domain";
+import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import {
 	useBlueprintDoc,
 	useBlueprintDocEq,
@@ -50,6 +51,31 @@ function sameEntitySequence<T>(
  * is unchanged. */
 export function useModuleIds(): Uuid[] {
 	return useBlueprintDocEq((s) => [...s.moduleOrder], sameSequenceByIdentity);
+}
+
+/** Only labels and identities reach the case-selection control. */
+export function useCaseParentModuleOptions(moduleUuid: Uuid) {
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	return useBlueprintDocEq(
+		(doc) =>
+			doc.moduleOrder.flatMap((uuid) => {
+				if (!caseParentSelectionVerdict(doc, moduleUuid, uuid).ok) return [];
+				const module =
+					language === null
+						? doc.modules[uuid]
+						: projectLocalizedModule(
+								doc,
+								resolveAppLanguage(doc.localization, language),
+								uuid,
+							);
+				return module ? [{ uuid, name: module.name }] : [];
+			}),
+		(a, b) =>
+			a.length === b.length &&
+			a.every(
+				(item, i) => item.uuid === b[i]?.uuid && item.name === b[i]?.name,
+			),
+	);
 }
 
 export interface ModuleMenuHierarchy {

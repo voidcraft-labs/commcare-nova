@@ -11,6 +11,7 @@ import type { z } from "zod";
 import { formRecordName } from "@/lib/doc/formRecordName";
 import { formNavigation, type Uuid } from "@/lib/domain";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
+import { formAnswerWrites } from "../formAnswerWrites";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
@@ -33,6 +34,7 @@ export type GetFormResult =
 			formUuid: Uuid;
 			form: FormSnapshot;
 			navigation: ReturnType<typeof formNavigation>;
+			answerWrites: ReturnType<typeof formAnswerWrites>;
 			recordName?: ReturnType<typeof formRecordName>;
 	  };
 
@@ -64,6 +66,7 @@ export const getFormTool = {
 				formUuid,
 				form: snapshot,
 				navigation: formNavigation(doc, formUuid),
+				answerWrites: formAnswerWrites(doc, moduleUuid, formUuid),
 				...(recordName && { recordName }),
 			},
 		};

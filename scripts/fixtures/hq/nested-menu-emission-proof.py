@@ -26,8 +26,9 @@ socket.socket.connect = deny_network
 socket.socket.connect_ex = deny_network
 os.environ["CCHQ_TESTING"] = "1"
 os.environ["DJANGO_SETTINGS_MODULE"] = "testsettings"
-from manage import init_hq_python_path
+from manage import init_hq_python_path, run_patches
 init_hq_python_path()
+run_patches()
 import django
 django.setup()
 from django.conf import settings

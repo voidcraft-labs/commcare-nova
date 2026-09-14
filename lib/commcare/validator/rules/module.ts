@@ -13,6 +13,7 @@ import {
 	menuFormUuidsOf,
 	type Uuid,
 } from "@/lib/domain";
+import { caseParentSelectionVerdict } from "@/lib/domain/caseParentSelection";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
@@ -258,7 +259,31 @@ type ModuleRule = (
 	lookupTables?: LookupTypeIndex,
 ) => ValidationError[];
 
+function parentCaseSelection(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	if (mod.parentCaseModuleUuid === undefined) return [];
+	const verdict = caseParentSelectionVerdict(
+		doc,
+		moduleUuid,
+		mod.parentCaseModuleUuid,
+	);
+	return verdict.ok
+		? []
+		: [
+				validationError(
+					"CASE_PARENT_SELECTION_INVALID",
+					"module",
+					verdict.message,
+					{ moduleUuid, moduleName: mod.name },
+				),
+			];
+}
+
 export const MODULE_RULES: readonly ModuleRule[] = [
+	parentCaseSelection,
 	caseFormsNoCaseType,
 	caseListOnlyHasForms,
 	caseListOnlyNoCaseType,

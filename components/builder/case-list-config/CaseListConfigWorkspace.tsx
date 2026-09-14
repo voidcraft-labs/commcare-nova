@@ -2418,6 +2418,7 @@ export function CaseListWorkspaceCanvas() {
 						className="h-full overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
 					>
 						<CaseListCanvas
+							moduleUuid={workspaceModuleUuid}
 							config={config}
 							caseType={ct}
 							caseTypes={caseTypes}

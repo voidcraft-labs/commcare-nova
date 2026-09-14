@@ -1,4 +1,5 @@
 import type { Uuid } from "@/lib/domain";
+import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import {
@@ -21,11 +22,13 @@ export type GetCaseOperationsResult =
 			 *  hold a uuid and a name it never asked for. */
 			readonly form: string;
 			readonly operations: readonly Record<string, unknown>[];
+			readonly answerWrites: ReturnType<typeof formAnswerWrites>;
 	  }
 	| { readonly error: string };
 
 export const getCaseOperationsTool = {
-	description: "Read a form's advanced record operations in execution order.",
+	description:
+		"Read a form's advanced record operations in execution order and the writes derived from its answers.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,
@@ -43,6 +46,11 @@ export const getCaseOperationsTool = {
 				formUuid: address.formUuid,
 				form: doc.forms[address.formUuid]?.name ?? "",
 				operations: projectedCaseOperations(doc, address.formUuid),
+				answerWrites: formAnswerWrites(
+					doc,
+					address.moduleUuid,
+					address.formUuid,
+				),
 			},
 		};
 	},

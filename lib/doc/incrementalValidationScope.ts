@@ -183,6 +183,7 @@ export function incrementalValidationScope(
 				 * rules. */
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
+					Object.hasOwn(mutation.patch, "parentCaseModuleUuid") ||
 					Object.hasOwn(mutation.patch, "caseListOnly") ||
 					mutation.caseSearchConfigPatch?.searchFirst === true
 				) {

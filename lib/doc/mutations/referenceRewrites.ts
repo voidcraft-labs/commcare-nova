@@ -285,6 +285,7 @@ export function rewriteModuleCaseRefs(
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
 			case "module_parent":
+			case "module_case_parent":
 				// Entity parentage is unaffected by case-property renames.
 				break;
 			case "module_display_condition": {

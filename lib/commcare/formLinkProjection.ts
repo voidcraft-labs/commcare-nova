@@ -176,6 +176,7 @@ export function sessionDataRef(datumId: string): string {
  * expanded actions (the datum list depends on which cases the form opens).
  */
 export interface FormLinkProjectionContext {
+	readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 	/** Export-only observer of an HQ root alignment that would bypass a bound. */
 	readonly onHqSelectionBoundMismatch?: (
 		issue: HqSelectionBoundMismatch,
@@ -232,6 +233,7 @@ export function moduleCaseTypeForActions(
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
 	opts: {
+		readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 		readonly onHqSelectionBoundMismatch?: (
 			issue: HqSelectionBoundMismatch,
 		) => void;
@@ -272,6 +274,9 @@ export function formLinkProjectionContext(
 			return built;
 		});
 	return {
+		...(opts.onParentSelectionConflict && {
+			onParentSelectionConflict: opts.onParentSelectionConflict,
+		}),
 		...(opts.onHqSelectionBoundMismatch !== undefined && {
 			onHqSelectionBoundMismatch: opts.onHqSelectionBoundMismatch,
 		}),
@@ -433,24 +438,13 @@ function toFrameDatum(
 	};
 }
 
-/** The module selected by HQ's `parent_select` convention for this module's
- * case type. This is independent of menu nesting: it follows the case-type
- * relationship and picks the first projected module of the parent type. */
+/** The authored parent-record selection, independent of menu nesting. */
 export function parentSelectModuleUuid(
 	doc: BlueprintDoc,
-	ctx: FormLinkProjectionContext,
+	_ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 ): Uuid | undefined {
-	const caseType = doc.modules[moduleUuid]?.caseType;
-	const parentType = doc.caseTypes?.find(
-		(item) => item.name === caseType,
-	)?.parent_type;
-	if (!parentType) return undefined;
-	return ctx.moduleOrder.find(
-		(candidate) =>
-			candidate !== moduleUuid &&
-			moduleCaseTypeForActions(doc, candidate) === parentType,
-	);
+	return doc.modules[moduleUuid]?.parentCaseModuleUuid;
 }
 
 function parentSelectChain(
@@ -625,6 +619,13 @@ function alignWithRootMenu(
 			continue;
 		}
 		remaining.shift();
+		if (
+			matchedSourceUuid !== undefined &&
+			matchedSourceUuid !== parentSourceUuid &&
+			parentSelectChain(doc, ctx, moduleUuid).includes(matchedSourceUuid)
+		) {
+			ctx.onParentSelectionConflict?.(moduleUuid);
+		}
 		matched.id = parentDatum.id;
 		prefix.push(matched);
 	}
@@ -1432,31 +1433,42 @@ export function formLinkActionsBuildable(
 	formUuid: Uuid,
 	links: readonly FormLink[],
 ): boolean {
+	const source = doc.moduleOrder.find((uuid) =>
+		(doc.formOrder[uuid] ?? []).includes(formUuid),
+	);
+	return (
+		source !== undefined &&
+		moduleFrameActionsBuildable(doc, [
+			source,
+			...links.map((link) => link.target.moduleUuid),
+		])
+	);
+}
+
+/** Shared buildability closure for form links and bare module selection. */
+export function moduleFrameActionsBuildable(
+	doc: BlueprintDoc,
+	roots: readonly Uuid[],
+): boolean {
+	const projectedModules = new Set(projectedModulePreorder(doc));
 	const moduleOf = (uuid: Uuid): Uuid | undefined =>
 		doc.moduleOrder.find((moduleUuid) =>
 			(doc.formOrder[moduleUuid] ?? []).includes(uuid),
 		);
-	const sourceModule = moduleOf(formUuid);
-	if (sourceModule === undefined) return false;
 	const modules = new Set<Uuid>();
-	const forms = new Set<Uuid>([formUuid]);
-	const addModuleAndForms = (moduleUuid: Uuid): void => {
-		modules.add(moduleUuid);
-		for (const uuid of doc.formOrder[moduleUuid] ?? []) forms.add(uuid);
-	};
-	const addStructuralChain = (moduleUuid: Uuid): void => {
-		const seen = new Set<Uuid>();
-		let current: Uuid | null | undefined = moduleUuid;
-		while (current !== undefined && current !== null && !seen.has(current)) {
-			seen.add(current);
-			addModuleAndForms(current);
-			current = moduleParent(doc, current);
-		}
-	};
-	addStructuralChain(sourceModule);
-	for (const link of links) {
-		addStructuralChain(link.target.moduleUuid);
+	const forms = new Set<Uuid>();
+	const pending = [...roots];
+	while (pending.length) {
+		const uuid = pending.pop();
+		if (uuid === undefined || modules.has(uuid)) continue;
+		modules.add(uuid);
+		for (const formUuid of doc.formOrder[uuid] ?? []) forms.add(formUuid);
+		const module = doc.modules[uuid];
+		if (!module) return false;
+		if (module.parentModuleUuid) pending.push(module.parentModuleUuid);
+		if (module.parentCaseModuleUuid) pending.push(module.parentCaseModuleUuid);
 	}
+
 	// `deriveSessionDatums` and the case-loading nodeset validate every case
 	// type they print (`identifierValidation.ts::validateCaseType`), and the
 	// frame indices are positions in the module sequence.
@@ -1464,7 +1476,7 @@ export function formLinkActionsBuildable(
 		caseType === undefined || caseType === "" || CASE_TYPE_REGEX.test(caseType);
 	for (const moduleUuid of modules) {
 		const mod = doc.modules[moduleUuid];
-		if (mod === undefined || !doc.moduleOrder.includes(moduleUuid)) {
+		if (mod === undefined || !projectedModules.has(moduleUuid)) {
 			return false;
 		}
 		if (!wellFormedCaseType(mod.caseType)) return false;

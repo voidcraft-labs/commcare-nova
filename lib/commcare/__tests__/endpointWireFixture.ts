@@ -92,7 +92,10 @@ export function endpointWireFixture(
 				? { ignoreDisplayConditions: true as const }
 				: {}),
 		};
-	if (child) module.parentModuleUuid = testUuid("endpoint-parent");
+	if (child) {
+		module.parentModuleUuid = testUuid("endpoint-parent");
+		module.parentCaseModuleUuid = testUuid("endpoint-parent");
+	}
 	if (!module.caseListConfig) throw new Error("Missing case list");
 	if (scenario === "multiple")
 		module.caseListConfig.selection = { kind: "multiple", maximum: 5 };

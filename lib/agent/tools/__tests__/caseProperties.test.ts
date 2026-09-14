@@ -98,6 +98,95 @@ async function fixture() {
 }
 
 describe("record property authoring", () => {
+	it("edits record ancestry without inventing a selection route, then resolves an explicit module by name", async () => {
+		const h = await fixture();
+		expect(
+			await h.call("createModule", {
+				name: "Gardens",
+				case_type: "garden",
+				case_list_only: true,
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			await h.call("setCaseTypeParent", {
+				caseType: "plot",
+				parentType: "garden",
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			await h.call("createForm", {
+				moduleUuid: "Gardens",
+				name: "Add plot",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "plot_name",
+						label: "Plot",
+						caseWrite: { caseType: "plot", property: "case_name" },
+					},
+					{
+						kind: "image",
+						id: "photo",
+						label: "Evidence",
+						caseWrite: { caseType: "plot", property: "photo", mode: "url" },
+					},
+				],
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			await h.call("getCaseOperations", {
+				moduleUuid: "Gardens",
+				formUuid: "Add plot",
+			}),
+		).toMatchObject({
+			operations: [],
+			answerWrites: [
+				{
+					caseType: "plot",
+					action: "create",
+					parentCaseType: "garden",
+					preloadedAnswers: [],
+				},
+			],
+		});
+		const plot = Object.values(h.currentDoc().modules).find(
+			(module) => module.name === "Plots",
+		);
+		const garden = Object.values(h.currentDoc().modules).find(
+			(module) => module.name === "Gardens",
+		);
+		if (!plot || !garden) throw new Error("Missing created modules");
+		expect(plot.parentCaseModuleUuid).toBeUndefined();
+		expect(
+			await h.call("updateModule", {
+				moduleUuid: "Plots",
+				parentCaseModuleUuid: "Gardens",
+			}),
+		).toMatchObject({ ok: true });
+		expect(h.currentDoc().modules[plot.uuid].parentCaseModuleUuid).toBe(
+			garden?.uuid,
+		);
+		const before = structuredClone(h.currentDoc());
+		expect(
+			await h.call("setCaseTypeParent", { caseType: "plot", parentType: null }),
+		).toHaveProperty("error");
+		expect(h.currentDoc()).toEqual(before);
+		expect(
+			await h.call("updateModule", {
+				moduleUuid: "Plots",
+				parentCaseModuleUuid: null,
+			}),
+		).toMatchObject({ ok: true });
+		// Clearing navigation does not erase the child-creation relationship.
+		expect(
+			await h.call("setCaseTypeParent", { caseType: "plot", parentType: null }),
+		).toHaveProperty("error");
+		expect(
+			h.currentDoc().caseTypes?.find((type) => type.name === "plot")
+				?.parent_type,
+		).toBe("garden");
+	});
 	it("declares an empty catalog and reports an unchanged declaration without another write", async () => {
 		const h = authoring();
 		const input = { caseTypes: [{ name: "plot", properties: [] }] };

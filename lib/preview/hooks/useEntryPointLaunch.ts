@@ -140,18 +140,18 @@ export function useEntryPointPreviewSetup(uuid: Uuid) {
 			personas: Object.values(doc.personas ?? {}),
 			requirements: projection?.available
 				? projection.requiredSelections.map((requirement) => {
-						const parentCaseType = (doc.caseTypes ?? []).find(
-							(type) => type.name === requirement.caseType,
-						)?.parent_type;
+						const parentModuleUuid =
+							doc.modules[requirement.moduleUuid]?.parentCaseModuleUuid;
+						const parentCaseType = parentModuleUuid
+							? doc.modules[parentModuleUuid]?.caseType
+							: undefined;
 						return {
 							...requirement,
 							name:
 								doc.modules[requirement.moduleUuid]?.name ??
 								requirement.caseType,
 							parentCaseType,
-							parentModuleUuid: projection.requiredSelections.find(
-								(candidate) => candidate.caseType === parentCaseType,
-							)?.moduleUuid,
+							parentModuleUuid,
 						};
 					})
 				: undefined,
