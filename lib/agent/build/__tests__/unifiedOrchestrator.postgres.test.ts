@@ -376,7 +376,7 @@ it.each([
 				expect(evaluation("filled-answers")).toMatchObject({
 					mode: "evaluation",
 					valid: true,
-					submission: { primary: { caseName: "Ada - Drill" } },
+					proposedValues: { primary: { caseName: "Ada - Drill" } },
 				});
 				expect(
 					await withAppTx((tx) =>
