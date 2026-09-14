@@ -1,6 +1,6 @@
 **Nova agent design: research, measurements, and a proposed direction**
 
-Prepared September 12, 2026 against commit `558e7069e7418108ea1248d9ae152869614d8251`. This assessment began as read-only research. The subsequent [authoring pilot](agent-authoring-pilot-2026-09-12.md) records the implementation, paid comparisons, failures, and interface decision. The delivery plan is [Improve agent authoring](../plans/agent-authoring-quality.md).
+Prepared September 12, 2026 against commit `558e7069e7418108ea1248d9ae152869614d8251`. This assessment began as read-only research. The subsequent [authoring pilot](agent-authoring-pilot-2026-09-12.md) records the implementation, paid comparisons, failures, and interface decision. The [integrated results](agent-authoring-results-2026-09-13.md) describe the delivered implementation and its evidence.
 
 Nova should redesign the interface through which a model authors an app. The present interface asks the model to make useful design decisions, reproduce decisions the server has already made, encode storage representations, and administer its own orchestration protocol. Much of the context exists to explain those last three responsibilities. Better prose matters, but its lasting benefit depends on making the job itself clearer.
 

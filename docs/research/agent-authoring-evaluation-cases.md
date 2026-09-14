@@ -1,6 +1,6 @@
 **Comparison cases for agent authoring**
 
-These cases support [Improve agent authoring](agent-authoring-quality.md).
+These cases guide future comparisons of the [implemented authoring interface](agent-authoring-results-2026-09-13.md).
 They are evaluation work, not another runtime Design Contract collection. Use
 the person's request and the observed app to judge a result. Several different
 app designs may satisfy a case well.

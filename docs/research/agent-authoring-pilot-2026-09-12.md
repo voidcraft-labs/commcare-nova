@@ -1,14 +1,14 @@
 # Authoring pilot: write content, bind identities in Nova
 
-Native tools are the selected direction for the next implementation slice.
+The September 12 pilot selected native tools for the production implementation.
 Agents supply authored wording and expressions; Nova resolves their references
 before the existing canonical tools prepare mutations. This removes storage
 encoding from the model's task without weakening identity or validation.
 
 The client pilot establishes feasibility. It does not establish general quality,
 complete feature coverage, or an optimal prompt. The production SA, executor,
-and MCP remain unchanged in this slice. The [delivery plan](../plans/agent-authoring-quality.md)
-continues with the complete shared authoring boundary.
+and MCP were unchanged during this initial comparison. The [integrated results](agent-authoring-results-2026-09-13.md)
+describe the subsequent shared authoring boundary.
 
 ## What ran
 

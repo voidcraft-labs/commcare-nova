@@ -1,10 +1,9 @@
 # Valid revisions, reviewed design
 
-The proposed [agent-authoring quality plan](agent-authoring-quality.md)
-coordinates improvements to prompts, authoring tools, working context, and
-workflow observation with Units F and G below. Those units retain ownership of
-completion truth and reviewed edits. The proposal does not mark them complete
-or change the implemented authority boundaries described here.
+The [authoring optimization](../research/agent-authoring-results-2026-09-13.md)
+ships independently of the proposed Units F and G below. Those unfinished
+proposals require their own design decision; they are not prerequisites for
+shipping the implemented authoring interface or canonical structural reports.
 
 ## Current architecture and the two remaining units
 

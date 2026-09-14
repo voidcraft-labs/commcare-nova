@@ -109,3 +109,48 @@ existence sweeps were removed. They could require fixture updates after edits
 without demonstrating useful behavior. The retired native/JavaScript prototype
 implementations and their tests were also removed; Git history retains the
 research, while the evaluator now uses production prompts and tools.
+
+## Fresh construction and saved-data behavior
+
+A new synthetic tool-library request asked for offline loan registration, an
+open-loan list, and a return form that preserves loan details, rejects a return
+date before the loan date, and closes only the selected loan. It began from the
+user request, with no accepted design replay.
+
+The first run stopped after 36 requests. Its registration executor repeatedly
+tried to build the later return form; the displayed shared module referenced
+that future workflow, while refusal named no allowed alternative. This led to
+scoped displayed references and useful allowed-form feedback. Independent review
+also found and fixed unusable projected creation addresses and a disconnected
+external-action reference. The failed run remains in the evidence.
+
+The corrected run completed design, independent review, both construction
+workflows, and canonical completion at app sequence 2. It used 49 provider
+requests: 27 in design/review and 22 in construction. Conservative trial cost
+was $4.23; the largest reported input was 34,997 tokens. Construction corrected
+one schema refusal and one unsupported XPath function after validator feedback.
+This is a successful example with repairs, not a first-attempt or general
+reliability claim.
+
+The resulting app then ran through the real Preview FormEngine, submission
+program, and isolated Postgres case storage without model calls. Observations:
+
+- Missing borrower, tool, or loan date refused registration; a blank optional
+  phone number was accepted.
+- Two loans for the same borrower remained distinct.
+- A missing return date and a date before the loan refused submission. A return
+  on the loan date succeeded.
+- Returning one loan saved its date and condition note, closed that record, and
+  retained its original borrower, tool, and loan date. The other loan remained
+  unchanged.
+
+The earlier garden replay separately exercised registration, an existing-record
+correction, and several dated child events without losing prior history. That
+run reused an accepted design. Neither observation exercised browser navigation,
+a mobile device, or an HQ deployment; those are not claimed here.
+
+The overall generation ledger is $41.25 conservatively accounted across 442
+requests, with no pending reservations. This includes every earlier experiment,
+the unmetered extraction reservations, and failed or stopped trials. Provider
+input-token counting did not generate responses. The reusable [evaluation cases](agent-authoring-evaluation-cases.md)
+remain a guide for future quality comparisons, not a required agent process.
