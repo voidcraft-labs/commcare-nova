@@ -1,4 +1,5 @@
 import type { LanguageTag, Uuid } from "@/lib/domain";
+import type { XPathRuntimeFailureReason } from "../xpath/workerProtocol";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
@@ -6,6 +7,7 @@ export interface FormEvaluationFault {
 	readonly path: string;
 	readonly expression: string;
 	readonly code: string;
+	readonly reason?: XPathRuntimeFailureReason;
 }
 export class FormEvaluationInputError extends Error {
 	constructor(

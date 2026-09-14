@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { evaluationScenarioCases } from "@/lib/agent/authoring/evaluationScenario";
 import {
 	evaluatePreparedMutationCandidate,
 	prepareMutationCandidate,
@@ -12,6 +13,56 @@ import { evaluateForm, FormEvaluationInputError } from "../evaluateForm";
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
+
+it("reports a bounded runtime cause when an expression expects one record but receives several", async () => {
+	const doc = await createEvaluationApp({
+		name: "Loans",
+		case_type: "loan",
+		forms: [
+			{
+				name: "Inspect",
+				type: "followup",
+				fields: [
+					{
+						kind: "hidden",
+						id: "record_name",
+						calculate: "string(instance('casedb')/casedb/case/case_name)",
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Inspect",
+	)?.uuid;
+	const identity = previewAsMe({ id: "member", name: "Member" }, doc);
+	if (!formUuid || !identity)
+		throw new Error("Evaluation fixture is incomplete.");
+	const records = [{ id: "first", caseType: "loan" }];
+	const run = () =>
+		evaluateForm(
+			doc,
+			{ formUuid, caseIds: ["first"], answers: [] },
+			{
+				identity,
+				cases: evaluationScenarioCases(doc, identity.ownerId, { records }),
+				lookup: {
+					projectRevision: "0",
+					definitions: [],
+					rowsByTable: new Map(),
+				},
+			},
+		);
+	expect((await run()).valid).toBe(true);
+	records.push({ id: "second", caseType: "loan" });
+	await expect(run()).rejects.toMatchObject({
+		fault: {
+			path: "/data/record_name",
+			code: "evaluation-failed",
+			reason: { phase: "evaluation", kind: "nodeset-cardinality" },
+		},
+	});
+});
 
 it("evaluates worker-only validation, branch state and a proposed named record without changing the document", async () => {
 	const doc = await createEvaluationApp({
