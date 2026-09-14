@@ -31,7 +31,7 @@ export function LabeledXPathField({
 	const [editing, setEditing] = useState(false);
 
 	return (
-		<fieldset className="min-w-0">
+		<fieldset aria-label={label} className="min-w-0">
 			<legend className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5">
 				{label}
 				{required && <span className="text-nova-rose">*</span>}
