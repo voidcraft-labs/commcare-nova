@@ -21,7 +21,6 @@ export interface FormEvaluationInput {
 	readonly answers: readonly { path: string; value: string }[];
 	readonly repeats?: readonly { path: string; count: number }[];
 	readonly caseIds?: readonly string[];
-	readonly parentCaseId?: string;
 	readonly searchAnswers?: readonly { name: string; value: string }[];
 	readonly language?: LanguageTag;
 }

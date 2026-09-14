@@ -39,18 +39,16 @@ export const evaluateFormInputSchema = formAddressSchema
 			.max(100)
 			.optional()
 			.describe("Existing records selected for a follow-up or close form."),
-		parentCaseId: z
-			.string()
-			.min(1)
-			.optional()
-			.describe("Existing parent when registering a related record."),
 		personaUuid: uuidSchema
 			.optional()
 			.describe("Worker to evaluate as. Defaults to the current member."),
 		searchAnswers: z
 			.array(z.object({ name: z.string(), value: z.string() }).strict())
 			.max(100)
-			.optional(),
+			.optional()
+			.describe(
+				"Values from the preceding Search. Date ranges use name:from and name:to.",
+			),
 		language: languageTagSchema.optional(),
 	})
 	.strict();

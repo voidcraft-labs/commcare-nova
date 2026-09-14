@@ -1,4 +1,13 @@
 import { expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	evaluatePreparedMutationCandidate,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { simpleSearchInputDef } from "@/lib/domain";
 import { evaluateForm, FormEvaluationInputError } from "../evaluateForm";
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
@@ -181,4 +190,146 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 			context,
 		),
 	).rejects.toBeInstanceOf(FormEvaluationInputError);
+});
+
+it("honors the authored selection maximum for a form that closes several records", async () => {
+	const doc = await createEvaluationApp({
+		name: "Loans",
+		case_type: "loan",
+		selection: { kind: "multiple", maximum: 1 },
+		forms: [
+			{
+				name: "Return",
+				type: "close",
+				fields: [{ kind: "text", id: "note", label: "Note" }],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Return",
+	)?.uuid;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!formUuid || !identity)
+		throw new Error("Evaluation fixture is incomplete.");
+	const context = {
+		identity,
+		cases: {
+			rows: ["drill", "saw"].map((case_id) => ({
+				case_id,
+				app_id: doc.appId,
+				case_type: "loan",
+				owner_id: identity.ownerId,
+				status: "open" as const,
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				case_name: case_id,
+				external_id: null,
+				parent_case_id: null,
+				properties: {},
+			})),
+			indices: [],
+		},
+		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+	};
+	const allowed = await evaluateForm(
+		doc,
+		{ formUuid, answers: [], caseIds: ["drill"] },
+		context,
+	);
+	expect(allowed.valid).toBe(true);
+	expect(allowed.submission).toMatchObject({
+		kind: "close",
+		caseIds: ["drill"],
+	});
+	await expect(
+		evaluateForm(
+			doc,
+			{ formUuid, answers: [], caseIds: ["drill", "saw"] },
+			context,
+		),
+	).rejects.toBeInstanceOf(FormEvaluationInputError);
+});
+
+it("uses the running Search's date-range values in a no-matches registration", async () => {
+	const inputUuid = testUuid("evaluation-dates");
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.searchInputs = [
+		simpleSearchInputDef(
+			inputUuid,
+			"visit_date",
+			"Dates",
+			"date-range",
+			"visit_date",
+		),
+	];
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "visit_date", label: "Date", data_type: "date" }],
+			},
+		],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListOnly: true,
+				caseSearchConfig: { searchFirst: true },
+				caseListConfig: config,
+				forms: [
+					{
+						name: "Register",
+						type: "registration",
+						entry: { kind: "search-no-matches" },
+						fields: [
+							f({
+								id: "name",
+								kind: "text",
+								label: "Name",
+								default_value: {
+									parts: [
+										{ kind: "search-answer-ref", searchInputUuid: inputUuid },
+									],
+								},
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	expect(
+		evaluatePreparedMutationCandidate(
+			prepareMutationCandidate(doc, admitMutationBatch([])),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).ok,
+	).toBe(true);
+	const formUuid = Object.values(doc.forms)[0].uuid;
+	const identity = previewAsMe({ id: "worker" }, doc);
+	if (!identity) throw new Error("Evaluation fixture is incomplete.");
+	const result = await evaluateForm(
+		doc,
+		{
+			formUuid,
+			answers: [],
+			searchAnswers: [
+				{ name: "visit_date:from", value: "2025-01-02" },
+				{ name: "visit_date:to", value: "2025-03-04" },
+			],
+		},
+		{
+			identity,
+			cases: { rows: [], indices: [] },
+			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		},
+	);
+	expect(result.valid).toBe(true);
+	expect(result.fields).toContainEqual(
+		expect.objectContaining({
+			path: "name",
+			value: "__range__2025-01-02__2025-03-04",
+		}),
+	);
 });

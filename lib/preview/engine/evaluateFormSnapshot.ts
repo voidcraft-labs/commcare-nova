@@ -6,6 +6,7 @@ import {
 import {
 	type BlueprintDoc,
 	caseSelectionCardinality,
+	caseSelectionMaximum,
 	isCaptureFieldKind,
 	isContainer,
 	moduleUuidOfForm,
@@ -23,6 +24,7 @@ import type {
 } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewLookupData } from "./lookupEvaluation";
+import { searchInputInstanceValues } from "./runtimeBindings";
 
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
@@ -51,8 +53,10 @@ export async function evaluateFormSnapshot(
 				? "Select an existing record to evaluate this form."
 				: "This form does not load a selected record.",
 		);
-	if (ids.length > 1 && caseSelectionCardinality(module) !== "multiple")
-		throw new FormEvaluationInputError("This form loads one record at a time.");
+	if (ids.length > caseSelectionMaximum(module))
+		throw new FormEvaluationInputError(
+			`This form accepts at most ${caseSelectionMaximum(module)} selected records.`,
+		);
 	for (const id of ids) {
 		const row = context.cases.rows.find((row) => row.case_id === id);
 		if (!row || row.case_type !== module.caseType)
@@ -61,28 +65,10 @@ export async function evaluateFormSnapshot(
 			);
 	}
 	const reachable = reachableCaseTypes(module.caseType, doc.caseTypes ?? []);
-	let caseData =
+	const caseData =
 		ids.length === 1 && caseSelectionCardinality(module) === "single"
 			? caseDatabaseToFormPreloads(context.cases, ids[0], reachable)
 			: undefined;
-	if (input.parentCaseId) {
-		if (needsRecord || !module.caseType)
-			throw new FormEvaluationInputError(
-				"Parent selection is for a new related record.",
-			);
-		const parent = context.cases.rows.find(
-			(row) => row.case_id === input.parentCaseId,
-		);
-		if (!parent || parent.case_type !== reachable[1]?.name)
-			throw new FormEvaluationInputError(
-				"Select an available record of this record type's parent type.",
-			);
-		caseData = caseDatabaseToFormPreloads(
-			context.cases,
-			input.parentCaseId,
-			reachable.slice(1).map((type) => ({ ...type, depth: type.depth - 1 })),
-		);
-	}
 	const engine = new FormEngine(
 		engineInput,
 		module.caseType,
@@ -92,8 +78,11 @@ export async function evaluateFormSnapshot(
 		context.cases,
 		{
 			stagedAsync: true,
-			searchAnswers: new Map(
-				(input.searchAnswers ?? []).map(({ name, value }) => [name, value]),
+			searchAnswers: searchInputInstanceValues(
+				module.caseListConfig?.searchInputs ?? [],
+				new Map(
+					(input.searchAnswers ?? []).map(({ name, value }) => [name, value]),
+				),
 			),
 		},
 	);
