@@ -24,6 +24,8 @@ structures remain shared. It visits schema positions only, preserving literal
 data and admission constraints. The same projection serves MCP and both editors.
 The executor brief renders design relationships with readable names, preserving
 the canonical identities in durable storage and leaving source prose untouched.
+Module and form IDs remain exact creation addresses. Names come from actual
+declarations; references never invent declarations for later workflows.
 
 The editor and executor mount hosted OpenAI tool search and defer shared definitions. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference

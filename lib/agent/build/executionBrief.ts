@@ -37,10 +37,8 @@ import type {
 	WorkList,
 } from "@/lib/agent/design/contract";
 import { appDesignContractBaseSchema } from "@/lib/agent/design/contract";
-import {
-	mapDesignIdentitySlots,
-	projectDesignIdentityHandles,
-} from "@/lib/agent/design/identityProjection";
+import { collectDesignIdentities } from "@/lib/agent/design/graph";
+import { projectDesignIdentityHandles } from "@/lib/agent/design/identityProjection";
 import type { DesignId } from "@/lib/agent/design/ids";
 import {
 	PLATFORM_CONSTRAINTS,
@@ -1104,30 +1102,47 @@ export function renderBriefMessage(
 	};
 	const names = new Map<string, string>();
 	const taken = new Set<string>();
-	mapDesignIdentitySlots(
-		appDesignContractBaseSchema,
-		requirements,
-		(value, path) => {
-			if (typeof value !== "string" || path.at(-1) !== "id" || names.has(value))
-				return value;
-			let parent: unknown = requirements;
-			const labels: string[] = [];
-			for (const key of path.slice(0, -1)) {
-				parent = (parent as Record<string | number, unknown>)[key];
-				if (
-					parent &&
-					typeof parent === "object" &&
-					"name" in parent &&
-					typeof parent.name === "string"
-				)
-					labels.push(parent.name);
+	const declarations = collectDesignIdentities(requirements);
+	const declaredIds = new Set(declarations.map((item) => item.id));
+	// These identities are valid creation addresses, including for equal names.
+	const constructionIds = new Set([
+		...brief.moduleCompositions.map((item) => item.id as string),
+		...brief.formCompositions.map((item) => item.id as string),
+	]);
+	for (const { id, path } of declarations) {
+		if (names.has(id) || constructionIds.has(id)) continue;
+		let parent: unknown = requirements;
+		const labels: string[] = [];
+		for (const key of path.slice(0, -1)) {
+			parent = (parent as Record<string | number, unknown>)[key];
+			if (parent && typeof parent === "object") {
+				const label =
+					"name" in parent
+						? parent.name
+						: "inputHandle" in parent
+							? parent.inputHandle
+							: "headingMarkdown" in parent
+								? parent.headingMarkdown
+								: undefined;
+				if (typeof label === "string") labels.push(label);
 			}
-			const name = uniqueSlug(labels.join(" "), String(path[0]), taken);
-			taken.add(name);
-			names.set(value, `@${name}`);
-			return value;
-		},
+		}
+		const name = uniqueSlug(labels.join(" "), String(path[0]), taken);
+		taken.add(name);
+		names.set(id, `@${name}`);
+	}
+	// A shared module and access policy can cover later workflows too. Their
+	// unprovided identities are not instructions to build those workflows now.
+	requirements.moduleCompositions = requirements.moduleCompositions.map(
+		(module) => ({
+			...module,
+			workflowIds: module.workflowIds.filter((id) => declaredIds.has(id)),
+		}),
 	);
+	requirements.access = requirements.access.map((policy) => ({
+		...policy,
+		targets: policy.targets.filter((target) => declaredIds.has(target.id)),
+	}));
 	const visible = projectDesignIdentityHandles(
 		appDesignContractBaseSchema,
 		{ ...requirements, workflows: resolveReferences(requirements.workflows) },
@@ -1177,7 +1192,13 @@ export function renderBriefMessage(
 		jsonSection("External requirements", visible.externalRequirements),
 		jsonSection("Decisions", visible.decisions),
 		jsonSection("Assumptions", visible.assumptions),
-		jsonSection("External actions", brief.externalActions),
+		jsonSection(
+			"External actions",
+			brief.externalActions.map((action) => ({
+				...action,
+				requirementId: names.get(action.requirementId) ?? action.requirementId,
+			})),
+		),
 		jsonSection("Capability boundary", brief.capabilityBoundary),
 		section(
 			"Platform constraints",

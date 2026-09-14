@@ -741,7 +741,6 @@ describe("deriveSliceExecutionBrief", () => {
 			.split("\n")
 			.map((line) => JSON.parse(line));
 		expect(modules[1].parentModuleCompositionId).toBe(modules[0].id);
-		expect(modules[0].id).toMatch(/^@/);
 	});
 
 	it("lowers semantic record names to stable Blueprint case-type keys", () => {
@@ -1186,6 +1185,27 @@ describe("deriveSliceExecutionBrief", () => {
 			brief.workflow.startingConditions,
 		);
 		expect(workflow.id).toMatch(/^@/);
+		const modules = fixtureValue(sections.get("Modules"), "modules")
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const availableWorkflows = new Set([
+			workflow.id,
+			...["Earlier workflows", "Reading saved records"].flatMap((section) =>
+				(sections.get(section) ?? "")
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => JSON.parse(line).id),
+			),
+		]);
+		for (const module of modules) {
+			expect(
+				brief.moduleCompositions.some((item) => item.id === module.id),
+			).toBe(true);
+			expect(
+				module.workflowIds.every((id: string) => availableWorkflows.has(id)),
+			).toBe(true);
+		}
+
 		expect(
 			workflow.actorIds.every((id: string) =>
 				people.some((person) => person.id === id),
@@ -1276,6 +1296,37 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(formText).toContain("Enter the name the household uses.");
 		[first.actorIds, second.actorIds] = [second.actorIds, first.actorIds];
 		expect(message(contract)).not.toBe(original);
+	});
+
+	it("keeps external actions joined to their displayed requirements", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		const requirement = {
+			id: did(9900),
+			name: "Project setup",
+			kind: "deployment-readiness" as const,
+			description: "Configure the project before deploying.",
+			relatedWorkflowIds: [workflow.id],
+			blocksConstruction: false,
+		};
+		contract.externalRequirements.push(requirement);
+		workflow.externalRequirementIds.push(requirement.id);
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: plan.slices[0].id,
+		});
+		expect(brief.externalActions).toHaveLength(1);
+		const rendered = renderBriefMessage(brief);
+		const section = (heading: string) =>
+			JSON.parse(rendered.split(`## ${heading}\n`)[1].split("\n\n## ")[0]);
+		const visibleRequirement = section("External requirements");
+		const action = section("External actions");
+		expect(visibleRequirement.name).toBe(requirement.name);
+		expect(action.requirementId).toBe(visibleRequirement.id);
+		expect(brief.externalActions[0].requirementId).toBe(requirement.id);
 	});
 
 	it("has a stable digest and refuses unknown slices", () => {

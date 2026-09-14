@@ -1,3 +1,4 @@
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -18,7 +19,10 @@ import {
 	blueprintModuleHandle,
 	deriveSliceExecutionBrief,
 	formCompositionInputs,
+	renderBriefMessage,
 } from "../executionBrief";
+
+import { buildExecutorTools } from "../executorLoop";
 
 function brief() {
 	const plan = makeBuildPlan();
@@ -326,12 +330,19 @@ describe("accepted construction identities", () => {
 		expect(() => prepareAcceptedConstruction(args)).toThrow(
 			"Several accepted modules",
 		);
-		expect(
-			prepareAcceptedConstruction({
-				...args,
-				input: { ...args.input, moduleUuid: duplicateId },
-			}),
-		).toMatchObject({
+		const rendered = renderBriefMessage(duplicate);
+		const modules = rendered
+			.split("## Modules\n")[1]
+			.split("\n\n## ")[0]
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const address = modules[modules.length - 1].id;
+		const input = { ...args.input, moduleUuid: address };
+		const admit = new Ajv({ strict: false }).compile(
+			buildExecutorTools().createModule.inputSchema,
+		);
+		expect(admit(input)).toBe(true);
+		expect(prepareAcceptedConstruction({ ...args, input })).toMatchObject({
 			input: { moduleUuid: duplicateId },
 			bindings: [{ uuid: duplicateId }],
 		});

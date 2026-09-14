@@ -10,7 +10,9 @@ Tools report outcomes and consequential effects without repeated encouragement.
 Design tools and construction tools have separate jobs. Construction discovery
 uses the same workflow policy as dispatch, and the brief does not repeat its tool
 inventory. Brief references use readable names without changing stored lineage
-or literal source text. Large reused schema structures remain shared; scalar
+or literal source text. Module and form IDs remain usable creation addresses,
+including when display names are identical. Shared module and access rules show
+only the workflows present in the current brief; errors name the accepted forms. Large reused schema structures remain shared; scalar
 indirection and single-use definitions are inlined without removing constraints.
 
 These changes are intended to make correct work easier to express. Token counts

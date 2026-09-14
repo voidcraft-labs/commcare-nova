@@ -16,7 +16,7 @@ export interface PromptSegment {
 	/** The exact bytes this segment contributes. */
 	readonly text: string;
 	/** Names of generator functions whose output is interpolated inside
-	 * `text` (for example `fieldKindGuide`), so a reader knows which parts of
+	 * `text` (for example `renderCapabilityCatalog`), so a reader knows which parts of
 	 * a segment are derived from domain schemas rather than hand-written. */
 	readonly generated?: readonly string[];
 }
