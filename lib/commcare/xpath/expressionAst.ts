@@ -129,7 +129,12 @@ export function parseXPathExpressionWithIssues(
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
-	options: { requireBoundNames?: boolean; selectedCaseType?: string } = {},
+	options: {
+		requireBoundNames?: boolean;
+		selectedCaseType?: string;
+		/** Optional authoring names for #form only; /data paths stay exact. */
+		resolveFormReference?: ResolveFieldPath;
+	} = {},
 ): XPathParseResult {
 	if (source.length === 0) return { expression: { parts: [] }, issues: [] };
 	const tree = parser.parse(source);
@@ -160,6 +165,7 @@ export function parseXPathExpressionWithIssues(
 		resolveSearchInputName,
 		spans,
 		options.selectedCaseType,
+		options.resolveFormReference ?? resolveFieldPath,
 	);
 	spans.sort((a, b) => a.from - b.from);
 
@@ -250,13 +256,14 @@ function collectLeafSpans(
 	resolveUserPropertySlug: ResolveUserPropertySlug,
 	resolveSearchInputName: ResolveSearchInputName,
 	spans: LeafSpan[],
-	selectedCaseType?: string,
+	selectedCaseType: string | undefined,
+	resolveFormReference: ResolveFieldPath,
 ): void {
 	if (node.type === T.HashtagRef) {
 		const part = classifyHashtag(
 			node,
 			source,
-			resolveFieldPath,
+			resolveFormReference,
 			resolveUserPropertySlug,
 			resolveSearchInputName,
 			selectedCaseType,
@@ -287,6 +294,7 @@ function collectLeafSpans(
 			resolveSearchInputName,
 			spans,
 			selectedCaseType,
+			resolveFormReference,
 		);
 	}
 }

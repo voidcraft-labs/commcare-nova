@@ -12,6 +12,7 @@ import {
 	enclosingAuthoringTable,
 } from "./bindings";
 import { AuthoringInputError } from "./errors";
+import { fieldNameCandidates } from "./fieldNames";
 import {
 	NAMED_IDENTITY_FAMILIES,
 	type NamedIdentityInput,
@@ -128,18 +129,23 @@ export function bindNamedIdentity(args: {
 			if (toolName === "createForm")
 				candidates.push(...declarations([input], "formUuid", "name"));
 			break;
-		case "field":
-			candidates = scope.fields
-				? named(scope.fields, (item) => [item.path])
-				: named(
-						Object.values(doc.fields).filter(
-							(item) =>
-								formUuid !== undefined &&
-								findContainingForm(doc, item.uuid) === formUuid,
-						),
-						(item) => [computeFieldPath(doc, item.uuid)],
-					);
+		case "field": {
+			const fields =
+				scope.fields ??
+				Object.values(doc.fields).flatMap((item) => {
+					if (
+						formUuid === undefined ||
+						findContainingForm(doc, item.uuid) !== formUuid
+					)
+						return [];
+					const path = computeFieldPath(doc, item.uuid);
+					return path === undefined ? [] : [{ uuid: item.uuid, path }];
+				});
+			candidates = named(fieldNameCandidates(slot.value, fields), () => [
+				slot.value,
+			]);
 			break;
+		}
 		case "select-option": {
 			const field = fieldUuid ? doc.fields[fieldUuid] : undefined;
 			candidates =

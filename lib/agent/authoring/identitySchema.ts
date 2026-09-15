@@ -18,7 +18,7 @@ const object = (value: unknown): Json | undefined =>
 export const NAMED_IDENTITY_FAMILIES = {
 	module: "Module name",
 	form: "Form name",
-	field: "Field path",
+	field: "Field name or path",
 	"select-option": "Choice value",
 	"case-list-column": "Column header",
 	"search-input": "Search input name",

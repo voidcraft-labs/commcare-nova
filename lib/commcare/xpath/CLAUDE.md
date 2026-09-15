@@ -17,13 +17,13 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 
 ## Production compatibility boundary
 
-The isolated agent-authoring pilot also uses `expressionAst.ts` through
-`lib/doc/expressionText.ts::parseAuthoredXPath`. Its opt-in `requireBoundNames`
-mode rejects unresolved grammar name nodes rather than preserving them as raw
-text. An explicitly supplied `selectedCaseType` binds `#case/property` to that
-actual type. Both options leave the existing Builder parser behavior unchanged.
-This stricter subset is experimental; it does not yet admit every supported raw
-instance or attribute path.
+The shared agent-authoring boundary uses `expressionAst.ts` through
+`lib/doc/expressionText.ts::parseAuthoredXPath`. Its `requireBoundNames` mode
+rejects unresolved names before mutation; `selectedCaseType` binds `#case`
+to the selected record type. A separate `resolveFormReference` can accept short
+`#form` names while `/data/...` paths retain exact path resolution. Builder
+parsing keeps its existing resolver. Instance- and current-rooted paths retain
+literal path semantics.
 
 `FUNCTION_REGISTRY` may admit only functions classified as JavaRosa native,
 proven-lowered, or path initializers used in their required path-root position,

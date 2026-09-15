@@ -30,6 +30,72 @@ const patient: CaseType = {
 	properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
 };
 
+it("binds unique short field names without changing exact paths or accepting ambiguous names", () => {
+	const doc = makeCanonicalGenesisDoc();
+	const date = testUuid("check-date");
+	const otherDate = testUuid("other-check-date");
+	const scope = new AuthoringScope({
+		doc,
+		fields: [
+			{ uuid: date, path: "details/check_date", kind: "date" },
+			{ uuid: date, path: "details/visit_date", kind: "date" },
+		],
+	});
+	const xpath = (source: string) =>
+		parseAuthoredXPath(
+			doc,
+			undefined,
+			scope.resolveFieldPath,
+			source,
+			undefined,
+			undefined,
+			{ resolveFormReference: scope.resolveField },
+		);
+	expect(parseQueryValue("#form/check_date", scope)).toEqual({
+		kind: "term",
+		term: { kind: "field", uuid: date },
+	});
+	expect(xpath("#form/visit_date != ''").parts).toContainEqual({
+		kind: "field-ref",
+		uuid: date,
+	});
+	expect(
+		normalizeText("Checked on {{check_date}}", xpath).parts,
+	).toContainEqual({ kind: "field-ref", uuid: date });
+	expect(() => xpath("/data/check_date != ''")).toThrow(
+		"Unknown or ambiguous reference",
+	);
+	expect(xpath("/data/details/check_date != ''").parts).toContainEqual({
+		kind: "path-ref",
+		uuid: date,
+	});
+	expect(
+		xpath("concat('/data/check_date', #form/check_date)").parts,
+	).toContainEqual({ kind: "text", text: "concat('/data/check_date', " });
+	const ambiguous = new AuthoringScope({
+		doc,
+		fields: [
+			...scope.fields,
+			{ uuid: otherDate, path: "history/check_date", kind: "date" },
+		],
+	});
+	expect(() => parseQueryValue("#form/check_date", ambiguous)).toThrow(
+		"ambiguous",
+	);
+	expect(ambiguous.resolveField(["wrong", "check_date"])).toBeUndefined();
+	expect(ambiguous.resolveField(["details", "check_date"])).toBe(date);
+	expect(ambiguous.resolveField([otherDate])).toBe(otherDate);
+	const rooted = new AuthoringScope({
+		doc,
+		fields: [
+			...ambiguous.fields,
+			{ uuid: testUuid("root-check-date"), path: "check_date", kind: "date" },
+		],
+	});
+	// A previously valid root path must not change when a nested field is added.
+	expect(rooted.resolveField(["check_date"])).toBe(testUuid("root-check-date"));
+});
+
 it("binds related names on their destination while preserving the canonical origin", () => {
 	const doc = { ...makeCanonicalGenesisDoc(), caseTypes: [household, patient] };
 	const scope = new AuthoringScope({ doc, currentCaseType: "Patient" });

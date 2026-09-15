@@ -57,6 +57,133 @@ function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
 	return { ...harness, call };
 }
 
+it("uses scoped short names for nested questions, wording, conditions, edits and insertion anchors", async () => {
+	const h = authoring();
+	await h.call("createModule", {
+		name: "Garden",
+		forms: [
+			{
+				name: "Weekly check",
+				type: "survey",
+				fields: [
+					{ kind: "group", id: "details", label: "Check details" },
+					{
+						kind: "date",
+						id: "check_date",
+						parentUuid: "details",
+						label: "Check date",
+					},
+					{
+						kind: "label",
+						id: "confirmation",
+						label: "Checked on {{check_date}}",
+						relevant: "#form/check_date != ''",
+					},
+				],
+			},
+			{
+				name: "Other check",
+				type: "survey",
+				fields: [{ kind: "date", id: "check_date", label: "Other date" }],
+			},
+		],
+	});
+	const doc = h.currentDoc();
+	const form = Object.values(doc.forms).find(
+		(form) => form.name === "Weekly check",
+	);
+	const group = Object.values(doc.fields).find(
+		(field) => field.id === "details",
+	);
+	const date = Object.values(doc.fields).find(
+		(field) =>
+			field.id === "check_date" && doc.fieldParent[field.uuid] === group?.uuid,
+	);
+	const confirmation = Object.values(doc.fields).find(
+		(field) => field.id === "confirmation",
+	);
+	if (!form || !group || !date || confirmation?.kind !== "label")
+		throw new Error("Missing check fields.");
+	expect(confirmation.label.parts).toContainEqual({
+		kind: "field-ref",
+		uuid: date.uuid,
+	});
+	expect(confirmation.relevant?.parts).toContainEqual({
+		kind: "field-ref",
+		uuid: date.uuid,
+	});
+	await expect(
+		h.call("editField", {
+			formUuid: "Weekly check",
+			fieldUuid: "confirmation",
+			updates: { relevant: "/data/check_date != ''" },
+		}),
+	).rejects.toThrow("Unknown or ambiguous reference");
+	expect(h.currentDoc()).toBe(doc);
+	await h.call("editField", {
+		formUuid: "Weekly check",
+		fieldUuid: "confirmation",
+		updates: { relevant: "/data/details/check_date != ''" },
+	});
+	expect(h.currentDoc().fields[confirmation.uuid]).toMatchObject({
+		relevant: {
+			parts: expect.arrayContaining([{ kind: "path-ref", uuid: date.uuid }]),
+		},
+	});
+	await h.call("addFields", {
+		formUuid: "Weekly check",
+		parentUuid: "details",
+		afterFieldUuid: "check_date",
+		fields: [{ kind: "text", id: "note", label: "Note about {{check_date}}" }],
+	});
+	const note = Object.values(h.currentDoc().fields).find(
+		(field) => field.id === "note",
+	);
+	expect(h.currentDoc().fieldOrder[group.uuid]).toEqual([
+		date.uuid,
+		note?.uuid,
+	]);
+	await h.call("editField", {
+		formUuid: "Weekly check",
+		fieldUuid: "check_date",
+		updates: { id: "visit_date" },
+	});
+	expect(h.currentDoc().fields[confirmation.uuid]).toMatchObject({
+		label: {
+			parts: expect.arrayContaining([{ kind: "field-ref", uuid: date.uuid }]),
+		},
+	});
+	await h.call("addFields", {
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "group", id: "history", label: "History" },
+			{
+				kind: "date",
+				id: "visit_date",
+				parentUuid: "history",
+				label: "Past date",
+			},
+		],
+	});
+	const before = h.currentDoc();
+	await expect(
+		h.call("editField", {
+			formUuid: "Weekly check",
+			fieldUuid: "visit_date",
+			updates: { label: "Changed" },
+		}),
+	).rejects.toThrow("ambiguous");
+	expect(h.currentDoc()).toBe(before);
+	await h.call("editField", {
+		formUuid: "Weekly check",
+		fieldUuid: "details/visit_date",
+		updates: { label: "Visit date" },
+	});
+	expect(h.currentDoc().fields[date.uuid]).toMatchObject({
+		label: { parts: [{ kind: "text", text: "Visit date" }] },
+	});
+});
+
 it("binds new questions, case operations, and case-list order without predeclared identities", async () => {
 	const h = authoring();
 	await h.call("generateSchema", {
@@ -82,9 +209,11 @@ it("binds new questions, case operations, and case-list order without predeclare
 				close_condition: { fieldUuid: "done", answer: "yes" },
 				fields: [
 					{ kind: "text", id: "name", label: "Visit name" },
+					{ kind: "group", id: "confirmation", label: "Confirmation" },
 					{
 						kind: "single_select",
 						id: "done",
+						parentUuid: "confirmation",
 						label: "Finished?",
 						optionsSource: {
 							kind: "inline",

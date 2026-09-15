@@ -26,6 +26,7 @@ import {
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
 import { quoteAuthoringLiteral as quote } from "./expressionSyntax";
+import { fieldNameCandidates, fieldPathCandidates } from "./fieldNames";
 import type { QueryPrintContext } from "./printQueryExpression";
 import type { QueryBindings } from "./queryExpressions";
 
@@ -190,15 +191,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		);
 	}
 	resolveField = (segments: readonly string[]): Uuid | undefined => {
-		const name = segments.join("/");
-		const identity = this.fields.find((field) => field.uuid === name);
-		if (identity) return identity.uuid;
-		const ids = new Set(
-			this.fields
-				.filter((field) => field.path === name || field.uuid === name)
-				.map((field) => field.uuid),
-		);
-		return ids.size === 1 ? [...ids][0] : undefined;
+		const candidates = fieldNameCandidates(segments.join("/"), this.fields);
+		return candidates.length === 1 ? candidates[0].uuid : undefined;
+	};
+	resolveFieldPath = (segments: readonly string[]): Uuid | undefined => {
+		const candidates = fieldPathCandidates(segments.join("/"), this.fields);
+		return candidates.length === 1 ? candidates[0].uuid : undefined;
 	};
 	resolveSearchInput = (name: string): Uuid | undefined => {
 		const identity = this.inputs.find((input) => input.uuid === name);

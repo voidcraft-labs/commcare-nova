@@ -24,7 +24,7 @@ Search-first workflows begin with Search. Their registration form is offered aft
 After-submit navigation happens after answers leave form scope. Save a needed answer before using it in a later route. An entry point is a durable external address for a destination; changing that address can break distributed links. Generating an HQ link requires a verified deployment. Opening it can claim cases, so it is not a harmless verification probe.`,
 	fields,
 	formLogic:
-		() => `Form expressions use XPath. #form/name reads an answer, with a full path for nested fields; #case/property reads the record selected for this form. Registration and survey forms have no selected record. #user/property reads worker information. In a module's no-matches registration form, #search/name reads that module's Search answer.
+		() => `Form expressions use XPath. #form/name reads an answer. Nested fields accept a unique short name or their full path; exact paths take precedence. #case/property reads the record selected for this form. Registration and survey forms have no selected record. #user/property reads worker information. In a module's no-matches registration form, #search/name reads that module's Search answer.
 
 Use relevant for visibility, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. In validation, . is the current answer. For example, . >= 0 rejects negative ages. Hidden fields can calculate a value as answers change or use default_value once at form load. Writers for a single selected record start with its saved value. Several-case forms start blank unless a shared starting value or calculation is configured; blank preserves each record's value.
 
