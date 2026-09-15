@@ -71,4 +71,23 @@ describe("executor authoring grammar", () => {
 		});
 		expect(result).toEqual({ valid: true, errors: null });
 	});
+	it("accepts a focused catalog repair without exposing storage expressions", () => {
+		expect(
+			admits("getCaseProperty", { caseType: "plot", property: "beds" }),
+		).toEqual({ valid: true, errors: null });
+		expect(
+			admits("updateCaseProperty", {
+				caseType: "plot",
+				property: "beds",
+				updates: { validation: ". >= 1 and . <= 50", validation_msg: null },
+			}),
+		).toEqual({ valid: true, errors: null });
+		expect(
+			admits("updateCaseProperty", {
+				caseType: "plot",
+				property: "beds",
+				updates: { data_type: "decimal" },
+			}).valid,
+		).toBe(false);
+	});
 });

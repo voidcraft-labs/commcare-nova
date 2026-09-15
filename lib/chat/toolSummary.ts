@@ -49,6 +49,14 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Renaming case properties",
 		done: "Renamed case properties",
 	},
+	getCaseProperty: {
+		doing: "Reading case property",
+		done: "Read case property",
+	},
+	updateCaseProperty: {
+		doing: "Updating case property",
+		done: "Updated case property",
+	},
 	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
 	configureCaseList: {
 		doing: "Configuring the case list",

@@ -186,18 +186,10 @@ describe("compact provider expression schemas", () => {
 				}
 			}
 		}
-		/* The whole registry's emission stays inside a hard content budget, so
-		 * tool growth is a deliberate, visible spend (396k chars when set;
-		 * 447k before the Search prompts grew to seven arms, which put the
-		 * three search-input tools at 460k with their slot descriptions
-		 * already cut to a clause each). The four explicit entry-point tools
-		 * brought the measured registry to 477,803 chars. Stating on the
-		 * caseWrite, calculate, and default_value slots what a field does when
-		 * its form opens (#571: the edit-in-place rule, and that a hidden field
-		 * carries one value source) is repeated across every field-writing
-		 * tool and measures 480,363 chars; keep that deliberate growth bounded
-		 * without relaxing cycle or AST isolation checks. */
-		expect(total).toBeLessThan(485_000);
+		/* This canonical-schema inventory measures 487,812 characters with
+		 * focused property reads and edits. Guard unexpected expansion here;
+		 * /agents measures the distinct authored schemas actually mounted. */
+		expect(total).toBeLessThan(490_000);
 	});
 
 	it("keeps exact UUID patterns on the listed identity-bearing AST properties", () => {

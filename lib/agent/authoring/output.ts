@@ -8,6 +8,7 @@ import {
 	type BlueprintDoc,
 	caseListConfigSchema,
 	caseOperationSchema,
+	casePropertySchema,
 	caseSearchConfigSchema,
 	fieldSchema,
 	formSchema,
@@ -181,6 +182,14 @@ export function projectAuthoringRead(args: {
 		}));
 	const payload = record.parse(data);
 	switch (toolName) {
+		case "getCaseProperty":
+			return {
+				...payload,
+				property: project(casePropertySchema, payload.property, {
+					doc,
+					currentCaseType: z.string().parse(payload.caseType),
+				}),
+			};
 		case "searchBlueprint":
 			return {
 				...payload,

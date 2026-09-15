@@ -6,6 +6,10 @@ import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
+import {
+	getCasePropertyTool,
+	updateCasePropertyTool,
+} from "@/lib/agent/tools/caseProperties";
 import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
@@ -43,6 +47,20 @@ const context = {
 	authKind: "oauth" as const,
 };
 const register: Parameters<typeof withMcpClient>[0] = (server) => {
+	registerSharedTool(
+		server,
+		"get_case_property",
+		getCasePropertyTool,
+		context,
+		"view",
+	);
+	registerSharedTool(
+		server,
+		"update_case_property",
+		updateCasePropertyTool,
+		context,
+		"edit",
+	);
 	registerSharedTool(server, "add_fields", addFieldsTool, context, "edit");
 	registerSharedTool(server, "edit_field", editFieldTool, context, "edit");
 	registerSharedTool(server, "get_form", getFormTool, context, "view");
@@ -89,6 +107,124 @@ async function events(appId: string) {
 		.execute();
 	return rows.map((row) => row.event);
 }
+
+it("reads and edits one catalog property through MCP without changing saved case values", async () => {
+	const doc: BlueprintDoc = promptDoc();
+	doc.caseTypes = [
+		{
+			name: "plot",
+			properties: [
+				{
+					name: "beds",
+					label: proseText("Beds"),
+					data_type: "int",
+					validation: { parts: [{ kind: "text", text: ". >= 1" }] },
+					validation_msg: proseText("Enter at least one bed."),
+				},
+			],
+		},
+	];
+	await h.seedAppWithBlueprint(doc, {
+		id: doc.appId,
+		owner: "creator",
+		projectId: PROJECT,
+	});
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const schema = await withSchemaContext();
+	await schema.applySchemaChange({
+		appId: doc.appId,
+		caseType: "plot",
+		caseTypeSchemas: buildCaseTypeMap(doc),
+		syncedSeq: 0,
+	});
+	const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
+	await store.insert({
+		appId: doc.appId,
+		row: {
+			case_id: "plot-1",
+			case_type: "plot",
+			case_name: "North plot",
+			modified_on: new Date("2026-09-13T00:00:00Z"),
+			properties: { beds: 5 },
+		},
+	});
+	const db = await getCaseStoreDatabase();
+	const beforeCases = await db.selectFrom("cases").selectAll().execute();
+	const address = { app_id: doc.appId, caseType: "plot", property: "beds" };
+	await withMcpClient(register, async (client) => {
+		expect(
+			JSON.parse(
+				resultText(
+					await client.callTool({
+						name: "get_case_property",
+						arguments: address,
+					}),
+				),
+			),
+		).toMatchObject({ property: { label: "Beds", validation: ". >= 1" } });
+		expect(
+			JSON.parse(
+				resultText(
+					await client.callTool({
+						name: "update_case_property",
+						arguments: {
+							...address,
+							updates: {
+								label: "Number of beds",
+								validation: null,
+								validation_msg: null,
+							},
+						},
+					}),
+				),
+			),
+		).toEqual({ ok: true });
+		expect(
+			JSON.parse(
+				resultText(
+					await client.callTool({
+						name: "get_case_property",
+						arguments: address,
+					}),
+				),
+			),
+		).toEqual({
+			caseType: "plot",
+			property: { name: "beds", label: "Number of beds", data_type: "int" },
+		});
+		const writes = await changes(doc.appId);
+		expect(writes).toHaveLength(1);
+		expect(writes[0]).toMatchObject({
+			kind: "mcp",
+			actor_id: ACTOR,
+			mutations: [
+				{
+					kind: "setCaseProperty",
+					caseType: "plot",
+					property: {
+						name: "beds",
+						label: proseText("Number of beds"),
+						data_type: "int",
+					},
+				},
+			],
+		});
+		expect(await db.selectFrom("cases").selectAll().execute()).toEqual(
+			beforeCases,
+		);
+		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+		resultText(
+			await client.callTool({ name: "get_case_property", arguments: address }),
+		);
+		expect(
+			await client.callTool({
+				name: "update_case_property",
+				arguments: { ...address, updates: { label: "Denied" } },
+			}),
+		).toHaveProperty("isError", true);
+		expect(await changes(doc.appId)).toEqual(writes);
+	});
+});
 
 it("binds names throughout a recursive place request and stores property identities", async () => {
 	const { doc } = await seed();

@@ -162,7 +162,7 @@ export const generateSchemaTool = {
 					result: {
 						error: `Nothing was recorded — ${conflicts.join(
 							"; ",
-						)}. Existing record definitions are immutable through this add path. Pass only genuinely new properties, or use the specific editing operation for an intentional change.`,
+						)}. Use updateCaseProperty to edit an existing definition, or pass only new properties to generateSchema.`,
 					},
 				};
 			}

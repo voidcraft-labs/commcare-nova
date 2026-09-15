@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $21.1575 across 193 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $23.6783 across 223 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -124,8 +124,9 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602),
 [derived selection #603](https://github.com/voidcraft-labs/commcare-nova/pull/603),
 [current working context #604](https://github.com/voidcraft-labs/commcare-nova/pull/604),
-and [choice wording #605](https://github.com/voidcraft-labs/commcare-nova/pull/605).
-These 19 Nova PRs form native GitHub stack #601; every PR has all CI checks green.
+[choice wording #605](https://github.com/voidcraft-labs/commcare-nova/pull/605),
+and [derived construction order #606](https://github.com/voidcraft-labs/commcare-nova/pull/606).
+These 20 Nova PRs form native GitHub stack #601; every PR has all CI checks green.
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 
@@ -181,11 +182,11 @@ design, review and execution. Authors can state the labels directly; Nova derive
 codes unless specific values are supplied. It replaces the old values-only
 carrier through the same one-time format retirement.
 
-The current construction-order slice removes model-authored schedule IDs. Worker
+PR #606 removes model-authored schedule IDs. Worker
 starting conditions remain explicit, while Nova derives build dependencies from
 the design. Record definitions move to their first consumer, including earlier
-lists and child catalogs. End-to-end app quality remains open; another paid trial
-should test these improvements together.
+lists and child catalogs. The fifth trial tested those changes together and
+reached accepted design. End-to-end app quality remains open.
 
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove
@@ -226,6 +227,14 @@ bridges. The user permits loss of obsolete diagnostic or design metadata when
 needed; preserve app behavior and collected data deliberately. Update MCP and
 plugin contracts together and explain any required client refresh. The selected
 production path must be complete and exercised before it replaces the current one.
+
+The [fifth garden trial](../research/agent-record-property-repair-2026-09-13.md)
+reached accepted design in 11 requests, then stopped during its first construction
+slice. It produced no canonical app. The executor introduced an unsupported
+catalog validation and could not edit the property; two helper decisions advised
+an unavailable repair. Shared property inspection and editing now close that
+specific gap. The full garden app, semantic completion proof, and the remaining
+role/interface work are still outstanding.
 
 **Slice 3: supply the right work and context to each role.**
 

@@ -77,7 +77,7 @@ const selectOptionDescribed = z
 	})
 	.strict();
 
-const casePropertyDescribed = z
+export const casePropertyInputSchema = z
 	.object({
 		name: authoredCasePropertyNameSchema.describe(
 			"Property name in snake_case. " +
@@ -158,7 +158,7 @@ export const caseTypeRecordSchema = z
 			.min(1)
 			.describe('Case type name in snake_case (e.g., "patient", "household")'),
 		properties: z
-			.array(casePropertyDescribed)
+			.array(casePropertyInputSchema)
 			.min(1)
 			.describe(
 				'Case properties to track. Forms will create fields to capture these. Include the display/person name once as "case_name"; never add a duplicate "name" or "full_name" property. Standard metadata (external_id, date_opened, lifecycle status) is implicit rather than a custom property.',
