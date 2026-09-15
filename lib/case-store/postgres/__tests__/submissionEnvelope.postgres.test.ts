@@ -1252,6 +1252,110 @@ describe("ordered selected-case batches", () => {
 // ---------------------------------------------------------------
 
 describe("pre-submission snapshot", () => {
+	it("keeps one selected case in scope for every operation and preserves authored order", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store, { notes: "original" });
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: followupOrdinary(),
+			operations: rootProgram([
+				envOp(
+					operation({
+						uuid: OP_A,
+						writes: [{ property: "notes", value: term(literal("first")) }],
+					}),
+				),
+				envOp(
+					operation({
+						uuid: OP_B,
+						id: "create_visit",
+						action: "create",
+						caseType: "visit",
+						target: { kind: "new" },
+						condition: eq(prop("patient", "notes"), literal("original")),
+						name: term(prop("patient", "case_name")),
+						writes: [
+							{ property: "outcome", value: term(prop("patient", "notes")) },
+						],
+						links: [
+							{
+								identifier: "parent",
+								targetType: "patient",
+								target: { kind: "session" },
+								relationship: "child",
+							},
+						],
+					}),
+				),
+				envOp(
+					operation({
+						uuid: OP_C,
+						id: "last_write",
+						target: {
+							kind: "expression",
+							expr: term(literal(SESSION_CASE_ID)),
+						},
+						writes: [{ property: "notes", value: term(literal("last")) }],
+					}),
+					{ expressionSnapshotTypes: { target: "patient", links: new Map() } },
+				),
+			]),
+		});
+		expect(result.operations.map((item) => item.operationUuid)).toEqual([
+			OP_A,
+			OP_B,
+			OP_C,
+		]);
+		expect((await patientRow(store, SESSION_CASE_ID))?.properties.notes).toBe(
+			"last",
+		);
+		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		expect(visits).toHaveLength(1);
+		expect(visits[0]).toMatchObject({
+			case_name: "Alice",
+			parent_case_id: SESSION_CASE_ID,
+			properties: { outcome: "original" },
+		});
+	});
+
+	it("keeps a batch's session-link restriction when only one case is selected", async () => {
+		const store = makeStore();
+		await seedSessionPatient(store);
+		const ordinary = followupOrdinary({ notes: "must not land" });
+		const error = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: { ...ordinary, selection: { kind: "multiple", maximum: 2 } },
+				operations: rootProgram([
+					envOp(
+						operation({
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(literal("Visit")),
+							links: [
+								{
+									identifier: "parent",
+									targetType: "patient",
+									target: { kind: "session" },
+									relationship: "child",
+								},
+							],
+						}),
+					),
+				]),
+			}),
+		);
+		expect(error.rejection).toMatchObject({
+			kind: "selection",
+			reason: "session-link-not-supported",
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.properties.notes).toBe(
+			"original",
+		);
+		expect(await store.query({ appId: APP_ID, caseType: "visit" })).toEqual([]);
+	});
+
 	it("every expression evaluates against pre-effect values", async () => {
 		const store = makeStore();
 		await seedSessionPatient(store, { notes: "original" });

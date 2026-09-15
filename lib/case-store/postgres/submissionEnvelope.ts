@@ -172,16 +172,17 @@ interface PhysicalInstance {
 /**
  * Expand authored `(order, uuid)` sequence over the physical scopes:
  * for each scope in wire document order, for each live iteration, the
- * form-level operations once and then each selected case's session-targeted
- * operations. Valid-by-construction ordering puts every form-level operation
- * before the selected-case phase; within each phase authored order is
- * preserved. The caller supplies scopes in wire order (root first, repeats in
+ * authored sequence for a single-case form, or the form-level operations once
+ * and then each selected case's session-targeted operations for a batch form.
+ * Batch admission puts form-level operations before the selected-case phase.
+ * The caller supplies scopes in wire order (root first, repeats in
  * post-order traversal); the executor trusts the ORDER but verifies the
  * structure so a malformed program fails loudly instead of silently dropping
  * operations.
  */
 function expandPhysicalInstances(
 	program: CaseOperationProgram,
+	ordinary: ApplySubmissionArgs["ordinary"],
 ): PhysicalInstance[] {
 	const seenScopes = new Set<string>();
 	for (const scope of program.scopes) {
@@ -200,6 +201,13 @@ function expandPhysicalInstances(
 	}
 
 	const instances: PhysicalInstance[] = [];
+	// The authored selection mode matters even when a batch selects one row.
+	// An operation-only envelope has no module selection contract; its explicit
+	// session list supplies the multiplicity instead.
+	const multiple =
+		ordinary.kind === "followup" || ordinary.kind === "close"
+			? ordinary.selection.kind === "multiple"
+			: (program.sessionCaseIds?.length ?? 0) > 1;
 	const selectedCases =
 		program.sessionCaseIds === undefined
 			? [{ selection: 0, caseId: undefined }]
@@ -219,6 +227,19 @@ function expandPhysicalInstances(
 			(entry) => entry.operation.target.kind === "session",
 		);
 		for (const [iteration, bindings] of scope.iterations.entries()) {
+			if (!multiple) {
+				for (const entry of scopeOperations) {
+					instances.push({
+						envelope: entry,
+						scopeRepeat: scope.repeat,
+						iteration,
+						selection: 0,
+						sessionCaseId: program.sessionCaseIds?.[0],
+						formFields: bindings.formFields,
+					});
+				}
+				continue;
+			}
 			for (const entry of formLevelOperations) {
 				instances.push({
 					envelope: entry,
@@ -838,7 +859,7 @@ async function resolveOperationProgram(
 	ordinary: ApplySubmissionArgs["ordinary"],
 	sessions: ReadonlyMap<string, SessionAnchor>,
 ): Promise<ResolvedInstance[]> {
-	const instances = expandPhysicalInstances(program);
+	const instances = expandPhysicalInstances(program, ordinary);
 	const allocations = allocateCreateIdentities(appId, program, instances);
 
 	// The pre-submission session anchor. Loaded first (and inside the
