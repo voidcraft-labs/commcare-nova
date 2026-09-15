@@ -22,6 +22,7 @@
  * `auth_`-prefixed via `modelName` in `lib/auth.ts`.
  */
 
+import { defaultKeyHasher } from "@better-auth/api-key";
 import { log } from "@/lib/logger";
 import { getAuthDb } from "../auth/db";
 
@@ -280,12 +281,12 @@ export async function countUserApiKeys(userId: string): Promise<number> {
  * through behavior.
  *
  * Throws on a database failure — the local catch in `handleApiKeyMcp`
- * translates the throw into a 401 (the same `"api key verify failed"`
- * reason as a verifier outage), so the wire posture is fail-closed: a
- * transient outage rejects rather than authenticates a possibly-banned
- * user. Server Actions wrap their own call in a parallel catch (see
- * `isAuthorizedSession` in `app/(app)/settings/api-key-actions.ts`)
- * for the same reason.
+ * answers 503 (`mcpUnavailableResponse`), so the wire posture is
+ * fail-closed: a transient outage rejects rather than authenticates a
+ * possibly-banned user, and rejects as an outage the client retries rather
+ * than as an invalid key it would discard. Server Actions wrap their own
+ * call in a parallel catch (see `isAuthorizedSession` in
+ * `app/(app)/settings/api-key-actions.ts`) for the same reason.
  */
 export async function isUserActive(userId: string): Promise<boolean> {
 	const db = await getAuthDb();
@@ -302,4 +303,30 @@ export async function isUserActive(userId: string): Promise<boolean> {
 	 * null) stays banned. */
 	if (!row.banExpires) return false;
 	return row.banExpires.getTime() < Date.now();
+}
+
+/**
+ * Whether a bearer's stored form exists in `auth_apikey`, whatever the row's
+ * state (disabled and expired rows count). The MCP route asks this only
+ * after `auth.api.verifyApiKey` answered `INVALID_API_KEY`, because the
+ * plugin gives that same answer for a lookup that never happened: its
+ * `verifyApiKey` catches any non-`APIError` thrown on the way to the row (a
+ * pool acquire timeout, a dropped connection) and substitutes
+ * `INVALID_API_KEY` for it (`node_modules/@better-auth/api-key/dist/
+ * index.mjs`, the catch around `validateApiKey`). A stored row behind that
+ * answer means the verify never read it, which is an outage, not a bad key.
+ *
+ * The match is on the plugin's own `defaultKeyHasher`, the form it stores
+ * under `storage: "database"` while `disableKeyHashing` is off (Nova's mount
+ * in `lib/auth.ts` never turns it on). Throws on a database failure, which
+ * the caller also reports as unavailable.
+ */
+export async function apiKeyRowExists(key: string): Promise<boolean> {
+	const db = await getAuthDb();
+	const row = await db
+		.selectFrom("auth_apikey")
+		.select("id")
+		.where("key", "=", await defaultKeyHasher(key))
+		.executeTakeFirst();
+	return row !== undefined;
 }

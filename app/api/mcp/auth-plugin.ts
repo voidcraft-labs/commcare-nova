@@ -35,6 +35,7 @@ import { HOSTNAMES, normalizeHost } from "@/lib/hostnames";
 import { log } from "@/lib/logger";
 import { handleApiKeyMcp } from "./api-key-auth";
 import { handleJwtMcp } from "./jwt-auth";
+import { mcpUnavailableResponse } from "./unavailable";
 
 /**
  * RFC 6750 §2.1 ("auth-scheme is case-insensitive"): accept
@@ -110,7 +111,8 @@ export const NOVA_MCP_PLUGIN_ID = "nova-mcp";
  * would otherwise propagate. Claude Code reads 500s as
  * "server down, do not retry" but reads 503s as "transient, retry
  * later," which is the right shape for an unexpected failure on an
- * auth route.
+ * auth route; `mcpUnavailableResponse` is the one 503 both inner paths
+ * return for an outage they detect themselves.
  */
 export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
 	const wireHost = readWireHost(req);
@@ -133,7 +135,7 @@ export async function dispatchMcpAuthRequest(req: Request): Promise<Response> {
 		return await handleJwtMcp(req);
 	} catch (err) {
 		log.error("[mcp] unhandled dispatcher error", err);
-		return new Response(null, { status: 503 });
+		return mcpUnavailableResponse();
 	}
 }
 

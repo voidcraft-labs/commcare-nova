@@ -33,8 +33,9 @@
  *      message id, and a kept partial would win the richer-version merge
  *      over the retry's growing fold.
  *
- * All writers are row-locked read-modify-writes (`withAppTx` +
- * `FOR UPDATE`), and the merge writers MERGE by message id
+ * All writers are row-locked read-modify-writes (`withAppTx`, the thread
+ * row `FOR UPDATE` behind its authority row held `FOR SHARE`; see
+ * `lockThreadTargetAuthority`), and the merge writers MERGE by message id
  * (`mergeTranscript`) rather than rewrite — a stale client or a late barrier
  * can add to a transcript, never erase it (`clawBackThreadResponse` is the
  * one deliberate, triple-guarded exception). The loaders reconcile markers
@@ -359,12 +360,27 @@ type LockedThreadAuthority =
  * Lock one thread target's authority row — the first lock of every thread
  * write (fixed order: authority row → thread row → media assets).
  *
- * App target: the app row `FOR UPDATE`, exactly as before. Design-session
- * target: the session's app mapping is resolved WITHOUT a held lock first —
- * a MATERIALIZED (or completed edit) session delegates authority to its
- * bound app, whose row is then the one locked (the mapping is write-once, so
- * the unlocked read cannot go stale in the direction that matters); an
- * active pre-app session locks its own row (§11.7's lock order).
+ * The authority row is held `FOR SHARE`, never `FOR UPDATE`: a thread writer
+ * PROVES the holder and never transitions it. Share strength still excludes
+ * every holder transition — a claim, release, settle, or reap UPDATEs the
+ * row, and an UPDATE waits behind a share lock — so the lease read here
+ * stands for the whole write. What share strength leaves alone is the
+ * row's other share-mode traffic during a run: the `FOR SHARE`
+ * authorization reads every request makes (`appAccess.ts`,
+ * `caseMutationAuthorization.ts`) and the `FOR KEY SHARE` a foreign-key
+ * check takes when `chat_stream_chunks` appends a row for a design-session
+ * target. A transcript write rewrites the whole `messages` column and holds
+ * its transaction for seconds on a long thread; an exclusive authority lock
+ * would park that traffic behind it, and each parked statement holds one of
+ * the instance's few pooled connections, so unrelated requests on the same
+ * instance fail on their acquire timeout.
+ *
+ * App target: the app row. Design-session target: the session's app mapping
+ * is resolved WITHOUT a held lock first — a MATERIALIZED (or completed edit)
+ * session delegates authority to its bound app, whose row is then the one
+ * locked (the mapping is write-once, so the unlocked read cannot go stale in
+ * the direction that matters); an active pre-app session locks its own row
+ * (§11.7's lock order).
  */
 async function lockThreadTargetAuthority(
 	tx: Transaction<AppDatabase>,
@@ -375,7 +391,7 @@ async function lockThreadTargetAuthority(
 			.selectFrom("apps")
 			.select([...LEASE_COLUMNS, "project_id"])
 			.where("id", "=", target.appId)
-			.forUpdate()
+			.forShare()
 			.executeTakeFirst();
 		if (!app) return null;
 		return {
@@ -395,14 +411,14 @@ async function lockThreadTargetAuthority(
 			.selectFrom("apps")
 			.select([...LEASE_COLUMNS, "project_id"])
 			.where("id", "=", mapping.app_id)
-			.forUpdate()
+			.forShare()
 			.executeTakeFirst();
 		if (!app) return null;
 		const session = await tx
 			.selectFrom("design_sessions")
 			.select("state")
 			.where("id", "=", target.designSessionId)
-			.forUpdate()
+			.forShare()
 			.executeTakeFirst();
 		if (!session || session.state === "retired") return null;
 		return {
@@ -415,7 +431,7 @@ async function lockThreadTargetAuthority(
 		.selectFrom("design_sessions")
 		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state"])
 		.where("id", "=", target.designSessionId)
-		.forUpdate()
+		.forShare()
 		.executeTakeFirst();
 	if (!session || session.state === "retired") return null;
 	return {

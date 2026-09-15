@@ -178,6 +178,33 @@ describe("api-key integration", () => {
 		expect(result.error?.code).toBe("INVALID_API_KEY");
 	});
 
+	it("apiKeyRowExists matches a minted key by the plugin's own stored hash and nothing else", async () => {
+		/* The MCP route asks this only after `verifyApiKey` said
+		 * INVALID_API_KEY, to tell a lookup miss from the plugin's collapsed
+		 * database error. The probe is only as good as its hash agreement
+		 * with the plugin: this is that agreement, against the real plugin's
+		 * real row. */
+		const { apiKeyRowExists } = await import("../api-keys");
+		await seedUser(auth);
+		const created = await auth.api.createApiKey({
+			body: { name: "probe key", userId: TEST_USER_ID },
+		});
+
+		expect(await apiKeyRowExists(created.key)).toBe(true);
+		expect(await apiKeyRowExists(`${created.key}x`)).toBe(false);
+		expect(
+			await apiKeyRowExists(`${NOVA_API_KEY_PREFIX}never-minted-key-value`),
+		).toBe(false);
+
+		/* The stored form is the hash, never the bearer. */
+		const stored = await authDb
+			.selectFrom("auth_apikey")
+			.select("key")
+			.where("id", "=", created.id)
+			.executeTakeFirstOrThrow();
+		expect(stored.key).not.toBe(created.key);
+	});
+
 	it("isUserActive returns true for an existing non-banned user, false for a banned user", async () => {
 		await seedUser(auth);
 		const { isUserActive } = await import("../api-keys");

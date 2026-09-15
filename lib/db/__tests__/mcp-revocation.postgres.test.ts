@@ -258,11 +258,14 @@ it("real signed JWTs enforce signature, issuer, audience, expiry, scopes and liv
 		"ALTER TABLE auth_oauth_consent RENAME TO hidden_oauth_consent",
 	);
 	try {
+		/* A consent read that fails is an outage, not a verdict on the token:
+		 * the request is still refused, but as a retryable 503 with no Bearer
+		 * challenge, so the client keeps a working grant instead of re-running
+		 * OAuth over a database blip. */
 		const unavailable = await call(token);
-		expect(unavailable.status).toBe(401);
-		expect(unavailable.headers.get("www-authenticate")).toContain(
-			"auth check failed",
-		);
+		expect(unavailable.status).toBe(503);
+		expect(unavailable.headers.get("www-authenticate")).toBeNull();
+		expect(unavailable.headers.get("retry-after")).toBe("5");
 	} finally {
 		await dbHandle.pool.query(
 			"ALTER TABLE hidden_oauth_consent RENAME TO auth_oauth_consent",

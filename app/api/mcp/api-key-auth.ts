@@ -15,10 +15,11 @@
 import { getAuth } from "@/lib/auth";
 import { NOVA_API_KEY_PREFIX, NOVA_MCP_FLOOR_SCOPES } from "@/lib/auth-public";
 import { callerIpFromHeaders } from "@/lib/callerIp";
-import { isUserActive } from "@/lib/db/api-keys";
+import { apiKeyRowExists, isUserActive } from "@/lib/db/api-keys";
 import { log } from "@/lib/logger";
 import type { ToolContext } from "@/lib/mcp/types";
 import { dispatchMcpTools } from "./dispatch";
+import { mcpUnavailableResponse } from "./unavailable";
 
 /**
  * Closed set of reasons mapped from the api-key plugin's error codes.
@@ -30,12 +31,16 @@ import { dispatchMcpTools } from "./dispatch";
  * `KEY_DISABLED`, etc.); `mapApiKeyErrorCode` translates them into
  * this vocabulary. New plugin error codes that we want to surface
  * differently get a new entry here, never a widening of the type.
+ * An outage is never a reason: every judgment about the key the route
+ * could NOT make (the verifier threw, the verifier could not read a
+ * stored key, the user-status read failed) answers
+ * `mcpUnavailableResponse` (503), so the client keeps its key and
+ * retries instead of discarding a working credential.
  */
 type ApiKeyUnauthorizedReason =
 	| "api key invalid"
 	| "api key expired"
 	| "api key disabled"
-	| "api key verify failed"
 	| "user disabled";
 
 /**
@@ -94,6 +99,13 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
  * difference is preserved on the server side via the `pluginCode`
  * field of the verify-failed `log.warn`.
  *
+ * `INVALID_API_KEY` is ALSO the code the plugin's `verifyApiKey`
+ * substitutes for any non-`APIError` thrown on the way to the row (a
+ * pool acquire timeout, a dropped connection): its catch logs the
+ * error and answers as if the hash missed. `handleApiKeyMcp` separates
+ * that reading BEFORE mapping, with `apiKeyRowExists`, so this mapper
+ * only ever sees a genuine miss.
+ *
  * `INSUFFICIENT_API_KEY_PERMISSIONS` is reserved by the plugin for
  * the org-keys path (`checkOrgApiKeyPermission`); not reachable on a
  * `references: "user"` mount.
@@ -147,31 +159,57 @@ const PREFIX_LOG_LENGTH = NOVA_API_KEY_PREFIX.length + 6;
  * `referenceId` (the userId for our `references: "user"` config) and
  * its decoded `permissions.scope`. The context shape matches the JWT
  * path 1:1 so downstream tools see no difference.
+ *
+ * An outage is a 503, never a 401. Three reads can fail without the
+ * key having been judged: the verifier throws; the verifier answers
+ * `INVALID_API_KEY` for a key whose row IS stored (its catch
+ * substitutes that code for a database error, so only the stored row
+ * tells a miss from an outage — `apiKeyRowExists`, asked only on that
+ * answer); the user-status read throws. Each rejects the request
+ * (fail-closed: nothing authenticates during an outage) with
+ * `mcpUnavailableResponse`, because a `401 invalid_token` would tell a
+ * client holding a working key to discard it and re-authenticate.
  */
 export async function handleApiKeyMcp(
 	req: Request,
 	key: string,
 ): Promise<Response> {
 	const auth = await getAuth();
+	const audit = () => ({
+		prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
+		ip: callerIpFromHeaders(req.headers),
+	});
 
 	let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
 	try {
 		result = await auth.api.verifyApiKey({ body: { key } });
 	} catch (err) {
-		log.warn("[mcp/api-key] verify threw", {
-			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
-			ip: callerIpFromHeaders(req.headers),
-			err: err instanceof Error ? err.message : String(err),
-		});
-		return apiKeyUnauthorizedResponse("api key verify failed");
+		log.error("[mcp/api-key] verify threw", err, audit());
+		return mcpUnavailableResponse();
 	}
 
 	if (!result.valid || !result.key) {
 		const code = result.error?.code ?? undefined;
+		if (code === "INVALID_API_KEY" || code === undefined) {
+			let stored: boolean;
+			try {
+				stored = await apiKeyRowExists(key);
+			} catch (err) {
+				log.error("[mcp/api-key] key lookup unavailable", err, audit());
+				return mcpUnavailableResponse();
+			}
+			if (stored) {
+				log.error(
+					"[mcp/api-key] verify could not read a stored key",
+					undefined,
+					{ ...audit(), pluginCode: code ?? "unknown" },
+				);
+				return mcpUnavailableResponse();
+			}
+		}
 		const reason = mapApiKeyErrorCode(code);
 		log.warn("[mcp/api-key] verify failed", {
-			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
-			ip: callerIpFromHeaders(req.headers),
+			...audit(),
 			reason,
 			pluginCode: code ?? "unknown",
 		});
@@ -208,7 +246,7 @@ export async function handleApiKeyMcp(
 		if (!scopes.includes(required)) {
 			log.warn("[mcp/api-key] missing floor scope", {
 				keyId: verifiedKey.id,
-				ip: callerIpFromHeaders(req.headers),
+				ip: audit().ip,
 				missing: required,
 				granted: scopes,
 			});
@@ -222,9 +260,10 @@ export async function handleApiKeyMcp(
 	 * The JWT path runs this SAME `isUserActive` gate (alongside its
 	 * access-token TTL + `hasActiveConsent`), so revocation is universal
 	 * across both MCP bearers; this read is its equivalent. The local catch
-	 * translates a database outage into 401, matching the verifier-throw
-	 * branch: fail-closed posture: a transient outage rejects rather than
-	 * authenticates a possibly-banned user. */
+	 * answers a database outage with 503, matching the verifier-throw
+	 * branch: fail-closed, a transient outage rejects rather than
+	 * authenticates a possibly-banned user, and as an outage the client
+	 * retries rather than a bad key it discards. */
 	let active: boolean;
 	try {
 		active = await isUserActive(userId);
@@ -232,17 +271,15 @@ export async function handleApiKeyMcp(
 		log.error("[mcp/api-key] user-status lookup failed", err, {
 			keyId: verifiedKey.id,
 			userId,
-			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
-			ip: callerIpFromHeaders(req.headers),
+			...audit(),
 		});
-		return apiKeyUnauthorizedResponse("api key verify failed");
+		return mcpUnavailableResponse();
 	}
 	if (!active) {
 		log.warn("[mcp/api-key] user disabled or deleted", {
 			keyId: verifiedKey.id,
 			userId,
-			prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
-			ip: callerIpFromHeaders(req.headers),
+			...audit(),
 		});
 		return apiKeyUnauthorizedResponse("user disabled");
 	}

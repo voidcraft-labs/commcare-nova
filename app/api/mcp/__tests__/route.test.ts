@@ -25,6 +25,7 @@ const registerNovaToolsMock = vi.fn(
 	},
 );
 const isUserActiveMock = vi.fn(async (_userId: string) => true);
+const apiKeyRowExistsMock = vi.fn(async (_key: string) => false);
 
 /** Bypass JWT verification: invoke the inner handler with synthetic claims. */
 vi.mock("@better-auth/mcp", () => ({
@@ -60,12 +61,14 @@ vi.mock("@/lib/mcp/server", () => ({
 }));
 
 /**
- * `isUserActive` is mocked separately from the `verifyApiKey` boundary
- * so tests can drive the banned/deleted-user branch of the API-key
+ * `isUserActive` and `apiKeyRowExists` are mocked separately from the
+ * `verifyApiKey` boundary so tests can drive the banned/deleted-user
+ * branch and the outage-behind-INVALID_API_KEY branch of the API-key
  * path without faking out the whole `lib/db/api-keys` surface.
  */
 vi.mock("@/lib/db/api-keys", () => ({
 	isUserActive: isUserActiveMock,
+	apiKeyRowExists: apiKeyRowExistsMock,
 }));
 
 /**
@@ -85,6 +88,8 @@ beforeEach(() => {
 	registerNovaToolsMock.mockClear();
 	isUserActiveMock.mockReset();
 	isUserActiveMock.mockResolvedValue(true);
+	apiKeyRowExistsMock.mockReset();
+	apiKeyRowExistsMock.mockResolvedValue(false);
 });
 
 /* ── Helpers ────────────────────────────────────────────────────── */
@@ -308,15 +313,17 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
-	it("fails closed with 401 'api key verify failed' when the user-status lookup throws", async () => {
-		/* The route wraps `isUserActive` in try/catch and converts a
-		 * DB failure into a 401, deliberately rejecting rather
-		 * than authenticating during a transient outage. A regression
-		 * that drops the catch (or wraps the call in a helper that
-		 * swallows the throw) would silently invert that posture and
-		 * authenticate any verified-key holder while the DB is
-		 * unreachable, including banned users. This test pins the
-		 * fail-closed contract. */
+	it("fails closed with 503 (no Bearer challenge) when the user-status lookup throws", async () => {
+		/* The route wraps `isUserActive` in try/catch and converts a DB
+		 * failure into a 503, deliberately rejecting rather than
+		 * authenticating during a transient outage, and rejecting as an
+		 * outage rather than as `invalid_token`, which would tell a client
+		 * holding a working key to discard it. A regression that drops the
+		 * catch (or wraps the call in a helper that swallows the throw)
+		 * would silently invert the fail-closed posture and authenticate
+		 * any verified-key holder while the DB is unreachable, including
+		 * banned users; one that reverts to 401 would make every outage
+		 * read as a revoked key. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: true,
 			error: null,
@@ -329,10 +336,9 @@ describe("POST /api/mcp (API-key path)", () => {
 		isUserActiveMock.mockRejectedValue(new Error("db unavailable"));
 		const res = await dispatch(buildRequest("Bearer sk-nova-v1-fsdown"));
 
-		expect(res.status).toBe(401);
-		expect(res.headers.get("WWW-Authenticate")).toContain(
-			'error_description="api key verify failed"',
-		);
+		expect(res.status).toBe(503);
+		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(res.headers.get("Retry-After")).toBe("5");
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
@@ -359,6 +365,67 @@ describe("POST /api/mcp (API-key path)", () => {
 		/* No OAuth fallback hint on this branch: the client explicitly
 		 * sent an API key; pointing them at OAuth metadata would mislead. */
 		expect(wwwAuth).not.toContain("resource_metadata");
+		/* The miss was confirmed against the stored rows with the exact
+		 * bearer, because the plugin answers INVALID_API_KEY for an outage
+		 * too (the two tests that follow). */
+		expect(apiKeyRowExistsMock).toHaveBeenCalledWith("sk-nova-v1-doesnotexist");
+	});
+
+	it("answers 503 on INVALID_API_KEY when the bearer's row IS stored (the plugin's collapsed database error)", async () => {
+		/* The plugin's `verifyApiKey` catches any non-APIError thrown on
+		 * the way to the row — a pool acquire timeout in production — and
+		 * returns `INVALID_API_KEY` as if the hash had missed. A stored row
+		 * behind that answer proves the verify never read it. Pinning 503
+		 * here is what keeps a database outage from telling every API-key
+		 * client its key was revoked. */
+		verifyApiKeyMock.mockResolvedValue({
+			valid: false,
+			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
+			key: null,
+		});
+		apiKeyRowExistsMock.mockResolvedValue(true);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-storedKey1"));
+
+		expect(res.status).toBe(503);
+		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(res.headers.get("Retry-After")).toBe("5");
+		expect(registerNovaToolsMock).not.toHaveBeenCalled();
+	});
+
+	it("answers 503 on INVALID_API_KEY when the stored-row check itself fails", async () => {
+		/* Under a sustained outage the confirming read fails the same way
+		 * the verify did; the answer stays 503, never a 401 that would
+		 * discard the key. */
+		verifyApiKeyMock.mockResolvedValue({
+			valid: false,
+			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
+			key: null,
+		});
+		apiKeyRowExistsMock.mockRejectedValue(
+			new Error("timeout exceeded when trying to connect"),
+		);
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-poolDown1"));
+
+		expect(res.status).toBe(503);
+		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(registerNovaToolsMock).not.toHaveBeenCalled();
+	});
+
+	it("does not consult the stored rows for a plugin verdict that names the key's own state", async () => {
+		/* KEY_DISABLED / KEY_EXPIRED come from a row the plugin DID read;
+		 * no second read is owed, and the 401 reason stays specific. */
+		verifyApiKeyMock.mockResolvedValue({
+			valid: false,
+			error: { code: "KEY_DISABLED", message: "API Key is disabled" },
+			key: null,
+		});
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-disabled1"));
+
+		expect(res.status).toBe(401);
+		expect(res.headers.get("WWW-Authenticate")).toContain(
+			'error_description="api key disabled"',
+		);
+		expect(apiKeyRowExistsMock).not.toHaveBeenCalled();
 	});
 
 	it("also maps KEY_NOT_FOUND to 'api key invalid' (plugin's internal scope-mismatch / no-permissions code path)", async () => {
@@ -456,14 +523,14 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(callArg.body.permissions).toBeUndefined();
 	});
 
-	it("returns 401 'api key verify failed' when the plugin verify throws", async () => {
+	it("returns 503 (no Bearer challenge) when the plugin verify throws", async () => {
 		verifyApiKeyMock.mockRejectedValue(new Error("downstream blew up"));
 		const res = await dispatch(buildRequest("Bearer sk-nova-v1-broken"));
 
-		expect(res.status).toBe(401);
-		expect(res.headers.get("WWW-Authenticate")).toContain(
-			'error_description="api key verify failed"',
-		);
+		expect(res.status).toBe(503);
+		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(res.headers.get("Retry-After")).toBe("5");
+		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
 	it("rejects a valid response with no referenceId as 'api key invalid'", async () => {
