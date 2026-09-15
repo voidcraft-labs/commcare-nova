@@ -121,7 +121,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 			"lib/agent/authoring/experimental/native.ts",
 			"lib/agent/authoring/experimental/normalize.ts",
 			"lib/agent/authoring/experimental/schemas.ts",
-			"lib/agent/authoring/experimental/values.ts",
+			"lib/agent/authoring/text.ts",
 			"lib/doc/expressionText.ts",
 			"lib/commcare/xpath/expressionAst.ts",
 		];

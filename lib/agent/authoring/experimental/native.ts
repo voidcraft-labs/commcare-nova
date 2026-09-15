@@ -16,13 +16,13 @@ import {
 	proseTemplateSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
+import { expressionSchema, printAuthoringText, textSchema } from "../text";
 import { normalizePilotInput } from "./normalize";
 import {
 	PILOT_DESCRIPTIONS,
 	type PilotOperation,
 	pilotSchemas,
 } from "./schemas";
-import { expressionSchema, printAuthoringText, textSchema } from "./values";
 
 const toolNames: Record<Exclude<PilotOperation, "inspect">, string> = {
 	declareRecords: "generateSchema",

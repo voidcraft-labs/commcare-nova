@@ -6,9 +6,9 @@ import {
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import { parseAuthoredXPath } from "@/lib/doc/expressionText";
 import { asUuid, fieldPathResolver, proseTemplateSchema } from "@/lib/domain";
+import { normalizeText, printAuthoringText } from "../../text";
 import { deduplicatePilotCalls } from "../comparison";
 import { executePilotOperation, nativePilotTools } from "../native";
-import { normalizeText, printAuthoringText } from "../values";
 
 const clientMenu = {
 	name: "Clients",

@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are ready for review. Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.63. Slice 2 must cover the full authoring surface before production switches. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.63. Slice 2 must cover the full authoring surface before production switches. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -105,6 +105,15 @@ worse, redesign them before expanding their coverage. Avoid building a large
 evaluation platform before the first useful comparison.
 
 **Slice 2: ship the shared authoring boundary.**
+
+Delivery is split into a codec foundation and the production interface. The
+foundation provides text, message, query-expression and schema codecs, plus
+scoped name binding. It is internal until the production mount supplies complete
+call scopes, read projections, and current guidance across the supported tools.
+Its projected schemas contain no storage expression `parts` across the 93 shared
+tools, but still total about 87,000 locally estimated tokens; neither that count
+nor the projection alone completes this slice. Tool design, discovery, compact
+results, and the full production integration remain required.
 
 Expand the selected interface to the current supported authoring capabilities.
 Use a coverage inventory to prevent accidental omissions, while keeping worker

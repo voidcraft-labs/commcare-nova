@@ -8,7 +8,7 @@ import {
 	normalizeExpression,
 	normalizeText,
 	textSchema,
-} from "./values";
+} from "../text";
 
 type Input = Record<string, unknown>;
 interface NamedField {
