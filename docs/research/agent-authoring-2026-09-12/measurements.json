@@ -1,0 +1,749 @@
+[
+	{
+		"role": "solutions-architect",
+		"moment": "next-turn",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 75375,
+					"tokens": 16934
+				},
+				"segments": [
+					{
+						"title": "Core: identity, voice, and the XPath quick reference",
+						"chars": 14798,
+						"tokens": 3585
+					},
+					{
+						"title": "Editing mode",
+						"chars": 1535,
+						"tokens": 318
+					},
+					{
+						"title": "Authoring rules and batch discipline",
+						"chars": 5109,
+						"tokens": 995
+					},
+					{
+						"title": "Shared tail: input contract, field kinds, expressions, architecture, media, languages, Connect, error recovery",
+						"chars": 53912,
+						"tokens": 12033
+					}
+				]
+			},
+			{
+				"kind": "tools",
+				"label": "Tool definitions",
+				"weight": {
+					"chars": 512742,
+					"tokens": 148191
+				},
+				"count": 94,
+				"largest": [
+					{
+						"name": "createModule",
+						"chars": 47377,
+						"tokens": 13816
+					},
+					{
+						"name": "addAutomations",
+						"chars": 35708,
+						"tokens": 9730
+					},
+					{
+						"name": "configureCaseList",
+						"chars": 34992,
+						"tokens": 9681
+					},
+					{
+						"name": "updateAutomation",
+						"chars": 34525,
+						"tokens": 9456
+					},
+					{
+						"name": "createForm",
+						"chars": 31457,
+						"tokens": 9160
+					},
+					{
+						"name": "addFields",
+						"chars": 28958,
+						"tokens": 8671
+					},
+					{
+						"name": "editField",
+						"chars": 28304,
+						"tokens": 8377
+					},
+					{
+						"name": "updateModule",
+						"chars": 17372,
+						"tokens": 4996
+					},
+					{
+						"name": "addCaseListColumns",
+						"chars": 16208,
+						"tokens": 4697
+					},
+					{
+						"name": "addSearchInputs",
+						"chars": 14256,
+						"tokens": 4174
+					},
+					{
+						"name": "generateSchema",
+						"chars": 13405,
+						"tokens": 3765
+					},
+					{
+						"name": "updateSearchInput",
+						"chars": 12481,
+						"tokens": 3577
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Thread history",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "missing",
+				"label": "App state snapshot",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 588117,
+				"tokens": 165125
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "design-author",
+		"moment": "first-step",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 44781,
+					"tokens": 8638
+				},
+				"segments": [
+					{
+						"title": "Design agent instructions",
+						"chars": 23157,
+						"tokens": 4273
+					},
+					{
+						"title": "Capability catalog",
+						"chars": 13647,
+						"tokens": 2801
+					},
+					{
+						"title": "Citable platform constraints",
+						"chars": 7973,
+						"tokens": 1564
+					}
+				]
+			},
+			{
+				"kind": "tools",
+				"label": "Tool definitions",
+				"weight": {
+					"chars": 91414,
+					"tokens": 27812
+				},
+				"count": 22,
+				"largest": [
+					{
+						"name": "updateLookupTables",
+						"chars": 27884,
+						"tokens": 8687
+					},
+					{
+						"name": "updateWorkflows",
+						"chars": 11567,
+						"tokens": 3552
+					},
+					{
+						"name": "updateFormCompositions",
+						"chars": 10546,
+						"tokens": 3257
+					},
+					{
+						"name": "updateModuleCompositions",
+						"chars": 6448,
+						"tokens": 1978
+					},
+					{
+						"name": "updateRecords",
+						"chars": 6030,
+						"tokens": 1825
+					},
+					{
+						"name": "updateLists",
+						"chars": 3048,
+						"tokens": 1034
+					},
+					{
+						"name": "setDesignRoot",
+						"chars": 3529,
+						"tokens": 983
+					},
+					{
+						"name": "updateNavigation",
+						"chars": 2585,
+						"tokens": 877
+					},
+					{
+						"name": "updateAccess",
+						"chars": 2195,
+						"tokens": 695
+					},
+					{
+						"name": "inspectDesign",
+						"chars": 2598,
+						"tokens": 671
+					},
+					{
+						"name": "updateExternalRequirements",
+						"chars": 1807,
+						"tokens": 540
+					},
+					{
+						"name": "updateOpenQuestions",
+						"chars": 1574,
+						"tokens": 494
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Seed: the projected thread",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "missing",
+				"label": "Design session state packet",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 136195,
+				"tokens": 36450
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "design-reviewer",
+		"moment": "review",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 12437,
+					"tokens": 2279
+				},
+				"segments": [
+					{
+						"title": "Reviewer instructions",
+						"chars": 12437,
+						"tokens": 2279
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Review prompt",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "missing",
+				"label": "Output schema",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 12437,
+				"tokens": 2279
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "build-executor",
+		"moment": "slice-start",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 28997,
+					"tokens": 6277
+				},
+				"segments": [
+					{
+						"title": "Identity: a compiler worker",
+						"chars": 671,
+						"tokens": 145
+					},
+					{
+						"title": "Native calls and ordered responses",
+						"chars": 1189,
+						"tokens": 214
+					},
+					{
+						"title": "Where the work goes: the private change set",
+						"chars": 1280,
+						"tokens": 258
+					},
+					{
+						"title": "Handles for entities that do not exist yet",
+						"chars": 2158,
+						"tokens": 454
+					},
+					{
+						"title": "How to work",
+						"chars": 12704,
+						"tokens": 2495
+					},
+					{
+						"title": "Reading results",
+						"chars": 1502,
+						"tokens": 301
+					},
+					{
+						"title": "Tool inputs",
+						"chars": 839,
+						"tokens": 202
+					},
+					{
+						"title": "Field kinds",
+						"chars": 4107,
+						"tokens": 918
+					},
+					{
+						"title": "Filters and expressions",
+						"chars": 4491,
+						"tokens": 1282
+					}
+				]
+			},
+			{
+				"kind": "tools",
+				"label": "Tool definitions",
+				"weight": {
+					"chars": 642727,
+					"tokens": 176393
+				},
+				"count": 84,
+				"largest": [
+					{
+						"name": "createModule",
+						"chars": 61451,
+						"tokens": 17041
+					},
+					{
+						"name": "createForm",
+						"chars": 43749,
+						"tokens": 12204
+					},
+					{
+						"name": "addFields",
+						"chars": 42009,
+						"tokens": 11935
+					},
+					{
+						"name": "editField",
+						"chars": 40481,
+						"tokens": 11453
+					},
+					{
+						"name": "addAutomations",
+						"chars": 42098,
+						"tokens": 10447
+					},
+					{
+						"name": "configureCaseList",
+						"chars": 39443,
+						"tokens": 10438
+					},
+					{
+						"name": "updateAutomation",
+						"chars": 40869,
+						"tokens": 10234
+					},
+					{
+						"name": "updateModule",
+						"chars": 19344,
+						"tokens": 5259
+					},
+					{
+						"name": "addCaseListColumns",
+						"chars": 18180,
+						"tokens": 4960
+					},
+					{
+						"name": "generateSchema",
+						"chars": 17853,
+						"tokens": 4869
+					},
+					{
+						"name": "addSearchInputs",
+						"chars": 17291,
+						"tokens": 4807
+					},
+					{
+						"name": "addCaseOperations",
+						"chars": 15855,
+						"tokens": 4629
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Accepted execution brief",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "missing",
+				"label": "Private Blueprint checkpoint",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "missing",
+				"label": "Slice focus and inventory",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 671724,
+				"tokens": 182670
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "executor-helper",
+		"moment": "decision",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 1130,
+					"tokens": 195
+				},
+				"segments": [
+					{
+						"title": "Architect instructions",
+						"chars": 1130,
+						"tokens": 195
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Blocker prompt",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "output-schema",
+				"label": "Output schema",
+				"weight": {
+					"chars": 1118,
+					"tokens": 270
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 2248,
+				"tokens": 465
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "document-extractor",
+		"moment": "text-document",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 26634,
+					"tokens": 5672
+				},
+				"segments": [
+					{
+						"title": "Extractor instructions",
+						"chars": 26634,
+						"tokens": 5672
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Metadata and body",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "output-schema",
+				"label": "Output schema",
+				"weight": {
+					"chars": 1551,
+					"tokens": 314
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 28185,
+				"tokens": 5986
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "translator",
+		"moment": "batch",
+		"items": [
+			{
+				"kind": "system",
+				"label": "System prompt",
+				"weight": {
+					"chars": 1006,
+					"tokens": 196
+				},
+				"segments": [
+					{
+						"title": "Translator instructions",
+						"chars": 1006,
+						"tokens": 196
+					}
+				]
+			},
+			{
+				"kind": "missing",
+				"label": "Batch payload",
+				"weight": {
+					"chars": 0,
+					"tokens": 0
+				}
+			},
+			{
+				"kind": "output-schema",
+				"label": "Output schema",
+				"weight": {
+					"chars": 508,
+					"tokens": 111
+				}
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 1514,
+				"tokens": 307
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	},
+	{
+		"role": "mcp-boot",
+		"moment": "build-interactive",
+		"items": [
+			{
+				"kind": "system",
+				"label": "Boot prompt",
+				"weight": {
+					"chars": 85590,
+					"tokens": 19003
+				},
+				"segments": [
+					{
+						"title": "Core: identity, voice, and the XPath quick reference",
+						"chars": 14798,
+						"tokens": 3585
+					},
+					{
+						"title": "Initial interaction (MCP build only)",
+						"chars": 2023,
+						"tokens": 392
+					},
+					{
+						"title": "Initial build method (MCP build only)",
+						"chars": 9295,
+						"tokens": 1901
+					},
+					{
+						"title": "Authoring rules and batch discipline",
+						"chars": 5109,
+						"tokens": 995
+					},
+					{
+						"title": "Shared tail: input contract, field kinds, expressions, architecture, media, languages, Connect, error recovery",
+						"chars": 53912,
+						"tokens": 12033
+					},
+					{
+						"title": "Interaction mode",
+						"chars": 406,
+						"tokens": 87
+					},
+					{
+						"title": "Delivery marker",
+						"chars": 15,
+						"tokens": 6
+					}
+				]
+			},
+			{
+				"kind": "tools",
+				"label": "Tool definitions",
+				"weight": {
+					"chars": 739712,
+					"tokens": 206617
+				},
+				"count": 115,
+				"largest": [
+					{
+						"name": "create_module",
+						"chars": 59091,
+						"tokens": 16788
+					},
+					{
+						"name": "create_form",
+						"chars": 45315,
+						"tokens": 12986
+					},
+					{
+						"name": "add_fields",
+						"chars": 42816,
+						"tokens": 12498
+					},
+					{
+						"name": "edit_field",
+						"chars": 42162,
+						"tokens": 12204
+					},
+					{
+						"name": "configure_case_list",
+						"chars": 41260,
+						"tokens": 11269
+					},
+					{
+						"name": "add_automations",
+						"chars": 35802,
+						"tokens": 9754
+					},
+					{
+						"name": "update_automation",
+						"chars": 34619,
+						"tokens": 9480
+					},
+					{
+						"name": "update_module",
+						"chars": 29086,
+						"tokens": 7967
+					},
+					{
+						"name": "add_case_list_columns",
+						"chars": 28608,
+						"tokens": 7858
+					},
+					{
+						"name": "update_form",
+						"chars": 26508,
+						"tokens": 7350
+					},
+					{
+						"name": "add_search_inputs",
+						"chars": 25708,
+						"tokens": 7080
+					},
+					{
+						"name": "add_case_operations",
+						"chars": 23087,
+						"tokens": 6515
+					}
+				]
+			}
+		],
+		"bands": {
+			"static": {
+				"chars": 825302,
+				"tokens": 225620
+			},
+			"variable": {
+				"chars": 0,
+				"tokens": 0
+			}
+		}
+	}
+]

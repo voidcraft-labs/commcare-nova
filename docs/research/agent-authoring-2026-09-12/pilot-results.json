@@ -1,0 +1,522 @@
+{
+	"date": "2026-09-12 America/Los_Angeles",
+	"baselineCommit": "558e7069e7418108ea1248d9ae152869614d8251",
+	"selectedDirection": "native tools with authored strings and server-side identity binding",
+	"estimatedTotalSpentUsd": 0.6251582499999995,
+	"completedRequests": 72,
+	"trials": [
+		{
+			"trial": "native-pilot-1",
+			"variant": "native",
+			"recordedInterfaceVersion": "authoring-pilot-v2",
+			"task": "creation",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 9,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 4069,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 5350,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 58793,
+				"inputTokenDetails": {
+					"noCacheTokens": 27,
+					"cacheReadTokens": 49255,
+					"cacheWriteTokens": 9511
+				},
+				"outputTokens": 3209,
+				"outputTokenDetails": {
+					"textTokens": 1097,
+					"reasoningTokens": 2112
+				},
+				"totalTokens": 62002
+			},
+			"conservativeEstimatedUsd": 0.01951175,
+			"observation": "Built after correcting a record-name/record-validation mismatch. Search was not exposed by this interface."
+		},
+		{
+			"trial": "ptc-pilot-1",
+			"variant": "programmatic",
+			"recordedInterfaceVersion": "authoring-pilot-v3",
+			"task": "creation",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 12,
+			"finishReason": "tool-calls",
+			"finalReply": false,
+			"firstStepReportedInputTokens": 4378,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 4754,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 88918,
+				"inputTokenDetails": {
+					"noCacheTokens": 33,
+					"cacheReadTokens": 78404,
+					"cacheWriteTokens": 10481
+				},
+				"outputTokens": 5391,
+				"outputTokenDetails": {
+					"textTokens": 1675,
+					"reasoningTokens": 3716
+				},
+				"totalTokens": 94309
+			},
+			"conservativeEstimatedUsd": 0.030316000000000003,
+			"observation": "Built but reached the step limit without a final reply. Search was not exposed; follow-up phone was unnecessarily required."
+		},
+		{
+			"trial": "native-pilot-2",
+			"variant": "native",
+			"recordedInterfaceVersion": "authoring-pilot-v3",
+			"task": "creation",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 8,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 3531,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 4590,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 46219,
+				"inputTokenDetails": {
+					"noCacheTokens": 24,
+					"cacheReadTokens": 36907,
+					"cacheWriteTokens": 9288
+				},
+				"outputTokens": 4056,
+				"outputTokenDetails": {
+					"textTokens": 1412,
+					"reasoningTokens": 2644
+				},
+				"totalTokens": 50275
+			},
+			"conservativeEstimatedUsd": 0.01763875,
+			"observation": "Built after a retry for a capture-only caseWrite mode. Search was not exposed."
+		},
+		{
+			"trial": "current-pilot-1",
+			"variant": "current",
+			"recordedInterfaceVersion": "authoring-pilot-v3",
+			"task": "creation",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 5,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 200859,
+			"localEstimates": {
+				"prompt": 16934,
+				"tools": 148099,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 1022016,
+				"inputTokenDetails": {
+					"noCacheTokens": 15,
+					"cacheReadTokens": 814814,
+					"cacheWriteTokens": 207187
+				},
+				"outputTokens": 6628,
+				"outputTokenDetails": {
+					"textTokens": 2504,
+					"reasoningTokens": 4124
+				},
+				"totalTokens": 1028644
+			},
+			"conservativeEstimatedUsd": 0.265446,
+			"observation": "Built after a create retry and included real name Search. A menu-media attempt was outside the fixture resource scope."
+		},
+		{
+			"trial": "native-repair-1",
+			"variant": "native",
+			"recordedInterfaceVersion": "authoring-pilot-v3",
+			"task": "repair",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 12,
+			"finishReason": "tool-calls",
+			"finalReply": false,
+			"firstStepReportedInputTokens": 3707,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 4901,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 108848,
+				"inputTokenDetails": {
+					"noCacheTokens": 36,
+					"cacheReadTokens": 95361,
+					"cacheWriteTokens": 13451
+				},
+				"outputTokens": 8128,
+				"outputTokenDetails": {
+					"textTokens": 1231,
+					"reasoningTokens": 6897
+				},
+				"totalTokens": 116976
+			},
+			"conservativeEstimatedUsd": 0.039404,
+			"observation": "Reached the limit. Same-call rename binding and selected-case references were missing in the pilot boundary; repeated repairs failed."
+		},
+		{
+			"trial": "native-pilot-3",
+			"variant": "native",
+			"recordedInterfaceVersion": "authoring-pilot-v5",
+			"task": "creation",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 8,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 3760,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 4961,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 48935,
+				"inputTokenDetails": {
+					"noCacheTokens": 24,
+					"cacheReadTokens": 40495,
+					"cacheWriteTokens": 8416
+				},
+				"outputTokens": 3975,
+				"outputTokenDetails": {
+					"textTokens": 1331,
+					"reasoningTokens": 2644
+				},
+				"totalTokens": 52910
+			},
+			"conservativeEstimatedUsd": 0.01819625,
+			"observation": "Built with Search after correcting one Results column kind."
+		},
+		{
+			"trial": "native-repair-2",
+			"variant": "native",
+			"recordedInterfaceVersion": "authoring-pilot-v5",
+			"task": "repair",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 5,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 3767,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 4961,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 27999,
+				"inputTokenDetails": {
+					"noCacheTokens": 15,
+					"cacheReadTokens": 23470,
+					"cacheWriteTokens": 4514
+				},
+				"outputTokens": 1834,
+				"outputTokenDetails": {
+					"textTokens": 710,
+					"reasoningTokens": 1124
+				},
+				"totalTokens": 29833
+			},
+			"conservativeEstimatedUsd": 0.00975075,
+			"observation": "Completed the clarified repair. All four edits committed without rejections; runtime and archive observations passed.",
+			"runtime": {
+				"registration": [
+					{
+						"age": -1,
+						"canSubmit": false,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 0,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 17,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 18,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 120,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 121,
+						"canSubmit": false,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					}
+				],
+				"resolvedNote": "Thank you, **Ada Example**, for providing your information.",
+				"followup": [
+					{
+						"age": 17,
+						"phoneVisible": false,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": []
+					},
+					{
+						"age": 18,
+						"phoneVisible": true,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": ["phone"]
+					}
+				]
+			},
+			"artifacts": {
+				"originalSurveyUnchanged": true,
+				"xmlDocumentsParsed": 6,
+				"ageIdentityAndRequirednessPreserved": true,
+				"ageConstraintPresent": true,
+				"registrationPhoneUsesRenamedAge": true,
+				"followupUsesSelectedCaseAge": true,
+				"boundary": "Independent ZIP/XML parse and structural assertions; behavioral bounds proved separately by Preview scenarios."
+			}
+		},
+		{
+			"trial": "current-repair-1",
+			"variant": "current",
+			"recordedInterfaceVersion": "authoring-pilot-v5",
+			"task": "repair",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 4,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 201606,
+			"localEstimates": {
+				"prompt": 16934,
+				"tools": 148099,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 814939,
+				"inputTokenDetails": {
+					"noCacheTokens": 12,
+					"cacheReadTokens": 810681,
+					"cacheWriteTokens": 4246
+				},
+				"outputTokens": 1750,
+				"outputTokenDetails": {
+					"textTokens": 734,
+					"reasoningTokens": 1016
+				},
+				"totalTokens": 816689
+			},
+			"conservativeEstimatedUsd": 0.20635975,
+			"observation": "Completed the clarified repair. Runtime and archive observations passed.",
+			"runtime": {
+				"registration": [
+					{
+						"age": -1,
+						"canSubmit": false,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 0,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 17,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 18,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 120,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 121,
+						"canSubmit": false,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					}
+				],
+				"resolvedNote": "Thank you, Ada Example.",
+				"followup": [
+					{
+						"age": 17,
+						"phoneVisible": false,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": []
+					},
+					{
+						"age": 18,
+						"phoneVisible": true,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": ["phone_number"]
+					}
+				]
+			},
+			"artifacts": {
+				"originalSurveyUnchanged": true,
+				"xmlDocumentsParsed": 6,
+				"ageIdentityAndRequirednessPreserved": true,
+				"ageConstraintPresent": true,
+				"registrationPhoneUsesRenamedAge": true,
+				"followupUsesSelectedCaseAge": true,
+				"boundary": "Independent ZIP/XML parse and structural assertions; behavioral bounds proved separately by Preview scenarios."
+			}
+		},
+		{
+			"trial": "ptc-repair-1",
+			"variant": "programmatic",
+			"recordedInterfaceVersion": "authoring-pilot-v5",
+			"task": "repair",
+			"model": "gpt-5.6-luna",
+			"effort": "xhigh",
+			"steps": 9,
+			"finishReason": "stop",
+			"finalReply": true,
+			"firstStepReportedInputTokens": 4592,
+			"localEstimates": {
+				"prompt": 115,
+				"tools": 5087,
+				"kind": "local-estimate"
+			},
+			"reportedUsage": {
+				"inputTokens": 60598,
+				"inputTokenDetails": {
+					"noCacheTokens": 27,
+					"cacheReadTokens": 50375,
+					"cacheWriteTokens": 10196
+				},
+				"outputTokens": 2257,
+				"outputTokenDetails": {
+					"textTokens": 818,
+					"reasoningTokens": 1439
+				},
+				"totalTokens": 62855
+			},
+			"conservativeEstimatedUsd": 0.018535,
+			"observation": "Completed the clarified repair. Runtime and archive observations passed.",
+			"runtime": {
+				"registration": [
+					{
+						"age": -1,
+						"canSubmit": false,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 0,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 17,
+						"canSubmit": true,
+						"phoneVisible": false,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 18,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 120,
+						"canSubmit": true,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					},
+					{
+						"age": 121,
+						"canSubmit": false,
+						"phoneVisible": true,
+						"ageRequired": true,
+						"nameRequired": true
+					}
+				],
+				"resolvedNote": "Thank you, Ada Example, for sharing this information.",
+				"followup": [
+					{
+						"age": 17,
+						"phoneVisible": false,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": []
+					},
+					{
+						"age": 18,
+						"phoneVisible": true,
+						"phoneRequired": false,
+						"canSubmitWithBlankPhone": true,
+						"writtenProperties": ["phone"]
+					}
+				]
+			},
+			"artifacts": {
+				"originalSurveyUnchanged": true,
+				"xmlDocumentsParsed": 6,
+				"ageIdentityAndRequirednessPreserved": true,
+				"ageConstraintPresent": true,
+				"registrationPhoneUsesRenamedAge": true,
+				"followupUsesSelectedCaseAge": true,
+				"boundary": "Independent ZIP/XML parse and structural assertions; behavioral bounds proved separately by Preview scenarios."
+			}
+		}
+	]
+}

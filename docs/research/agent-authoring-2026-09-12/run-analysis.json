@@ -1,0 +1,312 @@
+[
+	{
+		"id": "61ac1281-e793-4661-a6f9-2b77c5facc1b",
+		"app": "Community Referral Tracker",
+		"contexts": [
+			{
+				"kind": "design",
+				"model": "gpt-5.6-sol",
+				"promptVersion": "design-agent-v20",
+				"firstAt": "2026-08-30T17:19:53.823Z",
+				"steps": 14,
+				"input": 489235,
+				"firstInput": 28588,
+				"lastInput": 46765,
+				"cached": 435702,
+				"calls": {
+					"setDesignRoot": 2,
+					"updateActors": 1,
+					"updateRecords": 1,
+					"updateLookupTables": 1,
+					"updateWorkflows": 1,
+					"updateLists": 1,
+					"updateNavigation": 1,
+					"updateModuleCompositions": 1,
+					"updateFormCompositions": 2,
+					"updateAccess": 1,
+					"finishDesign": 2,
+					"requestReview": 2,
+					"updateFindingDispositions": 1
+				},
+				"packets": [
+					{
+						"kind": "seed",
+						"tokens": 196,
+						"chars": 878
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 306,
+						"chars": 1143
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 32,
+						"chars": 163
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 10963,
+						"chars": 46245
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"seed": 196,
+					"state-packet": 11301,
+					"response": 5886
+				},
+				"compactions": 0
+			},
+			{
+				"kind": "executor",
+				"model": "gpt-5.6-luna",
+				"promptVersion": "build-executor-v17",
+				"firstAt": "2026-08-30T17:22:22.370Z",
+				"steps": 11,
+				"input": 2208502,
+				"firstInput": 194242,
+				"lastInput": 205418,
+				"cached": 1998604,
+				"calls": {
+					"updateApp": 1,
+					"generateSchema": 1,
+					"createModule": 2,
+					"reportExecutionBlocker": 2,
+					"addFields": 3,
+					"configureCaseList": 1,
+					"setMenuMedia": 1,
+					"finishWorkflow": 1
+				},
+				"packets": [
+					{
+						"kind": "slice-brief",
+						"tokens": 5674,
+						"chars": 21525
+					},
+					{
+						"kind": "candidate-checkpoint",
+						"tokens": 191,
+						"chars": 609
+					},
+					{
+						"kind": "slice-focus",
+						"tokens": 209,
+						"chars": 765
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"slice-brief": 5674,
+					"candidate-checkpoint": 191,
+					"slice-focus": 209,
+					"response": 4508,
+					"tool-result": 2619,
+					"blocker": 297
+				},
+				"compactions": 0
+			},
+			{
+				"kind": "executor",
+				"model": "gpt-5.6-luna",
+				"promptVersion": "build-executor-v17",
+				"firstAt": "2026-08-30T17:26:26.973Z",
+				"steps": 3,
+				"input": 591092,
+				"firstInput": 195818,
+				"lastInput": 197765,
+				"cached": 580330,
+				"calls": {
+					"createForm": 1,
+					"setMenuMedia": 1,
+					"finishWorkflow": 1
+				},
+				"packets": [
+					{
+						"kind": "slice-brief",
+						"tokens": 5246,
+						"chars": 18779
+					},
+					{
+						"kind": "candidate-checkpoint",
+						"tokens": 1981,
+						"chars": 7068
+					},
+					{
+						"kind": "slice-focus",
+						"tokens": 423,
+						"chars": 1554
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"slice-brief": 5246,
+					"candidate-checkpoint": 1981,
+					"slice-focus": 423,
+					"response": 933,
+					"tool-result": 693
+				},
+				"compactions": 0
+			}
+		]
+	},
+	{
+		"id": "ff37edd4-a972-45d0-a736-f66e7a9e7527",
+		"app": "Community Referral Tracker",
+		"contexts": [
+			{
+				"kind": "design",
+				"model": "gpt-5.6-sol",
+				"promptVersion": "design-agent-v19",
+				"firstAt": "2026-08-30T16:43:05.594Z",
+				"steps": 29,
+				"input": 1309345,
+				"firstInput": 28821,
+				"lastInput": 81521,
+				"cached": 1214600,
+				"calls": {
+					"setDesignRoot": 2,
+					"updateActors": 1,
+					"updateLookupTables": 6,
+					"updateRecords": 1,
+					"updateWorkflows": 2,
+					"updateLists": 2,
+					"updateNavigation": 1,
+					"updateModuleCompositions": 1,
+					"updateFormCompositions": 1,
+					"updateAccess": 1,
+					"updateDecisions": 2,
+					"updateAssumptions": 1,
+					"finishDesign": 3,
+					"requestReview": 2,
+					"inspectProjectData": 1,
+					"updateFindingDispositions": 2,
+					"askQuestions": 1
+				},
+				"packets": [
+					{
+						"kind": "seed",
+						"tokens": 190,
+						"chars": 865
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 306,
+						"chars": 1143
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 32,
+						"chars": 163
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 12215,
+						"chars": 52785
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 12291,
+						"chars": 53257
+					},
+					{
+						"kind": "state-packet",
+						"tokens": 12445,
+						"chars": 53665
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"seed": 190,
+					"state-packet": 37289,
+					"response": 10764,
+					"answer": 21
+				},
+				"compactions": 0
+			},
+			{
+				"kind": "executor",
+				"model": "gpt-5.6-luna",
+				"promptVersion": "build-executor-v17",
+				"firstAt": "2026-08-30T16:48:33.448Z",
+				"steps": 7,
+				"input": 1402613,
+				"firstInput": 195164,
+				"lastInput": 202539,
+				"cached": 1197524,
+				"calls": {
+					"updateApp": 1,
+					"generateSchema": 1,
+					"createModule": 1,
+					"configureCaseList": 1,
+					"updateCaseListColumn": 1,
+					"setMenuMedia": 1,
+					"finishWorkflow": 1
+				},
+				"packets": [
+					{
+						"kind": "slice-brief",
+						"tokens": 6596,
+						"chars": 24588
+					},
+					{
+						"kind": "candidate-checkpoint",
+						"tokens": 193,
+						"chars": 609
+					},
+					{
+						"kind": "slice-focus",
+						"tokens": 207,
+						"chars": 762
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"slice-brief": 6596,
+					"candidate-checkpoint": 193,
+					"slice-focus": 207,
+					"response": 3072,
+					"tool-result": 3625
+				},
+				"compactions": 0
+			},
+			{
+				"kind": "executor",
+				"model": "gpt-5.6-luna",
+				"promptVersion": "build-executor-v17",
+				"firstAt": "2026-08-30T16:51:02.476Z",
+				"steps": 4,
+				"input": 804000,
+				"firstInput": 198398,
+				"lastInput": 202553,
+				"cached": 788792,
+				"calls": {
+					"generateSchema": 1,
+					"createForm": 1,
+					"setMenuMedia": 1,
+					"finishWorkflow": 1
+				},
+				"packets": [
+					{
+						"kind": "slice-brief",
+						"tokens": 6340,
+						"chars": 22496
+					},
+					{
+						"kind": "candidate-checkpoint",
+						"tokens": 3375,
+						"chars": 12532
+					},
+					{
+						"kind": "slice-focus",
+						"tokens": 515,
+						"chars": 1876
+					}
+				],
+				"estimatedContentTokensByKind": {
+					"slice-brief": 6340,
+					"candidate-checkpoint": 3375,
+					"slice-focus": 515,
+					"response": 1212,
+					"tool-result": 875
+				},
+				"compactions": 0
+			}
+		]
+	}
+]

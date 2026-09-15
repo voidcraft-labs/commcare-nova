@@ -1,7 +1,8 @@
 // lib/doc/expressionText.ts
 //
-// The doc-aware text ⇄ AST bridge for human builder editors. SA/MCP tools
-// receive the canonical AST directly and never call this parser. The operator
+// The doc-aware text ⇄ AST bridge for human builder editors and the isolated
+// authoring-interface experiment. Production SA/MCP tools still receive the
+// canonical AST directly. The operator
 // repair helper also uses this boundary on its private clone; the
 // canonical-identity-foundation migration owns a frozen parser copy instead.
 //
@@ -11,13 +12,18 @@
 // findings before commit; no unresolved reference enters the stored leaf
 // vocabulary.
 
-import { parseXPathExpression } from "@/lib/commcare/xpath";
+import {
+	parseXPathExpression,
+	parseXPathExpressionWithIssues,
+} from "@/lib/commcare/xpath";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import {
 	fieldPathResolver,
+	moduleUuidOfForm,
 	printXPath,
+	type ResolveFieldPath,
 	type ResolveUserPropertySlug,
 	searchInputNameResolver,
 	userPropertySlugResolver,
@@ -27,6 +33,44 @@ import {
 } from "@/lib/domain";
 
 const NO_CLAIMED_USER_PROPERTY_SLUGS: ReadonlySet<string> = new Set();
+
+/** Text authoring for the interface experiment. The caller supplies the
+ * complete name scope, including fields created in the same atomic call.
+ * Canonical admission still owns validity. */
+export function parseAuthoredXPath(
+	doc: BlueprintDoc,
+	formUuid: Uuid | undefined,
+	resolveField: ResolveFieldPath,
+	source: string,
+	selectedCaseType?: string,
+): XPathExpression {
+	const form = formUuid ? doc.forms[formUuid] : undefined;
+	const moduleUuid = formUuid ? moduleUuidOfForm(doc, formUuid) : undefined;
+	const boundCaseType =
+		selectedCaseType ??
+		((form?.type === "followup" || form?.type === "close") && moduleUuid
+			? doc.modules[moduleUuid]?.caseType
+			: undefined);
+	const parsed = parseXPathExpressionWithIssues(
+		source,
+		resolveField,
+		resolvableUserPropertySlug(doc),
+		searchInputNameResolver(doc, formUuid),
+		{ requireBoundNames: true, selectedCaseType: boundCaseType },
+	);
+	if (parsed.issues.length) {
+		throw new Error(
+			parsed.issues
+				.map((issue) =>
+					issue.kind === "syntax"
+						? `Invalid expression: ${issue.source}`
+						: `Unknown or ambiguous reference: ${issue.source}. Name a field with #form/<full-path>.`,
+				)
+				.join("\n"),
+		);
+	}
+	return parsed.expression;
+}
 
 /**
  * Resolve only one exact, case-insensitively unambiguous, CommCare-valid

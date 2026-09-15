@@ -48,7 +48,8 @@
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
 											"OpenAIProvider",
-											"OpenAIResponsesProviderOptions"
+											"OpenAIResponsesProviderOptions",
+											"OpenAIToolOptions"
 										]
 									}
 								}
@@ -94,7 +95,8 @@
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
 											"OpenAIProvider",
-											"OpenAIResponsesProviderOptions"
+											"OpenAIResponsesProviderOptions",
+											"OpenAIToolOptions"
 										]
 									}
 								}
@@ -153,7 +155,8 @@
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
 											"OpenAIProvider",
-											"OpenAIResponsesProviderOptions"
+											"OpenAIResponsesProviderOptions",
+											"OpenAIToolOptions"
 										]
 									}
 								},
@@ -217,7 +220,8 @@
 										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
 										"allowImportNames": [
 											"OpenAIProvider",
-											"OpenAIResponsesProviderOptions"
+											"OpenAIResponsesProviderOptions",
+											"OpenAIToolOptions"
 										]
 									},
 									"@/lib/doc/store": "Import from @/lib/doc/hooks/ \u2014 the store is a private module.",

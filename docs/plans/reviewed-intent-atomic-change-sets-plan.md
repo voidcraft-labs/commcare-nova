@@ -1,5 +1,11 @@
 # Valid revisions, reviewed design
 
+The proposed [agent-authoring quality plan](agent-authoring-quality.md)
+coordinates improvements to prompts, authoring tools, working context, and
+workflow observation with Units F and G below. Those units retain ownership of
+completion truth and reviewed edits. The proposal does not mark them complete
+or change the implemented authority boundaries described here.
+
 ## Current architecture and the two remaining units
 
 Nova turns one user request into one app in the current Project. It first

@@ -1,0 +1,38 @@
+[
+	{
+		"role": "solutions-architect",
+		"model": "gpt-5.6-luna",
+		"label": "full-catalog",
+		"status": 200,
+		"toolCount": 94,
+		"object": "response.input_tokens",
+		"input_tokens": 200604
+	},
+	{
+		"role": "solutions-architect",
+		"model": "gpt-5.6-luna",
+		"label": "no-tools",
+		"status": 200,
+		"toolCount": 0,
+		"object": "response.input_tokens",
+		"input_tokens": 16949
+	},
+	{
+		"role": "design-author",
+		"model": "gpt-5.6-sol",
+		"label": "full-catalog",
+		"status": 200,
+		"toolCount": 22,
+		"object": "response.input_tokens",
+		"input_tokens": 29953
+	},
+	{
+		"role": "design-author",
+		"model": "gpt-5.6-sol",
+		"label": "no-tools",
+		"status": 200,
+		"toolCount": 0,
+		"object": "response.input_tokens",
+		"input_tokens": 8653
+	}
+]
