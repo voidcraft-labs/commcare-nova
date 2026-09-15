@@ -643,8 +643,8 @@ design → independent review → workflow slices → requested translations
        → full validation and export compilation → finish
 ```
 
-Translation is not a fake `BuildPlan` workflow slice. The invariant of exactly
-one slice per included workflow remains intact. The orchestrator has a
+Translation is not a `BuildPlan` construction slice. The plan's construction
+groups still cover every included workflow exactly once. The orchestrator has a
 durable translating state and a localization receipt. Authoritative completion
 requires every workflow receipt, the optional localization receipt, a canonical
 head equal to the final receipt, full validation, and both export compilations.

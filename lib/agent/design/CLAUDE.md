@@ -80,7 +80,9 @@ valid direct Builder or MCP edit.
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
   summaries, and justified flat or duplicated forms. Construction requires at least one deliberate module and
-  one complete form variant per included workflow.
+  a complete form variant for each task that captures answers or changes records.
+  A read-only task can instead use placed lists and details that show every
+  requested property to each actor. Searchable but hidden values do not qualify.
   Actors remain semantic work context: they do not create Blueprint user
   types, personas, or worker properties unless an executable accepted
   condition/reference or explicit authored-worker request needs that
@@ -131,11 +133,18 @@ valid direct Builder or MCP edit.
   handing the choice back. A revision
   must disposition every blocker, and lowering a property's sensitivity is
   allowed only when the reviewed finding explicitly required it.
-- `buildPlan.ts` deterministically derives exactly one workflow-complete
-  construction slice per included workflow, and no extra slice, from an
+- `buildPlan.ts` deterministically derives construction slices covering every
+  included workflow from an
   accepted revision plus its exact lookup materialization receipt. It also
   derives stable
   construction groups for Blueprint work and separate external actions.
+  Reading surfaces become construction prerequisites before scheduling. A
+  read-only task with no separately owned construction joins the last
+  prerequisite's existing group. Its workflow element remains in the plan and
+  its requirements, records and external setup remain in the execution brief;
+  it requires neither a dummy form nor an empty executor slice. Read tasks that
+  own construction still receive their own slice. Committed receipts remain
+  nonempty and cover the complete deterministic plan.
   Workflow-authored existing-media and automation features lower to their
   exact Blueprint areas; they are never inferred from requirement prose. The
   lookup area is also inherited through a workflow input's referenced record

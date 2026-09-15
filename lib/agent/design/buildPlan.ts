@@ -2,12 +2,13 @@
  * Deterministic BuildPlan.
  *
  * Planning is a compiler pass over an accepted lean Design Contract, not a
- * model-authored artifact. The server creates one task-complete slice per
- * workflow, derives dependencies and external actions, and assigns every
+ * model-authored artifact. The server creates task-complete construction slices,
+ * derives dependencies and external actions, and assigns every
  * other semantic element to the earliest workflow that creates, writes,
  * exposes, or protects it. Construction groups describe real units of work;
  * they are the executor's coverage identities and replace mirrored intent
- * ownership/lowering tables.
+ * ownership/lowering tables. A read task already implemented by earlier work
+ * joins that work's existing group instead of requiring an empty slice.
  */
 
 import { z } from "zod";
@@ -25,6 +26,7 @@ import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import { deriveConstructionSchedule } from "./constructionOwnership";
+import { assignReadWorkflowOwners } from "./readWorkflows";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -152,7 +154,7 @@ function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
 			ctx.addIssue({
 				code: "custom",
 				path: ["slices", sliceIndex, "workflowId"],
-				message: "Each workflow must have exactly one slice.",
+				message: "A construction workflow must have exactly one slice.",
 			});
 		}
 		workflowIds.add(slice.workflowId);
@@ -616,6 +618,19 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 		orderedWorkflowIds,
 		schedule.prerequisites,
 	);
+	assignReadWorkflowOwners({
+		contract,
+		orderedWorkflowIds,
+		ownerByElement,
+		prerequisites: requiredPrerequisites,
+	});
+	const constructionWorkflowIds = orderedWorkflowIds.filter(
+		(id) => ownerByElement.get(id) === id,
+	);
+	const workflowsFor = (owner: string) =>
+		contract.workflows.filter(
+			(workflow) => ownerByElement.get(workflow.id) === owner,
+		);
 	const refsFor = (
 		workflowId: string,
 		kinds: DesignElementRef["kind"][],
@@ -738,7 +753,9 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 				],
 				areas: (elements) => [
 					...(workflowId === initial ? (["app"] as const) : []),
-					"forms",
+					...(formCompositions.length > 0
+						? (["forms"] as const)
+						: (["case-list"] as const)),
 					...(needsAdvancedCaseOperations
 						? (["case-operations"] as const)
 						: []),
@@ -844,13 +861,26 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 	const sliceIdByWorkflow = new Map(
 		orderedWorkflowIds.map((id) => [
 			id,
-			stableId(revision.digest, "slice", id),
+			stableId(revision.digest, "slice", ownerByElement.get(id) ?? id),
 		]),
 	);
-	const slices: BuildSlice[] = orderedWorkflowIds.map((workflowId) => {
+	const slices: BuildSlice[] = constructionWorkflowIds.map((workflowId) => {
 		const workflow = workflowById.get(workflowId);
 		if (workflow === undefined)
 			throw new Error(`Missing workflow ${workflowId}.`);
+		const coveredWorkflows = workflowsFor(workflowId);
+		const prerequisiteSliceIds = [
+			...new Set(
+				coveredWorkflows.flatMap((item) =>
+					(requiredPrerequisites.get(item.id) ?? []).map((id) =>
+						sliceIdByWorkflow.get(id),
+					),
+				),
+			),
+		].filter(
+			(id): id is z.infer<typeof designIdSchema> =>
+				id !== undefined && id !== sliceIdByWorkflow.get(workflowId),
+		);
 		const crossRecord =
 			new Set(workflow.recordEffects.map((effect) => effect.recordId)).size >
 				1 ||
@@ -862,16 +892,23 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 			workflowId: workflow.id,
 			name: workflow.name,
 			goal: workflow.goal,
-			prerequisiteSliceIds: (requiredPrerequisites.get(workflow.id) ?? []).map(
-				(id) => sliceIdByWorkflow.get(id) as z.infer<typeof designIdSchema>,
-			),
+			prerequisiteSliceIds,
 			constructionGroups: groupsFor(workflowId),
-			externalActionIds: workflow.externalRequirementIds
-				.map((id) => actionByRequirement.get(id))
-				.filter((id): id is z.infer<typeof designIdSchema> => id !== undefined),
+			externalActionIds: [
+				...new Set(
+					coveredWorkflows
+						.flatMap((item) => item.externalRequirementIds)
+						.map((id) => actionByRequirement.get(id))
+						.filter(
+							(id): id is z.infer<typeof designIdSchema> => id !== undefined,
+						),
+				),
+			],
 			risk: crossRecord
 				? "cross-record"
-				: workflow.externalRequirementIds.length > 0
+				: coveredWorkflows.some(
+							(item) => item.externalRequirementIds.length > 0,
+						)
 					? "external-effect"
 					: "ordinary",
 			role: workflowId === initial ? "materialization-root" : "ordinary",

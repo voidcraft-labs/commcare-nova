@@ -22,6 +22,7 @@ import {
 	type LookupChoiceProjectionRow,
 	lookupChoiceProjectionAttestationSchema,
 } from "@/lib/agent/design/lookupChoiceAttestation";
+import { hasCompleteReadSurfaces } from "@/lib/agent/design/readWorkflows";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { entryPointIdSchema } from "@/lib/domain/entryPoints";
@@ -1478,12 +1479,13 @@ export function designConstructionIssues(
 		if (
 			!contract.formCompositions.some(
 				(composition) => composition.workflowId === workflow.id,
-			)
+			) &&
+			!hasCompleteReadSurfaces(contract, workflow)
 		) {
 			issues.push({
 				path: ["workflows", workflowIndex],
 				message:
-					"Every included workflow needs at least one complete form composition before construction.",
+					"Provide a form for this workflow, or make its read-only task available to every actor through placed lists and details showing each requested property.",
 			});
 		}
 	}

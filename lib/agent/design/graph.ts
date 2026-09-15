@@ -1538,9 +1538,8 @@ export function validateDesignGraph(
 	});
 	for (const workflow of contract.workflows) {
 		const variants = formCompositionsByWorkflow.get(workflow.id) ?? [];
-		// Stored contracts can predate composition. The artifact reader normalizes
-		// those additive collections; construction admission still refuses new
-		// work that has not made these decisions.
+		// Construction admission proves that a workflow without a form has
+		// complete list/detail surfaces. In-progress candidates may have neither.
 		if (variants.length === 0) continue;
 		const actorUse = new Map<string, number>();
 		for (const variant of variants) {

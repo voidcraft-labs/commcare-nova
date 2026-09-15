@@ -630,7 +630,10 @@ accepted contract revision. The plan is not model-authored.
 
 ### 5.1 Slices
 
-The compiler creates exactly one slice per workflow in topological order.
+The compiler creates construction slices in dependency order. Every accepted
+workflow appears once in their construction groups. Read-only tasks whose
+surfaces belong to earlier construction join the last prerequisite's group,
+with their requirements retained in its execution brief.
 
 Each slice records:
 
@@ -696,7 +699,7 @@ are not separate construction work.
 
 The persisted plan proves:
 
-- exactly one slice per included workflow and no extra slice;
+- exactly one construction-group assignment per included workflow and no empty slice;
 - one materialization root;
 - an acyclic prerequisite graph;
 - unique slice and group identities;

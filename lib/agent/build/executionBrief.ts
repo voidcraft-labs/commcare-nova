@@ -95,6 +95,8 @@ export interface SliceExecutionBrief {
 	readonly constructionChecklist: readonly ConstructionChecklist[];
 	readonly toolProfile: ExecutorToolProfile;
 	readonly workflow: ExecutionWorkflow;
+	/** Read tasks realized by the same construction, without extra form submissions. */
+	readonly readWorkflows?: readonly Workflow[];
 	readonly prerequisiteWorkflows: readonly Pick<
 		Workflow,
 		"id" | "name" | "goal"
@@ -547,6 +549,12 @@ export function deriveSliceExecutionBrief(args: {
 				.map((element) => element.id),
 		),
 	);
+	const readWorkflows = args.contract.workflows.filter(
+		(item) => item.id !== workflow.id && elements.has(item.id),
+	);
+	const readback = [workflow, ...readWorkflows].flatMap(
+		(item) => item.readback,
+	);
 	const usedPropertyIds = new Set<string>();
 	for (const input of workflow.inputs) {
 		if (input.propertyId !== undefined) usedPropertyIds.add(input.propertyId);
@@ -557,23 +565,27 @@ export function deriveSliceExecutionBrief(args: {
 	for (const effect of workflow.recordEffects) {
 		for (const write of effect.writes) usedPropertyIds.add(write.propertyId);
 	}
-	for (const readback of workflow.readback) {
-		for (const id of readback.propertyIds) usedPropertyIds.add(id);
+	for (const reading of readback) {
+		for (const id of reading.propertyIds) usedPropertyIds.add(id);
 	}
-	const actorIds = new Set(workflow.actorIds);
+	const actorIds = new Set(
+		[workflow, ...readWorkflows].flatMap((item) => item.actorIds),
+	);
 	const recordIds = new Set<string>();
-	if (workflow.contextRecordId !== undefined)
-		recordIds.add(workflow.contextRecordId);
+	for (const covered of [workflow, ...readWorkflows]) {
+		if (covered.contextRecordId !== undefined)
+			recordIds.add(covered.contextRecordId);
+	}
 	for (const effect of workflow.recordEffects) {
 		recordIds.add(effect.recordId);
 		if (effect.sourceRecordId !== undefined)
 			recordIds.add(effect.sourceRecordId);
 	}
-	for (const readback of workflow.readback) recordIds.add(readback.recordId);
+	for (const reading of readback) recordIds.add(reading.recordId);
 	const lists = args.contract.lists.filter(
 		(list) =>
 			elements.has(list.id) ||
-			workflow.readback.some((readback) => readback.recordId === list.recordId),
+			readback.some((reading) => reading.recordId === list.recordId),
 	);
 	for (const list of lists) {
 		recordIds.add(list.recordId);
@@ -848,7 +860,9 @@ export function deriveSliceExecutionBrief(args: {
 			duplicateRationale: composition.duplicateRationale,
 		}),
 	}));
-	const requirementIds = new Set(workflow.externalRequirementIds);
+	const requirementIds = new Set(
+		[workflow, ...readWorkflows].flatMap((item) => item.externalRequirementIds),
+	);
 	const prerequisiteSliceIds = new Set(executableSlice.prerequisiteSliceIds);
 	const prerequisiteIds = new Set(
 		args.plan.slices
@@ -905,6 +919,7 @@ export function deriveSliceExecutionBrief(args: {
 		slice: executableSlice,
 		constructionChecklist,
 		toolProfile,
+		...(readWorkflows.length === 0 ? {} : { readWorkflows }),
 		workflow: {
 			...workflow,
 			inputs: workflow.inputs.map((input) => ({
@@ -1037,6 +1052,10 @@ export function renderBriefMessage(
 			`Reads: ${brief.toolProfile.readTools.join(", ")}.\nChanges: ${brief.toolProfile.mutationTools.join(", ")}.`,
 		),
 		jsonSection("Workflow requirements", resolveReferences(brief.workflow)),
+		jsonSection(
+			"Reading saved records",
+			resolveReferences(brief.readWorkflows),
+		),
 		jsonSection("Earlier workflows", brief.prerequisiteWorkflows),
 		jsonSection("People", brief.actors),
 		jsonSection(

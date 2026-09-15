@@ -4,12 +4,12 @@
 		"version": "build-executor-v21"
 	},
 	"designInstructions": {
-		"digest": "1dcb441d9cf6b350702cf6fedc32868605e3fe4830023b3838e0c29478d5019d",
-		"version": "design-agent-v35"
+		"digest": "8458656d46c0a9a6ce82b20261f2314861b1e624511e1ae6058f082a29094f66",
+		"version": "design-agent-v36"
 	},
 	"designReviewerSystem": {
-		"digest": "648b3b5789ee8fec94ac2505b1bd7ef4ff91f4819eada3a26fb78d4db2315395",
-		"version": "design-reviewer-v24"
+		"digest": "037a07c260a6efa2289cd8c3f4d06b1932f9c2edbc64d1ab3b40c495d07d620c",
+		"version": "design-reviewer-v25"
 	},
 	"extractSystem": {
 		"digest": "39df659a59ec1a50aa7fff1686f8456cef8811a8a391e32c817605fb50a821e5",

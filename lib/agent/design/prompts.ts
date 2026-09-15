@@ -17,8 +17,8 @@ import {
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v35",
-	reviewer: "design-reviewer-v24",
+	agent: "design-agent-v36",
+	reviewer: "design-reviewer-v25",
 	planner: "design-plan-v8",
 } as const;
 
@@ -32,7 +32,7 @@ const DESIGN_QUALITY_GUIDANCE = `Build around complete worker tasks. Each workfl
 
 Give each form a deliberate sequence. Group inputs when a change of task, context, or decision makes a section useful. A compact flat form is also valid; its rationale should explain the actual inputs and worker sequence. Sections are groups within a continuous form, not pages. Include each input once in every complete variant. Labels, hints, summaries, and guidance should each add useful information where it is needed. Put shared guidance once at the level where it applies. Favor clear wording and the platform's familiar controls over repeated instructions or decoration.
 
-Reuse a record's menu home when its workflows share context. Keep a record queue-only when it has no forms to host. Use at most one submenu tier, and distinguish menu ancestry from record relationships and workflow prerequisites. Each form has one menu home; create role variants only when the tasks actually differ. Choose menu icons as a coherent set.
+Reuse a record's menu home when its workflows share context. A list and detail view can serve a task that only reads saved records. Keep a record queue-only when it has no forms to host. Use at most one submenu tier, and distinguish menu ancestry from record relationships and workflow prerequisites. Each form has one menu home; create role variants only when the tasks actually differ. Choose menu icons as a coherent set.
 
 Use validation where a broad, reliable check prevents likely bad data or supports a promise made by an input's wording. Allow no answer for an optional input. Use source-defined formats and policy rules; do not invent local conventions, eligibility rules, consent, signatures, or approval steps.
 

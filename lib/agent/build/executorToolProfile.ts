@@ -53,15 +53,7 @@ const MUTATIONS_BY_AREA = {
 		"updateLocationProperty",
 		"removeLocationProperty",
 	],
-	navigation: [
-		"createModule",
-		"createForm",
-		"updateModule",
-		"updateForm",
-		"moveModule",
-		"removeModule",
-		"removeForm",
-	],
+	navigation: ["createModule", "updateModule", "moveModule", "removeModule"],
 	"case-list": [
 		"createModule",
 		"updateModule",
