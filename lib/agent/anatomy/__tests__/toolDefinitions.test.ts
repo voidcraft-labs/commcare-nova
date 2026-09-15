@@ -13,6 +13,7 @@
 import { describe, expect, it } from "vitest";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
+import { designAgentToolDefinitions } from "@/lib/agent/design/loop/designAgent";
 import {
 	createDesignLoopActions,
 	type DesignLoopToolDeps,
@@ -37,7 +38,7 @@ const eagerDepsTrap = new Proxy({} as DesignLoopToolDeps, {
 
 describe("design loop tool definitions", () => {
 	it("digest and order the author tools as the runner persists them", async () => {
-		const definitions = designLoopToolDefinitions();
+		const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
 		expect(Object.keys(definitions)).toEqual(fixture.designToolOrder);
 		expect(await designToolsetDigest(definitions)).toBe(
 			fixture.designToolsetDigest,
@@ -46,14 +47,30 @@ describe("design loop tool definitions", () => {
 
 	it("match the bound tools the agent mounts, key for key", async () => {
 		const { tools: bound } = createDesignLoopActions(eagerDepsTrap);
-		const definitions = designLoopToolDefinitions();
-		expect(Object.keys(bound)).toEqual(Object.keys(definitions));
-		expect(await designToolsetDigest(bound)).toBe(
+		const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
+		const mounted = designAgentToolDefinitions(bound);
+		expect(Object.keys(mounted)).toEqual(Object.keys(definitions));
+		expect(await designToolsetDigest(mounted)).toBe(
 			await designToolsetDigest(definitions),
 		);
-		for (const name of Object.keys(definitions)) {
+		for (const name of Object.keys(bound)) {
 			expect(bound[name as keyof typeof bound]).toHaveProperty("execute");
 		}
+	});
+	it("changes the context identity when discovery or a loading policy changes", async () => {
+		const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
+		const digest = await designToolsetDigest(definitions);
+		const { toolSearch: _search, ...withoutSearch } = definitions;
+		expect(await designToolsetDigest(withoutSearch)).not.toBe(digest);
+		expect(
+			await designToolsetDigest({
+				...definitions,
+				updateRecords: {
+					...definitions.updateRecords,
+					providerOptions: { openai: { deferLoading: false } },
+				},
+			}),
+		).not.toBe(digest);
 	});
 });
 

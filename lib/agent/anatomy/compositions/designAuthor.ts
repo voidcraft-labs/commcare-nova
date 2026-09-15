@@ -12,7 +12,7 @@
 
 import {
 	composeDesignInstructions,
-	designAgentOwnedToolDefinitions,
+	designAgentToolDefinitions,
 	designAuthorInstructionParts,
 } from "@/lib/agent/design/loop/designAgent";
 import { designLoopToolDefinitions } from "@/lib/agent/design/loop/tools";
@@ -114,11 +114,10 @@ const MOMENTS: readonly MomentSpec[] = [
 ];
 
 function systemPromptItem(): ContextItem {
-	/* The same three parts the loop runner hands `createDesignAgent`. */
-	const { instructions, catalogText, constraintsText } =
-		designAuthorInstructionParts();
+	/* The same brief and catalog the loop runner hands `createDesignAgent`. */
+	const { instructions, catalogText } = designAuthorInstructionParts();
 	return systemItem({
-		text: composeDesignInstructions(instructions, catalogText, constraintsText),
+		text: composeDesignInstructions(instructions, catalogText),
 		segments: [
 			{
 				id: "instructions",
@@ -139,35 +138,22 @@ function systemPromptItem(): ContextItem {
 				},
 				generated: ["buildCapabilityCatalog"],
 			},
-			{
-				id: "platform-constraints",
-				title: "Citable platform constraints",
-				text: constraintsText,
-				source: {
-					file: "lib/agent/design/prompts.ts",
-					symbol: "renderPlatformConstraintsSection",
-				},
-				generated: ["PLATFORM_CONSTRAINTS"],
-			},
 		],
 		source: {
 			file: "lib/agent/design/loop/designAgent.ts",
 			symbol: "composeDesignInstructions",
 		},
-		note: "Three parts joined by blank lines. The same string in every phase, so a phase change never moves the cached prefix.",
+		note: "The brief and capability catalog joined by a blank line. The same string in every phase, so a phase change never moves the cached prefix.",
 	});
 }
 
 async function toolItem(): Promise<ContextItem> {
-	const owned = designAgentOwnedToolDefinitions();
-	const loop = designLoopToolDefinitions();
-	const tools = await toolViews({ ...owned, ...loop });
-	const loopCount = Object.keys(loop).length;
+	const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
 	return toolsItem({
-		tools,
+		tools: await toolViews(definitions),
 		source: AGENT,
-		digestCovers: Object.keys(loop),
-		note: `${tools.length} mounted: ${Object.keys(owned).join(" and ")}, then the ${loopCount} loop tools. The persisted toolset digest covers the ${loopCount}; a changed digest rolls the session to a new generation.`,
+		digestCovers: Object.keys(definitions),
+		note: "Design operations load through hosted tool search. Questions, waiting, and completion are available immediately. The persisted digest covers the complete mount, including discovery and loading settings.",
 	});
 }
 

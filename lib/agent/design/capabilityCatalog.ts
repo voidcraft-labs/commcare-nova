@@ -131,20 +131,14 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
  */
 export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 	const lines: string[] = [];
-	lines.push(
-		`## Nova capability catalog (version ${catalog.catalogVersion}, digest ${catalog.catalogDigest.slice(0, 16)})`,
-	);
+	lines.push("## What Nova can build");
 	lines.push("");
 	lines.push("### Constructible vocabulary");
 	lines.push(`Field kinds: ${catalog.fieldKinds.join(", ")}.`);
 	lines.push(
 		`Case property data shapes: ${catalog.caseDataShapes.join(", ")}.`,
 	);
-	lines.push(
-		`Authoring surface (${catalog.toolSurface.length} shared tools): ` +
-			catalog.toolSurface.map((tool) => tool.saName).join(", ") +
-			".",
-	);
+
 	lines.push(
 		"Session boundary: exactly one app in the current Project. If the source asks for multiple apps, ask which single app to build first; never offer Projects or HQ spaces as an app topology.",
 	);
@@ -152,21 +146,21 @@ export function renderCapabilityCatalog(catalog: CapabilityCatalog): string {
 		`Existing references: ${catalog.existingReferenceable.join("; ")}.`,
 	);
 	lines.push(
-		"Project lookup data: a reviewed design may define a new source-grounded table before build, then accepted-design finalization mints its stable identities. Existing tables are referenced only by inspected stable UUIDs plus a constant-size, revision-bound choice attestation whose digest and metrics Nova recomputes from the complete ordered projection before persistence; they change only after a direct request or explicit approval. Draft and review calls have no Project-data side effects.",
+		"Project tables may be designed with source-grounded rows or referenced after inspection. Nova binds and checks the inspection evidence. Changes to existing shared tables require a direct request or explicit approval. Drafting and review do not change Project data.",
 	);
 	lines.push(
 		`External prerequisites: ${catalog.externalPrerequisites.join("; ")}.`,
 	);
 	lines.push(`Unsupported promises: ${catalog.unsupported.join("; ")}.`);
 	lines.push(
-		"Localization: app languages are ISO 639:2023 Set 3 individual living-language identities, each carrying an ISO 15924 script where the language is written in more than one and an ISO 3166-1 region where regional conventions differ. Manual authoring, copy, Preview, and export support every such identity; automatic translation is a separate launch policy.",
+		"Manual app authoring, copying, Preview, and export support individual living languages, with script and regional variants where relevant. Automatic translation has a narrower language set.",
 	);
 	lines.push(
-		`Automatic translation is Available in every direction between two distinct languages in this ${catalog.localization.automaticLanguages.length}-language launch set (the language axis alone decides — script and region never do, so two written forms of one language stay a copy-only pair): ${catalog.localization.automaticLanguages
+		`Automatic translation supports every direction between distinct languages in this set (variants of one language remain copy-only): ${catalog.localization.automaticLanguages
 			.map((language) => `${language.name} (${language.code})`)
 			.join(
 				", ",
-			)}. Every machine-authored value starts Needs review. For any language outside this set, use copy-only localization and record human translation as the remaining content task.`,
+			)}. Machine translations need review. Other languages use copy-only localization followed by human translation.`,
 	);
 	lines.push("");
 	lines.push("### Platform constraints and deliberate gaps");

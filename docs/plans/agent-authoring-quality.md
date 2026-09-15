@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.8566. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $7.3107 across 133 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -123,12 +123,12 @@ across editor/retry/MCP, and replace copied plugin manuals with server reference
 The result slice replaces repeated success prose with operation facts, keeps
 transcript presentation out of live and resumed model messages, preserves saved-data
 consequences and confirmations, and moves full automation setup guides to focused
-reads. Its local validation and independent reviews have passed; publication is
-pending. The following reference slice extends scalar names to case operations,
+reads. Its independent reviews and all 19 CI checks have passed in PR #590.
+The following reference slice extends scalar names to case operations,
 case-list orders, worker and organization settings, and shared data resources,
 including same-request references. It has passed local validation and two
-independent reviews; publication is pending. Executor integration is now being
-validated: shared authored values and hosted discovery, server-owned module/form
+independent reviews and is published as PR #591 with CI running. Executor integration
+has passed local validation and independent review: shared authored values and hosted discovery, server-owned module/form
 construction facts, a bounded workspace overview, and requirements without
 duplicate compiler instructions. Its 135 Postgres tests and 547 related tests,
 typecheck, and lint pass. Local estimates are 373 system-prompt tokens and
@@ -166,8 +166,21 @@ columns, and revision. Stored operations retain the proof for replay, while
 inspection and authoring state show the facts needed for the next decision.
 The full related suites pass 845 tests, including refusal of stale first-time
 references and replay after a source removal and table change. Independent
-review and publication of the evidence boundary are pending. The remaining
-role guidance is still open.
+review cleared the evidence boundary, including a separate scan and repair for
+old open workspaces containing caller-supplied proof. Publication is pending.
+The design author and reviewer now receive a concise role brief and one
+capability catalog. The author discovers editing operations through hosted
+search; `/agents` uses the same production mount and digest. Its complete
+system context falls from 8,368 to 3,517 estimated tokens, while the largest
+deferred tool remains 8,341 tokens. Local validation and independent review
+have passed. The [paired production design trials](../research/agent-design-trial-2026-09-13.md)
+did not produce an accepted app under either interface. Both hit menu-placement
+admission problems; the previous author also hit a construction-order constraint.
+The revised author reached independent review after removing a needed history
+list during repair.
+The next work therefore addresses those authoring and construction boundaries,
+preserves useful batching, and then repeats a bounded end-to-end trial. Remaining
+role context, schema design, and broader app-quality evidence stay open.
 Independent review identified a historical metadata trap: old private operations
 could contain model-authored evidence that finalization rejected but a new
 selection kept reusing. A separate scan and one-time migration now retire

@@ -17,13 +17,16 @@ import {
 
 export type ProviderOutput =
 	| { type: "text"; text: string }
+	| { type: "search"; query: string }
 	| { type: "tool"; name: string; input: unknown; callId: string }
 	| { type: "compaction"; id: string; encryptedContent: string };
 export interface ProviderRequest {
 	model?: string;
 	input?: Array<Record<string, unknown>>;
 	tools?: Array<{
-		name: string;
+		type: string;
+		name?: string;
+		defer_loading?: boolean;
 		strict?: boolean;
 		parameters?: {
 			additionalProperties?: boolean;
@@ -55,10 +58,41 @@ function respond(
 		response: { id: `resp_${ordinal}`, created_at: 1, model: "offline-design" },
 	});
 	for (const [index, part] of output.entries()) {
-		if (part.type === "compaction") {
+		if (part.type === "search") {
+			const search = {
+				type: "tool_search_call",
+				id: `search_${ordinal}_${index}`,
+				execution: "server",
+				call_id: null,
+				status: "completed",
+				arguments: { query: part.query },
+			};
+			event({
+				type: "response.output_item.added",
+				output_index: index * 2,
+				item: search,
+			});
 			event({
 				type: "response.output_item.done",
-				output_index: index,
+				output_index: index * 2,
+				item: search,
+			});
+			event({
+				type: "response.output_item.done",
+				output_index: index * 2 + 1,
+				item: {
+					type: "tool_search_output",
+					id: `search_output_${ordinal}_${index}`,
+					execution: "server",
+					call_id: null,
+					status: "completed",
+					tools: [],
+				},
+			});
+		} else if (part.type === "compaction") {
+			event({
+				type: "response.output_item.done",
+				output_index: index * 2,
 				item: {
 					type: "compaction",
 					id: part.id,
@@ -70,7 +104,7 @@ function respond(
 			const args = JSON.stringify(part.input);
 			event({
 				type: "response.output_item.added",
-				output_index: index,
+				output_index: index * 2,
 				item: {
 					type: "function_call",
 					id,
@@ -85,12 +119,12 @@ function respond(
 				event({
 					type: "response.function_call_arguments.delta",
 					item_id: id,
-					output_index: index,
+					output_index: index * 2,
 					delta,
 				});
 			event({
 				type: "response.output_item.done",
-				output_index: index,
+				output_index: index * 2,
 				item: {
 					type: "function_call",
 					id,
@@ -104,7 +138,7 @@ function respond(
 			const id = `msg_${ordinal}_${index}`;
 			event({
 				type: "response.output_item.added",
-				output_index: index,
+				output_index: index * 2,
 				item: { type: "message", id },
 			});
 			event({
@@ -114,7 +148,7 @@ function respond(
 			});
 			event({
 				type: "response.output_item.done",
-				output_index: index,
+				output_index: index * 2,
 				item: {
 					type: "message",
 					id,
@@ -293,7 +327,6 @@ export function wireAgent(
 		tools,
 		toolExecutionQueue: queue,
 		catalogText: "CATALOG",
-		constraintsText: "CONSTRAINTS",
 		instructions: "You are Nova's designer.",
 		promptCacheKey: "nova:design:session-probe",
 		fatalError: () => undefined,
