@@ -106,90 +106,46 @@ evaluation platform before the first useful comparison.
 
 **Slice 2: ship the shared authoring boundary.**
 
-Delivery is split into a codec foundation and the production interface. The
-foundation provides text, message, query-expression and schema codecs, plus
-scoped name binding. It is internal until the production mount supplies complete
-call scopes, read projections, and current guidance across the supported tools.
-The codec foundation is independently reviewed and green in PR #587. Production
-editor/MCP integration is independently reviewed with all CI green in PR #588.
-It binds complete call scopes, projects readable values, provides focused
-references, and defers editor tools through hosted search. Current
-local estimates are 623 prompt tokens and 307 initially available tool tokens;
-the full 96-tool catalog remains about 80,000 tokens. The two [production-interface trials](../research/agent-authoring-integration-2026-09-13.md)
-completed creation and clarified repair with independent Preview observations.
-Their first requests used 47,323 and 12,336 input tokens. Discovery loaded nine
-tools and reloaded several definitions during creation. The independently reviewed, green guidance PR #589 and plugin PR #58 separate static MCP guidance from app reads, shares a concise app overview
-across editor/retry/MCP, and replace copied plugin manuals with server references.
-The result slice replaces repeated success prose with operation facts, keeps
-transcript presentation out of live and resumed model messages, preserves saved-data
-consequences and confirmations, and moves full automation setup guides to focused
-reads. Its independent reviews and all 19 CI checks have passed in PR #590.
-The following reference slice extends scalar names to case operations,
-case-list orders, worker and organization settings, and shared data resources,
-including same-request references. It has passed local validation and two
-independent reviews and is published as PR #591 with CI running. Executor integration
-has passed local validation and independent review: shared authored values and hosted discovery, server-owned module/form
-construction facts, a bounded workspace overview, and requirements without
-duplicate compiler instructions. Its 135 Postgres tests and 547 related tests,
-typecheck, and lint pass. Local estimates are 373 system-prompt tokens and
-199 initially mounted tool tokens; the full deferred catalog is still 72,265
-tokens, with the largest definition at 5,255. These estimates use the same
-production definitions as `/agents`; they are not provider counts. Two independent
-reviews cleared the corrected executor slice. A [bounded model-driven trial](../research/agent-executor-authoring-2026-09-13.md)
-committed its registration workflow in eight requests and passed the observed
-range, requiredness, conditional-visibility, and personalized-note checks. An
-additional fractional-input check exposed a Preview numeric-value gap. The following
-slice fixes complete numeric validation and preserves invalid input for correction;
-replaying the same canonical app now rejects the fraction. This remains narrow
-evidence, not general app quality. The existing versioned attempt lifecycle
-supersedes incompatible private work and opens a fresh context; persisted app
-and mutation shapes have not changed. Further deterministic construction and
-broader quality evidence remain open.
-The review lifecycle slice removes the author-model request whose only purpose
-was to start independent review. The runner reviews saved drafts directly, reuses
-a recorded clean review after interruption, and preserves user pauses, source
-currency, Project-data admission, and bounded failure. Controlled provider and
-Postgres journeys verify those boundaries. Independent review cleared the slice
-after two reproduced question-recovery failures were fixed: saved questions now
-replay only for the same logical input and against the current required batch.
-The separate in-memory design harness was retired because it had diverged from
-production. Publication remains pending.
-The design name boundary now accepts plain `"@register_client"` strings at
-identity slots. One schema-aware projection serves the author and reviewer,
-preserves literal text and foreign identities, and includes menu placements in
-reference admission. Canonical artifacts and the existing identity ledger keep
-their storage format; prompt and toolset versions roll active contexts forward.
-The related design, build, and anatomy suites pass 844 tests, and independent
-review cleared the name boundary. Publication is pending.
-Project-data evidence now binds on the server: the author selects a table,
-columns, and revision. Stored operations retain the proof for replay, while
-inspection and authoring state show the facts needed for the next decision.
-The full related suites pass 845 tests, including refusal of stale first-time
-references and replay after a source removal and table change. Independent
-review cleared the evidence boundary, including a separate scan and repair for
-old open workspaces containing caller-supplied proof. Publication is pending.
-The design author and reviewer now receive a concise role brief and one
-capability catalog. The author discovers editing operations through hosted
-search; `/agents` uses the same production mount and digest. Its complete
-system context falls from 8,368 to 3,517 estimated tokens, while the largest
-deferred tool remains 8,341 tokens. Local validation and independent review
-have passed. The [paired production design trials](../research/agent-design-trial-2026-09-13.md)
-did not produce an accepted app under either interface. Both hit menu-placement
-admission problems; the previous author also hit a construction-order constraint.
-The revised author reached independent review after removing a needed history
-list during repair.
-The next work therefore addresses those authoring and construction boundaries,
-preserves useful batching, and then repeats a bounded end-to-end trial. Remaining
-role context, schema design, and broader app-quality evidence stay open.
-Independent review identified a historical metadata trap: old private operations
-could contain model-authored evidence that finalization rejected but a new
-selection kept reusing. A separate scan and one-time migration now retire
-affected open workspaces without adding runtime compatibility. The Postgres
-repair journey verifies valid drafts and held runs are preserved, incorrect
-history is detected after source removal, and reset keeps history, identities,
-and Project data. The read-only local scan found one clean open workspace and
-no affected metadata. The correction is awaiting independent review.
-These intermediate counts do not complete the slice.
+The reviewed, green stack has shipped the implementation to PRs, pending merge:
+[the authored-value foundation #587](https://github.com/voidcraft-labs/commcare-nova/pull/587),
+[editor/MCP integration #588](https://github.com/voidcraft-labs/commcare-nova/pull/588),
+[shared guidance #589](https://github.com/voidcraft-labs/commcare-nova/pull/589),
+[factual results #590](https://github.com/voidcraft-labs/commcare-nova/pull/590),
+[readable references #591](https://github.com/voidcraft-labs/commcare-nova/pull/591),
+[executor integration #592](https://github.com/voidcraft-labs/commcare-nova/pull/592),
+[Preview numeric validation #593](https://github.com/voidcraft-labs/commcare-nova/pull/593),
+[automatic review lifecycle #594](https://github.com/voidcraft-labs/commcare-nova/pull/594),
+[design names #595](https://github.com/voidcraft-labs/commcare-nova/pull/595),
+[server-bound data evidence #596](https://github.com/voidcraft-labs/commcare-nova/pull/596),
+[role context and discovery #597](https://github.com/voidcraft-labs/commcare-nova/pull/597),
+and [construction ownership #598](https://github.com/voidcraft-labs/commcare-nova/pull/598).
+The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
+is also reviewed and green. None is merged.
+
+The [editor trials](../research/agent-authoring-integration-2026-09-13.md) and
+[executor trial](../research/agent-executor-authoring-2026-09-13.md) establish
+narrow creation and repair behavior. The [paired design trials](../research/agent-design-trial-2026-09-13.md)
+produced no accepted app. They exposed menu-placement and construction-order
+constraints; the revised author also removed a needed history list during
+repair. Construction now derives a consistent module owner and workflow order
+before execution. That fixes a reproduced admission failure, not the broader
+quality question.
+
+Current work removes the redundant navigation collection. Menus carry their
+own hierarchy, actors and access, and server-owned format metadata leaves the
+author's input. Contract version 2 and workspace storage version 3 use a strict
+current reader. The separate scan and retirement operation replaces old-format
+replay and the narrower evidence repair, preserving canonical apps, conversation
+messages and billing. Complete validation, independent review and CI before
+publishing this slice.
+
+Next, preserve useful batching, simplify the largest remaining tool definitions,
+and repeat a bounded end-to-end design/build trial. The design author's complete
+system context currently measures 3,517 local tokens; its largest deferred tool
+still measures 8,341. The editor and executor also retain broad deferred
+catalogs. These figures explain remaining work, not app quality or provider
+billing. Further deterministic construction and broader quality evidence remain
+open.
 
 Expand the selected interface to the current supported authoring capabilities.
 Use a coverage inventory to prevent accidental omissions, while keeping worker

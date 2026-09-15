@@ -8,9 +8,9 @@ import {
 } from "@/lib/agent/design/artifactStore";
 import {
 	type AppDesignContract,
+	appDesignContractSchema,
 	type ChangedLookupColumnRef,
 	type ChangedLookupRowRef,
-	normalizeStoredAppDesignContract,
 } from "@/lib/agent/design/contract";
 import {
 	designArtifactEnvelopeSchema,
@@ -656,7 +656,7 @@ export async function ensureAcceptedLookupMaterialization(args: {
 		const persistedContractDigest = canonicalJsonDigest(
 			acceptedEnvelope.payload,
 		);
-		const contract = normalizeStoredAppDesignContract(acceptedEnvelope.payload);
+		const contract = appDesignContractSchema.parse(acceptedEnvelope.payload);
 		if (
 			acceptedEnvelope.artifactId !== args.designRevisionId ||
 			acceptedEnvelope.designSessionId !== args.designSessionId ||

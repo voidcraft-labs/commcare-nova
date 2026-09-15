@@ -127,7 +127,6 @@ describe("strict semantic design payloads", () => {
 	);
 	it("expresses nullable root members and charter workflow references in one update", () => {
 		const input = {
-			schemaVersion: 1,
 			id: handle("contract"),
 			charter: {
 				...makeContract().charter,
@@ -143,13 +142,11 @@ describe("strict semantic design payloads", () => {
 		);
 		expect(result.charter?.localization).toBeUndefined();
 		expectWire(setDesignRootInputSchema, {
-			schemaVersion: null,
 			id: handle("contract"),
 			charter: null,
 		});
 		expect(
 			canonical(setDesignRootInputSchema, {
-				schemaVersion: null,
 				id: handle("contract"),
 				charter: null,
 			}),

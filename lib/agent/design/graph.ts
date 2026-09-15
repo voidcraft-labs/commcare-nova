@@ -69,7 +69,6 @@ function collectDesignIdentities(
 		"workflows",
 		"lists",
 		"access",
-		"navigation",
 		"moduleCompositions",
 		"externalRequirements",
 		"decisions",
@@ -247,7 +246,7 @@ function issue(ctx: z.RefinementCtx, path: Path, message: string): void {
 function proveForest(
 	members: readonly { id: string; parent?: string }[],
 	path: string,
-	parentKey: "parentRecordId" | "parentNavigationId",
+	parentKey: "parentRecordId",
 	ctx: z.RefinementCtx,
 ): void {
 	const byId = new Map(members.map((member) => [member.id, member]));
@@ -335,7 +334,6 @@ export function validateDesignGraph(
 	);
 	const workflows = new Set(contract.workflows.map((value) => value.id));
 	const lists = new Set(contract.lists.map((value) => value.id));
-	const navigation = new Set(contract.navigation.map((value) => value.id));
 	const moduleCompositions = new Map(
 		contract.moduleCompositions.map((value) => [value.id, value]),
 	);
@@ -716,15 +714,6 @@ export function validateDesignGraph(
 		"parentRecordId",
 		ctx,
 	);
-	proveForest(
-		contract.navigation.map((value) => ({
-			id: value.id,
-			parent: value.parentNavigationId,
-		})),
-		"navigation",
-		"parentNavigationId",
-		ctx,
-	);
 
 	for (const [workflowIndex, workflow] of contract.workflows.entries()) {
 		workflow.actorIds.forEach((id, index) => {
@@ -961,7 +950,7 @@ export function validateDesignGraph(
 			record: new Set(records.keys()),
 			workflow: workflows,
 			list: lists,
-			navigation,
+			"module-composition": new Set(moduleCompositions.keys()),
 		};
 		policy.targets.forEach((target, index) => {
 			expect(
@@ -972,23 +961,6 @@ export function validateDesignGraph(
 			);
 		});
 	});
-	contract.navigation.forEach((nav, navIndex) => {
-		nav.actorIds.forEach((id, index) => {
-			expect(actors, id, ["navigation", navIndex, "actorIds", index], "actor");
-		});
-		nav.workflowIds.forEach((id, index) => {
-			expect(
-				workflows,
-				id,
-				["navigation", navIndex, "workflowIds", index],
-				"workflow",
-			);
-		});
-		nav.listIds.forEach((id, index) => {
-			expect(lists, id, ["navigation", navIndex, "listIds", index], "list");
-		});
-	});
-
 	const schedule = deriveConstructionSchedule(contract);
 	if (schedule.orderedWorkflowIds === null) {
 		issue(
@@ -1189,7 +1161,6 @@ export function validateDesignGraph(
 		for (const [key, ids] of [
 			["workflowIds", composition.workflowIds],
 			["actorIds", composition.actorIds],
-			["navigationIds", composition.navigationIds],
 			["listIds", composition.listIds],
 		] as const) {
 			if (new Set(ids).size !== ids.length) {
@@ -1223,28 +1194,6 @@ export function validateDesignGraph(
 				["moduleCompositions", compositionIndex, "actorIds", index],
 				"actor",
 			);
-		});
-		composition.navigationIds.forEach((id, index) => {
-			expect(
-				navigation,
-				id,
-				["moduleCompositions", compositionIndex, "navigationIds", index],
-				"navigation",
-			);
-			const nav = contract.navigation.find((entry) => entry.id === id);
-			if (
-				nav !== undefined &&
-				!nav.workflowIds.some((workflowId) =>
-					composition.workflowIds.includes(workflowId),
-				) &&
-				!nav.listIds.some((listId) => composition.listIds.includes(listId))
-			) {
-				issue(
-					ctx,
-					["moduleCompositions", compositionIndex, "navigationIds", index],
-					"A module's navigation placement must contain one of its workflows or lists.",
-				);
-			}
 		});
 		composition.listIds.forEach((id, index) => {
 			expect(

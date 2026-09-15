@@ -29,7 +29,6 @@ import type {
 	FormComposition,
 	FormCompositionItem,
 	ModuleComposition,
-	NavigationIntent,
 	RecordConcept,
 	RecordProperty,
 	Workflow,
@@ -112,7 +111,6 @@ export interface SliceExecutionBrief {
 	}[];
 	readonly lists: readonly WorkList[];
 	readonly access: readonly AccessPolicy[];
-	readonly navigation: readonly NavigationIntent[];
 	readonly moduleCompositions: readonly ModuleComposition[];
 	readonly formCompositions: readonly FormComposition[];
 	readonly moduleRealizations: readonly {
@@ -482,8 +480,6 @@ function checklistRequirement(
 	if (kind === "list")
 		return `Author list ${contract.lists.find((entry) => entry.id === id)?.name ?? id}.`;
 	if (kind === "access") return `Implement accepted access policy ${id}.`;
-	if (kind === "navigation")
-		return `Author navigation ${contract.navigation.find((entry) => entry.id === id)?.name ?? id}.`;
 	if (kind === "module-composition") {
 		const composition = contract.moduleCompositions.find(
 			(entry) => entry.id === id,
@@ -605,26 +601,6 @@ export function deriveSliceExecutionBrief(args: {
 			recordIds.add(record.id);
 		}
 	}
-	const access = args.contract.access.filter(
-		(policy) =>
-			elements.has(policy.id) ||
-			policy.targets.some(
-				(target) =>
-					target.id === workflow.id ||
-					recordIds.has(target.id) ||
-					lists.some((list) => list.id === target.id),
-			),
-	);
-	for (const policy of access) actorIds.add(policy.actorId);
-	const navigation = args.contract.navigation.filter(
-		(nav) =>
-			elements.has(nav.id) ||
-			nav.workflowIds.includes(workflow.id) ||
-			nav.listIds.some((id) => lists.some((list) => list.id === id)),
-	);
-	for (const nav of navigation) {
-		for (const actorId of nav.actorIds) actorIds.add(actorId);
-	}
 	const formCompositions = args.contract.formCompositions.filter(
 		(composition) => composition.workflowId === workflow.id,
 	);
@@ -732,6 +708,27 @@ export function deriveSliceExecutionBrief(args: {
 	const moduleCompositions = args.contract.moduleCompositions.filter(
 		(composition) => relevantModuleCompositionIds.has(composition.id),
 	);
+	const access = args.contract.access.filter(
+		(policy) =>
+			elements.has(policy.id) ||
+			policy.targets.some(
+				(target) =>
+					target.id === workflow.id ||
+					(target.kind === "module-composition" &&
+						args.contract.moduleCompositions.some(
+							(module) =>
+								module.id === target.id &&
+								(module.workflowIds.includes(workflow.id) ||
+									elements.has(module.id)),
+						)) ||
+					recordIds.has(target.id) ||
+					lists.some((list) => list.id === target.id),
+			),
+	);
+	for (const policy of access) actorIds.add(policy.actorId);
+	for (const module of moduleCompositions)
+		if (module.workflowIds.includes(workflow.id) || elements.has(module.id))
+			for (const actorId of module.actorIds) actorIds.add(actorId);
 	const ownedModuleCompositionIds = new Set(
 		executableSlice.constructionGroups.flatMap((group) =>
 			group.elements.flatMap((element) =>
@@ -947,7 +944,6 @@ export function deriveSliceExecutionBrief(args: {
 		),
 		lists,
 		access,
-		navigation,
 		moduleCompositions,
 		formCompositions,
 		...(entryPointRealizations.length === 0 ? {} : { entryPointRealizations }),
@@ -1059,7 +1055,6 @@ export function renderBriefMessage(
 		),
 		jsonSection("Lists and searches", brief.lists),
 		jsonSection("Access", brief.access),
-		jsonSection("Navigation", brief.navigation),
 		jsonSection(
 			"Modules",
 			brief.moduleCompositions.map((composition) => ({

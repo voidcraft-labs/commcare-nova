@@ -398,6 +398,13 @@ async function lockThreadTargetAuthority(
 			.forUpdate()
 			.executeTakeFirst();
 		if (!app) return null;
+		const session = await tx
+			.selectFrom("design_sessions")
+			.select("state")
+			.where("id", "=", target.designSessionId)
+			.forUpdate()
+			.executeTakeFirst();
+		if (!session || session.state === "retired") return null;
 		return {
 			kind: "app",
 			projectId: app.project_id,
@@ -406,11 +413,11 @@ async function lockThreadTargetAuthority(
 	}
 	const session = await tx
 		.selectFrom("design_sessions")
-		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id"])
+		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state"])
 		.where("id", "=", target.designSessionId)
 		.forUpdate()
 		.executeTakeFirst();
-	if (!session) return null;
+	if (!session || session.state === "retired") return null;
 	return {
 		kind: "design-session",
 		projectId: session.project_id,

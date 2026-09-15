@@ -18,7 +18,7 @@ import {
 	designArtifactWorkspaceOperationSchema,
 	designWorkspaceCandidateSummary,
 	initialDesignWorkspaceCandidate,
-	normalizeStoredDesignArtifactWorkspaceOperation,
+	parseStoredDesignArtifactWorkspaceOperation,
 	prepareDesignArtifactWorkspaceOperationForStorage,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
@@ -27,6 +27,7 @@ import {
 	type DesignIdentityHandleEntityKind,
 	designIdentityHandleEntityKindSchema,
 } from "@/lib/agent/design/ids";
+import { nonRetiredDesignSession } from "@/lib/db/designSessionReadScope";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
 import { type AppDatabase, withAppTx } from "@/lib/db/pg";
@@ -108,6 +109,11 @@ async function validateLineageInTransaction(
 ): Promise<void> {
 	const sourcePackage = await tx
 		.selectFrom("design_source_packages")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_source_packages.design_session_id"),
+			),
+		)
 		.select("id")
 		.where("design_session_id", "=", designSessionId)
 		.where("package_digest", "=", lineage.sourcePackageDigest)
@@ -123,6 +129,9 @@ async function validateLineageInTransaction(
 	if (base !== undefined) {
 		const row = await tx
 			.selectFrom("design_revisions")
+			.where(
+				nonRetiredDesignSession(sql.ref("design_revisions.design_session_id")),
+			)
 			.select(["id", "design_session_id", "artifact_digest", "lifecycle"])
 			.where("id", "=", base.id)
 			.executeTakeFirst();
@@ -155,6 +164,9 @@ async function validateLineageInTransaction(
 		reviewIds.add(review.id);
 		const row = await tx
 			.selectFrom("design_reviews")
+			.where(
+				nonRetiredDesignSession(sql.ref("design_reviews.design_session_id")),
+			)
 			.select([
 				"id",
 				"design_session_id",
@@ -189,6 +201,11 @@ async function ensureOpenWorkspaceInTransaction(args: {
 
 	const current = await args.tx
 		.selectFrom("design_artifact_workspaces")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_artifact_workspaces.design_session_id"),
+			),
+		)
 		.select(["id", "artifact_kind", "lineage_digest"])
 		.select(
 			sql<string>`${sql.ref("design_artifact_workspaces.lineage")}::text`.as(
@@ -308,6 +325,11 @@ async function readWorkspaceRecord(
 ): Promise<DesignArtifactWorkspaceRecord> {
 	const row = await db
 		.selectFrom("design_artifact_workspaces")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_artifact_workspaces.design_session_id"),
+			),
+		)
 		.select([
 			"id",
 			"design_session_id",
@@ -376,6 +398,22 @@ async function readWorkspaceOperations(
 ): Promise<DesignArtifactWorkspaceOperation[]> {
 	const rows = await db
 		.selectFrom("design_artifact_workspace_steps")
+		.where(({ exists, selectFrom }) =>
+			exists(
+				selectFrom("design_artifact_workspaces")
+					.select("id")
+					.whereRef(
+						"design_artifact_workspaces.id",
+						"=",
+						"design_artifact_workspace_steps.workspace_id",
+					)
+					.where(
+						nonRetiredDesignSession(
+							sql.ref("design_artifact_workspaces.design_session_id"),
+						),
+					),
+			),
+		)
 		.select(["revision"])
 		.select(
 			sql<string>`${sql.ref("design_artifact_workspace_steps.operation")}::text`.as(
@@ -396,7 +434,7 @@ async function readWorkspaceOperations(
 				"The design workspace operation ledger is not contiguous.",
 			);
 		}
-		return normalizeStoredDesignArtifactWorkspaceOperation(
+		return parseStoredDesignArtifactWorkspaceOperation(
 			parsePersistedJsonText(
 				row.operation_text,
 				`design_artifact_workspace_steps.operation for ${workspaceId} revision ${String(row.revision)}`,
@@ -411,6 +449,11 @@ async function selectHandleBindings(
 ): Promise<DesignIdentityHandleBinding[]> {
 	const rows = await tx
 		.selectFrom("design_identity_handles")
+		.where(
+			nonRetiredDesignSession(
+				sql.ref("design_identity_handles.design_session_id"),
+			),
+		)
 		.select(["handle", "design_id", "entity_kind"])
 		.where("design_session_id", "=", designSessionId)
 		.orderBy("created_at", "asc")
@@ -540,6 +583,11 @@ export async function loadDesignArtifactWorkspaceSummary(args: {
 		await authorizeWorkspace(tx, args.designSessionId, args.authority);
 		const row = await tx
 			.selectFrom("design_artifact_workspaces")
+			.where(
+				nonRetiredDesignSession(
+					sql.ref("design_artifact_workspaces.design_session_id"),
+				),
+			)
 			.select(["id"])
 			.where("design_session_id", "=", args.designSessionId)
 			.where("artifact_kind", "=", lineage.artifactKind)
@@ -623,12 +671,33 @@ export async function stageDesignArtifactWorkspace(args: {
 		const workspaceId = await ensureOpenWorkspaceInTransaction({ tx, ...args });
 		const workspace = await tx
 			.selectFrom("design_artifact_workspaces")
+			.where(
+				nonRetiredDesignSession(
+					sql.ref("design_artifact_workspaces.design_session_id"),
+				),
+			)
 			.select(["revision", "status"])
 			.where("id", "=", workspaceId)
 			.forUpdate()
 			.executeTakeFirstOrThrow();
 		const duplicate = await tx
 			.selectFrom("design_artifact_workspace_steps")
+			.where(({ exists, selectFrom }) =>
+				exists(
+					selectFrom("design_artifact_workspaces")
+						.select("id")
+						.whereRef(
+							"design_artifact_workspaces.id",
+							"=",
+							"design_artifact_workspace_steps.workspace_id",
+						)
+						.where(
+							nonRetiredDesignSession(
+								sql.ref("design_artifact_workspaces.design_session_id"),
+							),
+						),
+				),
+			)
 			.select(["input_digest", "revision"])
 			.select(
 				sql<string>`${sql.ref("design_artifact_workspace_steps.operation")}::text`.as(
@@ -697,6 +766,11 @@ export async function stageDesignArtifactWorkspace(args: {
 		for (const binding of args.handleBindings ?? []) {
 			const existing = await tx
 				.selectFrom("design_identity_handles")
+				.where(
+					nonRetiredDesignSession(
+						sql.ref("design_identity_handles.design_session_id"),
+					),
+				)
 				.select(["handle", "design_id", "entity_kind"])
 				.where("design_session_id", "=", args.designSessionId)
 				.where((eb) =>

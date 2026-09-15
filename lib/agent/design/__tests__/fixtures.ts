@@ -58,7 +58,6 @@ export const ids = {
 	taskReview: did(72),
 	rmPatients: did(90),
 	accessSupervisor: did(100),
-	navMain: did(110),
 	modulePatients: did(170),
 	moduleVisits: did(180),
 	formRegister: did(171),
@@ -88,7 +87,7 @@ export const ids = {
 
 export function makeContract(): AppDesignContract {
 	return appDesignContractSchema.parse({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		id: ids.contract,
 		charter: {
 			appName: "CHW patient visits",
@@ -321,17 +320,6 @@ export function makeContract(): AppDesignContract {
 				condition: "The worker has the supervisor role",
 			},
 		],
-		navigation: [
-			{
-				id: ids.navMain,
-				name: "Patient care",
-				purpose: "Keep registration and patient work together.",
-				actorIds: [ids.actorChw, ids.actorSupervisor],
-				workflowIds: [ids.taskRegister, ids.taskVisit],
-				listIds: [ids.rmPatients],
-				orderRationale: "Registration comes before follow-up.",
-			},
-		],
 		moduleCompositions: [
 			{
 				id: ids.modulePatients,
@@ -346,7 +334,6 @@ export function makeContract(): AppDesignContract {
 				workflowIds: [ids.taskRegister, ids.taskVisit],
 				hostRecordId: ids.recPatient,
 				actorIds: [ids.actorChw, ids.actorSupervisor],
-				navigationIds: [ids.navMain],
 				listIds: [ids.rmPatients],
 				orderRationale:
 					"Keep registration available before the patient queue and follow-up work.",
@@ -553,9 +540,7 @@ export function addPatientReviewWorkflow(contract: AppDesignContract): void {
 		prerequisites: ["The patient is registered"],
 	});
 	contract.charter.includedWorkflowIds.push(ids.taskReview);
-	fixtureValue(contract.navigation[0], "main navigation").workflowIds.push(
-		ids.taskReview,
-	);
+
 	fixtureValue(
 		contract.moduleCompositions[0],
 		"patient module composition",
@@ -614,7 +599,6 @@ export function makeNestedMenuContract(): AppDesignContract {
 		workflowIds: [ids.taskVisit],
 		hostRecordId: ids.recPatient,
 		actorIds: [ids.actorChw],
-		navigationIds: [],
 		listIds: [],
 		orderRationale: "Registration and selection precede follow-up work.",
 		icon: { kind: "builtin", slug: "default" },
@@ -730,7 +714,6 @@ export function makeWorkflowChainContract(count: number): AppDesignContract {
 		})),
 		lists: [],
 		access: [],
-		navigation: [],
 		moduleCompositions: workflowIds.map((workflowId, index) => ({
 			id: did(4000 + index),
 			name: `Workflow ${index + 1}`,
@@ -739,7 +722,6 @@ export function makeWorkflowChainContract(count: number): AppDesignContract {
 			workflowIds: [workflowId],
 			hostRecordId: recordIds[index],
 			actorIds: [ids.actorChw],
-			navigationIds: [],
 			listIds: [],
 			orderRationale: `Follow workflow dependency order at position ${index + 1}.`,
 			icon: { kind: "builtin", slug: "default" },

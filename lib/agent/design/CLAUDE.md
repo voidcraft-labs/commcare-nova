@@ -3,7 +3,7 @@
 This package owns Nova's private, non-executable product design. A reviewed
 chat build records only the meaning needed to build one good app: its purpose,
 actors, records and properties, end-to-end workflows, lists, Project-data
-tables and their uses, access, navigation, external requirements, decisions,
+tables and their uses, access, menus and forms, external requirements, decisions,
 assumptions, and unresolved questions. It does not duplicate that meaning into
 claims, facts, rules, transitions, scenarios, ownership matrices, or
 model-authored lowering tables.
@@ -45,13 +45,13 @@ valid direct Builder or MCP edit.
   pre-resolved by `updateFindingDispositions` before the generic deterministic resolver
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
-- `contract.ts` owns the one Design Contract vocabulary. `schemaVersion` is
-  serialized artifact metadata, not a family of domain types or helper names.
-  Stored payloads that predate an additive collection normalize at the
-  artifact read boundary after their sealed bytes pass digest verification;
-  every other caller receives the complete current schema. `graph.ts` runs inside
+- `contract.ts` owns the one Design Contract vocabulary. The server sets
+  `schemaVersion: 2`; authors do not supply format metadata. Current readers
+  verify sealed bytes and parse only the current schema. Obsolete private
+  sessions are retired by the separate [format cutover](../../../docs/architecture/design-format-cutover.md),
+  not converted on read. `graph.ts` runs inside
   parsing and proves global identity uniqueness, reference closure, workflow
-  ownership, property/record coherence, navigation closure, charter coverage,
+  ownership, property/record coherence, menu closure, charter coverage,
   a dependency-free initial workflow, acyclic workflow and record hierarchies,
   and a blocking user question for every unresolved construction dependency.
   A structurally incoherent contract is never persisted. New-artifact
@@ -71,15 +71,15 @@ valid direct Builder or MCP edit.
   composition is part of the
   same contract: `moduleCompositions` chooses the minimal module/menu homes,
   optional one-tier parent menu, record hosts, queue/form roles, placements,
-  ordering, and icon decisions. Parents precede their contiguous child block,
+  ordering, and icon decisions. Access policies target these same compositions;
+  there is no second navigation collection to author or keep in sync.
+  Parents precede their contiguous child block,
   a child cannot parent another composition, and its construction owner is the
   same as or later than its parent's owner. Sibling menu order is independent
   of construction-owner order;
   `formCompositions` chooses exact workflow variants, modes, module homes,
   actors, ordered sections/items, Markdown labels/guidance/help, record
-  summaries, and justified flat or duplicated forms. Stored contracts that
-  predate these additive collections normalize them to empty at the artifact
-  boundary, while new construction requires at least one deliberate module and
+  summaries, and justified flat or duplicated forms. Construction requires at least one deliberate module and
   one complete form variant per included workflow.
   Actors remain semantic work context: they do not create Blueprint user
   types, personas, or worker properties unless an executable accepted
@@ -244,7 +244,7 @@ valid direct Builder or MCP edit.
   session, source package and exact accepted revision. The writer checks its
   complete construction semantics against that revision inside the same
   authority transaction, after verifying any lookup receipt. Its raw payload digest
-  is verified before historical additive fields are normalized. Private
+  is verified before the current contract is parsed. Private
   workspace finalization belongs only to contract/revision authoring; the
   deterministic planner has no workspace.
   Lookup materialization receipts retain every minted table, column, and row
@@ -396,14 +396,11 @@ state projects it back to the selected revision. Existing workspace operations
 and the source contract retain the evidence needed for replay after a source is
 removed from the candidate; no separate receipt registry exists. Submission,
 acceptance, and materialization retain their current Project-data checks.
-For the September 2026 cutover, run `scripts/scan-design-choice-workspaces.ts`
-before deploying over old data. The separate
-`scripts/migrate-design-choice-workspaces.ts --execute` retires open private
-workspaces containing incorrect historical evidence at a table's current
-revision. Unsubmitted work in those workspaces must be reauthored from the saved
-sources; history, immutable artifacts, identity bindings, and app/Project data
-remain intact. Held runs block repair. Re-run the scan afterward. These scripts
-are operator tools, never a compatibility path in runtime authoring.
+Workspace operations use storage version 3. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
+retires older private design sessions, including their obsolete choice-evidence
+operations. It preserves sealed artifacts, conversation messages, billing,
+canonical apps and Project data. Current readers exclude retired scopes before
+parsing. Runtime authoring contains no old-format replay or repair path.
 `inspectDesign` reads selected exact state only when
 a model needs a narrow workspace lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.

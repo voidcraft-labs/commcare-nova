@@ -13,9 +13,9 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v33",
-	reviewer: "design-reviewer-v22",
-	planner: "design-plan-v7",
+	agent: "design-agent-v34",
+	reviewer: "design-reviewer-v23",
+	planner: "design-plan-v8",
 } as const;
 
 const DOMAIN_PREAMBLE = `Nova turns a conversation into a working CommCare app. Workers use forms to register and update records, find their work in lists and searches, and follow relationships between records. Design for their real setting, including connectivity and the data they can access. The capability catalog describes what Nova can build.

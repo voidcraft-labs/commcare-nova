@@ -23,7 +23,6 @@ import {
 	appDesignContractBaseSchema,
 	collectContractIds,
 } from "@/lib/agent/design/contract";
-import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { projectDesignAuthoringValues } from "@/lib/agent/design/lookupChoiceAuthoring";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
@@ -50,11 +49,10 @@ import {
 	createLookupTable,
 	updateLookupRow,
 } from "@/lib/lookup/service";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	CONTRACT_COLLECTIONS,
 	designArtifactWorkspaceLineageSchema,
-	normalizeStoredDesignArtifactWorkspaceOperation,
+	parseStoredDesignArtifactWorkspaceOperation,
 } from "../artifactWorkspaceOperations";
 import {
 	readDesignIdentityHandleBindings,
@@ -69,7 +67,6 @@ import { withDesignResponses } from "../loop/__tests__/designAgentPeer";
 import { REQUIRED_DESIGN_QUESTIONS_HEADER } from "../loop/designAgent";
 import { it, reviewContext } from "./designLoopPeer";
 import {
-	addPatientReviewWorkflow,
 	did,
 	fixtureValue,
 	ids,
@@ -288,7 +285,6 @@ const COLLECTION_TO_TOOL = {
 	workflows: "updateWorkflows",
 	lists: "updateLists",
 	access: "updateAccess",
-	navigation: "updateNavigation",
 	moduleCompositions: "updateModuleCompositions",
 	formCompositions: "updateFormCompositions",
 	lookupTables: "updateLookupTables",
@@ -548,7 +544,7 @@ describe("semantic design loop", () => {
 		const stored = (await workspaceRows()).steps[0];
 		if (stored === undefined) throw new Error("Missing saved design operation");
 		expect(
-			normalizeStoredDesignArtifactWorkspaceOperation(stored.operation),
+			parseStoredDesignArtifactWorkspaceOperation(stored.operation),
 		).toMatchObject({
 			collections: [
 				{
@@ -648,84 +644,6 @@ describe("semantic design loop", () => {
 			expect(plan?.envelope.payload.slices).toHaveLength(2);
 		},
 	);
-
-	it("reviews, accepts, and plans a normalized historical multi-consumer draft", async () => {
-		const pkg = await makePackage();
-		await insertDesignSourcePackage({ pkg, authority: authority() });
-		const currentContract = makeContract();
-		addPatientReviewWorkflow(currentContract);
-		const currentModule = fixtureValue(
-			currentContract.moduleCompositions[0],
-			"patient module composition",
-		);
-		currentModule.selection = {
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		};
-		const legacyPayload = object(structuredClone(currentContract));
-		delete fixtureValue(
-			object(array(legacyPayload.moduleCompositions)[0]),
-			"legacy patient module composition",
-		).selection;
-		const legacyList = fixtureValue(
-			object(array(legacyPayload.lists)[0]),
-			"legacy patient list",
-		);
-		delete legacyList.selection;
-		legacyList.selectionWorkflowId = ids.taskVisit;
-		const legacyDraft = sealArtifactEnvelope({
-			artifactType: "design-contract",
-			artifactSchemaVersion: 1,
-			artifactId: crypto.randomUUID(),
-			designSessionId: sessionId,
-			revision: 1,
-			parentArtifactId: null,
-			sourcePackageDigest: pkg.packageDigest,
-			inputArtifactDigests: [],
-			promptVersion: "design-author-v1",
-			producer: {
-				provider: "openai",
-				modelId: "gpt-test",
-				finishReason: "stop",
-			},
-			createdAt: new Date().toISOString(),
-			payload: legacyPayload,
-		});
-		await h
-			.db()
-			.insertInto("design_revisions")
-			.values({
-				id: legacyDraft.artifactId,
-				design_session_id: sessionId,
-				revision: 1,
-				parent_revision_id: null,
-				lifecycle: "draft",
-				artifact_digest: legacyDraft.artifactDigest,
-				contract_digest: canonicalJsonDigest(legacyPayload),
-				source_package_digest: pkg.packageDigest,
-				producer_model: legacyDraft.producer.modelId,
-				prompt_version: legacyDraft.promptVersion,
-				created_by_run_id: RUN_ID,
-				envelope: JSON.stringify(legacyDraft),
-			})
-			.execute();
-
-		const result = await mount(pkg).reviewDraft();
-		expect(result).toMatchObject({ ok: true, accepted: true });
-		const accepted = await readLatestAcceptedDesignRevision(sessionId);
-		if (accepted === null) throw new Error("accepted revision missing");
-		expect(accepted.parentRevisionId).toBe(legacyDraft.artifactId);
-		expect(accepted.envelope.inputArtifactDigests).toContain(
-			legacyDraft.artifactDigest,
-		);
-		expect(accepted.envelope.payload.moduleCompositions[0]?.selection).toEqual({
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		});
-		expect(
-			await readLatestDesignBuildPlanForRevision(accepted.id),
-		).not.toBeNull();
-	});
 
 	it("keeps gates fresh through the runner's memoized ancestry loader", async () => {
 		const pkg = await makePackage();
@@ -1770,7 +1688,7 @@ describe("semantic design loop", () => {
 						authority: authority(),
 						toolCallId: "same-call",
 						expectedRevision: Number(workspace.revision),
-						operation: normalizeStoredDesignArtifactWorkspaceOperation(
+						operation: parseStoredDesignArtifactWorkspaceOperation(
 							originalStep.operation,
 						),
 						handleBindings: [binding],

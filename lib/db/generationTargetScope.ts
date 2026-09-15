@@ -71,7 +71,8 @@ export async function resolveGenerationTargetScope(
 		};
 	}
 	const session = await loadDesignSession(target.designSessionId);
-	if (!session) throw new AppAccessError("not_found");
+	if (!session || session.state === "retired")
+		throw new AppAccessError("not_found");
 	/* Before materialization the design is owner-private even inside a shared
 	 * Project. The app becomes the Project-shared authority boundary only once
 	 * the session has a bound app. Collapse this denial with every other
@@ -112,7 +113,7 @@ export async function generationTargetHeldLive(
 ): Promise<boolean> {
 	if (target.kind === "app") return appHeldLive(target.appId);
 	const session = await loadDesignSession(target.designSessionId);
-	if (!session) return false;
+	if (!session || session.state === "retired") return false;
 	if (session.app_id !== null) return appHeldLive(session.app_id);
 	return designSessionHeldLive(target.designSessionId);
 }

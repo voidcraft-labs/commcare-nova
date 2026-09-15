@@ -484,7 +484,6 @@ describe("deterministic build planning", () => {
 						kind: "access-navigation",
 						elements: [
 							...e("access", ids.accessSupervisor),
-							...e("navigation", ids.navMain),
 							...e("module-composition", ids.modulePatients),
 						],
 						blueprintAreas: ["navigation", "media-references", "users"],
@@ -683,7 +682,6 @@ describe("deterministic build planning", () => {
 			role: "form-host",
 			workflowIds: [workflow.id],
 			actorIds: workflow.actorIds,
-			navigationIds: [],
 			listIds: [],
 			orderRationale: "Registration precedes patient follow-up.",
 			icon: { kind: "builtin", slug: "default" },

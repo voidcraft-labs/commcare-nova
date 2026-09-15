@@ -7,7 +7,6 @@ import {
 	appDesignContractBaseSchema,
 	appDesignContractSchema,
 } from "@/lib/agent/design/contract";
-import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
 import {
 	assertDesignLookupMaterializationCurrentInTransaction,
@@ -56,7 +55,6 @@ function designedLookupContract(): AppDesignContract {
 
 async function seedAcceptedRevision(
 	contract: AppDesignContract = designedLookupContract(),
-	storedPayload: unknown = contract,
 ): Promise<{
 	designSessionId: string;
 	designRevisionId: string;
@@ -75,27 +73,7 @@ async function seedAcceptedRevision(
 		authority: authority(),
 		contract,
 	});
-	let accepted = persisted.accepted;
-	if (storedPayload !== contract) {
-		// Explicit legacy-storage reader control. Normal accepted fixtures enter
-		// through the actual source, draft, independent review and acceptance writers.
-		const { artifactDigest: _digest, ...unsealed } = accepted.envelope;
-		const envelope = sealArtifactEnvelope({
-			...unsealed,
-			payload: storedPayload,
-		});
-		await h
-			.db()
-			.updateTable("design_revisions")
-			.set({
-				envelope: JSON.stringify(envelope),
-				artifact_digest: envelope.artifactDigest,
-				contract_digest: canonicalJsonDigest(storedPayload),
-			})
-			.where("id", "=", accepted.id)
-			.execute();
-		accepted = { ...accepted, artifactDigest: envelope.artifactDigest };
-	}
+	const accepted = persisted.accepted;
 	return {
 		designSessionId,
 		designRevisionId: accepted.id,
@@ -539,28 +517,6 @@ describe("accepted design lookup materialization", () => {
 			expect.arrayContaining([row("low"), row("high"), row("priority")]),
 		);
 		expect(receipt.payload.projectRevision).toBe("2");
-	});
-	it("normalizes a digest-verified historical list selection before materializing", async () => {
-		const contract = designedLookupContract();
-		const stored = structuredClone(contract) as unknown as Record<
-			string,
-			unknown
-		>;
-		const list = (stored.lists as Array<Record<string, unknown>>)[0];
-		if (list === undefined) throw new Error("Expected a list fixture.");
-		const module = (
-			stored.moduleCompositions as Array<Record<string, unknown>>
-		)[0];
-		if (module === undefined) throw new Error("Expected a module fixture.");
-		const selection = module.selection as { readonly workflowIds: string[] };
-		delete module.selection;
-		list.selectionWorkflowId = selection.workflowIds[0];
-
-		const lineage = await seedAcceptedRevision(contract, stored);
-		const receipt = await materialize(lineage, contract);
-
-		expect(receipt).not.toBeNull();
-		expect((await getAllLookupDefinitions(scope)).definitions).toHaveLength(1);
 	});
 
 	it("refuses Project-data evidence outside the accepted source package", async () => {

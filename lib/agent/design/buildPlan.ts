@@ -52,7 +52,6 @@ export const designElementRefSchema = z
 			"property",
 			"list",
 			"access",
-			"navigation",
 			"module-composition",
 			"form-composition",
 			"composition-section",
@@ -232,23 +231,6 @@ function validatePlan(plan: BuildPlan, ctx: z.RefinementCtx): void {
 
 export const buildPlanSchema = buildPlanBaseSchema.superRefine(validatePlan);
 
-/** The sole persisted-payload normalization seam. Stored plans can predate
- * additive members, but every caller receives the one complete current plan.
- * Digest verification happens against the sealed bytes before this function
- * is called. */
-export function normalizeStoredBuildPlan(stored: unknown): BuildPlan {
-	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
-		return buildPlanSchema.parse(stored);
-	const value = stored as Record<string, unknown>;
-	return buildPlanSchema.parse({
-		...value,
-		lookupMaterialization:
-			value.lookupMaterialization === undefined
-				? null
-				: value.lookupMaterialization,
-	});
-}
-
 function deriveOwnerByElement(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
@@ -365,13 +347,10 @@ function deriveOwnerByElement(
 	for (const list of contract.lists) {
 		ownerByElement.set(list.id, listOwnerById.get(list.id) ?? initial);
 	}
-	for (const nav of contract.navigation) {
+	for (const composition of contract.moduleCompositions) {
 		ownerByElement.set(
-			nav.id,
-			earliest([
-				...nav.workflowIds,
-				...nav.listIds.map((id) => ownerByElement.get(id) ?? initial),
-			]),
+			composition.id,
+			moduleOwnerById.get(composition.id) ?? initial,
 		);
 	}
 	for (const policy of contract.access) {
@@ -384,12 +363,6 @@ function deriveOwnerByElement(
 						: (ownerByElement.get(target.id) ?? initial),
 				),
 			),
-		);
-	}
-	for (const composition of contract.moduleCompositions) {
-		ownerByElement.set(
-			composition.id,
-			moduleOwnerById.get(composition.id) ?? initial,
 		);
 	}
 	for (const composition of contract.formCompositions) {
@@ -670,9 +643,6 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 		contract.access.forEach((value) => {
 			push("access", value.id);
 		});
-		contract.navigation.forEach((value) => {
-			push("navigation", value.id);
-		});
 		contract.moduleCompositions.forEach((value) => {
 			push("module-composition", value.id);
 		});
@@ -809,7 +779,7 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 				key: "access",
 				name: "Access and navigation",
 				kind: "access-navigation",
-				kinds: ["access", "navigation", "module-composition"],
+				kinds: ["access", "module-composition"],
 				areas: (elements) => [
 					"navigation",
 					...(elements.some(

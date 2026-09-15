@@ -31,7 +31,6 @@ export const DESIGN_IDENTITY_HANDLE_ENTITY_KINDS = [
 	"workflow",
 	"list",
 	"access",
-	"navigation",
 	"external_requirement",
 	"decision",
 	"assumption",

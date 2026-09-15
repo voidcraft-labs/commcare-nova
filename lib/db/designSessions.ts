@@ -91,6 +91,7 @@ export const DESIGN_SESSION_STATES = [
 	"materialized",
 	"completed",
 	"abandoned",
+	"retired",
 ] as const;
 export type DesignSessionState = (typeof DESIGN_SESSION_STATES)[number];
 
@@ -109,7 +110,8 @@ export function parsePersistedDesignSessionState(
 		value === "active" ||
 		value === "materialized" ||
 		value === "completed" ||
-		value === "abandoned"
+		value === "abandoned" ||
+		value === "retired"
 	) {
 		return value;
 	}
@@ -264,6 +266,11 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 		if (app === undefined || app.project_id !== args.expectedProjectId) {
 			throw new RunHolderLostError("released");
 		}
+		// Retirement follows the same app → session lock order. Re-read after
+		// acquiring the app lock so a waiting writer cannot revive old work.
+		const session = await lockSessionRow(tx, args.designSessionId);
+		if (session === undefined || session.state === "retired")
+			throw new RunHolderLostError("released");
 		await assertProjectCapabilityInTransaction(
 			tx,
 			args.actorUserId,
@@ -297,6 +304,7 @@ export async function assertDesignSessionRunAuthorityInTransaction(
 	const session = await lockSessionRow(tx, args.designSessionId);
 	if (
 		session === undefined ||
+		session.state === "retired" ||
 		session.app_id !== null ||
 		session.project_id !== args.expectedProjectId ||
 		session.owner_user_id !== args.actorUserId ||

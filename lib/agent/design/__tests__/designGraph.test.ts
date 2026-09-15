@@ -327,7 +327,7 @@ describe("lean Design Contract graph", () => {
 		]);
 	});
 
-	it("requires one module owner for every accepted list and navigation entry", () => {
+	it("requires one module owner for every accepted list", () => {
 		const missing = cloneContract(makeContract());
 		const moduleComposition = fixtureValue(
 			missing.moduleCompositions[0],
@@ -335,12 +335,8 @@ describe("lean Design Contract graph", () => {
 		);
 		moduleComposition.role = "form-host";
 		moduleComposition.listIds = [];
-		moduleComposition.navigationIds = [];
 		expect(constructionMessages(missing)).toContain(
 			"Every accepted list needs exactly one module composition",
-		);
-		expect(constructionMessages(missing)).toContain(
-			"Every accepted navigation entry needs exactly one module composition",
 		);
 
 		const repeated = cloneContract(makeContract());
@@ -357,9 +353,6 @@ describe("lean Design Contract graph", () => {
 		});
 		expect(constructionMessages(repeated)).toContain(
 			"Give repeated placements distinct list identities",
-		);
-		expect(constructionMessages(repeated)).toContain(
-			"Give repeated destinations distinct navigation identities",
 		);
 	});
 
@@ -616,7 +609,6 @@ describe("lean Design Contract graph", () => {
 			role: "form-host",
 			workflowIds: [ids.taskRegister],
 			actorIds: [ids.actorChw],
-			navigationIds: [],
 			listIds: [],
 			orderRationale: "Keep the standalone task available before record work.",
 			icon: { kind: "builtin", slug: "default" },
@@ -678,7 +670,7 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("rejects record and navigation cycles", () => {
+	it("rejects record cycles and missing parents", () => {
 		const records = cloneContract(makeContract());
 		if (!records.records[0]) throw new Error("fixture record missing");
 		records.records[0].parentRecordId = ids.recVisit;
@@ -687,31 +679,9 @@ describe("lean Design Contract graph", () => {
 			{ code: "custom", path: ["records", 1, "parentRecordId"] },
 		]);
 
-		const navigation = cloneContract(makeContract());
-		navigation.navigation.push({
-			id: did(800),
-			name: "Nested",
-			purpose: "Test nesting",
-			actorIds: [ids.actorChw],
-			workflowIds: [],
-			listIds: [],
-			parentNavigationId: ids.navMain,
-			orderRationale: "Nested after main",
-		});
-		if (!navigation.navigation[0])
-			throw new Error("fixture navigation missing");
-		navigation.navigation[0].parentNavigationId = did(800);
-		expect(graphIssues(navigation)).toEqual([
-			{ code: "custom", path: ["navigation", 0, "parentNavigationId"] },
-			{ code: "custom", path: ["navigation", 1, "parentNavigationId"] },
-		]);
 		records.records[0].parentRecordId = did(9001);
 		expect(graphIssues(records)).toEqual([
 			{ code: "custom", path: ["records", 0, "parentRecordId"] },
-		]);
-		navigation.navigation[0].parentNavigationId = did(9002);
-		expect(graphIssues(navigation)).toEqual([
-			{ code: "custom", path: ["navigation", 0, "parentNavigationId"] },
 		]);
 	});
 
@@ -1285,7 +1255,6 @@ describe("lean Design Contract graph", () => {
 		listlessModule.listIds = [];
 		listless.lists = [];
 		listless.access = [];
-		fixtureValue(listless.navigation[0], "patient navigation").listIds = [];
 		expect(appDesignContractSchema.safeParse(listless).success).toBe(true);
 
 		const nested = cloneContract(makeNestedMenuContract());

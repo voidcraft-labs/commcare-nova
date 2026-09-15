@@ -381,7 +381,7 @@ canonical edits and never require design metadata.
 
 The Design Contract records purpose, actors, records and properties,
 end-to-end workflows, lists, Project-data tables and their uses, access,
-navigation, external requirements, decisions, assumptions, and unresolved
+menus and forms, external requirements, decisions, assumptions, and unresolved
 questions once. A proposed table carries design identities, ordered typed
 columns and rows, source references grounding every created or changed row set,
 and its intended consumers. An existing table reference uses canonical
@@ -390,6 +390,18 @@ match. The contract does not maintain a parallel
 claim/fact/rule/transition/scenario/ownership graph. Important or critical
 independent-review findings cite their affected sources or design elements;
 advisory observations do not create traceability work.
+
+Menu compositions are the single source for hierarchy, placement, ordering,
+actors and menu access. Access policies point directly to a composition;
+there is no parallel navigation intent. The execution brief includes a menu's
+access and actors for its construction owner and hosted workflows, without
+copying policies from unrelated placement anchors.
+
+Current design readers accept contract version 2 and workspace storage version
+3. The [one-time format cutover](design-format-cutover.md) retires incompatible
+private sessions while preserving canonical apps, conversations and billing.
+Retirement removes a session from typed artifact selection and run authority;
+it never upgrades historical meaning during a read.
 
 Design drafting, review, and revision are side-effect-free. They may inspect a
 bounded, revisioned view of current Project tables, but they do not create or

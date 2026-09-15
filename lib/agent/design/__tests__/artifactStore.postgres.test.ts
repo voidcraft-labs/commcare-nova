@@ -49,17 +49,14 @@ import {
 	type DesignSourcePackage,
 } from "@/lib/agent/design/sourcePackage";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { openDesignArtifactWorkspace } from "../artifactWorkspaceStore";
 import {
 	planEnvelope as producedPlanEnvelope,
 	reviewEnvelope as producedReviewEnvelope,
 } from "../loop/artifacts";
 import {
-	addPatientReviewWorkflow,
 	did,
 	FIXTURE_THREAD_ID,
-	fixtureValue,
 	ids,
 	makeContract,
 	makeLookupContract,
@@ -365,108 +362,6 @@ describe("contract revisions", () => {
 		expect(read?.lifecycle).toBe("draft");
 		expect(read?.envelope.payload.charter.appName).toBe("CHW patient visits");
 		expect(read?.artifactDigest).toBe(draft.artifactDigest);
-	});
-
-	it("accepts normalized semantics from a legacy raw-digest draft without rewriting its lineage", async () => {
-		const pkg = makePackage();
-		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
-		const currentContract = makeContract();
-		addPatientReviewWorkflow(currentContract);
-		const currentModule = fixtureValue(
-			currentContract.moduleCompositions[0],
-			"patient module composition",
-		);
-		currentModule.selection = {
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		};
-		const legacyPayload = structuredClone(currentContract) as unknown as Record<
-			string,
-			unknown
-		>;
-		const legacyModule = fixtureValue(
-			(legacyPayload.moduleCompositions as Array<Record<string, unknown>>)[0],
-			"patient module composition",
-		);
-		const legacyList = fixtureValue(
-			(legacyPayload.lists as Array<Record<string, unknown>>)[0],
-			"patient list",
-		);
-		delete legacyModule.selection;
-		delete legacyList.selection;
-		legacyList.selectionWorkflowId = ids.taskVisit;
-
-		const { artifactDigest: _currentDigest, ...draftFields } = draftEnvelope(
-			pkg,
-			currentContract,
-		);
-		const legacyEnvelope = sealArtifactEnvelope({
-			...draftFields,
-			payload: legacyPayload,
-		});
-		const rawContractDigest = canonicalJsonDigest(legacyPayload);
-		await h
-			.db()
-			.insertInto("design_revisions")
-			.values({
-				id: legacyEnvelope.artifactId,
-				design_session_id: sessionId,
-				revision: 1,
-				parent_revision_id: null,
-				lifecycle: "draft",
-				artifact_digest: legacyEnvelope.artifactDigest,
-				contract_digest: rawContractDigest,
-				source_package_digest: pkg.packageDigest,
-				producer_model: legacyEnvelope.producer.modelId,
-				prompt_version: legacyEnvelope.promptVersion,
-				created_by_run_id: RUN_ID,
-				envelope: JSON.stringify(legacyEnvelope),
-			})
-			.execute();
-
-		const draft = await readDesignRevision(legacyEnvelope.artifactId);
-		if (draft === null) throw new Error("legacy draft was not readable");
-		expect(draft.contractDigest).toBe(rawContractDigest);
-		expect(draft.envelope.payload.moduleCompositions[0]?.selection).toEqual({
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		});
-		expect(draft.envelope.payload.lists[0]).not.toHaveProperty(
-			"selectionWorkflowId",
-		);
-		const normalizedContractDigest = canonicalJsonDigest(
-			draft.envelope.payload,
-		);
-		expect(normalizedContractDigest).not.toBe(rawContractDigest);
-
-		const review = await insertDesignReview({
-			envelope: reviewEnvelope(draft, emptyReview()),
-			designRevisionId: draft.id,
-			runId: RUN_ID,
-		});
-		const accepted = await insertDesignRevision({
-			envelope: acceptedEnvelope(
-				draft,
-				review.artifactDigest,
-				draft.envelope.payload,
-			),
-			lifecycle: "accepted",
-			runId: RUN_ID,
-			dispositions: [],
-		});
-
-		expect(accepted.parentRevisionId).toBe(draft.id);
-		expect(accepted.envelope.inputArtifactDigests).toContain(
-			legacyEnvelope.artifactDigest,
-		);
-		expect(accepted.contractDigest).toBe(normalizedContractDigest);
-		expect(
-			(await readDesignRevision(accepted.id))?.envelope.payload
-				.moduleCompositions[0]?.selection,
-		).toEqual({
-			workflowIds: [ids.taskVisit, ids.taskReview],
-			cases: "one",
-		});
 	});
 
 	it("refuses a revision without its persisted source package", async () => {
@@ -804,7 +699,7 @@ describe("build plans", () => {
 		await insertDesignRevision({
 			envelope: sealArtifactEnvelope({
 				artifactType: "design-contract",
-				artifactSchemaVersion: 1,
+				artifactSchemaVersion: makeContract().schemaVersion,
 				artifactId: crypto.randomUUID(),
 				designSessionId: sessionId,
 				revision: accepted.revision + 1,
@@ -856,62 +751,6 @@ describe("build plans", () => {
 		if (read === null) throw new Error("Missing stored plan");
 		expect(read.designRevisionDigest).toBe(accepted.artifactDigest);
 		expect(read.envelope.payload.slices).toHaveLength(2);
-	});
-
-	it("normalizes an omitted additive plan member only after verifying its sealed body", async () => {
-		const { accepted } = await persistAcceptedRevision();
-		const currentPlan: BuildPlan = {
-			...deriveBuildPlan({
-				contract: accepted.envelope.payload,
-				revision: { id: accepted.id, digest: accepted.artifactDigest },
-			}),
-			designRevisionId: accepted.id,
-			designRevisionDigest: accepted.artifactDigest,
-		};
-		const {
-			lookupMaterialization: _addedAfterThisPlanWasStored,
-			...storedPayload
-		} = currentPlan;
-		const storedEnvelope = sealArtifactEnvelope({
-			artifactType: "design-build-plan" as const,
-			artifactSchemaVersion: storedPayload.schemaVersion,
-			artifactId: crypto.randomUUID(),
-			designSessionId: sessionId,
-			revision: accepted.revision,
-			parentArtifactId: accepted.id,
-			sourcePackageDigest: accepted.sourcePackageDigest,
-			inputArtifactDigests: [accepted.artifactDigest],
-			promptVersion: "design-planner-v1",
-			producer: {
-				provider: "openai",
-				modelId: "gpt-test",
-				finishReason: "stop",
-			},
-			createdAt: new Date().toISOString(),
-			payload: storedPayload,
-		});
-		await h
-			.db()
-			.insertInto("design_build_plans")
-			.values({
-				id: storedPayload.id,
-				design_session_id: sessionId,
-				design_revision_id: accepted.id,
-				design_revision_digest: accepted.artifactDigest,
-				plan_digest: canonicalJsonDigest(storedPayload),
-				artifact_digest: storedEnvelope.artifactDigest,
-				producer_model: storedEnvelope.producer.modelId,
-				prompt_version: storedEnvelope.promptVersion,
-				created_by_run_id: RUN_ID,
-				envelope: JSON.stringify(storedEnvelope),
-			})
-			.execute();
-
-		const read = await readDesignBuildPlan(storedPayload.id);
-		if (read === null) throw new Error("Missing legacy plan");
-		expect(read.envelope.payload.lookupMaterialization).toBeNull();
-		expect(read.artifactDigest).toBe(storedEnvelope.artifactDigest);
-		expect(read.planDigest).toBe(canonicalJsonDigest(storedPayload));
 	});
 
 	it("refuses a plan over a draft revision", async () => {
