@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.76. Slice 2 must cover the full authoring surface before production switches. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.8024. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -111,10 +111,17 @@ foundation provides text, message, query-expression and schema codecs, plus
 scoped name binding. It is internal until the production mount supplies complete
 call scopes, read projections, and current guidance across the supported tools.
 The codec foundation is independently reviewed and green in PR #587. Production
-editor/MCP integration now binds complete call scopes, projects readable values,
-provides focused references, and defers editor tools through hosted search. Current
+editor/MCP integration is independently reviewed with all CI green in PR #588.
+It binds complete call scopes, projects readable values, provides focused
+references, and defers editor tools through hosted search. Current
 local estimates are 623 prompt tokens and 307 initially available tool tokens;
-the full 96-tool catalog remains about 80,000 tokens. The first live production-interface trial used 47,323 input tokens after discovery loaded nine tools and reloaded several definitions. Its app passed the registration runtime checks and preserved the existing Survey; follow-up visibility needs the same explicit clarification used in the earlier pilot. Scalar reference coverage, compact results,
+the full 96-tool catalog remains about 80,000 tokens. The two [production-interface trials](../research/agent-authoring-integration-2026-09-13.md)
+completed creation and clarified repair with independent Preview observations.
+Their first requests used 47,323 and 12,336 input tokens. Discovery loaded nine
+tools and reloaded several definitions during creation. The current guidance
+slice separates static MCP guidance from app reads, shares a concise app overview
+across editor/retry/MCP, and replaces copied plugin manuals with server references.
+Scalar reference coverage, compact results,
 build-executor integration, migration, and broader quality evidence remain open.
 These intermediate counts do not complete the slice.
 

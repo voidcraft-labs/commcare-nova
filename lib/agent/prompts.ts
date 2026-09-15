@@ -1,8 +1,8 @@
 /** Stable role guidance. The fresh app snapshot travels in a separate message. */
 import type { ModelMessage } from "ai";
 import type { BlueprintDoc } from "@/lib/domain";
+import { appOverview } from "./appOverview";
 import { joinPromptSegments, type PromptSegment } from "./promptSegments";
-import { summarizeBlueprint } from "./summarizeBlueprint";
 
 const PURPOSE: PromptSegment = {
 	id: "purpose",
@@ -77,8 +77,8 @@ export function buildAppStateMessage(doc: BlueprintDoc): ModelMessage | null {
 	return {
 		role: "user",
 		content:
-			"Current app state (background reference, rendered fresh from the app — not part of the user's own words):\n\n" +
-			summarizeBlueprint(doc),
+			"Current app overview from Nova (task context):\n" +
+			JSON.stringify(appOverview(doc)),
 	};
 }
 

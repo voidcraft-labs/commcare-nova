@@ -5,7 +5,7 @@
 	},
 	"designInstructions": {
 		"digest": "6bf38f7b69984908e51deb479d924d93581f77a024921f6e04e70a9869a87c1e",
-		"version": "design-agent-v27"
+		"version": "design-agent-v28"
 	},
 	"designReviewerSystem": {
 		"digest": "40969318f4a7b49975c6ec96bfdfef63da37b4efac19f03d9ef1bbeaf7072dff",
@@ -38,7 +38,7 @@
 		"finishDesign",
 		"requestReview"
 	],
-	"executorToolsetDigest": "7e004d6f79f7d36f307fdb97e053f1ad947c9810cd8a1ab08988475ce73fe65f",
+	"executorToolsetDigest": "bc4cd66fe852938d18915524d316aa2b1dfb6e67b8c5a077305bebd9b474ab4a",
 	"executorToolOrder": [
 		"getAuthoringGuide",
 		"getAutomations",

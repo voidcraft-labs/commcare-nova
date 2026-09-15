@@ -14,6 +14,10 @@ The editor mounts hosted OpenAI tool search and defers shared definitions. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.
+MCP fetches that stable guidance by mode. `appOverview.ts` supplies current app
+orientation separately, shared by editor turns, retries, and MCP `get_app`.
+Detailed questions and configuration belong to scoped reads. The plugin only
+bootstraps current server guidance; it does not keep another authoring manual.
 
 `schema.ts` projects explicit canonical content families to authored values. It
 follows Zod's preserved refinement lineage, emits reusable definitions once, and it never identifies content by a

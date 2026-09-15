@@ -25,7 +25,7 @@ import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { loadAppBlueprint } from "../loadApp";
 import { registerGetEntryPointLink } from "../tools/getEntryPointLink";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 beforeEach(() => {

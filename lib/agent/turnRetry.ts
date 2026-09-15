@@ -29,8 +29,8 @@
 
 import type { ModelMessage } from "ai";
 import type { BlueprintDoc } from "@/lib/domain";
+import { appOverview } from "./appOverview";
 import type { ClassifiedError, ErrorType } from "./errorClassifier";
-import { summarizeBlueprint } from "./summarizeBlueprint";
 
 /**
  * The failure buckets worth an automatic re-run: upstream/transport faults
@@ -102,8 +102,8 @@ export function turnRetryMessage(type: ErrorType): string {
 
 /**
  * The continuation message appended to the retry attempt's prompt: the
- * committed state (rendered by the same summarizer the edit turn's app-state
- * message uses) plus the instruction to continue rather than restart. Returns null for an empty
+ * committed overview shared with edit turns, plus the interruption context.
+ * Returns null for an empty
  * doc — with nothing committed, a bare re-run of the original messages IS the
  * continuation, and the extra message would only churn the cached prefix.
  *
@@ -123,14 +123,13 @@ export function buildTurnRetryContinuation(
 		cause === "redrive"
 			? // The instance-death re-drive: the prior run was killed mid-flight
 				// (deploy, OOM) and this is a fresh run over the same turn.
-				"Your previous attempt at this request was interrupted partway through. "
-			: "A temporary provider error interrupted your previous attempt at this request partway through. ";
+				"The previous attempt was interrupted. "
+			: "A temporary provider error interrupted the previous attempt. ";
 	return {
 		role: "user",
 		content:
 			interruption +
-			"Everything in the summary below is already committed to the app — do not re-create, re-declare, or re-add any of it. " +
-			"Continue from this state and complete only the remaining work for the original request above.\n\n" +
-			`Current app state:\n${summarizeBlueprint(doc)}`,
+			"Changes already saved are reflected below. Read the relevant parts of the app to find what remains, then finish the original request.\n\n" +
+			`Current app overview:\n${JSON.stringify(appOverview(doc))}`,
 	};
 }

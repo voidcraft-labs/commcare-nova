@@ -29,7 +29,7 @@ import { createLocation } from "@/lib/organization/service";
 import { loadAppBlueprint } from "../loadApp";
 import { registerProvisionWorkers } from "../tools/provisionWorkers";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/auth-utils", () => ({ getSession: vi.fn() }));

@@ -7,17 +7,19 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 
 ## Easy starting point
 
-`get_agent_prompt` gives an external agent Nova's app-building guidance. Build mode
-orients a new app; edit mode also includes the current app state. Use
-`get_authoring_guide` for detailed field, expression, and automation references.
+`get_agent_prompt` returns current Nova guidance for `build`, `autonomous_build`,
+or `edit`. It takes only `mode` and returns one complete text response ending
+with `NOVA-PROMPT-END`. App state is read separately with `get_app`; detailed
+reference material is available through `get_authoring_guide`.
 
-If the guidance and app state exceed the result budget, the prompt arrives in
-pages. Follow `next_cursor` with the same mode and app until `complete` is true.
-Pages carry one `prompt_sha256` and contiguous Unicode-code-point offsets; a changed
-app requires restarting the read. Edit-mode reads require current Project access,
-including on each continuation.
+`get_app` gives an overview of the workflows, record model, languages and
+configured capabilities. Read individual modules, forms or fields when their
+content matters to the task. This keeps a large app's question text out of
+every startup prompt.
 
-The complete assembled prompt always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing. Pagination keeps all guidance and the complete app summary; it does not shorten either one to fit.
+Clients using the former prompt-page protocol should refresh their Nova plugin
+or integration. The current interface has no `app_id` or `cursor` argument on
+`get_agent_prompt`; app reads still require Project access.
 
 ## Authoring and stable identities
 
@@ -39,7 +41,7 @@ case-list columns under its module. Continue from that result: no read-after-wri
 is required just to discover a new UUID.
 
 Machine-authored inline choices have exactly
-`{ "optionUuid"?: "...", "value": "...", "label": { "parts": [...] } }`.
+`{ "optionUuid"?: "...", "value": "...", "label": "Wording" }`.
 A choice's `value` is the answer the app stores, not its wording: a lowercase
 slug with words joined by underscores (`prefer_not_to_say`), unique within the
 field and kept stable once data exists. It can't hold spaces, quotes, or
@@ -70,7 +72,8 @@ when omitted. Existing IDs remain useful when names collide.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
-references for field types, form logic, record queries, and automations. Lookup
+references for workflows, field types, form logic, record queries, languages,
+people and places, shared data, and automations. Lookup
 choice sources retain explicit `tableId`, `valueColumnId`, and `labelColumnId`.
 
 Validation and repeat settings read back in their editable shapes. Choice lists
@@ -84,7 +87,7 @@ the token from the current read when setting or reviewing a translation.
 |---|---|
 | `list_apps` | List your apps with optional status filter, sort, and pagination. Each entry names the Nova Project the app lives in (`project_id` + `project_name`). |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. Entries carry the same Project columns as `list_apps`. |
-| `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. The summary opens with the app's Nova Project, so your agent always knows whose workspace it's editing. |
+| `get_app` | Get an overview of an app and its Nova Project: workflows, record model, languages, worker roles, organization and automations. Use scoped reads for content and settings. |
 | `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
 
 Database failures return a safe operational error. Correctable tool-input refusals keep their specific explanation so the agent can revise the request.
@@ -119,7 +122,7 @@ automatic-translation action.
 | Tool | What it does |
 |---|---|
 | `get_languages` | Read the ordered language catalog, source and default languages, per-target coverage, and diagnostics for content the static app-language catalog cannot translate. |
-| `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and protected reference parts. |
+| `get_translatable_content` | Page through the snapshot-bound translation inventory for one language, including source/effective values, status, breadcrumb context, and authored wording with its insertions. |
 | `add_language` | Add one target and atomically seed every current unit from an existing `copyFrom` language. |
 | `update_language` | Set the runtime default, or replace the sole source language's identity. |
 | `remove_language` | Remove a target language and its overlay. The source language and the final remaining language cannot be removed. |
@@ -132,8 +135,9 @@ review. A `review` operation repeats the explicit entry's stored fingerprint as
 `expectedSourceFingerprint`, the unit's current fingerprint as
 `expectedCurrentSourceFingerprint`, and the exact target value returned by the
 read. These independent fences refuse the whole batch if either side changed
-concurrently. Prose values keep typed reference parts; do not flatten a
-protected field reference into its displayed text.
+concurrently. Preserve answer and record insertions such as `{{name}}` when
+translating wording; replacing an insertion with its current display text would
+lose the reference.
 
 `add_language` always copies a complete effective projection. If the copy
 source itself falls back for one unit, the new target receives the value workers
@@ -210,17 +214,17 @@ A Nova Project is not a CommCare HQ project space. The Nova Project decides whic
 
 ## Building a new app from a description
 
-A new app is named `Untitled` and already contains one survey module, survey
-form, and text question. Design the requested app first, then refine that
-starter or replace it only after its valid replacement exists. `update_app`
-gives it the requested name. When
+`create_app` accepts `app_name`; omitting it uses `Untitled`. The app already
+contains one survey module, survey form, and text question. Design the requested
+app first, then refine that starter or replace it after its valid replacement
+exists. When
 the design uses custom worker information, `add_user_properties` declares it
 next, before `generate_schema`, modules, forms, conditions, or calculations can
 refer to it. `generate_schema` then commits the data model, and each
 `create_module` call lands one complete module, every call checked as it
 lands. Commcare Nova supports one submenu tier: create a top-level parent first,
 then pass its UUID as the child's `parentModuleUuid`. After a Connect build's
-forms exist, `configure_connect` sets the mode and complete UUID-addressed
+forms exist, `configure_connect` sets the mode and complete
 participant set in one call. Roles and personas can follow the app structure;
 the referenced worker information cannot.
 
@@ -235,7 +239,7 @@ the referenced worker information cannot.
 `configure_connect` owns enabling Connect, switching between `learn` and
 `deliver`, replacing the participant set, and disabling Connect. For an enabled
 mode, pass the complete nonempty set of participating forms. Every form is
-addressed by `formUuid`; an unlisted form is auxiliary and any old Connect block
+addressed by `formUuid`, which accepts its stable ID or unambiguous name; an unlisted form is auxiliary and any old Connect block
 on it is cleared.
 
 ```json
@@ -263,7 +267,7 @@ Round up and use at least `1`.
 The Connect sub-block `id` is an emitted Connect identifier, not the address of
 the Commcare Nova form. Usually omit it: Commcare Nova derives it once and stores the final value.
 An explicit id must already be valid and unique, or the whole call is refused;
-Commcare Nova never silently rewrites it. The form itself is always selected by UUID.
+Commcare Nova never silently rewrites it. The form itself is selected by its stable ID or unambiguous name.
 
 To disable Connect and clear every form's Connect block in the same change:
 
@@ -290,16 +294,11 @@ inherit a role and override individual values. Read first to get stable UUIDs:
 role and persona values name a worker-information property by
 `userPropertyUuid`, so changing its saved name never retargets the value.
 
-Custom worker-information references use that same identity. In Predicate and
-ValueExpression inputs, use
-`{ "kind": "session-user-property", "userPropertyUuid": "..." }`. The
-name-based `{ "kind": "session-user", "field": "..." }` arm is for
-CommCare-provided or external worker fields that Commcare Nova does not own. Textual
-XPath in the visual editor shows the current `#user/<saved-name>` projection.
-In an MCP `XPathExpression`, a custom property is instead an explicit
-`{ "kind": "user-property-ref", "userPropertyUuid": "..." }` part; an
-external property is a `user-ref` part. MCP never submits the projected name
-for Commcare Nova to resolve.
+Custom worker-information reads use `#user/<saved-name>` in expressions and
+`{{#user/<saved-name>}}` in wording. Nova binds the name to the property's stable
+identity. External worker values remain distinct: query expressions use
+`external-user('name')` for a built-in or external field that Nova does not own.
+Read results use the same authored expressions accepted by edits.
 
 On update tools, leaving a field out keeps it and passing `null` clears a
 clearable field. Every batch is checked as one change; if any entry would make
@@ -453,15 +452,14 @@ runtime type. Multiple keys/values or
 exact empty/whitespace values require HQ's JSON filter mode and the returned
 guide names its system-administrator prerequisite.
 
-Every message field is an `AutomationMessageTemplate`, not a magic-token
-string. Its `parts` are literal `{ kind: "text", text }` values, explicit
-`{ kind: "case-property", scope, caseType, property }` references, or closed
-`{ kind: "context-property", context, property }` case-owner/recipient
-references. Token-looking text such as `{case.case_name}` stays literal; the
-guide doubles its braces before HQ's Python Formatter evaluates the result.
-Use a structural part only when HQ should substitute a value. Reads return the
-same canonical parts, while the generated guide alone projects them to HQ
-`{case...}` / `{recipient...}` syntax. Registered custom
+Messages are text with insertions: `{{#case/case_name}}` reads the triggering
+record, `{{#parent/property}}` or `{{#host/property}}` reads its declared
+relationship, and `{{#recipient/first_name}}` or `{{#case-owner/first_name}}`
+reads account context. Nova binds these references; reads return the same text
+format. Escape a literal opening brace or backslash with a backslash. The
+exported setup guide supplies HQ's formatter syntax.
+
+Registered custom
 recipient/content IDs and setup-only condition text must be concrete, trimmed,
 and nonblank. A setup-only condition has an explicit `ucr-filter` or
 `registered-custom` kind; the returned guide names the former's
@@ -471,11 +469,11 @@ requirement whenever a custom recipient or custom content handler is present;
 registration plus project-administrator access is not sufficient.
 
 Custom case properties named `owner`, `host`, or `last_modified_by` cannot be
-used in a message `case-property` part in case, parent, or host scope. HQ adds
+used as message references in case, parent, or host scope. HQ adds
 those names to its formatter context before it adds custom case data, so the
 framework values shadow same-named custom properties. Rename the custom
-property, or use a `context-property` part when the intended value is the real
-case-owner or recipient context.
+property, or use `{{#case-owner/...}}` or `{{#recipient/...}}` when the intended
+value is account context.
 
 Conditional-alert schedules are valid only when one HQ setup form can express
 them. Every event uses one schedule-wide content type, and immediate events
@@ -547,7 +545,7 @@ the same cases, use case-list filters and design the menu structure deliberately
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Omit `parentModuleUuid` for top-level, or pass an existing top-level parent's UUID for a child. Its case type must already be recorded on the app (`generate_schema`). When the new module is born with a follow-up or close form that applies once to several chosen cases, `selection: { kind: "multiple", maximum: N }` creates that workflow atomically. A module lands complete or not at all. It returns every created UUID; predeclare only identities referenced inside the call. Refine the case list afterward via the case-list tools below. |
+| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Omit `parentModuleUuid` for top-level, or pass an existing top-level parent's UUID for a child. Its case type must already be recorded on the app (`generate_schema`). When the new module is born with a follow-up or close form that applies once to several chosen cases, `selection: { kind: "multiple", maximum: N }` creates that workflow atomically. A module lands complete or not at all. It returns every created UUID; field expressions and parents may use same-call names. Refine the case list afterward via the case-list tools below. |
 | `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. A parent must have no child modules before it can be removed. |
 | `move_module` | Reorder or reparent a module without changing its identity. `after` is always required and names a sibling in the destination menu, or is `null` for first. Omit `parentModuleUuid` to reorder within the current menu, pass `null` to make the module top-level, or pass a top-level module UUID to place it inside that menu. |
@@ -565,7 +563,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
+| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs with `#search/name`. |
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
@@ -625,10 +623,10 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; predeclare only identities referenced inside the call. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing, and `carry_search_answers: true` appends one field per Search prompt seeded from `#search/<prompt name>`. |
+| `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; field expressions and parents may use same-call names. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing, and `carry_search_answers: true` appends one field per Search prompt seeded from `#search/<prompt name>`. |
 | `update_form` | Rename, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
-| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, complete case-operation ASTs, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
+| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
 
 ### Where a form goes after submit
 
@@ -693,7 +691,8 @@ design still depends on the resource; there is no force option.
 `set_field_options_source` replaces one single- or multiple-choice field's
 complete source. A lookup source names the table, saved-value column, and
 display column by UUID. An inline source carries at least two options, each with
-its own UUID, value, and label. Switching source kinds is a complete
+a value and label; `optionUuid` is optional for new choices. Keep the identities
+of retained choices when editing. Switching source kinds is a complete
 replacement; the previous source is not retained.
 
 An optional row filter may compare columns from that same table with fixed
@@ -720,7 +719,7 @@ Most forms save their answers onto their primary case through their fields. Case
 Each tool names the form by `moduleUuid` and `formUuid`, both returned by read
 tools. An operation has an immutable `operationUuid` and a separate editable
 `id`; tools address and reference the operation by UUID. Form-answer terms use
-field UUIDs, repeat scopes use repeat-field UUIDs, and an operation target uses
+`#form/path` in authored expressions; repeat scopes use repeat-field UUIDs, and an operation target uses
 `{ "kind": "op", "opUuid": "..." }`. A later operation in one add call may
 consume an earlier create by UUID when the producer declares `operationUuid`;
 the complete list is checked and saved atomically.
@@ -728,9 +727,10 @@ the complete list is checked and saved atomically.
 Operation ids and link identifiers contain letters, numbers, and underscores
 and start with a letter or underscore. Write-property names use the same
 characters and start with a letter. These are readable, editable values rather
-than object addresses: reads return the complete canonical Predicate and
-ValueExpression ASTs, including lookup-table terms, and subsequent calls keep
-targeting the operation by `operationUuid`.
+than object addresses. Conditions and values are expressions, including
+`#form/path`, `#case/property`, lookup queries, and `id-of('earlier_operation')`.
+Reads return the same editable expressions; subsequent calls keep targeting the
+operation by `operationUuid`.
 
 Operation `writes` may save custom case properties or the standard
 `external_id` scalar. They may not write `case_name`; create, rename, and
@@ -739,7 +739,7 @@ standard scalars out of custom case-property data.
 
 | Tool | What it does |
 |---|---|
-| `get_case_operations` | List every operation in execution order with `operationUuid`, readable metadata, and the complete canonical Predicate/ValueExpression ASTs. |
+| `get_case_operations` | List every operation in execution order with `operationUuid`, readable metadata, and authored conditions and values. |
 | `add_case_operations` | Add one or more complete create, update, or close operations. Predeclare `operationUuid` for same-call references; `afterOperationUuid` is the existing anchor (`null` means first, omission appends). |
 | `update_case_operation` | Edit one operation's complete author shape by `operationUuid`. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
 | `move_case_operation` | Move `operationUuid` after `afterOperationUuid`, or pass `null` to make it first. Refuses dependency-breaking or non-portable order. |
@@ -751,7 +751,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 | Tool | What it does |
 |---|---|
-| `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; predeclare `fieldUuid` for a same-call reference, use `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. |
+| `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; use names for same-call field references and `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. |
 | `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible, text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode, keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
 | `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root; a group, repeat, or section otherwise), keeping every reference intact. |
 | `set_form_sections` | Split a form into sections (pages), re-page it, or return it to a single page, in one call. Pass the complete list of pages, first page first, each naming its top-level questions in order: keep a section by `sectionUuid`, leave it out to create one, and leave a current section out to remove it once its questions have moved. An empty list removes every section. |
@@ -760,7 +760,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches. When there are more, the result says how many and your agent should search something more specific. |
 | `rename_case_properties` | Rename one or more case properties everywhere in the app as one simultaneous, lossless change. |
 
-A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so a new sectioned form is best authored in one `add_fields` call (the sections first, with predeclared `fieldUuid`s; each question with `parentUuid` naming its section), and an existing form is re-paged with `set_form_sections` rather than a run of `move_field` calls, which the commit gate would refuse half-way. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
+A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so a new sectioned form is best authored in one `add_fields` call (each question with `parentUuid` naming its section; Nova assigns identities and orders parents before children), and an existing form is re-paged with `set_form_sections` rather than a run of `move_field` calls, which the commit gate would refuse half-way. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
 
 ### Saving a field answer to a case
 
@@ -1022,4 +1022,4 @@ Edits are checked as they happen, and publishing is checked again at the door. A
 
 ## System reminders
 
-A few read results (`get_app`, `get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.
+A few read results (`get_field`) may include a `<system_reminder>` block. It carries background context for the calling agent, for example, a case property the app reads that no form in it writes, whose values therefore come from outside the app (another app on the same case type, an integration, or sample cases created for testing). A reminder is informational, never an error: nothing needs fixing, and it isn't meant to be relayed to end users.

@@ -99,7 +99,7 @@ describe("buildTurnRetryContinuation", () => {
 		expect(buildTurnRetryContinuation(buildDoc())).toBeNull();
 	});
 
-	it("carries the committed-state summary for a doc with modules", () => {
+	it("carries current app identities for a doc with modules", () => {
 		const doc = expectAdmittedDoc(
 			buildDoc({
 				appName: "Clinic",
@@ -122,9 +122,10 @@ describe("buildTurnRetryContinuation", () => {
 		expect(msg?.role).toBe("user");
 		// The continuation must carry actual authored identities and state,
 		// independently of how the summary helper renders its other sections.
-		expect(msg?.content).toContain('### App: "Clinic"');
-		expect(msg?.content).toContain('Module "Patients"');
-		expect(msg?.content).toContain("already committed");
+		expect(msg?.content).toContain('"name":"Clinic"');
+		expect(msg?.content).toContain('"name":"Patients"');
+		expect(msg?.content).toContain(doc.moduleOrder[0]);
+		expect(msg?.content).toContain("already saved");
 	});
 });
 
@@ -138,8 +139,10 @@ it("carries worker configuration through provider retry and instance redrive", (
 	);
 	for (const cause of ["provider-retry", "redrive"] as const) {
 		const msg = buildTurnRetryContinuation(doc, cause);
-		expect(msg?.content).toContain(`region: "Region" [uuid ${uuid}]`);
-		expect(msg?.content).toContain("already committed");
+		expect(msg?.content).toContain(
+			JSON.stringify({ uuid, name: "region", label: "Region" }),
+		);
+		expect(msg?.content).toContain("already saved");
 		if (cause === "redrive")
 			expect(msg?.content).not.toContain("provider error");
 	}

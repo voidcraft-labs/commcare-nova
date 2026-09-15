@@ -16,7 +16,7 @@ import type { AppDatabase } from "@/lib/db/pg";
 import { registerGetApp } from "../tools/getApp";
 import { registerMoveApp } from "../tools/moveApp";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_move_", { authSchema: "migrated" });
 const ACTOR = "mover",
@@ -239,10 +239,15 @@ it("commits the new tenant with cases and one attributed change, preserves the c
 	);
 	await asUser("destination-reader", async (client) =>
 		expect(
-			resultText(
-				await client.callTool({ name: "get_app", arguments: { app_id: app } }),
+			JSON.parse(
+				resultText(
+					await client.callTool({
+						name: "get_app",
+						arguments: { app_id: app },
+					}),
+				),
 			),
-		).toContain(`Project: ${DESTINATION} (${DESTINATION})`),
+		).toMatchObject({ project: { id: DESTINATION, name: DESTINATION } }),
 	);
 });
 

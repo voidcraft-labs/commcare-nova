@@ -12,7 +12,7 @@ import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
 import { registerGetAppHqFeatureFlagsCompatibility } from "../tools/getAppHqFeatureFlagsCompatibility";
 import { withMcpClient } from "./client";
-import { resultText } from "./promptClient";
+import { resultText } from "./resultText";
 
 // KMS is the remaining external service boundary. The production settings
 // reader must select this ciphertext; the actual HTTP request must use its

@@ -98,7 +98,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	 * adapter intentionally can't express (ownership scans across the
 	 * full app table, HQ client calls, compile-format branching, prompt
 	 * templating). */
-	registerGetAgentPrompt(server, ctx);
+	registerGetAgentPrompt(server);
 	registerListApps(server, ctx);
 	registerSearchApps(server, ctx);
 	registerGetApp(server, ctx);
