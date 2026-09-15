@@ -121,8 +121,9 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [construction ownership #598](https://github.com/voidcraft-labs/commcare-nova/pull/598),
 [one menu model and format retirement #599](https://github.com/voidcraft-labs/commcare-nova/pull/599),
 [stable source labels #600](https://github.com/voidcraft-labs/commcare-nova/pull/600),
-and [read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602).
-These 16 Nova PRs form native GitHub stack #601; all 24 checks on each PR are green.
+[read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602),
+and [derived selection #603](https://github.com/voidcraft-labs/commcare-nova/pull/603).
+These 17 Nova PRs form native GitHub stack #601; all 24 checks on each PR are green.
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 
@@ -163,9 +164,16 @@ three drafts and reviews, then stopped at its 36-request cap without an app.
 It exposed an impossible review request to maintain a redundant selection
 workflow list, missing support for explicit choice wording, ambiguity between
 construction order and worker prerequisites, and accumulated duplicate state.
-The current slice derives selection consumers and supplies the ordinary
-one-record default. Choice wording, current context and end-to-end app quality
-remain open; another paid trial should test those improvements together.
+PR #603 derives selection consumers and supplies the ordinary one-record
+default. Independent review and all 24 CI checks are complete.
+
+The current [working-context slice](../research/agent-design-working-context-2026-09-13.md)
+retains one server state and one copy of the current candidate in each request.
+Durable history and all other messages remain intact; earlier design content
+is available through focused inspection. Offline replay of the recorded trial
+reduces state material from 207,372 to 34,750 characters with no additional paid
+calls. Choice wording, construction prerequisite meaning and end-to-end app
+quality remain open; another paid trial should test those improvements together.
 
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove

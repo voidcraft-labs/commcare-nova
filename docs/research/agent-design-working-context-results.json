@@ -1,0 +1,20 @@
+{
+	"sourceCommit": "e4ea6aa7e50c16b686d07ffb18613a73551ebb1a",
+	"snapshotSha256": "42f1e8528bf139fb1d65768291dfac94d4865df817c2c7586fdba6e345635a0e",
+	"method": "Offline replay of the recorded fourth garden trial through current production projection and state rendering. Candidate values and review content are unchanged; no provider request or app construction.",
+	"before": {
+		"stateMessages": 4,
+		"stateCharacters": 207372
+	},
+	"afterProjection": {
+		"stateMessages": 1,
+		"stateCharacters": 70484
+	},
+	"afterRendering": {
+		"stateMessages": 1,
+		"stateCharacters": 34750
+	},
+	"preservedNonStateMessages": 67,
+	"nonStateMessagesIdentical": true,
+	"paidRequests": 0
+}

@@ -1600,7 +1600,7 @@ export function designLoopToolDefinitions() {
 		},
 		inspectDesign: {
 			description:
-				"Inspect the implicit authoritative design candidate. Request a compact summary, root metadata, or up to 20 exact items from one collection. During revision, sourceRoot and sourceCollection inspect the immutable reviewed parent. Use only for a narrow lookup after resume or compaction; the state packet already carries the full current candidate.",
+				"Read part of the current design or, during revision, the reviewed source. Choose a summary, root fields, or up to 20 items from one collection.",
 			inputSchema: strictWireWithHandles(inspectDesignInputSchema),
 			strict: true,
 		},
