@@ -307,14 +307,16 @@ export async function isUserActive(userId: string): Promise<boolean> {
 
 /**
  * Whether a bearer's stored form exists in `auth_apikey`, whatever the row's
- * state (disabled and expired rows count). The MCP route asks this only
- * after `auth.api.verifyApiKey` answered `INVALID_API_KEY`, because the
- * plugin gives that same answer for a lookup that never happened: its
+ * state (disabled and expired rows count). The MCP route asks this BEFORE
+ * `auth.api.verifyApiKey`, because the plugin answers `INVALID_API_KEY`
+ * both for a hash miss and for a lookup that never happened: its
  * `verifyApiKey` catches any non-`APIError` thrown on the way to the row (a
  * pool acquire timeout, a dropped connection) and substitutes
  * `INVALID_API_KEY` for it (`node_modules/@better-auth/api-key/dist/
- * index.mjs`, the catch around `validateApiKey`). A stored row behind that
- * answer means the verify never read it, which is an outage, not a bad key.
+ * index.mjs`, the catch around `validateApiKey`). Reading the row first
+ * refuses a miss without the plugin, answers a database failure after one
+ * pool acquire, and makes the plugin's `INVALID_API_KEY` for a row known to
+ * exist mean exactly what it is: an outage, not a bad key.
  *
  * The match is on the plugin's own `defaultKeyHasher`, the form it stores
  * under `storage: "database"` while `disableKeyHashing` is off (Nova's mount

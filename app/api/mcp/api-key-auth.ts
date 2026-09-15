@@ -90,21 +90,17 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
  * that reports its collapsed database error under a new code degrades to a
  * 503 (and a logged code to map), never to a discarded key.
  *
- * Both `INVALID_API_KEY` (the plugin's hash-not-found code, verified
- * at `validateApiKey` in
- * `node_modules/@better-auth/api-key/dist/index.mjs`) and
  * `KEY_NOT_FOUND` (the plugin's stored-key-has-no-permissions code,
  * which surfaces only when the route calls `verifyApiKey` with a
- * `permissions` argument: Nova's route doesn't) collapse to the
- * same `"api key invalid"` reason. The collapse is deliberate: the
- * client gets no key-existence side channel, and the diagnostic
- * difference is preserved on the server side via the `pluginCode`
- * field of the verify-failed `log.warn`.
+ * `permissions` argument: Nova's route doesn't) reads as `"api key
+ * invalid"`: the client gets no key-existence side channel, and the
+ * diagnostic difference is preserved on the server side via the
+ * `pluginCode` field of the verify-failed `log.warn`.
  *
- * `INVALID_API_KEY` is also what the plugin answers for a database
- * error during its lookup; `handleApiKeyMcp` separates that reading
- * BEFORE mapping (see `apiKeyRowExists`), so this mapper only ever
- * sees a genuine miss.
+ * `INVALID_API_KEY` never reaches this mapper: a bearer with no stored
+ * row is refused before the plugin runs, so that code can only mean the
+ * plugin's lookup failed, and `handleApiKeyMcp` answers it as an outage
+ * (see `apiKeyRowExists`).
  *
  * `INSUFFICIENT_API_KEY_PERMISSIONS` is reserved by the plugin for
  * the org-keys path (`checkOrgApiKeyPermission`); not reachable on a
@@ -115,7 +111,6 @@ function mapApiKeyErrorCode(
 ): ApiKeyUnauthorizedReason | null {
 	switch (code) {
 		case "KEY_NOT_FOUND":
-		case "INVALID_API_KEY":
 			return "api key invalid";
 		case "KEY_EXPIRED":
 			return "api key expired";
@@ -160,13 +155,16 @@ const PREFIX_LOG_LENGTH = NOVA_API_KEY_PREFIX.length + 6;
  * its decoded `permissions.scope`. The context shape matches the JWT
  * path 1:1 so downstream tools see no difference.
  *
- * An outage is a 503, never a 401. Three reads can fail without the
- * key having been judged: the verifier throws; the verifier answers
- * `INVALID_API_KEY` for a key whose row IS stored (`apiKeyRowExists`
- * explains why that is an outage); the user-status read throws. Each
- * rejects the request (fail-closed: nothing authenticates during an
- * outage) with `mcpUnavailableResponse`, because a `401 invalid_token`
- * would tell a client holding a working key to discard it.
+ * An outage is a 503, never a 401. The stored-row read
+ * (`apiKeyRowExists`) runs FIRST: a bearer with no row is refused without
+ * the plugin, a database failure answers 503 after one pool acquire rather
+ * than after the plugin's own attempt and then ours, and once the row is
+ * known to exist the plugin's `INVALID_API_KEY` can only mean its lookup
+ * failed (it substitutes that code for a database error). The verifier
+ * throwing and the user-status read throwing are outages too. Each rejects
+ * the request (fail-closed: nothing authenticates during an outage) with
+ * `mcpUnavailableResponse`, because a `401 invalid_token` would tell a
+ * client holding a working key to discard it.
  */
 export async function handleApiKeyMcp(
 	req: Request,
@@ -177,6 +175,22 @@ export async function handleApiKeyMcp(
 		prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
 		ip: callerIpFromHeaders(req.headers),
 	};
+
+	let stored: boolean;
+	try {
+		stored = await apiKeyRowExists(key);
+	} catch (err) {
+		log.error("[mcp/api-key] key lookup unavailable", err, audit);
+		return mcpUnavailableResponse();
+	}
+	if (!stored) {
+		log.warn("[mcp/api-key] verify failed", {
+			...audit,
+			reason: "api key invalid",
+			pluginCode: "none",
+		});
+		return apiKeyUnauthorizedResponse("api key invalid");
+	}
 
 	let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
 	try {
@@ -192,25 +206,17 @@ export async function handleApiKeyMcp(
 	if (!result.valid || !result.key) {
 		const code = result.error?.code ?? undefined;
 		if (code === "INVALID_API_KEY") {
-			/* A miss or the plugin's substituted database error: only the
-			 * stored row tells them apart (see `apiKeyRowExists`). */
-			let stored: boolean;
-			try {
-				stored = await apiKeyRowExists(key);
-			} catch (err) {
-				log.error("[mcp/api-key] key lookup unavailable", err, audit);
-				return mcpUnavailableResponse();
-			}
-			if (stored) {
-				/* Cloud Logging only: the plugin already reported the
-				 * underlying error through the auth-logger bridge, and one
-				 * Sentry event per request during an outage says nothing new. */
-				log.warn("[mcp/api-key] verify could not read a stored key", {
-					...audit,
-					pluginCode: code,
-				});
-				return mcpUnavailableResponse();
-			}
+			/* The row was stored a moment ago, so the plugin's lookup failed
+			 * on the database (or the key was revoked between the two reads,
+			 * which the client's retry answers exactly). Cloud Logging only:
+			 * the plugin already reported the underlying error through the
+			 * auth-logger bridge, and one Sentry event per request during an
+			 * outage says nothing new. */
+			log.warn("[mcp/api-key] verify could not read a stored key", {
+				...audit,
+				pluginCode: code,
+			});
+			return mcpUnavailableResponse();
 		}
 		const reason = mapApiKeyErrorCode(code);
 		if (reason === null) {

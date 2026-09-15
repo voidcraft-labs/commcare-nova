@@ -89,7 +89,9 @@ beforeEach(() => {
 	isUserActiveMock.mockReset();
 	isUserActiveMock.mockResolvedValue(true);
 	apiKeyRowExistsMock.mockReset();
-	apiKeyRowExistsMock.mockResolvedValue(false);
+	/* A stored bearer, so the plugin verdict decides; the no-such-key test
+	 * flips it. */
+	apiKeyRowExistsMock.mockResolvedValue(true);
 });
 
 /* ── Helpers ────────────────────────────────────────────────────── */
@@ -346,18 +348,12 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
-	it("returns 401 with a Bearer challenge (no resource_metadata) on INVALID_API_KEY (no such key)", async () => {
-		/* `INVALID_API_KEY` is the plugin's lookup-miss code: what
-		 * fires when the bearer's hash doesn't match any stored row
-		 * (key never existed, was deleted, or was forged). Pin the
-		 * production behavior; a regression that drops the
-		 * `INVALID_API_KEY` case from `mapApiKeyErrorCode` would turn
-		 * every "no such key" 401 into an unknown-code 503. */
-		verifyApiKeyMock.mockResolvedValue({
-			valid: false,
-			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
-			key: null,
-		});
+	it("returns 401 with a Bearer challenge (no resource_metadata) for a bearer with no stored row, without running the plugin", async () => {
+		/* The stored-row read comes first: a key that never existed, was
+		 * deleted, or was forged is refused on that one read, and the plugin
+		 * (whose own miss code is indistinguishable from its database error)
+		 * never runs for it. */
+		apiKeyRowExistsMock.mockResolvedValue(false);
 		const res = await dispatch(buildRequest("Bearer sk-nova-v1-doesnotexist"));
 
 		expect(res.status).toBe(401);
@@ -368,25 +364,22 @@ describe("POST /api/mcp (API-key path)", () => {
 		/* No OAuth fallback hint on this branch: the client explicitly
 		 * sent an API key; pointing them at OAuth metadata would mislead. */
 		expect(wwwAuth).not.toContain("resource_metadata");
-		/* The miss was confirmed against the stored rows with the exact
-		 * bearer, because the plugin answers INVALID_API_KEY for an outage
-		 * too (the two tests that follow). */
 		expect(apiKeyRowExistsMock).toHaveBeenCalledWith("sk-nova-v1-doesnotexist");
+		expect(verifyApiKeyMock).not.toHaveBeenCalled();
 	});
 
-	it("answers 503 on INVALID_API_KEY when the bearer's row IS stored (the plugin's collapsed database error)", async () => {
+	it("answers 503 on INVALID_API_KEY for a bearer whose row IS stored (the plugin's collapsed database error)", async () => {
 		/* The plugin's `verifyApiKey` catches any non-APIError thrown on
 		 * the way to the row — a pool acquire timeout in production — and
-		 * returns `INVALID_API_KEY` as if the hash had missed. A stored row
-		 * behind that answer proves the verify never read it. Pinning 503
-		 * here is what keeps a database outage from telling every API-key
-		 * client its key was revoked. */
+		 * returns `INVALID_API_KEY` as if the hash had missed. The row was
+		 * stored a moment earlier, so that answer means the verify never
+		 * read it. Pinning 503 here is what keeps a database outage from
+		 * telling every API-key client its key was revoked. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: false,
 			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
 			key: null,
 		});
-		apiKeyRowExistsMock.mockResolvedValue(true);
 		const res = await dispatch(buildRequest("Bearer sk-nova-v1-storedKey1"));
 
 		expect(res.status).toBe(503);
@@ -395,15 +388,11 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
-	it("answers 503 on INVALID_API_KEY when the stored-row check itself fails", async () => {
-		/* Under a sustained outage the confirming read fails the same way
-		 * the verify did; the answer stays 503, never a 401 that would
-		 * discard the key. */
-		verifyApiKeyMock.mockResolvedValue({
-			valid: false,
-			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
-			key: null,
-		});
+	it("answers 503 when the stored-row read itself fails, before the plugin runs", async () => {
+		/* Under an outage the first read fails on the pool's acquire
+		 * timeout; the answer is 503 after that one attempt, never a 401
+		 * that would discard the key, and the plugin is not asked to wait
+		 * out a second attempt. */
 		apiKeyRowExistsMock.mockRejectedValue(
 			new Error("timeout exceeded when trying to connect"),
 		);
@@ -411,6 +400,7 @@ describe("POST /api/mcp (API-key path)", () => {
 
 		expect(res.status).toBe(503);
 		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(verifyApiKeyMock).not.toHaveBeenCalled();
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
@@ -428,13 +418,12 @@ describe("POST /api/mcp (API-key path)", () => {
 
 		expect(res.status).toBe(503);
 		expect(res.headers.get("WWW-Authenticate")).toBeNull();
-		expect(apiKeyRowExistsMock).not.toHaveBeenCalled();
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 
-	it("does not consult the stored rows for a plugin verdict that names the key's own state", async () => {
+	it("maps a plugin verdict that names the key's own state to its specific 401", async () => {
 		/* KEY_DISABLED / KEY_EXPIRED come from a row the plugin DID read;
-		 * no second read is owed, and the 401 reason stays specific. */
+		 * the 401 reason stays specific and nothing reads as an outage. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: false,
 			error: { code: "KEY_DISABLED", message: "API Key is disabled" },
@@ -446,7 +435,6 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(res.headers.get("WWW-Authenticate")).toContain(
 			'error_description="api key disabled"',
 		);
-		expect(apiKeyRowExistsMock).not.toHaveBeenCalled();
 	});
 
 	it("also maps KEY_NOT_FOUND to 'api key invalid' (plugin's internal scope-mismatch / no-permissions code path)", async () => {
@@ -676,6 +664,31 @@ it("forwards native body, headers, query and cancellation through the auth-route
 	} finally {
 		controller.abort();
 	}
+});
+
+it("answers 503 when the auth router throws before a verdict (its rate-limit read failing on the pool)", async () => {
+	/* Better Auth's rate limiter reads the database in the router's
+	 * `onRequest`, outside the router's own error handling, so a pool
+	 * acquire timeout there escapes `auth.handler` before either bearer
+	 * path runs. The shim owns that throw: an outage, retried, never a 500
+	 * that reads as "do not retry". */
+	authHandlerMock.mockRejectedValueOnce(
+		new Error("timeout exceeded when trying to connect"),
+	);
+	const { POST } = await import("../route");
+	const response = await POST(
+		new Request("https://mcp.commcare.app/mcp", {
+			method: "POST",
+			headers: {
+				authorization: "Bearer sk-nova-v1-test",
+				"content-type": "application/json",
+			},
+			body: "{}",
+		}),
+	);
+	expect(response.status).toBe(503);
+	expect(response.headers.get("Retry-After")).toBe("5");
+	expect(response.headers.get("WWW-Authenticate")).toBeNull();
 });
 
 it.each(["", "{bad json"])(

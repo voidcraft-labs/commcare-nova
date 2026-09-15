@@ -374,7 +374,9 @@ type LockedThreadAuthority =
  * its transaction for seconds on a long thread; an exclusive authority lock
  * would park that traffic behind it, and each parked statement holds one of
  * the instance's few pooled connections, so unrelated requests on the same
- * instance fail on their acquire timeout.
+ * instance fail on their acquire timeout. The run's own exclusive writers
+ * (heartbeats, guarded commits, the settle) do still queue for the
+ * rewrite's duration; share strength frees only share-mode traffic.
  *
  * App target: the app row. Design-session target: the session's app mapping
  * is resolved WITHOUT a held lock first — a MATERIALIZED (or completed edit)

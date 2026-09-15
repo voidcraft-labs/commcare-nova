@@ -4,12 +4,17 @@
  *
  * `threads.ts::lockThreadTargetAuthority` holds the app row, the
  * design-session row, or both `FOR SHARE`, then the thread row `FOR UPDATE`
- * (its docblock owns the why). The contract under test: while a transcript
- * write is mid-flight, its authority row still admits the run's other
- * share-mode traffic — the `FOR SHARE` app read behind every authorization
- * (`loadAppInTransaction`) and the `FOR KEY SHARE` an appended
- * `chat_stream_chunks` row takes through its design-session foreign key
- * (`appendStreamChunks`).
+ * (its docblock owns the why). The contract under test has two halves.
+ * While a transcript write is mid-flight, its authority row still admits
+ * the run's other share-mode traffic — the `FOR SHARE` app read behind
+ * every authorization (`loadAppInTransaction`) and the `FOR KEY SHARE` an
+ * appended `chat_stream_chunks` row takes through its design-session
+ * foreign key (`appendStreamChunks`). And the same row still refuses a
+ * holder transition until the write lands: an UPDATE of the authority row
+ * (what every claim, release, and settle ends in) waits on the parked
+ * snapshot, which is the proof `threadTargetHolderMatches` relies on. A
+ * weaker lock (`FOR KEY SHARE`, or none) passes the first half and fails the
+ * second.
  *
  * Each case parks a barrier snapshot behind a held thread row (its second
  * lock) with the shared `whileBlocked` barrier, probes the authority row from
@@ -29,6 +34,7 @@
  * merges.
  */
 import type { UIMessage } from "ai";
+import type { Client } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { loadAppInTransaction } from "../canonicalCommitKernel";
@@ -135,7 +141,10 @@ async function seedLiveThread(
 async function whileSnapshotParked(
 	target: GenerationTarget,
 	threadId: string,
-	probe: (contenders: ReturnType<typeof createPerTestAppDb>) => Promise<void>,
+	probe: (
+		contenders: ReturnType<typeof createPerTestAppDb>,
+		controller: Client,
+	) => Promise<{ landed: Promise<unknown> } | undefined>,
 ): Promise<void> {
 	/* Every session the contender pool opens from here on (the snapshot's
 	 * and the probes') inherits the bound; the harness pool's session, already
@@ -149,6 +158,9 @@ async function whileSnapshotParked(
 	await h.pool().query(bound.rows[0]?.statement ?? "");
 	const contenders = createPerTestAppDb(h.uri());
 	__setAppDbForTests(contenders.appDb);
+	/* A holder transition the probe started while parked; it may land only
+	 * after the snapshot does. */
+	let transition: Promise<unknown> | undefined;
 	try {
 		await whileBlocked(
 			h,
@@ -166,14 +178,16 @@ async function whileSnapshotParked(
 					responseMessage: assistantMsg("m2", "step one"),
 					clearMarker: false,
 				}),
-			async (settled) => {
+			async (settled, controller) => {
 				/* The snapshot holds its authority lock and waits on the thread
-				 * row; the probes below must not wait on it. */
+				 * row; the share-mode probes must not wait on it. */
 				expect(settled).toBe(false);
-				await probe(contenders);
+				transition = (await probe(contenders, controller))?.landed;
 			},
 		);
+		await transition;
 	} finally {
+		if (transition !== undefined) await Promise.allSettled([transition]);
 		__setAppDbForTests(h.db());
 		await contenders.destroy();
 	}
@@ -181,6 +195,41 @@ async function whileSnapshotParked(
 	const doc = await loadThread(target, threadId);
 	expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 	expect(doc?.active_stream_id).toBe(STREAM);
+}
+
+/**
+ * Start a holder-transition UPDATE of the authority row and prove Postgres
+ * parks it behind the snapshot (the backend the holder is blocking), not
+ * behind the holder itself. Handed back still pending, behind a wrapper so
+ * nothing awaits it before the release; it lands after the snapshot does.
+ */
+async function probeHolderTransitionWaits(
+	controller: Client,
+	update: () => Promise<unknown>,
+): Promise<{ landed: Promise<unknown> }> {
+	let settled = false;
+	const transition = update().finally(() => {
+		settled = true;
+	});
+	await vi.waitFor(async () => {
+		await controller.query("SELECT pg_stat_clear_snapshot()");
+		const waiting = await controller.query<{ count: number }>(
+			`SELECT count(*)::int AS count
+			 FROM pg_stat_activity AS waiter
+			 WHERE waiter.datname = current_database()
+			   AND EXISTS (
+			     SELECT 1 FROM pg_stat_activity AS parked
+			     WHERE parked.datname = current_database()
+			       AND pg_backend_pid() = ANY(pg_blocking_pids(parked.pid))
+			       AND parked.pid = ANY(pg_blocking_pids(waiter.pid))
+			   )`,
+		);
+		expect(waiting.rows[0]?.count).toBe(1);
+	});
+	expect(settled).toBe(false);
+	/* Wrapped so the async return does not adopt (and wait on) the pending
+	 * transition itself. */
+	return { landed: transition };
 }
 
 async function probeAppAuthorizationRead(
@@ -225,8 +274,19 @@ describe("thread authority lock strength", () => {
 			const target: GenerationTarget = { kind: "app", appId };
 			await seedLiveThread(target, "thread-app-lock", runId);
 
-			await whileSnapshotParked(target, "thread-app-lock", (contenders) =>
-				probeAppAuthorizationRead(contenders, appId),
+			await whileSnapshotParked(
+				target,
+				"thread-app-lock",
+				async (contenders, controller) => {
+					await probeAppAuthorizationRead(contenders, appId);
+					return probeHolderTransitionWaits(controller, () =>
+						contenders.appDb
+							.updateTable("apps")
+							.set({ updated_at: new Date() })
+							.where("id", "=", appId)
+							.execute(),
+					);
+				},
 			);
 		},
 		CASE_TIMEOUT_MS,
@@ -243,8 +303,19 @@ describe("thread authority lock strength", () => {
 			};
 			await seedLiveThread(target, "thread-session-lock", runId);
 
-			await whileSnapshotParked(target, "thread-session-lock", (contenders) =>
-				probeStreamChunkAppend(contenders, target, runId),
+			await whileSnapshotParked(
+				target,
+				"thread-session-lock",
+				async (contenders, controller) => {
+					await probeStreamChunkAppend(contenders, target, runId);
+					return probeHolderTransitionWaits(controller, () =>
+						contenders.appDb
+							.updateTable("design_sessions")
+							.set({ updated_at: new Date() })
+							.where("id", "=", sessionId)
+							.execute(),
+					);
+				},
 			);
 		},
 		CASE_TIMEOUT_MS,
@@ -269,6 +340,7 @@ describe("thread authority lock strength", () => {
 				async (contenders) => {
 					await probeAppAuthorizationRead(contenders, appId);
 					await probeStreamChunkAppend(contenders, target, runId);
+					return undefined;
 				},
 			);
 		},
