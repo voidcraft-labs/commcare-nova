@@ -55,6 +55,10 @@ import {
 	type DesignIdentityHandleEntityKind,
 	designIdSchema,
 } from "@/lib/agent/design/ids";
+import {
+	bindDesignInlineChoices,
+	inlineChoicesAuthoringWireSchema,
+} from "@/lib/agent/design/inlineChoiceAuthoring";
 import type { LookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
 import {
 	bindDesignLookupEvidence,
@@ -405,7 +409,9 @@ function stagedDesignIdentityOccurrences(input: unknown) {
 export function designToolWireSchema(schema: z.ZodType): unknown {
 	return widenDesignIdsToHandles(
 		lookupChoiceAuthoringWireSchema(
-			sourceAuthoringWireSchema(strictWireJsonSchema(schema)),
+			inlineChoicesAuthoringWireSchema(
+				sourceAuthoringWireSchema(strictWireJsonSchema(schema)),
+			),
 		),
 	);
 }
@@ -1740,9 +1746,15 @@ export function createDesignLoopActions(
 		});
 		if (!sources.ok)
 			return rejectedStage(deps, repairTool, { error: sources.error });
+		const choices = bindDesignInlineChoices(
+			designArtifactWorkspaceOperationSchema,
+			sources.value,
+		);
+		if (!choices.ok)
+			return rejectedStage(deps, repairTool, { error: choices.error });
 		const bound = await bindDesignLookupEvidence({
 			schema: designArtifactWorkspaceOperationSchema,
-			input: sources.value,
+			input: choices.value,
 			workspace,
 			inspectProjectData: deps.inspectProjectData,
 		});

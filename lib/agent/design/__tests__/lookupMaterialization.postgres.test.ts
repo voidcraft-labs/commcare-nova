@@ -183,7 +183,7 @@ async function existingLookupFixture() {
 		(property) => property.id === ids.factRisk,
 	);
 	if (risk === undefined) throw new Error("Missing risk property");
-	delete risk.choiceValues;
+	delete risk.choices;
 	risk.choiceSource = {
 		kind: "existing-project-lookup",
 		tableId: table.tableId,

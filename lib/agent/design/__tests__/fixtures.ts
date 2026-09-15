@@ -87,7 +87,7 @@ export const ids = {
 
 export function makeContract(): AppDesignContract {
 	return appDesignContractSchema.parse({
-		schemaVersion: 3,
+		schemaVersion: 4,
 		id: ids.contract,
 		charter: {
 			appName: "CHW patient visits",
@@ -144,7 +144,10 @@ export function makeContract(): AppDesignContract {
 						meaning: "The triage level used for follow-up.",
 						dataShape: "single-choice",
 						sensitivity: "sensitive",
-						choiceValues: ["routine", "priority"],
+						choices: [
+							{ value: "routine", label: "Routine" },
+							{ value: "priority", label: "Priority" },
+						],
 					},
 				],
 			},
@@ -461,7 +464,7 @@ export function makeLookupContract(): AppDesignContract {
 		.flatMap((record) => record.properties)
 		.find((property) => property.id === ids.factRisk);
 	if (risk === undefined) throw new Error("Risk fixture property is missing.");
-	delete risk.choiceValues;
+	delete risk.choices;
 	risk.choiceSource = {
 		kind: "designed-project-lookup",
 		tableId: ids.lookupRisk,

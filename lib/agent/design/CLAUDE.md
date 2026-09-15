@@ -46,7 +46,7 @@ valid direct Builder or MCP edit.
   (which would mint a WRONG UUID for it); declaring an `@f`-numbered handle
   for a design element is refused (`designReservedHandleIssue`).
 - `contract.ts` owns the one Design Contract vocabulary. The server sets
-  `schemaVersion: 3`; authors do not supply format metadata. Current readers
+  `schemaVersion: 4`; authors do not supply format metadata. Current readers
   verify sealed bytes and parse only the current schema. Obsolete private
   sessions are retired by the separate [format cutover](../../../docs/architecture/design-format-cutover.md),
   not converted on read. `graph.ts` runs inside
@@ -56,8 +56,14 @@ valid direct Builder or MCP edit.
   and a blocking user question for every unresolved construction dependency.
   A structurally incoherent contract is never persisted. New-artifact
   construction admission additionally requires every controlled choice to
-  carry either at least two distinct real inline values or one canonical lookup
-  source. An existing source names current table/value/label UUIDs; a designed
+  carry either at least two distinct inline choices with visible wording or one
+  canonical lookup source. `choices` keeps each saved value beside its label.
+  Authors may supply labels directly; `inlineChoiceAuthoring.ts` mints omitted
+  values with the shared Unicode-aware value generator and reserves supplied
+  codes before minting defaults. Binding visits only schema-marked choice arrays.
+  Current storage, review and execution always carry the explicit pairs, so the
+  executor does not infer wording from a code. Duplicate values and blank labels
+  are refused. Existing property and form-only input scopes remain unchanged. An existing source names current table/value/label UUIDs; a designed
   source names the exact table and columns by DesignId. Catalog display names
   let the author find an existing resource; the stable identities returned
   beside those names are what the contract retains. The accepted source
@@ -412,7 +418,7 @@ state projects it back to the selected revision. Existing workspace operations
 and the source contract retain the evidence needed for replay after a source is
 removed from the candidate; no separate receipt registry exists. Submission,
 acceptance, and materialization retain their current Project-data checks.
-Workspace operations use storage version 4. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
+Workspace operations use storage version 5. The [one-time format cutover](../../../docs/architecture/design-format-cutover.md)
 retires older private design sessions, including their obsolete choice-evidence
 operations. It preserves sealed artifacts, conversation messages, billing,
 canonical apps and Project data. Current readers exclude retired scopes before

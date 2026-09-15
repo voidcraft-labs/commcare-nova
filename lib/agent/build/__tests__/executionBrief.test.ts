@@ -50,6 +50,32 @@ function briefAt(index: number) {
 }
 
 describe("deriveSliceExecutionBrief", () => {
+	it("carries accepted choice codes and wording together without deriving labels during execution", () => {
+		const contract = cloneContract(makeContract());
+		const choices = [
+			{ value: "R", label: "Routine follow-up" },
+			{ value: "U", label: "Contact a supervisor today" },
+		];
+		fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		).choices = choices;
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: fixtureValue(plan.slices[0], "registration slice").id,
+		});
+		expect(
+			brief.records
+				.flatMap((record) => record.properties)
+				.find((property) => property.id === ids.factRisk)?.choices,
+		).toEqual(choices);
+	});
+
 	it("carries destination access with its menu's workflow", () => {
 		const contract = makeWorkflowChainContract(3);
 		contract.actors.push(fixtureValue(makeContract().actors[1], "supervisor"));

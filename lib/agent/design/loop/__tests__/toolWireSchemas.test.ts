@@ -13,6 +13,7 @@ import {
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import { designedLookupChoiceSourceSchema } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
+import { bindDesignInlineChoices } from "@/lib/agent/design/inlineChoiceAuthoring";
 import {
 	designToolWireSchema,
 	inspectProjectDataInputSchema,
@@ -31,6 +32,7 @@ const actor = { ...makeContract().actors[0], id: handle("worker") };
 function recordInput(
 	parentRecordId: unknown = null,
 	choiceSource: unknown = null,
+	choices: unknown = null,
 ) {
 	return {
 		upserts: [
@@ -47,10 +49,13 @@ function recordInput(
 						id: handle("risk"),
 						name: "Risk",
 						meaning: "Patient priority",
-						dataShape: choiceSource === null ? "text" : "single-choice",
+						dataShape:
+							choiceSource === null && choices === null
+								? "text"
+								: "single-choice",
 						sensitivity: "ordinary",
 						requiredWhen: null,
-						choiceValues: null,
+						choices,
 						choiceSource,
 					},
 				],
@@ -78,6 +83,38 @@ function canonical<T>(schema: z.ZodType<T>, input: unknown): T {
 }
 
 describe("strict semantic design payloads", () => {
+	it("accepts choice wording with optional saved codes and binds the canonical values", () => {
+		const input = recordInput(null, null, [
+			"Dry",
+			{ label: "Imported dry code", value: "dry" },
+			{ label: "Damp", value: null },
+			"Wet",
+		]);
+		const schema = designCollectionUpdateInputSchemas.records;
+		expectWire(schema, input);
+		expect(JSON.stringify(designToolWireSchema(schema))).not.toContain(
+			"x-nova-design-inline-choices",
+		);
+		const bound = bindDesignInlineChoices(schema, input);
+		if (!bound.ok) throw new Error(bound.error);
+		const result = canonical(schema, bound.value);
+		expect(result.upserts[0]?.properties[0]?.choices).toEqual([
+			{ value: "dry_2", label: "Dry" },
+			{ value: "dry", label: "Imported dry code" },
+			{ value: "damp", label: "Damp" },
+			{ value: "wet", label: "Wet" },
+		]);
+		for (const invalid of [
+			[" "],
+			[{ value: "dry", label: "" }],
+			[{ value: "has space", label: "Valid wording" }],
+		]) {
+			expect(validate(schema, recordInput(null, null, invalid)).valid).toBe(
+				false,
+			);
+		}
+	});
+
 	it("admits a complete actor update and removal, then resolves the same handle consistently", () => {
 		const input = { upserts: [actor], removeIds: [handle("former_worker")] };
 		expectWire(designCollectionUpdateInputSchemas.actors, input);

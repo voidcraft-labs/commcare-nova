@@ -30,6 +30,7 @@ import {
 } from "../retireDesignFormats";
 import legacyContract from "./fixtures/design-contract-v1.json";
 import selectionContract from "./fixtures/design-contract-v2.json";
+import valuesContract from "./fixtures/design-contract-v3.json";
 
 const h = setupAppStateTestDb("retire_design_formats_", {
 	poolMax: 3,
@@ -40,7 +41,7 @@ const project = "proj-1";
 const digest = "a".repeat(64);
 const oldRun = "historical-design";
 
-/** Original contracts captured at 1237d2e5 (v1) and e4ea6aa7 (v2). */
+/** Original contracts captured at 1237d2e5 (v1), e4ea6aa7 (v2) and e40c6f7b (v3). */
 async function seedRevision(
 	sessionId: string,
 	payload: { schemaVersion: number } = legacyContract,
@@ -159,7 +160,7 @@ async function seedUsage(sessionId: string, accounted: boolean) {
 
 async function seedWorkspace(
 	sessionId: string,
-	storageVersion: 2 | 3 | typeof DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
+	storageVersion: 2 | 3 | 4 | typeof DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION,
 ) {
 	const workspaceId = randomUUID();
 	const lineage = {
@@ -188,7 +189,15 @@ async function seedWorkspace(
 								removeIds: [],
 							},
 						]
-					: [],
+					: storageVersion === 4
+						? [
+								{
+									collection: "records",
+									upserts: valuesContract.records,
+									removeIds: [],
+								},
+							]
+						: [],
 	};
 	await h
 		.db()
@@ -236,33 +245,36 @@ async function immutableSnapshot(appId: string, sessionId: string) {
 }
 
 describe("one-time design-format retirement", () => {
-	it("retires a version-2 design without rewriting its sealed selection metadata", async () => {
-		const sessionId = await h.seedDesignSession({
-			owner_user_id: actor,
-			project_id: project,
-		});
-		const revisionId = await seedRevision(sessionId, selectionContract);
-		const readBytes = () =>
-			h
-				.pool()
-				.query("SELECT envelope::text FROM design_revisions WHERE id = $1", [
-					revisionId,
-				]);
-		const before = await readBytes();
-		await expect(readDesignRevision(revisionId)).rejects.toThrow();
-		expect(await scanObsoleteDesignFormats()).toMatchObject([
-			{ sessionId, status: "ready", obsoleteRevisions: 1 },
-		]);
-		expect((await readBytes()).rows).toEqual(before.rows);
-		expect(await retireObsoleteDesignSession(sessionId)).toMatchObject({
-			status: "retired",
-		});
-		expect((await readBytes()).rows).toEqual(before.rows);
-		expect(await readDesignRevision(revisionId)).toBeNull();
-		expect(await scanObsoleteDesignFormats()).toEqual([]);
-	});
+	it.each([selectionContract, valuesContract])(
+		"retires a version-$schemaVersion design without rewriting its sealed metadata",
+		async (contract) => {
+			const sessionId = await h.seedDesignSession({
+				owner_user_id: actor,
+				project_id: project,
+			});
+			const revisionId = await seedRevision(sessionId, contract);
+			const readBytes = () =>
+				h
+					.pool()
+					.query("SELECT envelope::text FROM design_revisions WHERE id = $1", [
+						revisionId,
+					]);
+			const before = await readBytes();
+			await expect(readDesignRevision(revisionId)).rejects.toThrow();
+			expect(await scanObsoleteDesignFormats()).toMatchObject([
+				{ sessionId, status: "ready", obsoleteRevisions: 1 },
+			]);
+			expect((await readBytes()).rows).toEqual(before.rows);
+			expect(await retireObsoleteDesignSession(sessionId)).toMatchObject({
+				status: "retired",
+			});
+			expect((await readBytes()).rows).toEqual(before.rows);
+			expect(await readDesignRevision(revisionId)).toBeNull();
+			expect(await scanObsoleteDesignFormats()).toEqual([]);
+		},
+	);
 
-	it.each([2, 3] as const)(
+	it.each([2, 3, 4] as const)(
 		"retires version-%i workspace-only sessions and preserves current private work",
 		async (storageVersion) => {
 			const oldSession = await h.seedDesignSession({
