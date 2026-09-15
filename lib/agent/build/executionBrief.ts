@@ -1,4 +1,5 @@
 import { uniqueSlug } from "@/lib/domain/idSlug";
+import { deriveAcceptedPropertyNames } from "./acceptedRecordCatalog";
 import { orderSlicesForExecution } from "./sliceOrder";
 /** Exact, derived execution context for one workflow slice. */
 
@@ -60,6 +61,7 @@ type ExecutionChoiceReference =
 	| DesignedLookupChoiceSource;
 type ExecutionRecordConcept = Omit<RecordConcept, "properties"> & {
 	readonly properties: readonly (Omit<RecordProperty, "choiceSource"> & {
+		readonly blueprintProperty: string;
 		readonly choiceSource?: ExecutionChoiceReference;
 	})[];
 };
@@ -921,23 +923,36 @@ export function deriveSliceExecutionBrief(args: {
 		actors: args.contract.actors.filter((actor) => actorIds.has(actor.id)),
 		records: args.contract.records
 			.filter((record) => recordIds.has(record.id))
-			.map((record) => ({
-				...record,
-				properties: record.properties
-					.filter(
-						(property) =>
-							ownedPropertyIds.has(property.id) ||
-							usedPropertyIds.has(property.id),
-					)
-					.map((property) => ({
-						...property,
-						...(property.choiceSource === undefined
-							? {}
-							: {
-									choiceSource: executionChoiceReference(property.choiceSource),
-								}),
-					})),
-			})),
+			.map((record) => {
+				const propertyNames = deriveAcceptedPropertyNames(record);
+				return {
+					...record,
+					properties: record.properties
+						.filter(
+							(property) =>
+								ownedPropertyIds.has(property.id) ||
+								usedPropertyIds.has(property.id),
+						)
+						.map((property) => {
+							const blueprintProperty = propertyNames.get(property.id);
+							if (blueprintProperty === undefined)
+								throw new Error(
+									`Missing accepted property mapping for ${property.id}.`,
+								);
+							return {
+								...property,
+								blueprintProperty,
+								...(property.choiceSource === undefined
+									? {}
+									: {
+											choiceSource: executionChoiceReference(
+												property.choiceSource,
+											),
+										}),
+							};
+						}),
+				};
+			}),
 		recordRealizations: allRecordRealizations.filter((record) =>
 			recordIds.has(record.recordId),
 		),

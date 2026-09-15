@@ -11,7 +11,7 @@ import { budgetForSlice } from "../budgets";
 import { deriveSliceExecutionBrief } from "../executionBrief";
 import { type ExecutorWorkspace, runSliceExecutor } from "../executorLoop";
 
-function setup() {
+function setup(withCatalog = false) {
 	const plan = makeBuildPlan();
 	const brief = deriveSliceExecutionBrief({
 		contract: makeContract(),
@@ -40,16 +40,20 @@ function setup() {
 			);
 		},
 	};
-	return { brief, workspace };
+	return { brief: withCatalog ? brief : { ...brief, records: [] }, workspace };
 }
 
 describe("executor deadline ownership", () => {
-	it.each(["snapshot", "progress", "persistence"] as const)(
+	it.each(["snapshot", "progress", "persistence", "catalog"] as const)(
 		"cancels its deadline when %s fails before a model request",
 		async (failure) => {
 			vi.useFakeTimers();
 			const reason = new Error(`Unavailable ${failure}`);
-			const { brief, workspace } = setup();
+			const { brief, workspace } = setup(failure === "catalog");
+			if (failure === "catalog")
+				workspace.stageDispatch = async () => {
+					throw reason;
+				};
 			if (failure === "snapshot")
 				workspace.currentSnapshot = () => {
 					throw reason;

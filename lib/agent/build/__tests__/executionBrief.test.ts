@@ -134,7 +134,9 @@ describe("deriveSliceExecutionBrief", () => {
 				plan,
 				sliceId: firstSlice.id,
 			});
-			expect(brief.records[0].properties).toContainEqual(savedValue);
+			expect(brief.records[0].properties).toContainEqual(
+				expect.objectContaining(savedValue),
+			);
 			expect(
 				first.readback.flatMap((entry) => entry.propertyIds),
 			).not.toContain(savedValue.id);
@@ -187,7 +189,7 @@ describe("deriveSliceExecutionBrief", () => {
 		const brief = briefAt(0);
 		const contract = makeContract();
 		expect(brief.workflow).toEqual(contract.workflows[0]);
-		expect(brief.records).toEqual([contract.records[0]]);
+		expect(brief.records).toMatchObject([contract.records[0]]);
 		expect(brief.actors).toEqual(contract.actors);
 		expect(brief.lists).toEqual(contract.lists);
 		expect(brief.access).toEqual(contract.access);
@@ -970,7 +972,7 @@ describe("deriveSliceExecutionBrief", () => {
 				sliceId: slice.id,
 			});
 			expect(brief.workflow).toEqual(contract.workflows[index]);
-			expect(brief.records).toEqual([contract.records[index]]);
+			expect(brief.records).toMatchObject([contract.records[index]]);
 			expect(brief.recordRealizations).toEqual([
 				{
 					recordId: did(1000 + index),

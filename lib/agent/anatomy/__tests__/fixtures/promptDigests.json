@@ -1,7 +1,7 @@
 {
 	"executorSystem": {
-		"digest": "65e899e504e3da389697c8ead41d9c2eca20ba4afedce62d08eb267befb4019d",
-		"version": "build-executor-v21"
+		"digest": "a7e640a927e0a971c8f93ea18de7648c70d8ca27180eed390083302491fb355b",
+		"version": "build-executor-v22"
 	},
 	"designInstructions": {
 		"digest": "1ba24ae3663afb94731b20718619de6146d2682eab11cbc500969429d612ba3f",
@@ -39,7 +39,7 @@
 		"inspectDesign",
 		"finishDesign"
 	],
-	"executorToolsetDigest": "1cb7f46ef0cd4949c92b51ef83d0030fcc9bce69c4bff6df0b4314a39875c606",
+	"executorToolsetDigest": "c1f20027e22a8c2db0ab6045417c6fc2a6677164814f73a6c137420573a22549",
 	"executorToolOrder": [
 		"getAuthoringGuide",
 		"getAutomations",
@@ -70,7 +70,6 @@
 		"createForm",
 		"createModule",
 		"editField",
-		"generateSchema",
 		"updateCaseProperty",
 		"moveField",
 		"setFormSections",
@@ -78,7 +77,6 @@
 		"removeField",
 		"removeForm",
 		"removeModule",
-		"renameCaseProperties",
 		"addCaseOperations",
 		"updateCaseOperation",
 		"removeCaseOperation",

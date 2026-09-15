@@ -65,6 +65,7 @@ export const APPEND_KEY_FAMILIES: readonly KeyFamily[] = [
  * budget claims and idempotency fences. Listed so the source sweep can tell
  * a new message family from a new claim key. */
 export const NON_MESSAGE_KEY_PREFIXES: readonly string[] = [
+	"accepted-record-catalog:",
 	"model:",
 	"mutation:",
 	"design-claim:",

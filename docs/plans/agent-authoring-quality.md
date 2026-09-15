@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $31.2690 across 289 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $31.5460 across 311 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -197,7 +197,20 @@ fixture provenance. It committed registration and correction, then reached the
 app is preserved as evidence; this is not full design or app-quality success.
 Shared field-name resolution now accepts unique short names for nested fields,
 addressing two recorded reference refusals without weakening ambiguity checks.
-Exact accepted input bindings and semantic completion remain unfinished.
+[PR #609](https://github.com/voidcraft-labs/commcare-nova/pull/609) is independently reviewed and all 24 checks pass. The native stack now contains 23 reviewed, green Nova PRs, plus the reviewed plugin PR.
+
+The next construction-only trial used the same accepted design, the reviewed
+field-name change, and a 60-request harness cap. It stopped at the production
+attempt budget after 22 requests, before creating an app; it cost $0.2770.
+It did not reach the grouped weekly form, so it does not establish a live
+improvement from short field names. Registration and correction from the earlier
+partial app passed independently reviewed real submission checks. Weekly checks,
+history, navigation, and a complete garden build remain unproved.
+
+[Accepted record preparation](../research/agent-accepted-record-catalog-2026-09-13.md)
+moves catalog definitions already determined by the design into server-owned
+preparation through the ordinary private workspace. Exact accepted input bindings
+and semantic completion remain unfinished.
 
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove

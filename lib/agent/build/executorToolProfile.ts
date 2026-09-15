@@ -33,11 +33,7 @@ const READS_BY_AREA = {
 
 const MUTATIONS_BY_AREA = {
 	app: ["updateApp"],
-	"case-catalog": [
-		"generateSchema",
-		"updateCaseProperty",
-		"renameCaseProperties",
-	],
+	"case-catalog": ["updateCaseProperty"],
 	users: [
 		"addUserProperties",
 		"updateUserProperty",
@@ -193,6 +189,11 @@ export const STABLE_EXECUTOR_TOOL_PROFILE: ExecutorToolProfile = {
 		.filter(([, entry]) => entry.policy.effect === "read-blueprint")
 		.map(([name]) => name),
 	mutationTools: Array.from(CHANGE_SET_TOOL_REGISTRY.entries())
-		.filter(([, entry]) => entry.policy.effect === "mutate-blueprint")
+		.filter(
+			([name, entry]) =>
+				name !== "generateSchema" &&
+				name !== "renameCaseProperties" &&
+				entry.policy.effect === "mutate-blueprint",
+		)
 		.map(([name]) => name),
 };
