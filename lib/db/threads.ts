@@ -381,9 +381,13 @@ type LockedThreadAuthority =
  * App target: the app row. Design-session target: the session's app mapping
  * is resolved WITHOUT a held lock first — a MATERIALIZED (or completed edit)
  * session delegates authority to its bound app, whose row is then the one
- * locked (the mapping is write-once, so the unlocked read cannot go stale in
- * the direction that matters); an active pre-app session locks its own row
- * (§11.7's lock order).
+ * locked, then the session row (§11.7's lock order); an active pre-app
+ * session locks its own row. The mapping is write-once, so that unlocked
+ * read can go stale in exactly one direction: a session with no app can
+ * materialize while this writer waits for its row. The pre-app arm's locked
+ * read carries `app_id` to see that, releases the session lock it took (a
+ * savepoint), and re-resolves through the bound-app arm, so no writer ever
+ * holds the two rows in the reverse order.
  */
 async function lockThreadTargetAuthority(
 	tx: Transaction<AppDatabase>,
@@ -410,37 +414,54 @@ async function lockThreadTargetAuthority(
 		.executeTakeFirst();
 	if (!mapping) return null;
 	if (mapping.app_id !== null) {
-		const app = await tx
-			.selectFrom("apps")
-			.select([...LEASE_COLUMNS, "project_id"])
-			.where("id", "=", mapping.app_id)
-			.forShare()
-			.executeTakeFirst();
-		if (!app) return null;
-		const session = await tx
-			.selectFrom("design_sessions")
-			.select("state")
-			.where("id", "=", target.designSessionId)
-			.forShare()
-			.executeTakeFirst();
-		if (!session || session.state === "retired") return null;
-		return {
-			kind: "app",
-			projectId: app.project_id,
-			lease: runLeaseState(leaseView(app)),
-		};
+		return lockBoundAppAuthority(tx, target.designSessionId, mapping.app_id);
 	}
+	await sql`SAVEPOINT thread_authority`.execute(tx);
 	const session = await tx
 		.selectFrom("design_sessions")
-		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state"])
+		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state", "app_id"])
 		.where("id", "=", target.designSessionId)
 		.forShare()
 		.executeTakeFirst();
+	if (session?.app_id != null) {
+		/* Materialized while this writer waited: give the session lock back
+		 * and take the bound-app arm in its own order. */
+		await sql`ROLLBACK TO SAVEPOINT thread_authority`.execute(tx);
+		return lockBoundAppAuthority(tx, target.designSessionId, session.app_id);
+	}
+	await sql`RELEASE SAVEPOINT thread_authority`.execute(tx);
 	if (!session || session.state === "retired") return null;
 	return {
 		kind: "design-session",
 		projectId: session.project_id,
 		lease: designSessionLeaseState(session),
+	};
+}
+
+/** The bound-app arm: the app row, then the session row, both `FOR SHARE`. */
+async function lockBoundAppAuthority(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+	appId: string,
+): Promise<LockedThreadAuthority | null> {
+	const app = await tx
+		.selectFrom("apps")
+		.select([...LEASE_COLUMNS, "project_id"])
+		.where("id", "=", appId)
+		.forShare()
+		.executeTakeFirst();
+	if (!app) return null;
+	const session = await tx
+		.selectFrom("design_sessions")
+		.select("state")
+		.where("id", "=", designSessionId)
+		.forShare()
+		.executeTakeFirst();
+	if (!session || session.state === "retired") return null;
+	return {
+		kind: "app",
+		projectId: app.project_id,
+		lease: runLeaseState(leaseView(app)),
 	};
 }
 

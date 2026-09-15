@@ -26,12 +26,16 @@
  * connection stays usable and its transaction rolls back cleanly) rather
  * than abandoned by a client-side timer.
  *
- * The last case covers what share strength gives up: the authority row no
- * longer serializes writers of a thread whose row does not exist yet, so the
- * per-thread identity lock (`lockThreadIdentity`) must. Two same-holder
- * writers creating one fresh thread are parked on that identity from a third
- * session, released together, and must both land: one inserts, the other
- * merges.
+ * Two more cases cover the edges of the authority resolution. Share
+ * strength no longer serializes writers of a thread whose row does not exist
+ * yet, so the per-thread identity lock (`lockThreadIdentity`) must: two
+ * same-holder writers creating one fresh thread are parked on that identity
+ * from a third session, released together, and must both land, one
+ * inserting and the other merging. And a pre-app session can materialize
+ * while a writer waits for its row: the writer, parked on the session row
+ * held by the materialization, must resolve to the bound app's holder once
+ * that commits rather than reading the cleared session authority as a lost
+ * run.
  */
 import type { UIMessage } from "ai";
 import type { Client } from "pg";
@@ -155,7 +159,13 @@ async function whileSnapshotParked(
 			"SELECT format('ALTER DATABASE %I SET statement_timeout = %L', current_database(), $1::text) AS statement",
 			[PROBE_STATEMENT_TIMEOUT],
 		);
-	await h.pool().query(bound.rows[0]?.statement ?? "");
+	const statement = bound.rows[0]?.statement;
+	if (statement === undefined) {
+		throw new Error(
+			"The per-test database did not report its name, so the statement bound could not be set.",
+		);
+	}
+	await h.pool().query(statement);
 	const contenders = createPerTestAppDb(h.uri());
 	__setAppDbForTests(contenders.appDb);
 	/* A holder transition the probe started while parked; it may land only
@@ -404,6 +414,71 @@ describe("thread authority lock strength", () => {
 			}
 			const doc = await loadThread(target, threadId);
 			expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+		},
+		CASE_TIMEOUT_MS,
+	);
+
+	it(
+		"a writer parked on a session that materializes meanwhile resolves to the bound app's holder",
+		async () => {
+			const appId = "app-materialized-meanwhile";
+			const runId = "run-materialized-meanwhile";
+			const threadId = "thread-materialized-meanwhile";
+			await seedHeldApp(appId, runId);
+			const sessionId = await seedHeldSession(runId);
+			const target: GenerationTarget = {
+				kind: "design-session",
+				designSessionId: sessionId,
+			};
+			const contenders = createPerTestAppDb(h.uri());
+			__setAppDbForTests(contenders.appDb);
+			try {
+				const written = await whileBlocked(
+					h,
+					/* The materialization transfer in flight: it holds the session
+					 * row, and the writer's unlocked mapping read still sees no app. */
+					(pg) =>
+						pg.query(
+							"SELECT id FROM design_sessions WHERE id = $1 FOR UPDATE",
+							[sessionId],
+						),
+					() =>
+						upsertThreadTurn({
+							target,
+							threadId,
+							runId,
+							streamId: STREAM,
+							holderNonce: NONCE,
+							threadType: "build",
+							messages: [userMsg("m1", "build me an app")],
+							expectedProjectId: PROJECT,
+						}),
+					async (settled, pg) => {
+						expect(settled).toBe(false);
+						/* The transfer: bind the app and clear the session's own
+						 * authority, exactly what materialization commits. */
+						await pg.query(
+							`UPDATE design_sessions
+							 SET app_id = $1, state = 'materialized',
+							     run_id = NULL, run_holder_nonce = NULL, run_actor_user_id = NULL,
+							     run_mode = NULL, run_lease_expires_at = NULL,
+							     res_period = NULL, res_reserved = NULL, res_settled = NULL,
+							     res_user_id = NULL, res_run_id = NULL
+							 WHERE id = $2`,
+							[appId, sessionId],
+						);
+					},
+					undefined,
+					"COMMIT",
+				);
+				expect(written).toBe(true);
+			} finally {
+				__setAppDbForTests(h.db());
+				await contenders.destroy();
+			}
+			const doc = await loadThread(target, threadId);
+			expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
+			expect(doc?.active_stream_id).toBe(STREAM);
 		},
 		CASE_TIMEOUT_MS,
 	);
