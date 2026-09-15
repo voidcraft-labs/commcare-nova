@@ -144,7 +144,6 @@ describe("updateCaseListColumn", () => {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		expect(result.result.uuid).toBe(TARGET_UUID);
-		expect(result.result.message).toContain(String(TARGET_UUID));
 	});
 
 	it("returns the canonical UUID-address error for an unknown module", async () => {

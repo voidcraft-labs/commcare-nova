@@ -146,7 +146,8 @@ describe("removeModule", () => {
 		});
 
 		expect(out.result).toMatchObject({
-			message: expect.stringContaining('Case type "visit"'),
+			ok: true,
+			retiredCaseType: "visit",
 		});
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 		expect(out.mutations).toEqual([

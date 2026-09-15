@@ -33,6 +33,7 @@ import {
 	SHARED_TOOL_REGISTRY,
 	type SharedToolRegistryEntry,
 } from "./sharedToolRegistry";
+import { withoutToolPresentation, withSavedDataReview } from "./toolResults";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { wireToolSchema } from "./wireSchemas";
 import { CanonicalMutationWorkspace } from "./workspace/canonicalWorkspace";
@@ -83,6 +84,12 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
 						.inputSchema,
 					strict: false,
 					providerOptions: { openai: { deferLoading: true } },
+					...(entry.policy.effect !== "read-blueprint" && {
+						toModelOutput: ({ output }: { output: unknown }) => ({
+							type: "text" as const,
+							value: JSON.stringify(withoutToolPresentation(output)),
+						}),
+					}),
 				},
 			]),
 		),
@@ -189,27 +196,11 @@ export function createSolutionsArchitect(
 											outcome.data,
 											invocationCtx,
 										);
-									case "mutate": {
-										/* A committed row migration that PARKED saved case values
-										 * stashed a note on the host — append it to a
-										 * message-bearing result so the SA relays the data
-										 * consequence to the user, never silently. */
-										const parkedNote = ctx.consumeParkedNote?.();
-										if (
-											parkedNote !== undefined &&
-											typeof outcome.result === "object" &&
-											outcome.result !== null &&
-											"message" in outcome.result &&
-											typeof (outcome.result as { message: unknown })
-												.message === "string"
-										) {
-											return {
-												...outcome.result,
-												message: `${(outcome.result as { message: string }).message}\n\n${parkedNote}`,
-											};
-										}
-										return outcome.result;
-									}
+									case "mutate":
+										return withSavedDataReview(
+											outcome.result,
+											ctx.consumeSavedDataReview(),
+										);
 								}
 							} catch (err) {
 								/* Read-shaped tools can still own external side effects

@@ -355,7 +355,7 @@ describe("GenerationContext.recordMutations", () => {
 		expect(result.committedDoc?.appName).toBe("retirement-committed");
 	});
 
-	it("stashes a rename's park outcome as the consumable note for the tool wrapper", async () => {
+	it("retains a rename's saved-data consequence for the tool wrapper", async () => {
 		vi.mocked(applyBlueprintChange).mockResolvedValue({
 			seq: 4,
 			committedDoc: committedDocFor("rename-committed"),
@@ -378,14 +378,13 @@ describe("GenerationContext.recordMutations", () => {
 
 		await recordProposal(ctx, [rename], renameableDoc());
 
-		// Read-and-clear: the first consume returns the person-readable
-		// note (the tool wrapper appends it to its success message so the
-		// SA relays the data consequence); the second returns nothing.
-		const note = ctx.consumeParkedNote();
-		expect(note).toContain("1 saved case value");
-		expect(note).toContain("kept it for review");
-		expect(note).toContain("age→years");
-		expect(ctx.consumeParkedNote()).toBeUndefined();
+		expect(ctx.consumeSavedDataReview()).toEqual({
+			values: 1,
+			reasons: [expect.stringContaining("age→years")],
+			additionalReasons: 0,
+			location: "Case data",
+		});
+		expect(ctx.consumeSavedDataReview()).toBeUndefined();
 	});
 
 	it.each([

@@ -65,7 +65,7 @@ export const updateAppTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully set the app's name to "${input.name}".`,
+					ok: true,
 					summary,
 				},
 			};

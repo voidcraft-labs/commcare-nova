@@ -43,29 +43,6 @@ export interface RecordMutationsResult {
 export type RecordMutationsOptions = MutationApplicationPolicy;
 
 /**
- * Render a committed row migration's park outcome as the note the surface
- * wrapper appends to its success message (a park must never be invisible to
- * the person who caused it). Typed structurally so this leaf imports no
- * storage implementation.
- */
-export function describeParkedOutcome(outcome: {
-	readonly parked: number;
-	readonly failureReasons: readonly string[];
-}): string {
-	const detail = outcome.failureReasons.slice(0, 3).join("; ");
-	const more =
-		outcome.failureReasons.length > 3
-			? ` (and ${outcome.failureReasons.length - 3} more)`
-			: "";
-	return (
-		`Data note: ${outcome.parked} saved case value${outcome.parked === 1 ? "" : "s"} ` +
-		`could not convert to the new type, so Nova kept ${outcome.parked === 1 ? "it" : "them"} for review — ` +
-		`the cases themselves are intact, and the values can be reviewed and put back ` +
-		`under Case data in the builder. ${detail}${more}`
-	);
-}
-
-/**
  * One stage of a multi-stage edit: the batch plus the doc AFTER it applied
  * to the previous stage's doc. The per-stage `stage` tag keeps the event
  * log's chapter shapes while the whole sequence gates and persists as one

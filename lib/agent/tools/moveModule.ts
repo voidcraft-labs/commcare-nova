@@ -194,20 +194,11 @@ export const moveModuleTool = {
 				siblingIndex <= 0
 					? null
 					: (committedSiblings[siblingIndex - 1] ?? null);
-			let placement: string;
-			if (committedAfter === null) {
-				placement =
-					committedParent === null
-						? "to the top of the menu"
-						: `to the start of "${commit.newDoc.modules[committedParent]?.name ?? committedParent}"`;
-			} else {
-				placement = `after "${commit.newDoc.modules[committedAfter]?.name ?? committedAfter}"`;
-			}
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Moved module "${moved.name}" ${placement}.`,
+					ok: true,
 					after: committedAfter,
 					parentModuleUuid: committedParent,
 					childModuleUuids: childModuleUuids(commit.newDoc, target.moduleUuid),

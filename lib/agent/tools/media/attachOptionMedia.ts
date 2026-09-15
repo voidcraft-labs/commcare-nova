@@ -37,7 +37,6 @@ import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	bundleExpectations,
 	commitMediaBatch,
-	joinBatchLines,
 	mediaBundleInput,
 	type ResolvedMediaBatchItem,
 } from "./shared";
@@ -156,10 +155,6 @@ export const attachOptionMediaTool = {
 						media,
 						`option "${optionUuid}" of field "${field.id}"`,
 					),
-					line:
-						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} media on option "${optionUuid}" of field "${field.id}"`
-							: `cleared media on option "${optionUuid}" of field "${field.id}"`,
 				});
 			}
 
@@ -185,7 +180,7 @@ export const attachOptionMediaTool = {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
 				result: {
-					message: joinBatchLines(resolved.map((r) => r.line)),
+					ok: true,
 					summary: { count: attachments.length },
 				},
 			};

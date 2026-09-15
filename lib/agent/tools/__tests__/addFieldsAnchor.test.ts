@@ -83,7 +83,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			fields: [textField("qx")],
 			afterFieldUuid: fieldUuidOf(doc, "qa"),
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qa", "qx", "qb", "qc"]);
 	});
 
@@ -95,7 +95,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			fields: [textField("qx")],
 			beforeFieldUuid: fieldUuidOf(doc, "qc"),
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qx", "qc"]);
 	});
 
@@ -107,7 +107,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			fields: [textField("qx"), textField("qy"), textField("qz")],
 			afterFieldUuid: fieldUuidOf(doc, "qa"),
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual([
 			"qa",
 			"qx",
@@ -126,7 +126,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			fields: [textField("qx")],
 			beforeFieldUuid: fieldUuidOf(doc, "qa"),
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qx", "qa", "qb", "qc"]);
 	});
 
@@ -138,7 +138,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			fields: [textField("qx")],
 			afterFieldUuid: fieldUuidOf(doc, "qc"),
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qc", "qx"]);
 	});
 
@@ -149,7 +149,7 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 			...address(doc),
 			fields: [textField("qx")],
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qc", "qx"]);
 	});
 });

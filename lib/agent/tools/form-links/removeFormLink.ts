@@ -9,7 +9,6 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	fallbackPinSentence,
 	formName,
 	linkAddressSchema,
 	linkByUuid,
@@ -97,7 +96,7 @@ export const removeFormLinkTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Removed ${label} from form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}`,
+					ok: true,
 					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
 					summary: {
 						location: name,

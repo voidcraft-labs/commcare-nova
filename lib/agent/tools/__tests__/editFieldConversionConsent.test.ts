@@ -9,7 +9,7 @@
  * The contract these tests pin:
  *
  *   - a failable flip with a non-empty counted impact returns
- *     `{ needsConfirmation, message }` and persists NOTHING;
+ *     `{ needsConfirmation }` and persists NOTHING;
  *   - the SAME call with `confirmConversion: true` proceeds without
  *     re-counting (consent was given against the relayed numbers);
  *   - a failable flip whose count comes back empty proceeds directly —
@@ -114,6 +114,13 @@ describe("editField — conversion consent", () => {
 			);
 		}
 		expect(result.result.needsConfirmation).toEqual({
+			caseType: "patient",
+			newlyHeldCases: 2,
+			consequence:
+				"Values move to Data to review; affected cases are excluded until review.",
+			recovery:
+				"Review the values in Case data or revert the property conversion.",
+			confirmation: { confirmConversion: true },
 			property: "score",
 			fromType: "decimal",
 			toType: "int",
@@ -122,12 +129,6 @@ describe("editField — conversion consent", () => {
 			alreadyHeld: 1,
 			samples: ["17.5", "1.25", "3.25"],
 		});
-		// The prose carries the counts, the hold consequence, and the
-		// expressible next state.
-		expect(result.result.message).toContain("3 of 12");
-		expect(result.result.message).toContain("held out of the running app");
-		expect(result.result.message).toContain("confirmConversion: true");
-
 		expect(h.conversionImpact).toHaveBeenCalledExactlyOnceWith({
 			caseType: "patient",
 			property: "score",

@@ -112,10 +112,7 @@ export const updateCaseOperationTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message:
-						mutations.length === 0
-							? `Case operation "${existing.id}" was already up to date.`
-							: `Updated case operation "${existing.id}"${input.operation.id === existing.id ? "" : ` as "${input.operation.id}"`}.`,
+					ok: true,
 					operationUuid: existing.uuid,
 					operationId: input.operation.id,
 					summary: {

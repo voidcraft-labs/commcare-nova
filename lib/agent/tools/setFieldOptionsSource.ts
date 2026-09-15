@@ -27,7 +27,9 @@ export const setFieldOptionsSourceInputSchema = fieldAddressSchema
 export type SetFieldOptionsSourceInput = z.infer<
 	typeof setFieldOptionsSourceInputSchema
 >;
-export type SetFieldOptionsSourceResult = MutationSuccess | { error: string };
+export type SetFieldOptionsSourceResult =
+	| (MutationSuccess & { options?: Array<{ uuid: Uuid; value: string }> })
+	| { error: string };
 
 export const setFieldOptionsSourceTool = {
 	description:
@@ -97,15 +99,6 @@ export const setFieldOptionsSourceTool = {
 				field.kind,
 				source,
 			);
-			/* Name the table the way the author does. The catalog is already in
-			 * scope, and a UUID in a message the SA relays to a person is a
-			 * string nobody can act on. */
-			const tableName =
-				source.kind === "lookup"
-					? ((await ctx.lookupCatalog?.())?.definitions.find(
-							(table) => table.id === source.tableId,
-						)?.name ?? "the selected table")
-					: undefined;
 			const commit = await guardedMutate(ctx, [mutation], "field:options");
 			if (!commit.ok) {
 				return {
@@ -121,10 +114,10 @@ export const setFieldOptionsSourceTool = {
 				// has anything to say about them.
 				mutations: commit.mutations,
 				result: {
-					message:
-						source.kind === "inline"
-							? `Set "${field.id}" to ${source.options.length} inline choices.`
-							: `Set "${field.id}" to the ${tableName} data table.`,
+					ok: true,
+					...(source.kind === "inline" && {
+						options: source.options.map(({ uuid, value }) => ({ uuid, value })),
+					}),
 					summary: { subject: field.id },
 				},
 			};

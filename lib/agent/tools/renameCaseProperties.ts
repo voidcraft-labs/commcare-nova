@@ -131,7 +131,7 @@ export const renameCasePropertiesTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Renamed ${count} case ${count === 1 ? "property" : "properties"} across ${impact.totalOccurrences} document ${impact.totalOccurrences === 1 ? "occurrence" : "occurrences"} in ${impact.totalCarriers} ${impact.totalCarriers === 1 ? "carrier" : "carriers"} as one simultaneous app-wide change.`,
+					ok: true,
 					renames: input.renames,
 					impact,
 					summary: {

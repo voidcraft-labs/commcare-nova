@@ -1,7 +1,9 @@
 /** Admitted domain commands through the actual workspace and reducer over
  * controlled host receipts. No browser layout or SQL transaction claim. */
+import type { ToolUIPart } from "ai";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { toolDetail } from "@/lib/chat/toolSummary";
 import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -22,7 +24,8 @@ function completedResult(
 	result: ConfigureCaseSelectionResult,
 ): ConfigureCaseSelectionSuccess {
 	if (result.outcome === "unavailable") throw new Error(result.error);
-	if (result.outcome === "needs_changes") throw new Error(result.message);
+	if (result.outcome === "needs_changes")
+		throw new Error(JSON.stringify(result));
 	return result;
 }
 
@@ -146,9 +149,6 @@ describe("configureCaseSelection", () => {
 			kind: "multiple",
 			maximum: 20,
 		});
-		expect(completed.message).toContain(
-			"select up to 20 cases before continuing",
-		);
 		expect(completed.summary).toEqual({ location: "Patient" });
 	});
 
@@ -221,9 +221,6 @@ describe("configureCaseSelection", () => {
 		expect(completed.outcome).toBe("applied");
 		expect(completed.clearedPersistentTile).toBe(true);
 		expect(h.currentDoc().modules[MOD_A].caseListConfig?.tile).toEqual({});
-		expect(completed.message).toContain(
-			"Results layout and grouping are unchanged",
-		);
 	});
 
 	it("refuses a survey module with no case list without mutating it", async () => {
@@ -288,6 +285,16 @@ describe("configureCaseSelection", () => {
 			blockers: [],
 		});
 		expect(first.result.confirmationToken).toMatch(/^[a-f0-9]{64}$/);
+		expect(
+			toolDetail({
+				type: "tool-configureCaseSelection",
+				toolCallId: "confirmation",
+				state: "output-available",
+				input: {},
+				output: first.result,
+			} as ToolUIPart),
+		).toBe("Linked workflows also need this change. Nothing has changed yet.");
+		expect(first.result).not.toHaveProperty("message");
 
 		const retry = await h.runTool(configureCaseSelectionTool, {
 			moduleUuid: MOD_A,

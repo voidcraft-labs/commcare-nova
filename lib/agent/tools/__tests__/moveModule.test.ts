@@ -75,7 +75,7 @@ describe("moveModule", () => {
 				after: uuidOf(doc, "Visits"),
 			},
 		]);
-		expect(result.result.message).toBe('Moved module "Intake" after "Visits".');
+
 		expect(result.result.after).toBe(uuidOf(doc, "Visits"));
 		expect(result.result.moduleOrder).toEqual(h.currentDoc().moduleOrder);
 		expect(result.result.summary).toEqual({ subject: "Intake" });
@@ -91,9 +91,7 @@ describe("moveModule", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
 		expect(menu(h.currentDoc())).toEqual(["Reports", "Intake", "Visits"]);
-		expect(result.result.message).toBe(
-			'Moved module "Reports" to the top of the menu.',
-		);
+
 		expect(result.result.after).toBeNull();
 	});
 
@@ -267,8 +265,5 @@ describe("moveModule", () => {
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
 		expect(result.result.after).toBe(uuidOf(doc, "Visits"));
-		expect(result.result.message).toBe(
-			'Moved module "Reports" after "Visits".',
-		);
 	});
 });

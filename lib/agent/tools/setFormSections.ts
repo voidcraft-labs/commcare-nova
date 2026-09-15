@@ -43,9 +43,7 @@ import { formSectionsOf } from "@/lib/doc/formSectionVerdicts";
 import {
 	asUuid,
 	type BlueprintDoc,
-	type ProseTemplate,
 	proseTemplateSchema,
-	proseTemplateText,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -97,9 +95,10 @@ export type SetFormSectionsInput = z.infer<typeof setFormSectionsInputSchema>;
 
 export interface SetFormSectionsSuccess extends MutationSuccess {
 	/** The form's pages after the call, first page first. */
+	rootFieldUuids: Uuid[];
+	unchanged?: true;
 	sections: Array<{
 		sectionUuid: Uuid;
-		label: ProseTemplate | null;
 		fieldUuids: Uuid[];
 	}>;
 }
@@ -138,8 +137,10 @@ export const setFormSectionsTool = {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						message: `"${form.name}" is already arranged this way (${describeCount(sections.length)}); nothing changed.`,
+						ok: true,
 						sections,
+						unchanged: true,
+						rootFieldUuids: [...orderedFieldUuids(doc, formUuid)],
 						summary: { location: form.name, noop: true },
 					},
 				};
@@ -156,25 +157,13 @@ export const setFormSectionsTool = {
 			// onto fresh stored state, so a peer's concurrent edit is already
 			// merged in and is what the SA continues against.
 			const sections = projectSections(commit.newDoc, formUuid);
-			const questionCount = sections.reduce(
-				(n, section) => n + section.fieldUuids.length,
-				0,
-			);
-			const message =
-				sections.length === 0
-					? `Removed the sections from "${form.name}"; its ${orderedFieldUuids(commit.newDoc, formUuid).length} top-level questions are on a single page again, in their previous order.`
-					: `Arranged "${form.name}" into ${describeCount(sections.length)}: ${sections
-							.map((section, index) => pageTitle(section.label, index))
-							.join(
-								", ",
-							)}. ${questionCount} top-level ${questionCount === 1 ? "question sits" : "questions sit"} on those pages; getForm returns each section as a container with its questions as children.`;
-
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message,
+					ok: true,
 					sections,
+					rootFieldUuids: [...orderedFieldUuids(commit.newDoc, formUuid)],
 					summary: { location: form.name, count: sections.length },
 				},
 			};
@@ -193,20 +182,9 @@ function projectSections(
 	formUuid: Uuid,
 ): SetFormSectionsSuccess["sections"] {
 	return formSectionsOf(doc, formUuid).map((sectionUuid) => {
-		const field = doc.fields[sectionUuid];
 		return {
 			sectionUuid,
-			label: field?.kind === "section" ? (field.label ?? null) : null,
 			fieldUuids: [...orderedFieldUuids(doc, sectionUuid)],
 		};
 	});
-}
-
-function describeCount(n: number): string {
-	return `${n} ${n === 1 ? "section" : "sections"}`;
-}
-
-function pageTitle(label: ProseTemplate | null, index: number): string {
-	const text = label ? proseTemplateText(label).trim() : "";
-	return text.length > 0 ? `"${text}"` : `section ${index + 1} (untitled)`;
 }

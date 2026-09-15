@@ -110,7 +110,6 @@ describe("moveField — anchored placement", () => {
 			"charlie",
 			"grp",
 		]);
-		expect(result.result.message).toContain('Moved "alpha" after "bravo"');
 	});
 
 	it("reorders within the same parent (beforeFieldUuid wins over afterFieldUuid)", async () => {
@@ -167,7 +166,6 @@ describe("moveField — parentUuid placement", () => {
 			"golf_two",
 			"alpha",
 		]);
-		expect(result.result.message).toContain('to the end of "grp"');
 	});
 
 	it("moves a nested field to the form's top level on parentUuid: null", async () => {

@@ -54,7 +54,7 @@ export type SetCaseSearchDisplayInput = z.infer<
  * was cleared.
  */
 export interface SetCaseSearchDisplaySuccess {
-	message: string;
+	ok: true;
 	displaySlotsSet: readonly DisplaySlotName[];
 	summary: ToolCallSummary;
 }
@@ -128,10 +128,7 @@ export const setCaseSearchDisplayTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message:
-						displaySlotsSet.length === 0
-							? `Cleared every case-search display slot on module "${mod.name}" (${moduleUuid}).`
-							: `Set case-search display on module "${mod.name}" (${moduleUuid}): ${displaySlotsSet.join(", ")}.`,
+					ok: true,
 					displaySlotsSet,
 					summary: { location: mod.name },
 				},

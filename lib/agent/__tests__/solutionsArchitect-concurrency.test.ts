@@ -1,5 +1,6 @@
 /** Per-SA invocation ordering through real provider HTTP decoding and SDK
  * sibling dispatch. Controlled persistence receipts do not prove SQL locking. */
+import { convertToModelMessages, type UIMessage } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -13,7 +14,10 @@ import type {
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
-import { createSolutionsArchitect } from "../solutionsArchitect";
+import {
+	createSolutionsArchitect,
+	solutionsArchitectToolDefinitions,
+} from "../solutionsArchitect";
 import { expectAdmittedDoc } from "./admittedFixture";
 import { makeTestContext } from "./fixtures";
 import { withResponsesPeer } from "./responsesPeer";
@@ -214,6 +218,52 @@ describe("solutionsArchitect — tool execution serializer", () => {
 					release.resolve();
 					const result = await work;
 					expect(result.text).toBe("Edits complete.");
+					const written = observedBodies[1]?.input.find(
+						(item) =>
+							item.type === "function_call_output" && item.call_id === "call_0",
+					);
+					const modelReceipt = JSON.parse(written?.output ?? "null");
+					expect(modelReceipt).toMatchObject({
+						ok: true,
+						fields: [{ id: "dob", uuid: expect.any(String) }],
+					});
+					expect(modelReceipt).not.toHaveProperty("summary");
+					expect(modelReceipt).not.toHaveProperty("message");
+					const uiReceipt = result.steps[0]?.toolResults[0]?.output;
+					expect(uiReceipt).toHaveProperty("summary");
+					const history: UIMessage[] = [
+						{
+							id: "saved-answer",
+							role: "assistant",
+							parts: [
+								{
+									type: "tool-addFields",
+									toolCallId: "call_0",
+									state: "output-available",
+									input: {
+										formUuid: FORM,
+										fields: [
+											{ id: "dob", kind: "date", label: "Date of birth" },
+										],
+									},
+									output: uiReceipt,
+								},
+							],
+						},
+					];
+					const resumed = await convertToModelMessages(history, {
+						tools: solutionsArchitectToolDefinitions(),
+					});
+					expect(resumed).toContainEqual({
+						role: "tool",
+						content: [
+							expect.objectContaining({
+								toolName: "addFields",
+								output: { type: "text", value: JSON.stringify(modelReceipt) },
+							}),
+						],
+					});
+
 					expect(commitGuardedBatchMock).toHaveBeenCalledTimes(2);
 					const read = observedBodies[1]?.input.find(
 						(item) =>
@@ -287,8 +337,10 @@ describe("solutionsArchitect — tool execution serializer", () => {
 			automation,
 		});
 		expect(updateResult).toMatchObject({
-			message:
-				'Automation "Follow-up survey" already has the requested settings.',
+			ok: true,
+			unchanged: true,
+			setupRequired: true,
+			hqUpdated: false,
 		});
 
 		const formResult = (await runTool(sa, "getForm", {

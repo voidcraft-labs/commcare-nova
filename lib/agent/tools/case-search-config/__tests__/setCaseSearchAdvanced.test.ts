@@ -79,7 +79,6 @@ describe("setCaseSearchAdvanced", () => {
 			throw new Error(`unexpected error: ${result.result.error}`);
 		}
 		expect(result.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
-		expect(result.result.message).toContain("excludedOwnerIds");
 	});
 
 	it("clears the excluded owner ids slot when null is passed", async () => {
@@ -119,7 +118,6 @@ describe("setCaseSearchAdvanced", () => {
 		// "Cleared every …" prose branch. Both surfaces drop in lockstep
 		// off the same `slotsSetByInput` projection.
 		expect(result.result.advancedSlotsSet).toEqual([]);
-		expect(result.result.message).toContain("Cleared every");
 	});
 
 	it("preserves display cluster when setting advanced", async () => {

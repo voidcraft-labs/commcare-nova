@@ -271,7 +271,8 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 		});
 
 		expect(result).toMatchObject({
-			message: expect.stringContaining("patient, visit"),
+			ok: true,
+			recorded: ["patient", "visit"],
 		});
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
@@ -300,7 +301,8 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 		});
 
 		expect(result).toMatchObject({
-			message: expect.stringContaining("Added new properties"),
+			ok: true,
+			extended: ["patient"],
 		});
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);
@@ -408,7 +410,8 @@ describe("solutionsArchitect — admitted mutation receipt projection", () => {
 		});
 
 		expect(result).toMatchObject({
-			message: expect.stringContaining("bare declaration"),
+			ok: true,
+			enriched: ["visit"],
 		});
 		const muts = mutationEvents(writer);
 		expect(muts).toHaveLength(1);

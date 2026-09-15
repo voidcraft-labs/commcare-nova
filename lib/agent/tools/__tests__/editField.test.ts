@@ -178,7 +178,7 @@ describe("editField — rename identifier guard", () => {
 			updates: { kind: "text", id: "full_name" },
 		});
 
-		expect(result.result).toHaveProperty("message");
+		expect(result.result).toHaveProperty("ok", true);
 		expect(h.currentDoc().fields[FIELD]?.id).toBe("full_name");
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
@@ -431,12 +431,10 @@ describe("editField — a hidden field carries one value source", () => {
 			calculate: true,
 			default_value: false,
 		});
-		expect(result.result.message).toContain(
-			"Changed: calculate, default_value (cleared).",
-		);
-		expect(result.result.message).toContain(
-			"Set calculate and cleared default_value",
-		);
+		expect(result.result).toMatchObject({
+			ok: true,
+			valueSource: { set: "calculate", cleared: "default_value" },
+		});
 		// ONE staged commit: the clear rides the same updateField patch.
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
@@ -460,12 +458,10 @@ describe("editField — a hidden field carries one value source", () => {
 			calculate: false,
 			default_value: true,
 		});
-		expect(result.result.message).toContain(
-			"Changed: default_value, calculate (cleared).",
-		);
-		expect(result.result.message).toContain(
-			"Set default_value and cleared calculate",
-		);
+		expect(result.result).toMatchObject({
+			ok: true,
+			valueSource: { set: "default_value", cleared: "calculate" },
+		});
 	});
 
 	it("converting text with a default to hidden while setting calculate lands calculate alone", async () => {
@@ -490,7 +486,10 @@ describe("editField — a hidden field carries one value source", () => {
 			calculate: true,
 			default_value: false,
 		});
-		expect(result.result.message).toContain("default_value (cleared)");
+		expect(result.result).toMatchObject({
+			ok: true,
+			valueSource: { set: "calculate", cleared: "default_value" },
+		});
 	});
 
 	it("an explicit same-call default_value: null is honored as the one clear, not doubled", async () => {
@@ -516,11 +515,9 @@ describe("editField — a hidden field carries one value source", () => {
 			calculate: true,
 			default_value: false,
 		});
-		expect(result.result.message).toContain(
-			"Changed: calculate, default_value (cleared).",
-		);
-		// The caller stated the clear; the tool adds no second note for it.
-		expect(result.result.message).not.toContain("Set calculate and cleared");
+		expect(result.result).toHaveProperty("ok", true);
+		// The caller stated the clear; the result adds no inferred side effect.
+		expect(result.result).not.toHaveProperty("valueSource");
 	});
 
 	it("leaves the held slot alone when the patch touches neither value source", async () => {
@@ -541,6 +538,6 @@ describe("editField — a hidden field carries one value source", () => {
 			calculate: false,
 			default_value: true,
 		});
-		expect(result.result.message).not.toContain("cleared");
+		expect(result.result).not.toHaveProperty("valueSource");
 	});
 });

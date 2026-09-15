@@ -248,7 +248,7 @@ describe("tool-level gating (editField through the shared layer)", () => {
 			},
 		});
 
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		// One persistence call, with ID and label carried by the same
 		// target-kind-aware updateField stage.
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);

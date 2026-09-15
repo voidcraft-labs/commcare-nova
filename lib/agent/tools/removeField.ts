@@ -16,7 +16,6 @@
  */
 
 import type { z } from "zod";
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { removeFieldMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -71,7 +70,6 @@ export const removeFieldTool = {
 				"label" in resolved.field && resolved.field.label
 					? projectProseTemplate(resolved.field.label, doc).text
 					: "";
-			const beforeCount = countFieldsUnder(doc, formUuid);
 			const mutations = removeFieldMutations(doc, resolved.field.uuid);
 			const commit = await guardedMutate(
 				ctx,
@@ -87,14 +85,13 @@ export const removeFieldTool = {
 			}
 			const newDoc = commit.newDoc;
 			const formName = newDoc.forms[formUuid]?.name ?? "";
-			const afterCount = countFieldsUnder(newDoc, formUuid);
 			// Report the field's semantic id (`fieldId` may have been its uuid).
 			const removedId = resolved.field.id;
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully removed field "${removedId}" from "${formName}". Fields: ${beforeCount} → ${afterCount}.`,
+					ok: true,
 					summary: {
 						location: formName,
 						subject: removedLabel || removedId,

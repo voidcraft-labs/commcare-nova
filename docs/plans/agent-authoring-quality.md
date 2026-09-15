@@ -118,10 +118,12 @@ local estimates are 623 prompt tokens and 307 initially available tool tokens;
 the full 96-tool catalog remains about 80,000 tokens. The two [production-interface trials](../research/agent-authoring-integration-2026-09-13.md)
 completed creation and clarified repair with independent Preview observations.
 Their first requests used 47,323 and 12,336 input tokens. Discovery loaded nine
-tools and reloaded several definitions during creation. The current guidance
-slice separates static MCP guidance from app reads, shares a concise app overview
-across editor/retry/MCP, and replaces copied plugin manuals with server references.
-Scalar reference coverage, compact results,
+tools and reloaded several definitions during creation. The independently reviewed, green guidance PR #589 and plugin PR #58 separate static MCP guidance from app reads, shares a concise app overview
+across editor/retry/MCP, and replace copied plugin manuals with server references.
+The next result slice replaces repeated success prose with operation facts, keeps
+transcript presentation out of live and resumed model messages, preserves saved-data
+consequences and confirmations, and moves full automation setup guides to focused
+reads. It is under validation and independent review. Scalar reference coverage,
 build-executor integration, migration, and broader quality evidence remain open.
 These intermediate counts do not complete the slice.
 

@@ -56,7 +56,7 @@ export type UpdateSearchInputInput = z.infer<
 >;
 
 export interface UpdateSearchInputSuccess {
-	message: string;
+	ok: true;
 	uuid: Uuid;
 	summary: ToolCallSummary;
 }
@@ -118,7 +118,7 @@ export const updateSearchInputTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Updated search input ${searchInputUuid} on module "${mod.name}". New kind: ${searchInput.kind}, label "${searchInput.label}".`,
+					ok: true,
 					uuid: searchInputUuid,
 					summary: { location: mod.name, subject: searchInput.label },
 				},

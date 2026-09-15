@@ -44,7 +44,7 @@ export type RemoveSearchInputInput = z.infer<
 >;
 
 export interface RemoveSearchInputSuccess {
-	message: string;
+	ok: true;
 	uuid: Uuid;
 	remaining: number;
 	summary: ToolCallSummary;
@@ -121,7 +121,7 @@ export const removeSearchInputTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Removed search input ${searchInputUuid} on module "${mod.name}". ${remaining} search input${remaining === 1 ? "" : "s"} remain.`,
+					ok: true,
 					uuid: searchInputUuid,
 					remaining,
 					summary: { location: mod.name },

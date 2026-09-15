@@ -76,7 +76,6 @@ describe("addCaseListColumns", () => {
 			.currentDoc()
 			.modules[MOD_A]?.caseListConfig?.columns.at(-1);
 		expect(result.result.uuids[0]).toBe(newColumn?.uuid);
-		expect(result.result.message).toContain("Patient");
 	});
 
 	it("preserves filter and searchInputs when adding columns", async () => {

@@ -32,7 +32,6 @@
  */
 
 import { z } from "zod";
-import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import { declareCaseTypeForField } from "@/lib/doc/scaffolds";
 import {
 	searchAnswerFields,
@@ -308,17 +307,11 @@ export const createFormTool = {
 			const newDoc = commit.newDoc;
 
 			const mod = newDoc.modules[moduleUuid];
-			const forms = orderedFormUuids(newDoc, moduleUuid);
-			// Count the fields, not the batch: the assembly prepends the
-			// declaration chokepoint's catalog mutations for undeclared types.
-			const fieldCount = assembly.mutations.filter(
-				(m) => m.kind === "addField",
-			).length;
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully created form "${name}" (${type}, UUID ${formUuid}) with ${fieldCount} field${fieldCount === 1 ? "" : "s"} in module "${mod?.name ?? moduleUuid}". Module now has ${forms.length} form${forms.length === 1 ? "" : "s"}.`,
+					ok: true,
 					formUuid,
 					fields: assembly.created,
 					summary: {

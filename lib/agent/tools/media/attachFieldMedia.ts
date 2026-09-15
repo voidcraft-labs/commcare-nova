@@ -55,7 +55,6 @@ import {
 	commitMediaBatch,
 	FIELD_MEDIA_SLOTS,
 	type FieldMediaSlot,
-	joinBatchLines,
 	mediaBundleInput,
 	mediaKeyForSlot,
 	type ResolvedMediaBatchItem,
@@ -158,10 +157,6 @@ export const attachFieldMediaTool = {
 						`the ${slot} media on field "${field.id}"`,
 					),
 					fieldUuid: field.uuid,
-					line:
-						setKinds.length > 0
-							? `attached ${setKinds.join(", ")} ${slot} media on field "${field.id}"`
-							: `cleared ${slot} media on field "${field.id}"`,
 				});
 			}
 
@@ -188,7 +183,7 @@ export const attachFieldMediaTool = {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
 				result: {
-					message: joinBatchLines(resolved.map((r) => r.line)),
+					ok: true,
 					summary: { count: fieldCount },
 				},
 			};

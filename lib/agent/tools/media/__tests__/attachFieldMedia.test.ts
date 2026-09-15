@@ -56,13 +56,6 @@ const input = (...attachments: ReturnType<typeof attachment>[]) => ({
 	attachments,
 });
 
-/** Narrow a result to its success message, failing the test on error. */
-function messageOf(result: { result: unknown }): string {
-	const r = result.result as { message?: string; error?: string };
-	if (r.message === undefined) throw new Error(r.error ?? "expected success");
-	return r.message;
-}
-
 describe("attachFieldMedia", () => {
 	it("sets the image on a field's label slot", async () => {
 		const h = makeMediaFixture();
@@ -132,7 +125,7 @@ describe("attachFieldMedia", () => {
 		expect(
 			field && "label_media" in field ? field.label_media : undefined,
 		).toBeUndefined();
-		expect(messageOf(cleared)).toContain("Cleared");
+		expect(cleared.result).toHaveProperty("ok", true);
 	});
 
 	it("clears the slot after JSON serialization and reducer application", async () => {
@@ -290,7 +283,7 @@ describe("attachFieldMedia", () => {
 			attachFieldMediaTool,
 			input(attachment(TEXT_FIELD, "label", {})),
 		);
-		expect(messageOf(cleared)).toContain("Cleared");
+		expect(cleared.result).toHaveProperty("ok", true);
 		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 	});
 

@@ -188,7 +188,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 				},
 			],
 		});
-		expect("message" in fixed.result).toBe(true);
+		expect("ok" in fixed.result).toBe(true);
 		if (!("columns" in fixed.result)) throw new Error("expected success");
 		expect(fixed.result.columns).toEqual([{ uuid: columnUuid }]);
 
@@ -211,7 +211,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 				},
 			],
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 	});
 
 	it("updateModule setting a BRAND-NEW case_type declares it so the seeded Name column resolves", async () => {
@@ -229,7 +229,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 				{ kind: "plain", field: "case_name", header: "Name" },
 			],
 		});
-		expect("message" in out.result).toBe(true);
+		expect("ok" in out.result).toBe(true);
 		expect(h.recordMutations).toHaveBeenCalled();
 		const committed = h.currentDoc();
 		// The new type landed in the catalog…

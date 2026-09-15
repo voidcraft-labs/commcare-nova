@@ -112,7 +112,6 @@ describe("reorderCaseListColumns", () => {
 		}
 		expect(result.result.order).toEqual([C, A, B]);
 		expect(result.result.surface).toBe("results");
-		expect(result.result.message).toContain("3");
 	});
 
 	it("returns an Elm-style error on length mismatch", async () => {

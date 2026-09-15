@@ -145,12 +145,7 @@ export const moveFormLinkTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message:
-						mutations.length === 0
-							? `${sentence(label)} on form "${name}" is already in that position.`
-							: committedAfter === null
-								? `Moved ${linkLabel(commit.newDoc, address.formUuid, link.uuid)} to the front of form "${name}"; it is checked first.`
-								: `Moved ${linkLabel(commit.newDoc, address.formUuid, link.uuid)} after ${linkLabel(commit.newDoc, address.formUuid, committedAfter)} on form "${name}".`,
+					ok: true,
 					afterLinkUuid: committedAfter,
 					linkOrder: committedOrder,
 					summary: {

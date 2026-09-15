@@ -1,3 +1,4 @@
+import { withoutToolPresentation } from "../toolResults";
 import {
 	type AcceptedEntryPointIssue,
 	acceptedEntryPointIssues,
@@ -593,10 +594,7 @@ function projectToolResult(
 	};
 	if (envelope.kind === "read") return project(envelope.data);
 	if (envelope.kind !== "mutate") return project(value);
-	const inner = envelope.result;
-	if (inner === null || typeof inner !== "object") return project(inner);
-	const { summary: _summary, ...rest } = inner as Record<string, unknown>;
-	return project(rest);
+	return project(withoutToolPresentation(envelope.result));
 }
 
 function resultHasError(result: unknown): boolean {

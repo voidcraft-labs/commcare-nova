@@ -326,7 +326,6 @@ export const createModuleTool = {
 				}),
 			];
 
-			let fieldCount = 0;
 			const createdForms: Array<{
 				uuid: string;
 				name: string;
@@ -456,12 +455,6 @@ export const createModuleTool = {
 						callEntityUuids.add(option.uuid);
 					}
 				}
-				// Count the fields, not the batch: the assembly prepends the
-				// declaration chokepoint's catalog mutations for undeclared
-				// types.
-				fieldCount += assembly.mutations.filter(
-					(m) => m.kind === "addField",
-				).length;
 			}
 
 			const commit = await guardedMutate(ctx, mutations, "module:create");
@@ -474,18 +467,11 @@ export const createModuleTool = {
 			}
 			const newDoc = commit.newDoc;
 
-			const formCount = (forms ?? []).length;
-			const structureNote =
-				formCount > 0
-					? ` with ${formCount} form${formCount === 1 ? "" : "s"} (${fieldCount} field${fieldCount === 1 ? "" : "s"})${columns.length > 0 ? ` and ${columns.length} case-list column${columns.length === 1 ? "" : "s"}` : ""}`
-					: columns.length > 0
-						? ` with ${columns.length} case-list column${columns.length === 1 ? "" : "s"}`
-						: "";
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully created module "${name}" (UUID ${moduleUuid})${case_type ? ` (case type: ${case_type})` : ""}${structureNote}. App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.`,
+					ok: true,
 					moduleUuid,
 					parentModuleUuid:
 						newDoc.modules[moduleUuid]?.parentModuleUuid ?? null,

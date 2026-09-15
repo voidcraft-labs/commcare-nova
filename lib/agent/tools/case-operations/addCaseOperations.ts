@@ -208,7 +208,7 @@ export const addCaseOperationsTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message: `Added ${operationIds.length} case ${operationIds.length === 1 ? "operation" : "operations"} to form "${doc.forms[address.formUuid]?.name ?? input.formUuid}": ${operationIds.join(", ")}.`,
+					ok: true,
 					operationUuids,
 					operationIds,
 					summary: {

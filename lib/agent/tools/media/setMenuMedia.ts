@@ -152,7 +152,6 @@ export const setMenuMediaTool = {
 								`the audio label on ${carrierPhrase}`,
 							),
 						],
-						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
 					});
 				} else {
 					const address = resolveFormAddress(doc, item);
@@ -180,7 +179,6 @@ export const setMenuMediaTool = {
 								`the audio label on ${carrierPhrase}`,
 							),
 						],
-						line: `${carrierPhrase}: icon ${describeSlot(item.icon)}, audio label ${describeSlot(item.audioLabel)}`,
 					});
 				}
 			}
@@ -213,7 +211,7 @@ export const setMenuMediaTool = {
 				kind: "mutate" as const,
 				mutations: outcome.mutations,
 				result: {
-					message: `Set menu media on ${countPhrase(items.length)} — ${resolved.map((r) => r.line).join("; ")}.`,
+					ok: true,
 					summary: { count: items.length },
 				},
 			};
@@ -222,12 +220,6 @@ export const setMenuMediaTool = {
 		}
 	},
 };
-
-/** Render a slot's intent for the summary: cleared vs the set value
- *  (a built-in slug or an uploaded asset id, echoed as supplied). */
-function describeSlot(value: string | null): string {
-	return value === null ? "cleared" : `set to ${value}`;
-}
 
 /** "1 tile" / "4 tiles". */
 function countPhrase(n: number): string {

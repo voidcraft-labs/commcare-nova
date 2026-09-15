@@ -59,7 +59,7 @@ export type SetCaseSearchAdvancedInput = z.infer<
  * was cleared.
  */
 export interface SetCaseSearchAdvancedSuccess {
-	message: string;
+	ok: true;
 	advancedSlotsSet: readonly AdvancedSlotName[];
 	summary: ToolCallSummary;
 }
@@ -180,10 +180,7 @@ export const setCaseSearchAdvancedTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message:
-						advancedSlotsSet.length === 0
-							? `Cleared every case-search advanced slot on module "${mod.name}" (${moduleUuid}).`
-							: `Set case-search advanced on module "${mod.name}" (${moduleUuid}): ${advancedSlotsSet.join(", ")}.`,
+					ok: true,
 					advancedSlotsSet,
 					summary: { location: mod.name },
 				},

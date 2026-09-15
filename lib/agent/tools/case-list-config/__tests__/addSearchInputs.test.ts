@@ -146,7 +146,6 @@ describe("addSearchInputs", () => {
 		const newInput =
 			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0];
 		expect(result.result.uuids[0]).toBe(newInput?.uuid);
-		expect(result.result.message).toContain("Name");
 	});
 
 	it("preserves columns and filter when adding a search input", async () => {

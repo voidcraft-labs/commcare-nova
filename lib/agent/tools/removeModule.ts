@@ -59,7 +59,9 @@ export const removeModuleInputSchema = moduleAddressSchema;
 export type RemoveModuleInput = z.infer<typeof removeModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
-export type RemoveModuleResult = MutationSuccess | string | { error: string };
+export type RemoveModuleResult =
+	| (MutationSuccess & { retiredCaseType?: string; found?: false })
+	| { error: string };
 
 export const removeModuleTool = {
 	description: "Remove a module from the app.",
@@ -68,7 +70,6 @@ export const removeModuleTool = {
 		input: RemoveModuleInput,
 		ctx: ToolInvocationContext,
 	): Promise<MutatingToolResult<RemoveModuleResult>> {
-		const { moduleUuid: rawModuleUuid } = input;
 		const doc = ctx.snapshot.doc;
 		try {
 			const address = resolveModuleAddress(doc, input);
@@ -83,7 +84,7 @@ export const removeModuleTool = {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
-					result: `Module ${rawModuleUuid} does not exist — no change. App has ${doc.moduleOrder.length} module${doc.moduleOrder.length === 1 ? "" : "s"}.`,
+					result: { ok: true, found: false, summary: { noop: true } },
 				};
 			}
 			const { moduleUuid, module } = address;
@@ -153,13 +154,15 @@ export const removeModuleTool = {
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
 
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully removed module "${name}". App now has ${newDoc.moduleOrder.length} module${newDoc.moduleOrder.length === 1 ? "" : "s"}.${retirement.kind === "retire" ? ` Case type "${retirement.caseType}" had no other module or reference, so its record was retired from the catalog.` : ""}`,
+					ok: true,
+					...(retirement.kind === "retire" && {
+						retiredCaseType: retirement.caseType,
+					}),
 					// `name` is snapshotted off the pre-mutation doc and can be
 					// absent if `moduleOrder`/`modules` ever diverge — omit the
 					// subject in that case rather than carrying a null.

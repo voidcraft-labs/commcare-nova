@@ -14,7 +14,6 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	fallbackPinSentence,
 	formLinkInputSchema,
 	formName,
 	linkAddressSchema,
@@ -110,18 +109,11 @@ export const updateFormLinkTool = {
 			}
 			const pinned = plan.pinsFallback;
 			const dropped = plan.droppedDatums ?? [];
-			const droppedSentence =
-				dropped.length === 0
-					? ""
-					: ` The carried ${dropped.length === 1 ? "value" : "values"} the new destination never reads ${dropped.length === 1 ? "was" : "were"} removed: ${dropped.map((datum) => `"${datum}"`).join(", ")}.`;
 			return {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message:
-						mutations.length === 0
-							? `${sentence(label)} on form "${name}" was already up to date.`
-							: `Updated ${label} on form "${name}".${pinned === undefined ? "" : ` ${fallbackPinSentence(pinned)}`}${droppedSentence}`,
+					ok: true,
 					linkUuid: existing.uuid,
 					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
 					...(dropped.length > 0 && { droppedDatums: dropped }),

@@ -95,7 +95,10 @@ export type UpdateModuleInput = z.infer<typeof updateModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
 export type UpdateModuleResult =
-	| (MutationSuccess & { columns: Array<{ uuid: Uuid }> })
+	| (MutationSuccess & {
+			columns: Array<{ uuid: Uuid }>;
+			retiredCaseType?: string;
+	  })
 	| { error: string };
 
 export const updateModuleTool = {
@@ -253,9 +256,10 @@ export const updateModuleTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully updated module "${newMod.name}" (UUID ${moduleUuid})${
-						case_type != null ? ` — case type: ${newMod.caseType}` : ""
-					}.`,
+					ok: true,
+					...(retirement.kind === "retire" && {
+						retiredCaseType: retirement.caseType,
+					}),
 					columns: (seedColumns ?? []).map((column) => ({
 						uuid: column.uuid,
 					})),

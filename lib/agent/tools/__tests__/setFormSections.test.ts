@@ -193,12 +193,10 @@ describe("setFormSections", () => {
 			],
 		});
 		const inner = result.result as {
-			message: string;
+			ok: true;
 			sections: Array<{ sectionUuid: string; fieldUuids: string[] }>;
 			summary: { location: string; count: number };
 		};
-		expect(inner.message).toContain('Arranged "Visit" into 2 sections');
-		expect(inner.message).toContain('"About you"');
 		expect(inner.sections.map((s) => s.fieldUuids)).toEqual([
 			[A, G],
 			[B, C],
@@ -254,10 +252,9 @@ describe("setFormSections", () => {
 			sections: [],
 		});
 		const inner = result.result as {
-			message: string;
+			ok: true;
 			summary: { count: number };
 		};
-		expect(inner.message).toContain('Removed the sections from "Visit"');
 		expect(inner.summary.count).toBe(0);
 		expect(shape(h.currentDoc())).toEqual({ root: ["a", "b", "c"] });
 
@@ -266,9 +263,7 @@ describe("setFormSections", () => {
 			sections: [],
 		});
 		expect(again.mutations).toEqual([]);
-		expect((again.result as { message: string }).message).toContain(
-			"already arranged this way",
-		);
+		expect(again.result).toHaveProperty("unchanged", true);
 	});
 
 	it("refuses a partition that is not one, in the planner's words", async () => {

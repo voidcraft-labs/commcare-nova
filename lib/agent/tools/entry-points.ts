@@ -90,7 +90,6 @@ async function commitEntryPoint(
 	plan: EntryPointCommitPlan,
 	target: EntryPointTarget,
 	entryPointUuid: Uuid,
-	verb: string,
 ): Promise<MutatingToolResult<EntryPointMutationResult>> {
 	if (!plan.ok)
 		return {
@@ -110,7 +109,7 @@ async function commitEntryPoint(
 		kind: "mutate",
 		mutations: commit.mutations,
 		result: {
-			message: `${verb} the deep link for ${name}.`,
+			ok: true,
 			entryPointUuid,
 			summary: {
 				subject: name,
@@ -167,7 +166,6 @@ export const addEntryPointTool = {
 				planEntryPointAdd(ctx.snapshot.doc, input.target, entryPoint),
 				input.target,
 				uuid,
-				"Added",
 			);
 		} catch (error) {
 			return toToolErrorResult(error);
@@ -200,7 +198,6 @@ export const updateEntryPointTool = {
 				),
 				item.target,
 				input.entryPointUuid,
-				"Updated",
 			);
 		} catch (error) {
 			return toToolErrorResult(error);
@@ -229,7 +226,6 @@ export const removeEntryPointTool = {
 				planEntryPointRemove(ctx.snapshot.doc, input.entryPointUuid),
 				item.target,
 				input.entryPointUuid,
-				"Removed",
 			);
 		} catch (error) {
 			return toToolErrorResult(error);

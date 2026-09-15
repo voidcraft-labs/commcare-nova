@@ -16,7 +16,6 @@ import {
 	formLinkDestination,
 	formLinkSchema,
 	formLinkTargetSchema,
-	type PostSubmitDestination,
 	type Uuid,
 	uniqueFormLinkDatumNames,
 	xpathExpressionSchema,
@@ -155,23 +154,6 @@ function listLinks(
 	uuids: readonly Uuid[],
 ): string {
 	return uuids.map((uuid) => linkLabel(doc, formUuid, uuid)).join(", ");
-}
-
-const DESTINATION_WORDS: Record<PostSubmitDestination, string> = {
-	app_home: "app home",
-	module: "the module's list",
-	previous: "the previous screen",
-};
-
-/**
- * The sentence a success message carries when the batch also stored the
- * form's `post_submit` explicitly, so the person knows the form now says
- * where people go when no condition matches, and which tool changes it.
- */
-export function fallbackPinSentence(
-	destination: PostSubmitDestination,
-): string {
-	return `Every link on the form has a condition, so the form now sets post_submit explicitly to "${destination}" (${DESTINATION_WORDS[destination]}): that is where people go when no condition matches. Change it with update_form.`;
 }
 
 /**

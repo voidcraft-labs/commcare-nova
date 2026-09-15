@@ -51,7 +51,7 @@ export type ReorderCaseListColumnsInput = z.infer<
 >;
 
 export interface ReorderCaseListColumnsSuccess {
-	message: string;
+	ok: true;
 	surface: "results" | "details";
 	order: Uuid[];
 	summary: ToolCallSummary;
@@ -113,7 +113,7 @@ export const reorderCaseListColumnsTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Reordered ${columnUuids.length} field${columnUuids.length === 1 ? "" : "s"} on ${surface === "results" ? "Results" : "Details"} for module "${mod.name}".`,
+					ok: true,
 					surface,
 					order: [...columnUuids],
 					summary: { location: mod.name, count: columnUuids.length },

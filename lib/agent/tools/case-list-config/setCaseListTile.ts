@@ -43,7 +43,7 @@
  *   3. The call named neither `tile` nor `placements` → `{ error }`.
  *   4. A placement names an unknown field, or names one field twice →
  *      `{ error }`, no mutations.
- *   5. Success → `{ message, layout, unplacedColumnUuids }` plus the persisted
+ *   5. Success → `{ ok, layout, unplacedColumnUuids }` plus the persisted
  *      mutations, tagged `module:M:caseList:tile`.
  */
 
@@ -51,12 +51,7 @@ import { z } from "zod";
 import { columnTileMutations } from "@/lib/doc/caseListColumnMutations";
 import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
-import {
-	asUuid,
-	type CaseTileLayout,
-	type Column,
-	type Uuid,
-} from "@/lib/domain";
+import { asUuid, type Column, type Uuid } from "@/lib/domain";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -108,6 +103,13 @@ export type CaseListLayout = "tile" | "rows";
 export interface SetCaseListTileSuccess extends MutationSuccess {
 	layout: CaseListLayout;
 	unplacedColumnUuids: Uuid[];
+	persistOnForms: boolean;
+	grouping?: {
+		identifier: string;
+		headerRows: number;
+		selection: "first-case";
+		unlinkedCases: "one-group";
+	};
 }
 
 export type SetCaseListTileResult = SetCaseListTileSuccess | { error: string };
@@ -205,16 +207,17 @@ export const setCaseListTileTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: describeOutcome({
-						moduleName: mod.name,
-						moduleUuid,
-						tile,
-						nextLayout: committedConfig.tile,
-						placementCount: named.size,
-						unplacedColumnUuids,
-					}),
+					ok: true,
 					layout: committedConfig.tile === undefined ? "rows" : "tile",
 					unplacedColumnUuids,
+					persistOnForms: committedConfig.tile?.persistOnForms === true,
+					...(committedConfig.tile?.grouping && {
+						grouping: {
+							...committedConfig.tile.grouping,
+							selection: "first-case" as const,
+							unlinkedCases: "one-group" as const,
+						},
+					}),
 					summary: {
 						location: mod.name,
 						...(named.size > 0 && { count: named.size }),
@@ -234,56 +237,4 @@ function errorResult(error: string): MutatingToolResult<SetCaseListTileResult> {
 		mutations: [],
 		result: { error },
 	};
-}
-
-/**
- * Compose the prose the model reads: what the layout is now, how many fields
- * moved, and — while the list is on rows — which fields would need a place
- * before the tile could be turned on.
- *
- * `tile` is what the CALL asked for (so the prose names the act); `nextLayout`
- * is what the committed doc holds (so the prose never claims a state a peer's
- * concurrent edit changed).
- */
-function describeOutcome(facts: {
-	moduleName: string;
-	moduleUuid: Uuid;
-	tile: CaseTileLayout | null | undefined;
-	nextLayout: CaseTileLayout | undefined;
-	placementCount: number;
-	unplacedColumnUuids: readonly Uuid[];
-}): string {
-	const where = `module "${facts.moduleName}" (${facts.moduleUuid})`;
-	const parts: string[] = [];
-	if (facts.tile === null) {
-		parts.push(
-			`Turned the case tile off on ${where}; the case list is a row of columns again. Every field kept its place on the grid, so turning the tile back on restores this layout.`,
-		);
-	} else if (facts.tile !== undefined) {
-		parts.push(
-			facts.tile.persistOnForms === true
-				? `Laid the case list on ${where} out as a tile, kept on screen above every form in the module.`
-				: `Laid the case list on ${where} out as a tile.`,
-		);
-		const grouping = facts.tile.grouping;
-		if (grouping !== undefined) {
-			// The two consequences a model cannot see from the layout, said on
-			// the read surface as well as in the schema: the SA reports back to
-			// the user from this text.
-			parts.push(
-				`Cases sharing a \`${grouping.identifier}\` connection are shown together, with the top ${grouping.headerRows === 1 ? "row" : `${grouping.headerRows} rows`} drawn once per group from the group's first case. Choosing a group opens that first case, and every case with no \`${grouping.identifier}\` connection is shown together in one group.`,
-			);
-		}
-	}
-	if (facts.placementCount > 0) {
-		parts.push(
-			`Placed ${facts.placementCount} field${facts.placementCount === 1 ? "" : "s"}${parts.length > 0 ? "" : ` on the case tile for ${where}`}.`,
-		);
-	}
-	if (facts.nextLayout === undefined && facts.unplacedColumnUuids.length > 0) {
-		parts.push(
-			`${facts.unplacedColumnUuids.length} field${facts.unplacedColumnUuids.length === 1 ? " shown in Results still has" : "s shown in Results still have"} no place on the grid: ${facts.unplacedColumnUuids.join(", ")}. Place ${facts.unplacedColumnUuids.length === 1 ? "it" : "them"} in the same call that turns the tile on.`,
-		);
-	}
-	return parts.join(" ");
 }

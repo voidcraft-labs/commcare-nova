@@ -961,7 +961,7 @@ describe("private staging isolation", () => {
 		});
 		expect(noop.result).toMatchObject({
 			mutations: [],
-			result: { message: expect.stringContaining("already has") },
+			result: { ok: true, unchanged: true },
 		});
 		expect(noop.receipt?.disposition).toBe("noop");
 

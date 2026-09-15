@@ -428,7 +428,16 @@ describe("editField — demotions", () => {
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
-		expect(result.result.message).toContain('data_type is now "single_select"');
+		expect(result.result).toMatchObject({
+			ok: true,
+			conversion: {
+				caseProperty: {
+					caseType: "patient",
+					property: "facility",
+					declaredType: "single_select",
+				},
+			},
+		});
 
 		const after = h.currentDoc().fields[soleField(doc, "facility").uuid];
 		expect(after?.kind).toBe("single_select");
@@ -523,7 +532,21 @@ describe("editField — demotions", () => {
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
-		expect(result.result.message).toContain('"Follow up"');
+		expect(result.result).toMatchObject({
+			ok: true,
+			conversion: {
+				otherWriters: [
+					{
+						fieldUuid: Object.values(doc.fields).find(
+							(field) =>
+								field.id === "status" &&
+								field.uuid !== address(doc, "status").fieldUuid,
+						)?.uuid,
+						formUuid: expect.any(String),
+					},
+				],
+			},
+		});
 
 		// Both writers flipped; each converted select carries its OWN
 		// minted option identities.
@@ -1019,10 +1042,12 @@ describe("editField — demotions", () => {
 			.caseTypes?.find((ct) => ct.name === "patient")
 			?.properties.find((p) => p.name === "visit_note");
 		expect(entry?.data_type).toBe("text");
-		// The message reports the PINNED type, never "hidden" (not a data
+		// The result reports the pinned type, never "hidden" (not a data
 		// type) — the SA trusts mutation-tool prose verbatim.
-		expect(result.result.message).toContain('data_type is now "text"');
-		expect(result.result.message).not.toContain("matches hidden");
+		expect(result.result).toMatchObject({
+			ok: true,
+			conversion: { caseProperty: { declaredType: "text" } },
+		});
 	});
 
 	it("single ↔ multi conversions keep the existing verbatim-options path (no seed consumed)", async () => {

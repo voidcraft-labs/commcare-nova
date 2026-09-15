@@ -238,23 +238,28 @@ describe("automation shared tools", () => {
 		expect(added.mutations).toHaveLength(1);
 		expect(h.currentDoc().automations?.[RULE_UUID]).toEqual(rule());
 		expect(added.result).toMatchObject({
-			setupGuides: [
-				{
-					automationUuid: RULE_UUID,
-					executesInPreview: false,
-					omittedCriteria: [],
-				},
-			],
+			ok: true,
+			automationUuids: [RULE_UUID],
+			setupRequired: true,
+			hqUpdated: false,
 		});
+		expect(added.result).not.toHaveProperty("setupGuides");
+		mocks.readOrganization.mockClear();
 		const read = await h.runTool(getAutomationsTool, {});
 		expect(read.data).toEqual([
-			expect.objectContaining({
-				automation: rule(),
-				executesInPreview: false,
-				setupGuide: expect.objectContaining({
-					requiredPlan: "Data Cleanup (Pro or higher)",
-				}),
-			}),
+			{ automation: rule(), executesInPreview: false },
+		]);
+		expect(mocks.readOrganization).not.toHaveBeenCalled();
+		const guidance = await h.runTool(getAutomationsTool, {
+			automationUuid: RULE_UUID,
+			includeSetupGuide: true,
+		});
+		expect(guidance.data).toMatchObject([
+			{
+				automationUuid: RULE_UUID,
+				omittedCriteria: [],
+				setupGuide: { requiredPlan: "Data Cleanup (Pro or higher)" },
+			},
 		]);
 
 		const beforeUpdate = rule();
@@ -345,7 +350,10 @@ describe("automation shared tools", () => {
 			],
 		});
 
-		const read = await makeHarness(current).runTool(getAutomationsTool, {});
+		const read = await makeHarness(current).runTool(getAutomationsTool, {
+			automationUuid: RULE_UUID,
+			includeSetupGuide: true,
+		});
 		/* The document comes from the workspace snapshot; only the places are
 		 * read externally. */
 		expect(mocks.readAuthoring).not.toHaveBeenCalled();
@@ -409,12 +417,17 @@ describe("automation shared tools", () => {
 		};
 		mocks.readOrganization.mockResolvedValue({ revision: "1", locations: [] });
 
-		const added = await makeHarness(current).runTool(addAutomationsTool, {
+		const h = makeHarness(current);
+		const added = await h.runTool(addAutomationsTool, {
 			automations: [extensionRule],
 		});
 
 		expect(added.mutations).toHaveLength(1);
-		expect(added.result).toMatchObject({
+		const guide = await h.runTool(getAutomationsTool, {
+			automationUuid: RULE_UUID,
+			includeSetupGuide: true,
+		});
+		expect({ setupGuides: guide.data }).toMatchObject({
 			setupGuides: [
 				{
 					setupGuide: {
@@ -460,7 +473,11 @@ describe("automation shared tools", () => {
 		expect(h.currentDoc().automations?.[RULE_UUID]?.criteria).toEqual([
 			expect.objectContaining({ value: "peer-value" }),
 		]);
-		expect(updated.result).toMatchObject({
+		const guide = await h.runTool(getAutomationsTool, {
+			automationUuid: RULE_UUID,
+			includeSetupGuide: true,
+		});
+		expect({ setupGuides: guide.data }).toMatchObject({
 			setupGuides: [
 				{
 					setupGuide: {
@@ -525,12 +542,23 @@ describe("automation shared tools", () => {
 		expect(updated.mutations).toEqual([]);
 		expect(h.currentDoc()).toBe(authoritativeDoc);
 		expect(h.currentDoc().automations?.[peerRule.uuid]).toEqual(peerRule);
-		expect(JSON.stringify(updated.result)).toContain("Renamed peer module");
-		expect(JSON.stringify(updated.result)).toContain("Renamed peer survey");
+		expect(updated.result).toMatchObject({
+			ok: true,
+			unchanged: true,
+			setupRequired: true,
+			hqUpdated: false,
+		});
 		expect(updated.result).not.toHaveProperty("error");
 		expect(h.recordMutations).not.toHaveBeenCalled();
 		expect(mocks.readOrganization).not.toHaveBeenCalled();
 		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
+		mocks.readOrganization.mockResolvedValue({ revision: "4", locations: [] });
+		const guide = await h.runTool(getAutomationsTool, {
+			automationUuid: RULE_UUID,
+			includeSetupGuide: true,
+		});
+		expect(JSON.stringify(guide.data)).toContain("Renamed peer module");
+		expect(JSON.stringify(guide.data)).toContain("Renamed peer survey");
 	});
 
 	it("adopts a differing authoritative snapshot and returns a zero-diff conflict", async () => {

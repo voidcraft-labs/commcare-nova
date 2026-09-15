@@ -221,7 +221,7 @@ export const createLookupTableTool = {
 	): Promise<ReadToolResult<unknown>> {
 		const rowCount = input.rows?.length ?? 0;
 		const overflow = receiptWouldOverflow(1 + input.columns.length + rowCount, {
-			message: `Created Project data table "${input.name}" with ${input.columns.length} columns and ${rowCount} rows.`,
+			ok: true,
 			projectRevision: RECEIPT_REVISION,
 			tableId: RECEIPT_IDENTITY_WIDTH,
 			columns: input.columns.map((column) => ({
@@ -254,7 +254,7 @@ export const createLookupTableTool = {
 		return {
 			kind: "read",
 			data: {
-				message: `Created Project data table "${input.name}" with ${input.columns.length} columns and ${input.rows?.length ?? 0} rows.`,
+				ok: true,
 				projectRevision: receipt.projectRevision,
 				tableId: table.tableId,
 				columns: input.columns.map((column, index) => ({
@@ -303,7 +303,7 @@ export const updateLookupTableTool = {
 		return {
 			kind: "read",
 			data: {
-				message: "Updated the Project data table.",
+				ok: true,
 				projectRevision: receipt.projectRevision,
 				tableId: table.tableId,
 				revisions: table.revisions,
@@ -376,7 +376,7 @@ export const editLookupColumnsTool = {
 			(operation) => operation.kind === "add",
 		);
 		const overflow = receiptWouldOverflow(added.length, {
-			message: `Applied ${input.operations.length} column changes atomically.`,
+			ok: true,
 			projectRevision: RECEIPT_REVISION,
 			tableId: RECEIPT_IDENTITY_WIDTH,
 			createdColumns: added.map((operation) => ({
@@ -400,7 +400,7 @@ export const editLookupColumnsTool = {
 		return {
 			kind: "read",
 			data: {
-				message: `Applied ${input.operations.length} column changes atomically.`,
+				ok: true,
 				projectRevision: receipt.projectRevision,
 				tableId: table.tableId,
 				createdColumns: table.columnIds.map(({ key, id }) => ({
@@ -458,7 +458,7 @@ export const editLookupRowsTool = {
 			(operation) => operation.kind === "add",
 		).length;
 		const overflow = receiptWouldOverflow(addedCount, {
-			message: `Applied ${input.operations.length} row changes atomically.`,
+			ok: true,
 			projectRevision: RECEIPT_REVISION,
 			tableId: RECEIPT_IDENTITY_WIDTH,
 			createdRows: Array.from({ length: addedCount }, (_, operationIndex) => ({
@@ -487,7 +487,7 @@ export const editLookupRowsTool = {
 		return {
 			kind: "read",
 			data: {
-				message: `Applied ${input.operations.length} row changes atomically.`,
+				ok: true,
 				projectRevision: receipt.projectRevision,
 				tableId: table.tableId,
 				createdRows: table.rowIds.map(({ key, id }) => ({
@@ -517,7 +517,7 @@ export const replaceLookupRowsTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		const overflow = receiptWouldOverflow(input.rows.length, {
-			message: `Replaced the table with ${input.rows.length} rows.`,
+			ok: true,
 			projectRevision: RECEIPT_REVISION,
 			tableId: RECEIPT_IDENTITY_WIDTH,
 			rows: input.rows.map((_row, inputIndex) => ({
@@ -544,7 +544,7 @@ export const replaceLookupRowsTool = {
 		return {
 			kind: "read",
 			data: {
-				message: `Replaced the table with ${input.rows.length} rows.`,
+				ok: true,
 				projectRevision: receipt.projectRevision,
 				tableId: table.tableId,
 				rows: table.rowIds.map(({ key, id }) => ({
@@ -579,7 +579,7 @@ export const removeLookupTableTool = {
 		return {
 			kind: "read",
 			data: {
-				message: `Deleted Project data table "${input.tableId}".`,
+				ok: true,
 				projectRevision: result.projectRevision,
 				tableId: input.tableId,
 			},

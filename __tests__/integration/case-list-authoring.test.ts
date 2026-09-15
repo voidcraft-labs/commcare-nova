@@ -136,7 +136,7 @@ describe("SA tool path — column atomic ops", () => {
 		// The success message echoes the header; the `result.uuids`
 		// surface the minted uuids structurally so the SA can reference
 		// them directly without parsing the string.
-		expect(addNameResult.result.message).toContain("Patient");
+		expect(addNameResult.result).toHaveProperty("ok", true);
 
 		// 2. Add a second column on the post-add doc.
 		const addAgeResult = await h.runTool(addCaseListColumnsTool, {

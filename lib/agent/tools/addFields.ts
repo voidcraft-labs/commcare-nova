@@ -34,7 +34,6 @@
  */
 
 import { z } from "zod";
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
 	fieldPlacementVerdict,
 	formIsSectioned,
@@ -199,25 +198,11 @@ export const addFieldsTool = {
 					result: { error: commit.error },
 				};
 			}
-			const newDoc = commit.newDoc;
-
-			// The human-readable summary uses the post-mutation doc's field
-			// count so the SA's message reflects reality after the batch
-			// lands. `countFieldsUnder` walks children transitively, so
-			// containers added in this batch contribute their own count too.
-			const totalCount = countFieldsUnder(newDoc, formUuid);
-			const addedIds = mutations
-				.filter(
-					(m): m is Extract<Mutation, { kind: "addField" }> =>
-						m.kind === "addField",
-				)
-				.map((m) => m.field.id)
-				.join(", ");
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully added ${created.length} field${created.length === 1 ? "" : "s"} to "${form.name}": ${addedIds}. Form now has ${totalCount} total field${totalCount === 1 ? "" : "s"}.`,
+					ok: true,
 					fields: created,
 					// Bulk add — no single subject; the count drives the action
 					// ("Added 3 fields") and the form breadcrumb names the container.

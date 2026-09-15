@@ -17,7 +17,7 @@ const donePart = (tool: string, summary: ToolCallSummary): ToolUIPart =>
 		toolCallId: "call_1",
 		state: "output-available",
 		input: {},
-		output: { message: "prose for the model", summary },
+		output: { ok: true, summary },
 	}) as ToolUIPart;
 
 /** An in-flight tool part — input received, no output yet. */
@@ -158,9 +158,20 @@ describe("configureCaseSelection transcript row", () => {
 		).toBe("Updated case selection");
 	});
 
-	it("renders a mutation-free needs_changes outcome as failed with its explanation", () => {
-		const message =
-			'Changing case selection for module "Patients" also changes module "Patient review". No changes were applied.';
+	it.each([
+		[
+			"confirmation",
+			"Linked workflows also need this change. Nothing has changed yet.",
+		],
+		[
+			"repair",
+			"A linked workflow needs attention before this change can be applied.",
+		],
+		[
+			"refresh",
+			"The linked workflows changed during review. Nothing has changed yet.",
+		],
+	])("explains a %s outcome without model-facing prose", (needs, detail) => {
 		const part = {
 			type: "tool-configureCaseSelection",
 			toolCallId: "call_1",
@@ -168,21 +179,15 @@ describe("configureCaseSelection transcript row", () => {
 			input: {},
 			output: {
 				outcome: "needs_changes",
-				needs: "confirmation",
-				message,
-				requiredConfirmedModuleUuids: ["22222222-2222-4222-8222-222222222222"],
-				confirmationToken: "a".repeat(64),
-				coordinatedChanges: [],
-				blockers: [],
+				needs,
 				summary: { location: "Patients" },
 			},
 		} as ToolUIPart;
-
 		expect(toolStatus(part)).toBe("failed");
 		expect(runStatus([part])).toBe("failed");
 		expect(toolAction(part)).toBe("Case selection needs review");
 		expect(toolLocation(part)).toBe("Patients");
-		expect(toolDetail(part)).toBe(message);
+		expect(toolDetail(part)).toBe(detail);
 	});
 
 	it("renders the typed unchanged outcome as an honest no-op", () => {

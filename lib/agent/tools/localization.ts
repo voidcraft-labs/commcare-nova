@@ -451,19 +451,33 @@ function mutationError(error: string): MutatingToolResult<{ error: string }> {
 	return { kind: "mutate", mutations: [], result: { error } };
 }
 
+interface LanguageResultFacts {
+	language: AppLanguageIdentity;
+	copy?: { from: AppLanguageIdentity; strings: number; review: "needs-review" };
+	previousLanguage?: AppLanguageIdentity;
+	source?: true;
+	default?: boolean;
+	translationsMoved?: number;
+	translationsRemoved?: "all-explicit";
+	updated?: number;
+}
+type LanguageMutationResult =
+	| (MutationSuccess & LanguageResultFacts)
+	| { error: string };
+
 async function commitLanguageMutations(
 	ctx: ToolInvocationContext,
 	mutations: readonly Mutation[],
 	stage: string,
-	message: string,
+	facts: LanguageResultFacts,
 	summary: ToolCallSummary,
-): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+): Promise<MutatingToolResult<LanguageMutationResult>> {
 	const outcome = await guardedMutate(ctx, mutations, stage);
 	if (!outcome.ok) return mutationError(outcome.error);
 	return {
 		kind: "mutate",
 		mutations: outcome.mutations,
-		result: { message, summary },
+		result: { ok: true, ...facts, summary },
 	};
 }
 
@@ -620,7 +634,7 @@ export const addLanguageTool = {
 	async execute(
 		input: z.infer<typeof addLanguageInputSchema>,
 		ctx: ToolInvocationContext,
-	): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+	): Promise<MutatingToolResult<LanguageMutationResult>> {
 		try {
 			const doc = ctx.snapshot.doc;
 			const localization = effectiveAppLocalization(doc.localization);
@@ -661,7 +675,14 @@ export const addLanguageTool = {
 				ctx,
 				mutations,
 				`localization:${tag}:add`,
-				`Added ${descriptor} and copied ${mutations.length - 1} worker-facing strings from ${languageDescriptor(copyFromIdentity)}. Every copied value needs review.`,
+				{
+					language: identity,
+					copy: {
+						from: copyFromIdentity,
+						strings: mutations.length - 1,
+						review: "needs-review",
+					},
+				},
 				{ subject: descriptor, count: mutations.length - 1 },
 			);
 		} catch (error) {
@@ -677,7 +698,7 @@ export const updateLanguageTool = {
 	async execute(
 		input: z.infer<typeof updateLanguageInputSchema>,
 		ctx: ToolInvocationContext,
-	): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+	): Promise<MutatingToolResult<LanguageMutationResult>> {
 		try {
 			const doc = ctx.snapshot.doc;
 			const localization = effectiveAppLocalization(doc.localization);
@@ -700,7 +721,7 @@ export const updateLanguageTool = {
 						ctx,
 						[{ kind: "setDefaultLanguage", code: tag }],
 						`localization:${tag}:default`,
-						`Set ${descriptor} as the runtime default language.`,
+						{ language: identity, default: true },
 						{ subject: descriptor },
 					);
 				case "change-identity": {
@@ -730,7 +751,12 @@ export const updateLanguageTool = {
 							ctx,
 							[{ kind: "relabelSourceLanguage", language: replacement }],
 							`localization:${replacementTag}:source`,
-							`Relabeled the sole source and default language as ${replacementDescriptor}.`,
+							{
+								language: replacement,
+								previousLanguage: identity,
+								source: true,
+								default: true,
+							},
 							{ subject: replacementDescriptor },
 						);
 					}
@@ -757,7 +783,12 @@ export const updateLanguageTool = {
 						ctx,
 						mutations,
 						`localization:${replacementTag}:identity`,
-						`Changed ${descriptor} to ${replacementDescriptor}, carrying its ${Object.keys(entries).length} explicit translations to the new identity.`,
+						{
+							language: replacement,
+							previousLanguage: identity,
+							default: localization.defaultLanguage === tag,
+							translationsMoved: Object.keys(entries).length,
+						},
 						{ subject: replacementDescriptor },
 					);
 				}
@@ -775,7 +806,7 @@ export const removeLanguageTool = {
 	async execute(
 		input: z.infer<typeof removeLanguageInputSchema>,
 		ctx: ToolInvocationContext,
-	): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+	): Promise<MutatingToolResult<LanguageMutationResult>> {
 		try {
 			const localization = effectiveAppLocalization(
 				ctx.snapshot.doc.localization,
@@ -800,7 +831,10 @@ export const removeLanguageTool = {
 				ctx,
 				[{ kind: "removeLanguage", code: tag }],
 				`localization:${tag}:remove`,
-				`Removed ${descriptor} and its explicit translations.`,
+				{
+					language: identity,
+					translationsRemoved: "all-explicit",
+				},
 				{ subject: descriptor },
 			);
 		} catch (error) {
@@ -821,18 +855,18 @@ function integrityMessage(
 		case "blank-content":
 			return `Translation unit ${unit.id} (${unit.breadcrumb.join(" → ")}) cannot be blank.`;
 		case "protected-content":
-			return `Translation unit ${unit.id} must preserve every protected reference part exactly once. Re-read it with getTranslatableContent.`;
+			return `Translation unit ${unit.id} must preserve every answer and record insertion exactly once. Read the current entry and keep its references.`;
 	}
 }
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear, or explicitly review up to 50 target-language entries atomically. Set operations must echo the current source fingerprint they translated and begin Needs review. Review operations must echo both the exact explicit entry and the current source fingerprint reviewed, so no peer can change either side unseen. Protected reference parts must remain exact.",
+		"Set, clear, or explicitly review up to 50 target-language entries atomically. Set operations must echo the current source fingerprint they translated and begin Needs review. Review operations must echo both the exact explicit entry and the current source fingerprint reviewed, so no peer can change either side unseen. Answer and record insertions must remain intact.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,
 		ctx: ToolInvocationContext,
-	): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+	): Promise<MutatingToolResult<LanguageMutationResult>> {
 		try {
 			const doc = ctx.snapshot.doc;
 			const localization = effectiveAppLocalization(doc.localization);
@@ -940,7 +974,7 @@ export const updateTranslationsTool = {
 				ctx,
 				mutations,
 				`localization:${tag}:translations`,
-				`Updated ${input.updates.length} ${descriptor} translation ${input.updates.length === 1 ? "entry" : "entries"}. Machine-authored values remain Needs review until an explicit review action.`,
+				{ language: identity, updated: input.updates.length },
 				{ subject: descriptor, count: input.updates.length },
 			);
 		} catch (error) {

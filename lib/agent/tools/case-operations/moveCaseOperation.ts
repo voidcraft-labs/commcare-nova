@@ -187,10 +187,7 @@ export const moveCaseOperationTool = {
 				kind: "mutate",
 				mutations: commit.mutations,
 				result: {
-					message:
-						committedAfter === null
-							? `Moved case operation "${operation.id}" to the beginning.`
-							: `Moved case operation "${operation.id}" after operation UUID "${committedAfter}".`,
+					ok: true,
 					afterOperationUuid: committedAfter,
 					operationOrder: committedOrder,
 					summary: {
