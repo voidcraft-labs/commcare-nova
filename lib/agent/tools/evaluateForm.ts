@@ -9,6 +9,7 @@ import {
 	FormEvaluationInputError,
 } from "@/lib/preview/engine/evaluateForm";
 import { loadFormEvaluationContext } from "../authoring/evaluationContext";
+import { evaluationScenarioSchema } from "../authoring/evaluationScenario";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	formAddressSchema,
@@ -43,7 +44,10 @@ export const evaluateFormInputSchema = formAddressSchema
 			.array(z.string().min(1))
 			.max(100)
 			.optional()
-			.describe("Existing records selected for a follow-up or close form."),
+			.describe(
+				"Records selected for a follow-up or close form. Use supplied IDs when evaluating a scenario.",
+			),
+		scenario: evaluationScenarioSchema.optional(),
 		personaUuid: uuidSchema
 			.optional()
 			.describe("Worker to evaluate as. Defaults to the current member."),
@@ -60,7 +64,7 @@ export const evaluateFormInputSchema = formAddressSchema
 
 export const evaluateFormTool = {
 	description:
-		"Run a form with supplied answers using Preview's engine and the worker's actual records and lookup data. Returns validation, question state and proposed case values. Saves nothing; capture, case operations and submission checks require the running app.",
+		"Run a form using Preview's engine. Supply test records in scenario to check a new app or a specific failure; otherwise use the worker's actual records. Lookup data remains real. Returns validation, question state and proposed case values. Saves nothing; capture, case operations and submission checks require the running app.",
 	inputSchema: evaluateFormInputSchema,
 	async execute(
 		input: z.infer<typeof evaluateFormInputSchema>,
@@ -70,7 +74,11 @@ export const evaluateFormTool = {
 		if (!address.ok)
 			return { kind: "read" as const, data: { error: address.error } };
 		try {
-			const context = await loadFormEvaluationContext(ctx, input.personaUuid);
+			const context = await loadFormEvaluationContext(
+				ctx,
+				input.personaUuid,
+				input.scenario,
+			);
 			const result = await evaluateForm(ctx.snapshot.doc, input, context);
 			const { submission, ...observation } = result;
 			const proposedValues = submission && {
@@ -95,7 +103,9 @@ export const evaluateFormTool = {
 			return {
 				kind: "read" as const,
 				data: {
-					mode: "evaluation" as const,
+					mode: input.scenario
+						? ("scenario" as const)
+						: ("evaluation" as const),
 					workspaceRevision: ctx.snapshot.revision,
 					workerId: context.identity.ownerId,
 					lookupRevision: context.lookup.projectRevision,

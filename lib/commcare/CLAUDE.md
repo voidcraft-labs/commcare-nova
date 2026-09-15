@@ -177,7 +177,9 @@ after every projection.
 
 ### Shared field-string accessor
 
-`fieldProps.ts::readFieldString(field, key, doc)` is the one expression-reading helper the wire emitters share: expression slots (`relevant`, `validate`, `calculate`, `default_value`, `required`, the repeat slots, `label`, `hint`, …) delegate to the domain's `expressionSource`, which projects typed AST storage to text against `doc` — identity references resolve to CURRENT names at every read. It accepts only the registry's expression-slot IDs; non-expression data uses typed domain accessors. Case bindings use `fieldCaseWrite(field)` and remain independent from the field's friendly id.
+`fieldProps.ts::readFieldString(field, key, doc)` reads the registry's scalar expression slots. Prose uses the domain projection; XPath uses `xpath/wireSource.ts`, shared with Connect bindings, to route both `field-ref` and `path-ref` identities through the form's emitted-path map. A query-repeat reference addresses its iteration rows, including every derived `item` step, while structural binds still address the wrapper. The same projection feeds executable XPath and Vellum shadows. Stored identities and human reference spellings stay unchanged. Non-expression data uses typed domain accessors; case bindings use `fieldCaseWrite(field)`.
+
+Query-repeat insertion bookkeeping counts `../item` from its wrapper attribute. An absolute count can include another parent's rows during dependency recalculation when an outside expression reads nested iterations. Native Core tests cover these consumers in both local CCZ and HQ-regenerated forms.
 
 ### Hidden fields carry one value source
 

@@ -92,7 +92,10 @@ import {
 } from "@/lib/commcare/xform/caseOps";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
-import { FormPath } from "@/lib/commcare/xform/formPath";
+import {
+	descendFormPathIntoField,
+	FormPath,
+} from "@/lib/commcare/xform/formPath";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -628,8 +631,14 @@ export function buildXForm(
 	const formPaths = new Map<string, FormPath>();
 	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
 		const segments = authoredPaths.fieldPathSegments(uuid);
-		if (segments !== undefined)
-			formPaths.set(segments.join("/"), location.path);
+		if (segments !== undefined) {
+			// A repeat reference denotes its rows, including a query repeat's
+			// derived item nodes. Structural binds still address the wrapper.
+			formPaths.set(
+				segments.join("/"),
+				descendFormPathIntoField(doc.fields[uuid], location.path),
+			);
+		}
 	}
 	const formCtx: FormHashtagContext = {
 		formPaths,
@@ -1577,8 +1586,8 @@ function buildContainer(
 	// attribute slots on the outer `<id>` are load-bearing:
 	//   - `ids` and `count` are seeded by setvalue at xforms-ready (or jr-insert
 	//     when nested) from the configured ids_query.
-	//   - `current_index` is set by a `<bind calculate>` to `count(${nodePath}/
-	//     item)` — JavaRosa updates it as items materialize, and the
+	//   - `current_index` counts the wrapper's own item children. JavaRosa
+	//     updates it as items materialize, and the
 	//     per-iteration `@index` setvalue reads it at jr-insert time. Without
 	//     this slot the model-iteration pattern collapses (every iteration reads
 	//     position 0).
@@ -1802,7 +1811,9 @@ function buildRepeatBody(
 		binds.push(
 			el("bind", {
 				nodeset: currentIndexAttrPath,
-				calculate: `count(${itemPath.toXPath()})`,
+				// An absolute path can count another parent's rows when outside
+				// consumers trigger recalculation of a nested repeat.
+				calculate: "count(../item)",
 			}),
 		);
 		// Event coercion for nested model-iteration repeats. Mirrors Vellum's

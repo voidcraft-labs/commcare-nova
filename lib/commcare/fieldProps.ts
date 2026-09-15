@@ -7,10 +7,9 @@
  * generically — the XForm emitter and form-actions metadata — cannot narrow
  * once per kind without cascading N×M branching.
  *
- * Only the registry's scalar XPath/prose surfaces are accepted. Every value
- * delegates to `expressionSource`, so wire emitters project typed AST storage
- * through one strict read edge. Non-expression field data has its own typed
- * accessors and cannot pass through this function.
+ * Only the registry's scalar XPath/prose surfaces are accepted. XPath values
+ * use the wire source projection; prose uses the domain projection.
+ * Non-expression field data has its own typed accessors.
  */
 
 import type {
@@ -18,20 +17,22 @@ import type {
 	ScalarFieldExpressionSlotId,
 	XPathPrintableDoc,
 } from "@/lib/domain";
-import { expressionSource } from "@/lib/domain";
+import { expressionSource, fieldExpressionValue } from "@/lib/domain";
+import { printWireXPathSource } from "./xpath/wireSource";
 
 /**
  * Read the string slot `key` names off `field` as `string | undefined`.
- * Expression-slot ids resolve through `expressionSource` (which also
- * handles the nested `ids_query` path, and prints AST-stored slots
- * against `doc` so identity references read as current names); other
- * keys read the property directly. Non-string values (and keys the
- * field's variant doesn't declare) surface as `undefined`.
+ * The registry resolves nested slots such as `ids_query`. Both XPath
+ * reference spellings use current field names and the form's wire-path map.
+ * Slots the field's variant does not declare return `undefined`.
  */
 export function readFieldString(
 	field: Field,
 	key: ScalarFieldExpressionSlotId,
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	return expressionSource(field, key, doc);
+	const expression = fieldExpressionValue(field, key);
+	return expression === undefined
+		? expressionSource(field, key, doc)
+		: printWireXPathSource(expression, doc);
 }

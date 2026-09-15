@@ -91,6 +91,11 @@ or field identity; when a parent is supplied, it must match. New fields can name
 a parent container created in the same request. Nova assigns creation identities
 when omitted. Existing IDs remain useful when names collide.
 
+In record expressions, worker references such as `#user/region` name information
+declared in the app. `session('userid')` and `session('username')` read built-in
+identity. `external-user('key')` explicitly reads custom worker data provided
+outside the app.
+
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
 references for workflows, field types, forms, expressions, languages,
@@ -105,8 +110,12 @@ For a function's scope and argument count, use `get_authoring_guide` with
 
 `evaluate_form` runs a form with supplied answers using the production Preview
 engine. It reports question state, validation and proposed case values without
-saving records. Existing records and lookup data come from the authorized worker's
-current data; a private new app has no saved records yet. Repeat rows, a selected
+saving records. By default, records and lookup data come from the authorized worker's
+current data. An optional `scenario` supplies test `records` for a new app or a
+particular situation. Each record has an `id`, `caseType`, optional `properties`
+and optional `parentId` referring to another test record. Use those IDs in
+`caseIds`. Test records replace stored records for that evaluation and are never
+saved; lookup data remains real. The result is labeled `scenario`. Repeat rows, a selected
 worker, language and Search answers can be supplied when relevant. Evaluation is
 limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction

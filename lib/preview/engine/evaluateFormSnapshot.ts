@@ -112,7 +112,12 @@ export async function evaluateFormSnapshot(
 		if (!result.ok)
 			throw new FormEvaluationInputError(
 				"An expression could not be evaluated.",
-				{ path, expression: source, code: result.error.code },
+				{
+					path,
+					expression: source,
+					code: result.error.code,
+					...(result.error.reason ? { reason: result.error.reason } : {}),
+				},
 			);
 		return result.nodesetValues === undefined
 			? deserializeXPathWorkerValue(result.value)

@@ -225,6 +225,15 @@ export function expressionSource(
 	return projectSlotValue(value, doc, entry.kind);
 }
 
+/** The stored AST behind a scalar field slot; prose slots have no XPath AST. */
+export function fieldExpressionValue(
+	field: Field,
+	slot: ScalarFieldExpressionSlotId,
+): XPathExpression | undefined {
+	const value = readSlotValues(field, FIELD_SLOT_ENTRIES[slot].path)[0]?.value;
+	return isXPathExpression(value) ? value : undefined;
+}
+
 /** Inspection-only twin of {@link expressionSource}. Wire/runtime consumers
  * must use the strict accessor; validators and editors use this total
  * projection to surface a repair state. */

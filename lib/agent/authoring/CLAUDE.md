@@ -83,6 +83,9 @@ over a coincidentally identical display label. External worker values print as
 `external-user(...)`, keeping them distinct from authored worker properties even
 when a predicate may legally contain both names. Canonical prose admission
 already rejects that collision for prose references.
+In record expressions, `user(...)` and `#user/...` require a declared worker property. Built-in identity
+uses `session(...)`; undeclared custom metadata requires `external-user(...)`.
+An unknown property must never silently become an external metadata dependency.
 
 `messages.ts` gives automation messages the same literal escaping as form text.
 The record catalog binds case, parent, and host references. The canonical
@@ -141,6 +144,9 @@ The evaluator exclusively locks the shared ledger before reading it and writes
 reservations atomically before requests. Missing or invalid usage retains the
 reservation. A crashed process leaves its lock for inspection; do not remove it
 until confirming the owner stopped and accounting for pending requests.
-Scenario observations use the production Preview and real case database snapshot;
-they project submissions without submitting them. These are local diagnostics,
-not a production agent testing tool or device-runtime proof.
+The shared form evaluator uses the production Preview engine. It reads authorized
+worker records by default; an explicit scenario replaces that population with
+supplied test records, admitted through the same derived property schemas. It
+does not combine test records with stored rows or save them. Lookup data stays
+authorized and real. Results identify scenario evaluation and project ordinary
+case values; they do not prove storage, additional case operations or device behavior.

@@ -31,6 +31,12 @@ public class ContainerRuntimeTest {
   };
  }
  private static Object eval(FormDef form,String expression)throws Exception{return ExprEvalUtils.xpathEval(form.getEvaluationContext(),expression);}
+ private static void referenceCount(FormDef form,String id,double expected)throws Exception{
+  for(String spelling:new String[]{"hashtag","path"})assertEquals(id+" "+spelling,expected,eval(form,"number(/data/"+id+"_"+spelling+"_count)"));
+ }
+ private static void referenceValues(FormDef form,String id,String expected)throws Exception{
+  for(String spelling:new String[]{"hashtag","path"})assertEquals(id+" "+spelling,expected,eval(form,"string(/data/"+id+"_"+spelling+"_values)"));
+ }
  private static FormParseInit load(String scenario,boolean source)throws Exception{
   FormParseInit parsed=new FormParseInit("/container-"+scenario+(source?".hq.xml":".xml"));
   parsed.getFormDef().initialize(true,environment());return parsed;
@@ -70,10 +76,15 @@ public class ContainerRuntimeTest {
     case "user":assertEquals(1.0,eval(form,"count(/data/items)"));break;
     case "path-late":
     case "path":assertEquals(2.0,eval(form,"count(/data/items)"));break;
-    case "literal":assertEquals(3.0,eval(form,"count(/data/items)"));break;
+    case "literal":
+     assertEquals(3.0,eval(form,"count(/data/items)"));
+     referenceCount(form,"items",3.0);break;
     case "expression":assertEquals(4.0,eval(form,"count(/data/items)"));break;
     case "cousins":assertEquals(3.0,eval(form,"count(/data/one/items)"));assertEquals(5.0,eval(form,"count(/data/two/items)"));break;
-    case "query":assertEquals(3.0,eval(form,"count(/data/items/item)"));assertEquals("a b c",eval(form,"join(' ', /data/items/item/item_id)"));break;
+    case "query":
+     assertEquals(3.0,eval(form,"count(/data/items/item)"));assertEquals("a b c",eval(form,"join(' ', /data/items/item/item_id)"));
+     referenceCount(form,"items",3.0);referenceCount(form,"empty_items",0.0);
+     referenceValues(form,"ids","a b c");referenceValues(form,"authored_items","authored authored authored");break;
     case "nested-count":
      assertEquals(2.0,eval(form,"count(/data/parents/item[1]/items)"));
      assertEquals(3.0,eval(form,"count(/data/parents/item[2]/items)"));break;
@@ -82,7 +93,9 @@ public class ContainerRuntimeTest {
      assertEquals(2.0,eval(form,"count(/data/items/item[1]/children/item)"));
      assertEquals(1.0,eval(form,"count(/data/items/item[2]/children/item)"));
      assertEquals("a1 a2",eval(form,"join(' ', /data/items/item[1]/children/item/item_id)"));
-     assertEquals("b1",eval(form,"join(' ', /data/items/item[2]/children/item/item_id)"));break;
+     assertEquals("b1",eval(form,"join(' ', /data/items/item[2]/children/item/item_id)"));
+     referenceCount(form,"items",2.0);referenceCount(form,"children",3.0);
+     referenceValues(form,"child_ids","a1 a2 b1");break;
    }
   }
  }

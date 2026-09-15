@@ -21,12 +21,12 @@
  * Turbopack tree-shakes them out of client bundles.
  */
 
-import type { ConnectAssessment, ConnectDeliverUnit } from "@/lib/domain";
-import {
-	printXPath,
-	type XPathPrintableDoc,
-	xpathPrintContext,
+import type {
+	ConnectAssessment,
+	ConnectDeliverUnit,
+	XPathPrintableDoc,
 } from "@/lib/domain";
+import { printWireXPathSource } from "./xpath/wireSource";
 
 /**
  * Default XPath expression substituted for a Connect deliver_unit's
@@ -91,9 +91,7 @@ function projectConnectXPath(
 		| ConnectDeliverUnit["entity_name"],
 	doc: XPathPrintableDoc,
 ): string | undefined {
-	return value === undefined
-		? undefined
-		: printXPath(value, xpathPrintContext(doc));
+	return value === undefined ? undefined : printWireXPathSource(value, doc);
 }
 
 /**

@@ -11,6 +11,7 @@ import {
 import { checkPredicate, checkValueExpression } from "@/lib/domain/predicate";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { AuthoringScope } from "../bindings";
+import { AuthoringInputError } from "../errors";
 import { parseAuthoringMessage, printAuthoringMessage } from "../messages";
 import { authoringEncoders } from "../output";
 import { queryPrinter } from "../printQueryExpression";
@@ -259,7 +260,16 @@ it("rejects ambiguous field names and binds authored worker information by stabl
 	expect(parseQueryValue(queryPrinter(renamed).value(value), renamed)).toEqual(
 		value,
 	);
-	expect(parseQueryValue("user('external')", renamed)).toMatchObject({
+	expect(() => parseQueryValue("user('external')", renamed)).toThrow(
+		AuthoringInputError,
+	);
+	expect(() => parseQueryValue("#user/username", renamed)).toThrow(
+		AuthoringInputError,
+	);
+	expect(parseQueryValue("session('username')", renamed)).toMatchObject({
+		term: { kind: "session-context", field: "username" },
+	});
+	expect(parseQueryValue("external-user('external')", renamed)).toMatchObject({
 		term: { kind: "session-user", field: "external" },
 	});
 });

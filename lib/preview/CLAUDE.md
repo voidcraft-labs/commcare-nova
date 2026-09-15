@@ -1001,6 +1001,10 @@ lookup projection and XPath dispatcher as Preview. The thread captures authorize
 records and lookup rows without materializing schemas, usercases or sample data.
 It is bounded to 30 seconds and a 128 MiB V8 heap, and the host always terminates and joins
 it. A result is question state and a proposed submission, not a storage receipt.
+The authoring tool can supply an explicit scenario instead of reading stored
+records. That population is admitted against the app's derived case schemas,
+kept separate from real records, and discarded after evaluation. It does not
+change the running app's real-data model or validate a storage transaction.
 The build script emits its server asset beside the separately bundled browser
 XPath worker; neither server execution nor form-engine code enters the browser
 XPath asset.

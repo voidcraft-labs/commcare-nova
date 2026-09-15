@@ -250,7 +250,9 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 				throw new AuthoringInputError(
 					`Worker information ${name} is ambiguous or has different capitalization.`,
 				);
-			return termSchema.parse({ kind: "session-user", field: name });
+			throw new AuthoringInputError(
+				`Worker information ${name} is not declared. Choose an app worker property, session('userid') or session('username') for built-in identity, or external-user(${quote(name)}) for custom data supplied outside this app.`,
+			);
 		}
 		if (value === "row") {
 			if (!this.options.tableId)

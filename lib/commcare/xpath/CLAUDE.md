@@ -4,6 +4,8 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 
 ## Layout
 
+- `wireSource.ts` — projects stored XPath for form emission. Both authored field-reference spellings enter the same form-path resolver, so query-repeat identities address rows rather than their derived wrapper. Field slots and Connect bindings share this projection; human editing retains its original spelling.
+
 - `grammar.lezer.grammar` — grammar source.
 - `parser.ts` + `parser.terms.ts` — committed, regenerated via `scripts/build-xpath-parser.ts`.
 - `expressionAst.ts` — the human-editor parser half of the stored-expression pair: source text → `XPathExpression` (the typed AST in `lib/domain/xpath`, whose printer + walks live domain-side because the field/form schemas store the shape). Total over any input. Text between identity leaves stays byte-exact, while reference leaves print canonically. A `path-ref` stores only its field UUID and always prints the absolute `/data/<current path>` spelling; migration rejects a noncanonical legacy path rather than persisting separator bytes. Parsing also receives the app's custom worker-property slug resolver: one exact unique `#user/<slug>` match becomes `user-property-ref { userPropertyUuid }`, while built-in, external, missing, or ambiguous names remain the distinct name-backed `user-ref`. Printing resolves an identity leaf through the property's CURRENT slug, so a rename rewrites no AST.

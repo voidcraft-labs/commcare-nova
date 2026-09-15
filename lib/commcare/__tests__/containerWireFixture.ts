@@ -45,6 +45,30 @@ const count = (id: string, value: string) =>
 	});
 const group = (id: string, children: FieldSpec[]) =>
 	f({ kind: "group", id, label: proseText(id), children });
+const referenceCounts = (id: string, path: string) => [
+	f({
+		kind: "hidden",
+		id: `${id}_hashtag_count`,
+		calculate: `count(#form/${path})`,
+	}),
+	f({
+		kind: "hidden",
+		id: `${id}_path_count`,
+		calculate: `count(/data/${path})`,
+	}),
+];
+const referenceValues = (id: string, path: string) => [
+	f({
+		kind: "hidden",
+		id: `${id}_hashtag_values`,
+		calculate: `join(' ', #form/${path})`,
+	}),
+	f({
+		kind: "hidden",
+		id: `${id}_path_values`,
+		calculate: `join(' ', /data/${path})`,
+	}),
+];
 export function containerWireFixture(scenario: ContainerScenario) {
 	let fields: FieldSpec[];
 	switch (scenario) {
@@ -143,7 +167,7 @@ export function containerWireFixture(scenario: ContainerScenario) {
 			];
 			break;
 		case "literal":
-			fields = [count("items", "3")];
+			fields = [count("items", "3"), ...referenceCounts("items", "items")];
 			break;
 		case "expression":
 			fields = [
@@ -203,9 +227,22 @@ export function containerWireFixture(scenario: ContainerScenario) {
 					data_source: { ids_query: "'a b c'" },
 					children: [
 						f({ kind: "hidden", id: "item_id", calculate: "current()/../@id" }),
+						f({ kind: "hidden", id: "item", calculate: "'authored'" }),
 						text("answer"),
 					],
 				}),
+				f({
+					kind: "repeat",
+					id: "empty_items",
+					label: proseText("Empty items"),
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "''" },
+					children: [text("answer")],
+				}),
+				...referenceCounts("items", "items"),
+				...referenceCounts("empty_items", "empty_items"),
+				...referenceValues("ids", "items/item_id"),
+				...referenceValues("authored_items", "items/item"),
 			];
 			break;
 		case "nested-query":
@@ -239,6 +276,9 @@ export function containerWireFixture(scenario: ContainerScenario) {
 						}),
 					],
 				}),
+				...referenceCounts("items", "items"),
+				...referenceCounts("children", "items/children"),
+				...referenceValues("child_ids", "items/children/item_id"),
 			];
 			break;
 	}
