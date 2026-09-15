@@ -1,5 +1,5 @@
 /**
- * Offline projection and local validation of the production design schemas.
+ * Offline projection and local validation of the production structured output schemas.
  * Structural checks cover selected strict-schema requirements; AJV exercises
  * emitted Draft-7 semantics. Neither establishes live provider acceptance or
  * model output quality. Native provider-adapter tests live beside this suite.
@@ -8,76 +8,17 @@
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ids, makeContract } from "@/lib/agent/design/__tests__/fixtures";
-import { appDesignContractSchema } from "@/lib/agent/design/contract";
-import {
-	designReviewSchema,
-	designRevisionResultSchemaFor,
-} from "@/lib/agent/design/review";
-import { designReviewSchemaFor } from "@/lib/agent/design/reviewerSchema";
-import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
-import { designSourceLabel } from "@/lib/agent/design/sourceReferences";
+import { extractDocumentSchema } from "@/lib/agent/documentExtraction";
 import {
 	strictStructuredSchema,
 	strictWireJsonSchema,
 	stripNullProperties,
 } from "@/lib/agent/strictStructuredOutput";
+import { translationBatchOutputSchema } from "@/lib/agent/translation/translator";
 
-const CONTRACT = makeContract();
-
-function fixturePackage(): DesignSourcePackage {
-	return {
-		schemaVersion: 1,
-		designSessionId: "00000000-0000-4000-8000-000000000700",
-		projectId: "proj-1",
-		packageDigest: "b".repeat(64),
-		request: {
-			blocks: [
-				{
-					ref: {
-						kind: "message",
-						threadId: "00000000-0000-4000-8000-999999999999",
-						messageId: "m-1",
-						partIndex: 0,
-					},
-					text: "Track CHW visits.",
-					truncated: false,
-				},
-			],
-		},
-		claims: [],
-		attachments: [],
-		images: [],
-		platformConstraints: [],
-		sources: [
-			{
-				ref: {
-					kind: "message",
-					threadId: "00000000-0000-4000-8000-999999999999",
-					messageId: "m-1",
-					partIndex: 0,
-				},
-			},
-		],
-	};
-}
-
-const REVIEW_BINDINGS = [
-	{ handle: "@task_visit", designId: ids.taskVisit as string },
-];
-
-/** The pipeline's model-facing schemas, by the names the phases use. */
 const PIPELINE_SCHEMAS: ReadonlyArray<[string, z.ZodType]> = [
-	["author (appDesignContractSchema)", appDesignContractSchema],
-	[
-		"review (designReviewSchemaFor)",
-		designReviewSchemaFor({
-			contract: CONTRACT,
-			pkg: fixturePackage(),
-			bindings: REVIEW_BINDINGS,
-		}),
-	],
-	["revise (designRevisionResultSchemaFor)", designRevisionResultSchemaFor([])],
+	["document extraction", extractDocumentSchema],
+	["translation", translationBatchOutputSchema],
 ];
 
 /** Check the selected projection invariants at JSON Schema positions only. */
@@ -250,68 +191,6 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 });
 
 describe("the validation bridge", () => {
-	it("round-trips the contract fixture through parse", async () => {
-		const schema = strictStructuredSchema(appDesignContractSchema);
-		const result = await schema.validate?.(
-			JSON.parse(JSON.stringify(CONTRACT)),
-		);
-		expect(result?.success).toBe(true);
-	});
-
-	it("round-trips a wire-shaped review into the persisted UUID vocabulary", async () => {
-		const pkg = fixturePackage();
-		const schema = strictStructuredSchema(
-			designReviewSchemaFor({
-				contract: CONTRACT,
-				pkg,
-				bindings: REVIEW_BINDINGS,
-			}),
-		);
-		const result = await schema.validate?.({
-			summary: "Focused review",
-			findings: [
-				{
-					severity: "important",
-					dispositionClass: "design-correction",
-					claim: "The visit result is not shown after submission.",
-					// Handle + raw-contract-id arms, a tag citation with the strict
-					// null spelling in its optional slots, and a platform citation.
-					evidenceRefs: [
-						{
-							source: designSourceLabel(pkg.request.blocks[0].ref),
-							sectionPath: null,
-							figureMarker: null,
-						},
-						{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" },
-					],
-					affectedElements: ["@task_visit", ids.taskRegister],
-					proposedResolution: null,
-				},
-			],
-		});
-		expect(result?.success).toBe(true);
-		if (result?.success !== true) return;
-		// The resolved value is exactly what the artifact store re-parses.
-		const persisted = designReviewSchema.safeParse(result.value);
-		expect(persisted.success).toBe(true);
-		if (!persisted.success) return;
-		const finding = persisted.data.findings[0];
-		expect(finding?.affectedElementIds).toEqual([
-			ids.taskVisit,
-			ids.taskRegister,
-		]);
-		expect(finding?.evidenceRefs[0]).toEqual({
-			kind: "message",
-			threadId: "00000000-0000-4000-8000-999999999999",
-			messageId: "m-1",
-			partIndex: 0,
-		});
-		expect(finding?.evidenceRefs[1]).toMatchObject({
-			kind: "platform-constraint",
-			code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
-		});
-	});
-
 	it("maps the strict null spelling back to absence", async () => {
 		const schema = strictStructuredSchema(
 			z.object({ name: z.string(), note: z.string().optional() }),
@@ -322,7 +201,7 @@ describe("the validation bridge", () => {
 	});
 
 	it("returns the ZodError itself on a failed parse (the diagnostics carrier)", async () => {
-		const schema = strictStructuredSchema(appDesignContractSchema);
+		const schema = strictStructuredSchema(translationBatchOutputSchema);
 		const result = await schema.validate?.({ objective: 42 });
 		expect(result?.success).toBe(false);
 		if (result?.success === false) {

@@ -65,17 +65,12 @@ export function designProgressLocksInitialBuild(
  * ordinary edits. Only an unfinished design build owns build-progress failure
  * presentation; an edit on the completed app remains on the generic chat path. */
 export function designProgressTracksBuildFailure(
-	progress: Pick<
-		DesignProgressState,
-		"designSessionId" | "materializedAppId" | "activeSlice"
-	>,
+	progress: Pick<DesignProgressState, "designSessionId" | "materializedAppId">,
 	buildUnfinished: boolean,
 ): boolean {
 	return (
 		progress.designSessionId !== null &&
-		(progress.materializedAppId === null ||
-			buildUnfinished ||
-			progress.activeSlice !== null)
+		(progress.materializedAppId === null || buildUnfinished)
 	);
 }
 
@@ -84,14 +79,14 @@ export function designProgressTracksBuildFailure(
  * cannot revise the accepted contract. Offer one explicit continuation that
  * resubmits the exact transcript with `redrive`, adding no user text. */
 export function designBuildCanResume(
-	progress: Pick<DesignProgressState, "failure" | "seededStage">,
+	progress: Pick<DesignProgressState, "failure" | "stage">,
 	buildUnfinished: boolean,
 	status: ChatStatus,
 ): boolean {
 	return (
 		buildUnfinished &&
 		(progress.failure?.recoverable === true ||
-			(progress.failure === null && progress.seededStage === "incomplete")) &&
+			(progress.failure === null && progress.stage === "incomplete")) &&
 		status !== "submitted" &&
 		status !== "streaming"
 	);
@@ -104,25 +99,21 @@ export function designBuildCanResume(
  * completion evidence revoke an older recoverable marker. */
 export function rememberDesignBuildResumeEligibility(
 	designSessionIds: Set<string>,
-	progress: Pick<
-		DesignProgressState,
-		"designSessionId" | "failure" | "seededStage" | "completion"
-	>,
+	progress: Pick<DesignProgressState, "designSessionId" | "failure" | "stage">,
 ): void {
 	const designSessionId = progress.designSessionId;
 	if (designSessionId === null) return;
 	if (
 		progress.failure?.recoverable === true ||
-		(progress.failure === null && progress.seededStage === "incomplete")
+		(progress.failure === null && progress.stage === "incomplete")
 	) {
 		designSessionIds.add(designSessionId);
 		return;
 	}
 	if (
 		progress.failure !== null ||
-		progress.completion !== null ||
-		progress.seededStage === "failed" ||
-		progress.seededStage === "ready"
+		progress.stage === "failed" ||
+		progress.stage === "ready"
 	) {
 		designSessionIds.delete(designSessionId);
 	}

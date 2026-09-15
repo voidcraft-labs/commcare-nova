@@ -32,7 +32,6 @@ export function authoringTrialTools(
 										SHARED_TOOL_REGISTRY.find((entry) => entry.saName === name);
 									if (
 										!entry ||
-										entry.policy.readSets.length ||
 										entry.policy.capabilities.some(
 											(capability) =>
 												![

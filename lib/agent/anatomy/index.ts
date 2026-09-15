@@ -11,13 +11,13 @@
 
 import "server-only";
 
-import { buildExecutorComposition } from "./compositions/buildExecutor";
-import { designAuthorComposition } from "./compositions/designAuthor";
+import {
+	architectComposition,
+	peerComposition,
+} from "./compositions/architect";
 import { mcpBootComposition } from "./compositions/mcpBoot";
 import {
-	designReviewerComposition,
 	documentExtractorComposition,
-	executorHelperComposition,
 	translatorComposition,
 } from "./compositions/oneShots";
 import { solutionsArchitectComposition } from "./compositions/solutionsArchitect";
@@ -25,10 +25,8 @@ import type { AnatomyRoleId, RoleComposition } from "./types";
 
 export const COMPOSITIONS: Readonly<Record<AnatomyRoleId, RoleComposition>> = {
 	"solutions-architect": solutionsArchitectComposition,
-	"design-author": designAuthorComposition,
-	"design-reviewer": designReviewerComposition,
-	"build-executor": buildExecutorComposition,
-	"executor-helper": executorHelperComposition,
+	architect: architectComposition,
+	peer: peerComposition,
 	"document-extractor": documentExtractorComposition,
 	translator: translatorComposition,
 	"mcp-boot": mcpBootComposition,

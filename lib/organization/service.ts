@@ -34,6 +34,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	assertLocationOwnerTargetsValid,
 	assertPersonaAssignmentsValid,
@@ -70,6 +71,7 @@ import { locationValueCatalogIssue } from "./valueCatalog";
 import {
 	assertExpectedOrganizationRevision,
 	commitOrganizationChange,
+	type LockedOrganization,
 	lockOrganizationForWrite,
 } from "./writerTransaction";
 
@@ -596,127 +598,230 @@ function descendantCount(
 	return count;
 }
 
+type OrganizationWriteResult =
+	| CreateLocationResult
+	| UpdateLocationResult
+	| SetArchivedResult;
+
+/** The domain write and its exact answer share the existing organization lock
+ * and transaction. Replays reauthorize before reading their receipt. */
+async function withOrganizationWrite<R extends OrganizationWriteResult>(
+	scope: OrganizationScope,
+	operation: string,
+	input: unknown,
+	expectedRevision: OrganizationRevision | undefined,
+	exclusiveApp: boolean,
+	write: (
+		tx: Transaction<AppDatabase>,
+		locked: LockedOrganization,
+	) => Promise<R>,
+): Promise<R> {
+	return withAppTx(async (tx) => {
+		const locked = await lockOrganizationForWrite(tx, scope, {
+			capability: "edit",
+			exclusiveApp,
+		});
+		const inputDigest = canonicalJsonDigest({
+			operation,
+			input,
+			expectedRevision: expectedRevision ?? null,
+			projectId: scope.projectId,
+		});
+		if (scope.requestId !== undefined) {
+			const prior = await tx
+				.selectFrom("organization_authoring_receipts")
+				.select(["input_digest", "receipt_digest", "receipt"])
+				.where("app_id", "=", scope.appId)
+				.where("request_id", "=", scope.requestId)
+				.executeTakeFirst();
+			if (prior) {
+				if (prior.input_digest !== inputDigest)
+					throw new OrganizationError(
+						"conflict",
+						"This request was already used for a different organization change.",
+					);
+				if (prior.receipt_digest !== canonicalJsonDigest(prior.receipt))
+					throw new Error(
+						"The organization receipt no longer matches its digest.",
+					);
+				// These are this writer's digest-verified bytes. Restore the two
+				// domain values JSON cannot retain: dates and a hydrated document.
+				const result = prior.receipt as unknown as R;
+				if ("location" in result)
+					return {
+						...result,
+						location: {
+							...result.location,
+							archivedAt:
+								result.location.archivedAt === null
+									? null
+									: new Date(result.location.archivedAt),
+						},
+					};
+				if (result.blueprintChange)
+					return {
+						...result,
+						blueprintChange: {
+							mutations: admitMutationBatch([]),
+							committedDoc: await loadDocInTransaction(tx, scope.appId),
+						},
+					};
+				return result;
+			}
+		}
+		assertExpectedOrganizationRevision(locked, expectedRevision);
+		const result = await write(tx, locked);
+		if (scope.requestId !== undefined) {
+			// The canonical history already owns the Blueprint change. A replay
+			// refreshes the caller's document and emits no old mutations.
+			const persisted =
+				"blueprintChange" in result && result.blueprintChange
+					? { ...result, blueprintChange: { committed: true } }
+					: result;
+			const json = JSON.stringify(persisted);
+			await tx
+				.insertInto("organization_authoring_receipts")
+				.values({
+					app_id: scope.appId,
+					request_id: scope.requestId,
+					input_digest: inputDigest,
+					receipt_digest: canonicalJsonDigest(JSON.parse(json)),
+					receipt: json,
+				})
+				.execute();
+		}
+		return result;
+	});
+}
+
 export async function createLocation(
 	scope: OrganizationScope,
 	input: CreateLocationInput,
 	expectedRevision?: OrganizationRevision,
 ): Promise<CreateLocationResult> {
-	return withAppTx(async (tx) => {
-		const locked = await lockOrganizationForWrite(tx, scope, {
-			capability: "edit",
-		});
-		assertExpectedOrganizationRevision(locked, expectedRevision);
-		const requestedCount = 1 + descendantCount(input.descendants);
-		if (locked.locationCount + requestedCount > MAX_LOCATIONS_PER_APP) {
-			throw new OrganizationError(
-				"limit",
-				`This request would take the app past ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps or add a smaller branch.`,
-			);
-		}
-		const tree = await lockTree(tx, scope.appId);
-		const doc = await loadDocInTransaction(tx, scope.appId);
-		const created: LocationRow[] = [];
-		const insert = async (
-			candidate: Pick<
-				CreateLocationInput,
-				| "levelUuid"
-				| "name"
-				| "siteCode"
-				| "externalId"
-				| "latitude"
-				| "longitude"
-				| "values"
-			>,
-			parentId: string | null,
-			afterSiblingId?: string | null,
-		): Promise<LocationRow> => {
-			assertPlacement(doc, tree, candidate.levelUuid, parentId);
-			assertValuesSatisfyCatalog(doc, candidate.levelUuid, candidate.values);
-			// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
-			// does, and checked against the locked set either way so two rows in
-			// this batch cannot collide with one another or a concurrent create.
-			const siteCode =
-				candidate.siteCode === undefined
-					? deriveSiteCode(candidate.name, tree.siteCodes)
-					: candidate.siteCode.toLowerCase();
-			if (candidate.siteCode !== undefined) {
-				assertSiteCodeFree(siteCode, tree.siteCodes);
+	return withOrganizationWrite(
+		scope,
+		"createLocation",
+		input,
+		expectedRevision,
+		false,
+		async (tx, locked) => {
+			const requestedCount = 1 + descendantCount(input.descendants);
+			if (locked.locationCount + requestedCount > MAX_LOCATIONS_PER_APP) {
+				throw new OrganizationError(
+					"limit",
+					`This request would take the app past ${MAX_LOCATIONS_PER_APP.toLocaleString()} places, including archived places, which is as many as Nova stores for one app. Split the organization across apps or add a smaller branch.`,
+				);
 			}
-			const row = await tx
-				.insertInto("app_locations")
-				.values({
-					app_id: scope.appId,
-					level_uuid: asUuid(candidate.levelUuid),
-					parent_id: parentId,
-					site_code: siteCode,
-					name: candidate.name,
-					external_id: candidate.externalId,
-					latitude: candidate.latitude,
-					longitude: candidate.longitude,
-					// A jsonb column crosses Kysely as a string on the way in.
-					values: JSON.stringify(candidate.values),
-					order_key: (
-						await orderKeyForSlot(
-							tx,
-							scope.appId,
-							tree,
-							parentId,
-							afterSiblingId,
-						)
-					).key,
-					created_by: scope.actorUserId,
-					updated_by: scope.actorUserId,
-				})
-				.returningAll()
-				.executeTakeFirstOrThrow();
-			tree.byId.set(row.id, row);
-			const siblings = tree.childrenOf.get(parentId) ?? [];
-			siblings.push(row);
-			siblings.sort(
-				(left, right) =>
-					left.order_key.localeCompare(right.order_key) ||
-					left.id.localeCompare(right.id),
-			);
-			tree.childrenOf.set(parentId, siblings);
-			tree.siteCodes.add(siteCode);
-			created.push(row);
-			return row;
-		};
+			const tree = await lockTree(tx, scope.appId);
+			const doc = await loadDocInTransaction(tx, scope.appId);
+			const created: LocationRow[] = [];
+			const insert = async (
+				candidate: Pick<
+					CreateLocationInput,
+					| "levelUuid"
+					| "name"
+					| "siteCode"
+					| "externalId"
+					| "latitude"
+					| "longitude"
+					| "values"
+				>,
+				parentId: string | null,
+				afterSiblingId?: string | null,
+			): Promise<LocationRow> => {
+				assertPlacement(doc, tree, candidate.levelUuid, parentId);
+				assertValuesSatisfyCatalog(doc, candidate.levelUuid, candidate.values);
+				// Derived when omitted, exactly as `models.py::set_site_code_if_needed`
+				// does, and checked against the locked set either way so two rows in
+				// this batch cannot collide with one another or a concurrent create.
+				const siteCode =
+					candidate.siteCode === undefined
+						? deriveSiteCode(candidate.name, tree.siteCodes)
+						: candidate.siteCode.toLowerCase();
+				if (candidate.siteCode !== undefined) {
+					assertSiteCodeFree(siteCode, tree.siteCodes);
+				}
+				const row = await tx
+					.insertInto("app_locations")
+					.values({
+						app_id: scope.appId,
+						level_uuid: asUuid(candidate.levelUuid),
+						parent_id: parentId,
+						site_code: siteCode,
+						name: candidate.name,
+						external_id: candidate.externalId,
+						latitude: candidate.latitude,
+						longitude: candidate.longitude,
+						// A jsonb column crosses Kysely as a string on the way in.
+						values: JSON.stringify(candidate.values),
+						order_key: (
+							await orderKeyForSlot(
+								tx,
+								scope.appId,
+								tree,
+								parentId,
+								afterSiblingId,
+							)
+						).key,
+						created_by: scope.actorUserId,
+						updated_by: scope.actorUserId,
+					})
+					.returningAll()
+					.executeTakeFirstOrThrow();
+				tree.byId.set(row.id, row);
+				const siblings = tree.childrenOf.get(parentId) ?? [];
+				siblings.push(row);
+				siblings.sort(
+					(left, right) =>
+						left.order_key.localeCompare(right.order_key) ||
+						left.id.localeCompare(right.id),
+				);
+				tree.childrenOf.set(parentId, siblings);
+				tree.siteCodes.add(siteCode);
+				created.push(row);
+				return row;
+			};
 
-		const root = await insert(input, input.parentId, input.afterSiblingId);
-		const insertDescendants = async (
-			descendants: readonly CreateLocationDescendantInput[],
-			parentId: string,
-		): Promise<readonly CreatedLocationDescendant[]> => {
-			const receipts: CreatedLocationDescendant[] = [];
-			for (const descendant of descendants) {
-				const row = await insert(descendant, parentId);
-				receipts.push({
-					locationUuid: asUuid(row.id),
-					siteCode: row.site_code,
-					descendants: await insertDescendants(
-						descendant.descendants ?? [],
-						row.id,
-					),
-				});
-			}
-			return receipts;
-		};
-		const descendants = await insertDescendants(
-			input.descendants ?? [],
-			root.id,
-		);
-		await assertReverseHopTargetsUnambiguous(tx, {
-			appId: scope.appId,
-			candidateDoc: doc,
-		});
-		const revision = await commitOrganizationChange(tx, scope, created.length);
-		return {
-			revision,
-			location: toStoredLocation(root),
-			descendants,
-		};
-	});
+			const root = await insert(input, input.parentId, input.afterSiblingId);
+			const insertDescendants = async (
+				descendants: readonly CreateLocationDescendantInput[],
+				parentId: string,
+			): Promise<readonly CreatedLocationDescendant[]> => {
+				const receipts: CreatedLocationDescendant[] = [];
+				for (const descendant of descendants) {
+					const row = await insert(descendant, parentId);
+					receipts.push({
+						locationUuid: asUuid(row.id),
+						siteCode: row.site_code,
+						descendants: await insertDescendants(
+							descendant.descendants ?? [],
+							row.id,
+						),
+					});
+				}
+				return receipts;
+			};
+			const descendants = await insertDescendants(
+				input.descendants ?? [],
+				root.id,
+			);
+			await assertReverseHopTargetsUnambiguous(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+			const revision = await commitOrganizationChange(
+				tx,
+				scope,
+				created.length,
+			);
+			return {
+				revision,
+				location: toStoredLocation(root),
+				descendants,
+			};
+		},
+	);
 }
 
 export interface UpdateLocationResult {
@@ -742,181 +847,188 @@ export async function updateLocation(
 	patch: UpdateLocationInput,
 	expectedRevision?: OrganizationRevision,
 ): Promise<UpdateLocationResult> {
-	return withAppTx(async (tx) => {
-		const locked = await lockOrganizationForWrite(tx, scope, {
-			capability: "edit",
-		});
-		assertExpectedOrganizationRevision(locked, expectedRevision);
-		const tree = await lockTree(tx, scope.appId);
-		const current = tree.byId.get(locationId);
-		if (current === undefined) throw organizationNotFound();
+	return withOrganizationWrite(
+		scope,
+		"updateLocation",
+		{ locationId, patch },
+		expectedRevision,
+		false,
+		async (tx, locked) => {
+			const tree = await lockTree(tx, scope.appId);
+			const current = tree.byId.get(locationId);
+			if (current === undefined) throw organizationNotFound();
 
-		const nextLevelUuid = patch.levelUuid ?? current.level_uuid;
-		const nextValues: Record<string, string> =
-			patch.values ??
-			(() => {
-				const values = { ...current.values };
-				for (const [uuid, value] of Object.entries(patch.valuePatch ?? {})) {
-					if (value === null) delete values[uuid];
-					else values[uuid] = value;
+			const nextLevelUuid = patch.levelUuid ?? current.level_uuid;
+			const nextValues: Record<string, string> =
+				patch.values ??
+				(() => {
+					const values = { ...current.values };
+					for (const [uuid, value] of Object.entries(patch.valuePatch ?? {})) {
+						if (value === null) delete values[uuid];
+						else values[uuid] = value;
+					}
+					return values;
+				})();
+			const nextParentId =
+				patch.parentId === undefined ? current.parent_id : patch.parentId;
+			const changesParent =
+				patch.parentId !== undefined && nextParentId !== current.parent_id;
+			const changesOrder = patch.afterSiblingId !== undefined;
+			const changesPlacement = changesParent || changesOrder;
+			if (
+				patch.values !== undefined ||
+				patch.valuePatch !== undefined ||
+				patch.levelUuid !== undefined
+			) {
+				// Re-checked against the level the place will HAVE, so retyping a place
+				// into a level its recorded information does not apply to is refused
+				// rather than silently leaving values nothing will emit.
+				const doc = await loadDocInTransaction(tx, scope.appId);
+				assertValuesSatisfyCatalog(doc, nextLevelUuid, nextValues);
+			}
+
+			if (
+				patch.levelUuid !== undefined &&
+				patch.levelUuid !== current.level_uuid
+			) {
+				// HQ's rule, verbatim in effect: `util.py::get_location_type` refuses a
+				// type change on a location with descendants ("You cannot change the
+				// location type of a location with children"). A leaf may move rungs;
+				// a branch cannot, because its children's levels would no longer sit
+				// under their parent's.
+				if ((tree.childrenOf.get(locationId) ?? []).length > 0) {
+					throw new OrganizationError(
+						"rejected",
+						`"${current.name}" has places under it, so it can't move to a different level. Move every place under it somewhere else first; bring back any archived child places before moving them.`,
+					);
 				}
-				return values;
-			})();
-		const nextParentId =
-			patch.parentId === undefined ? current.parent_id : patch.parentId;
-		const changesParent =
-			patch.parentId !== undefined && nextParentId !== current.parent_id;
-		const changesOrder = patch.afterSiblingId !== undefined;
-		const changesPlacement = changesParent || changesOrder;
-		if (
-			patch.values !== undefined ||
-			patch.valuePatch !== undefined ||
-			patch.levelUuid !== undefined
-		) {
-			// Re-checked against the level the place will HAVE, so retyping a place
-			// into a level its recorded information does not apply to is refused
-			// rather than silently leaving values nothing will emit.
-			const doc = await loadDocInTransaction(tx, scope.appId);
-			assertValuesSatisfyCatalog(doc, nextLevelUuid, nextValues);
-		}
-
-		if (
-			patch.levelUuid !== undefined &&
-			patch.levelUuid !== current.level_uuid
-		) {
-			// HQ's rule, verbatim in effect: `util.py::get_location_type` refuses a
-			// type change on a location with descendants ("You cannot change the
-			// location type of a location with children"). A leaf may move rungs;
-			// a branch cannot, because its children's levels would no longer sit
-			// under their parent's.
-			if ((tree.childrenOf.get(locationId) ?? []).length > 0) {
-				throw new OrganizationError(
-					"rejected",
-					`"${current.name}" has places under it, so it can't move to a different level. Move every place under it somewhere else first; bring back any archived child places before moving them.`,
-				);
+				const doc = await loadDocInTransaction(tx, scope.appId);
+				assertPlacement(doc, tree, patch.levelUuid, nextParentId);
 			}
-			const doc = await loadDocInTransaction(tx, scope.appId);
-			assertPlacement(doc, tree, patch.levelUuid, nextParentId);
-		}
-		let rebalancedSiblings = false;
-		if (changesPlacement) {
+			let rebalancedSiblings = false;
+			if (changesPlacement) {
+				if (
+					nextParentId !== null &&
+					subtreeIds(tree, locationId).includes(nextParentId)
+				) {
+					throw new OrganizationError(
+						"rejected",
+						`"${current.name}" can't move into itself or into a place under it.`,
+					);
+				}
+				const doc = await loadDocInTransaction(tx, scope.appId);
+				assertPlacement(doc, tree, nextLevelUuid, nextParentId);
+			}
+
+			// Only slots whose value actually DIFFERS are written. A patch that
+			// restates what is stored is not a change, and advancing the clock for one
+			// would invalidate every client's snapshot to record that someone pressed
+			// Save on an unedited form.
+			const values: Record<string, unknown> = { updated_by: scope.actorUserId };
+			if (patch.name !== undefined && patch.name !== current.name) {
+				values.name = patch.name;
+			}
 			if (
-				nextParentId !== null &&
-				subtreeIds(tree, locationId).includes(nextParentId)
+				patch.externalId !== undefined &&
+				patch.externalId !== current.external_id
 			) {
-				throw new OrganizationError(
-					"rejected",
-					`"${current.name}" can't move into itself or into a place under it.`,
-				);
+				values.external_id = patch.externalId;
 			}
-			const doc = await loadDocInTransaction(tx, scope.appId);
-			assertPlacement(doc, tree, nextLevelUuid, nextParentId);
-		}
-
-		// Only slots whose value actually DIFFERS are written. A patch that
-		// restates what is stored is not a change, and advancing the clock for one
-		// would invalidate every client's snapshot to record that someone pressed
-		// Save on an unedited form.
-		const values: Record<string, unknown> = { updated_by: scope.actorUserId };
-		if (patch.name !== undefined && patch.name !== current.name) {
-			values.name = patch.name;
-		}
-		if (
-			patch.externalId !== undefined &&
-			patch.externalId !== current.external_id
-		) {
-			values.external_id = patch.externalId;
-		}
-		if (
-			patch.latitude !== undefined &&
-			patch.latitude !==
-				(current.latitude === null
-					? null
-					: canonicalCoordinate(current.latitude))
-		) {
-			values.latitude = patch.latitude;
-		}
-		if (
-			patch.longitude !== undefined &&
-			patch.longitude !==
-				(current.longitude === null
-					? null
-					: canonicalCoordinate(current.longitude))
-		) {
-			values.longitude = patch.longitude;
-		}
-		if (
-			(patch.values !== undefined || patch.valuePatch !== undefined) &&
-			!sameStringRecord(nextValues, current.values)
-		) {
-			values.values = JSON.stringify(nextValues);
-		}
-		if (
-			patch.levelUuid !== undefined &&
-			patch.levelUuid !== current.level_uuid
-		) {
-			values.level_uuid = patch.levelUuid;
-		}
-		if (changesPlacement) {
 			if (
-				!locationAlreadyOccupiesSlot(
-					tree,
-					current,
-					nextParentId,
-					patch.afterSiblingId,
-				)
+				patch.latitude !== undefined &&
+				patch.latitude !==
+					(current.latitude === null
+						? null
+						: canonicalCoordinate(current.latitude))
 			) {
-				const orderPlan = await orderKeyForSlot(
-					tx,
-					scope.appId,
-					tree,
-					nextParentId,
-					patch.afterSiblingId,
-					locationId,
-				);
-				rebalancedSiblings = orderPlan.rebalanced;
-				if (nextParentId !== current.parent_id) values.parent_id = nextParentId;
-				if (orderPlan.key !== current.order_key)
-					values.order_key = orderPlan.key;
+				values.latitude = patch.latitude;
 			}
-		}
-		// One key means nothing but provenance changed, and provenance alone is
-		// not a change: advancing the clock would invalidate every client's
-		// snapshot to record that someone pressed Save on an unedited form.
-		if (Object.keys(values).length === 1 && !rebalancedSiblings) {
-			return { revision: locked.revision, location: toStoredLocation(current) };
-		}
-		values.updated_at = new Date();
+			if (
+				patch.longitude !== undefined &&
+				patch.longitude !==
+					(current.longitude === null
+						? null
+						: canonicalCoordinate(current.longitude))
+			) {
+				values.longitude = patch.longitude;
+			}
+			if (
+				(patch.values !== undefined || patch.valuePatch !== undefined) &&
+				!sameStringRecord(nextValues, current.values)
+			) {
+				values.values = JSON.stringify(nextValues);
+			}
+			if (
+				patch.levelUuid !== undefined &&
+				patch.levelUuid !== current.level_uuid
+			) {
+				values.level_uuid = patch.levelUuid;
+			}
+			if (changesPlacement) {
+				if (
+					!locationAlreadyOccupiesSlot(
+						tree,
+						current,
+						nextParentId,
+						patch.afterSiblingId,
+					)
+				) {
+					const orderPlan = await orderKeyForSlot(
+						tx,
+						scope.appId,
+						tree,
+						nextParentId,
+						patch.afterSiblingId,
+						locationId,
+					);
+					rebalancedSiblings = orderPlan.rebalanced;
+					if (nextParentId !== current.parent_id)
+						values.parent_id = nextParentId;
+					if (orderPlan.key !== current.order_key)
+						values.order_key = orderPlan.key;
+				}
+			}
+			// One key means nothing but provenance changed, and provenance alone is
+			// not a change: advancing the clock would invalidate every client's
+			// snapshot to record that someone pressed Save on an unedited form.
+			if (Object.keys(values).length === 1 && !rebalancedSiblings) {
+				return {
+					revision: locked.revision,
+					location: toStoredLocation(current),
+				};
+			}
+			values.updated_at = new Date();
 
-		const updated = await tx
-			.updateTable("app_locations")
-			.set(values)
-			.where("app_id", "=", scope.appId)
-			.where("id", "=", locationId)
-			.returningAll()
-			.executeTakeFirstOrThrow();
-		if (
-			updated.level_uuid !== current.level_uuid ||
-			updated.parent_id !== current.parent_id ||
-			updated.order_key !== current.order_key
-		) {
-			const doc = await loadDocInTransaction(tx, scope.appId);
-			await assertPersonaAssignmentsValid(tx, {
-				appId: scope.appId,
-				candidateDoc: doc,
-			});
-			await assertLocationOwnerTargetsValid(tx, {
-				appId: scope.appId,
-				candidateDoc: doc,
-			});
-			await assertReverseHopTargetsUnambiguous(tx, {
-				appId: scope.appId,
-				candidateDoc: doc,
-			});
-		}
-		const revision = await commitOrganizationChange(tx, scope, 0);
-		return { revision, location: toStoredLocation(updated) };
-	});
+			const updated = await tx
+				.updateTable("app_locations")
+				.set(values)
+				.where("app_id", "=", scope.appId)
+				.where("id", "=", locationId)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			if (
+				updated.level_uuid !== current.level_uuid ||
+				updated.parent_id !== current.parent_id ||
+				updated.order_key !== current.order_key
+			) {
+				const doc = await loadDocInTransaction(tx, scope.appId);
+				await assertPersonaAssignmentsValid(tx, {
+					appId: scope.appId,
+					candidateDoc: doc,
+				});
+				await assertLocationOwnerTargetsValid(tx, {
+					appId: scope.appId,
+					candidateDoc: doc,
+				});
+				await assertReverseHopTargetsUnambiguous(tx, {
+					appId: scope.appId,
+					candidateDoc: doc,
+				});
+			}
+			const revision = await commitOrganizationChange(tx, scope, 0);
+			return { revision, location: toStoredLocation(updated) };
+		},
+	);
 }
 
 export interface MoveLocationResult {
@@ -940,88 +1052,91 @@ export async function moveLocation(
 	},
 	expectedRevision?: OrganizationRevision,
 ): Promise<MoveLocationResult> {
-	return withAppTx(async (tx) => {
-		const locked = await lockOrganizationForWrite(tx, scope, {
-			capability: "edit",
-		});
-		assertExpectedOrganizationRevision(locked, expectedRevision);
-		const tree = await lockTree(tx, scope.appId);
-		const current = tree.byId.get(locationId);
-		if (current === undefined) throw organizationNotFound();
+	return withOrganizationWrite(
+		scope,
+		"moveLocation",
+		{ locationId, target },
+		expectedRevision,
+		false,
+		async (tx, locked) => {
+			const tree = await lockTree(tx, scope.appId);
+			const current = tree.byId.get(locationId);
+			if (current === undefined) throw organizationNotFound();
 
-		if (target.parentId !== null) {
-			if (subtreeIds(tree, locationId).includes(target.parentId)) {
-				throw new OrganizationError(
-					"rejected",
-					`"${current.name}" can't move into itself or into a place under it.`,
-				);
+			if (target.parentId !== null) {
+				if (subtreeIds(tree, locationId).includes(target.parentId)) {
+					throw new OrganizationError(
+						"rejected",
+						`"${current.name}" can't move into itself or into a place under it.`,
+					);
+				}
 			}
-		}
-		const doc = await loadDocInTransaction(tx, scope.appId);
-		assertPlacement(doc, tree, current.level_uuid, target.parentId);
-		if (
-			locationAlreadyOccupiesSlot(
+			const doc = await loadDocInTransaction(tx, scope.appId);
+			assertPlacement(doc, tree, current.level_uuid, target.parentId);
+			if (
+				locationAlreadyOccupiesSlot(
+					tree,
+					current,
+					target.parentId,
+					target.afterSiblingId,
+				)
+			) {
+				return {
+					revision: locked.revision,
+					location: toStoredLocation(current),
+				};
+			}
+			const orderPlan = await orderKeyForSlot(
+				tx,
+				scope.appId,
 				tree,
-				current,
 				target.parentId,
 				target.afterSiblingId,
-			)
-		) {
+				locationId,
+			);
+			if (
+				current.parent_id === target.parentId &&
+				current.order_key === orderPlan.key &&
+				!orderPlan.rebalanced
+			) {
+				return {
+					revision: locked.revision,
+					location: toStoredLocation(current),
+				};
+			}
+			const updated = await tx
+				.updateTable("app_locations")
+				.set({
+					parent_id: target.parentId,
+					order_key: orderPlan.key,
+					updated_by: scope.actorUserId,
+					updated_at: new Date(),
+				})
+				.where("app_id", "=", scope.appId)
+				.where("id", "=", locationId)
+				.returningAll()
+				.executeTakeFirstOrThrow();
+			// A move changes address-book ancestry even when neither endpoint row is
+			// itself referenced. Recheck every persona/fixed-owner edge against the
+			// tentative tree; any rejection rolls the row update back with it.
+			await assertPersonaAssignmentsValid(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+			await assertLocationOwnerTargetsValid(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
+			await assertReverseHopTargetsUnambiguous(tx, {
+				appId: scope.appId,
+				candidateDoc: doc,
+			});
 			return {
-				revision: locked.revision,
-				location: toStoredLocation(current),
+				revision: await commitOrganizationChange(tx, scope, 0),
+				location: toStoredLocation(updated),
 			};
-		}
-		const orderPlan = await orderKeyForSlot(
-			tx,
-			scope.appId,
-			tree,
-			target.parentId,
-			target.afterSiblingId,
-			locationId,
-		);
-		if (
-			current.parent_id === target.parentId &&
-			current.order_key === orderPlan.key &&
-			!orderPlan.rebalanced
-		) {
-			return {
-				revision: locked.revision,
-				location: toStoredLocation(current),
-			};
-		}
-		const updated = await tx
-			.updateTable("app_locations")
-			.set({
-				parent_id: target.parentId,
-				order_key: orderPlan.key,
-				updated_by: scope.actorUserId,
-				updated_at: new Date(),
-			})
-			.where("app_id", "=", scope.appId)
-			.where("id", "=", locationId)
-			.returningAll()
-			.executeTakeFirstOrThrow();
-		// A move changes address-book ancestry even when neither endpoint row is
-		// itself referenced. Recheck every persona/fixed-owner edge against the
-		// tentative tree; any rejection rolls the row update back with it.
-		await assertPersonaAssignmentsValid(tx, {
-			appId: scope.appId,
-			candidateDoc: doc,
-		});
-		await assertLocationOwnerTargetsValid(tx, {
-			appId: scope.appId,
-			candidateDoc: doc,
-		});
-		await assertReverseHopTargetsUnambiguous(tx, {
-			appId: scope.appId,
-			candidateDoc: doc,
-		});
-		return {
-			revision: await commitOrganizationChange(tx, scope, 0),
-			location: toStoredLocation(updated),
-		};
-	});
+		},
+	);
 }
 
 /**
@@ -1382,139 +1497,144 @@ export async function setLocationArchived(
 	confirmedImpact?: ArchiveImpact,
 ): Promise<SetArchivedResult> {
 	const runOnce = (): Promise<SetArchivedResult> =>
-		withAppTx(async (tx) => {
-			const locked = await lockOrganizationForWrite(tx, scope, {
-				capability: "edit",
-				exclusiveApp: true,
-			});
-			assertExpectedOrganizationRevision(locked, expectedRevision);
-			const tree = await lockTree(tx, scope.appId);
-			const target = tree.byId.get(locationId);
-			if (target === undefined) throw organizationNotFound();
+		withOrganizationWrite(
+			scope,
+			"setLocationArchived",
+			{ locationId, archived, confirmedImpact: confirmedImpact ?? null },
+			expectedRevision,
+			true,
+			async (tx, locked) => {
+				const tree = await lockTree(tx, scope.appId);
+				const target = tree.byId.get(locationId);
+				if (target === undefined) throw organizationNotFound();
 
-			const affected = archived
-				? subtreeIds(tree, locationId)
-				: [...subtreeIds(tree, locationId), ...ancestorIds(tree, locationId)];
-			const changing = affected.filter((id) =>
-				archived
-					? tree.byId.get(id)?.archived_at === null
-					: tree.byId.get(id)?.archived_at !== null,
-			);
-			if (changing.length === 0) {
-				return {
-					revision: locked.revision,
-					archivedCount: 0,
-					unassignedPersonaCount: 0,
-				};
-			}
-
-			let archiveDoc: BlueprintDoc | undefined;
-			let archivePlan: Awaited<ReturnType<typeof buildArchivePlan>> | undefined;
-			if (archived) {
-				archiveDoc = await loadDocInTransaction(tx, scope.appId);
-				archivePlan = await buildArchivePlan(tx, {
-					appId: scope.appId,
-					revision: locked.revision,
-					doc: archiveDoc,
-					rows: [...tree.byId.values()],
-					locationIds: changing,
-				});
-				if (
-					confirmedImpact !== undefined &&
-					JSON.stringify(confirmedImpact) !== JSON.stringify(archivePlan.impact)
-				) {
-					throw new OrganizationError(
-						"conflict",
-						"What this archive would affect changed after the confirmation was shown. Review the latest impact, then confirm again.",
-						{ currentRevision: locked.revision },
-					);
-				}
-				if (archivePlan.blockingFormNames.length > 0) {
-					const blocked = archivePlan.blockingFormNames;
-					throw new OrganizationError(
-						"rejected",
-						`Archiving this place would break a case-owner rule in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
-					);
-				}
-				if (archivePlan.blockingAutomationNames.length > 0) {
-					const blocked = archivePlan.blockingAutomationNames;
-					throw new OrganizationError(
-						"rejected",
-						`Archiving this place would break ${blocked.length === 1 ? `the automation “${blocked[0]}”` : `these automations: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that automation" : "those automations"} before archiving it.`,
-					);
-				}
-			}
-
-			await tx
-				.updateTable("app_locations")
-				.set({
-					archived_at: archived ? new Date() : null,
-					updated_by: scope.actorUserId,
-					updated_at: new Date(),
-				})
-				.where("app_id", "=", scope.appId)
-				.where("id", "in", changing)
-				.execute();
-
-			// Both directions can change the scalar reverse-owner relation:
-			// restoring a second destination makes it ambiguous, while archiving the
-			// only destination leaves its still-live source without an owner. Check
-			// the tentative rows before either store is allowed to commit. The archive
-			// document is already locked above; unarchive has no Blueprint half.
-			const reverseOwnerDoc =
-				archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
-			await assertReverseHopTargetsUnambiguous(tx, {
-				appId: scope.appId,
-				candidateDoc: reverseOwnerDoc,
-			});
-
-			let unassignedPersonaCount = 0;
-			let blueprintChange: SetArchivedResult["blueprintChange"];
-			if (archived) {
-				const plan =
-					archivePlan ??
-					(await buildArchivePlan(tx, {
-						appId: scope.appId,
+				const affected = archived
+					? subtreeIds(tree, locationId)
+					: [...subtreeIds(tree, locationId), ...ancestorIds(tree, locationId)];
+				const changing = affected.filter((id) =>
+					archived
+						? tree.byId.get(id)?.archived_at === null
+						: tree.byId.get(id)?.archived_at !== null,
+				);
+				if (changing.length === 0) {
+					return {
 						revision: locked.revision,
-						doc: archiveDoc ?? (await loadDocInTransaction(tx, scope.appId)),
-						rows: [...tree.byId.values()],
-						locationIds: changing,
-					}));
-				if (plan.mutations.length > 0) {
-					const admittedMutations = admitMutationBatch(plan.mutations);
-					const chatRunHolder = scope.chatRunHolder;
-					const changeSource = scope.changeSource;
-					const committed = await commitGuardedBatchInTransaction(tx, {
-						appId: scope.appId,
-						batchId: randomUUID(),
-						...(changeSource?.kind === "chat" && chatRunHolder !== undefined
-							? {
-									kind: "chat" as const,
-									runId: changeSource.runId,
-									chatRunHolder,
-								}
-							: changeSource?.kind === "mcp"
-								? { kind: "mcp" as const, runId: changeSource.runId }
-								: { kind: "autosave" as const }),
-						mutations: admittedMutations,
-						actorUserId: scope.actorUserId,
-						expectedProjectId: scope.projectId,
-					});
-					blueprintChange = {
-						mutations: admittedMutations,
-						committedDoc: committed.committedDoc,
+						archivedCount: 0,
+						unassignedPersonaCount: 0,
 					};
 				}
-				unassignedPersonaCount = plan.personaNames.length;
-			}
-			return {
-				revision: await commitOrganizationChange(tx, scope, 0),
-				...(archivePlan === undefined ? {} : { impact: archivePlan.impact }),
-				archivedCount: changing.length,
-				unassignedPersonaCount,
-				...(blueprintChange === undefined ? {} : { blueprintChange }),
-			};
-		});
+
+				let archiveDoc: BlueprintDoc | undefined;
+				let archivePlan:
+					| Awaited<ReturnType<typeof buildArchivePlan>>
+					| undefined;
+				if (archived) {
+					archiveDoc = await loadDocInTransaction(tx, scope.appId);
+					archivePlan = await buildArchivePlan(tx, {
+						appId: scope.appId,
+						revision: locked.revision,
+						doc: archiveDoc,
+						rows: [...tree.byId.values()],
+						locationIds: changing,
+					});
+					if (
+						confirmedImpact !== undefined &&
+						JSON.stringify(confirmedImpact) !==
+							JSON.stringify(archivePlan.impact)
+					) {
+						throw new OrganizationError(
+							"conflict",
+							"What this archive would affect changed after the confirmation was shown. Review the latest impact, then confirm again.",
+							{ currentRevision: locked.revision },
+						);
+					}
+					if (archivePlan.blockingFormNames.length > 0) {
+						const blocked = archivePlan.blockingFormNames;
+						throw new OrganizationError(
+							"rejected",
+							`Archiving this place would break a case-owner rule in ${blocked.length === 1 ? `the form "${blocked[0]}"` : `these forms: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that rule" : "those rules"} before archiving it.`,
+						);
+					}
+					if (archivePlan.blockingAutomationNames.length > 0) {
+						const blocked = archivePlan.blockingAutomationNames;
+						throw new OrganizationError(
+							"rejected",
+							`Archiving this place would break ${blocked.length === 1 ? `the automation “${blocked[0]}”` : `these automations: ${blocked.join(", ")}`}. Change ${blocked.length === 1 ? "that automation" : "those automations"} before archiving it.`,
+						);
+					}
+				}
+
+				await tx
+					.updateTable("app_locations")
+					.set({
+						archived_at: archived ? new Date() : null,
+						updated_by: scope.actorUserId,
+						updated_at: new Date(),
+					})
+					.where("app_id", "=", scope.appId)
+					.where("id", "in", changing)
+					.execute();
+
+				// Both directions can change the scalar reverse-owner relation:
+				// restoring a second destination makes it ambiguous, while archiving the
+				// only destination leaves its still-live source without an owner. Check
+				// the tentative rows before either store is allowed to commit. The archive
+				// document is already locked above; unarchive has no Blueprint half.
+				const reverseOwnerDoc =
+					archiveDoc ?? (await loadDocInTransaction(tx, scope.appId));
+				await assertReverseHopTargetsUnambiguous(tx, {
+					appId: scope.appId,
+					candidateDoc: reverseOwnerDoc,
+				});
+
+				let unassignedPersonaCount = 0;
+				let blueprintChange: SetArchivedResult["blueprintChange"];
+				if (archived) {
+					const plan =
+						archivePlan ??
+						(await buildArchivePlan(tx, {
+							appId: scope.appId,
+							revision: locked.revision,
+							doc: archiveDoc ?? (await loadDocInTransaction(tx, scope.appId)),
+							rows: [...tree.byId.values()],
+							locationIds: changing,
+						}));
+					if (plan.mutations.length > 0) {
+						const admittedMutations = admitMutationBatch(plan.mutations);
+						const chatRunHolder = scope.chatRunHolder;
+						const changeSource = scope.changeSource;
+						const committed = await commitGuardedBatchInTransaction(tx, {
+							appId: scope.appId,
+							batchId: randomUUID(),
+							...(changeSource?.kind === "chat" && chatRunHolder !== undefined
+								? {
+										kind: "chat" as const,
+										runId: changeSource.runId,
+										chatRunHolder,
+									}
+								: changeSource?.kind === "mcp"
+									? { kind: "mcp" as const, runId: changeSource.runId }
+									: { kind: "autosave" as const }),
+							mutations: admittedMutations,
+							actorUserId: scope.actorUserId,
+							expectedProjectId: scope.projectId,
+						});
+						blueprintChange = {
+							mutations: admittedMutations,
+							committedDoc: committed.committedDoc,
+						};
+					}
+					unassignedPersonaCount = plan.personaNames.length;
+				}
+				return {
+					revision: await commitOrganizationChange(tx, scope, 0),
+					...(archivePlan === undefined ? {} : { impact: archivePlan.impact }),
+					archivedCount: changing.length,
+					unassignedPersonaCount,
+					...(blueprintChange === undefined ? {} : { blueprintChange }),
+				};
+			},
+		);
 
 	try {
 		return await runOnce();

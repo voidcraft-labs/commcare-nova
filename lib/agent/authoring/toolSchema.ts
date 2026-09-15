@@ -1,6 +1,6 @@
 import { jsonSchema } from "ai";
 import { z } from "zod";
-import { CREATION_IDENTITY_SPECS } from "@/lib/agent/change-set/creationIdentities";
+import { CREATION_IDENTITY_SPECS } from "./creationIdentities";
 import { projectNamedIdentitySchemas } from "./identitySchema";
 import { readableToolSchema } from "./readableSchema";
 import { authoringJsonSchema, pruneDefinitions } from "./schema";
@@ -68,7 +68,7 @@ function project(toolName: string, canonical: z.ZodType) {
 			optional(parent, key);
 			const property = record(properties[key]);
 			if (property)
-				property.description = spec.referenceIfBound
+				property.description = spec.preserveExisting
 					? "Existing item identity, if this item is being retained."
 					: "Nova assigns an identity when omitted.";
 		});
@@ -88,6 +88,31 @@ function project(toolName: string, canonical: z.ZodType) {
 	if (toolName === "editField")
 		changePath(json, json, ["updates", "kind"], (parent, _properties, key) =>
 			optional(parent, key),
+		);
+	if (toolName === "updateTranslations")
+		changePath(
+			json,
+			json,
+			["updates", "*", "expectedValue"],
+			(parent, properties) => {
+				for (const key of [
+					"expectedValue",
+					"expectedSourceFingerprint",
+					"expectedCurrentSourceFingerprint",
+				]) {
+					delete properties[key];
+					optional(parent, key);
+				}
+				properties.revision = {
+					type: "string",
+					minLength: 1,
+					description: "Review revision returned by getTranslatableContent.",
+				};
+				parent.required = [
+					...(Array.isArray(parent.required) ? parent.required : []),
+					"revision",
+				];
+			},
 		);
 	pruneDefinitions(json);
 	json = readableToolSchema(json);

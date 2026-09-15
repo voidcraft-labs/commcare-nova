@@ -4,13 +4,9 @@
  * thread. Plain selects only. Nothing here takes run authority, opens a
  * context, or resolves an attachment.
  *
- * The append-key classifier is the one place an append key becomes a
- * family. `__tests__/recorded.test.ts` sweeps the runner sources so a new
- * prefix cannot appear without a family here.
+ * Append keys supply display categories. Unrecognized items remain visible.
  */
 
-import type { ModelMessage } from "ai";
-import { semanticScopeOf } from "@/lib/agent/build/modelContextStore";
 import { rehydrateModelMessage } from "@/lib/agent/modelMessagePersistence";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { modelMessagesContainCompaction } from "@/lib/chat/compaction";
@@ -29,92 +25,27 @@ import type {
 	RecordedUsage,
 } from "./types";
 
-// ── Append keys ──────────────────────────────────────────────────────────
-
-interface KeyFamily {
-	readonly prefix: string;
-	readonly kind: RecordedItemKind;
-}
-
-/** Message-bearing append keys, by prefix, in the order they are tried. */
-export const APPEND_KEY_FAMILIES: readonly KeyFamily[] = [
-	{ prefix: "seed:", kind: "seed" },
-	{ prefix: "seed-through:", kind: "seed" },
-	{ prefix: "ui-turn:", kind: "user-turn" },
-	{ prefix: "answer:", kind: "answer" },
-	{ prefix: "state:", kind: "state-packet" },
-	{ prefix: "compaction-state:", kind: "compaction-state" },
-	{ prefix: "required-question-v5:", kind: "required-questions" },
-	{ prefix: "required-question-card-v1:", kind: "question-card" },
-	{ prefix: "required-question-rejection:", kind: "correction" },
-	{ prefix: "required-question-omission:", kind: "correction" },
-	{ prefix: "input-terminal-rejection:", kind: "correction" },
-	{ prefix: "design-terminal-omission:", kind: "correction" },
-	{ prefix: "review-admission:", kind: "correction" },
-	{ prefix: "design-response:", kind: "response" },
-	{ prefix: "design-wait:", kind: "wait" },
-	{ prefix: "recovered-design-wait:", kind: "wait" },
-	{ prefix: "recovered-design-question:", kind: "question-card" },
-	{ prefix: "slice-brief:", kind: "slice-brief" },
-	{ prefix: "candidate:", kind: "candidate-checkpoint" },
-	{ prefix: "focus:", kind: "slice-focus" },
-	{ prefix: "compaction-reseed:", kind: "compaction-reseed" },
-];
-
-/** Append-key prefixes the runners template that never carry a message:
- * budget claims and idempotency fences. Listed so the source sweep can tell
- * a new message family from a new claim key. */
-export const NON_MESSAGE_KEY_PREFIXES: readonly string[] = [
-	"accepted-record-catalog:",
-	"model:",
-	"mutation:",
-	"design-claim:",
-	"finish:",
-	"design:",
-	"ephemeral:",
-	"review:",
-	"blocker:",
-	"auto-blocker:",
-];
-
-function stepKeyKind(key: string): RecordedItemKind | undefined {
-	if (!key.startsWith("step:")) return undefined;
-	if (key.endsWith(":response")) return "response";
-	if (key.endsWith(":empty")) return "empty-step-nudge";
-	if (key.includes(":tool:")) return "tool-result";
-	return undefined;
-}
-
+/** Display categories only; unknown keys remain visible without interpretation. */
 export function classifyAppendKey(key: string): RecordedItemKind {
-	const step = stepKeyKind(key);
-	if (step !== undefined) return step;
-	const family = APPEND_KEY_FAMILIES.find((candidate) =>
-		key.startsWith(candidate.prefix),
-	);
-	return family?.kind ?? "unknown";
-}
-
-/** A tool result that carries the architect's guidance or answers a
- * reportExecutionBlocker call is chipped by what it carries, not by its key. */
-export function refineToolResultKind(
-	kind: RecordedItemKind,
-	message: ModelMessage,
-): RecordedItemKind {
-	if (kind !== "tool-result" || message.role !== "tool") return kind;
-	for (const part of message.content) {
-		if (part.type !== "tool-result") continue;
-		if (part.toolName === "reportExecutionBlocker") return "blocker";
-		const output = part.output;
-		if (
-			output.type === "json" &&
-			output.value !== null &&
-			typeof output.value === "object" &&
-			"architectGuidance" in output.value
-		) {
-			return "auto-blocker";
-		}
-	}
-	return kind;
+	if (
+		key.startsWith("request:") ||
+		key.startsWith("attachments:") ||
+		key.startsWith("answers:")
+	)
+		return "source";
+	if (key.startsWith("response:")) return "response";
+	if (key.startsWith("tool:")) return "tool-result";
+	if (
+		key.startsWith("peer-feedback:") ||
+		key.startsWith("completion-feedback:")
+	)
+		return "feedback";
+	if (key === "review-context" || key.startsWith("current-state:"))
+		return "plan";
+	if (key === "source") return "source";
+	if (key.startsWith("translation-repair:")) return "feedback";
+	if (key === "previous-conversation") return "previous-conversation";
+	return "unknown";
 }
 
 // ── Usage ────────────────────────────────────────────────────────────────
@@ -155,8 +86,9 @@ export interface DesignSessionSummary {
 	readonly mode: string;
 	readonly state: string;
 	readonly updatedAt: string;
-	readonly designContexts: number;
-	readonly executorContexts: number;
+	readonly architectContexts: number;
+	readonly peerContexts: number;
+	readonly translatorContexts: number;
 	readonly billedInputTokens: number;
 	readonly billedOutputTokens: number;
 	readonly costEstimate: number;
@@ -232,8 +164,9 @@ export async function listDesignSessions(
 			mode: session.mode,
 			state: session.state,
 			updatedAt: iso(session.updated_at),
-			designContexts: contextsOf(session.id, "design"),
-			executorContexts: contextsOf(session.id, "executor"),
+			architectContexts: contextsOf(session.id, "architect"),
+			peerContexts: contextsOf(session.id, "peer"),
+			translatorContexts: contextsOf(session.id, "translator"),
 			billedInputTokens: Number(totals?.input_tokens ?? 0),
 			billedOutputTokens: Number(totals?.output_tokens ?? 0),
 			costEstimate: Number(totals?.cost_estimate ?? 0),
@@ -262,6 +195,7 @@ export async function readDesignSession(
 		.selectFrom("design_model_contexts")
 		.selectAll()
 		.where("design_session_id", "=", designSessionId)
+		.where("context_kind", "in", ["architect", "peer", "translator"])
 		.orderBy("generation", "asc")
 		.orderBy("created_at", "asc")
 		.execute();
@@ -269,7 +203,7 @@ export async function readDesignSession(
 		return { designSessionId, appName: session.app_name ?? null, contexts: [] };
 	}
 	const contextIds = contextRows.map((row) => row.id);
-	const [itemRows, stepRows, attemptRows] = await Promise.all([
+	const [itemRows, stepRows] = await Promise.all([
 		db
 			.selectFrom("design_model_context_items")
 			.selectAll()
@@ -283,22 +217,13 @@ export async function readDesignSession(
 			.where("context_id", "in", contextIds)
 			.orderBy("created_at", "asc")
 			.execute(),
-		db
-			.selectFrom("design_slice_attempts")
-			.select(["id", "slice_id", "attempt", "status"])
-			.where("design_session_id", "=", designSessionId)
-			.execute(),
 	]);
-	const attemptsById = new Map(attemptRows.map((row) => [row.id, row]));
 	const contexts: RecordedContext[] = contextRows.map((row) => {
 		const items: RecordedItem[] = itemRows
 			.filter((item) => item.context_id === row.id)
 			.map((item) => {
 				const message = rehydrateModelMessage(item.message);
-				const kind = refineToolResultKind(
-					classifyAppendKey(item.append_key),
-					message,
-				);
+				const kind = classifyAppendKey(item.append_key);
 				return {
 					ordinal: Number(item.ordinal),
 					appendKey: item.append_key,
@@ -338,25 +263,15 @@ export async function readDesignSession(
 				}),
 			});
 		}
-		const scope = semanticScopeOf(row.context_version);
-		const attempt = scope === null ? undefined : attemptsById.get(scope);
 		return {
 			contextId: row.id,
-			kind: row.context_kind === "executor" ? "executor" : "design",
+			kind: row.context_kind as RecordedContext["kind"],
 			generation: row.generation,
 			supersedesContextId: row.supersedes_context_id,
 			modelId: row.model_id,
 			promptVersion: row.prompt_version,
 			toolsetDigest: row.toolset_digest,
 			contextVersion: row.context_version,
-			...(scope !== null && {
-				slice: {
-					attemptId: scope,
-					sliceId: attempt?.slice_id ?? null,
-					attempt: attempt?.attempt ?? null,
-					status: attempt?.status ?? null,
-				},
-			}),
 			items,
 			steps: [...stepsByKey.values()],
 		};

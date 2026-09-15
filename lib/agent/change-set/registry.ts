@@ -18,29 +18,21 @@ import {
 	type ToolExecutionPolicy,
 } from "@/lib/agent/sharedToolRegistry";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
-import { sharedHandleDeclarer } from "./handleDeclarations";
-import type { StagedHandleDeclaration } from "./handles";
 
 export interface ChangeSetToolEntry {
 	readonly name: string;
 	readonly tool: SharedToolModule;
 	readonly policy: ToolExecutionPolicy;
-	/** Which RAW creation identity slots declare new handles. */
-	readonly declaredHandles?: (
-		input: unknown,
-	) => readonly StagedHandleDeclaration[];
 }
 
 function buildRegistry(): ReadonlyMap<string, ChangeSetToolEntry> {
 	const entries = new Map<string, ChangeSetToolEntry>();
 	for (const entry of SHARED_TOOL_REGISTRY) {
 		if (entry.policy.staging === "forbidden") continue;
-		const declaredHandles = sharedHandleDeclarer(entry.saName);
 		entries.set(entry.saName, {
 			name: entry.saName,
 			tool: entry.tool,
 			policy: entry.policy,
-			...(declaredHandles !== undefined && { declaredHandles }),
 		});
 	}
 	return entries;

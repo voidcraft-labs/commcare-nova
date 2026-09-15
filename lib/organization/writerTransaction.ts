@@ -2,11 +2,13 @@ import "server-only";
 
 import { sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { LEASE_COLUMNS, leaseView } from "@/lib/db/leaseView";
 import { type AppDatabase, notifyAppOrganization } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
@@ -51,7 +53,8 @@ export async function lockOrganizationForWrite(
 		readonly exclusiveApp?: boolean;
 	},
 ): Promise<LockedOrganization> {
-	const app = await (options.exclusiveApp === true
+	const app = await (options.exclusiveApp === true ||
+	scope.authoringSessionId !== undefined
 		? tx
 				.selectFrom("apps")
 				.select(["project_id", "deleted_at", ...LEASE_COLUMNS])
@@ -115,9 +118,25 @@ export async function lockOrganizationForWrite(
 	// browser actions omit the token and continue to use actor authorization.
 	if (scope.chatRunHolder !== undefined) {
 		const lease = runLeaseState(leaseView(app));
-		if (!exactRunHolderMatches(lease.holderIdentity, scope.chatRunHolder)) {
+		if (
+			!lease.live ||
+			!exactRunHolderMatches(lease.holderIdentity, scope.chatRunHolder)
+		) {
 			throw new RunHolderLostError(lease.present ? "superseded" : "released");
 		}
+	}
+	if (scope.authoringSessionId !== undefined && options.capability !== "view") {
+		if (scope.chatRunHolder === undefined)
+			throw new RunHolderLostError("released");
+		const authoring = await assertDesignSessionRunAuthorityInTransaction(tx, {
+			designSessionId: scope.authoringSessionId,
+			actorUserId: scope.actorUserId,
+			expectedProjectId: scope.projectId,
+			holder: scope.chatRunHolder,
+		});
+		if (authoring.appId !== scope.appId)
+			throw new RunHolderLostError("released");
+		await lockPlanForBuild(tx, scope.authoringSessionId);
 	}
 
 	await tx

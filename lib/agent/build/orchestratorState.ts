@@ -4,7 +4,7 @@
  *
  * The control state of one build orchestration is never inferred from the
  * chat transcript or held in an editable blob: every transition appends one
- * `design_orchestration_events` row naming its predecessor by id AND digest,
+ * `authoring_events` row naming its predecessor by id AND digest,
  * and the CURRENT state is the strict fold of the whole chain — contiguity,
  * predecessor identity, and per-kind payload all re-proved on every read.
  * The partial unique index on `(design_session_id, predecessor_event_id)`
@@ -24,7 +24,6 @@ import {
 	ORCHESTRATION_KIND_CLASSIFICATION,
 	type OrchestrationKindClass,
 } from "@/lib/agent/build/orchestrationKinds";
-import { designIdSchema } from "@/lib/agent/design/ids";
 import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
 import { completeAndSettleRunInTransaction } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
@@ -40,76 +39,29 @@ const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 /**
  * The closed state vocabulary one build orchestration moves through. Each
  * arm is exactly the payload its event row persists; the fold returns the
- * last arm. (`reviewing-implementation` joins with the conformance unit.)
+ * last arm. App content and the plan remain with their own stores.
  */
 export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 	z
-		.object({
-			kind: z.literal("designing"),
-			designSessionId: z.string().uuid(),
-			sourcePackageDigest: sha256Schema,
-		})
+		.object({ kind: z.literal("planning"), sourceDigest: sha256Schema })
+		.strict(),
+	z
+		.object({ kind: z.literal("building"), appId: z.string().nullable() })
+		.strict(),
+	z
+		.object({ kind: z.literal("reviewing-plan"), reviewId: z.string().uuid() })
 		.strict(),
 	z
 		.object({
-			kind: z.literal("awaiting-user"),
-			designSessionId: z.string().uuid(),
-			/** The revision whose blocking open questions paused the build —
-			 * the questions live ON the accepted revision, so the revision id
-			 * is the question artifact's address. */
-			designRevisionId: z.string().uuid(),
-			blockingQuestionIds: z.array(designIdSchema).min(1),
-		})
-		.strict(),
-	z
-		.object({
-			/** The design agent paused on its own askQuestions round. The
-			 * questions live in the THREAD (the tool part the client renders),
-			 * not on an artifact, and a round can precede any contract — so
-			 * the arm carries the head revision only when one exists. */
-			kind: z.literal("awaiting-user-questions"),
-			designSessionId: z.string().uuid(),
-			designRevisionId: z.string().uuid().nullable(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("planning"),
-			designRevisionId: z.string().uuid(),
-			designRevisionDigest: sha256Schema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("executing-slice"),
-			designRevisionId: z.string().uuid(),
-			buildPlanId: z.string().uuid(),
-			sliceId: designIdSchema,
-			changeSetId: z.string().uuid(),
-			attempt: z.number().int().positive(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("translating"),
-			designRevisionId: z.string().uuid(),
-			buildPlanId: z.string().uuid(),
-			appId: z.string().min(1),
-			sourceSeq: z.number().int().positive(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("finished"),
-			appId: z.string().min(1),
+			kind: z.literal("reviewing-app"),
+			reviewId: z.string().uuid(),
 			appSeq: z.number().int().positive(),
 		})
 		.strict(),
+	z.object({ kind: z.literal("awaiting-input") }).strict(),
 	z
 		.object({
-			/** Historical persisted state from the retired partial-acceptance path.
-			 * New orchestrations have no writer for this arm. */
-			kind: z.literal("accepted-partial"),
+			kind: z.literal("finished"),
 			appId: z.string().min(1),
 			appSeq: z.number().int().positive(),
 		})
@@ -235,7 +187,7 @@ async function insertPreparedOrchestrationEvent(
 		throw new OrchestrationForkError();
 	}
 	await tx
-		.insertInto("design_orchestration_events")
+		.insertInto("authoring_events")
 		.values({
 			design_session_id: args.designSessionId,
 			revision: prepared.revision,
@@ -419,11 +371,9 @@ async function readOrchestrationHeadFrom(
 	designSessionId: string,
 ): Promise<OrchestrationHead | null> {
 	const rows = await db
-		.selectFrom("design_orchestration_events")
+		.selectFrom("authoring_events")
 		.where(
-			nonRetiredDesignSession(
-				sql.ref("design_orchestration_events.design_session_id"),
-			),
+			nonRetiredDesignSession(sql.ref("authoring_events.design_session_id")),
 		)
 		.select(["revision", "event_id", "predecessor_event_id", "kind"])
 		.select(["predecessor_digest"])
@@ -438,7 +388,7 @@ async function readOrchestrationHeadFrom(
 	for (const [index, row] of rows.entries()) {
 		const revision = safePersistedSequence(
 			row.revision,
-			`design_orchestration_events.revision for session ${designSessionId}`,
+			`authoring_events.revision for session ${designSessionId}`,
 		);
 		if (revision !== index + 1) {
 			throw new Error(
@@ -458,7 +408,7 @@ async function readOrchestrationHeadFrom(
 		const state = buildOrchestratorStateSchema.parse(
 			parsePersistedJsonText(
 				row.payload_text,
-				`design_orchestration_events.payload for session ${designSessionId}, revision ${revision}`,
+				`authoring_events.payload for session ${designSessionId}, revision ${revision}`,
 			),
 		);
 		if (state.kind !== row.kind) {

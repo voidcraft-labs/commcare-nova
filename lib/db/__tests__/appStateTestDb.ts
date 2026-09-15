@@ -80,6 +80,7 @@ export interface SeedAppOptions {
  *  column groups by {@link seedDesignSession}. */
 export interface SeedDesignSessionOptions {
 	id?: string;
+	authoring_version?: 0 | 1;
 	mode?: "build" | "edit";
 	project_id?: string;
 	owner_user_id?: string;
@@ -630,6 +631,7 @@ export function setupAppStateTestDb(
 			.insertInto("design_sessions")
 			.values({
 				id,
+				authoring_version: opts.authoring_version ?? 1,
 				mode,
 				project_id: projectId,
 				owner_user_id: owner,

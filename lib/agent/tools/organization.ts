@@ -65,6 +65,8 @@ type AddResult =
 
 function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
+		requestId: ctx.invocation.requestId,
+		authoringSessionId: ctx.authoringSessionId,
 		appId: requireInvocationAppId(ctx),
 		projectId: ctx.projectId,
 		actorUserId: ctx.userId,

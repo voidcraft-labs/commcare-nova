@@ -21,6 +21,9 @@ import type { Uuid } from "@/lib/domain";
  * `expectedProjectId` works.
  */
 export interface OrganizationScope {
+	/** Server-owned tool invocation identity, stable across process recovery. */
+	readonly requestId?: string;
+	readonly authoringSessionId?: string;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;

@@ -59,8 +59,8 @@ export const OPENAI_BASE_OPTIONS = {
  * { mode: 'implicit', ttl: '30m' }` (contractual 30-minute lifetime;
  * implicit supplies automatic placement and also honors an explicit boundary).
  * Ordinary edit POSTs add a request-local boundary before their volatile
- * app-state tail; it changes no transcript token. The reviewed design and
- * executor loops preserve an actually growing prefix under one stable tool
+ * app-state tail; it changes no transcript token. The architect and peer
+ * conversations preserve an actually growing prefix under one stable tool
  * grammar, so their latest automatic entry remains reusable without moving a
  * marker. One-shot calls (extraction, scripts) pass no cache config.
  */
@@ -89,12 +89,6 @@ export function reasoningProviderOptions(
 interface ModelRoleConfig {
 	readonly modelId: string;
 	readonly reasoningEffort: ReasoningEffort;
-	/** The all-in active wall-clock allowance per provider step at this role's
-	 * effort: model reasoning plus tool dispatch and staging. Sized generously
-	 * so a deadline derived from it is a rare backstop, never the ordinary
-	 * stop. Consumed today only by the build-executor slice budgets
-	 * (`lib/agent/build/budgets.ts`). */
-	readonly msPerModelStep: number;
 }
 
 /**
@@ -103,40 +97,25 @@ interface ModelRoleConfig {
  * silently route a call through the wrong model.
  */
 export const MODEL_ROLES = {
-	designAuthor: {
+	architect: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
-		msPerModelStep: 60_000,
 	},
-	designReviewer: {
+	peer: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
-		msPerModelStep: 60_000,
-	},
-	executorHelper: {
-		modelId: "gpt-5.6-sol",
-		reasoningEffort: "medium",
-		msPerModelStep: 60_000,
-	},
-	buildExecutor: {
-		modelId: "gpt-5.6-luna",
-		reasoningEffort: "xhigh",
-		msPerModelStep: 90_000,
 	},
 	followUpEditor: {
 		modelId: "gpt-5.6-luna",
 		reasoningEffort: "xhigh",
-		msPerModelStep: 90_000,
 	},
 	documentExtractor: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
-		msPerModelStep: 60_000,
 	},
 	translator: {
 		modelId: "gpt-5.6-sol",
 		reasoningEffort: "medium",
-		msPerModelStep: 60_000,
 	},
 } as const satisfies Record<string, ModelRoleConfig>;
 

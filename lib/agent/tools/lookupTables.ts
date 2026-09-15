@@ -91,10 +91,13 @@ function receiptWouldOverflow(
 
 function writeScope(ctx: ToolInvocationContext): LookupAgentWriteScope {
 	return {
-		appId: requireInvocationAppId(ctx),
+		...(ctx.authoringSessionId
+			? { designSessionId: ctx.authoringSessionId }
+			: { appId: requireInvocationAppId(ctx) }),
 		projectId: ctx.projectId,
 		actorId: ctx.userId,
 		runId: ctx.runId,
+		requestId: ctx.invocation.requestId,
 		...(ctx.chatRunHolder === undefined
 			? {}
 			: { chatRunHolder: ctx.chatRunHolder }),

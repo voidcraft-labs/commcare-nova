@@ -5,8 +5,7 @@
  *
  * Same idiom as the SA tool surface's `wireSchemas.ts`: the WIRE shape is a
  * projection; the Zod schema stays untouched as the real gate (including
- * the refinements no decoder can enforce — the design graph proof runs
- * inside the parse). The projection:
+ * refinements that the provider schema cannot express). The projection:
  *
  *  - `oneOf` → `anyOf` (zod emits discriminated unions as `oneOf`, which
  *    strict mode rejects; the arms are discriminator-exclusive, so `anyOf`

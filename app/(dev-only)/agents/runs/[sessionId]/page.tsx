@@ -43,9 +43,10 @@ export default async function RecordedSessionPage({
 	await connection();
 	const session = await readDesignSession(sessionId);
 	if (session === null) notFound();
-	const [author, executor] = await Promise.all([
-		summarizeRole("design-author"),
-		summarizeRole("build-executor"),
+	const [author, peer, translator] = await Promise.all([
+		summarizeRole("architect"),
+		summarizeRole("peer"),
+		summarizeRole("translator"),
 	]);
 	const contexts: TimelineContext[] = await Promise.all(
 		session.contexts.map(async (context) => ({
@@ -58,9 +59,12 @@ export default async function RecordedSessionPage({
 			promptVersion: context.promptVersion,
 			toolsetDigest: context.toolsetDigest,
 			contextVersion: context.contextVersion,
-			slice: context.slice ?? null,
 			staticTokens:
-				context.kind === "design" ? author.staticTokens : executor.staticTokens,
+				context.kind === "architect"
+					? author.staticTokens
+					: context.kind === "peer"
+						? peer.staticTokens
+						: translator.staticTokens,
 			items: await weighContext(context),
 			steps: context.steps,
 		})),
@@ -84,7 +88,7 @@ export default async function RecordedSessionPage({
 				<p className="text-nova-text-secondary text-[15px] leading-relaxed">
 					{contexts.length === 0
 						? "This session has no model context yet."
-						: `${contexts.length} ${contexts.length === 1 ? "context" : "contexts"}, in the order they opened. Each holds exactly what its model received, and each completed step carries the billed usage beside the estimate.`}
+						: `${contexts.length} ${contexts.length === 1 ? "context" : "contexts"}, in the order they opened. Each preserves the model messages and completed-call usage. Current prompt and catalog estimates are shown separately; they may differ from the original request.`}
 				</p>
 			</div>
 			<RecordedTimeline contexts={contexts} sessionId={sessionId} />

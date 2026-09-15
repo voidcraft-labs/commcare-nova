@@ -14,7 +14,7 @@
 import "dotenv/config";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { DesignGenerationContext } from "../lib/agent/design/designGenerationContext";
+import { AgentRunContext } from "../lib/agent/agentRunContext";
 import {
 	boundedGlossary,
 	createProductionTranslationBatchRunner,
@@ -180,7 +180,7 @@ async function main(): Promise<void> {
 		cacheReadTokens: 0,
 		cacheWriteTokens: 0,
 	};
-	const context = new DesignGenerationContext({
+	const context = new AgentRunContext({
 		apiKey,
 		userId: "translation-evaluation",
 		projectId: "translation-evaluation",

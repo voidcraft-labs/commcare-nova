@@ -81,7 +81,7 @@ function cleanLanguageIdentity(
  * individual members, a two-letter code names its Set 3 code, a branching
  * language lists its required writing systems).
  */
-const languageIdentityInputSchema = z
+export const languageIdentityInputSchema = z
 	.object({
 		language: z
 			.string()

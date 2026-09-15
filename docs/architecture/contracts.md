@@ -369,148 +369,53 @@ Grouped case tiles are the shipped instance: the empty group key is a fact about
 which cases carry a connection, so the validator says nothing about it and the
 tile's grouping surface measures the population instead.
 
-### Reviewed design and atomic construction
+### Reviewed authoring and atomic construction
 
-Chat builds begin as Project-scoped design sessions, not app rows. One session
-builds one app in the current Project. Its source packages, lean Design
-Contracts, independent reviews, dispositions, and server-derived build plans
-are immutable, strict-parsed, digest-bound artifacts. They are non-executable:
-Preview, export, deployment, collaboration, and ordinary app reads consume only
-canonical Blueprint revisions. Direct builder and MCP mutations remain immediate
-canonical edits and never require design metadata.
+Chat builds begin as Project-scoped sessions with a revisioned Markdown plan.
+One architect carries the request through construction; an independent peer
+can improve the same plan while the architect is paused. Plan review precedes
+construction, and review of the actual saved app precedes completion. Reviews
+bind the source, plan revision, and app revision they examined. They support
+judgment, not a claim of formal completeness.
 
-The Design Contract records purpose, actors, records and properties,
-end-to-end workflows, lists, Project-data tables and their uses, access,
-menus and forms, external requirements, decisions, assumptions, and unresolved
-questions once. A proposed table carries design identities, ordered typed
-columns and rows, source references grounding every created or changed row set,
-and its intended consumers. An existing table reference uses canonical
-Project/table/column/row identities and its current revision, never a name
-match. The contract does not maintain a parallel
-claim/fact/rule/transition/scenario/ownership graph. Important or critical
-independent-review findings cite their affected sources or design elements;
-advisory observations do not create traceability work.
+Planning and review are read-only for app and Project data. Construction uses
+the shared authoring tools in a private workspace. The first complete,
+export-ready workflow creates the app atomically; later valid checkpoints use
+the same canonical mutation kernel. Ordinary Builder and MCP edits require no
+plan metadata. Preview, export, deployment, and collaboration consume only
+canonical Blueprint revisions.
 
-Design authors and reviewers cite stable source labels. Nova resolves them to
-the exact authorized message, extract, image or platform reference before
-storing evidence. A label keeps its identity as the conversation grows; raw
-coordinates and media digests stay in canonical provenance. Document citations
-may narrow to a section or figure. A citation proves its source, not consent or
-the truth of a claim; review and Project-data admission retain those duties.
+Every holder-owned write proves the exact live run and nonce, actor, Project,
+and edit membership in its owning transaction. Before app birth the session is
+the authority carrier; afterward authority follows its immutable app mapping.
+A peer holding the plan pauses construction. Publication resolves current
+resources under lock, preserves compatible canonical edits, and refuses
+conflicts without discarding private work.
 
-Menu compositions are the single source for hierarchy, placement, ordering,
-actors and menu access. Access policies point directly to a composition;
-there is no parallel navigation intent. The execution brief includes a menu's
-access and actors for its construction owner and hosted workflows, without
-copying policies from unrelated placement anchors.
+Project data changes are immediate, separately authorized operations with exact
+request and revision receipts. Drafting cannot create tables. Reusing a table
+needs no extra consent; changing existing shared data requires the user's direct
+request or informed confirmation of its Project-wide effect. Similar names,
+columns, or values never authorize adoption or overwrite. Organization and media
+operations retain their own service boundaries.
 
-Inline choice intent keeps the visible wording and saved code together. Authors
-may supply labels and let Nova derive codes, or supply explicit codes when their
-values matter. Review and execution receive the accepted pairs. Project lookup
-choices retain their separate source and revision contract.
+Completed model responses and usage are durable before tool dispatch. Recovery
+replays unanswered calls by their original identity and returns exact semantic
+receipts, including no-ops. Receipt replay reauthorizes the current holder and
+membership. Context changes preserve conversation history without reusing
+incompatible provider checkpoints. Durable logical-turn budgets and exact-once
+usage accounting survive process replacement.
 
-Current design readers accept contract version 5 and workspace storage version
-6. The [one-time format cutover](design-format-cutover.md) retires incompatible
-private sessions while preserving canonical apps, conversations and billing.
-Retirement removes a session from typed artifact selection and run authority;
-it never upgrades historical meaning during a read.
+Completion binds the live holder, exact canonical revision, and current event;
+its terminal event and usage settlement commit with the completed app. A later
+failure leaves earlier checkpoints available but keeps initial construction
+locked until completion. The session's recovery address resolves to the saved
+app instead of creating a second copy.
 
-Design drafting, review, and revision are side-effect-free. They may inspect a
-bounded, revisioned view of current Project tables, but they do not create or
-change one. Reusing an existing table as an app reference needs no new consent;
-mutating existing Project data requires either the user's direct request or a
-durably answered design question that states the Project-wide consequence.
-Similarity of names, tags, columns, or values is never consent and never an
-adoption rule.
-
-Every holder-owned design-artifact, orchestration, or slice-attempt write
-authorizes the exact live `(run_id, holder_nonce)` carrier, holder actor, and
-current Project membership in the same transaction as the write. Before
-materialization the session is owner-private and that carrier is the locked
-design-session row; afterward it is the locked Project-shared app row reached
-through the session's immutable materialization mapping. Artifact selection additionally
-proves that the accepted revision and build plan belong to the same session and
-that the plan targets that revision.
-
-A build plan becomes the frozen execution authority with its accepted revision
-and exact Project-data materialization receipt before construction starts.
-Later arbitrary user content cannot replace that set, reopen design, reduce
-scope, or drive a different plan. Only a persisted pre-build question may accept
-an answer before it freezes.
-
-A persisted build plan is derived deterministically from the accepted
-workflows. Its construction groups cover every included workflow exactly once,
-with no empty executor slice, stable groups, exactly one materialization root,
-and no model-authored ownership
-choices. The root has no prerequisite slices and directly owns the complete
-first export-ready app.
-A task that only reads saved records can use lists and details instead of a
-form when every actor can see each requested property. If all of its construction
-belongs to earlier work, its workflow element joins the last prerequisite's
-group and its requirements remain in that slice's brief. Completion still
-requires the exact nonempty committed receipts for the whole plan.
-Worker starting conditions describe the situation in which a task is useful;
-they do not schedule construction. Nova derives dependencies from forms, menu
-homes, selection and shared data definitions. Record catalogs belong to their
-first consumer, including lists, in-form summaries, properties and parent catalogs
-needed by a child. Saving the first record instance need not own its definition.
-Menu membership is worker-facing meaning. Form-only homes belong to their first
-form; accepted lists are claimed when a ready workflow needs them. Readiness is
-read-only and checks menu homes, parent selection and any suitable child viewer.
-The initial workflow has priority, then design order settles ties. Claiming a
-list assigns its needed parent lists and records actual prior-owner dependencies.
-Other lists stay with their first participating workflow or a later parent-ready
-workflow. Later forms keep their own workflows. Graph admission and planning use
-this same derivation, rejecting construction cycles and prerequisites for the
-initial workflow. An unrelated record's explicit creation needs no viewer.
-The shared form-creation path
-converts a viewer into a form-bearing module in one admitted mutation batch;
-a no-matches registration keeps its existing case-list entry behavior.
-External actions are separate from Blueprint effects. Current plan admission
-allows `manual-setup` and `after-slice`; new-plan insertion rejects blocking
-`before-*` timings until a typed durable receipt producer is registered, while
-the persisted schema remains able to read the full timing vocabulary. The
-orchestrator retains the fail-closed exact receipt verifier at the consumer
-boundary. Accepted Design Contract lookup tables are not manual external setup:
-their registered producer runs after clean review and before plan execution.
-Every mutation-bearing staged step names the slice-owned construction
-groups it implements. Canonical commit proves complete group coverage from
-those steps,
-derives implementation coordinates from the admitted mutations, and writes the
-exact `running -> committed` slice-attempt transition, committed-slice receipt,
-and provenance beside the Blueprint revision in one transaction.
-
-Discarding a pre-app design abandons open change sets, supersedes running slice
-attempts, clears thread stream-holder markers, releases any unsettled hold, and
-marks the session abandoned in one transaction.
-
-After a clean independent review, one Project-data transaction re-proves the
-live holder, actor, Project membership and role, accepted revision digest,
-expected table revisions, limits, values, and destructive governance. It applies
-the accepted new and existing-table operations as one batch and persists an
-immutable digest-bound receipt containing the exact Project revision and every
-DesignId-to-lookup-UUID mapping. Exact retry reuses the receipt; a digest,
-Project, authorization, or table-revision mismatch fails closed without a
-partial table, duplicate, inferred adoption, or random rename.
-
-That mapping is server execution state, not compiler vocabulary. The accepted
-semantic lookup reference is copied unchanged through the BuildPlan and slice
-brief; the change-set workspace resolves it immediately before canonical tool
-parsing and reverse-projects lookup carriers in tool results. Existing resource
-names remain available for catalog discovery, paired with the stable identities
-the design retains.
-
-That transaction also installs temporary table and column protection edges for
-every accepted Blueprint dependency. Materialization applies the same lookup,
-media, organization, runtime-schema, and export-readiness integrity as every
-later canonical commit. Sequence-one genesis installs the canonical app lookup
-edges before releasing the temporary edges in the same transaction. A
-superseded or discarded design releases temporary protection but never
-auto-deletes accepted Project data. Once sequence `1` exists, it remains
-reachable even if a later slice fails: the design-session recovery URL resolves
-to the authoritative app, and the app is a usable earlier valid revision
-retained for diagnosis. It remains initial-build locked and is never reported as
-complete while any planned slice is uncommitted.
+See [agent authoring](agent-authoring.md) for the implemented lifecycle and
+[design format cutover](design-format-cutover.md) for the one-time migration.
+Old artifacts remain historical records, not executable plans or runtime
+compatibility inputs.
 
 ### One Postgres system
 

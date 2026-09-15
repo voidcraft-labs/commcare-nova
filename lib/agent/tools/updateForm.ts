@@ -1,43 +1,4 @@
-/**
- * SA tool: `updateForm` — patch form-level metadata.
- *
- * Covers the four form-scoped edits the SA exposes: display name,
- * close condition (close forms only), refinement of an existing Connect
- * participant, and
- * post-submit navigation. Both the SA chat factory and the MCP adapter
- * call this through the shared `ToolInvocationContext` interface.
- *
- * Omission keeps, null clears: a slot left out keeps its current value;
- * an explicit `null` clears it (unconditional close again, post-submit
- * back to the form-type default). `name` is not nullable — a form always has
- * a name. App-wide Connect participation changes belong to
- * `configureConnect`; this tool can refine only a form that already
- * participates after the app has a mode. Connect-config patches go through
- * `buildConnectConfig`, a structural partial-update merge that applies
- * the same law per sub-config: a supplied sub-config merges with its
- * existing counterpart, a null one is REMOVED, an omitted one passes
- * through unchanged. A patch that would remove the last sub-config is a
- * participant-set change and is refused with the app-wide tool named.
- *
- * The merged connect config then runs through `enforceConnectIds` (the
- * agent-path source guard): an omitted connect id is autofilled with a
- * valid, unique, name-derived id (the doc carries it from then on), and an
- * explicitly-supplied invalid or duplicate id fails the call. Other
- * defaults are NOT invented here — `deliver_unit` may still land without
- * `entity_id`/`entity_name`, and the wire-emit layer supplies those XPath
- * fallbacks at bind time.
- *
- * Four exit branches:
- *
- *   1. Form UUID address does not resolve → `{ error }`, no mutations.
- *   2. An explicit connect id is invalid/duplicate → `{ error }`, no
- *      mutations (nothing written).
- *   3. Form disappeared after the patch (reducer-level rejection) →
- *      `{ error }`, mutations may have already been persisted.
- *   4. Success → human-readable summary listing the changed keys,
- *      tagged `form:M-F`.
- */
-
+/** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { formRecordNameMutations } from "@/lib/doc/formRecordName";
@@ -88,6 +49,11 @@ export const updateFormInputSchema = formAddressSchema
 			.min(1)
 			.optional()
 			.describe("New form name. Leave it out to keep the current name."),
+		purpose: z
+			.string()
+			.nullable()
+			.optional()
+			.describe("What this form is for. Null removes the description."),
 		recordName: xpathExpressionSchema
 			.optional()
 			.describe(
@@ -141,7 +107,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, record naming rule, close condition, Connect settings or after-submit navigation.",
+		"Edit a form's name, purpose, record naming rule, close condition, Connect settings or after-submit navigation.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -152,6 +118,7 @@ export const updateFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: rawFormUuid,
 			name,
+			purpose,
 			recordName,
 			close_condition,
 			post_submit,
@@ -180,6 +147,7 @@ export const updateFormTool = {
 			const patch: Parameters<typeof updateFormMutations>[2] = {};
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
+			if (purpose !== undefined) patch.purpose = purpose;
 			if (close_condition === null) patch.closeCondition = null;
 			if (close_condition != null) {
 				const fieldUuid = asUuid(close_condition.fieldUuid);

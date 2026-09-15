@@ -1,547 +1,491 @@
-/**
- * The durable staging protocol against a REAL Postgres — the §20.5
- * statement-boundary fault matrix plus the idempotency, authority, and
- * exclusivity laws the store owns.
- *
- * What this pins:
- *
- *   - a stage request commits its receipt, step, stage ranges, handle
- *     bindings, and the revision advance as ONE transaction: a fault at ANY
- *     statement boundary persists nothing, and the SAME request then stages
- *     cleanly;
- *   - a committed request replays verbatim by `(requestId, digest)` and a
- *     reused id with different content latches as a collision;
- *   - a stale expected revision rejects before anything appends, so two
- *     process continuations cannot allocate the same or inverted ordinal;
- *   - the batch-exclusive fence and owner/status/Project proofs hold under
- *     the lock;
- *   - lifecycle transitions (abandon/supersede) are exact-owner writes and
- *     closed sets stage nothing further.
- */
-
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, expect, it } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
-import { asDesignId } from "@/lib/agent/design/ids";
+import {
+	beginPlanReview,
+	finishPlanReview,
+	writeAppPlan,
+} from "@/lib/agent/planning/store";
+import {
+	addAutomationsTool,
+	updateAutomationTool,
+} from "@/lib/agent/tools/automations";
+import { getAuthDb } from "@/lib/auth/db";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { createPerTestAppDb } from "@/lib/db/__tests__/perTestAppDb";
-import { createExplicitBlankApp } from "@/lib/db/appGenesis";
-import { __setAppDbForTests } from "@/lib/db/pg";
+import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import type { Automation } from "@/lib/domain";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
 import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import {
 	ChangeSetRequestIdCollisionError,
-	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "../errors";
-import type { ChangeSetDiagnosticsSummary } from "../schemas";
-import { changeSetHandleSchema } from "../schemas";
+import { rehydrateChangeSet } from "../runtime";
 import {
 	__setStageTransactionFaultHookForTests,
 	abandonChangeSet,
-	beginAppEditChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
-	loadHandleBindings,
 	lookupStageRequest,
+	resumeOpenChangeSet,
 	type StageChangeSetRequestArgs,
 	type StageTransactionBoundary,
 	stageChangeSetRequest,
-	supersedeChangeSet,
 } from "../store";
-import type { ChangeSetLineage } from "../types";
+import { ChangeSetMutationWorkspace } from "../workspace";
 
-const h = setupAppStateTestDb("change_set_store_");
+const h = setupAppStateTestDb("authoring_workspace_", {
+	authSchema: "migrated",
+	poolMax: 4,
+});
+const ACTOR = "architect";
+const PROJECT = "workspace-project";
+const RUN = "build-run";
 
-const ACTOR = "actor-user";
-const PROJECT = "project-test";
-const RUN = "run-1";
-
-/* Every change-set identity column is FK-bound (design_sessions with the
- * design-session unit; revision/plan/attempt with the orchestrator unit),
- * so the lineage helper seeds the whole FK-valid chain. */
-async function lineage(): Promise<ChangeSetLineage> {
-	const seeded = await h.seedDesignLineage();
-	return {
-		designSessionId: seeded.designSessionId,
-		designRevisionId: seeded.designRevisionId,
-		designRevisionDigest: seeded.designRevisionDigest,
-		buildPlanId: seeded.buildPlanId,
-		buildPlanDigest: seeded.buildPlanDigest,
-		sliceId: asDesignId(seeded.sliceId),
-		attemptId: seeded.attemptId,
-	};
-}
-
-async function createTestApp(): Promise<string> {
+async function session() {
 	await h.seedProjectMember(ACTOR, PROJECT, "owner");
-	const receipt = await createExplicitBlankApp(
-		ACTOR,
-		PROJECT,
-		crypto.randomUUID(),
-		{
-			name: "Change-set store app",
-			status: "complete",
+	const claimed = await createAndClaimDesignSessionRun({
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		runId: RUN,
+		cost: 100,
+	});
+	const authority = {
+		sessionId: claimed.designSessionId,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		runId: RUN,
+		holderNonce: claimed.holderNonce,
+	};
+	await writeAppPlan({
+		authority,
+		writer: { editor: "architect" },
+		requestId: "plan",
+		expectedRevision: 0,
+		change: {
+			markdown: "Record individual loans, then return the selected loan.",
 		},
-	);
-	return receipt.appId;
-}
-
-async function openAppEditSet(appId: string) {
-	return beginAppEditChangeSet({
-		appId,
-		expectedProjectId: PROJECT,
-		lineage: await lineage(),
+	});
+	const begin = {
+		lineage: { designSessionId: claimed.designSessionId, planRevision: 1 },
 		ownerUserId: ACTOR,
 		ownerRunId: RUN,
-	});
+		holderNonce: claimed.holderNonce,
+		proposedAppId: claimed.proposedAppId,
+		projectId: PROJECT,
+		baseSnapshotDigest: emptyGenesisBase(claimed.proposedAppId).digest,
+	};
+	return {
+		authority,
+		begin,
+		holder: {
+			source: "chat" as const,
+			mode: "build" as const,
+			runId: RUN,
+			nonce: claimed.holderNonce,
+		},
+	};
 }
-
-// Opaque advisory summary at the store boundary, not a validator verdict.
-// Runtime and materialization tests recompute real candidate diagnostics.
-const CLEAN_DIAGNOSTICS: ChangeSetDiagnosticsSummary = {
-	candidateDigest: canonicalJsonDigest("candidate"),
-	findingCount: 0,
-	findingFingerprints: [],
-	canCommit: false,
-};
-
-function stageArgs(
-	changeSetId: string,
+async function open() {
+	const fixture = await session();
+	const review = await beginPlanReview(fixture.authority, "review");
+	await finishPlanReview(fixture.authority, review.reviewId);
+	const workspace = await beginGenesisChangeSet(fixture.begin);
+	return { ...fixture, workspace };
+}
+function stage(
+	fixture: Awaited<ReturnType<typeof open>>,
 	overrides: Partial<StageChangeSetRequestArgs> = {},
 ): StageChangeSetRequestArgs {
 	const mutations = admitMutationBatch([
-		{ kind: "setAppName", name: "Renamed by staging" },
+		{ kind: "setAppName", name: "Tool library" },
 	]);
-	const input = { name: "Renamed by staging" };
 	return {
-		changeSetId,
-		requestId: "req-1",
+		changeSetId: fixture.workspace.id,
+		requestId: "name",
 		toolName: "updateApp",
-		inputDigest: workspaceCallInputDigest({
-			toolName: "updateApp",
-			expectedWorkspaceRevision: 0,
-			projectedInput: input,
-		}),
 		expectedRevision: 0,
 		actorUserId: ACTOR,
 		runId: RUN,
+		chatRunHolder: fixture.holder,
+		inputDigest: workspaceCallInputDigest({
+			toolName: "updateApp",
+			expectedWorkspaceRevision: 0,
+			projectedInput: { name: "Tool library" },
+		}),
 		outcome: {
 			kind: "stage",
+			replayResult: { kind: "mutate", mutations: [], result: { ok: true } },
 			mutations,
-			stageSlices: [],
-			handles: [],
-			retainedHandleUuids: [],
-			readSet: [],
+			stageSlices: [{ stage: "Name", start: 0, end: 1 }],
 			exclusiveKind: null,
-			diagnostics: CLEAN_DIAGNOSTICS,
+			diagnostics: {
+				candidateDigest: canonicalJsonDigest("advisory"),
+				findingCount: 0,
+				findingFingerprints: [],
+				canCommit: false,
+			},
 		},
 		...overrides,
 	};
 }
+afterEach(() => __setStageTransactionFaultHookForTests(null));
 
-afterEach(() => {
-	__setStageTransactionFaultHookForTests(null);
-});
-
-describe("beginChangeSet", () => {
-	it("records the exact authorized base: head sequence, Project, and canonical digest", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-
-		expect(changeSet.kind).toBe("app-edit");
-		expect(changeSet.appId).toBe(appId);
-		expect(changeSet.baseSeq).toBe(1);
-		expect(changeSet.baseProjectId).toBe(PROJECT);
-		const baseline = await h
-			.db()
-			.selectFrom("app_change_fold_baselines")
-			.select("snapshot")
-			.where("app_id", "=", appId)
-			.where("seq", "=", 1)
-			.executeTakeFirstOrThrow();
-		expect(changeSet.baseSnapshotDigest).toBe(
-			canonicalJsonDigest(baseline.snapshot),
-		);
-		expect(changeSet.revision).toBe(0);
-		expect(changeSet.nextOrdinal).toBe(0);
-		expect(changeSet.status).toBe("open");
-	});
-
-	it("refuses a caller whose membership lost edit access", async () => {
-		const appId = await createTestApp();
-		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
-		await expect(openAppEditSet(appId)).rejects.toBeInstanceOf(
-			ChangeSetScopeLostError,
-		);
-	});
-
-	it("opens a genesis set against the canonical empty base with no app row", async () => {
-		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const proposedAppId = crypto.randomUUID();
-		const base = emptyGenesisBase(proposedAppId);
-		const changeSet = await beginGenesisChangeSet({
-			proposedAppId,
-			projectId: PROJECT,
-			baseSnapshotDigest: base.digest,
-			lineage: await lineage(),
-			ownerUserId: ACTOR,
-			ownerRunId: RUN,
-		});
-		expect(changeSet.kind).toBe("genesis");
-		expect(changeSet.appId).toBeNull();
-		expect(changeSet.proposedAppId).toBe(proposedAppId);
-		expect(changeSet.baseSeq).toBeNull();
-	});
-});
-
-describe("stage request idempotency", () => {
-	it("cannot persist a staging side effect after its absolute deadline", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-
-		await expect(
-			stageChangeSetRequest(
-				stageArgs(changeSet.id, { deadlineAt: Date.now() - 1 }),
-			),
-		).rejects.toThrow("transaction deadline expired");
-		expect(await lookupStageRequest(changeSet.id, "req-1")).toBeUndefined();
-		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(0);
-		expect((await loadChangeSet(changeSet.id))?.revision).toBe(0);
-	});
-
-	it("stages once, then replays the identical receipt for the same request", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-
-		const first = await stageChangeSetRequest(stageArgs(changeSet.id));
-		expect(first.replayed).toBe(false);
-		expect(first.receipt.disposition).toBe("staged");
-		expect(first.receipt.ordinal).toBe(0);
-		expect(first.receipt.workspaceRevision).toBe(1);
-
-		const replay = await stageChangeSetRequest(stageArgs(changeSet.id));
-		expect(replay.replayed).toBe(true);
-		expect(replay.receipt).toEqual(first.receipt);
-
-		const steps = await loadChangeSetSteps(changeSet.id);
-		expect(steps).toHaveLength(1);
-		const row = await loadChangeSet(changeSet.id);
-		expect(row?.revision).toBe(1);
-		expect(row?.nextOrdinal).toBe(1);
-	});
-
-	it("latches a reused request id whose content diverged", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		await stageChangeSetRequest(stageArgs(changeSet.id));
-
-		await expect(
-			stageChangeSetRequest(
-				stageArgs(changeSet.id, {
-					inputDigest: canonicalJsonDigest("different-input"),
-				}),
-			),
-		).rejects.toBeInstanceOf(ChangeSetRequestIdCollisionError);
-	});
-
-	it("rejects a stale expected revision before anything appends", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		await stageChangeSetRequest(stageArgs(changeSet.id));
-
-		await expect(
-			stageChangeSetRequest(
-				stageArgs(changeSet.id, { requestId: "req-2", expectedRevision: 0 }),
-			),
-		).rejects.toBeInstanceOf(ChangeSetWorkspaceRevisionStaleError);
-		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
-	});
-
-	it("serializes two observed database waiters before assigning the next ordinal", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-
-		const contenders = createPerTestAppDb(h.uri());
-		let results: PromiseSettledResult<
-			Awaited<ReturnType<typeof stageChangeSetRequest>>
-		>[];
-		try {
-			__setAppDbForTests(contenders.appDb);
-			results = await whileBlocked(
-				h,
-				(pg) =>
-					pg.query(
-						"SELECT id FROM design_change_sets WHERE id = $1 FOR UPDATE",
-						[changeSet.id],
-					),
-				() =>
-					Promise.allSettled([
-						stageChangeSetRequest(
-							stageArgs(changeSet.id, { requestId: "race-a" }),
-						),
-						stageChangeSetRequest(
-							stageArgs(changeSet.id, { requestId: "race-b" }),
-						),
-					]),
-				async (settled, pg) => {
-					expect(settled).toBe(false);
-					await expect
-						.poll(async () => {
-							await pg.query("SELECT pg_stat_clear_snapshot()");
-							const waiters = await pg.query<{ count: number }>(
-								"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0",
-							);
-							return waiters.rows[0].count;
-						})
-						.toBe(2);
-				},
-			);
-		} finally {
-			__setAppDbForTests(h.db());
-			await contenders.destroy();
-		}
-		const fulfilled = results.filter((entry) => entry.status === "fulfilled");
-		const rejected = results.filter((entry) => entry.status === "rejected");
-		expect(fulfilled).toHaveLength(1);
-		expect(rejected).toHaveLength(1);
-		expect(rejected[0]?.reason).toBeInstanceOf(
-			ChangeSetWorkspaceRevisionStaleError,
-		);
-		const steps = await loadChangeSetSteps(changeSet.id);
-		expect(steps.map((step) => step.ordinal)).toEqual([0]);
-	});
-
-	it("persists a rejection receipt idempotently without advancing the workspace", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-
-		const args = stageArgs(changeSet.id, {
-			requestId: "rejected-1",
-			outcome: {
-				kind: "reject",
-				code: "TARGET_INVALID",
-				message: "The staged target does not exist in the private candidate.",
+async function toolWorkspace(fixture: Awaited<ReturnType<typeof open>>) {
+	return ChangeSetMutationWorkspace.open(
+		{
+			actorUserId: ACTOR,
+			runId: RUN,
+			chatRunHolder: fixture.holder,
+			conversionImpact: async () => {
+				throw new Error("This test does not convert fields");
 			},
-		});
-		const first = await stageChangeSetRequest(args);
-		expect(first.receipt.disposition).toBe("rejected");
-		expect(first.receipt.workspaceRevision).toBe(0);
+		},
+		fixture.workspace.id,
+	);
+}
 
-		const replay = await stageChangeSetRequest(args);
-		expect(replay.replayed).toBe(true);
-		expect(replay.receipt).toEqual(first.receipt);
-
-		const row = await loadChangeSet(changeSet.id);
-		expect(row?.revision).toBe(0);
-		expect(row?.nextOrdinal).toBe(0);
-		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(0);
-	});
-});
-
-describe("immutable implementation bindings", () => {
-	it("rejects reassignment without advancing any durable stage state", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		const handle = changeSetHandleSchema.parse("@accepted_module");
-		const uuid = asUuid(crypto.randomUUID());
-		const args = stageArgs(changeSet.id);
-		if (args.outcome.kind !== "stage")
-			throw new Error("Expected stage fixture");
-		const first = await stageChangeSetRequest({
-			...args,
-			outcome: {
-				...args.outcome,
-				mutations: admitMutationBatch([
-					{
-						kind: "addModule",
-						module: { uuid, id: "accepted", name: "Accepted module" },
-					},
-				]),
-				handles: [{ handle, uuid, entityKind: "module" }],
-				retainedHandleUuids: [uuid],
-			},
-		});
-		const originalBindings = await loadHandleBindings(changeSet.id);
-		const proposals = [
-			{ handle, uuid: asUuid(crypto.randomUUID()), entityKind: "module" },
-			{ handle, uuid, entityKind: "form" },
-			{
-				handle: changeSetHandleSchema.parse("@different_module"),
-				uuid,
-				entityKind: "module",
-			},
-		] as const;
-		for (const [index, binding] of proposals.entries()) {
-			const requestId = `reassign-${index}`;
-			await expect(
-				stageChangeSetRequest({
-					...args,
-					requestId,
-					expectedRevision: first.receipt.workspaceRevision,
-					outcome: {
-						...args.outcome,
-						handles: [binding],
-						retainedHandleUuids: [binding.uuid],
-					},
-				}),
-			).rejects.toThrow("cannot be reassigned");
-			expect(await lookupStageRequest(changeSet.id, requestId)).toBeUndefined();
-			expect(await loadHandleBindings(changeSet.id)).toEqual(originalBindings);
-			expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
-			expect((await loadChangeSet(changeSet.id))?.revision).toBe(
-				first.receipt.workspaceRevision,
-			);
-		}
-	});
-});
-
-describe("statement-boundary fault injection", () => {
-	const BOUNDARIES: readonly StageTransactionBoundary[] = [
-		"after-authority-lock",
-		"after-ledger-read",
-		"after-request-insert",
-		"after-step-insert",
-		"after-stage-insert",
-		"after-handle-insert",
-		"after-advance",
-	];
-
-	for (const boundary of BOUNDARIES) {
-		it(`persists nothing when the transaction dies at ${boundary}, and the same request then stages cleanly`, async () => {
-			const appId = await createTestApp();
-			const changeSet = await openAppEditSet(appId);
-			const handle = changeSetHandleSchema.parse("@fault");
-			const handleUuid = asUuid(crypto.randomUUID());
-			const args = stageArgs(changeSet.id, {
-				outcome: {
-					kind: "stage",
-					mutations: admitMutationBatch([
+it("proves an unchanged private automation without reading an app and replays that semantic answer", async () => {
+	const fixture = await open();
+	const workspace = await toolWorkspace(fixture);
+	await workspace.stageDispatch({
+		toolName: "createModule",
+		requestId: "visits",
+		input: {
+			name: "Visits",
+			case_type: "visit",
+			forms: [
+				{
+					name: "Register",
+					type: "registration",
+					fields: [
 						{
-							kind: "addModule",
-							module: { uuid: handleUuid, id: "fault", name: "Fault module" },
+							kind: "text",
+							id: "state",
+							label: "State",
+							caseWrite: { caseType: "visit", property: "state" },
 						},
-					]),
-					stageSlices: [{ stage: "structure", start: 0, end: 1 }],
-					handles: [{ handle, uuid: handleUuid, entityKind: "module" }],
-					retainedHandleUuids: [handleUuid],
-					readSet: [],
-					exclusiveKind: null,
-					diagnostics: CLEAN_DIAGNOSTICS,
+					],
 				},
-			});
-
-			__setStageTransactionFaultHookForTests((at) => {
-				if (at === boundary) {
-					throw new Error(`forced fault at ${boundary}`);
-				}
-			});
-			await expect(stageChangeSetRequest(args)).rejects.toThrow(
-				`forced fault at ${boundary}`,
-			);
-
-			// Nothing partial survived the abort — no request, step, stage,
-			// handle, or revision advance.
-			expect(await lookupStageRequest(changeSet.id, args.requestId)).toBe(
-				undefined,
-			);
-			expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(0);
-			expect(await loadHandleBindings(changeSet.id)).toHaveLength(0);
-			const row = await loadChangeSet(changeSet.id);
-			expect(row?.revision).toBe(0);
-			expect(row?.nextOrdinal).toBe(0);
-
-			__setStageTransactionFaultHookForTests(null);
-			const retry = await stageChangeSetRequest(args);
-			expect(retry.replayed).toBe(false);
-			expect(retry.receipt.ordinal).toBe(0);
-			expect(retry.receipt.handles).toEqual({
-				"@fault": handleUuid,
-			});
-		});
-	}
-
-	it("replays the stored receipt when the response was lost AFTER commit", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		const args = stageArgs(changeSet.id);
-
-		const original = await stageChangeSetRequest(args);
-		// The caller never saw `original` — the retry must return the exact
-		// same durable facts.
-		const retry = await stageChangeSetRequest(args);
-		expect(retry.replayed).toBe(true);
-		expect(retry.receipt).toEqual(original.receipt);
+			],
+		},
 	});
+	const automation: Automation = {
+		uuid: asUuid(crypto.randomUUID()),
+		name: "Resolve visits",
+		kind: "case-update",
+		caseType: "visit",
+		criteriaOperator: "all",
+		criteria: [],
+		setupOnlyCriteria: [],
+		closeCase: false,
+		updates: [
+			{
+				uuid: asUuid(crypto.randomUUID()),
+				target: { scope: "case", property: "state" },
+				value: { kind: "literal", value: "resolved" },
+			},
+		],
+	};
+	await workspace.invoke({
+		toolName: "addAutomations",
+		requestId: "rule",
+		input: { automations: [automation] },
+		execute: (ctx) =>
+			addAutomationsTool.execute({ automations: [automation] }, ctx),
+	});
+	const revision = workspace.current().revision;
+	const call = {
+		toolName: "updateAutomation",
+		requestId: "unchanged",
+		input: { automation },
+		execute: (ctx: Parameters<typeof updateAutomationTool.execute>[1]) =>
+			updateAutomationTool.execute({ automation }, ctx),
+	};
+	const result = await workspace.invoke(call);
+	expect(result).toMatchObject({
+		kind: "mutate",
+		mutations: [],
+		result: { ok: true, unchanged: true, automationUuids: [automation.uuid] },
+	});
+	expect(workspace.current().revision).toBe(revision);
+	const reopened = await toolWorkspace(fixture);
+	expect(await reopened.invoke(call)).toEqual(result);
+	expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
 });
 
-describe("authority and lifecycle", () => {
-	it("refuses a different owner and a different run", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		await h.seedProjectMember("someone-else", PROJECT, "editor");
-
-		await expect(
-			stageChangeSetRequest(
-				stageArgs(changeSet.id, { actorUserId: "someone-else" }),
-			),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
-		await expect(
-			stageChangeSetRequest(stageArgs(changeSet.id, { runId: "other-run" })),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+it("replays a shared creation's exact identities after concurrent retries and reopening", async () => {
+	const fixture = await open();
+	const first = await toolWorkspace(fixture);
+	const second = await toolWorkspace(fixture);
+	const call = {
+		toolName: "createModule",
+		requestId: "create",
+		input: {
+			name: "Intake",
+			forms: [
+				{
+					name: "Register",
+					type: "survey",
+					fields: [{ kind: "text", id: "name", label: "Name" }],
+				},
+			],
+		},
+	};
+	const results = await whileBlocked(
+		h,
+		(pg) =>
+			pg.query("SELECT id FROM design_sessions WHERE id = $1 FOR UPDATE", [
+				fixture.authority.sessionId,
+			]),
+		() => Promise.all([first.stageDispatch(call), second.stageDispatch(call)]),
+		async (settled, pg) => {
+			expect(settled).toBe(false);
+			await expect
+				.poll(async () => {
+					await pg.query("SELECT pg_stat_clear_snapshot()");
+					const rows = await pg.query<{ count: number }>(
+						"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0",
+					);
+					return rows.rows[0].count;
+				})
+				.toBe(2);
+		},
+	);
+	expect(results[1].result).toEqual(results[0].result);
+	const recovered = await toolWorkspace(fixture);
+	expect((await recovered.stageDispatch(call)).result).toEqual(
+		results[0].result,
+	);
+	expect(results[0].result).toMatchObject({
+		kind: "mutate",
+		result: {
+			ok: true,
+			moduleUuid: recovered.currentSnapshot().doc.moduleOrder[0],
+		},
 	});
+	expect(await loadChangeSetSteps(fixture.workspace.id)).toHaveLength(1);
+});
 
-	it("refuses staging after the app moved Projects", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		await h.seedProjectMember(ACTOR, "project-b", "owner");
-		await h.moveAppToProject(appId, "project-b", ACTOR);
+it("does not stage an edit when its tool fails after preparing the candidate", async () => {
+	const fixture = await open();
+	const workspace = await toolWorkspace(fixture);
+	const before = workspace.currentSnapshot();
+	await expect(
+		workspace.invoke({
+			toolName: "updateApp",
+			requestId: "failure",
+			input: { name: "Lost" },
+			execute: async (ctx) => {
+				const prepared = await ctx.applyBatch({
+					mutations: [{ kind: "setAppName", name: "Lost" }],
+				});
+				expect(prepared.ok).toBe(true);
+				throw new Error("Failed to prepare the answer");
+			},
+		}),
+	).rejects.toThrow("Failed to prepare the answer");
+	expect(workspace.currentSnapshot()).toEqual(before);
+	expect(await loadChangeSetSteps(fixture.workspace.id)).toEqual([]);
+	expect(
+		await lookupStageRequest(fixture.workspace.id, "failure"),
+	).toBeUndefined();
+});
 
-		await expect(
-			stageChangeSetRequest(stageArgs(changeSet.id)),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+it("preserves rejection details in the shared tool envelope after recovery", async () => {
+	const fixture = await open();
+	const workspace = await toolWorkspace(fixture);
+	const call = {
+		toolName: "updateApp",
+		requestId: "rejected",
+		input: { name: "Invalid" },
+		execute: async (
+			ctx: import("@/lib/agent/workspace/types").ToolInvocationContext,
+		) => {
+			const outcome = await ctx.applyBatch({
+				mutations: [
+					{
+						kind: "updateForm",
+						uuid: crypto.randomUUID(),
+						form: { name: "Missing" },
+					},
+				],
+			});
+			if (outcome.ok) throw new Error("A nonexistent target was accepted");
+			return {
+				kind: "mutate" as const,
+				mutations: [],
+				result: { error: outcome.error },
+			};
+		},
+	};
+	const first = await workspace.invoke(call);
+	expect(first.result.error).toBeTruthy();
+	expect(await (await toolWorkspace(fixture)).invoke(call)).toEqual(first);
+	expect(await loadChangeSetSteps(fixture.workspace.id)).toEqual([]);
+});
+
+it("requires peer review and admits one private workspace for the session", async () => {
+	const fixture = await session();
+	await expect(beginGenesisChangeSet(fixture.begin)).rejects.toThrow(
+		"peer review",
+	);
+	const review = await beginPlanReview(fixture.authority, "review");
+	await finishPlanReview(fixture.authority, review.reviewId);
+	const workspace = await beginGenesisChangeSet(fixture.begin);
+	await expect(beginGenesisChangeSet(fixture.begin)).rejects.toThrow(
+		"still open",
+	);
+	expect(workspace.baseSnapshotDigest).toBe(fixture.begin.baseSnapshotDigest);
+	expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
+});
+
+it("recovers exact mutations and idempotent results without creating a visible app", async () => {
+	const fixture = await open();
+	const call = stage(fixture);
+	const first = await stageChangeSetRequest(call);
+	expect(await stageChangeSetRequest(call)).toEqual({
+		...first,
+		replayed: true,
 	});
+	await expect(
+		stageChangeSetRequest({
+			...call,
+			inputDigest: canonicalJsonDigest("different"),
+		}),
+	).rejects.toBeInstanceOf(ChangeSetRequestIdCollisionError);
+	const recovered = await resumeOpenChangeSet({
+		designSessionId: fixture.authority.sessionId,
+		projectId: PROJECT,
+		actorUserId: ACTOR,
+		runId: RUN,
+		holderNonce: fixture.holder.nonce,
+	});
+	if (!recovered) throw new Error("Missing recovered workspace");
+	expect((await rehydrateChangeSet(recovered)).overlay.doc.appName).toBe(
+		"Tool library",
+	);
+	expect(await loadChangeSetSteps(recovered.id)).toHaveLength(1);
+	expect(await h.db().selectFrom("apps").select("id").execute()).toEqual([]);
+	expect(
+		await h.db().selectFrom("app_changes").select("app_id").execute(),
+	).toEqual([]);
+});
 
-	it("abandon and supersede are exact-owner writes that close the set", async () => {
-		const appId = await createTestApp();
-		const first = await openAppEditSet(appId);
-		await expect(
-			abandonChangeSet({
-				changeSetId: first.id,
-				actorUserId: "someone-else",
-				runId: RUN,
-			}),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
-		await abandonChangeSet({
-			changeSetId: first.id,
+it.each<StageTransactionBoundary>([
+	"after-authority-lock",
+	"after-ledger-read",
+	"after-request-insert",
+	"after-step-insert",
+	"after-stage-insert",
+	"after-advance",
+])("rolls back every staged write after a failure at %s", async (boundary) => {
+	const fixture = await open();
+	const call = stage(fixture);
+	__setStageTransactionFaultHookForTests((at) => {
+		if (at === boundary) throw new Error("Injected transaction failure");
+	});
+	await expect(stageChangeSetRequest(call)).rejects.toThrow(
+		"Injected transaction failure",
+	);
+	expect((await loadChangeSet(fixture.workspace.id))?.revision).toBe(0);
+	expect(
+		await lookupStageRequest(fixture.workspace.id, call.requestId),
+	).toBeUndefined();
+	expect(await loadChangeSetSteps(fixture.workspace.id)).toEqual([]);
+	__setStageTransactionFaultHookForTests(null);
+	expect((await stageChangeSetRequest(call)).receipt.disposition).toBe(
+		"staged",
+	);
+});
+
+it("serializes independent database writers before advancing a workspace revision", async () => {
+	const fixture = await open();
+	const results = await whileBlocked(
+		h,
+		(pg) =>
+			pg.query("SELECT id FROM design_sessions WHERE id = $1 FOR UPDATE", [
+				fixture.authority.sessionId,
+			]),
+		() =>
+			Promise.allSettled([
+				stageChangeSetRequest(stage(fixture, { requestId: "one" })),
+				stageChangeSetRequest(stage(fixture, { requestId: "two" })),
+			]),
+		async (settled, pg) => {
+			expect(settled).toBe(false);
+			await expect
+				.poll(async () => {
+					await pg.query("SELECT pg_stat_clear_snapshot()");
+					const waiters = await pg.query<{ count: number }>(
+						"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0",
+					);
+					return waiters.rows[0].count;
+				})
+				.toBe(2);
+		},
+	);
+	expect(
+		results.filter((result) => result.status === "fulfilled"),
+	).toHaveLength(1);
+	const rejected = results.find((result) => result.status === "rejected");
+	expect(rejected?.status === "rejected" && rejected.reason).toBeInstanceOf(
+		ChangeSetWorkspaceRevisionStaleError,
+	);
+	expect(
+		(await loadChangeSetSteps(fixture.workspace.id)).map(
+			(step) => step.ordinal,
+		),
+	).toEqual([0]);
+});
+
+it("tracks plan edits without rebuilding work and pauses construction during review", async () => {
+	const fixture = await open();
+	await stageChangeSetRequest(stage(fixture));
+	await writeAppPlan({
+		authority: fixture.authority,
+		writer: { editor: "architect" },
+		requestId: "clarify",
+		expectedRevision: 1,
+		change: {
+			oldText: "selected loan",
+			newText: "selected loan and its condition",
+		},
+	});
+	expect((await loadChangeSet(fixture.workspace.id))?.planRevision).toBe(2);
+	const review = await beginPlanReview(fixture.authority, "second-review");
+	const call = stage(fixture, { requestId: "later", expectedRevision: 1 });
+	await expect(stageChangeSetRequest(call)).rejects.toThrow("peer review");
+	await finishPlanReview(fixture.authority, review.reviewId);
+	expect((await stageChangeSetRequest(call)).receipt.workspaceRevision).toBe(2);
+});
+
+it("refuses replaced holders and revoked membership, including receipt replays and abandonment", async () => {
+	const fixture = await open();
+	const call = stage(fixture);
+	await stageChangeSetRequest(call);
+	await expect(
+		stageChangeSetRequest({
+			...call,
+			chatRunHolder: { ...fixture.holder, nonce: crypto.randomUUID() },
+		}),
+	).rejects.toThrow();
+	const db = await getAuthDb();
+	await db
+		.deleteFrom("auth_member")
+		.where("userId", "=", ACTOR)
+		.where("organizationId", "=", PROJECT)
+		.execute();
+	await expect(stageChangeSetRequest(call)).rejects.toThrow();
+	await expect(
+		abandonChangeSet({
+			changeSetId: fixture.workspace.id,
 			actorUserId: ACTOR,
 			runId: RUN,
-		});
-		expect((await loadChangeSet(first.id))?.status).toBe("abandoned");
-		await expect(
-			stageChangeSetRequest(stageArgs(first.id)),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
-
-		const second = await openAppEditSet(appId);
-		await supersedeChangeSet({
-			changeSetId: second.id,
-			actorUserId: ACTOR,
-			runId: RUN,
-		});
-		expect((await loadChangeSet(second.id))?.status).toBe("superseded");
-	});
-
-	it("keeps abandoned steps durable for amendment audit", async () => {
-		const appId = await createTestApp();
-		const changeSet = await openAppEditSet(appId);
-		await stageChangeSetRequest(stageArgs(changeSet.id));
-		await abandonChangeSet({
-			changeSetId: changeSet.id,
-			actorUserId: ACTOR,
-			runId: RUN,
-		});
-		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
-	});
+			chatRunHolder: fixture.holder,
+		}),
+	).rejects.toThrow();
+	expect((await loadChangeSet(fixture.workspace.id))?.status).toBe("open");
 });

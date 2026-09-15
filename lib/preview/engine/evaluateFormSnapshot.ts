@@ -163,11 +163,13 @@ export async function evaluateFormSnapshot(
 			await engine.setValueAsync(path, answer.value, evaluate);
 		}
 		const valid = await engine.validateAllAsync(evaluate);
+		const relevantPaths = engine.effectivelyVisiblePaths();
 		const fields = Object.entries(engine.store.getState()).map(
 			([path, state]) => {
+				const relevant = relevantPaths.has(path);
+				const kind = fieldAt(path)?.kind;
 				const {
 					value,
-					visible,
 					required,
 					valid,
 					errorMessage,
@@ -179,11 +181,12 @@ export async function evaluateFormSnapshot(
 				} = state;
 				return {
 					path: path.replace(/^\/data\//, ""),
+					kind,
 					value,
-					visible,
-					required,
-					valid,
-					...(errorMessage ? { error: errorMessage } : {}),
+					visible: relevant && kind !== "hidden",
+					required: relevant && required,
+					valid: !relevant || valid,
+					...(relevant && errorMessage ? { error: errorMessage } : {}),
 					...(resolvedLabel === undefined ? {} : { label: resolvedLabel }),
 					...(resolvedHint === undefined ? {} : { hint: resolvedHint }),
 					...(resolvedHelp === undefined ? {} : { help: resolvedHelp }),

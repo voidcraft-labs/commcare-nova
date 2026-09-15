@@ -401,8 +401,8 @@ const args = process.argv.slice(2);
 const useDesignModel = args.includes("design");
 const explicitName = args.find((a) => a !== "design");
 const model = useDesignModel
-	? MODEL_ROLES.designAuthor.modelId
-	: MODEL_ROLES.buildExecutor.modelId;
+	? MODEL_ROLES.architect.modelId
+	: MODEL_ROLES.followUpEditor.modelId;
 
 const tests = explicitName
 	? SCHEMA_TESTS.filter((t) => t.name === explicitName)

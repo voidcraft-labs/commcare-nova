@@ -7,33 +7,17 @@
  * never escape `store.ts`.
  */
 
-import type { DesignId } from "@/lib/agent/design/ids";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
-import type { Uuid } from "@/lib/domain";
-import type {
-	ChangeSetHandle,
-	ExternalReadDependency,
-	StagedEntityKind,
-	StageRequestReceipt,
-} from "./schemas";
+import type { StageRequestReceipt } from "./schemas";
 
 export type ChangeSetKind = "genesis" | "app-edit";
 export type ChangeSetStatus = "open" | "committed" | "abandoned" | "superseded";
 export type ChangeSetExclusiveKind = "renameCaseProperties" | "retireCaseType";
 
-/**
- * The immutable design/plan lineage a change set is opened under. Opaque
- * identities until the design-session/orchestrator units land their tables;
- * the digests are proven equal at stage and commit time regardless.
- */
+/** The plan used to author these exact canonical mutations. */
 export interface ChangeSetLineage {
 	readonly designSessionId: string;
-	readonly designRevisionId: string;
-	readonly designRevisionDigest: string;
-	readonly buildPlanId: string;
-	readonly buildPlanDigest: string;
-	readonly sliceId: DesignId;
-	readonly attemptId: string;
+	readonly planRevision: number;
 }
 
 /** The parsed authority row. */
@@ -68,7 +52,6 @@ export interface ChangeSetStep {
 	readonly toolName: string;
 	readonly mutations: AdmittedMutationBatch;
 	readonly mutationDigest: string;
-	readonly readSet: readonly ExternalReadDependency[];
 	readonly stages: readonly ChangeSetStepStage[];
 }
 
@@ -78,14 +61,6 @@ export interface ChangeSetStepStage {
 	readonly stageName: string;
 	readonly mutationStart: number;
 	readonly mutationCount: number;
-}
-
-/** One private handle binding. */
-export interface ChangeSetHandleBinding {
-	readonly handle: ChangeSetHandle;
-	readonly uuid: Uuid;
-	readonly entityKind: StagedEntityKind;
-	readonly bindingRequestId: string;
 }
 
 /** A staged-request lookup result: the stored receipt plus what it was
@@ -100,8 +75,8 @@ export interface StoredStageRequest {
 	readonly receipt: StageRequestReceipt;
 }
 
-/** The immutable committed-slice receipt (`design_committed_slices`). */
-export interface CommittedSliceReceipt extends ChangeSetLineage {
+/** The immutable committed-slice receipt (`authoring_checkpoints`). */
+export interface CheckpointReceipt extends ChangeSetLineage {
 	readonly id: string;
 	readonly changeSetId: string;
 	readonly appId: string;

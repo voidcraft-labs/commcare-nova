@@ -42,6 +42,7 @@ import {
 	deriveDesignBuildStage,
 	deriveInterruptedMaterializedBuildStage,
 } from "@/lib/agent/build/progress";
+import { readAppPlan } from "@/lib/agent/planning/store";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { getSession, resolveActiveProjectId } from "@/lib/auth-utils";
 import {
@@ -176,15 +177,15 @@ export default async function BuilderPage({
 		}
 		return { threads, initialThread };
 	})();
-	const failedMaterializedDesignPromise =
-		app.status === "error"
+	const materializedDesignPromise =
+		app.status === "error" || app.status === "generating"
 			? loadMaterializedSessionForApp(id)
 			: Promise.resolve(null);
-	const [threadHydration, previewProjectSpace, failedMaterializedDesign] =
+	const [threadHydration, previewProjectSpace, materializedDesign] =
 		await Promise.all([
 			threadHydrationPromise,
 			previewProjectSpacePromise,
-			failedMaterializedDesignPromise,
+			materializedDesignPromise,
 		]);
 	const { threads, initialThread } = threadHydration;
 
@@ -196,28 +197,27 @@ export default async function BuilderPage({
 	 * apps keep the existing redirect. */
 	const buildInterrupted =
 		app.status === "error" && initialThread?.resume_interrupted === true;
-	const failedMaterializedHead =
-		failedMaterializedDesign === null
+	const materializedHead =
+		materializedDesign === null
 			? null
-			: await readOrchestrationHead(failedMaterializedDesign.id);
-	const failedMaterializedStage =
-		failedMaterializedDesign === null
+			: await readOrchestrationHead(materializedDesign.id);
+	const materializedStage =
+		materializedDesign === null
 			? null
-			: deriveInterruptedMaterializedBuildStage(
-					failedMaterializedDesign,
-					failedMaterializedHead,
-				);
+			: (app.status === "error"
+					? deriveInterruptedMaterializedBuildStage
+					: deriveDesignBuildStage)(materializedDesign, materializedHead);
 	if (
 		app.status === "error" &&
 		!buildInterrupted &&
-		failedMaterializedDesign === null
+		materializedDesign === null
 	) {
 		redirect("/");
 	}
 	const buildUnfinished =
 		app.status === "generating" ||
 		buildInterrupted ||
-		failedMaterializedDesign !== null;
+		(materializedDesign !== null && materializedStage !== "ready");
 
 	const initialDoc = toRscSerializableDoc(app.blueprint);
 
@@ -243,11 +243,17 @@ export default async function BuilderPage({
 				appGenerating={buildUnfinished}
 				currentUserId={session.user.id}
 				initialDesignSession={
-					failedMaterializedDesign !== null && failedMaterializedStage !== null
+					materializedDesign !== null && materializedStage !== null
 						? {
-								designSessionId: failedMaterializedDesign.id,
+								designSessionId: materializedDesign.id,
 								materializedAppId: id,
-								stage: failedMaterializedStage,
+								stage: materializedStage,
+								revision: materializedHead?.revision ?? 0,
+								plan: await readAppPlan({
+									sessionId: materializedDesign.id,
+									actorUserId: session.user.id,
+									projectId: initialAccess.projectId,
+								}),
 							}
 						: undefined
 				}
@@ -317,10 +323,7 @@ async function resumedDesignPage(
 	if (scope.appId !== null) redirect(`/build/${scope.appId}`);
 	if (scope.state !== "active") notFound();
 
-	/* The session row and its orchestration head are the two durable facts the
-	 * stage folds from; the outline and build plan live only in the frames a
-	 * run streams, so a cold load deliberately shows the stage alone rather
-	 * than a reconstructed card. */
+	/* Cold loads receive the current authoring stage and the actual saved plan. */
 	const designSession = await loadDesignSession(designSessionId);
 	if (designSession?.mode !== "build") notFound();
 	const orchestrationHead = await readOrchestrationHead(designSessionId);
@@ -368,6 +371,12 @@ async function resumedDesignPage(
 					designSessionId,
 					materializedAppId: null,
 					stage,
+					revision: orchestrationHead?.revision ?? 0,
+					plan: await readAppPlan({
+						sessionId: designSessionId,
+						actorUserId: userId,
+						projectId: scope.projectId,
+					}),
 				}}
 			/>
 		</BuilderProvider>

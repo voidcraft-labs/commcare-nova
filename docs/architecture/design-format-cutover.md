@@ -1,60 +1,68 @@
-# Design format cutover
+# Authoring format cutover
 
-Design contract version 5 records menu intent once, derives selection consumers
-from their forms, and keeps each inline choice's saved value and wording together.
-One record is the selection default; authors specify several-record selection
-only when the workflow needs it. Workspace storage version 6 uses that shape
-and the current authoring boundary. Worker starting conditions remain in the
-design; construction dependencies are derived by Nova.
-Serving code reads only these current formats. Older private design sessions
-are retired once; they are not translated into new designs during reads.
+Current sessions use `authoring_version = 1`: a Markdown plan and the unified
+architect conversation. Older sessions are version 0. Serving authority refuses
+version 0; it never interprets an old design graph as a current plan.
 
-Retirement preserves canonical apps and their collected data, Project resources,
-conversation messages, sealed design artifacts, model transcripts and usage
-records. It closes open private work, releases temporary design lookup
-protections, clears execution pointers and marks the session `retired`.
-Conversations for an existing app are retargeted to that app so ordinary editing
-can continue. Pre-app conversations remain historical; a new build starts a
-new design. No old artifact is made current or accepted by this operation.
+The one-time operator migration preserves useful prose from the latest old
+design as an unreviewed Markdown revision, attributed to `migration`. It does
+not infer missing requirements or import the old workflow graph. Full original
+artifacts and transcripts remain immutable historical evidence.
 
-This replaces the earlier choice-workspace repair: all obsolete workspace
-operations, including caller-authored evidence, leave the current authoring path.
-Historical diagnostic readers may still display their raw recorded bytes.
+It abandons obsolete open change sets, supersedes old private work and attempts,
+releases temporary lookup protections, and clears old execution pointers.
+Canonical apps, collected cases, Project resources, conversation messages, and
+billing are preserved. Threads for complete apps return to ordinary app editing.
+Incomplete apps and pre-app sessions can continue from their original request,
+imported plan when available, and actual saved app. The architect must review
+that material before resuming construction.
 
 ## Deployment order
 
-This is a coordinated cutover, not a rolling mixed-format deployment. Stop new
-design work and drain the old serving revision before retiring sessions. The
-database migration adds the retired state; it does not retire data or make old
-readers understand that state. Keep old writers stopped until the new serving
-revision is ready.
+This is a coordinated cutover. Keep old writers stopped until the current
+revision is ready. New schema alone does not make old readers compatible.
 
-1. Scan with `node --conditions=react-server --import tsx scripts/scan-design-formats.ts`.
-   `--prod` uses the existing read-only production inspector connection. A
-   nonzero exit means obsolete metadata remains; each JSON result names its
-   session and retirement status.
-2. Resolve blockers while the old runtime is still available. `busy` includes
-   stale or paused holders and unsettled credit markers. Finish or recover those
-   runs through their existing lifecycle. `incomplete-app` requires completion
-   or repair of the actual app. `unaccounted-usage` requires normal durable
-   accounting. Retirement never clears these conditions to force progress.
-3. Drain old writers, apply the registered schema migration, and run
-   `node --conditions=react-server --import tsx scripts/migrate-design-formats.ts`
-   against the explicitly configured database. This is a dry run. With
-   `--execute`, it retires eligible sessions individually under the existing
-   actor, app and session locks. Production writes require a write-capable
-   environment; the scanner's `--prod` mode does not grant that access.
-4. Scan again. Investigate any remaining result before serving the new code.
-   `retry` means materialization changed the app mapping while the operation
-   waited; a new invocation follows the correct app-first lock order. Repeating
-   a completed retirement is harmless. An empty scan is the cutover condition.
-5. Start the current revision and resume design work. Verify an existing app
-   conversation opens for editing and a fresh build starts with current tools.
+1. Stop admitting old design work and drain its runs. Apply the registered schema
+   migrations through the normal migration job. The new column defaults to 0 so
+   a surviving old writer cannot accidentally create a current-format session.
+2. Run the read-only scanner:
+   `node --conditions=react-server --import tsx scripts/scan-design-formats.ts`.
+   `--prod` uses the existing operator inspector connection. Nonzero exit means
+   old sessions remain; each JSON row identifies the session and its status.
+3. Resolve blockers through their owning lifecycle. `busy` includes any present
+   holder or settleable reservation, even an expired holder. `unaccounted-usage`
+   means a completed model or old translation response still needs durable
+   accounting. The migration refuses both; it never discards a lease or bill to
+   force progress. An incomplete canonical app alone is not a blocker.
+4. Run `node --conditions=react-server --import tsx scripts/migrate-design-formats.ts`
+   against the explicitly configured database. The default is read-only. Add
+   `--execute` to migrate eligible sessions, each in its own actor/app/session
+   transaction. Production writes need a write-capable operator environment;
+   the scanner's `--prod` flag grants no write access.
+5. Scan again. `retry` means the app mapping changed while a transaction waited;
+   rerun so it can follow the correct lock order. Completed migrations are
+   idempotent. An empty scan is the admission condition for current readers.
+6. Run `node --conditions=react-server --import tsx scripts/scan-authoring-baselines.ts`.
+   Older SQL snapshots can omit section membership, localization, or newer
+   document collections even when canonical content is intact. For each affected
+   app, run `scripts/migrate-authoring-baselines.ts` with the same Node conditions;
+   it is read-only unless `--execute` is supplied. `--app <id>` limits either
+   command to one app. The writer requires the complete projection migration and
+   write-capable operator credentials. It refuses active or unsettled holders,
+   appends a complete baseline at a new sequence, and abandons private work that
+   depends on the old base. It preserves canonical content, cases, resources,
+   plans, messages, billing, and all old history. Rescan until empty.
+7. Serve the new revision. Verify a complete app's thread opens for ordinary
+   editing, an incomplete session resumes from its current state, and a new
+   request starts with the Markdown tools.
 
-Never start strict current readers over unretired old artifacts. Rolling back
-the application after retirement also requires code that understands retired
-sessions; restarting the old writer is not a valid rollback.
+The old runtime cannot safely resume after this migration. A rollback must keep
+current-format authority and data readable; restarting a retired writer is not
+a rollback procedure.
 
-The Postgres retirement tests exercise real stored version-1 through version-4 contracts, obsolete
-workspace operations, current workspace preservation, app and session lock
-races, billing blockers, retained history and new app-edit authority.
+The native Postgres tests start from the previous migration prefix and exercise
+the full registered upgrade, preserved historical snapshots, imported-plan
+attribution, idempotence, app-mapping races, holders, and unaccounted usage. The
+snapshot migration fixes the SQL projection for future complete fold baselines.
+The separate operator repair starts a new baseline for affected existing apps;
+it never rewrites an immutable historical row or changes the authored app.

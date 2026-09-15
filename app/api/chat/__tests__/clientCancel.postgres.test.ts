@@ -1530,23 +1530,24 @@ describe("server-derived build-vs-edit mode", () => {
 				},
 			})
 			.mockResolvedValue(snapshot);
-		/* The adopted BUILD runs the orchestrator; completing it exercises the
-		 * route's real build finalize (schema converge → settle → data-done)
-		 * against the claim this adoption booked. */
+		// Exercise admission and ownership at this boundary. A real owned pause
+		// avoids pretending an unplanned, unreviewed mock build can complete.
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.meter?.track({ inputTokens: 10, outputTokens: 5 });
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			const finalized = await args.finalizeCompletion({
-				appId: DIRECT_ADOPT_APP,
-				expectedSeq: adoptedBuildSeq,
-				expectedHead: null,
-			});
+			const actualApps =
+				await vi.importActual<typeof import("@/lib/db/apps")>("@/lib/db/apps");
+			const paused = await actualApps.setAwaitingInput(
+				DIRECT_ADOPT_APP,
+				args.runId,
+				args.holderNonce,
+				"build",
+				true,
+				USER,
+				PROJECT,
+			);
 			args.writer.write({ type: "finish" });
-			return {
-				kind: "completed",
-				appId: DIRECT_ADOPT_APP,
-				finalSeq: adoptedBuildSeq,
-				finalBlueprint: finalized.blueprint,
-			};
+			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
 		});
 
 		const response = await post(
@@ -1593,14 +1594,17 @@ describe("server-derived build-vs-edit mode", () => {
 			materializedAppId: DIRECT_ADOPT_APP,
 		});
 
-		/* The completed-build finalize settled the claim and flipped the app
-		 * back to a committed, exported-ready state. */
 		const finalRow = await appDb
 			.selectFrom("apps")
-			.select(["status", "res_settled"])
+			.select(["status", "awaiting_input", "res_reserved", "res_settled"])
 			.where("id", "=", DIRECT_ADOPT_APP)
 			.executeTakeFirstOrThrow();
-		expect(finalRow).toEqual({ status: "complete", res_settled: true });
+		expect(finalRow).toEqual({
+			status: "generating",
+			awaiting_input: true,
+			res_reserved: CREDITS_PER_BUILD,
+			res_settled: false,
+		});
 	}, 30_000);
 
 	it("a wait-path snapshot failure settles the adopted edit before draining its event log", async () => {

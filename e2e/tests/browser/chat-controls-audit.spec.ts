@@ -144,19 +144,23 @@ test("Chat native keyboard answers once, selects field identity, and leaves read
 			}),
 		);
 		await page.goto(peer.origin);
-		const outline = page.getByRole("article", { name: "Reviewed design" });
-		const people = outline.getByRole("button", { name: /Who uses it/ });
-		await expect(outline.getByText("Clinic nurses")).toBeHidden();
-		await people.focus();
+		const plan = page.getByRole("button", { name: "App plan", exact: true });
+		await expect(plan).toHaveAttribute("aria-expanded", "false");
+		await plan.focus();
 		await page.keyboard.press("Enter");
-		await expect(outline.getByText("Clinic nurses")).toBeVisible();
+		await expect(plan).toHaveAttribute("aria-expanded", "true");
+		await expect(
+			page.getByText(
+				"Register each client, then record their follow-up visits.",
+			),
+		).toBeVisible();
 		await page.getByRole("button", { name: "App materializes" }).click();
-		await expect(outline).toHaveCount(0);
-		const build = page.getByRole("region", { name: "Build progress" });
-		await expect(build.getByRole("listitem")).toHaveText([
-			"RegistrationBuilt",
-			"Follow-upBuilding",
-		]);
+		await expect(plan).toHaveAttribute("aria-expanded", "true");
+		await expect(
+			page.getByText(
+				"Register each client, then record their follow-up visits.",
+			),
+		).toBeVisible();
 		const tools = page.getByRole("region", { name: "Tool changes" });
 		const batch = tools.getByRole("button", { name: "2 changes" });
 		await expect(tools.getByText("Adding fields")).toBeHidden();

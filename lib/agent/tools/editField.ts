@@ -216,16 +216,14 @@ function editPatchToFieldPatch(
 			patch.validate_msg = updates.validate.msg ?? null;
 		}
 	}
-	// Nested mode-discriminated `repeat` config. The patch always
-	// overwrites all three flat repeat keys when `repeat` is present: the
-	// new mode determines which mode-specific field is valid, and the
-	// unused field gets `null` so the reducer clears it.
+	// A mode change carries only the destination variant's fields. The
+	// reducer removes the previous mode's slots when applying that variant.
 	const repeat = updates.repeat;
 	if (repeat != null) {
 		patch.repeat_mode = repeat.mode;
-		patch.repeat_count = repeat.mode === "count_bound" ? repeat.count : null;
-		patch.data_source =
-			repeat.mode === "query_bound" ? { ids_query: repeat.ids_query } : null;
+		if (repeat.mode === "count_bound") patch.repeat_count = repeat.count;
+		if (repeat.mode === "query_bound")
+			patch.data_source = { ids_query: repeat.ids_query };
 	}
 	return patch as FieldPatchFor<FieldKind>;
 }

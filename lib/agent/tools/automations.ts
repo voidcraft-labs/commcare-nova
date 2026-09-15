@@ -254,13 +254,7 @@ export const addAutomationsTool = {
 				});
 				after = automation.uuid;
 			}
-			// Guidance needs the external location catalog. Resolve it before the
-			// authoritative write so no fallible read can turn a successful commit
-			// into an error-shaped tool result and invite a duplicate retry.
-			const organization = await readPlacesForGuidance(ctx);
-			const commit = await guardedMutate(ctx, mutations, "automations", {
-				expectedOrganizationRevision: organization.revision,
-			});
+			const commit = await guardedMutate(ctx, mutations, "automations");
 			if (!commit.ok) return mutationError(commit.error);
 			const names = input.automations.map((automation) => automation.name);
 			return {
@@ -310,13 +304,9 @@ export const updateAutomationTool = {
 			});
 			const mutations = diffDocsToMutations(doc, next);
 			if (mutations.length === 0) {
-				if (ctx.snapshot.externalContextDigest !== undefined) {
-					/* A private change-set overlay (the one snapshot field only that
-					 * host sets). Its invocations are strictly serialized and it has
-					 * no peers, so the overlay IS the current state of this change
-					 * set: the snapshot itself proves the no-op, and there is no
-					 * fresher authority to adopt — which is exactly why
-					 * `adoptAuthoritativeSnapshot` is a protocol error here. */
+				if (ctx.snapshot.mode === "change-set") {
+					// Private invocations are serialized. Their current candidate
+					// proves the no-op; no canonical app need exist yet.
 					return {
 						kind: "mutate",
 						mutations: [],
@@ -368,12 +358,7 @@ export const updateAutomationTool = {
 					},
 				};
 			}
-			// Fence the place references against the same organization revision
-			// used to prepare this mutation.
-			const organization = await readPlacesForGuidance(ctx);
-			const commit = await guardedMutate(ctx, mutations, "automations", {
-				expectedOrganizationRevision: organization.revision,
-			});
+			const commit = await guardedMutate(ctx, mutations, "automations");
 			if (!commit.ok) return mutationError(commit.error);
 			const committedAutomation = ownRecordValue(
 				commit.newDoc.automations,

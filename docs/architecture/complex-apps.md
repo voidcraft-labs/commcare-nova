@@ -2465,19 +2465,13 @@ and MCP tool expose the same result as `applied`, `unchanged`, or a mutation-fre
 `needs_changes` response carrying either the exact linked module identities to
 confirm or the exact blockers to repair.
 
-The accepted design contract describes selection as module behavior, including
-for a form-host module that uses only its default Results screen and has no
-authored work list. Workers choose one record by default. A module may specify
-several-record selection and its maximum. Nova derives the affected workflows
-from the module's selected-record and close forms. A queue-only parent's setting
-also governs its same-record child consumers. The build compiler makes the final affected
-workflow depend on the others and places one deterministic realization only
-after every relevant form exists; it never enables several-case selection early
-on a registration-only module. A new module may therefore be born with its
-several-case setting and consumer in one call, while a later workflow configures
-an existing module after its final consumer. Current readers accept only the current design format. The
-[one-time format cutover](design-format-cutover.md) retires obsolete private
-design metadata while preserving canonical apps and data.
+Case selection is module behavior, including for a form host that uses only
+its default Results screen and has no authored work list. Workers choose one
+record by default. A module can select several records once compatible
+follow-up or close consumers exist. The architect authors that behavior through
+the same atomic tools and document planners as Builder and MCP. The private
+workspace can prepare dependent forms together before a valid checkpoint; no
+separate build compiler schedules the selection change.
 
 Results rows and tiles both support multiple selection. A grouped tile remains
 one selectable group whose selection is its first case; its other body rows are

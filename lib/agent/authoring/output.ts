@@ -4,6 +4,7 @@ import { printXPathInDoc } from "@/lib/doc/expressionText";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import {
+	appLanguageIdentitySchema,
 	automationSchema,
 	type BlueprintDoc,
 	caseListConfigSchema,
@@ -12,9 +13,11 @@ import {
 	caseSearchConfigSchema,
 	fieldSchema,
 	formSchema,
+	languageTag,
 	localizedValueSchema,
 	moduleUuidOfForm,
 	proseTemplateSchema,
+	translationEntrySchema,
 	translationUnitsById,
 	type Uuid,
 	uuidSchema,
@@ -28,7 +31,10 @@ import {
 	valueExpressionSchema,
 } from "@/lib/domain/predicate";
 import { type AuthoringScopeOptions, authoringValueScope } from "./bindings";
-import { authoringFingerprint } from "./fingerprints";
+import {
+	authoringFingerprint,
+	translationReviewRevision,
+} from "./fingerprints";
 import { printAuthoringMessage } from "./messages";
 import { queryPrinter } from "./printQueryExpression";
 import { type AuthoringValueDecoders, encodeAuthoringValues } from "./schema";
@@ -286,16 +292,26 @@ export function projectAuthoringRead(args: {
 						item.explicit == null ? item.explicit : record.parse(item.explicit);
 					return {
 						...item,
+						...(explicit
+							? {
+									revision: translationReviewRevision(
+										languageTag(
+											appLanguageIdentitySchema.parse(payload.language),
+										),
+										unit,
+										translationEntrySchema.parse(explicit),
+									),
+								}
+							: {}),
 						sourceFingerprint: authoringFingerprint(
 							z.string().parse(item.sourceFingerprint),
 						),
 						source: encoders.localized(item.source, []),
 						effective: encoders.localized(item.effective, []),
 						explicit: explicit && {
-							...explicit,
-							sourceFingerprint: authoringFingerprint(
-								z.string().parse(explicit.sourceFingerprint),
-							),
+							origin: explicit.origin,
+							review: explicit.review,
+							translatedFrom: explicit.translatedFrom,
 							value: encoders.localized(explicit.value, []),
 						},
 						protectedParts:

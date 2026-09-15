@@ -1,3 +1,6 @@
+import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
+import { assertDesignSessionRunAuthorityInTransaction } from "./designSessions";
+import { safePersistedSequence } from "./persistedJson";
 /**
  * Canonical commit sidecars — the closed, typed SQL-only operations a
  * server-owned caller may ride on the canonical commit kernel's
@@ -12,7 +15,7 @@
  *
  * The server-owned build runtimes have two variants:
  *
- *   - `commit-design-change-set` — flip the locked change set
+ *   - `commit-authoring-workspace` — flip the locked change set
  *     `open → committed` beside the canonical write and insert the
  *     immutable committed-slice receipt with the kernel's authoritative
  *     sequence, batch id, and committed snapshot digest. The change-set row
@@ -28,26 +31,26 @@
  * is corruption for the CALLER to detect, never a new commit.
  */
 
-import { sql, type Transaction } from "kysely";
+import type { Transaction } from "kysely";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { AppDatabase } from "./pg";
 import { updatedExactlyOne } from "./runHolderWrites";
 
 export type CanonicalCommitSidecar =
 	| {
-			readonly kind: "commit-design-change-set";
+			readonly kind: "commit-authoring-workspace";
 			readonly changeSetId: string;
+			readonly requestId: string;
 			readonly expectedRevision: number;
 			/** Receipt-row identity, minted by the caller OUTSIDE the retryable
 			 * transaction so a retry reuses it. */
 			readonly receiptId: string;
-			readonly sliceAttemptId: string;
 			readonly designSessionId: string;
-			readonly designRevisionId: string;
-			readonly designRevisionDigest: string;
-			readonly buildPlanId: string;
-			readonly buildPlanDigest: string;
-			readonly sliceId: string;
+			readonly planRevision: number;
+			readonly actorUserId: string;
+			readonly runId: string;
+			readonly holderNonce: string;
+			readonly projectId: string;
 			readonly mutationCount: number;
 	  }
 	| {
@@ -87,7 +90,7 @@ export async function executeCanonicalCommitSidecars(
 ): Promise<void> {
 	for (const sidecar of args.sidecars) {
 		switch (sidecar.kind) {
-			case "commit-design-change-set": {
+			case "commit-authoring-workspace": {
 				await commitDesignChangeSetSidecar(tx, args, sidecar);
 				break;
 			}
@@ -189,158 +192,62 @@ async function commitDesignChangeSetSidecar(
 	},
 	sidecar: Extract<
 		CanonicalCommitSidecar,
-		{ kind: "commit-design-change-set" }
+		{ kind: "commit-authoring-workspace" }
 	>,
 ): Promise<void> {
+	await assertDesignSessionRunAuthorityInTransaction(tx, {
+		designSessionId: sidecar.designSessionId,
+		actorUserId: sidecar.actorUserId,
+		expectedProjectId: sidecar.projectId,
+		holder: { mode: "build", runId: sidecar.runId, nonce: sidecar.holderNonce },
+	});
+	await lockPlanForBuild(tx, sidecar.designSessionId, sidecar.planRevision);
 	const row = await tx
-		.selectFrom("design_change_sets")
-		.select([
-			"id",
-			"kind",
-			"app_id",
-			"proposed_app_id",
-			"status",
-			"revision",
-			"attempt_id",
-			"design_session_id",
-			"design_revision_id",
-			"design_revision_digest",
-			"build_plan_id",
-			"build_plan_digest",
-			"slice_id",
-		])
+		.selectFrom("authoring_workspaces")
+		.selectAll()
 		.where("id", "=", sidecar.changeSetId)
 		.forUpdate()
 		.executeTakeFirst();
-	if (row === undefined) {
-		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} no longer exists, so this canonical commit cannot carry its receipt.`,
-		);
-	}
-	/* A genesis set carries its app identity as `proposed_app_id` (its
-	 * `app_id` stays NULL by table CHECK — the app row it proposed is being
-	 * born in this very transaction); an app-edit set carries `app_id`. */
-	const committingAppId =
-		row.kind === "genesis" ? row.proposed_app_id : row.app_id;
-	if (committingAppId !== commit.appId) {
-		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} belongs to app ${committingAppId ?? "none"}, not the committing app ${commit.appId}.`,
-		);
-	}
-	if (row.status !== "open") {
-		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} is ${row.status}; only an open change set can commit.`,
-		);
-	}
-	if (Number(row.revision) !== sidecar.expectedRevision) {
-		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} advanced to revision ${row.revision} after this commit was derived at revision ${sidecar.expectedRevision}.`,
-		);
-	}
 	if (
+		row?.status !== "open" ||
+		(row.kind === "genesis" ? row.proposed_app_id : row.app_id) !==
+			commit.appId ||
+		safePersistedSequence(row.revision, "workspace revision") !==
+			sidecar.expectedRevision ||
 		row.design_session_id !== sidecar.designSessionId ||
-		row.design_revision_id !== sidecar.designRevisionId ||
-		row.design_revision_digest !== sidecar.designRevisionDigest ||
-		row.build_plan_id !== sidecar.buildPlanId ||
-		row.build_plan_digest !== sidecar.buildPlanDigest ||
-		row.slice_id !== sidecar.sliceId ||
-		row.attempt_id !== sidecar.sliceAttemptId
-	) {
+		safePersistedSequence(row.plan_revision, "workspace plan revision") !==
+			sidecar.planRevision ||
+		row.owner_user_id !== sidecar.actorUserId ||
+		row.owner_run_id !== sidecar.runId ||
+		row.base_project_id !== sidecar.projectId
+	)
 		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} no longer matches the design/plan lineage this commit was derived under.`,
+			"The workspace changed before its checkpoint could commit.",
 		);
-	}
-	const attempt = await tx
-		.selectFrom("design_slice_attempts")
-		.select([
-			"id",
-			"design_session_id",
-			"design_revision_id",
-			"design_revision_digest",
-			"build_plan_id",
-			"build_plan_digest",
-			"slice_id",
-			"change_set_id",
-			"status",
-		])
-		.where("id", "=", sidecar.sliceAttemptId)
-		.forUpdate()
-		.executeTakeFirst();
-	if (
-		attempt === undefined ||
-		attempt.status !== "running" ||
-		attempt.design_session_id !== sidecar.designSessionId ||
-		attempt.design_revision_id !== sidecar.designRevisionId ||
-		attempt.design_revision_digest !== sidecar.designRevisionDigest ||
-		attempt.build_plan_id !== sidecar.buildPlanId ||
-		attempt.build_plan_digest !== sidecar.buildPlanDigest ||
-		attempt.slice_id !== sidecar.sliceId ||
-		attempt.change_set_id !== sidecar.changeSetId
-	) {
-		throw new CanonicalCommitSidecarError(
-			`Slice attempt ${sidecar.sliceAttemptId} is not the exact running attempt bound to change set ${sidecar.changeSetId}.`,
-		);
-	}
-	const committedSnapshotDigest = canonicalJsonDigest(commit.committedSnapshot);
-	const flip = await tx
-		.updateTable("design_change_sets")
+	const digest = canonicalJsonDigest(commit.committedSnapshot);
+	await tx
+		.updateTable("authoring_workspaces")
 		.set({
 			status: "committed",
 			committed_seq: commit.seq,
 			committed_batch_id: commit.batchId,
-			committed_snapshot_digest: committedSnapshotDigest,
+			committed_snapshot_digest: digest,
 			updated_at: new Date(),
 		})
-		.where("id", "=", sidecar.changeSetId)
-		.where("status", "=", "open")
-		.where("revision", "=", sidecar.expectedRevision)
-		.executeTakeFirst();
-	if (!updatedExactlyOne(flip)) {
-		throw new CanonicalCommitSidecarError(
-			`Change set ${sidecar.changeSetId} could not flip to committed under its own lock.`,
-		);
-	}
-	const attemptFlip = await tx
-		.updateTable("design_slice_attempts")
-		.set({
-			status: "committed",
-			failure_code: null,
-			/* The canonical commit is the final executor operation, and every
-			 * negative outcome is awaited into this attempt before the commit can
-			 * start. Seal a live evidence window in the same transaction as the
-			 * receipt so process death after COMMIT cannot strand it at collecting.
-			 * An already-incomplete window remains fail-closed forever. */
-			outcome_evidence_state: sql<string>`CASE
-				WHEN outcome_evidence_state = 'collecting' THEN 'complete'
-				ELSE outcome_evidence_state
-			END`,
-			updated_at: new Date(),
-		})
-		.where("id", "=", sidecar.sliceAttemptId)
-		.where("status", "=", "running")
-		.where("change_set_id", "=", sidecar.changeSetId)
-		.executeTakeFirst();
-	if (!updatedExactlyOne(attemptFlip)) {
-		throw new CanonicalCommitSidecarError(
-			`Slice attempt ${sidecar.sliceAttemptId} could not flip from running to committed under its own lock.`,
-		);
-	}
+		.where("id", "=", row.id)
+		.execute();
 	await tx
-		.insertInto("design_committed_slices")
+		.insertInto("authoring_checkpoints")
 		.values({
 			id: sidecar.receiptId,
 			design_session_id: sidecar.designSessionId,
-			design_revision_id: sidecar.designRevisionId,
-			design_revision_digest: sidecar.designRevisionDigest,
-			build_plan_id: sidecar.buildPlanId,
-			build_plan_digest: sidecar.buildPlanDigest,
-			slice_id: sidecar.sliceId,
-			slice_attempt_id: sidecar.sliceAttemptId,
+			request_id: sidecar.requestId,
+			plan_revision: sidecar.planRevision,
 			change_set_id: sidecar.changeSetId,
 			app_id: commit.appId,
 			seq: commit.seq,
 			batch_id: commit.batchId,
-			committed_snapshot_digest: committedSnapshotDigest,
+			committed_snapshot_digest: digest,
 			mutation_count: sidecar.mutationCount,
 		})
 		.execute();

@@ -486,24 +486,24 @@ describe("design-session build turns", () => {
 			seq: Number(baseline.seq),
 			projectId: baseline.project_id,
 		});
-		const committedSlice = await appDb
-			.selectFrom("design_committed_slices")
+		const checkpoint = await appDb
+			.selectFrom("authoring_checkpoints")
 			.select(["change_set_id", "committed_snapshot_digest"])
 			.where("app_id", "=", app.id)
 			.executeTakeFirstOrThrow();
 		expect(materialized).toMatchObject({
-			snapshotDigest: committedSlice.committed_snapshot_digest,
+			snapshotDigest: checkpoint.committed_snapshot_digest,
 		});
 		expect(
 			await readMaterializedGenesisReceipt({
-				changeSetId: committedSlice.change_set_id,
+				changeSetId: checkpoint.change_set_id,
 				actorUserId: USER,
 			}),
 		).toEqual(materialized);
 		expect(app.status).toBe("complete");
 		expect(app.res_settled).toBe(true);
 		const terminal = await appDb
-			.selectFrom("design_orchestration_events")
+			.selectFrom("authoring_events")
 			.select(["kind", "run_id"])
 			.where("design_session_id", "=", session.id)
 			.orderBy("revision", "desc")

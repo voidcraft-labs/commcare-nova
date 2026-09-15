@@ -123,20 +123,6 @@ async function stubChatSends(
 
 type ScriptedChunk = { type: string; [key: string]: unknown };
 
-function designProgressEnvelope(
-	designSessionId: string,
-	revision: number,
-	data: unknown,
-): Record<string, unknown> {
-	return {
-		eventVersion: 1,
-		designSessionId,
-		orchestrationEventId: `scripted-event-${revision}`,
-		orchestrationRevision: revision,
-		data,
-	};
-}
-
 /** Three deterministic responses exercise the real chat/UI state machine:
  * pre-app question → materialized but still locked question → completion.
  * The route never reaches Nova's server, provider, or usage meter. */
@@ -182,37 +168,24 @@ async function stubDesignBuildJourney(
 					data: { designSessionId: sessionId, materializedAppId: null },
 				},
 				{
-					type: "data-design-pulse",
-					data: designProgressEnvelope(sessionId, 1, {
-						phase: "review",
-						chars: 120,
-					}),
+					type: "data-authoring-progress",
+					data: { sessionId, revision: 1, stage: "reviewing-plan" },
 				},
 				...textChunks(
 					"scripted-design-text",
 					"I’ve outlined the referral flow. One detail will make the follow-up queue fit your team.",
 				),
 				{
-					type: "data-design-outline",
-					data: designProgressEnvelope(sessionId, 2, {
-						objective: "Track referrals from intake through follow-up",
-						actors: ["Intake worker", "Follow-up coordinator"],
-						tasks: ["Register a referral", "Record follow-up"],
-						records: ["Referral"],
-						lists: ["Open referrals"],
-						assumptions: [],
-						blockingQuestions: ["How quickly should follow-up begin?"],
-						outOfScope: [],
-						reviewed: true,
-					}),
-				},
-				{
-					type: "data-build-plan-summary",
-					data: designProgressEnvelope(sessionId, 3, {
-						sliceCount: 1,
-						sliceNames: ["Referral intake and follow-up"],
-						externalActionCount: 0,
-					}),
+					type: "data-authoring-plan",
+					data: {
+						sessionId,
+						plan: {
+							revision: 2,
+							reviewedRevision: 2,
+							markdown:
+								"Track referrals from intake through follow-up. Intake workers register referrals; coordinators follow up from the open referrals list.",
+						},
+					},
 				},
 				...ask(
 					"scripted-design-question",
@@ -236,19 +209,8 @@ async function stubDesignBuildJourney(
 					"Thanks. I’m building the referral workflow now.",
 				),
 				{
-					type: "data-build-slice-started",
-					data: designProgressEnvelope(sessionId, 4, {
-						sliceId: "scripted-slice-1",
-						sliceName: "Referral intake and follow-up",
-					}),
-				},
-				{
-					type: "data-build-slice-committed",
-					data: designProgressEnvelope(sessionId, 5, {
-						sliceId: "scripted-slice-1",
-						sliceName: "Referral intake and follow-up",
-						seq: 1,
-					}),
+					type: "data-authoring-progress",
+					data: { sessionId, revision: 2, stage: "building" },
 				},
 				{ type: "data-app-materialized", data: activation },
 				...ask(
@@ -276,12 +238,8 @@ async function stubDesignBuildJourney(
 					"Your referral app is ready to try.",
 				),
 				{
-					type: "data-build-completion",
-					data: designProgressEnvelope(sessionId, 6, {
-						appId: activation.appId,
-						appSeq: 1,
-						plannedSlices: 1,
-					}),
+					type: "data-authoring-progress",
+					data: { sessionId, revision: 3, stage: "ready" },
 				},
 				{
 					type: "data-done",
@@ -4135,23 +4093,17 @@ test.describe("authenticated builder", () => {
 				.locator('[data-question-card="waiting"]')
 				.getByText("How quickly should follow-up begin?"),
 		).toBeVisible({ timeout: 20_000 });
-		await expect(page.getByText("Reviewed design")).toBeVisible();
+		const plan = page.getByRole("button", { name: "App plan", exact: true });
+		await plan.click();
+		await expect(
+			page.getByText(/Intake workers register referrals;/),
+		).toBeVisible();
 		await expect(
 			page.getByText("Type your answer below", { exact: true }),
 		).toBeVisible();
 		await expect(
 			page.getByText("or type your answer below", { exact: true }),
 		).toHaveCount(0);
-		for (const internalName of [
-			"finishDesign",
-			"requestReview",
-			"updateFindingDispositions",
-			"submitPlan",
-		]) {
-			await expect(page.getByText(internalName, { exact: true })).toHaveCount(
-				0,
-			);
-		}
 		await expect(page).toHaveURL(
 			new RegExp(`/build/new\\?design=${activation.designSessionId}$`),
 		);
@@ -4160,7 +4112,7 @@ test.describe("authenticated builder", () => {
 		 * composer, not stranded above the outline or elsewhere in the log. */
 		const firstStatus = page
 			.getByRole("status")
-			.filter({ hasText: "Waiting on your answer" });
+			.filter({ hasText: "Waiting for your reply" });
 		await expect(firstStatus).toBeVisible();
 		const firstComposer = page.getByPlaceholder(
 			"What would you like to change?",

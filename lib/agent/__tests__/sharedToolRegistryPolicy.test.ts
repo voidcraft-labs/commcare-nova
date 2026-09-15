@@ -8,10 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-	SHARED_TOOL_REGISTRY,
-	type ToolExecutionPolicy,
-} from "../sharedToolRegistry";
+import { SHARED_TOOL_REGISTRY } from "../sharedToolRegistry";
 
 const EXTERNAL_WRITE_CAPABILITIES = [
 	"organization-write",
@@ -65,18 +62,6 @@ describe("shared tool registry — execution policy coherence", () => {
 					capability.endsWith("-read"),
 					`${entry.saName} is a read but requires ${capability}`,
 				).toBe(true);
-			}
-		}
-	});
-
-	it("final-guidance read sets are declared read sets", () => {
-		for (const entry of SHARED_TOOL_REGISTRY) {
-			const policy: ToolExecutionPolicy = entry.policy;
-			for (const kind of policy.emitsFinalGuidanceFrom ?? []) {
-				expect(
-					policy.readSets,
-					`${entry.saName} projects guidance from an undeclared read set`,
-				).toContain(kind);
 			}
 		}
 	});

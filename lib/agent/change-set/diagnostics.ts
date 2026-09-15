@@ -15,7 +15,6 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import { canonicalJsonDigest } from "./digest";
-import type { ReadSetStatus } from "./readSets";
 import type { ChangeSetDiagnosticsSummary } from "./schemas";
 import type { ChangeSetStep, DesignChangeSet } from "./types";
 
@@ -57,7 +56,6 @@ export interface ChangeSetDiagnostics {
 	 * finding's full body is not recomputable from compact receipts, so the
 	 * delta speaks fingerprint identity. */
 	readonly resolvedSincePreviousStep: readonly string[];
-	readonly readSetStatus: readonly ReadSetStatus[];
 	readonly canCommit: boolean;
 }
 
@@ -71,7 +69,6 @@ export function computeChangeSetDiagnostics(args: {
 	readonly findings: readonly ValidationError[];
 	readonly finalizationFindings: readonly ValidationError[];
 	readonly steps: readonly ChangeSetStep[];
-	readonly readSetStatus: readonly ReadSetStatus[];
 	readonly previousFingerprints: readonly string[];
 }): ChangeSetDiagnostics {
 	const findings = [...args.findings, ...args.finalizationFindings];
@@ -81,10 +78,6 @@ export function computeChangeSetDiagnostics(args: {
 	const introduced = fingerprints.filter((print) => !previous.has(print));
 	const resolved = [...previous].filter((print) => !current.has(print));
 
-	const readSetsCurrent = args.readSetStatus.every(
-		(status) => status.state === "current",
-	);
-
 	return {
 		snapshotRevision: args.changeSet.revision,
 		candidateDigest: canonicalJsonDigest(args.overlaySnapshot),
@@ -92,9 +85,7 @@ export function computeChangeSetDiagnostics(args: {
 		finalizationFindings: args.finalizationFindings,
 		introducedSincePreviousStep: introduced,
 		resolvedSincePreviousStep: resolved,
-		readSetStatus: args.readSetStatus,
-		canCommit:
-			findings.length === 0 && readSetsCurrent && args.steps.length > 0,
+		canCommit: findings.length === 0 && args.steps.length > 0,
 	};
 }
 

@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
-	CREATION_IDENTITY_SPECS,
-	type CreationIdentitySpec,
-} from "@/lib/agent/change-set/creationIdentities";
-import {
 	computeFieldPath,
 	findContainingForm,
 } from "@/lib/doc/mutations/helpers";
@@ -16,6 +12,10 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 import type { NamedAuthoringField } from "./bindings";
+import {
+	CREATION_IDENTITY_SPECS,
+	type CreationIdentitySpec,
+} from "./creationIdentities";
 import { AuthoringInputError } from "./errors";
 
 type Input = Record<string, unknown>;
@@ -59,7 +59,7 @@ export function allocateCreationIdentities(
 			}
 			if (item[segment] !== undefined) return;
 			const uuid =
-				(spec.referenceIfBound && preserve?.(spec, item, path)) ||
+				(spec.preserveExisting && preserve?.(spec, item, path)) ||
 				uuidSchema.parse(randomUUID());
 			item[segment] = uuid;
 			allocations.push({

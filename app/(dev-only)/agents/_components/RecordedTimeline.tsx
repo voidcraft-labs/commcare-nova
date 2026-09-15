@@ -31,7 +31,6 @@ export interface TimelineContext {
 	readonly promptVersion: string;
 	readonly toolsetDigest: string;
 	readonly contextVersion: string;
-	readonly slice: NonNullable<RecordedContext["slice"]> | null;
 	/** Estimated system prompt plus tools for this context's role. */
 	readonly staticTokens: number | null;
 	readonly items: readonly WeighedItem[];
@@ -76,14 +75,8 @@ function ContextSection({
 	context: TimelineContext;
 	sessionId: string;
 }) {
-	const rolePath =
-		context.kind === "design" ? "design-author" : "build-executor";
-	const title =
-		context.kind === "design"
-			? `Design author, generation ${context.generation}`
-			: context.slice?.sliceId
-				? `Build executor, slice ${context.slice.sliceId}${context.slice.attempt !== null ? `, attempt ${context.slice.attempt}` : ""}`
-				: `Build executor, generation ${context.generation}`;
+	const rolePath = context.kind;
+	const title = `${context.kind === "architect" ? "Architect" : context.kind === "peer" ? "Peer" : "Translator"}, generation ${context.generation}`;
 	const variableTokens = context.items.reduce<number | null>(
 		(sum, item) =>
 			sum === null || item.weight.tokens === null
@@ -105,7 +98,7 @@ function ContextSection({
 						{title}
 					</h2>
 					<Link
-						href={`/agents/${rolePath}?session=${encodeURIComponent(sessionId)}&moment=latest-step`}
+						href={`/agents/${rolePath}?session=${encodeURIComponent(sessionId)}&moment=recorded`}
 						className="nova-focusable rounded-md text-nova-violet-bright text-sm hover:underline"
 					>
 						Open on the role page
@@ -117,7 +110,6 @@ function ContextSection({
 					<SimpleTooltip content={`Toolset digest ${context.toolsetDigest}`}>
 						<Badge>digest {context.toolsetDigest.slice(0, 8)}</Badge>
 					</SimpleTooltip>
-					{context.slice?.status && <Badge>{context.slice.status}</Badge>}
 					{context.supersedesContextId && (
 						<Badge variant="amber">supersedes an earlier generation</Badge>
 					)}
@@ -125,7 +117,7 @@ function ContextSection({
 						{context.items.length} items · {formatTokens(variableTokens)}{" "}
 						estimated
 						{context.staticTokens !== null &&
-							` · ${formatTokens(context.staticTokens)} static`}
+							` · ${formatTokens(context.staticTokens)} current static estimate`}
 					</span>
 				</div>
 			</header>

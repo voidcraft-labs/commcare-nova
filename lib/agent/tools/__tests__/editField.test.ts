@@ -541,3 +541,68 @@ describe("editField — a hidden field carries one value source", () => {
 		expect(result.result).not.toHaveProperty("valueSource");
 	});
 });
+
+it("changes repeat modes without replacing its children or retaining the old mode's configuration", async () => {
+	const doc = expectAdmittedDoc(
+		buildDoc({
+			modules: [
+				{
+					uuid: MOD,
+					id: "delivery",
+					name: "Delivery",
+					forms: [
+						{
+							uuid: FORM,
+							id: "parcels",
+							name: "Parcels",
+							type: "survey",
+							fields: [
+								f({
+									uuid: FIELD,
+									id: "parcels",
+									kind: "repeat",
+									label: proseText("Parcels"),
+									repeat_mode: "count_bound",
+									repeat_count: xp("2"),
+									children: [
+										f({
+											uuid: AGE,
+											id: "quantity",
+											kind: "int",
+											label: proseText("Quantity"),
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	const h = makeToolWorkspaceHarness(doc);
+	const child = doc.fields[AGE];
+	for (const repeat of [
+		{ mode: "user_controlled" as const },
+		{ mode: "count_bound" as const, count: xp("3") },
+		{ mode: "query_bound" as const, ids_query: xp("''") },
+		{ mode: "user_controlled" as const },
+	]) {
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "repeat", repeat },
+		});
+		expect(result.result).not.toHaveProperty("error");
+		const current = h.currentDoc();
+		expect(current.fields[FIELD]).toMatchObject({
+			uuid: FIELD,
+			repeat_mode: repeat.mode,
+		});
+		expect(current.fields[AGE]).toEqual(child);
+		expect(current.fieldOrder[FIELD]).toEqual([AGE]);
+		if (repeat.mode !== "count_bound")
+			expect(current.fields[FIELD]).not.toHaveProperty("repeat_count");
+		if (repeat.mode !== "query_bound")
+			expect(current.fields[FIELD]).not.toHaveProperty("data_source");
+	}
+});

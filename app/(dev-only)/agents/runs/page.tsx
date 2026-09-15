@@ -24,9 +24,9 @@ export default async function RunsPage() {
 					Recorded runs
 				</h1>
 				<p className="text-nova-text-secondary text-[15px] leading-relaxed">
-					The design author and the build executor persist every model message
-					and every completed step's billed usage. Open a session to read them
-					in order, with the estimate beside the bill.
+					The architect, peer and translator record their messages and usage.
+					Open a session to read them in order, with estimates beside recorded
+					usage.
 				</p>
 			</div>
 
@@ -63,18 +63,24 @@ export default async function RunsPage() {
 											{session.state}
 										</Badge>
 										<Badge>{session.mode}</Badge>
-										{session.designContexts > 0 && (
+										{session.architectContexts > 0 && (
 											<Badge variant="violet">
-												{session.designContexts} design{" "}
-												{session.designContexts === 1 ? "context" : "contexts"}
-											</Badge>
-										)}
-										{session.executorContexts > 0 && (
-											<Badge variant="violet">
-												{session.executorContexts} executor{" "}
-												{session.executorContexts === 1
+												{session.architectContexts} architect{" "}
+												{session.architectContexts === 1
 													? "context"
 													: "contexts"}
+											</Badge>
+										)}
+										{session.peerContexts > 0 && (
+											<Badge variant="violet">
+												{session.peerContexts} peer{" "}
+												{session.peerContexts === 1 ? "context" : "contexts"}
+											</Badge>
+										)}
+										{session.translatorContexts > 0 && (
+											<Badge variant="violet">
+												{session.translatorContexts} translation{" "}
+												{session.translatorContexts === 1 ? "batch" : "batches"}
 											</Badge>
 										)}
 									</span>
@@ -101,9 +107,9 @@ export default async function RunsPage() {
 					Apps
 				</h2>
 				<p className="max-w-[68ch] text-nova-text-secondary text-sm leading-relaxed">
-					The architect's wire is rebuilt every turn and never stored, so an app
-					opens the architect page with its newest thread run through the same
-					pipeline, labeled as a reconstruction.
+					An app opens the edit agent's current composition with its newest
+					thread, labeled as a reconstruction. Build conversations appear in the
+					sessions above.
 				</p>
 				{apps.length === 0 ? (
 					<p className="max-w-[68ch] rounded-xl border border-nova-border border-dashed px-4 py-3 text-nova-text-secondary text-sm">

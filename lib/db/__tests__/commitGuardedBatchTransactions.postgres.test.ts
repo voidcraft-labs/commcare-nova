@@ -54,6 +54,7 @@ import {
 	readOrganization,
 	updateLocation,
 } from "@/lib/organization/service";
+import { migrateLegacyAuthoring } from "@/scripts/lib/migrateAuthoring";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const {
@@ -439,10 +440,11 @@ describe("commitGuardedBatch (Postgres)", () => {
 		expect(await readStream(appId)).toEqual([]);
 	});
 
-	it("keeps historical accepted-partial apps editable", async () => {
+	it("keeps historical accepted-partial apps editable after the one-time migration", async () => {
 		const doc = minDoc();
 		const appId = await seedApp(doc);
 		const sessionId = await h.seedDesignSession({
+			authoring_version: 0,
 			mode: "build",
 			project_id: PROJECT,
 			owner_user_id: OWNER,
@@ -470,6 +472,9 @@ describe("commitGuardedBatch (Postgres)", () => {
 			})
 			.execute();
 
+		await expect(migrateLegacyAuthoring(sessionId)).resolves.toMatchObject({
+			status: "migrated",
+		});
 		await expect(
 			commitGuardedBatch({
 				appId,

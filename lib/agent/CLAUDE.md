@@ -1,680 +1,135 @@
-# lib/agent — LLM-facing agent layer
-
-Owns every module the Solutions Architect reaches into during generation or edit. No other directory constructs an LLM provider (every model call goes straight to OpenAI's Responses API via `@ai-sdk/openai` — one `OPENAI_API_KEY`, exact role configurations from `lib/models.ts::MODEL_ROLES`), renders the SA system prompt, or generates tool schemas. There is no generic model default or compatibility alias: design author, reviewer, executor helper, build executor, follow-up editor, document extractor, and translator each select their named role. The ONE provider constructor is `openaiProvider.ts::createNovaOpenAI` — it uses npm Undici's `fetch` and `Agent` together so both sides speak the installed major's dispatcher contract, with headers/body timeouts that beat the 300-second defaults (a blocking Responses call sends no headers until the whole generation finishes, and a streaming call can idle for minutes mid-reasoning; the defaults killed the design author live). Biome permits serving code to import only provider types from `@ai-sdk/openai` outside that factory. `__tests__/openaiProviderTransport.test.ts` exercises the package transport against a local HTTP server, distinguishing header and body timeouts, success, and caller cancellation; `scripts/ci/__tests__/providerImports.test.ts` exercises the actual lint restriction, including aliased imports.
-
-## Authoring boundary
-
-The editor, build executor, and shared MCP tools accept authored wording and expressions.
-`authoring/` binds names and allocates creation identities inside the authorized
-workspace invocation before canonical validation. It owns the input grammar and
-read projection, including editable validation/repeat/choice shapes. The editor
-uses hosted OpenAI tool search with deferred shared definitions; MCP clients own
-their discovery. `getAuthoringGuide` supplies focused reference material.
-
-The build executor supplies accepted module hosts, selection, form types, and
-implementation identities in server preparation after durable replay lookup.
-Its internal lineage bindings never become model arguments. The local evaluator
-uses production tools; retired prototypes remain in Git history. Read
-`authoring/CLAUDE.md` before extending the boundary.
-
-## Strict-mode normalization — omission is fragile, null is the fallback, filler is never
-
-OpenAI's Responses API "will attempt to normalize your schema into strict mode when possible" (function-calling guide) — strict mode requires EVERY property in `required`, with optionality expressed as null-unions — "and will fall back to non-strict, best-effort function calling if the schema cannot be made compatible." Under normalization the model cannot omit a key: a plain-optional slot gets invented filler (`"none"`, `"unused"` — observed across five live retries while the chat text claimed removal), and only a nullable slot gets a clean `null`. Every SA tool therefore sets **`strict: false`** (the documented opt-out, stamped in `solutionsArchitect.ts`'s `wrapShared`), so the model omits what doesn't apply — fewer output tokens, less context echo — and our SDK-side Zod validation remains the real gate. STRUCTURED OUTPUT takes the OPPOSITE stance from tools, deliberately: a response format is never normalized (a schema outside the strict subset 400s pre-model), and non-strict means the provider doesn't enforce the schema at all — a complete 57k-char author response freehanded one mismatch and failed the whole Zod parse, observed live. So `runStructuredWith` (`modelRunContext.ts`) ships every schema STRICT through `strictStructuredOutput.ts`: a wire PROJECTION (the same idiom as `wireSchemas.ts`) rewrites the zod emission into the strict subset — `oneOf` → `anyOf` (discriminator-exclusive arms, so semantically identical), every property required with formerly-optional slots null-unioned, `default` stripped — and the validation bridge deletes `null` properties before the ORIGINAL Zod parse (refinements included; the design graph proof still runs there), returning the ZodError so the unparseable-output log names failing paths. The bridge rejects authored null schemas at projection, including nullable unions, nested slots, tuple members and definitions, before it adds optional-null arms. This runtime admission enforces the null-strip precondition. Optional enum and literal properties use an explicit null arm, because adding null to their type alone does not widen enum/const. A record/dictionary shape also throws at projection (no strict spelling). The projection emits a Zod pipe's INPUT side (`io: "input"`), so `.transform()` is the sanctioned in-band seam for a model-facing vocabulary that resolves into a different persisted shape — the design reviewer's schema (`design/reviewerSchema.ts`) puts symbols on the wire and returns the resolved UUID-only review from the parse; resolution failures there must be `code: "custom"` issues (a transform throw loses the ZodError), which is what keeps their messages visible in `schemaIssueSummary`'s log line. Every call also ALWAYS STREAMS (`streamObjectWith` — blocking-mode headers wait on the whole generation, which the transport kills; see `openaiProvider.ts`). Offline tests retain the real SDK and provider transport against a local HTTP/SSE peer: `__tests__/strictStructuredOutput.test.ts` proves pipeline-schema projection and admission; `__tests__/subGeneration.test.ts` exercises requests, decoded structured results, HTTP and stream failures, cancellation, usage and owned diagnostic writes; `__tests__/designGenerationContextWire.test.ts` covers the production design-context adapter and contract schema. They do not establish live-provider schema acceptance or output quality. The executor's tools keep per-tool `strict: false` (`build/executorLoop.ts` — tool schemas DO normalize, and there the omission behavior is the point); the extraction condensers keep the provider default, their flat all-required schema being genuinely strict-compatible.
-
-The input contract, uniform across chat and MCP:
-
-- **Omission keeps, null clears.** On the ADD path `null` ≡ omitted ≡ "nothing here" — collapsed to absence (`stripEmpty`, `cleanCaseTypeRecord`, `buildConnectConfig`). On the EDIT path they differ: an omitted slot keeps its current value; an explicit `null` REMOVES it (`editField` properties and `updateForm`'s close condition / post-submit / individual Connect block or sub-config). App-wide Connect state does not use patch semantics: `configureConnect` receives the exact target, where `mode: null` atomically clears the mode and every form block, and a non-null mode requires the complete nonempty participant set. The prompt and every slot description teach null-as-removal; slots that cannot be cleared (names, ids — including a final Connect sub-config's required identity — `kind`, `repeat`) are not nullable or read null as "not supplied", so a stray null there is a parse rejection or a no-op, never a wipe.
-- The wholesale tools (`setCaseListFilter`, case-search-config, media items) are the same law at cluster scope: the CALL replaces its whole cluster, every slot named is deliberately set, null clears.
-- **Validation rejects only what the model can fix** — a rejection message must name a state the model can express (leave the slot out / pass a value), or it escalates to fabricating passing values.
-- **Machine option input is a projection, never persisted shape.** `projectedOptionsSourceSchema` is the single add/edit contract used by `addFields`, `createForm`, `createModule`, and `editField`: inline options are exactly `{ optionUuid?, value, label }`; stored `uuid`, `media`, and aliases reject. The lookup arm is exactly `{ kind: "lookup", tableId, valueColumnId, labelColumnId, filter? }`. An option's `value` is TAUGHT before it is policed: the slot's `describe` and the system prompt both state the shape (the stored answer token, a lowercase underscore-joined slug, no spaces or quotes, wording in the label) and the slot's `regex` refuses a value outside `SELECT_OPTION_VALUE_PATTERN` with the same sentence, so the model's first contact with the rule is the description rather than the rejection; `lib/domain/selectOptionValue.ts` is the one home for the pattern and both strings, shared with the validator and the builder's editor. `contentProcessing.prepareToolOptionsSource` is the one `optionUuid` to stored `uuid` bridge, invoked once before collision/admission. Creation/edit results return the final nested field/option identities in input/source order; structural creation additionally returns its form/module/column identities, so neither SA nor MCP rereads merely to discover an identity.
-- **Project data tools are shared and identity-only.** SA `getLookupTables` /
-  MCP `get_lookup_tables` returns rows-free table/column definitions with stable
-  UUIDs, counts, byte use, and all revision axes; `getLookupTableRows` /
-  `get_lookup_table_rows` supplies snapshot-bound ordered pages. The shared
-  write family is `createLookupTable`, `updateLookupTable`,
-  `editLookupColumns`, `editLookupRows`, `replaceLookupRows`, and
-  `removeLookupTable`, exposed to MCP with the same names in snake case. Every
-  existing-resource write uses UUID addresses and `expectedTableRevision`;
-  creation uses request-local column keys only until the result returns all
-  final table/column/row UUIDs. SA `setFieldOptionsSource` / MCP
-  `set_field_options_source` replaces a choice field's complete inline or
-  lookup source. Lookup row filters may use only that table's columns, literals,
-  worker/session values, and eligible earlier form fields; case data, Search
-  answers, later fields, and child/sibling-repeat answers are rejected before
-  commit.
-
-## Named entry points
-
-`getEntryPoints`, `addEntryPoint`, `updateEntryPoint`, and `removeEntryPoint`
-author explicit owned module/case-list/form entry points through the canonical
-mutation planners. UUIDs address identity; the external ID survives destination
-renames. Requirements use the shared projection, never invented session values.
-Condition bypass is form-only and never bypasses access. Published link
-verification is MCP-only `get_entry_point_link` and the deployment Server Action;
-the SA describes authoring, never claims a released URL from authored state.
-
-## Boundary rule
-
-External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `components/chat/ChatSidebar.tsx`) import from `@/lib/agent/*` entry points — never from individual implementation files.
-
-**The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `caseWrite`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
-
-`recordName` on form creation and update is an authored expression over the
-existing primary `case_name` writer. `lib/doc/formRecordName.ts` reuses a suitable
-text answer or calculated writer in the same guarded batch; no parallel naming
-state is persisted. New module record types are declared atomically, and omitted
-Results columns default to Name. Explicit column configurations still need a
-visible column. Advanced create operations retain their dedicated `name` value.
-
-`evaluateForm` / MCP `evaluate_form` is a non-writing form observation. It captures
-authorized worker-scoped records and Project lookup data, then runs the production
-FormEngine and XPath dispatcher in an isolated Node worker. It never invokes
-Preview's schema healing or usercase materialization. Results distinguish field
-validation and a proposed submission from a committed transaction. The worker
-owns a 30-second, 128 MiB evaluation budget and is terminated and joined on every
-outcome. `build:xpath-worker` builds both browser XPath and server form assets;
-normal test commands build them before running.
-
-Every case-writing field carries one complete `caseWrite: { caseType, property }` destination. `id` is only the form-local question path and the friendly `#form/<id>` projection; it is not inferred as a case-property name and may differ from `caseWrite.property`. Creation requires the complete pair. On edit, a complete pair retargets this writer and `null` clears it; changing `id` never renames case data. The only standard scalar destinations admitted here are `case_name` and `external_id`; field/operation writer scaffolds never synthesize catalog entries for them, their storage type is always text (visible non-text writers reject; hidden calculations retain their expression-driven shape), and all other reserved/system names are rejected. Generic case-operation `writes` may target `external_id`, but not `case_name`, whose dedicated create/name/rename facets remain its only operation owners. The separate shared `renameCaseProperties` / `rename_case_properties` action owns app-wide property renames as one complete simultaneous name relation; case properties are the deliberate name-keyed exception to UUID object addresses.
-
-CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). The commit gate feeds `BlueprintDoc` through the validator directly — no wire-format round-trip inside the agent layer.
-
-Project-space compatibility is an MCP deployment concern, not authored app
-vocabulary. The MCP-only `check_project_space_compatibility` tool requires an
-explicit connected domain and returns semantic capabilities the current app
-needs, separating confirmed missing support from checks Nova could not
-complete. It never exposes the private HQ settings used by the probe and does
-not belong on the internal SA surface. `compile_app` puts a targetless
-`not_checked` compatibility report before a large artifact so a host sees what
-the destination must support. `upload_app_to_hq` repeats the authoritative
-check before any remote write and blocks when required support is missing or
-unverified; its result carries the same report. Clients relay those semantic
-results rather than asking an author or agent to choose settings. The
-server-fetched `autonomous_build` prompt does not add a separate compatibility
-handoff: Nova owns the publish gate when a concrete target is selected.
-
-## What lives here
-
-Before each executor slice, Nova derives the needed record catalog from accepted
-meaning: stable case and property keys, parent relationships, intrinsic types,
-and inline choices. `build/acceptedRecordCatalog.ts` stages that input through
-`generateSchema` in the ordinary private workspace, before the first model
-request. One stable receipt and budget claim make preparation recoverable.
-Existing properties keep their authored metadata; a satisfied declaration is a
-successful no-op with a durable receipt. Accepted wording is canonical literal
-prose, never parsed as authoring interpolation. Contextual requiredness,
-validation, and lookup binding remain with the forms that use them.
-
-The executor cannot declare or rename catalog keys; those are accepted construction
-decisions. Editor and MCP tools retain both capabilities. The full accepted record
-set determines property keys before a slice selects its relevant subset. Only
-explicit `case_name` and `external_id` names select standard scalar roles; a
-business property named `status` receives a distinct custom key. These two scalar
-roles must be unique per record and text-typed at construction admission. Attachment answers remain form-only; a
-record property without a storage carrier is refused before design acceptance.
-
-The build repair helper receives one accepted workflow brief, current private
-candidate, server diagnostics, builder report, and descriptions of the exact
-operations authorized for that slice. It uses the same readable content
-projection as shared tools and the domain field-action inventory. It receives
-neither a duplicate full contract and plan nor authority to reset construction.
-Both reported blockers and automatic repeated-failure escalation supply the
-current workspace revision and document digest before the bounded model call.
-No conformance or completion claim follows from this inspection.
-
-At `finishWorkflow`, `design/conformance.ts` checks the accepted form and input
-identities, answer types, and presence of the expected record actions and writes.
-Missing or incompatible structure returns focused correction findings before
-the workflow commits. It does not prove the meaning of conditions, target
-instances or values. Canonical completion reports and final quality review
-remain separate unfinished work; ordinary direct edits keep their current gate.
-
-- `solutionsArchitect.ts` mounts the editor's `ToolLoopAgent`. Hosted search loads shared authoring tools on demand. The wrapper binds input inside `CanonicalMutationWorkspace`, projects read results, preserves saved-data consequences, and surfaces a commit conflict after the workspace reloads. Terminal scope and run-holder errors remain terminal. The workspace serializes invocations and adopts each commit's authoritative document. The route owns run finalization; reviewed new-app construction lives in `build/`.
-- `prompts.ts` composes static editor and MCP build prompts around purpose, collaboration, and app-quality judgment. Detailed syntax is available through `getAuthoringGuide`, not injected into every turn. `buildAppStateMessage` appends current state separately; MCP role guidance is static, fetched by mode without app data, and ends with `NOVA-PROMPT-END`. `appOverview.ts` supplies the separate editor/retry state and MCP `get_app` overview; scoped reads supply detailed content.
-- `wireSchemas.ts` serves the agent-owned question and lifecycle schemas. Shared tools use `authoring/toolSchema.ts`; the executor omits accepted construction slots through `build/executorWireSchemas.ts`. The full canonical Zod schema runs after binding; no stored AST input alternative is accepted on the new interface.
-- `authoring/reference.ts` supplies focused guidance for all authored tool surfaces. Canonical expression utilities remain implementation helpers, not prompt manuals.
-- `summarizeBlueprint.ts` — domain-vocabulary renderer used by inspection surfaces. Editor/retry context and MCP `get_app` use `appOverview.ts`. When the app reads case properties no form in it writes (`lib/doc/unwrittenProperties.ts`), the summary closes with a `<system_reminder>` block stating them.
-- Module reads and summaries preserve Nova's one-tier menu topology. `getModule`
-  returns the current parent and ordered children, and `summarizeBlueprint`
-  renders roots followed by their children using the pure helpers in
-  `lib/domain/moduleHierarchy.ts`. Menu ancestry is navigation, never a case
-  relationship. Every form remains canonically owned by one module; linked or
-  shadow form reuse is outside the authored model.
-- `systemReminder.ts` — the `<system_reminder>` wrapper: an agent-only side channel inside tool results and summaries for background facts (never errors, never tasks, never content to relay to the user — each reminder carries its own framing, and the MCP docs describe the contract for external clients). Two emitters today, both the unwritten-property fact through the ONE shared rendering (`unwrittenPropertiesReminder` — the framing contract lives there and nowhere else): `summarizeBlueprint`'s closing block and `getField`'s `system_reminder` result field (present when the returned field or its subtree reads one). Future ambient facts — e.g. what changed since an agent's last tool call under concurrent editing — should ride this wrapper, not a new channel.
-- `toolSchemaGenerator.ts` generates field-creation and edit schemas from the domain registry. One flat shape carries each slot once; canonical kind refinements reject unsupported combinations. Add-path null means absence; edit-path omission keeps and null clears. The authoring boundary infers an omitted edit kind from the targeted field. Visible fields require wording unless they inherit it from a record property; groups and repeats may be titleless. `validate: {expr,msg?}` and `repeat: {mode,...}` are the editable configurations. Reads return these same shapes.
-- `toolSchemas.ts` — materializes the generator output once and exposes the stable Zod nodes the SA + `scripts/test-schema.ts` reuse.
-- `planningSchemas.ts` — describe-rich input schemas for the data-model tool (`generateSchema`) plus the shared per-form `close_condition` shape and the Connect base shape used by `configureConnect` (complete participant) and `updateForm` (partial edit to an existing participant). ONE Connect shape definition with two refinements prevents `entity_id`/`entity_name` drift while preserving the different exact-target and patch null semantics. A learn module's `time_estimate` is a positive whole-hour count (round up, minimum `1`), and the raw integer emits unchanged. Creation tools carry no Connect slot: forms are born auxiliary, then the app-wide tool configures the complete UUID-addressed set. Separate from `toolSchemas.ts` because these describe whole-app structure, not per-field edits. Every shape is built so a wrong input can't parse: optional slots are nullable with `null` as absence (the add-path contract above), non-null strings are `min(1)`, and cross-field contradictions (a `relationship` with no `parent_type`, a Connect participant with no sub-config) are rejected with a message teaching the null. `cleanCaseTypeRecord` collapses a validated record's nulls before it touches the catalog. **The data-model tool COMMITS**: `generateSchema` writes per-type `declareCaseType` / `setCaseTypeMeta` / `addCaseProperty` in one gated batch (stage `schema`). A new type lands complete; a later bounded group may append genuinely new properties to an authored type, while conflicting property definitions and parent-relation changes are rejected before mutation. A bare chokepoint-declared record is enriched in place via `setCaseProperty`, the creation path that fills in its authored defaults. It has NO name slot — naming lives on `updateApp` alone, so declaring a case type can never rename the app as a side effect (a required echo-the-current-name input was exactly that hazard). `getCaseProperty` reads one definition and `updateCaseProperty` edits its wording, choices, and catalog rules through `setCaseProperty`. Omitted settings survive; null clears an optional setting. The complete merged definition and the ordinary workspace gate are checked before saving. Type conversion remains with `editField`, which owns writer and saved-value consequences. The catalog is doc state from the plan onward: `createModule` references a type by NAME, and `applyDefaults` follows each field's explicit `caseWrite` pair to seed only intrinsic type, canonical label, and choice catalog. Hint, requiredness, and validation remain field-local workflow behavior so a registration declaration cannot silently change a later update form.
-- `generationContext.ts` — shared wrapper around the OpenAI provider (the one model resolver for the SA, the document summarizer, and structured sub-gens), SSE stream writer, `LogWriter` (event log), and `UsageAccumulator` (cost — the token-math `costEstimate`, which with a direct key is the deterministic bill). Implements `CanonicalMutationHost` (`lib/agent/workspace/canonicalHost.ts`) — `recordMutations`/`recordMutationStages` plus the authorized conflict reload — on top of chat-specific internals (`buildEnvelopes` + the awaited-inline `commitBatch` → the guarded writer, `emitConversation`, `emitError`) plus the shared `handleAgentStep(step, label, model, phase?)` helper used by the SA's `onStepEnd` callback. Model identity is mandatory at every metering seam; the deleted unused generic generation helpers and default-model fallback cannot misprice a call. Ordinary chat batches use `commitGuardedBatch`; explicit property renames and every batch containing `retireCaseType` use `applyBlueprintChange` so their case-store Phase A shares the Blueprint transaction. `data-mutations` emits only after that chosen writer resolves (carrying its `seq`).
-GenerationContext owns its heartbeat database refresh. `stopRunLeaseHeartbeat()` is awaited: it clears scheduling, prevents late step callbacks from restarting work, and joins an active refresh before the run returns. Structured stream consumers preserve native error/abort events and join their SDK aggregate readers on every outcome.
-The build orchestrator likewise coalesces its heartbeat writes and joins the active
-write after clearing the interval, including when design work throws. A failed
-refresh records a payload-free diagnostic. The design runner passes its caller's
-signal to the actual SDK stream, refuses a request already cancelled, and joins
-the stream before propagating cancellation. This signal belongs to the server
-run; closing a browser tab still reconnects to the durable run.
-
-
-- `modelRunContext.ts` — `StructuredModelRunContext`, the app-independent structured-generation seam: user/Project/run identity, the closed `GenerationTarget` union (`lib/db/generationTargets.ts`), a model resolver, ONE cancellation-aware `runStructured` (the shared adapter over `subGeneration.ts`, so `store: false`, sanitized logging, and abort handling are written once), and sub-generation metering. `GenerationContext` implements it for app-bound runs; `design/designGenerationContext.ts` implements it for pre-app design sessions. The wire pin is `__tests__/designGenerationContextWire.test.ts`.
-- `design/` — the lean, non-executable Design Contract and its phase-specific
-  author/review/revision loop, immutable digest-bound artifacts, authorized
-  source-package boundary, independent reviewer, deterministic workflow build
-  plan, and generated capability catalog. The contract records actors, records,
-  workflow behavior, lists, access, navigation, external requirements,
-  decisions, assumptions, and questions once. Its concrete fact-shape
-  vocabulary is tied to registered field/case carriers; Boolean predicates do
-  not imply a Boolean fact carrier, so persisted yes/no meaning is an explicit
-  single-choice fact. The author prompt keeps speculative policy gates out of
-  otherwise ordinary workflows and requires prose promises about answer
-  compatibility to be backed by broad safe validation or weakened. Its
-  `CLAUDE.md` is the contract;
-  nothing there reaches a canonical store. The chat route mounts it through
-  `build/`. Whole-plan completion distinguishes deterministic proof failures
-  from transient reads: only exact receipt/attempt/validation/compilation
-  defects close the plan. The canonical writer rejects holder-less MCP and
-  autosave edits until the materialized design's terminal head is `finished`,
-  including after a failed build has lost its live lease. The route first
-  converges case schemas, then atomically exact-sequence CASes `generating →
-  complete`, settles the kept charge, and persists `finished`, so neither half
-  of completion can exist without the other.
-- Model-authored chat turns acknowledge each newly submitted human response as
-  their first visible output, before extended reasoning or a tool call. The
-  synthetic current-state/session-state messages are context, not human turns.
-- `build/` — the design-driven BUILD method behind a chat build: `orchestrator.ts` (`runBuildOrchestration` — source package → Sol `medium` design and independent review → frozen accepted artifacts → Luna `xhigh` workflow slices in topological order → exact receipt, validator, and normal export-compilation proofs), `orchestratorState.ts` (the append-only authorized event chain), `sliceAttempts.ts` (exact-attempt recovery across infrastructure replacement and terminal attempt closure), `modelContextStore.ts` (tenant-authorized append-only design/executor `ModelMessage` ledgers plus payload-free provider-step boundaries), `externalActions.ts` (fail-closed typed prerequisites), `executorLoop.ts` + `executorPrompt.ts` + `executorWireSchemas.ts` + `executorToolProfile.ts` + `budgets.ts` + `executionBlocker.ts` + `acceptedInputParity.ts` (the bounded private compiler: ordinary shared read/mutation tools mounted directly over an implicit private workspace, native ordered multi-call responses, `finishWorkflow`, blocker reporting, one immutable workflow-scoped provider grammar and matching dispatch authorization, server-supplied accepted composition identities, one context generation per slice attempt, absolute budgets, and payload-free exact outcomes; the server proves validation, accepted input requiredness, read currency, lineage, and commit eligibility; rare blocker guidance uses the separate Sol `medium` executor-helper role), `executionBrief.ts` (the workflow-local accepted requirements, deterministic semantic-record-to-Blueprint-key lowering, exact worker-facing composition, relevant constraints, and tool profile), and `progress.ts` (durable user-facing stage projections). Every model seam is injectable. `UsageAccumulator` labels `design-author`, `design-review`, and `build-executor` while preserving per-call model pricing in the authoritative total. The runner starts independent review after draft finalization, without an author-model kickoff call; recorded clean reviews resume acceptance against current source and Project-data evidence. A design turn never mounts the SA. Progress and executor-outcome logs carry only opaque IDs, tool names, stable codes, indices, revisions, and aggregate usage, never customer-authored names, inputs, outputs, or rejection prose.
-Running-attempt recovery keeps the exact attempt and transactionally transfers
-its open change set to the current authorized session holder. The attempt row's
-claim-before-work counters preserve model, mutation-call, commit, and blocker spend
-across that recovery, and wall-clock spend is a durable ACTIVE-time
-integrator: each genuine budget claim accrues the interval since the last
-accrual point, recovery resets that point without accruing, and the executor
-deadline grants only the unspent remainder — so the dead gap between a killed
-process and its resume (which must outlast the build liveness horizon) never
-counts as spend and can never birth a recovered attempt already
-budget-exhausted. It also persists
-an append-only set of every execution run id before that run can spend model
-work, so usage inspection can fail closed when any recovered run lacks a
-summary. Completed design and executor response usage is also persisted beside
-the exact model step, in the same transaction as its response bytes. Recovery
-registers every matching-run response in the fresh meter before it is reused;
-the `(context, step)` usage-account ledger admits each contribution exactly
-once into the run summary and monthly dollar total, so overlapping POSTs and
-process replacement need no timestamp watermark and ordinary later turns do
-not re-meter old context. The provider response is stored before dispatch; its
-calls then execute serially in provider order, with each result stored before
-the next call begins. Recovery answers only the durable response's unanswered
-suffix. A failed or terminal call preserves its accepted prefix and marks its
-dependent suffix skipped, so neither process replacement nor another model turn
-can accidentally execute it. An exact non-semantic rejection is fingerprinted
-with its native input, code/message, and private revision: the second occurrence
-teaches the executor not to retry it unchanged, and the third stops locally as
-`repeated-rejected-call` without purchasing architect guidance. Substantive
-composition/validator repeats retain the bounded architect path.
-`finishWorkflow` is the only server-owned
-validation and commit request; there is no step-boundary auto-finalizer or
-eligibility marker. Module compositions lower their DesignId into one exact
-private `blueprintModuleHandle`; admission and finalization resolve that
-durable binding instead of treating a display name plus record host as
-identity, so valid equal-name modules remain distinct. Its diagnostics also
-include a deterministic parity check between each accepted workflow input's
-required-condition presence and its exact durable field binding, alongside the ordinary whole-document findings, so a
-record-catalog default cannot silently make an optional update question
-required. Wire-invalid, private-mutation-rejected, and
-validator-repair outcomes increment
-authoritative attempt counters before the executor answers or advances. Each
-process brackets execution with a durable evidence window; a replacement that
-finds an unclosed window latches the attempt incomplete, so missing operational
-logs can never be interpreted as zero rejected calls. A successful canonical
-commit seals a still-collecting window in the same transaction as its immutable
-slice receipt, so process death after COMMIT cannot strand complete evidence;
-an already-incomplete window remains fail-closed. The event log remains a
-payload-free diagnostic mirror, not release authority. A
-commit response that loses the deadline race is
-accepted only when the immutable sidecar is already readable; terminal build
-completion similarly re-reads and adopts an exact matching `finished` head
-after any unknown transaction outcome. Reconciliation never starts a new write. Artifact or base
-drift atomically supersedes the private set and attempt. A stale external read
-also ends the append-only attempt and restarts it from current Project state;
-appending a newer read cannot erase an older dependency. The accepted contract
-and deterministic plan freeze when construction begins. A blocker may receive
-implementation guidance inside the same accepted slice; a request to revise
-meaning or ask the user is an internal build defect and stops without changing
-scope. Each paid architect decision also grows the attempt's step, staging,
-and wall-clock limits by one bounded priced allowance
-(`BLOCKER_RESOLUTION_ALLOWANCE`), because `continue` guidance directs rework
-the deterministic slice budget never priced; `maxBlockerResolutions` caps the
-total extension.
-
-Accepted initial-build localization is a server-owned post-slice finalizer, not
-an executor workflow slice and not an SA tool loop. Every workflow builds only
-canonical source-language content. `translation/finalizer.ts` starts after the
-last committed slice, pins that exact canonical snapshot, and applies the whole
-language catalog plus target overlays in one canonical commit carrying the
-localization receipt sidecar. Copy-only targets never call a model. An
-AI-translated target may run only when `lib/translation/capabilityPolicy.ts`
-resolves both source and target to distinct members of the checked-in
-57-language launch set; Classic language-catalog support never implies that
-status. The Sol translator uses the named
-`MODEL_ROLES.translator` role through the installed structured-output seam,
-groups batches by owning screen before a token bound, and validates exact unit
-coverage, blank rules, value kinds, and protected prose references. Every AI or
-copied entry starts Needs review. Batch output and usage persist before the
-canonical commit, recovery reuses them without another model call, and the
-run-summary batch account admits their cost exactly once. A failed protocol
-generation blocks another sample with the same input/model/prompt/schema; a real
-deployed protocol change may append a replacement generation without abandoning
-the accepted build. The launch set is a product allowlist, not a claim of
-provider-published coverage or completed bilingual review for every direction.
-
-Conversation language and app language are independent. Follow-up chat answers
-in the language the user is speaking unless explicitly asked otherwise; that
-choice never mutates source/default/target app languages by inference.
-A reviewed forms slice does not inherit `configureConnect`: the accepted
-Design Contract currently has no exact mode/participant carrier. The shared
-operation remains available to direct chat and MCP, and a future reviewed
-Connect shape must explicitly authorize its deterministic slice.
-A deterministic failure atomically abandons its open set and closes that exact
-plan/slice under the same immutable executor model, prompt, and brief. A fresh
-attempt may open only when one of those recorded compiler inputs changes.
-Provider, transaction, and lost-response replay
-remain internal and idempotent, but no user turn redrives known-bad execution.
-The forward counter migration gives any legacy in-flight attempt the global
-ceilings rather than pretending its already-spent work was zero; fresh attempts
-begin with exact durable counters.
-
-- `errorClassifier.ts` — the shared thrown-error taxonomy (network / provider / internal) both surfaces classify failures through.
-- `turnRetry.ts` — the chat route's transient mid-stream failure policy: a provider fault partway through a generation re-drives the WHOLE TURN inside the same POST / claim / stream (bounded attempts, spaced), instead of failing + refunding. The turn is the safe retry unit — an LLM step is nondeterministic, so there is deliberately no step-boundary resume; safety comes from inline commits (nothing to lose) + the validity gate rejecting duplicate structural work. Each retry appends one continuation message with the committed-state summary (same `appOverview` projection) to the unchanged base prompt, and surfaces as a RECOVERABLE conversation event carrying the real classified type — the admin-inspect breadcrumb for in-flight provider faults. The SDK's `maxRetries` (establishment) and this (mid-stream) are the two retry layers; `shouldRetryTurn` keys on the classifier's transient buckets so the two stay aligned.
-- `blueprintHelpers.ts` — pure `Mutation[]` builders the SA calls from its tool handlers (`addFieldMutations`, `addModuleMutations`, `updateFieldMutations`, etc.). Every SA/MCP entity address is UUID-backed through `tools/shared/entityAddresses.ts`; friendly names and ordered lists are read projections only. Field `id` and `caseWrite` changes use the same target-kind-aware `updateField` patch as every other field property, but are independent edits: the former changes only the form-local path and the latter retargets this writer. Sequence changes translate a requested UUID order to predecessor anchors internally, against the live document, so a peer's concurrent insert cannot shift where the edit lands.
-- `tools/lookupTables.ts` is the shared Project-data tool family, an external
-  Project-state editor rather than a
-  Blueprint mutation family. Reads resolve the invocation's app to its exact
-  current Project and require `view`. Writes re-prove that relation and current
-  Project capability transactionally; chat additionally fences the exact run
-  holder. Ordinary metadata, ordering, column-add, and row operations require
-  `edit`; tag/wire-name changes, retype, remove-column, and remove-table preserve
-  `delete` governance. Every write is `mutate-external`, has staging
-  `forbidden`, and returns the new revisions and minted identities. The build
-  executor never mounts these tools: initial Project data comes from the clean
-  reviewed Design Contract's server-owned materializer before Blueprint
-  construction, while follow-up SA and MCP use the shared registry directly.
-  `lib/lookup/CLAUDE.md` owns lock order, values, limits, paging, and reference
-  protection.
-- `tools/users.ts` — the shared chat/MCP authoring family for worker information, roles, and preview personas. The exact SA inventory is `getUsers`, `addUserProperties`, `updateUserProperty`, `removeUserProperty`, `addUserTypes`, `updateUserType`, `removeUserType`, `addPersonas`, `updatePersona`, and `removePersona`; MCP registers those same implementations as `get_users`, `add_user_properties`, `update_user_property`, `remove_user_property`, `add_user_types`, `update_user_type`, `remove_user_type`, `add_personas`, `update_persona`, and `remove_persona`. Every entity is addressed by stable UUID; role/persona values cross the JSON tool boundary as a closed array of `{ userPropertyUuid, value }` entries and bridge to the document's UUID-keyed record only here. In an initial build, custom worker properties land immediately after `updateApp` and before the data model, modules, forms, conditions, or calculations can reference them; roles and personas may follow the reference-bearing structure. On update, `valuePatch` is the one accepted dialect: each entry sets or clears exactly one property, and omission leaves every unmentioned value unchanged. Duplicate value identities reject at schema parse, batch adds predeclare their final UUIDs and plan against a cumulative local doc, and every write lands through `guardedMutate`. Custom worker reads in Predicate / ValueExpression inputs use `session-user-property { userPropertyUuid }`; `session-user { field }` is the distinct final arm for built-in/external names. The Builder and agent authoring boundary parse and print friendly `#user/<slug>` text. `removeUserProperty` consumes the domain planner's reference-aware result and refuses with the owning settings while any UUID-backed custom read remains; an unreferenced removal clears role/persona values in the same batch. Role/persona updates plan changed values as independent per-property semantic mutations, so two peers editing different values merge. `getUsers` returns ordered identities and bridged values; `get_app` lists identities for scoped inspection.
-- `tools/organization.ts` — the shared SA/MCP organization surface. The SA inventory is `getOrganization`, `addOrganizationLevels`, `updateOrganizationLevel`, `removeOrganizationLevel`, `addLocationProperties`, `updateLocationProperty`, `removeLocationProperty`, `createLocation`, `updateLocation`, `moveLocation`, and `setLocationArchived`; MCP exposes the same implementations in snake case. Blueprint-backed levels/properties commit through `guardedMutate`; row-backed places reauthorize Project membership, re-prove an SA call's exact chat-run holder, and serialize under the app lock in `lib/organization` (Project change, membership loss, and holder loss are terminal, never ordinary `{ error }` results). Level codes are create-once, all identities are UUID-backed, and every place write including create requires the exact current revision; callers chain each returned revision. `createLocation` can carry a bounded structurally nested descendant tree so an active reverse-hop rule gains its required destination branch in one born-valid transaction; the compact result mirrors that tree with final UUIDs and no second handle vocabulary. `getOrganization` is one bounded stream across levels, place-information fields, and matching places; its opaque cursor is bound to the exact Blueprint sequence/revision/query/projection, reports a changed snapshot instead of mixing pages, carries an explicit completeness bit, and omits custom values unless requested. `updateLocation.valuePatch` changes UUID-addressed values without replacing the whole bag and uses `null` to clear a key. Archive is mandatory two-step authoring: preflight returns bounded counts/previews plus a token binding the complete exact plan, then confirmation supplies that payload and the locked transaction recomputes it before committing; a preflight with fixed-place or invalidated next-level owner blockers is not confirmable. Every committed archive result exposes its revision at the same result depth. Archive is read-shaped only when it changes rows alone; if it also unassigns personas, it preserves chat/MCP provenance and returns the exact committed blueprint as a mutating receipt so the SA cannot continue from stale state. Persona authoring keeps `locationUuids` as one primary-first array: null clears, duplicates reject, and the guarded commit validates each live place and worker-holding level. `getOrganization` exposes ordered identities, assignments, and organization shape; `get_app` lists the app's organization definitions for scoped inspection.
-- `tools/configureConnect.ts` — the one shared app-wide Connect command: SA `configureConnect`, MCP `configure_connect`. A null target clears the mode and every form block; a learn/deliver target is a complete nonempty set addressed by `formUuid`, sets the matching blocks, and clears every unlisted or incompatible block in the same batch. It rejects duplicate/foreign form identities, mixed mode families, incomplete blocks, and duplicate ids before mutation construction. Omitted Connect ids pass through `enforceConnectIds` exactly once and become final; explicit invalid or duplicate ids reject rather than being rewritten. `updateApp` is name-only. `updateForm` may refine one participant only after a mode exists and cannot change which forms participate. `createForm` and `createModule` carry no Connect slot; newly created forms are auxiliary until the complete set is replaced. The lower-level generic `NewFormInput` / `addFormMutations` and `updateFormMutations` helpers likewise carry no Connect slot. Existing-participant edits go through the explicitly named `refineFormConnectMutations`, which refuses a form without a live block and has no removal value.
-- `contentProcessing.ts` — sentinel stripping (`stripEmpty`) + intrinsic case-type default merging (`applyDefaults`) + flat-to-discriminated reshape (`flatFieldToField`) for the `addFields` input. Domain-vocab throughout. Catalog defaulting supplies type, canonical label, and choice catalog only; contextual hint, requiredness, and validation must arrive on the actual form field. The reshape also flattens the SA's nested mode-discriminated `repeat` config into the domain schema's form (`repeat_mode` + variant-specific `repeat_count` or `data_source`). `unescapeXPath` is exported because `editPatchToFieldPatch` in `tools/editField.ts` needs the same XPath-entity normalization the add path applies.
-- `documentExtraction.ts` — the requirements-extraction CORE. `extractDocument` takes one document's bytes + kind and returns an `ExtractResult` (`{ extract, title, summary, truncated }`) from the official document-extractor role (GPT-5.6 Luna at `reasoningEffort: xhigh`, selected through `MODEL_ROLES.documentExtractor`). ONE structured call fills `extractDocumentSchema` — `title` + `summary` FIRST, then the large `extract` LAST (schema field order is load-bearing: writing the extract last stops the model bleeding the trailing fields into the extract string mid-generation). Input shaping: text/markdown/csv decode to text and docx/xlsx convert to markdown (mammoth / SheetJS) and ride as the `prompt`; PDFs ride as a native document `file` block. A docx's EMBEDDED IMAGES never ride as inlined base64 text (mammoth's default, which turned one real 2.6 MB design doc into a ~900k-token prompt that was 96% base64 noise and failed extraction): each becomes a namespaced `<nova:figure index="N"/>` marker at the spot it occupied, and the readable figures ride the SAME call as native image parts, each preceded by a text part carrying its marker so the correlation is stated in content, not attachment order. Every attachment verdict is decided in `createFigureCollector`, the one place that can also bound memory: admission is by SNIFFED bytes (`file-type` + `normalizeMimeType`, the set derived from `IMAGE_MIME_TYPES`; a GIF additionally proves itself single-frame via `isAnimatedGif`, since the provider reads only non-animated GIF and one bad figure must never fail the document), and the per-figure / per-document / count budgets LATCH so a document referencing one image from thousands of drawing occurrences (mammoth mints one image element per occurrence) never buffers unbounded bytes. The sentinel-to-marker swap is one linear pass that never rescans its own output (immune to replacement-metacharacter and sentinel-look-alike alt text) and logs loud when the swap count disagrees with the collected figures, the one symptom of a mammoth emission change. The figures note names omissions by marker index with capped range fragments, never as prose "figure N". The marker index is pipeline numbering, deliberately distinct from the document's own "Figure N" captions (verbatim content on their own scheme); the prompt's Figures section forbids reconciling the two, requires figure content to land in the extract as self-contained findings (the SA never sees the images), and treats an unattached figure as present-but-not-read. The per-call figures note (`figuresNote`) rides the user-turn metadata beside the filename. The `extract` is FREE-FORM markdown grouped under `##` SECTIONS per `EXTRACT_SYSTEM` — exact labels, lists and rules preserved, omitted types/requiredness/cardinality declared unstated once per extract, and observations or deductions tagged `[derived]`; contradictions/omissions/unknowns surface under Conflicts / Gaps / Open questions and are never resolved. `title`/`summary` are specified ONLY by their schema `.describe()`s (the system prompt governs the `extract` alone). Extraction requires both a parsed object and provider completion. A provider-declared incomplete response fails even if its JSON is valid, as does malformed output. `title`/`summary` persist on the asset doc and ride the wire (`WireMediaAsset.extract`) for the file-manager label + preview header; the SA reading path uses only `extract`. The `condenser` is an `AttachmentCondenser` — `createExtractionCondenser` (a standalone provider-bound backend) for the upload-time extract route, or the chat run's `GenerationContext` for the resolve-step backstop (usage-tracked). `EXTRACTOR_VERSION` (in `@/lib/domain/multimedia`, beside the extract key it versions — kept out of this mammoth-importing module so the pure key helper imports without dragging the office parsers into a caller's graph) keys the stored extract; bump it on any prompt/model/conversion change here to invalidate stale extracts with no migration. It is pure of HTTP + storage: the single-flight + persistence live in `documentExtractionStore.ts`, which both callers go through so a document is extracted ONCE, not per chat turn. The SDK decodes JSON once. Extraction, storage reads and preview return the resulting string verbatim; literal backslashes in regex, paths or markdown never authorize another decoding pass. DOCX tests use real OOXML through Mammoth; GIF admission requires a complete single-frame structure, and workbook conversion explicitly reports omitted sheets and formulas when a bound is reached.
-- `documentExtractionStore.ts` — the durable, single-flight STORE for a document's extract, and the ONE entry point both the eager route and the chat backstop go through (so the lock lives in one place — there is no second path that can bypass it). `ensureStoredExtract({ asset, documentKind, condenser, onInflight })`: a GCS-first fast path requires both the current object and matching committed `ready` metadata (a fresh asset snapshot resolves in one read; an object orphan is never authoritative); on a miss, a fresh status read drives the pure `decideExtractAction` (reuse / wait-on-the-in-flight-job / claim+extract). `onInflight: "report"` (the eager route) returns `{ status: "extracting" }` so the badge poller gets a fast 202; `onInflight: "wait"` (the chat send-path) polls the in-flight job to completion and reuses its result — never a second model call, and never slower than extracting fresh (the eager job started when the document was attached, before the send). `EXTRACTING_STALE_MS` bounds the wait and re-claims a job whose process died. The claim's `(version, model, extractedAt)` is a fencing token: model work never runs after a failed/missing claim, an older server refuses to claim over any higher-version state, and terminal publication takes the asset's canonical extension-independent Project/hash content lock, rechecks the exact claim under a row lock, then publishes the GCS object + ready metadata as one serialized pair. A committed ready Project/hash/version sibling is canonical: duplicate/cross-extension rows adopt its exact object/metadata, and the first publisher advances every non-newer duplicate state in the same transaction. Project-copy publication and deletion cleanup share that lock, so deletion cannot be followed by orphan recreation, identical `.txt`/`.md` bytes cannot race on their shared extract, and a copied equal/newer extract safely supersedes stale model work. A rejected metadata transaction removes its unpublished GCS object under the same lock unless a committed ready sibling already shares it. `extractDocument` stays the pure bytes→text core it composes over.
-- `resolveAttachments.ts` — `resolveAttachments` turns a turn's attachment REFERENCES into model-ready content BEFORE the SA runs (the chat route calls it after `ctx` is built, before `createSolutionsArchitect`; `countDocumentsNeedingRead` gates the "reading documents" status — only a document not yet extracted counts, so an already-read one resolves silently and never flashes it). The composer sends asset-id refs in message metadata; this walks EVERY message (not just the last — that's the multi-turn-crash fix, history carries refs + resolved text, never raw `text/markdown` file parts the provider rejects), batch-loads the owner's assets once (a total load failure degrades to placeholders, never throws), and appends per ref: a document → its stored extract as a text part (via `ensureStoredExtract` with `onInflight: "wait"` — it reuses an in-flight eager extraction, or extracts inline via `ctx` + persists when none is running), an image → its bytes as a data-URL file part for the SA's vision pass. Resolved parts are deduped by assetId and byte-identical across turns, so re-resolving history keeps the prompt cache hit. Every failure path falls back to a human-readable placeholder — an attachment is never dropped. Cost note: `UsageAccumulator` pools every token (SA + any backstop sub-gen) at the run's `seed.model` (the SA model's) rate, so a backstop extraction that actually runs is costed at SA rates — a pre-existing approximation. The store only meters when it runs the model itself; reusing an in-flight eager extraction (the common case for a document attached before the send) meters nothing, and eager upload-time extraction runs off the chat run.
-
-## The write surface (server side)
-
-The SA computes `Mutation[]` internally (via the helpers in `blueprintHelpers.ts`) and commits them through `tools/common.ts::guardedMutate` — a pure adapter over `ctx.applyBatch`, the workspace's one write path, which runs the validity gate (`prepareMutationCandidate` + `evaluatePreparedMutationCandidate` over `evaluateCommit`, resolved against the Project lookup definitions unioned over the snapshot and the candidate — so a batch may introduce a lookup reference) against the invocation's exact snapshot BEFORE handing the prepared candidate to the host (`recordMutations` on `GenerationContext`/`McpContext` — reachable only through the workspace, never from a tool body). A batch that would introduce a validator finding fails the tool call with the findings in the `{ error }` envelope and persists nothing — the agent self-corrects within its loop; an invalid intermediate never reaches Postgres or the stream, on chat and MCP alike. Multi-stage tools (`editField`'s convert → patch) build their stages against local candidates and commit through `guardedMutateStages` (over `ctx.applyStages`), which gates the WHOLE sequence as one candidate and persists it as ONE save (kind conversions ride the `convertTargets` matrix and are PROPERTY-CENTRIC on case-writing fields — the convert stage consults `lib/doc/kindConversionCascade.ts::planKindConversion`, which carries every same-kind peer writer of the `(caseType, property)` across and re-declares a stale declared `data_type` in the same batch, since one field at a time can never cross the agreement gate; a flip whose per-row cast can fail (`plan.dataLossRisk`) first counts its real impact via `ctx.conversionImpact` and, when saved values are at stake, returns a `needsConfirmation` result instead of converting — the SA relays the counts and re-calls with `confirmConversion: true` once the user agrees, and the committed mutations carry no consent flag (replay purity); a conversion INTO a select kind consumes the call's `optionsSource` into the `convertField` mutation itself — the destination schema requires it and a post-convert patch would be too late — and a text→hidden conversion satisfies `HIDDEN_NO_VALUE` via a same-call `calculate`, all proven by the one whole-sequence gate; a hidden field carries exactly ONE of `calculate` / `default_value`, so both tool schemas refuse the pair in one call at the `default_value` path and `editField` normalizes the cross-call case: when the post-convert field holds one slot and the patch sets the other without naming it, the held slot is nulled in the SAME patch and the message says `Set calculate and cleared default_value` or the inverse, which is also what keeps a same-call text→hidden conversion plus `calculate` from carrying the source's `default_value` across) (on MCP, the host's `recordMutationStages` is a single transactional commit whose fresh-doc re-verdict evaluates the concatenated batch) — a rejection, optimistic or transactional, leaves zero committed prefix, so "a rejected call saved nothing" holds with no multi-stage asterisk. A transactional rejection that escapes a tool body (`BlueprintCommitRejectedError`) surfaces as the standard validity `invalid_input` envelope via `toMcpErrorResult`. There is no post-hoc fix loop and no finishing step: the gate at every commit plus atomic creation is the whole validity story.
-
-PostgreSQL `DatabaseError` escapes `tools/common.ts::toToolErrorResult` and reaches the surface's safe operational-error classifier. Database diagnostics are not model-correctable input and never ride the ordinary tool `{ error }` payload.
-
-Clients of the stream (the interactive builder) receive `data-mutations` events and feed the payload straight into `docStore.applyMany(mutations)` — no translation, no reconstruction. The agent and the user speak the same mutation API.
-
-`data-done` still carries the full `PersistableDoc` — emitted by the chat route's drain-end finalize, the one full-doc reconciliation point that guarantees the client doc matches the run's final persisted snapshot, whatever streaming raced it. Nothing else emits full docs on the live path.
-
-## SA prompt caching
-
-GPT-5.6 prompt caching is exact-prefix caching. Nova sends the provider's per-app `promptCacheKey` and `promptCacheOptions: { mode: "implicit", ttl: "30m" }`. Ordinary edit POSTs add one request-local explicit boundary at the deepest stable user-history item before the volatile app-state tail. The boundary is provider metadata on a copied request message: it changes no model-visible token and never mutates the stored transcript. `lib/agent/__tests__/wireCacheConfig.test.ts` pins the emitted body offline: cache affinity/options, `store: false` plus encrypted-reasoning inclusion, `strict: false` tools, and the exact marker location. Prefix stability remains load-bearing because nothing after a changed block is reusable. Both SA mode prompts are fully static and the edit turn's volatile blueprint summary rides at the END as `buildAppStateMessage`; moving it earlier would re-bill the shared tail, tool rendering, and history after every doc mutation. Per-step billing remains decomposable through the `step-usage` event-log annotation (`handleAgentStep`). The design and executor roles go further: the design catalog stays stable within its session and the executor exposes only the tools permitted for its current slice attempt, their complete responses append to tenant-scoped durable model contexts, and the executor opens one fresh generation per slice attempt (seeded with the accepted brief, the handle-projected Blueprint checkpoint, and the slice focus; it learns prior slices from the checkpoint, never from their transcripts) with no explicit boundary moved inside a generation.
-
-The durable/UI transcript remains FULL across page loads and days. OpenAI's
-server-side context management owns the 256k trigger and opaque encrypted
-checkpoint; the AI SDK converts that checkpoint to/from a first-class
-Responses item. The MODEL projection may begin at the newest compatible item;
-compatibility requires the producing model and `contextVersion: "v1"`, while
-an unknown item is stripped and the ordinary sanitized history is projected.
-Nova does not implement a second summarizer or token-selection engine.
-The standalone `/responses/compact` endpoint can take separate instructions,
-but automatic `context_management` exposes only the compaction type and token
-threshold; Nova stays on that automatic path rather than owning a second
-trigger/retry/canonical-window protocol merely to customize a compaction prompt.
-Compaction is never app authority: the design loop appends current artifact
-ancestry, open findings, and durable authoring-workspace state; exact staged
-items remain available through bounded inspection. The preceding cache note's
-"same context across workflow slices" means the same immutable provider
-grammar, not one inherited message generation: each executor slice attempt
-opens a fresh immutable generation keyed by its durable attempt id, and only
-recovery of that attempt reopens it. Each generation starts with two separately
-persisted messages: accepted workflow requirements and a bounded current workspace
-overview. Compaction restores both; focused reads supply omitted details. Hosted
-tool-search calls and results stay in the durable provider transcript, but only
-native function calls are dispatched or replayed by Nova. A prompt or provider
-contract change starts a fresh generation. Changed attempt inputs supersede an
-open private candidate through the existing attempt lifecycle; old tool arguments
-are never translated into the new protocol.
-Design recovery recognizes an existing state packet only through a server
-`state:` or `compaction-state:` append after the newest provider checkpoint;
-a user heading or copied old packet cannot suppress fresh authoritative state.
-`ChatMessage` hides the
-opaque compaction item while keeping every ordinary old message visible. A turn
-whose prefix has fallen out of the provider cache (~30-minute guaranteed floor)
-pays one cache re-write; the other cost levers remain
-`sanitizeHistoricalToolParts` and `sanitizeHistoricalReasoningParts` (the
-answered-askQuestions exception remains model-bound). The SA is EDIT-ONLY after
-the design-pipeline cutover: only a `complete` app is edit-shaped; a
-`generating` or `error` app continues through the design orchestrator.
-
-MCP provides stable build or edit guidance independently of app state. `get_app`
-returns the current overview; focused reads supply details. Prompt delivery ends
-with `NOVA-PROMPT-END`. The transport retains snapshot-bound pagination for results
-that exceed its budget; pagination is not a reason to put a full app in guidance.
-
-## Provider options shape
-
-ONE canonical literal, `lib/models.ts::reasoningProviderOptions(effort, cache?)`: `OPENAI_BASE_OPTIONS` (`store: false` plus `contextManagement: [{ type: "compaction", compactThreshold: 256000 }]`) + `{ reasoningEffort, reasoningSummary: 'auto' }` — plus, when a `promptCacheKey` is passed (the SA's per-app key; one-shot calls pass none), `promptCacheKey` + `promptCacheOptions: { mode: 'implicit', ttl: '30m' }` — all under the `openai` key on EVERY call (SA, sub-gens, extraction, scripts; non-reasoning one-shots pass `{ openai: OPENAI_BASE_OPTIONS }`). Call the helper instead of restating the shape — a copy that drifts can silently darken reasoning or disable compaction. The AI SDK's Zod schema silently strips misplaced/unknown fields, so the helper checks its literal against `OpenAIResponsesProviderOptions` via `satisfies`; future one-off options do the same.
-
-## Agent anatomy (dev-only)
-
-`lib/agent/anatomy/` + `app/(dev-only)/agents/` render how every model role is composed, from the production code itself, on every request: the ordered pieces a model receives at each lifecycle moment (system-prompt segments, tool definitions, output schema, messages, compaction checkpoints), the literal text, an estimated token weight per piece, what changes between moments, and what one agent hands the next. It exists to drive prompt and token decisions and to keep the multi-agent system legible; it is read-only over production behavior and never a place to edit a prompt. `/agents` is served only by the `(dev-only)` layout (404 in production) and is deliberately absent from `lib/hostnames.ts` — keep it that way. That layout is also the ONLY guard on its reads: the pages take an `?app=` or `?session=` id with no Project scoping (the CLI inspectors have the same shape), so the dev-only gate must never be relaxed for a shared build.
-
-- **One function, both callers.** Where the page shows a composition, production composes through the same named function or constant, so a change to one is a change to both: `projectArchitectHistory` (the chat route's history pipeline, `architectHistory.ts`), `agentPromptSegments` (the MCP boot prompt's pieces, `lib/mcp/prompts.ts`), `designAuthorInstructionParts` + `composeDesignInstructions` (the design author's prompt), `SOLUTIONS_ARCHITECT_SEGMENTS` / `MCP_BUILD_SEGMENTS` / `EXECUTOR_SEGMENTS`, `promptCacheKeys` (every role's cache key), `designToolsetDigest` (the digest a design context persists), `EXECUTOR_TOOL_STRICT`, and the named ceilings (`SOLUTIONS_ARCHITECT_MAX_STEPS`, `BASE_BUDGET` / `CEILINGS`, `ARCHITECT_MAX_OUTPUT_TOKENS`). A new fact the page states is a constant production reads, never a copied literal.
-- **Three origins, labeled on every piece.** *Composed from code*: rendered by those functions with no inputs. *Derived from a local app*: pieces reachable by plain reads plus pure functions — the SA's next-turn wire from the newest thread through the route's own pipeline (with placeholder attachment parts, because resolving them can claim an extraction job), the app-state tail, the retry continuation, the MCP edit prompt. *Recorded from a local run*: the persisted design and executor contexts, steps, and billed usage (`design_model_contexts` and friends), read through plain selects that verify each row's digest and flag a mismatch instead of refusing — the page never calls `openDesignModelContext`, `resolveAttachments`, or any other authority-taking function, and never reads production.
-- **Definitions are shared with the running agents.** The anatomy reads the production prompt builders and tool definitions. Tests exercise provider request capture, schema admission, and context invalidation; they do not freeze prompt wording or tool inventories. Change the relevant prompt version when changing the instructions for a persisted context.
-- **The catalog describes production.** `catalog.ts` derives role model, effort, version, cache, and lifecycle facts from their owners. Source pointers aid navigation; file and symbol existence are not behavioral tests.
-- **Token counts are estimates.** `tokens.ts` counts with `gpt-tokenizer` (o200k_base) over the text Nova sends, memoized by digest; the provider renders tool schemas in its own grammar and bills images by its own rules, so recorded steps show the billed usage beside the estimate rather than pretending the two agree. Messages cross to the page through `present.ts` after counting: a URL as its text, bytes as a labeled placeholder.
-
-## One shared tool set
-
-The shared registry owns the editor and MCP operations. The build executor
-selects only the operations allowed by its accepted workflow and checks the same
-policy at dispatch. Design tools edit requirements before construction; they are
-a separate surface. Tool definitions describe arguments and effects; prompts do
-not repeat the inventory.
-
-**A no-matches registration form is authored through `entry`, never through a CommCare `case_list_form`.** `createForm` / `updateForm` take `entry: { kind: "search-no-matches", label? }` (`null` clears on update: Search first turns off with it, a bare host loses `caseListOnly`, and the fields' search-answer `default_value`s go, since a menu registration form cannot open on Search). The tool refuses the entry together with `post_submit` other than `app_home`, a display condition, or after-submit links, because the form is on no menu and returns to Results unless App home was explicitly selected; setting it also turns `searchFirst` on in the same gated batch (`lib/doc/searchNoMatchesForm.ts::noMatchesFormEntryMutations`). `createForm`'s `carry_search_answers: true` appends `searchAnswerFields`: one field per Search prompt seeded from `#search/<name>` (`search-answer-ref`) and saving to the prompt's property (a hidden prompt under its own name when that can be a property; a prompt whose property the authored fields already write is skipped). `removeSearchInput`, `setCaseSearchAdvanced`, and `configureCaseList` consult `lib/doc/searchNoMatchesDependents.ts` and refuse a takeaway the form still depends on, naming the form and the field. The read surfaces (`summarizeBlueprint`, `getModule`) print the entry so the SA knows which form is offered from Results rather than a menu.
-
-No-matches registration may explicitly set `post_submit: "app_home"`; that choice
-uses a native root reset. Its implicit return to Results remains available for
-single-case lists. Multiple-selection hosts require explicit App home because
-CommCare cannot hydrate a scalar new-case datum as a selected-case collection.
-The planners preserve the authored choice rather than silently changing it.
-
-**No singular add-tool has a plural twin.** Anything the SA adds one-or-more of in a list — fields, case-list columns, search inputs — has exactly one list-taking tool (`addFields` / `addCaseListColumns` / `addSearchInputs`); one item is a length-1 array. Don't reintroduce a singular `addField` / `addCaseListColumn` / `addSearchInput`: a redundant tool only burns context and invites the SA to add items one call at a time. The chat route's history repair drops a non-terminal tool part that names a tool absent from the current set and preserves loadable terminal history through the AI SDK's native `dynamic-tool` projection, so removing or renaming a tool can't orphan an old thread's references on a resumed conversation. Mutation tools return a human-readable success `message` (alongside a UI-only `summary` and any addressing `uuid` — see the return-contract section), so the SA trusts its own edits from the prose without re-reading the blueprint.
-
-**Authored content binds before canonical validation.** Editor, executor, and MCP calls write ordinary wording and expressions through `authoring/`. Form XPath uses the same text/AST bridge as the Builder; query expressions and message templates have explicit parsers. Shared tool bodies and the document still use canonical typed references. Complete same-call scopes are allocated before binding, while runtime effects retain their order. Reads print authored values again. Never cast text into a stored AST slot or use regexes to reinterpret references.
-
-**Structural creation is atomic.** `createForm` takes the form's `fields` (required — the same per-kind items `addFields` takes, assembled through the shared `tools/shared/fieldAssembly.ts` pipeline) and `createModule` takes `forms` (each with `fields`) plus `case_list_columns`, so an entity lands together with what makes it sound and complete in ONE gated batch. Any field that cannot be assembled or admitted rejects the entire `addFields`, `createForm`, or `createModule` call; a successful result never skips a requested field or returns an identity for an entity that did not land. Both creation shapes also carry an optional per-form `close_condition` (resolved against the batch overlay via the assembly's `resolveFieldRef`, so the condition can name a field landing in the same call — same shared `closeConditionInputSchema` as `updateForm`). The module's `case_type` references the app's case-type CATALOG by name — `generateSchema` commits the records ahead of the modules (see "The data-model tool" below), an unrecorded name is rejected with the generateSchema pointer, and `MISSING_CHILD_CASE_MODULE` keys on form WRITERS (a planned record without a module is legal; a form creating cases of a module-less type is not — which also sequences a build: a child type's viewer module lands before the parent module that registers its children). This is what keeps creation alive under the single rule: a lone `addForm` would introduce `EMPTY_FORM` and a lone case-typed `addModule` would introduce `NO_FORMS_OR_CASE_LIST` + `MISSING_CASE_LIST_COLUMNS` — with the atomic shapes, every rejection's findings are satisfiable by adjusting the same call. Case list REFINEMENT (sort, filter, search inputs, later column edits) stays the responsibility of the case-list-config tools once the module exists; `createModule`'s `case_list_columns` exists so the module can be born complete, not as a second authoring surface. `updateModule` carries `name` + `case_type` + an optional `case_list_columns` seed (applied only when the module has none — the case-type flip on a module with forms obliges columns, so the same call can satisfy them). `updateApp` owns the app name only. Once the target forms exist, `configureConnect` owns the app mode plus complete participant set as one atomic command; it never permits a mode-only or dormant-block intermediate. Case-search authoring is the parallel responsibility of the case-search-config tools (`setCaseSearchAdvanced` / `setCaseSearchDisplay`). This keeps the typed `Column` / `SearchInputDef` / `CaseSearchConfig` shapes end-to-end on every authoring path. Media authoring is the parallel responsibility of the media tools in `tools/media/` — the generic mutation tools (`addFields` / `editField` / case-list-config) carry NO media slot, so the SA can't mint or reference an asset id there. See "Media authoring" below.
-
-**Persisted app genesis is closed.** Every app is born export-ready through the one genesis owner (`lib/db/appGenesis.ts`): `explicit-blank` (the builder action + MCP `create_app`) commits the canonical survey starter immediately, and `design-slice` materializes a chat build's first meaningful reviewed workflow (`lib/agent/change-set/materializeGenesis.ts`). Genesis readiness loads exact Project media and synthesizes built-in-icon rows before both private committability and the sequence-one transaction's final proof; boundary-only findings remain visible in change-set diagnostics. An SA turn therefore always edits a persisted `complete` app seeded from its authorized snapshot; it never assumes a nameless or moduleless draft, and no pre-app placeholder row exists.
-
-Module placement uses the same atomic creation and mutation boundary.
-`createModule` accepts optional `parentModuleUuid`: omission creates a root and
-an existing top-level UUID creates a child. `moveModule` keeps its historical
-required `after` anchor and adds an optional nullable parent: omission reorders
-in the current sibling group, null reparents to the root, and a UUID reparents
-under that root menu. The domain gate enforces one tier and contiguous
-preorder. Narrow reorders therefore preserve a concurrent reparent, and old
-persisted move mutations remain replayable without migration.
-
-### Case-list authoring — atomic ops + uuid handles
-
-The `caseListConfig` shape carries `columns`, `filter?`, `searchInputs`,
-`selection?`, and `tile?`, and the SA tool surface reflects that:
-
-- **One resource-level composition call.** `configureCaseList` combines known
-  column/search-input additions, filter set/clear, search-display composition,
-  and Results/Details/search-input ordering. It returns created UUIDs and
-  commits one guarded batch made only from the same granular mutation kinds;
-  the targeted operations below remain the correction/edit surface. Its four
-  search-display slots are root fields with the same names and schemas as
-  `setCaseSearchDisplay`; provide the complete cluster together, using `null`
-  to clear a slot. There is no one-off `searchDisplay` envelope.
-
-- **Two arrays decompose into ops.** Each of `columns` and `searchInputs` has a list-`add` (`addCaseListColumns` / `addSearchInputs`) plus `update` / `remove` / `reorder`. The `add` takes a list — minting a uuid per item and surfacing them positionally in `result.uuids` — so a module's whole set authors in one call; `update` / `remove` consume a single uuid as the addressing key. Reference the minted uuids directly on follow-up edits without re-reading.
-- **One wholesale tool for `filter`.** A filter is one Predicate, so a wholesale `setCaseListFilter` (with a `null`-clears convention) fits.
-- **One selection-intent tool.** `configureCaseSelection` stores only the
-  bounded multiple arm (`{kind: "multiple", maximum: 1..100}`); `null` clears
-  back to the canonical one-case flow. Its shared transition planner follows
-  compatible direct-form links in both directions and any required
-  case-list-only parent/child consumer. If another module must change, the
-  first call returns mutation-free `needs_changes` with the exact module UUIDs
-  and an effect-bound `confirmationToken`; only a retry carrying that exact set
-  as `confirmedModuleUuids` plus the unchanged token returns the one atomic
-  batch. If the reviewed effects changed, the retry remains mutation-free and
-  requires a fresh review rather than accepting stale approval. A
-  selection-only repair that cannot preserve a direct link returns
-  mutation-free UUID-located blockers instead. The planner also removes only
-  `tile.persistOnForms` when multiple selection is enabled, preserving the
-  Results tile and grouping. The ordinary candidate gate remains final, so
-  Builder, SA, and MCP receive the same refusal. `createModule.selection` is
-  the born-valid path only when that same call creates a follow-up or close
-  consumer; a later accepted workflow creates its consumer first and then uses
-  `configureCaseSelection`.
-- **One tool for a form's pages** (`setFormSections`) — a section is a page, and the gate judges the partition as a whole (`FORM_SECTIONS_INCOMPLETE` refuses every half-way shape), so a model issuing `addFields` + N `moveField` calls could never reach a sectioned form one call at a time. The tool takes the DESIRED partition (every page with its top-level questions in order; kept sections by `sectionUuid`, new ones unnamed, omitted ones removed once their questions move; an empty list un-pages) and `lib/doc/formSectionMutations.ts` plans the minimal batch; every refusal is the planner's sentence. `addFields` (registry-automatic `section` arm; sections with predeclared `fieldUuid`, children by `parentUuid`) and `moveField` run `fieldPlacementVerdict` first so a refused landing reads in Nova's voice. The prompt's "### Sections (pages)" paragraph is the model's whole briefing.
-- **One tool for the tile layout AND every placement** (`setCaseListTile`) — the two are inseparable because the GATE judges them together: while `tile` is present every Results-visible column needs a cell (`CASE_LIST_TILE_COLUMN_NOT_PLACED`) and no two cells may overlap (`CASE_LIST_TILE_CELLS_OVERLAP`), so a switch-only tool can't reach a valid state on an unplaced list and a per-cell tool can't swap two fields (either half alone overlaps). Both clears are explicit: `tile: null` turns the layout off and KEEPS every placement (an author who tries a tile and switches back does not lose the layout they drew), a placement's `cell: null` unplaces one field, and an omitted slot changes nothing. The five presentation slots (alignment ×2, text size, border, shading) live INSIDE the cell object and nowhere else — CommCare's `<style>` has no spelling without a complete `<grid>` child, so presentation on an unplaced field is a state with no wire form. There is deliberately NO preset/template vocabulary at this boundary: Nova emits only HQ's `custom` tile, so a preset could only be an input shorthand expanding to the same per-field cells, and nothing may persist a template name. The `tile` cell stays on `columnInputSchema` (a column joining an already-tiled list must be born placed or the add is rejected) and is dropped from `columnUpdateInputSchema` (the `updateColumn` reducer preserves the current cell unconditionally, so a cell supplied on a replace would be read and silently discarded).
-- **Read tools surface uuids.** `getModule`'s `case_list_config` returns every column and search input with its `uuid`. The editor/MCP authoring projection prints expressions and wording while retaining lookup identities. `searchBlueprint`'s `case_list_column` and `search_input` matches surface the entry's `uuid` plus the owning module's `containerUuid`. The per-turn app overview names modules and forms; scoped reads supply individual case-list entries and their identities.
-
-The `update*` tools accept the full body shape (kind + per-kind required fields + common optional slots) — switching between `simple` / `advanced` search-input arms requires a different field set anyway, so a partial-patch shape would buy little.
-
-The case-list-config tools accept typed `Column`, `Predicate`, and `SearchInputDef` inputs pulled from `lib/domain/predicate` and `lib/domain/modules`; model-facing direct Term operands normalize before this parse, while MCP remains canonical. The Search union is identical at the SA/MCP, builder, stored-domain, and wire boundaries: seven arms over `kind` (simple, advanced, hidden) and widget (scalar text/date/barcode, date-range, lookup-backed `select` / `multi-select`). Every visible arm may carry `hint`, `required` (`{}` or a `when` Predicate plus a message), and exactly one `validation` (rule plus message); the hidden arm carries only a `value` worked out when the Search screen opens. `refineSearchInputBoundary` states the Search-screen scope at the tool boundary (no case reads in `default`, `required.when`, `validation.rule`, or a hidden `value`; no input reads in a hidden `value`), and the commit gate enforces the same rules with its own codes. The three slot descriptions are one clause each on purpose: seven arms inline them on three tools. `matches-pattern` is legal only in `required.when` and `validation.rule`; the model-shorthand normalizer lifts its `left` and a hidden input's `value` like every other ValueExpression slot. When a module uses effective Search, an emitted calculated Results/Details/Default-order expression may use the current case freely or consist of one ancestor property by itself; the calculated-column input description offers that local shape, and the absolute commit gate rejects every other related-case calculation. No separate Search, related-case, or downstream capability setting enters the tool vocabulary. `configureCaseList` and the targeted ops route their mutation emission through `addColumnsMutation` / `updateColumnMutation` / `removeColumnMutation` / `reorderColumnsMutation` (and the search-input parallels) in `lib/agent/blueprintHelpers.ts`, which emit granular per-item kinds — not a wholesale `updateModule{caseListConfig}` — so two members editing different columns/inputs merge by construction. Columns hold independent Results and Details order — the config's two sequences — plus per-surface visibility. `updateColumnMutation` emits independent content, per-surface visibility, and sort mutations; the reducer reads the other current facets instead of carrying a stale preservation flag. `reorderCaseListColumns` requires a `surface` and a complete UUID order for that screen, then emits `moveColumn` events naming only that screen, so arranging Results never silently rearranges Details (or vice versa). The builders still validate through the pure generic primitives (`replaceByUuid` / `removeByUuid` / `reorderByUuid`) that live alongside the SA-boundary input schemas at `tools/case-list-config/shared.ts`. Add inputs may predeclare `columnUuid` / `searchInputUuid` when another item in the call references them; update bodies cannot replace identity. `setCaseListFilter` and the resource tool's filter edit ride the granular `setCaseListMeta` kind for the same reason. Built-in status literals are semantically restricted to `open`/`closed`; program-specific states use custom properties. First-input creation, marker removal, final-input cleanup, and owner-only availability use one canonical `updateModule.caseSearchConfigOperation` plus its semantic `caseSearchConfigPatch`; no duplicate whole-config body is emitted. `blueprintHelpers.ts` owns the agent-specific `Mutation[]` builders.
-
-### Case-search authoring — wholesale per cluster
-
-The `caseSearchConfig` shape is a settings bag, not an addressable list, so its tool surface is two wholesale-replace tools rather than atomic ops:
-
-- **`setCaseSearchDisplay`** owns the display cluster: `searchScreenTitle`, `searchScreenSubtitle`, `searchButtonLabel`, `searchButtonDisplayCondition`.
-- **`setCaseSearchAdvanced`** owns the advanced cluster — niche availability settings that most authors never reach for. The cluster carries the `excludedOwnerIds` slot (value expression naming owner ids whose cases are excluded from Results on every entry path). It resolves before a case is selected, so the SA/MCP schema admits fixed values, session/current-user values, Search answers, and pure calculations over them, but rejects every case-property or relationship read at parse time; the commit validator repeats that defense for direct callers and imported docs. The abstract "advanced" framing scopes the tool to its role (niche filters), not its contents. On a module with no Search inputs or action settings, authoring only this slot preserves `searchActionEnabled: false`; assigned-case availability must not invent Search. The slot translates at suite-XML emission time to CCHQ's wire field `commcare_blacklisted_owner_ids` on the remote-search path — Nova's authoring vocabulary uses `excludedOwnerIds`, the wire token is CCHQ-controlled.
-
-Each tool replaces its own cluster in one call and preserves the other cluster byte-identically — pick the OTHER cluster's slots forward off the existing config, layer the input over them. Wholesale-with-`null`-clears semantic mirrors `setCaseListFilter`: every cluster slot is required-and-nullable on the SA boundary; `null` clears, non-null sets — the same null-removes law the partial-patch tools follow, applied at cluster scope.
-
-Cross-binding rule — search inputs themselves stay on `caseListConfig.searchInputs` (one source of truth across both screens). Author them through the case-list-config search-input family (`addSearchInputs` / `updateSearchInput` / `removeSearchInput` / `reorderSearchInputs`), never inside the case-search-config tools. The case-search-config tools intentionally do not carry a `searchInputs` slot.
-
-The Search action is independent from its input count. Adding the first Search input or setting non-null display/action content explicitly enables it; a saved zero-input action remains manual unless an effective Results filter selects the web auto-launch shape. The internal false provenance marker is persisted only to distinguish owner-only availability from an authored action and is not an SA authoring input.
-
-`searchFirst` is required-nullable (`true | null`) on the advanced cluster (`setCaseSearchAdvanced`) and an optional root slot on `configureCaseList`, where it can be the only requested resource and omission leaves it unchanged: `true` opens the module on its Search screen with no browse list, `null` returns it to browse-then-search. The setter refuses it on an owner-only config (there is no search to open on) and points at adding a Search input first; the commit gate owns the structural refusals (case-first or forms-free module, no button display condition, no explicit `previous` after-submit on its case forms, no shared search instance with a submenu or a parent-select child). A followup/close form in such a module defaults its `post_submit` to `module`, and `createForm` / `updateForm` / `createModule` say so in the slot description.
-
-The SA/MCP and stored-domain boundaries share the same exact Search union: simple inputs are text, date, date-range, or barcode; select and simple multi-select matching do not exist. A simple input always names a nonblank property. `range` mode and the `date-range` widget appear together, and that arm has no scalar `default` slot because one value cannot represent CommCare's paired start/end answer.
-
-Two more parse-time narrowings mirror the validator's global-context rules: a search input's `default` and the display cluster's `searchButtonDisplayCondition` both resolve before any case is selected, so their schemas reject case-property / relationship reads (`expressionReadsCaseData` / `predicateReadsCaseData`) with the honest alternatives named — fixed values, `today()`, current-user/session values. The commit gate repeats the defense for direct callers and imported docs.
-
-Case-search tool inputs pass through the shared authoring boundary. Their canonical implementations validate `Predicate` and `ValueExpression` from `lib/domain/predicate` through Zod. The wholesale tools emit a single `updateModule` mutation patching `caseSearchConfig` via `updateModuleMutations`. The shared `moduleNotFoundResult` helper (used by every module-addressing SA tool family) lives at `tools/shared/moduleNotFoundResult.ts` so both families consume one Elm-style error shape; `tools/case-list-config/shared.ts` re-exports it for the existing case-list-config call sites.
-
-### Case-operation authoring — UUID identity, editable wire names
-
-The shared case-operation family (`tools/case-operations/`) registers unchanged in chat and MCP: `getCaseOperations`, batch `addCaseOperations`, and singular update/remove/move. Shared tool bodies receive resolved `moduleUuid`, `formUuid`, and `operationUuid` identities. The authoring boundary also accepts scoped names; field and operation AST leaves likewise carry stable UUIDs. `Module.id` / `Form.id` are minted wire values, not tool handles. Do not reintroduce a name-derived slug, path, wire id, or list position as an address.
-
-Advanced operations use the shared authoring boundary: readable field, operation, and worker references bind to canonical `field`, `id-of`, and `session-user-property` terms. Operation names resolve in their form scope; stored identity remains UUID-based. `getForm` returns readable operation content, including lookup expressions. Add placement is `afterOperationUuid` (null means first, omission appends); the authoring boundary accepts an unambiguous name or ID and the planner receives the resolved identity.
-
-Action legality is structural in `caseOperationInputSchema`: create requires a new target plus name and cannot carry rename/retype; update targets an existing case and cannot carry a create name; close targets an existing case and cannot carry owner/rename/retype/links. Operation ids, write properties, and link identifiers import the validator-owned ASCII letter/digit/underscore rules from `lib/domain/caseOperationIdentifiers.ts`; no surface maintains a more permissive XML-name copy. Platform-owned case types and reserved write properties are rejected at this boundary as well as by the validator backstop. Batch add plans against a working overlay, so a later item can target an earlier create in the same call and the one guarded commit remains atomic. Full-shape update does not imply whole-object replacement: `updateCaseOperationMutations` diffs it into identity-keyed operation, write-property, and link-identifier mutations, preserving unrelated concurrent edits. A move names the operation it now follows; an anchor cannot be shifted by a peer's insert, so there is no rank to fence, and the tool reports the rank derived from `commit.newDoc`.
-
-### After-submit link authoring — `linkUuid` identity over the shared planners
-
-The shared form-link family (`tools/form-links/`) registers unchanged in chat and MCP: batch `addFormLinks` and singular `updateFormLink` / `removeFormLink` / `moveFormLink`; there is no separate read tool because `getForm` returns `formLinks` with each link's `uuid` in the order it is checked. A link is addressed only by `moduleUuid` + `formUuid` + `linkUuid`, never by position or by what it points at. Every tool is a thin boundary over the planners in `lib/doc/formLinkMutations.ts` (`planFormLinkAdd` / `planFormLinkUpdate` / `planFormLinkRemove` / `planFormLinkMove`), the same planners the builder dispatches, so the three editors refuse the same shapes for the same reasons: the one otherwise link is last, a conditional link never lands after it, a link never targets its own form or a loop. `linkRefusalMessage` in `tools/form-links/shared.ts` is the one place a planner's `FormLinkRefusal` becomes prose, and it names the links involved by position, UUID, and destination. Batch add plans each link against a working overlay with the previous link as its anchor; a fallback pin the planner wrote for an earlier link is withdrawn when a later link of the same batch is the otherwise link, so the batch is judged as one shape. A planner's `pinsFallback` reaches the result as `pinnedPostSubmit`; a retarget's `droppedDatums` names carried values removed because the new destination never reads them. The tool summary's subject is `linkSubject` (position + destination, no uuid); `linkLabel` includes the UUID when a refusal needs to identify a link. The authored boundary binds conditions and datums into canonical `XPathExpression` ASTs before the shared tool runs; `update_form_link` takes the link's complete desired shape and the planner writes only the slots that changed; move translates `afterLinkUuid` into the planner's landing index and reports the order from `commit.newDoc`.
-
-### Automation authoring: canonical intent plus a derived setup guide
-
-`tools/automations.ts` is the shared SA/MCP family: read, batch add, singular
-complete update, and singular remove. The input is the exact domain union, so
-every automation and nested criterion, setup-only instruction, update,
-recipient, event, and user-data filter is addressed by canonical UUID. Add may
-predeclare those final UUIDs; update must preserve the automation's UUID and
-kind. A full update is only a boundary convenience: it diffs through
-`diffDocsToMutations` into the same identity-keyed item changes the Builder
-uses, so it cannot overwrite an unrelated peer edit by replacing a parallel
-schema.
-
-Write results include the automation identities, `setupRequired`, and
-`hqUpdated: false`. `getAutomations` normally returns authored configuration;
-`automationUuid` with `includeSetupGuide: true` supplies one regenerated guide
-and its omitted criteria. Guidance resolves the current workspace document and
-Project places, so a later handoff reflects intervening edits.
-
-The shared input schema admits only schedules that project into one current HQ
-HTML setup form, including schedule-wide content type and timing, Weekly/Monthly shared content,
-event ordering/separation/windows, day/offset laws, and survey expiration plus
-partial-submission dependencies. These are domain refinements used by both SA
-and MCP; tools must not post-process or weaken them.
-
-Message fields use the canonical `AutomationMessageTemplate` part union rather
-than strings with magic token syntax. A `text` part is always literal, even if
-it contains `{case.foo}`; the HQ projection doubles its braces before Python
-Formatter sees it. Case substitutions are explicit `case-property` parts
-carrying scope plus the Nova `(caseType, property)` identity. Case-owner and
-message-recipient substitutions are explicit closed `context-property` parts.
-The SA editor, build executor, and MCP author ordinary strings with `{{#case/property}}` or
-`{{#recipient/property}}` insertions; the authoring boundary binds them into that
-canonical shape. Only the derived HQ guide prints executable
-`{case...}` / `{recipient...}` tokens. Custom case properties named
-`owner`, `host`, or `last_modified_by` are refused in every message case scope
-because HQ's formatter context shadows them; use an actual context-property
-part for case-owner/recipient values or rename the custom case property.
-Registered handler IDs and setup-only instructions must be concrete, trimmed,
-and nonblank; no tool may send instructional placeholder copy as data.
-Setup-only instructions carry an explicit UCR or registered-custom family.
-Recipient-filter values are structural exact literals or custom case-property
-references; brace-wrapped literals are refused because HQ executes them as
-lookups. The generated guide uses exact JSON when multiple/blank/whitespace
-values require HQ's system-administrator-only mode on a new alert, and names
-the UCR toggle and registered-custom administrator prerequisite separately.
-Returned setup guidance states that HQ requires a system administrator to save
-an alert using a registered custom recipient or custom content handler; a
-project administrator cannot complete that manual step alone.
-
-The same schema preserves HQ's kind-specific criteria matrix instead of
-admitting a shared superset. Case updates accept value/date comparisons against
-case, parent, or host properties plus at most one standard closed-parent
-condition; alerts accept direct-case value comparisons plus portable regex and
-do not accept date, closed-parent, or server-modified criteria. Both accept at
-most one UUID-backed location condition and its descendant flag. The generated
-guide states that HQ accepts and executes the payload while its current visible
-editors hide the picker; the tool never demotes that condition to setup prose.
-Names are already trimmed and nonblank; equality and update literals are
-canonical nonblank/unquoted values. The schema also enforces actual recipient compatibility.
-There is no web-user recipient; Connect content refuses the case-relative,
-case-property-email, and case-group arms HQ cannot save. The returned guide
-names Inbound SMS access for SMS Survey, and for Connect it names both the
-project-space support Nova checks before publishing and the runtime requirement
-that every resolved recipient be a CommCare mobile worker with an active
-PersonalID link. A timed reset property
-requires a rule-trigger start. Checkbox-style, case-property, and custom
-recipient kinds are singletons; concrete list targets and worker-property
-filter keys are unique. Descendant controls require a location recipient and
-location-level filters require descendants. Recipient filters are admitted
-only when every recipient resolves or expands to an HQ user account; case,
-parent/child-case, case-email, case-group, and registered custom recipients are
-refused because HQ bypasses non-`CouchUser` contacts and a custom handler's
-result is unknowable. A structural case-property filter value requires that
-property on every triggering case because HQ directly indexes it and raises
-when missing. After trimming, a case-property event-time value must begin with
-`H:MM` or `HH:MM`, and the whole value must parse as a time. Suffixes such as
-AM/PM or seconds are accepted; blank, nonmatching, or unparseable values fall
-back to 12:00 PM. The deprecated domain-wide
-`RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is an HQ deployment caveat and never a
-per-rule tool field.
-Host-scoped references are admitted only while the app has one unambiguous
-canonical extension relation for the automation case type. If an advanced case
-operation can add a second extension, the gate refuses host-scoped criteria,
-update targets, update sources, and message case-property parts rather than
-choose from HQ's unordered extensions; the extra link and parent-scoped
-references remain valid. Every host-scoped reference also requires exactly one
-live extension at runtime. Retained extra indices make Nova's current-match
-count unavailable, and HQ does not define which extension it chooses as the
-host.
-
-Tool input keeps Nova's standard property names; the guide alone projects them
-to HQ model-field names, including `case_type` to `type`; `case_id` and
-`case_type` are read-only. `status`, standard-datetime equality/regex, and every
-standard scalar in HQ's dynamic-only reset/event-time slots are refused by the
-shared gate. Concrete HQ recipient IDs are trimmed and nonblank. Email content has exactly one `body` arm: plain text targets a
-domain without Rich text emails, while rich text carries HTML source only and
-requires the toggle because HQ sanitizes/rewraps it and derives plaintext.
-
-Read and successful add/update results are explicit that Nova does not execute
-or install the automation. Mutation-bearing writes derive the CommCare HQ setup
-guide and local matching omissions from an authorized location snapshot plus
-the exact `commit.newDoc` returned by the guarded write. Add/update fence that
-location snapshot's revision inside the app-locked Blueprint transaction, so a
-successful write guide describes the same organization serialization point as
-its commit; removal returns only its deletion receipt. No guide or match count
-is persisted, and MCP does not pretend to return the Builder-only Preview count.
-No fallible organization read may run after `guardedMutate` succeeds: reporting
-an error after persistence would strand chat on its stale closure and make an
-MCP retry collide with the identities that already committed. A concurrent
-blueprint merge still derives the returned rule from `commit.newDoc`; a
-concurrent location write makes the fence reject before persistence so the
-caller retries from the newer snapshot. Callers can use `get_automations` to
-regenerate against a later location revision.
-An invocation-time zero diff is not by itself a persisted no-op. Update reads
-one authoritative Blueprint-plus-organization snapshot: only an exact match
-with the requested complete automation returns success and guidance from that
-snapshot; a changed or removed target returns a concurrency conflict. The chat
-wrapper adopts the returned authoritative `newDoc` even though no mutation row
-was needed, while MCP's next request starts from a fresh authorized snapshot.
-The prompt sends the SA to this family and forbids promising Preview execution,
-message delivery, schedule progress, or HQ installation. MCP registers the
-same four tool objects through `sharedToolRegistry`, with identity pointers for
-every nested UUID and no alternate wire schema.
-
-### Media authoring — dedicated carriers + the asset library
-
-The generic mutation tools deliberately omit every media slot (`toolSchemaGenerator.ts`'s `saOptionSchema` drops `media`; the field-edit schema carries no `*_media` key). The SA can neither mint nor discover an asset id from those surfaces, so a media slot there would only let it write a dangling reference. Media authoring lives in its own `tools/media/` package:
-
-- **Four doc-mutation tools** attach asset ids to carriers — `attachFieldMedia` (a field's `label`/`hint`/`help`/`validate_msg` message-media bundle), `attachOptionMedia` (a select option's `media` bundle), `setMenuMedia` (menu tiles — module AND form, mixed in one call: `icon` + `audioLabel`, image + audio, no video), and `setAppLogo` (the blueprint-root `logo`). Each commits through the workspace's gated write path (`guardedMutate` over `ctx.applyBatch`) and returns a `MutatingToolResult` summary. Every tool whose carrier repeats is **batch-shaped** (a list of items/attachments, one entry is a length-1 array — the no-singular-twin rule applied to media), and a batch is **all-or-nothing**: every item must resolve and every set slot must pass the asset verdict before the single gated commit, else `{ error }` names every offending item and nothing is written. `attachFieldMedia` gates slot-vs-kind through `fieldKindDeclaresKey` (the schema key set, NOT `key in field` — an unset optional slot is absent as an own property even on a kind that supports it). `setAppLogo` is the ONLY writer for `doc.logo`.
-
-  **The menu-tile `icon` slot also takes a built-in icon slug** — each `setMenuMedia` item's `icon` is a `nullableIconSlot` (`tools/media/shared.ts`): the target arm's exact curated slug enum, a canonical uploaded-media UUID, or `null`. The module arm offers `MODULE_ICON_SLUGS`; the form arm offers `FORM_ICON_SLUGS`. Raw/unknown `nova-icon:*`, arbitrary strings, uppercase UUIDs, and malformed UUIDs fail at the tool schema. `resolveIconInput` maps a catalog slug to the matching closed `BuiltinIconRef` with no asset-row expectation; an uploaded UUID retains the standard image expectation. `getModule`/`getForm` project a stored built-in back to its accepted catalog slug, while uploaded UUIDs pass through, so internal prefixed refs never become SA/MCP addresses. The shared `lib/media/builtinIconAssets.ts` seam makes a built-in ref emit exactly like an upload (see `lib/media/CLAUDE.md` § built-in library icons). There is deliberately ONE place to set a module/form icon: do NOT add an `icon` slot to `createModule`/`createForm`/`updateModule`/`updateForm` (that's the no-media-on-the-generic-tools rule). The prompt's `## Media` block points the SA at `setMenuMedia` — and carries the vary-icons-within-a-screen guidance, which leans on the whole menu landing in one call.
-
-  **Media slots use dedicated, clear-safe mutation kinds — never the generic `update*` patch reducers.** `attachFieldMedia` → `setFieldMedia` (one per attachment), `setMenuMedia` → `setModuleMedia` / `setFormMedia` (one per tile, by its arm), `setAppLogo` → `setAppLogo`. The reason is a wire hazard: the SA streams mutations to the client as JSON, and `JSON.stringify` DROPS keys whose value is `undefined`. A clear encoded as an `updateField`/`updateModule`/`updateForm` patch of `{ <key>: undefined }` arrives at the client's `applyMany` as `{}` — a no-op — so the stale asset ref survives and the client auto-saves it back over the SA's correct clear. The dedicated kinds carry an explicit on-wire `null` (which survives JSON) and map `null → undefined` INSIDE the reducer, so both set and clear cross the wire intact. This is NOT folded into the generic reducers as a "null-means-clear" rule: `setConnectType`'s slot is genuinely `.nullable()` and stores `null` as a real value, so a generic rule would corrupt it — the clear-safe behavior stays scoped to these media-only kinds. `attachOptionMedia` follows the same granular discipline for a different reason: it emits a per-item `updateOption { fieldUuid, uuid, option }` (the rebuilt option carries or omits the `media` key), so a concurrent edit to a DIFFERENT option of the same field merges instead of clobbering — a wholesale `updateField{options}` patch would overwrite the whole array. A clear rides that same `updateOption` (the rebuilt option simply omits `media`), so it needs no `null` sentinel.
-- **Two library tools** (`ReadToolResult`-shaped — no doc mutation): `listMediaAssets` (load-bearing — how the SA discovers the asset ids the attach tools need; reuses `listReadyAssetsForProject` + `toWireMediaAsset`) and `removeMediaAsset` (deletes the Postgres row + GCS bytes + document-extract sibling, but refuses with an Elm-shape error naming persisted carriers, including soft-deleted apps). The in-hand working-doc and reverse-index walks are fast/actionable preflights only. The authoritative delete shared with the browser route is `lib/db/mediaDeletion.ts`: fresh Project/edit authorization, asset `FOR UPDATE`, complete persisted-carrier re-walk, and metadata deletion in one transaction. Chat wraps that core inside its app/project/exact-holder fence. `purgeAssetStorage` receives the locked deleted record, starts GCS cleanup only after commit, takes the extension-independent Project/hash content lock, rechecks exact base-object and shared extract metadata separately, and deletes each object only when unshared. `wrapRead` latches holder, Project, and reauthorization loss as terminal because this read-shaped tool owns an external side effect.
-
-**Every attach runs the at-source asset verdict before its gated commit, then
-the authoritative writer validates the complete poststate projection.** The
-four doc-mutation tools route through
-`tools/media/shared.ts::attachGuardedMutate` →
-`lib/media/attachVerdicts.ts::mediaAttachVerdict`: the asset must exist in the
-app's Project, be `ready`, match the slot's kind, and keep the app inside the
-export ceiling. At persistence, every app/thread writer derives all authored
-Blueprint media plus canonical thread attachments, locks every referenced asset
-sorted `FOR SHARE`, rechecks Project/readiness/kind, and replaces the exact
-whole-app reverse edge set in the SAME transaction. Deletion takes the
-conflicting `FOR UPDATE` and coherently re-walks exact candidates after it wins
-the lock. Boundary validation remains defense in depth for malformed persisted
-or imported input, not the race repair.
-
-The MCP-only `upload_media_asset` (`lib/mcp/tools/uploadMediaAsset.ts`, hand-registered — neither doc- nor app-scoped, so it can't ride the shared adapter) is the bytes-inline upload path for MCP clients that can't run the browser's hash → signed-PUT → confirm flow; it runs the same `validateMediaBytes` pipeline and stores via `uploadAssetBytes`. The shared media tools register on both surfaces from the one `SHARED_TOOL_REGISTRY` (`lib/agent/sharedToolRegistry.ts`), like every shared tool.
-
-## Shared-tool return contract
-
-Every `lib/agent/tools/<name>.ts` `execute` takes `(input, ctx: ToolInvocationContext)` — the doc is `ctx.snapshot.doc`, never a parameter — and returns one of two tagged shapes (`tools/common.ts`):
-
-- `MutatingToolResult<R>` carries `{ kind: "mutate", mutations, result }`. The workspace owns the current document and applies mutations before the tool returns; an authoritative no-op may adopt a fresher snapshot. Successful results carry `ok: true`, created identities and consequential effects. `summary` is transcript presentation and stays out of model and MCP output. Confirmation and rejection remain explicit. Success alone does not distinguish private staging, canonical persistence or an already satisfied request.
-- `ReadToolResult<R>` carries `{ kind: "read", data }`. Its payload remains domain data, including any field named `summary`. This tag describes the result shape, not a guarantee of no side effects: media deletion is read-shaped.
-
-Nonempty `MutatingToolResult.mutations` retains the `AdmittedMutationBatch`
-brand returned by the workspace; a no-change result may carry a statically empty
-array. A property's name cannot establish admission. This type proves the batch
-passed wire admission, while runtime workspace and transaction tests establish
-the separate validity and persistence guarantees.
-
-
-**A read result that is bounded says so.** `searchBlueprint` caps at 50 matches (`MAX_RESULTS`) and, only when it withheld some, carries `truncated: { shown, total, message }`. The bound lives at the tool boundary and NOT in `lib/doc/searchBlueprint.ts`, whose other consumer is the builder's search hook — a person scrolling a list wants every match. The cap exists because the query is unbounded against an unbounded app: measured on production, a single-letter query against the largest app rendered 531,339 chars, which no tool result can carry to a model and which costs the chat SA six figures of tokens to read a haystack. `truncated`'s ABSENCE is the caller's proof it holds every match — a bound that can't be distinguished from completeness is worse than no bound, because an agent that asked which forms write a case property will edit the ones it saw and never learn about the rest.
-
-`toolResults.ts` owns the shared model/MCP projection. The editor's SDK
-`toModelOutput` also omits transcript presentation from live steps and resumed
-history. Committed data-migration consequences travel separately as `dataReview`,
-including when a later reporting step fails. Keep new tools on these shared
-paths; [authoring/CLAUDE.md](authoring/CLAUDE.md) describes their content boundary.
-
-## Reviewed-build resilience
-
-A case-typed `createModule` input carries at least one Results column whose
-`visibleInList` is not false. Its Zod boundary refuses an omitted, empty, or
-all-hidden `case_list_columns` array before workspace dispatch and points the
-executor to the module's case-list configuration, never `addFields`. The
-workflow execution brief carries the exact minimum `case_name` column for each
-newly owned case module, and focused validator diagnostics select the available
-case-list correction operation without broadening that slice's tool profile.
-
-`build/failureReporting.ts` keeps product resumability independent of
-operational severity. Only expected external prerequisites are warnings.
-Unexpected provider, protocol, validation, compiler, and budget failures are
-errors and reach Sentry even when the durable design can resume after a deploy.
-
-Executor deadline ownership starts inside its protected execution scope after
-initial packet preparation. The absolute deadline still includes preparation
-time. Its timer is cleared before awaiting final model-context persistence,
-including failures in progress callbacks, setup, or persistence. Native executor
-tests use accepted artifact lineage, real Responses HTTP and migrated Postgres
-through slice birth, bounded correction, budgets and reopened-workspace recovery.
-They do not claim process-crash simulation or later-slice publication.
+# Agent authoring
+
+This directory owns Nova's model calls, prompts, shared tool definitions, and
+conversations. Models supply design judgment; the document kernel decides which
+changes are valid. CommCare wire details belong in `lib/commcare`.
+
+## Runtime map
+
+- `build/orchestrator.ts` runs one architect from the user's request through the
+  saved app. `planning/` owns its revisioned Markdown plan. An independent peer
+  reads the source and plan, can edit that same plan while the architect is
+  paused, and reviews the actual saved app before completion.
+- `build/architectLoop.ts` persists responses and usage before dispatching tools.
+  Recovery answers outstanding calls with their original identities before
+  adding new input or making another model request. `build/modelContextStore.ts`
+  owns that append-only history and its compatibility checks.
+- `build/authoringSession.ts` supplies a private workspace during construction.
+  `saveWork` creates the app from its first complete workflow, then commits later
+  checkpoints through the same kernel. Read `change-set/CLAUDE.md` for authority,
+  receipts, rebase, and atomic publication.
+- `solutionsArchitect.ts` runs ordinary edit turns against an existing app.
+  `workspace/` serializes the shared operations for this editor, private builds,
+  and MCP. Builder actions reach the same canonical mutation kernel.
+- `translation/translateLanguage.ts` translates the current authored text on
+  request. It protects embedded references, preserves current translations,
+  bounds each batch, and saves accepted results through the private workspace.
+  See `docs/architecture/multilingual-localization.md`.
+- `sources.ts` and `sources.server.ts` assemble authorized conversation and
+  attachment content. `documentExtraction.ts` reads documents independently.
+  Source text is evidence to interpret, not instructions to execute.
+- `anatomy/` composes the dev-only `/agents` pages from production definitions
+  and read-only local records. It must not claim authority, run extraction, or
+  start a model call while inspecting a run.
+
+The enduring lifecycle contract is in
+`docs/architecture/agent-authoring.md`. Old typed design graphs, dispositions,
+compiler briefs, and slice executors are retired. Historical database artifacts
+are retained for inspection; serving code does not translate or execute them.
+The one-time transition is in `docs/architecture/design-format-cutover.md`.
+
+## The authoring boundary
+
+Read `authoring/CLAUDE.md` before changing model input or read projections.
+All three tool clients use the same author-facing vocabulary: names, Markdown,
+and expressions. The boundary allocates identities and binds references within
+one authorized workspace invocation. The document stores typed expressions and
+stable identities. Never expose storage structures just because a reducer
+accepts them, cast text into an AST, or regex-parse XPath.
+
+`sharedToolRegistry.ts` declares every operation's effect, required context,
+staging eligibility, and external capabilities. Availability comes from those
+declarations and the current role and phase, not a prompt prohibition. Planning
+and peer review cannot mutate app or Project data. External operations recheck
+membership and their own revision at the transaction boundary.
+
+The architect and editor use hosted tool search with deferred shared definitions.
+MCP publishes the same authored schemas; its client owns discovery. Deferral is
+not schema reduction. `authoring/readableSchema.ts` factors repeated schema
+structures without changing admission. `getAuthoringGuide` returns focused
+reference material on request. Prompts establish purpose and judgment; they do
+not repeat the tool inventory or teach the document's storage format.
+
+## Write semantics
+
+Omission preserves an existing value; explicit null clears a clearable value.
+On creation, null and omission both mean absent. Whole-cluster replacement tools
+state that scope in their schema. Never accept invented filler to satisfy a
+schema, and never produce a rejection the available input grammar cannot fix.
+
+Structural creation is atomic. A module may include its forms, questions, and
+case-list columns; a form includes its questions. The whole call is prepared
+before validation. An invalid child rejects the call rather than silently
+skipping it or returning an identity that did not land. Names resolve within the
+complete call scope; unresolved or ambiguous references refuse before mutation.
+
+One list-taking operation handles both one and several additions. Do not add a
+singular twin. Preserve nested identities and attached media during read/edit
+cycles. Type conversions, property renames, and retirement use their dedicated
+planners because they may affect existing data.
+
+Shared tool results report `ok`, created identities, relevant changed values,
+and actionable failures or confirmations. A success does not imply publication:
+private builds stage changes until `saveWork`. The UI-only `summary` is stripped
+from both live and resumed model context and from MCP results. Do not append
+instructions to continue after every success. Saved values set aside by a
+migration travel as `dataReview`; automation writes report remaining setup,
+while `getAutomations` supplies a full guide on request.
+
+Domain behavior remains with its owning planners and shared tools: case-list
+selection and search, no-matches registration, form links, automations, media,
+lookup data, and localization. Consult `docs/architecture/complex-apps.md` and the
+relevant domain subtree before changing these contracts. New capability is one
+shared operation, not separate implementations for each client.
+
+## Provider contract
+
+`openaiProvider.ts::createNovaOpenAI` is the only provider constructor. It owns
+compatible Undici fetch/dispatcher lifetimes and timeouts. Model and effort are
+selected by semantic role in `lib/models.ts`; there is no generic fallback role.
+Use `reasoningProviderOptions` so stateless requests, reasoning summaries,
+compaction, and cache configuration travel together.
+
+Function tools use `strict: false` deliberately: omission is meaningful, and the
+SDK validates the supplied authored input. Structured responses instead use
+`strictStructuredOutput.ts`, which projects the schema into the provider's
+strict subset and parses the result through the original Zod schema. Optional
+properties become nullable on the wire and are stripped before the original
+parse. Authored null and open dictionaries cannot use that projection. Flat,
+already-compatible extraction schemas can use the provider's default strict
+mode. All calls stream; do not restore a blocking response path.
+
+Stable instructions and definitions precede changing app state. Ordinary edit
+turns place a request-local cache boundary before the volatile app snapshot;
+durable architect and peer histories preserve their growing prefix. A compatible
+provider compaction checkpoint replaces only the replay prefix, never the
+human-readable stored history. Prompt, model, toolset, and context versions
+control checkpoint compatibility. Keep completed tool results and reasoning
+items intact on resume; encrypted reasoning is not human-readable reasoning.
+
+## Inspection and evidence
+
+`/agents` separates composition from code, current local app state, and recorded
+runs. Definitions and role facts come from their production owners. Token counts
+use `o200k_base` estimates over the available text; actual provider usage is
+reported separately. Show deferred definitions as part of the full catalog and
+expose their later loading in recorded requests. A size estimate is neither a
+bill nor proof of app quality.
+
+Read `docs/testing.md` before changing tests. Useful evidence exercises authored
+input through real parsers and planners, transactions through migrated Postgres,
+and provider serialization through the real SDK and a controlled HTTP peer.
+Test recovery, cancellation, concurrency, and exact receipts at their owning
+boundaries. Do not pin prose, tool counts, filenames, or exported symbols. Live
+quality trials inspect generated apps and their source, messages, reasoning
+summaries, failures, and corrections; schema acceptance alone proves no quality.

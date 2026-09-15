@@ -720,7 +720,6 @@ it("uses each translation unit's own form and preserves inserted identities", as
 				limit: 10,
 			}),
 		).items[0];
-	expect(source.sourceFingerprint).toMatch(/^source:[\w-]{43}$/);
 	await h.call("updateTranslations", {
 		language: { language: "fra" },
 		updates: [
@@ -759,10 +758,7 @@ it("uses each translation unit's own form and preserves inserted identities", as
 				z.object({
 					sourceFingerprint: z.string(),
 					status: z.literal("out-of-date"),
-					explicit: z.object({
-						sourceFingerprint: z.string(),
-						value: z.string(),
-					}),
+					revision: z.string(),
 				}),
 			),
 		})
@@ -773,17 +769,14 @@ it("uses each translation unit's own form and preserves inserted identities", as
 				limit: 10,
 			}),
 		).items[0];
-	expect(review.explicit.sourceFingerprint).toBe(source.sourceFingerprint);
-	expect(review.sourceFingerprint).not.toBe(review.explicit.sourceFingerprint);
+	expect(review.sourceFingerprint).not.toBe(source.sourceFingerprint);
 	await h.call("updateTranslations", {
 		language: { language: "fra" },
 		updates: [
 			{
 				operation: "review",
 				unitId: unit.id,
-				expectedSourceFingerprint: review.explicit.sourceFingerprint,
-				expectedCurrentSourceFingerprint: review.sourceFingerprint,
-				expectedValue: review.explicit.value,
+				revision: review.revision,
 			},
 		],
 	});
@@ -795,6 +788,61 @@ it("uses each translation unit's own form and preserves inserted identities", as
 		}),
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Bonjour {{name}}" }],
+	});
+	const readRevision = async () =>
+		z
+			.object({
+				items: z.array(
+					z.object({ revision: z.string(), sourceFingerprint: z.string() }),
+				),
+			})
+			.parse(
+				await h.call("getTranslatableContent", {
+					language: { language: "fra" },
+					query: "Hello",
+					limit: 10,
+				}),
+			).items[0];
+	const reviewCall = (revision: string) =>
+		h.call("updateTranslations", {
+			language: { language: "fra" },
+			updates: [{ operation: "review", unitId: unit.id, revision }],
+		});
+	const beforeTargetEdit = await readRevision();
+	await h.call("updateTranslations", {
+		language: { language: "fra" },
+		updates: [
+			{
+				operation: "set",
+				unitId: unit.id,
+				expectedSourceFingerprint: beforeTargetEdit.sourceFingerprint,
+				value: "Salut {{name}}",
+			},
+		],
+	});
+	const targetEdited = structuredClone(h.currentDoc());
+	await expect(reviewCall(beforeTargetEdit.revision)).rejects.toThrow();
+	expect(h.currentDoc()).toEqual(targetEdited);
+	const beforeSourceEdit = await readRevision();
+	await h.call("editField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "hello",
+		updates: { label: "Hello there, {{name}}!" },
+	});
+	const sourceEdited = structuredClone(h.currentDoc());
+	await expect(reviewCall(beforeSourceEdit.revision)).rejects.toThrow();
+	expect(h.currentDoc()).toEqual(sourceEdited);
+	const current = await readRevision();
+	await reviewCall(current.revision);
+	expect(
+		await h.call("getTranslatableContent", {
+			language: { language: "fra" },
+			query: "Hello",
+			limit: 10,
+		}),
+	).toMatchObject({
+		items: [{ status: "ready", effective: "Salut {{name}}" }],
 	});
 });
 

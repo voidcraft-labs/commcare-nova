@@ -33,6 +33,7 @@ export type WorkspaceRevision = number;
 
 /** One immutable view of the workspace's current document. */
 export interface WorkspaceSnapshot {
+	readonly mode: ToolWorkspaceMode;
 	/** The current document. Reducers never mutate it in place — every
 	 * accepted batch produces a NEW doc the workspace adopts. */
 	readonly doc: BlueprintDoc;
@@ -47,11 +48,6 @@ export interface WorkspaceSnapshot {
 	readonly canonicalSeq: number | null;
 	/** Project scope the workspace's document was authorized under. */
 	readonly projectId: string;
-	/** The change-set workspace's binding of its captured external context —
-	 * the canonical digest of the accumulated external read-set entries the
-	 * overlay was computed under. Absent on canonical snapshots: the
-	 * canonical host fabricates none of the change-set extensions. */
-	readonly externalContextDigest?: string;
 }
 
 /** Identity of one tool invocation against a workspace. */
@@ -145,6 +141,8 @@ export interface ToolInvocationContext {
 	 * window. A tool must never reconstruct this from public `runId` attribution.
 	 */
 	readonly chatRunHolder?: ChatRunHolderCapability;
+	/** The server-owned planning session, before and after the app's birth. */
+	readonly authoringSessionId?: string;
 
 	/** The immutable snapshot this invocation reads. `snapshot.doc` replaces
 	 * the `doc` argument tools used to receive. */

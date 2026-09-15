@@ -323,7 +323,9 @@ function repeatConfigDiscriminated() {
 					mode: z.literal("count_bound"),
 					count: xpathExpressionSchema.describe(FIELD_DOCS.repeat_count),
 				})
-				.describe("Fixed count from an XPath — provide `count`."),
+				.describe(
+					"Count is fixed when the enclosing instance opens. Use user_controlled for rows added while answering.",
+				),
 			z
 				.object({
 					mode: z.literal("query_bound"),

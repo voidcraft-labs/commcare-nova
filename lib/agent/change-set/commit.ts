@@ -8,7 +8,7 @@
  * case-type sweeps, dedup, fresh authorization, holder proof, lookup/media/
  * organization integrity, and post-commit index convergence keep their
  * exact current semantics, and the `open → committed` flip plus the
- * committed-slice receipt ride the same transaction
+ * checkpoint receipt ride the same transaction
  * (`lib/db/canonicalCommitSidecars.ts`). No success path performs a second
  * transaction to mark the change set committed.
  *
@@ -23,11 +23,6 @@
  */
 
 import type { Transaction } from "kysely";
-import type { DesignId } from "@/lib/agent/design/ids";
-import {
-	AppAccessError,
-	resolveAppScopeInTransaction,
-} from "@/lib/db/appAccess";
 import {
 	applyBlueprintChange,
 	type MigrationOutcome,
@@ -40,6 +35,7 @@ import {
 	BlueprintCommitRejectedError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
+import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
@@ -50,7 +46,6 @@ import {
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
-import { parseOrganizationRevision } from "@/lib/organization/schema";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
 import {
@@ -58,11 +53,10 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "./errors";
-import type { ExternalReadDependency } from "./schemas";
 import { loadChangeSet, loadChangeSetSteps } from "./store";
 import {
 	type ChangeSetStep,
-	type CommittedSliceReceipt,
+	type CheckpointReceipt,
 	type DesignChangeSet,
 	designChangeSetBatchId,
 } from "./types";
@@ -74,7 +68,6 @@ export type RebaseConflictCode =
 	| "TARGET_KIND_CHANGED"
 	| "ANCHOR_REMOVED"
 	| "IDENTITY_COLLISION"
-	| "EXTERNAL_READ_SET_CHANGED"
 	| "EXCLUSIVE_BASE_CHANGED"
 	| "PROJECT_CHANGED"
 	| "DESIGN_SUPERSEDED";
@@ -96,7 +89,7 @@ export interface ChangeSetRebaseReport {
 export type CommitDesignChangeSetOutcome =
 	| {
 			readonly kind: "committed";
-			readonly receipt: CommittedSliceReceipt;
+			readonly receipt: CheckpointReceipt;
 			readonly migration?: MigrationOutcome;
 			/** True when a prior attempt had already committed this exact
 			 * revision (dedup replay — nothing written). */
@@ -113,12 +106,13 @@ export type CommitDesignChangeSetOutcome =
 
 export interface CommitDesignChangeSetArgs {
 	readonly changeSetId: string;
+	readonly requestId?: string;
 	readonly actorUserId: string;
 	readonly runId: string;
-	readonly chatRunHolder?: ChatRunHolderCapability;
+	readonly chatRunHolder: ChatRunHolderCapability;
 	readonly kind: ClientAppChangeKind;
 	readonly expectedRevision: number;
-	/** Absolute executor wall-clock deadline; direct callers omit it. */
+	/** Absolute run wall-clock deadline; direct callers omit it. */
 	readonly deadlineAt?: number;
 }
 
@@ -204,12 +198,8 @@ export async function commitDesignChangeSet(
 	/* The organization fence: the LATEST captured revision across steps —
 	 * later steps observed newer state; the kernel requires exact equality
 	 * with the current clock at commit. */
-	const organizationRevision = latestOrganizationRevision(
-		steps.flatMap((step) => step.readSet),
-	);
-
 	/* Preflight classification against a fresh (unlocked) snapshot: the
-	 * structured report the executor amends from. The kernel's own locked
+	 * structured report the architect amends from. The kernel's own locked
 	 * replay remains the authority — a race between this read and the
 	 * transaction reclassifies below. A conflict is reported only when the
 	 * change set is STILL open: a concurrent duplicate commit makes the
@@ -218,7 +208,6 @@ export async function commitDesignChangeSet(
 	const preflight = await classifyAgainstFreshState({
 		changeSet,
 		steps,
-		organizationRevision,
 	});
 	if (deadlineExpired(args.deadlineAt)) {
 		return deadlineRejection(changeSet.baseSeq ?? 0);
@@ -234,9 +223,6 @@ export async function commitDesignChangeSet(
 			appId: changeSet.appId,
 			userId: args.actorUserId,
 			expectedProjectId: changeSet.baseProjectId,
-			...(organizationRevision !== undefined && {
-				expectedOrganizationRevision: organizationRevision,
-			}),
 			runId: args.runId,
 			...(args.chatRunHolder !== undefined && {
 				chatRunHolder: args.chatRunHolder,
@@ -247,17 +233,17 @@ export async function commitDesignChangeSet(
 			guard: { mutations: batch },
 			sidecars: [
 				{
-					kind: "commit-design-change-set",
+					kind: "commit-authoring-workspace",
 					changeSetId: changeSet.id,
+					requestId: args.requestId ?? changeSet.id,
 					expectedRevision: changeSet.revision,
 					receiptId,
-					sliceAttemptId: changeSet.attemptId,
 					designSessionId: changeSet.designSessionId,
-					designRevisionId: changeSet.designRevisionId,
-					designRevisionDigest: changeSet.designRevisionDigest,
-					buildPlanId: changeSet.buildPlanId,
-					buildPlanDigest: changeSet.buildPlanDigest,
-					sliceId: changeSet.sliceId,
+					planRevision: changeSet.planRevision,
+					actorUserId: args.actorUserId,
+					runId: args.runId,
+					holderNonce: args.chatRunHolder.nonce,
+					projectId: changeSet.baseProjectId,
 					mutationCount: batch.length,
 				},
 			],
@@ -324,7 +310,6 @@ export async function commitDesignChangeSet(
 		const reclassified = await classifyAgainstFreshState({
 			changeSet,
 			steps,
-			organizationRevision,
 		});
 		if (reclassified !== undefined) return reclassified;
 		return {
@@ -342,7 +327,7 @@ function deadlineExpired(deadlineAt: number | undefined): boolean {
 function deadlineRejection(currentSeq: number): CommitDesignChangeSetOutcome {
 	return {
 		kind: "gate-rejected",
-		message: "The slice execution deadline expired before commit.",
+		message: "The run deadline expired before commit.",
 		currentSeq,
 	};
 }
@@ -370,7 +355,7 @@ async function committedReplayIfWon(
 async function requireAuthorizedCommittedReceipt(
 	changeSet: DesignChangeSet,
 	args: CommitDesignChangeSetArgs,
-): Promise<CommittedSliceReceipt> {
+): Promise<CheckpointReceipt> {
 	const appId = changeSet.appId;
 	if (
 		appId === null ||
@@ -382,24 +367,18 @@ async function requireAuthorizedCommittedReceipt(
 		);
 	}
 	return withAppTx(async (tx) => {
-		try {
-			const scope = await resolveAppScopeInTransaction(
-				tx,
-				appId,
-				args.actorUserId,
-				"view",
-			);
-			if (scope.projectId !== changeSet.baseProjectId) {
-				throw new ChangeSetScopeLostError(
-					"This app moved to a different Project, so this change set's receipt is no longer available in its original scope.",
-				);
-			}
-		} catch (error) {
-			if (!(error instanceof AppAccessError)) throw error;
+		if (args.chatRunHolder.runId !== args.runId)
 			throw new ChangeSetScopeLostError(
-				"This change set's app is no longer available in your Project scope.",
+				"This receipt belongs to a different run.",
 			);
-		}
+		const authority = await assertDesignSessionRunAuthorityInTransaction(tx, {
+			designSessionId: changeSet.designSessionId,
+			actorUserId: args.actorUserId,
+			expectedProjectId: changeSet.baseProjectId,
+			holder: args.chatRunHolder,
+		});
+		if (authority.appId !== appId)
+			throw new ChangeSetScopeLostError("This receipt belongs to another app.");
 		return requireStoredReceipt(changeSet, tx);
 	});
 }
@@ -409,19 +388,14 @@ async function requireAuthorizedCommittedReceipt(
 async function requireStoredReceipt(
 	changeSet: DesignChangeSet,
 	dbHandle?: Awaited<ReturnType<typeof getAppDb>> | Transaction<AppDatabase>,
-): Promise<CommittedSliceReceipt> {
+): Promise<CheckpointReceipt> {
 	const db = dbHandle ?? (await getAppDb());
 	const row = await db
-		.selectFrom("design_committed_slices")
+		.selectFrom("authoring_checkpoints")
 		.select([
 			"id",
 			"design_session_id",
-			"design_revision_id",
-			"design_revision_digest",
-			"build_plan_id",
-			"build_plan_digest",
-			"slice_id",
-			"slice_attempt_id",
+			"plan_revision",
 			"change_set_id",
 			"app_id",
 			"seq",
@@ -434,21 +408,19 @@ async function requireStoredReceipt(
 		.executeTakeFirst();
 	if (row === undefined) {
 		throw new ChangeSetIntegrityError(
-			`Change set ${changeSet.id} is committed but its atomic committed-slice receipt is missing — a canonical batch without its sidecars is corruption, not a commit.`,
+			`Change set ${changeSet.id} is committed but its atomic checkpoint receipt is missing — a canonical batch without its sidecars is corruption, not a commit.`,
 		);
 	}
 	return {
 		id: row.id,
 		designSessionId: row.design_session_id,
-		designRevisionId: row.design_revision_id,
-		designRevisionDigest: row.design_revision_digest,
-		buildPlanId: row.build_plan_id,
-		buildPlanDigest: row.build_plan_digest,
-		sliceId: row.slice_id as DesignId,
-		attemptId: row.slice_attempt_id,
+		planRevision: safePersistedSequence(
+			row.plan_revision,
+			"checkpoint plan revision",
+		),
 		changeSetId: row.change_set_id,
 		appId: row.app_id,
-		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
+		seq: safePersistedSequence(row.seq, "authoring_checkpoints.seq"),
 		batchId: row.batch_id,
 		committedSnapshotDigest: row.committed_snapshot_digest,
 		mutationCount: row.mutation_count,
@@ -457,11 +429,11 @@ async function requireStoredReceipt(
 }
 
 /** Read-only reconciliation for a canonical commit whose response raced the
- * executor deadline. `null` means no commit became durable before the read;
+ * run deadline. `null` means no commit became durable before the read;
  * this function never retries or starts a write. */
-export async function readCommittedSliceReceipt(
+export async function readCheckpointReceipt(
 	changeSetId: string,
-): Promise<CommittedSliceReceipt | null> {
+): Promise<CheckpointReceipt | null> {
 	const changeSet = await loadChangeSet(changeSetId);
 	if (changeSet === undefined || changeSet.status !== "committed") return null;
 	return await requireStoredReceipt(changeSet);
@@ -470,21 +442,16 @@ export async function readCommittedSliceReceipt(
 /** Read every immutable receipt for one plan through the same strict JSON and
  * sequence boundary as the commit replay path. Completion policy uses this
  * aggregate; row presence alone is never enough to call a build finished. */
-export async function readCommittedSliceReceiptsForPlan(
-	buildPlanId: string,
-): Promise<CommittedSliceReceipt[]> {
+export async function readCheckpointsForSession(
+	designSessionId: string,
+): Promise<CheckpointReceipt[]> {
 	const db = await getAppDb();
 	const rows = await db
-		.selectFrom("design_committed_slices")
+		.selectFrom("authoring_checkpoints")
 		.select([
 			"id",
 			"design_session_id",
-			"design_revision_id",
-			"design_revision_digest",
-			"build_plan_id",
-			"build_plan_digest",
-			"slice_id",
-			"slice_attempt_id",
+			"plan_revision",
 			"change_set_id",
 			"app_id",
 			"seq",
@@ -493,21 +460,19 @@ export async function readCommittedSliceReceiptsForPlan(
 			"mutation_count",
 			"committed_at",
 		])
-		.where("build_plan_id", "=", buildPlanId)
+		.where("design_session_id", "=", designSessionId)
 		.orderBy("seq", "asc")
 		.execute();
 	return rows.map((row) => ({
 		id: row.id,
 		designSessionId: row.design_session_id,
-		designRevisionId: row.design_revision_id,
-		designRevisionDigest: row.design_revision_digest,
-		buildPlanId: row.build_plan_id,
-		buildPlanDigest: row.build_plan_digest,
-		sliceId: row.slice_id as DesignId,
-		attemptId: row.slice_attempt_id,
+		planRevision: safePersistedSequence(
+			row.plan_revision,
+			"checkpoint plan revision",
+		),
 		changeSetId: row.change_set_id,
 		appId: row.app_id,
-		seq: safePersistedSequence(row.seq, "design_committed_slices.seq"),
+		seq: safePersistedSequence(row.seq, "authoring_checkpoints.seq"),
 		batchId: row.batch_id,
 		committedSnapshotDigest: row.committed_snapshot_digest,
 		mutationCount: row.mutation_count,
@@ -520,28 +485,15 @@ async function currentAppSeq(appId: string): Promise<number> {
 	return app === null ? 0 : app.mutation_seq;
 }
 
-function latestOrganizationRevision(
-	dependencies: readonly ExternalReadDependency[],
-): string | undefined {
-	let latest: bigint | undefined;
-	for (const dependency of dependencies) {
-		if (dependency.kind !== "organization") continue;
-		const revision = BigInt(parseOrganizationRevision(dependency.revision));
-		if (latest === undefined || revision > latest) latest = revision;
-	}
-	return latest === undefined ? undefined : latest.toString();
-}
-
 /**
  * Classify the steps' replay against a fresh app snapshot into a structured
- * report — per step, so the executor knows exactly which staged boundary to
+ * report — per step, so the architect knows exactly which staged boundary to
  * amend. Returns undefined when the replay is clean and the gate passes
  * (the authoritative commit may proceed).
  */
 async function classifyAgainstFreshState(args: {
 	readonly changeSet: DesignChangeSet;
 	readonly steps: readonly ChangeSetStep[];
-	readonly organizationRevision: string | undefined;
 }): Promise<
 	| { kind: "rebase-conflict"; report: ChangeSetRebaseReport }
 	| { kind: "gate-rejected"; message: string; currentSeq: number }
@@ -566,25 +518,6 @@ async function classifyAgainstFreshState(args: {
 	}
 	const currentSeq = app.mutation_seq;
 	const conflicts: ChangeSetRebaseConflict[] = [];
-
-	if (args.organizationRevision !== undefined) {
-		const db = await getAppDb();
-		const organizationRow = await db
-			.selectFrom("app_organization_state")
-			.select("revision")
-			.where("app_id", "=", changeSet.appId)
-			.executeTakeFirst();
-		const current =
-			organizationRow === undefined
-				? "0"
-				: parseOrganizationRevision(organizationRow.revision);
-		if (current !== args.organizationRevision) {
-			conflicts.push({
-				code: "EXTERNAL_READ_SET_CHANGED",
-				message: `This app's places changed after the change set captured organization revision ${args.organizationRevision} (now ${current}). Re-derive the dependent steps against the current organization.`,
-			});
-		}
-	}
 
 	/* Per-step replay over the fresh document: an admission failure names
 	 * the exact staged boundary; later steps still replay over the candidate

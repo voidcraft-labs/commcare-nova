@@ -6,7 +6,6 @@ import {
 	RUNTIME_TABLES_WITHOUT_INSERT,
 	RUNTIME_TABLES_WITHOUT_ROW_LOCKS,
 	RUNTIME_TABLES_WITHOUT_UPDATE,
-	runtimeTableCanUseRowLocks,
 } from "../privilegeConvergence";
 
 const EXCLUDED_DIRECTORIES = new Set(["__tests__", "migrations"]);
@@ -445,62 +444,9 @@ function servingSourceViolations(
 }
 
 describe("runtime row-lock privilege contract", () => {
-	it("keeps every reduced-capability table non-row-lockable", () => {
-		expect(RUNTIME_TABLES_WITHOUT_ROW_LOCKS).toEqual([
-			"app_changes",
-			"design_change_set_requests",
-			"design_change_set_steps",
-			"design_change_set_step_stages",
-			"design_change_set_handles",
-			"design_committed_slices",
-			"design_source_packages",
-			"design_revisions",
-			"design_reviews",
-			"design_review_dispositions",
-			"design_build_plans",
-			"design_conformance_reports",
-			"design_orchestration_events",
-			"design_artifact_workspace_steps",
-			"design_model_context_items",
-			"design_model_steps",
-			"design_model_step_usage_accounts",
-			"design_localization_receipts",
-			"design_localization_batch_usage_accounts",
-			"design_slice_attempt_budget_claims",
-			"design_lookup_materializations",
-			"design_identity_handles",
-			"case_schema_index_deletions",
-			"media_asset_refs",
-			"app_location_references",
-			"thread_media_refs",
-			"design_lookup_protections",
-			"app_change_fold_baselines",
-		]);
-		for (const table of RUNTIME_TABLES_WITHOUT_ROW_LOCKS) {
-			expect(runtimeTableCanUseRowLocks(table)).toBe(false);
-		}
-	});
-
-	it("derives the write-verb guard sets exactly from the capability grants", () => {
-		const rowLockOnly = RUNTIME_TABLES_WITHOUT_ROW_LOCKS.filter(
-			(table) => !RUNTIME_TABLES_WITHOUT_UPDATE.includes(table),
-		);
-		expect(rowLockOnly).toEqual(["design_identity_handles"]);
-		const deletable = RUNTIME_TABLES_WITHOUT_ROW_LOCKS.filter(
-			(table) => !RUNTIME_TABLES_WITHOUT_DELETE.includes(table),
-		);
-		expect(deletable).toEqual([
-			"case_schema_index_deletions",
-			"media_asset_refs",
-			"app_location_references",
-			"thread_media_refs",
-			"design_lookup_protections",
-		]);
-		expect(RUNTIME_TABLES_WITHOUT_INSERT).toEqual([
-			"app_change_fold_baselines",
-		]);
-	});
-
+	// Capability grants are exercised by privilegeConvergence.postgres.test.ts.
+	// This suite checks serving-source violations and the scanner's grammar;
+	// copying the grant lists here would not prove database permissions.
 	it("has no serving query that row-locks a table its capability forbids", () => {
 		const violations = servingSourceViolations(rowLockViolationsInSource);
 		expect(violations, violations.join("\n")).toEqual([]);
