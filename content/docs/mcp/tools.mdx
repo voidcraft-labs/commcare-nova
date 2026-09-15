@@ -91,6 +91,11 @@ or field identity; when a parent is supplied, it must match. New fields can name
 a parent container created in the same request. Nova assigns creation identities
 when omitted. Existing IDs remain useful when names collide.
 
+In record expressions, worker references such as `#user/region` name information
+declared in the app. `session('userid')` and `session('username')` read built-in
+identity. `external-user('key')` explicitly reads custom worker data provided
+outside the app.
+
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
 references for workflows, field types, forms, expressions, languages,

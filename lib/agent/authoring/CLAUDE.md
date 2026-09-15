@@ -83,6 +83,9 @@ over a coincidentally identical display label. External worker values print as
 `external-user(...)`, keeping them distinct from authored worker properties even
 when a predicate may legally contain both names. Canonical prose admission
 already rejects that collision for prose references.
+In record expressions, `user(...)` and `#user/...` require a declared worker property. Built-in identity
+uses `session(...)`; undeclared custom metadata requires `external-user(...)`.
+An unknown property must never silently become an external metadata dependency.
 
 `messages.ts` gives automation messages the same literal escaping as form text.
 The record catalog binds case, parent, and host references. The canonical

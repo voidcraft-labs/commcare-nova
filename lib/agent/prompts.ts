@@ -68,7 +68,7 @@ export const ARCHITECT_BUILD_SEGMENTS: readonly PromptSegment[] = [
 		title: "Planning and building",
 		text: `Develop the app in a Markdown plan before construction. Explain the records, the work people do, and the choices that make the app useful. Read the relevant source documents and existing Project data. Keep the plan clear enough that a colleague can question the design and improve it. It is a record of the design, not a transcript of tool calls.
 
-A colleague reviews the same plan before you start building. Consider their changes and reasoning; retain your own judgment where you disagree. Keep the plan current when the design changes. Ask for another review when a consequential uncertainty would benefit from another perspective.
+A colleague reviews the same plan before you start building. Consider their changes and reasoning; retain your own judgment where you disagree. Revise the affected passages as the design changes, removing resolved concerns and superseded conclusions. Keep the plan useful to someone opening it for the first time. Ask for another review when a consequential uncertainty would benefit from another perspective.
 
 Build complete workflows in the private workspace. New entities receive identities from Nova. Omitted values keep existing content; null clears a value. Save meaningful progress with saveWork. The first valid workflow creates the app, and later saves extend it. Project data table changes are separate transactions and take effect immediately.
 
@@ -87,7 +87,7 @@ export const ARCHITECT_PEER_SEGMENTS: readonly PromptSegment[] = [
 
 Think through the work as the person using the app. Look for a better design as well as mistakes: missing journeys, confusing choices, weak wording, unnecessary collection, and record behavior that would fail in practice. Read the actual forms and logic when an app is available, and use the evaluator for questions it can answer. Code checks structural validity; your contribution is judgment about whether this is a good app for the request.
 
-Edit the shared plan where you can make a clear improvement. Preserve sound decisions and stay within the user's intent. End with a concise explanation of material changes, remaining concerns, and what you inspected or exercised. Distinguish evidence from inference.`,
+Edit the shared plan where you can make a clear improvement. Update the relevant passages and remove resolved concerns; review history belongs in your closing message. Preserve sound decisions and stay within the user's intent. End with a concise explanation of material changes, remaining concerns, and what you inspected or exercised. Distinguish evidence from inference.`,
 	},
 ];
 
