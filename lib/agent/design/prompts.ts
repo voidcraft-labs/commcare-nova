@@ -10,11 +10,15 @@ import {
 	taggedCitableSourceRefs,
 } from "@/lib/agent/design/reviewVocabulary";
 import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
+import {
+	designSourceLabel,
+	projectDesignSourceRefs,
+} from "@/lib/agent/design/sourceReferences";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v34",
-	reviewer: "design-reviewer-v23",
+	agent: "design-agent-v35",
+	reviewer: "design-reviewer-v24",
 	planner: "design-plan-v8",
 } as const;
 
@@ -52,7 +56,7 @@ Understand the requested outcome, then make the smallest coherent app that fully
 
 ${DESIGN_QUALITY_GUIDANCE}
 
-Save the design through the available design tools. Name elements with readable symbols such as "@register_client" and reuse those names in references. Updates contain complete items; send independent updates together when their content is settled. Successful updates are saved. Use the current workspace and findings to continue, and change only what needs correction. The server owns persistence, review, and construction planning.
+Save the design through the available design tools. Name elements with readable symbols such as "@register_client" and reuse those names in references. Send settled updates together; references may name elements created in the same response. Each update contains complete items. Successful updates are saved. Use the current workspace and findings to continue, and change only what needs correction. The server owns persistence, review, and construction planning.
 
 Inspect existing Project data before choosing it, then supply its table and column IDs with the returned revision. Nova attaches the inspection evidence. Inspect again if the data changes. Drafting a table change does not apply it.
 
@@ -76,7 +80,7 @@ Return concrete findings that would improve the app. Use design-correction for a
 
 Only critical or important design corrections and necessary user decisions block acceptance. Critical means the wrong app, a central workflow that cannot work, or exposure or corruption of sensitive data. Important means a material workflow, data, access, or usability defect. Advisory is non-blocking. External setup is a note when the app remains valid and useful; a missing value or reference needed to build it is a blocking issue.
 
-Ground critical and important findings in an exact source tag, a listed platform-constraint code, or a contradiction between named design elements. Use the printed symbols: S-numbered source tags, constraint codes, and element @names. Attachment citations may include sectionPath or figureMarker. affectedElements contains only printed element @names and may be empty for a missing element. Workflow-local input, decision, and effect names are not elements; cite their enclosing workflow and identify the local item in the claim. Advisory findings have no citations. Source attribution belongs in the review, not in another ledger inside the design.
+Ground critical and important findings in an exact source tag, a listed platform-constraint code, or a contradiction between named design elements. Use the printed source labels, constraint codes, and element @names. Attachment citations may include sectionPath or figureMarker. affectedElements contains only printed element @names and may be empty for a missing element. Workflow-local input, decision, and effect names are not elements; cite their enclosing workflow and identify the local item in the claim. Advisory findings have no citations. Source attribution belongs in the review, not in another ledger inside the design.
 
 Combine a repeated defect into one finding naming all affected elements. Prefer a clean review over speculative criticism. Summarize in calm product language, in the language of the person's latest substantive message. Keep schemas, identifiers, and internal process out of that summary.`;
 
@@ -89,16 +93,11 @@ function neutralizeSourceDelimiters(text: string): string {
 	return text.replace(/<(\s*\/?\s*)nova:source/gi, "\u27e8$1nova:source");
 }
 
-function refToken(value: string): string {
-	return value.replace(/[^A-Za-z0-9_.:-]/g, "_");
-}
-
 export function renderRequestBlockSource(
 	block: DesignSourcePackage["request"]["blocks"][number],
 ): string[] {
-	const { threadId, messageId, partIndex } = block.ref;
 	return [
-		sourceOpen(`message:${threadId}:${refToken(messageId)}:${partIndex}`),
+		sourceOpen(designSourceLabel(block.ref)),
 		neutralizeSourceDelimiters(block.text),
 		...(block.truncated ? ["[clipped at the projection bound]"] : []),
 		SOURCE_CLOSE,
@@ -108,14 +107,18 @@ export function renderRequestBlockSource(
 export function renderAttachmentSource(
 	attachment: DesignSourcePackage["attachments"][number],
 ): string[] {
+	const label = designSourceLabel({
+		kind: "attachment-extract",
+		assetId: attachment.assetId,
+		extractorVersion: attachment.extractorVersion,
+		sectionPath: [],
+	});
 	return [
-		`## Attached document: ${neutralizeSourceDelimiters(attachment.filename)} (attachment:${attachment.assetId}:${attachment.extractorVersion})`,
+		`## Attached document: ${neutralizeSourceDelimiters(attachment.filename)} (${label})`,
 		...(attachment.summary
 			? [`Summary: ${neutralizeSourceDelimiters(attachment.summary)}`]
 			: []),
-		sourceOpen(
-			`attachment:${attachment.assetId}:${attachment.extractorVersion}`,
-		),
+		sourceOpen(label),
 		neutralizeSourceDelimiters(attachment.extract),
 		...(attachment.truncated
 			? ["[the stored extract was truncated or clipped at the bound]"]
@@ -127,7 +130,13 @@ export function renderAttachmentSource(
 export function imageSourceLabel(
 	image: DesignSourcePackage["images"][number],
 ): string {
-	return `Attached image: ${neutralizeSourceDelimiters(image.filename)} (image:${image.assetId}:${image.bytesDigest})`;
+	return `Attached image: ${neutralizeSourceDelimiters(image.filename)} (${designSourceLabel(
+		{
+			kind: "image",
+			assetId: image.assetId,
+			bytesDigest: image.bytesDigest,
+		},
+	)})`;
 }
 
 function sourceTagOpen(tag: string): string {
@@ -136,11 +145,12 @@ function sourceTagOpen(tag: string): string {
 
 /** The tag every rendered source unit prints — one lookup over the same
  *  derivation the legend and the reviewer schema use, so a block's label can
- *  never disagree with the citable set. Construction guarantees a hit (the
- *  source index feeds `citableSourceRefs`); the fallback only keeps a
- *  malformed synthetic package renderable. */
+ *  never disagree with the citable set. The source index feeds that set. */
 function tagFor(tags: ReadonlyMap<string, string>, key: string): string {
-	return tags.get(key) ?? "S0";
+	const tag = tags.get(key);
+	if (tag === undefined)
+		throw new Error("The source is missing from the design package.");
+	return tag;
 }
 
 /** Claims carry full source references; the reviewer prompt prints them as
@@ -151,7 +161,7 @@ function projectClaimRefsToTags(
 	tags: ReadonlyMap<string, string>,
 ): unknown[] {
 	return claims.map((claim) => ({
-		...claim,
+		statement: claim.statement,
 		sourceRefs: claim.sourceRefs.map((ref) =>
 			ref.kind === "platform-constraint"
 				? `platform:${ref.code}`
@@ -160,10 +170,8 @@ function projectClaimRefsToTags(
 	}));
 }
 
-/** REVIEWER-ONLY rendering. The conversational per-block renderers above stay
- *  byte-identical — the author transcript is prefix-cached and tag numbering
- *  shifts when an answered round extends the package, so tags may exist only
- *  in this one-shot prompt and are never persisted. */
+/** The reviewer receives one source package. The author receives the same
+ * stable source labels in the messages that introduced those sources. */
 export function renderSourcePackage(pkg: DesignSourcePackage): string {
 	const tags = sourceTagByRefKey(pkg);
 	const lines: string[] = ["# Source package", "", "## User request"];
@@ -318,10 +326,13 @@ export function renderReviewPrompt(
 		"# Proposed Design Contract",
 		"Elements are printed with their @handle symbols in place of raw identities. Form-composition sections and items are real citable elements. Names in a workflow's nested semantic handle fields (inputs, decisions, effects) are workflow-local, not element symbols; cite their enclosing workflow.",
 		JSON.stringify(
-			projectDesignIdentityHandles(
+			projectDesignSourceRefs(
 				appDesignContractBaseSchema,
-				contract,
-				bindings,
+				projectDesignIdentityHandles(
+					appDesignContractBaseSchema,
+					contract,
+					bindings,
+				),
 			),
 			null,
 			1,

@@ -7,7 +7,7 @@
  * can resolve into the persisted shape: the provider grammar the model fills
  * is the symbol schema below, and the validation bridge hands back the
  * resolved review. The model emits NO identities Nova already owns — source
- * citations are `S`-numbered tags from the prompt's legend (an exact enum, so
+ * citations are stable source labels from the prompt's legend (an exact enum, so
  * an out-of-set citation is grammatically inexpressible), affected elements
  * are the contract's printed `@handle` symbols, platform citations are the
  * catalog's code enum (the catalog supplies `sourceAnchor`; a model-invented

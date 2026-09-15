@@ -391,6 +391,13 @@ claim/fact/rule/transition/scenario/ownership graph. Important or critical
 independent-review findings cite their affected sources or design elements;
 advisory observations do not create traceability work.
 
+Design authors and reviewers cite stable source labels. Nova resolves them to
+the exact authorized message, extract, image or platform reference before
+storing evidence. A label keeps its identity as the conversation grows; raw
+coordinates and media digests stay in canonical provenance. Document citations
+may narrow to a section or figure. A citation proves its source, not consent or
+the truth of a claim; review and Project-data admission retain those duties.
+
 Menu compositions are the single source for hierarchy, placement, ordering,
 actors and menu access. Access policies point directly to a composition;
 there is no parallel navigation intent. The execution brief includes a menu's

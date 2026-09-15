@@ -65,13 +65,18 @@ function reviewerSchema(sourcePackage: DesignSourcePackage = pkg()) {
 	});
 }
 
+function sourceTag(index: number): string {
+	return fixtureValue(taggedCitableSourceRefs(pkg())[index], "citable source")
+		.tag;
+}
+
 /** A wire-shaped finding — what the reviewer model actually emits. */
 function wireFinding(overrides: Record<string, unknown> = {}) {
 	return {
 		severity: "important",
 		dispositionClass: "design-correction",
 		claim: "The visit result is not shown after submission.",
-		evidenceRefs: [{ source: "S1" }],
+		evidenceRefs: [{ source: sourceTag(0) }],
 		affectedElements: ["@task_visit"],
 		proposedResolution: "Show the saved visit summary.",
 		...overrides,
@@ -170,14 +175,14 @@ describe("complete review protocol", () => {
 					affectedElements: ["@task_visit"],
 					proposedResolution: "Show the saved summary.",
 					evidenceRefs: [
-						{ source: "S1", sectionPath: null, figureMarker: null },
+						{ source: sourceTag(0), sectionPath: null, figureMarker: null },
 						{
-							source: "S2",
+							source: sourceTag(1),
 							sectionPath: ["Requirements"],
 							figureMarker: '<nova:figure index="1"/>',
 						},
-						{ source: "S3", sectionPath: null, figureMarker: null },
-						{ source: "S4", sectionPath: null, figureMarker: null },
+						{ source: sourceTag(2), sectionPath: null, figureMarker: null },
+						{ source: sourceTag(3), sectionPath: null, figureMarker: null },
 						{ platform: "CASE_SEARCH_IS_LIVE_AND_ONLINE" },
 					],
 				},
@@ -423,7 +428,9 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 		const result = reviewerSchema().safeParse(
 			wireReview([
 				wireFinding({
-					evidenceRefs: [{ source: "S1", sectionPath: ["Requirements"] }],
+					evidenceRefs: [
+						{ source: sourceTag(0), sectionPath: ["Requirements"] },
+					],
 				}),
 			]),
 		);
@@ -431,7 +438,7 @@ describe("the reviewer's symbol vocabulary resolves to the persisted shape", () 
 		const message = result.success
 			? ""
 			: (result.error.issues[0]?.message ?? "");
-		expect(message).toContain("S1");
+		expect(message).toContain(sourceTag(0));
 		expect(message).toContain("message");
 	});
 
@@ -464,7 +471,12 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		const sourcePackage = richPackage();
 		const tagged = taggedCitableSourceRefs(sourcePackage);
 		// Actual request block, extract, image and completed-card coordinate.
-		expect(tagged.map(({ tag }) => tag)).toEqual(["S1", "S2", "S3", "S4"]);
+		expect(tagged.map(({ tag }) => tag)).toEqual([
+			sourceTag(0),
+			sourceTag(1),
+			sourceTag(2),
+			sourceTag(3),
+		]);
 		const schema = designReviewSchemaFor({
 			contract: makeContract(),
 			pkg: sourcePackage,
@@ -479,10 +491,12 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 		}
 		const legend = renderSourceTagLegend(sourcePackage);
 		expect(legend.match(/^- /gm)).toHaveLength(tagged.length);
-		expect(legend).toContain("S1 — user message block");
-		expect(legend).toContain("S2 — attached document requirements.txt");
+		expect(legend).toContain(`${sourceTag(0)} — user message block`);
 		expect(legend).toContain(
-			"S4 — a message coordinate from the normalized source notes",
+			`${sourceTag(1)} — attached document requirements.txt`,
+		);
+		expect(legend).toContain(
+			`${sourceTag(3)} — a message coordinate from the normalized source notes`,
 		);
 	});
 
@@ -498,7 +512,7 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 				wireFinding({
 					evidenceRefs: [
 						{
-							source: "S2",
+							source: sourceTag(1),
 							sectionPath: ["Requirements"],
 							figureMarker: '<nova:figure index="1"/>',
 						},
@@ -544,7 +558,7 @@ describe("citation grounding stays in lockstep with the review prompt", () => {
 			bindings: bindings(),
 		});
 		const result = schema.safeParse(
-			wireReview([wireFinding({ evidenceRefs: [{ source: "S2" }] })]),
+			wireReview([wireFinding({ evidenceRefs: [{ source: sourceTag(1) }] })]),
 		);
 		expect(result.success).toBe(true);
 		if (!result.success) return;

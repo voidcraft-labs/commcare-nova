@@ -18,6 +18,7 @@
  */
 
 import type { UIMessage } from "ai";
+import { sourceClaimSchema } from "@/lib/agent/design/evidence";
 import type { DesignGateState } from "@/lib/agent/design/loop/gates";
 import {
 	imageSourceLabel,
@@ -28,6 +29,7 @@ import type {
 	DesignSourcePackage,
 	SourceClaimSeed,
 } from "@/lib/agent/design/sourcePackage";
+import { projectDesignSourceRefs } from "@/lib/agent/design/sourceReferences";
 
 type PackageImage = DesignSourcePackage["images"][number];
 
@@ -189,7 +191,19 @@ export function renderDesignStateMessage(args: {
 	}
 	lines.push("", "## Resolved answers and source outline");
 	lines.push(
-		args.claims.length > 0 ? JSON.stringify(args.claims, null, 1) : "None yet.",
+		args.claims.length > 0
+			? JSON.stringify(
+					projectDesignSourceRefs(
+						sourceClaimSchema.omit({ id: true }).array(),
+						args.claims.map(({ statement, sourceRefs }) => ({
+							statement,
+							sourceRefs,
+						})),
+					),
+					null,
+					1,
+				)
+			: "None yet.",
 	);
 	if (args.openReviews && args.openReviews.length > 0) {
 		lines.push("", "## Review findings awaiting disposition");
@@ -214,10 +228,6 @@ export function renderDesignStateMessage(args: {
 						reviewedParent: args.workspace.sourceContract,
 					}),
 					currentCandidate: args.workspace.candidate,
-					instruction:
-						args.workspace.artifactKind === "revision"
-							? "Continue from this exact revision candidate. Use the native semantic update calls for affected items and dispositions, then finishDesign. Do not recreate saved work."
-							: "Continue from this exact candidate with native semantic update calls, then finishDesign. Do not recreate saved work. Inspect only when a narrow exceptional lookup is genuinely needed.",
 				},
 				null,
 				1,

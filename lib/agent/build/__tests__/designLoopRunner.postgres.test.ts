@@ -23,6 +23,7 @@ import {
 	type ProviderOutput,
 	withDesignResponses,
 } from "@/lib/agent/design/loop/__tests__/designAgentPeer";
+import { taggedCitableSourceRefs } from "@/lib/agent/design/reviewVocabulary";
 import {
 	type BuildSourcePackageArgs,
 	buildDesignSourcePackage,
@@ -285,7 +286,14 @@ describe("durable design loop runner", () => {
 						severity: "important",
 						dispositionClass: "design-correction",
 						claim,
-						evidenceRefs: [{ source: "S1" }],
+						evidenceRefs: [
+							{
+								source: fixtureValue(
+									taggedCitableSourceRefs(fixture.pkg)[0],
+									"source",
+								).tag,
+							},
+						],
 						affectedElements: [],
 						proposedResolution: "Confirm the saved visit summary.",
 					},

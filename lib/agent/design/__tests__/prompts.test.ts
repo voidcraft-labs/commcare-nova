@@ -15,6 +15,7 @@ import {
 	renderSourcePackage,
 	sourcePackageImages,
 } from "@/lib/agent/design/prompts";
+import { taggedCitableSourceRefs } from "@/lib/agent/design/reviewVocabulary";
 import type {
 	AuthorizedImage,
 	DesignSourcePackage,
@@ -151,19 +152,26 @@ describe("renderSourcePackage containment", () => {
 			.split("\n")
 			.find((line) => line.startsWith("<nova:source"));
 		expect(openTag).toBeDefined();
-		expect(openTag).toMatch(/^<nova:source tag="S[0-9]+">$/);
+		expect(openTag).toMatch(/^<nova:source tag="S_[a-f0-9]{12}">$/);
 		expect(rendered).not.toContain("injected");
 	});
 });
 
+function sourceTag(pkg: DesignSourcePackage, kind: string): string {
+	const source = taggedCitableSourceRefs(pkg).find(
+		({ ref }) => ref.kind === kind,
+	);
+	if (source === undefined) throw new Error("Missing citable fixture source.");
+	return source.tag;
+}
+
 describe("image citation tags", () => {
 	it("labels each image part with its source tag", () => {
-		const [image] = sourcePackageImages(
-			packageWith({ images: [fixtureImage()] }),
+		const pkg = packageWith({ images: [fixtureImage()] });
+		const [image] = sourcePackageImages(pkg);
+		expect(image?.label).toBe(
+			`Attached image: mockup.png (${sourceTag(pkg, "image")})`,
 		);
-		// Block = S1, image = S2 — the label's tag IS the citation, so there is
-		// no digest for the model to copy incorrectly.
-		expect(image?.label).toBe("Attached image: mockup.png (S2)");
 	});
 
 	it("neutralizes a forged delimiter in an image filename", () => {
@@ -185,15 +193,20 @@ describe("image citation tags", () => {
 
 describe("the review prompt's tag legend", () => {
 	it("renders the legend and keeps every raw coordinate out of the prompt", () => {
+		const pkg = packageWith({ images: [fixtureImage()] });
 		const rendered = renderReviewPrompt(
-			packageWith({ images: [fixtureImage()] }),
+			pkg,
 			makeContract(),
 			"# Capability catalog",
 			[],
 		);
 		expect(rendered).toContain("## Source tags");
-		expect(rendered).toContain("S1 — user message block");
-		expect(rendered).toContain("S2 — attached image mockup.png");
+		expect(rendered).toContain(
+			`${sourceTag(pkg, "message")} — user message block`,
+		);
+		expect(rendered).toContain(
+			`${sourceTag(pkg, "image")} — attached image mockup.png`,
+		);
 		// The tag IS the citation: no thread id or byte digest survives
 		// anywhere in the reviewer's context to be copied or spliced.
 		expect(rendered).not.toContain(THREAD_ID);
