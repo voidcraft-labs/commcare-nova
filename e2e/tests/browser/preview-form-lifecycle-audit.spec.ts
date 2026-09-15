@@ -3,6 +3,140 @@ import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-form-lifecycle-client";
 
+test("Submit commits the coordinate and clock currently being edited", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+		},
+	);
+	const submissions: unknown[][] = [];
+	await page.route(`${peer.origin}/submission`, async (route) => {
+		submissions.push(route.request().postDataJSON());
+		await route.fulfill({
+			json: { kind: "error", message: "Transport unavailable. Try again." },
+		});
+	});
+	try {
+		await page.goto(`${peer.origin}/?drafts`);
+		const name = page.getByRole("textbox", { name: /Question 1.*Name/ });
+		await expect(name).toBeVisible();
+		await name.fill("Ada");
+		const clock = page.getByRole("textbox", { name: /Question 4.*Time/ });
+		await clock.fill("2:30 PM");
+		await page
+			.getByRole("button", { name: "Enter coordinates manually" })
+			.click();
+		await page
+			.getByRole("spinbutton", { name: "Latitude", exact: true })
+			.fill("40");
+		const longitude = page.getByRole("spinbutton", {
+			name: "Longitude",
+			exact: true,
+		});
+		await longitude.fill("-74");
+		await expect(longitude).toBeFocused();
+		await page.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect(page.getByRole("alert")).toHaveText(
+			"Transport unavailable. Try again.",
+		);
+		expect(submissions).toHaveLength(1);
+		expect(submissions[0]?.[0]).toMatchObject({
+			kind: "registration",
+			primary: { properties: { place: "40 -74 0 0", clock: "14:30:00.000Z" } },
+		});
+		await clock.fill("3:45 PM");
+		await page.getByRole("button", { name: "Submit", exact: true }).click();
+		await expect.poll(() => submissions.length).toBe(2);
+		expect(submissions[1]?.[0]).toMatchObject({
+			kind: "registration",
+			primary: { properties: { place: "40 -74 0 0", clock: "15:45:00.000Z" } },
+		});
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});
+
+test("Numeric answers remain editable and block submission until corrected", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+		},
+	);
+	const submissions: unknown[][] = [];
+	await page.route(`${peer.origin}/submission`, async (route) => {
+		submissions.push(route.request().postDataJSON());
+		await route.fulfill({
+			json: { kind: "error", message: "Transport unavailable. Try again." },
+		});
+	});
+	try {
+		await page.goto(`${peer.origin}/?numbers`);
+		await page.getByRole("textbox", { name: /Question 1.*Name/ }).fill("Ada");
+		const count = page.getByRole("textbox", { name: /Question 3.*Count/ });
+		const quantity = page.getByRole("textbox", {
+			name: /Question 4.*Quantity/,
+		});
+		const submit = page.getByRole("button", { name: "Submit", exact: true });
+		await count.fill("2.5");
+		await submit.click();
+		await expect(count).toBeFocused();
+		await expect(count).toHaveValue("2.5");
+		await expect(count).toHaveAttribute("aria-invalid", "true");
+		await expect(
+			page.getByText("This question needs a whole number."),
+		).toBeVisible();
+		expect(submissions).toHaveLength(0);
+		await count.fill("2");
+		await quantity.fill("1e");
+		await submit.click();
+		await expect(quantity).toBeFocused();
+		await expect(quantity).toHaveValue("1e");
+		await expect(page.getByText("This question needs a number.")).toBeVisible();
+		expect(submissions).toHaveLength(0);
+		await quantity.fill("2.5");
+		await submit.focus();
+		await submit.press("Enter");
+		await expect(page.getByRole("alert")).toHaveText(
+			"Transport unavailable. Try again.",
+		);
+		expect(submissions).toHaveLength(1);
+		await expect(count).toHaveValue("2");
+		await expect(quantity).toHaveValue("2.5");
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});
+
 test("Form submission waits for real file upload, preserves same-Project answers and retires a changed Project entry", async ({
 	page,
 }) => {

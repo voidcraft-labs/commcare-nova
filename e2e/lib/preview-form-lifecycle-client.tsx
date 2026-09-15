@@ -4,7 +4,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { __resetAttachmentCoordinatorForTests } from "@/components/preview/form/fields/attachment/attachmentClient";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
@@ -21,19 +21,26 @@ const MODULE = testUuid("native-form-module"),
 	FORM = testUuid("native-form-survey");
 const NAME = testUuid("native-form-name"),
 	PHOTO = testUuid("native-form-photo");
+const numbers = new URLSearchParams(location.search).has("numbers");
+const drafts = new URLSearchParams(location.search).has("drafts");
 const doc = admittedControllerDoc(
 	buildDoc({
 		appId: "native-form",
 		appName: "Form lifecycle",
+		caseTypes: drafts ? [{ name: "visit", properties: [] }] : undefined,
 		modules: [
 			{
 				uuid: MODULE,
 				name: "Visits",
+				caseType: drafts ? "visit" : undefined,
+				caseListConfig: drafts
+					? caseListConfig([{ field: "case_name", header: "Name" }])
+					: undefined,
 				forms: [
 					{
 						uuid: FORM,
 						name: "Visit",
-						type: "survey",
+						type: drafts ? "registration" : "survey",
 						fields: [
 							{
 								uuid: NAME,
@@ -41,8 +48,45 @@ const doc = admittedControllerDoc(
 								kind: "text",
 								label: "Name",
 								required: "true()",
+								...(drafts
+									? { caseWrite: { caseType: "visit", property: "case_name" } }
+									: {}),
 							},
 							{ uuid: PHOTO, id: "photo", kind: "image", label: "Photo" },
+							...(drafts
+								? [
+										{
+											uuid: testUuid("native-form-place"),
+											id: "place",
+											kind: "geopoint" as const,
+											label: "Location",
+											caseWrite: { caseType: "visit", property: "place" },
+										},
+										{
+											uuid: testUuid("native-form-clock"),
+											id: "clock",
+											kind: "time" as const,
+											label: "Time",
+											caseWrite: { caseType: "visit", property: "clock" },
+										},
+									]
+								: []),
+							...(numbers
+								? [
+										{
+											uuid: testUuid("native-form-count"),
+											id: "count",
+											kind: "int" as const,
+											label: "Count",
+										},
+										{
+											uuid: testUuid("native-form-quantity"),
+											id: "quantity",
+											kind: "decimal" as const,
+											label: "Quantity",
+										},
+									]
+								: []),
 						],
 					},
 				],
@@ -73,6 +117,8 @@ function Capture() {
 }
 const element = document.getElementById("root");
 if (!element) throw new Error("Missing root");
+// Match the bounded Preview viewport that gives FormScreen its height.
+element.style.height = "calc(100vh - 32px)";
 const root = createRoot(element);
 pushBuilderHistory(`/build/native-form/${MODULE}/${FORM}`);
 root.render(

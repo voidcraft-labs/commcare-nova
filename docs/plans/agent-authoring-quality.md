@@ -138,8 +138,10 @@ production definitions as `/agents`; they are not provider counts. Two independe
 reviews cleared the corrected executor slice. A [bounded model-driven trial](../research/agent-executor-authoring-2026-09-13.md)
 committed its registration workflow in eight requests and passed the observed
 range, requiredness, conditional-visibility, and personalized-note checks. An
-additional fractional-input check exposed a Preview numeric-value gap; that
-remains open, and this is not general quality evidence. The existing versioned attempt lifecycle
+additional fractional-input check exposed a Preview numeric-value gap. The following
+slice fixes complete numeric validation and preserves invalid input for correction;
+replaying the same canonical app now rejects the fraction. This remains narrow
+evidence, not general app quality. The existing versioned attempt lifecycle
 supersedes incompatible private work and opens a fresh context; persisted app
 and mutation shapes have not changed. Further deterministic construction and
 broader quality evidence remain open.

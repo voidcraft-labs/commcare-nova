@@ -3352,7 +3352,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const shapeError = this.temporalShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state.value);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -3404,7 +3404,7 @@ export class FormEngine {
 		updates: EngineStoreState,
 	): void {
 		if (this.asyncRuntime) return;
-		const shapeError = this.temporalShapeError(path, state.value);
+		const shapeError = this.answerShapeError(path, state.value);
 		if (shapeError !== undefined) {
 			if (state.valid || state.errorMessage !== shapeError) {
 				updates[path] = { ...state, valid: false, errorMessage: shapeError };
@@ -3437,31 +3437,17 @@ export class FormEngine {
 	}
 
 	/**
-	 * The message for a temporal answer that is not yet in a shape anything
-	 * downstream can read, or `undefined` when there is nothing wrong.
-	 *
-	 * This exists because a clock is TYPED. Every other answer a person can
-	 * half-finish is still a legal value of its type — "abc" is a string —
-	 * but "2:3" is not a time, and without a gate it travels all the way to
-	 * the case store and comes back as a schema rejection naming a property
-	 * instead of a question. So the shape is checked here, where the field
-	 * that owns it can say so.
-	 *
-	 * It rides with authored validation rather than with required, so it
-	 * surfaces on blur — the moment the answer stopped being half-typed —
-	 * and again for every field at submit. An empty answer is not
-	 * ill-shaped; whether it is allowed is `required`'s question.
-	 *
-	 * The bar is READABILITY, never canonicality. Anything the storage
-	 * boundary can canonicalize belongs to the person, not to this gate: a
-	 * pre-millisecond `08:45:00Z` sitting in a case row and a `today()`
-	 * default landing a bare date in a datetime slot are both fine, and
-	 * refusing them would block a submission over an answer nobody typed and
-	 * nobody can fix.
+	 * Check typed answers before authored rules, on blur and at submission.
+	 * Empty answers belong to requiredness. Readable temporal values may use
+	 * older storage spellings; numeric text must describe the entire answer.
 	 */
-	private temporalShapeError(path: string, value: string): string | undefined {
+	private answerShapeError(path: string, value: string): string | undefined {
 		if (value === "") return undefined;
 		const kind = this.findField(path)?.kind;
+		if (kind === "int" || kind === "decimal") {
+			const parsed = readNumericAnswer(kind, value);
+			return parsed.ok ? undefined : parsed.error;
+		}
 		if (kind !== "date" && kind !== "time" && kind !== "datetime") {
 			return undefined;
 		}
@@ -4165,6 +4151,37 @@ function datetimeShapeMessage(value: string): string {
 	return `“${value}” isn't a date and time.`;
 }
 
+/** Numeric answers use decimal text, never JavaScript's prefix parsing. */
+function readNumericAnswer(
+	kind: "int" | "decimal",
+	raw: string,
+): { ok: true; value: number } | { ok: false; error: string } {
+	if (kind === "int" && !/^[+-]?\d+$/.test(raw)) {
+		return { ok: false, error: "This question needs a whole number." };
+	}
+	if (
+		kind === "decimal" &&
+		!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw)
+	) {
+		return { ok: false, error: "This question needs a number." };
+	}
+	const value = Number(raw);
+	// IntegerData.cast reads a signed 32-bit integer on CommCare devices.
+	if (
+		kind === "int" &&
+		(value < Number(JAVA_INT_MIN) || value > Number(JAVA_INT_MAX))
+	) {
+		return {
+			ok: false,
+			error: "The number needs to be between -2,147,483,648 and 2,147,483,647.",
+		};
+	}
+	if (!Number.isFinite(value)) {
+		return { ok: false, error: "The number is too large to save." };
+	}
+	return { ok: true, value: value === 0 ? 0 : value };
+}
+
 function coerceValueForProperty(
 	raw: string,
 	property: CaseProperty,
@@ -4181,13 +4198,10 @@ function coerceValueForProperty(
 			return storageTimeValue(raw);
 		case "datetime":
 			return storageDatetimeValue(raw, zone);
-		case "int": {
-			const parsed = Number.parseInt(raw, 10);
-			return Number.isInteger(parsed) && Number.isFinite(parsed) ? parsed : raw;
-		}
+		case "int":
 		case "decimal": {
-			const parsed = Number.parseFloat(raw);
-			return Number.isFinite(parsed) ? parsed : raw;
+			const parsed = readNumericAnswer(dataType, raw);
+			return parsed.ok ? parsed.value : raw;
 		}
 		case "multi_select":
 			return raw.split(/\s+/).filter((token) => token.length > 0);

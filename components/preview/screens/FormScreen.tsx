@@ -1672,6 +1672,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const handleSubmit = async (): Promise<void> => {
 		if (clearInFlightRef.current) return;
+
 		const start = session.getState();
 		/* Authority is read imperatively at the mutation boundary. A queued click
 		 * can run after the synchronous reset but before React commits fresh props. */
@@ -1681,6 +1682,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			start.appId !== appId
 		)
 			return;
+		// Mouse activation retains focus until this point so validation cannot
+		// move the button mid-click. Now let the field commit its local draft.
+		const active = document.activeElement;
+		if (
+			active instanceof HTMLElement &&
+			formBodyElRef.current?.contains(active)
+		)
+			active.blur();
 		const submittedBase = { ...submissionContextRef.current };
 		/* A submission program is derived from the committed blueprint, while
 		 * answers and after-submit routing come from this tab's document. Flush
@@ -1932,12 +1941,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
-				// Deliberately does not name the reason. Submit is blocked by
-				// a missing required answer, an authored validation rule, OR
-				// a temporal answer that is not yet a value of its type, and
-				// the focused question announces its OWN message a moment
-				// later: naming one of the three here would contradict the
-				// other two.
+				// The focused question supplies the specific correction.
 				announce("Review the highlighted question.");
 				const firstInvalid = controller.firstInvalidFieldTarget();
 				if (firstInvalid !== undefined) showPageOf(firstInvalid);
@@ -2442,6 +2446,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									<button
 										type="button"
 										onClick={handleSubmit}
+										onMouseDown={(event) => {
+											// Keep blur validation from moving Submit between press
+											// and release. Submission validates and focuses the answer.
+											if (
+												event.button === 0 &&
+												formBodyElRef.current?.contains(document.activeElement)
+											) {
+												event.preventDefault();
+											}
+										}}
 										disabled={
 											submitStatus.kind === "running" ||
 											clearRunning ||
