@@ -51,6 +51,7 @@ import {
 	readDesignRevision,
 } from "@/lib/agent/design/artifactStore";
 import type { BuildPlan, BuildSlice } from "@/lib/agent/design/buildPlan";
+import { recordCanonicalConformance } from "@/lib/agent/design/conformanceStore";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import { seedClaimsFromAnsweredRounds } from "@/lib/agent/design/loop/claimSeeding";
@@ -998,6 +999,26 @@ export async function runBuildOrchestration(
 					plan,
 					localizationReceipt,
 				});
+				const conformance = await recordCanonicalConformance({
+					designSessionId: args.designSessionId,
+					appId,
+					designRevisionId: revision.id,
+					buildPlanId: plan.id,
+					authority: {
+						actorUserId: args.actorUserId,
+						runId: args.runId,
+						holderNonce: args.holderNonce,
+						expectedProjectId: args.projectId,
+					},
+				});
+				if (
+					conformance.payload.appSeq !== lastSeq ||
+					conformance.payload.findings.length > 0 ||
+					conformance.payload.unreadable.length > 0
+				)
+					refuseBuildCompletion(
+						"The final app still has an unresolved workflow requirement or unreadable implementation evidence.",
+					);
 			} catch (error) {
 				if (error instanceof LocalizationBuildError) {
 					/* The exact failed protocol row remains terminal, so an unchanged
@@ -1032,7 +1053,7 @@ export async function runBuildOrchestration(
 					appId,
 					errorType: "final-verification-failed",
 					message:
-						"Every workflow must commit and the final app must validate and compile before Nova can mark this build complete.",
+						"I couldn't finish verifying every workflow. Your saved app is still available.",
 					recoverable: false,
 				};
 			}

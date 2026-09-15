@@ -4,6 +4,7 @@ import * as deploymentPushTokens from "./20260906000000_deployment_push_tokens";
 import * as designTurnSteps from "./20260911010000_design_turn_steps";
 import * as retireDesignContinuationReceipts from "./20260911020000_retire_design_continuation_receipts";
 import * as retiredDesignSessions from "./20260913000000_retired_design_sessions";
+import * as designConformanceReports from "./20260913010000_design_conformance_reports";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -159,6 +160,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260911020000_retire_design_continuation_receipts":
 		retireDesignContinuationReceipts,
 	"20260913000000_retired_design_sessions": retiredDesignSessions,
+	"20260913010000_design_conformance_reports": designConformanceReports,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

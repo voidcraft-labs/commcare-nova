@@ -963,7 +963,8 @@ and committed lineage is app-keyed. The runtime contract lives in
 
 **The design-artifact tables are the pipeline's durable record, not app
 history.** `design_source_packages`, `design_revisions`, `design_reviews`,
-`design_review_dispositions`, and `design_build_plans` are all append-only
+`design_review_dispositions`, `design_build_plans`, and
+`design_conformance_reports` are all append-only
 runtime DML — insert-only artifacts, never row-locked, never updated,
 never streamed. Every JSONB envelope/payload is authoritative persisted
 JSON: `::text` reads through `persistedJson.ts` + the exact producer
@@ -972,6 +973,11 @@ schemas, with the canonical-JS artifact digest re-verified on every read.
 boundary and
 integrity rules live in `lib/agent/design/artifactStore.ts`
 (`lib/agent/design/CLAUDE.md` is the contract).
+Canonical conformance reports additionally bind one app sequence and snapshot;
+`conformanceStore.ts` rechecks the live holder, app and active artifacts under
+the authority lock before inserting or reusing a report. Tenancy follows the
+app/session. A Project move or later edit preserves the historical report and
+advances the app sequence; it never rewrites the report's body.
 
 Retired design sessions retain their sealed artifacts, model records and usage
 accounts, but are outside current typed artifact reads and run authority.

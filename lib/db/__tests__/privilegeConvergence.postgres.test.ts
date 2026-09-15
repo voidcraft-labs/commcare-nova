@@ -773,6 +773,16 @@ describe("database privilege convergence", () => {
 					WHERE change_set_id = ${crypto.randomUUID()}::uuid
 				`.execute(runtime.db),
 			).rejects.toMatchObject({ code: "42501" });
+			// An empty table still exercises the actual runtime grants.
+			for (const statement of [
+				sql`UPDATE design_conformance_reports SET envelope = envelope`,
+				sql`DELETE FROM design_conformance_reports`,
+				sql`SELECT id FROM design_conformance_reports FOR UPDATE`,
+			]) {
+				await expect(statement.execute(runtime.db)).rejects.toMatchObject({
+					code: "42501",
+				});
+			}
 			await expect(
 				sql`
 					SELECT nova_insert_app_change_genesis_fold_baseline(${missingProbeAppId})

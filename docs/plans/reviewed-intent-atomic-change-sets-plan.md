@@ -1091,10 +1091,11 @@ an already valid app or a direct builder/MCP edit.
 The first reader, `lib/agent/design/projection/blueprint.ts`, is implemented
 and used by the build repair helper. It projects source-language Blueprint
 content and configured field actions with stable identities and a snapshot
-digest. Unreadable sections remain explicit. Effective catalog reconciliation,
-reference-index evidence, external resource/readiness state, canonical sequence
-binding, receipts, conformance and completion reports still belong to the
-unfinished work below. The repair reader is not a completion gate.
+digest. Unreadable sections remain explicit. Canonical structural assessment
+now binds that projection to an app sequence and exact committed receipts.
+Effective catalog and reference-index evidence beyond the initial rules,
+external resource/readiness state, quality and completion reports remain
+unfinished. The repair reader alone is not a completion gate.
 
 Add `lib/agent/design/projection/` readers that project the current canonical
 app into a compact semantic view:
@@ -1123,11 +1124,11 @@ Its schema and digest version independently.
 ### 9.3 Conformance from workflow semantics
 
 The initial structural rules in `design/conformance.ts` now run at private
-workflow finalization. They compare exact form/module/input bindings and answer
+workflow finalization and again on the final canonical app. They compare exact form/module/input bindings and answer
 types, then detect absent record actions/writes and incompatible property types
-through domain data. This provides construction feedback; it is not a canonical
-sequence-bound completion report. Target, condition, value, access, readback,
-retype and whole-plan proof remain unfinished below.
+through domain data. The canonical assessment verifies all original plan
+receipts and records these findings immutably. Target, condition, value,
+access, readback, retype and overall completion proof remain unfinished below.
 
 Compare the projection directly with the lean contract:
 
@@ -1176,7 +1177,11 @@ semantics.
 
 ### 9.5 Sequence-bound report
 
-Persist one immutable conformance report bound to:
+Implemented for deterministic structural evidence in `canonicalConformance.ts`
+and `conformanceStore.ts`, with runtime append-only storage and exact retry
+reuse. The production entry reads authorized canonical state and the writer
+rechecks app head and active accepted lineage under the run authority lock.
+Quality review remains to be attached. Each report is bound to:
 
 - design session, accepted contract revision, and plan digests;
 - app ID, sequence, and snapshot digest;
