@@ -8,6 +8,7 @@ import {
 	selectionConsumerWorkflowIds,
 } from "@/lib/agent/design/selectionCoverage";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
+import { deriveConstructionSchedule } from "./constructionOwnership";
 
 type Path = Array<string | number>;
 
@@ -27,35 +28,6 @@ function objectWithId(value: unknown): value is { readonly id: string } {
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function constructionWorkflowOrder(contract: AppDesignContract): string[] {
-	const sourceOrder = new Map(
-		contract.workflows.map((workflow, index) => [workflow.id, index]),
-	);
-	const remaining = new Set(contract.workflows.map((workflow) => workflow.id));
-	const emitted: string[] = [];
-	while (remaining.size > 0) {
-		const ready = [...remaining]
-			.filter((id) =>
-				(
-					contract.workflows.find((workflow) => workflow.id === id)
-						?.prerequisiteWorkflowIds ?? []
-				).every((dependency) => !remaining.has(dependency)),
-			)
-			.sort((left, right) => {
-				if (left === contract.charter.initialWorkflowId) return -1;
-				if (right === contract.charter.initialWorkflowId) return 1;
-				return (sourceOrder.get(left) ?? 0) - (sourceOrder.get(right) ?? 0);
-			});
-		if (ready.length === 0)
-			return contract.workflows.map((workflow) => workflow.id);
-		for (const id of ready) {
-			remaining.delete(id);
-			emitted.push(id);
-		}
-	}
-	return emitted;
 }
 
 /**
@@ -1017,17 +989,34 @@ export function validateDesignGraph(
 		});
 	});
 
+	const schedule = deriveConstructionSchedule(contract);
+	if (schedule.orderedWorkflowIds === null) {
+		issue(
+			ctx,
+			["moduleCompositions"],
+			"Workflow and module construction prerequisites must not form a cycle.",
+		);
+	}
+	if (
+		(schedule.prerequisites.get(contract.charter.initialWorkflowId)?.size ??
+			0) > 0
+	) {
+		issue(
+			ctx,
+			["charter", "initialWorkflowId"],
+			"The initial workflow must not depend on another workflow to construct its module or forms.",
+		);
+	}
 	const workflowRank = new Map(
-		constructionWorkflowOrder(contract).map((id, index) => [id, index]),
+		(
+			schedule.orderedWorkflowIds ??
+			contract.workflows.map((workflow) => workflow.id)
+		).map((id, index) => [id, index]),
 	);
+	const moduleOwners = schedule.moduleOwners;
 	const compositionOwner = (
 		composition: AppDesignContract["moduleCompositions"][number],
-	): string | undefined =>
-		[...composition.workflowIds].sort(
-			(left, right) =>
-				(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
-				(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
-		)[0];
+	) => moduleOwners.get(composition.id);
 	const referencedAsParent = new Set(
 		contract.moduleCompositions.flatMap((composition) =>
 			composition.parentModuleCompositionId === undefined

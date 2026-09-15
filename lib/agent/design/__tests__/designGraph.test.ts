@@ -143,29 +143,13 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("requires every module owner to own the module's initial surface", () => {
-		const contract = cloneContract(makeNestedMenuContract());
-		const parent = fixtureValue(
-			contract.moduleCompositions.find(
-				(composition) => composition.id === ids.modulePatients,
-			),
-			"parent module composition",
+	it("admits a form home's related workflows without assigning them its construction", () => {
+		const contract = cloneContract(makeThirteenWorkflowContract());
+		const module = fixtureValue(contract.moduleCompositions[1], "module");
+		module.workflowIds.unshift(
+			fixtureValue(contract.workflows[0], "related workflow").id,
 		);
-		const child = fixtureValue(
-			contract.moduleCompositions.find(
-				(composition) => composition.id === ids.moduleVisits,
-			),
-			"child module composition",
-		);
-		parent.listIds = [];
-		child.workflowIds = [ids.taskRegister];
-		for (const form of contract.formCompositions) {
-			form.moduleCompositionId =
-				form.workflowId === ids.taskRegister ? child.id : parent.id;
-		}
-		expect(messages(contract)).toContain(
-			"construction owner must also own its initial form or case-list surface",
-		);
+		expect(messages(contract)).toBe("");
 	});
 
 	it("rejects a different-record child built before the parent's first form", () => {

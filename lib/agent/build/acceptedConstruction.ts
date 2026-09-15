@@ -155,7 +155,10 @@ export function prepareAcceptedConstruction(args: {
 		);
 		input.moduleUuid = declare(realization.compositionId);
 		input.case_type = realization.hostRecord?.blueprintCaseType ?? null;
-		input.case_list_only = realization.role === "queue-only";
+		input.case_list_only =
+			realization.role === "queue-only" ||
+			(realization.role === "form-and-queue" &&
+				realization.formCompositionIds.length === 0);
 		input.selection =
 			realization.selectionRealization?.action === "create-with-module"
 				? realization.selectionRealization.selection

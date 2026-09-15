@@ -33,6 +33,7 @@ import {
 	modulePatchMutations,
 } from "@/lib/doc/modulePatchMutations";
 import { anchorForIndex, sequenceMovesTo } from "@/lib/doc/mutations/sequence";
+import { moduleFormHostMutations } from "@/lib/doc/scaffolds";
 import { searchInputUpdateMutation as planSearchInputUpdate } from "@/lib/doc/searchInputMutations";
 import type { Mutation } from "@/lib/doc/types";
 import type {
@@ -58,6 +59,7 @@ import type {
 import {
 	asUuid,
 	fieldKinds,
+	formEntersFromMenu,
 	isBuiltinIconRef,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
@@ -614,6 +616,9 @@ export function addFormMutations(
 		...(input.entry !== undefined && { entry: input.entry }),
 	};
 	return [
+		...(formEntersFromMenu(form)
+			? moduleFormHostMutations(doc, moduleUuid)
+			: []),
 		// The form appends; `moveForm` is how the SA reorders one.
 		{ kind: "addForm", moduleUuid, form },
 	];
