@@ -81,6 +81,30 @@ export class HandleTable {
 		return uuid;
 	}
 
+	/** Record a server-owned implementation binding. Repeating the same binding
+	 * is harmless; neither an identity nor its lineage key can be reassigned. */
+	bind(
+		binding: Pick<ChangeSetHandleBinding, "handle" | "uuid" | "entityKind">,
+	): boolean {
+		const existing = this.byHandle.get(binding.handle);
+		if (
+			existing?.uuid === binding.uuid &&
+			existing.entityKind === binding.entityKind
+		)
+			return false;
+		if (existing !== undefined || this.boundUuids.has(binding.uuid))
+			throw new ChangeSetStagingRejectedError(
+				"HANDLE_RESOLUTION_FAILED",
+				`Implementation identity ${binding.uuid} or its lineage key is already bound.`,
+			);
+		this.byHandle.set(binding.handle, {
+			uuid: binding.uuid,
+			entityKind: binding.entityKind,
+		});
+		this.boundUuids.add(binding.uuid);
+		return true;
+	}
+
 	entries(): readonly (readonly [
 		ChangeSetHandle,
 		{ readonly uuid: Uuid; readonly entityKind: StagedEntityKind },

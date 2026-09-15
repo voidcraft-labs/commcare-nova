@@ -341,6 +341,63 @@ describe("stage request idempotency", () => {
 	});
 });
 
+describe("immutable implementation bindings", () => {
+	it("rejects reassignment without advancing any durable stage state", async () => {
+		const appId = await createTestApp();
+		const changeSet = await openAppEditSet(appId);
+		const handle = changeSetHandleSchema.parse("@accepted_module");
+		const uuid = asUuid(crypto.randomUUID());
+		const args = stageArgs(changeSet.id);
+		if (args.outcome.kind !== "stage")
+			throw new Error("Expected stage fixture");
+		const first = await stageChangeSetRequest({
+			...args,
+			outcome: {
+				...args.outcome,
+				mutations: admitMutationBatch([
+					{
+						kind: "addModule",
+						module: { uuid, id: "accepted", name: "Accepted module" },
+					},
+				]),
+				handles: [{ handle, uuid, entityKind: "module" }],
+				retainedHandleUuids: [uuid],
+			},
+		});
+		const originalBindings = await loadHandleBindings(changeSet.id);
+		const proposals = [
+			{ handle, uuid: asUuid(crypto.randomUUID()), entityKind: "module" },
+			{ handle, uuid, entityKind: "form" },
+			{
+				handle: changeSetHandleSchema.parse("@different_module"),
+				uuid,
+				entityKind: "module",
+			},
+		] as const;
+		for (const [index, binding] of proposals.entries()) {
+			const requestId = `reassign-${index}`;
+			await expect(
+				stageChangeSetRequest({
+					...args,
+					requestId,
+					expectedRevision: first.receipt.workspaceRevision,
+					outcome: {
+						...args.outcome,
+						handles: [binding],
+						retainedHandleUuids: [binding.uuid],
+					},
+				}),
+			).rejects.toThrow("cannot be reassigned");
+			expect(await lookupStageRequest(changeSet.id, requestId)).toBeUndefined();
+			expect(await loadHandleBindings(changeSet.id)).toEqual(originalBindings);
+			expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
+			expect((await loadChangeSet(changeSet.id))?.revision).toBe(
+				first.receipt.workspaceRevision,
+			);
+		}
+	});
+});
+
 describe("statement-boundary fault injection", () => {
 	const BOUNDARIES: readonly StageTransactionBoundary[] = [
 		"after-authority-lock",

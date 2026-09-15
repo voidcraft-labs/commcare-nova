@@ -130,7 +130,13 @@ export function deriveExecutorToolProfile(
 	for (const group of slice.constructionGroups) {
 		for (const area of group.blueprintAreas) areas.add(area);
 	}
-	const reads = new Set<string>();
+	const reads = new Set<string>([
+		"getAuthoringGuide",
+		"searchBlueprint",
+		"getModule",
+		"getForm",
+		"getField",
+	]);
 	const mutations = new Set<string>();
 	for (const area of areas) {
 		for (const name of READS_BY_AREA[area]) {

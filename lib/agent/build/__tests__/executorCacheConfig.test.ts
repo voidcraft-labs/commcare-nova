@@ -11,6 +11,7 @@ import { productionExecutorStep } from "../executorLoop";
 const definitions = {
 	searchBlueprint: {
 		description: "Find fields",
+		deferred: true as const,
 		inputSchema: {
 			type: "object" as const,
 			properties: {},
@@ -94,16 +95,14 @@ describe("production executor Responses boundary", () => {
 			prompt_cache_key: "nova:design-executor:session-1",
 			prompt_cache_options: { mode: "implicit", ttl: "30m" },
 			parallel_tool_calls: true,
-			tool_choice: {
-				type: "allowed_tools",
-				mode: "auto",
-				tools: [
-					{ type: "function", name: "searchBlueprint" },
-					{ type: "function", name: "finishWorkflow" },
-				],
-			},
+			tool_choice: "auto",
 			tools: [
-				expect.objectContaining({ name: "searchBlueprint", strict: false }),
+				expect.objectContaining({ type: "tool_search" }),
+				expect.objectContaining({
+					name: "searchBlueprint",
+					strict: false,
+					defer_loading: true,
+				}),
 				expect.objectContaining({ name: "finishWorkflow", strict: false }),
 			],
 			input: expect.arrayContaining([
@@ -118,13 +117,43 @@ describe("production executor Responses boundary", () => {
 			]),
 		});
 	});
-	it("assembles split function arguments and preserves provider call order without executing tools", async () => {
+	it("preserves hosted search in history while returning only native calls for dispatch", async () => {
 		await withResponsesPeer(
 			(_request, response) => {
 				response.writeHead(200, { "content-type": "text/event-stream" });
 				event(response, {
 					type: "response.created",
 					response: { id: "resp_tools", created_at: 1, model: "gpt-5.6-luna" },
+				});
+				const search = {
+					type: "tool_search_call",
+					id: "search_1",
+					execution: "server",
+					call_id: null,
+					status: "completed",
+					arguments: { query: "fields" },
+				};
+				event(response, {
+					type: "response.output_item.added",
+					output_index: 0,
+					item: search,
+				});
+				event(response, {
+					type: "response.output_item.done",
+					output_index: 0,
+					item: search,
+				});
+				event(response, {
+					type: "response.output_item.done",
+					output_index: 1,
+					item: {
+						type: "tool_search_output",
+						id: "search_output_1",
+						execution: "server",
+						call_id: null,
+						status: "completed",
+						tools: [],
+					},
 				});
 				for (const [index, name] of [
 					"searchBlueprint",
@@ -140,19 +169,19 @@ describe("production executor Responses boundary", () => {
 					};
 					event(response, {
 						type: "response.output_item.added",
-						output_index: index,
+						output_index: index + 2,
 						item: { ...item, arguments: "" },
 					});
 					for (const delta of ["{", "}"])
 						event(response, {
 							type: "response.function_call_arguments.delta",
 							item_id: item.id,
-							output_index: index,
+							output_index: index + 2,
 							delta,
 						});
 					event(response, {
 						type: "response.output_item.done",
-						output_index: index,
+						output_index: index + 2,
 						item,
 					});
 				}
@@ -179,7 +208,7 @@ describe("production executor Responses boundary", () => {
 							? message.content.filter((part) => part.type === "tool-call")
 							: [],
 					),
-				).toHaveLength(2);
+				).toHaveLength(3);
 			},
 		);
 	});

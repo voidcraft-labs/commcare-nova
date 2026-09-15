@@ -1,0 +1,157 @@
+{
+	"boundary": "One model-driven executor slice from a controlled accepted-design fixture; real Responses, durable private staging, canonical genesis commit, production Preview engine. No live design author/reviewer, full-plan conformance, device/HQ run, or submission.",
+	"head": "9a7530d40bf18ec94f263b57f8d8426427d95d20",
+	"model": "gpt-5.6-luna",
+	"effort": "xhigh",
+	"requestLimit": 12,
+	"wallClockLimitMs": 300000,
+	"requests": 8,
+	"outcome": "committed",
+	"conservativeChargeUsd": 0.0542365,
+	"estimatedTotalProgramSpendUsd": 0.856605,
+	"usage": {
+		"steps": [
+			{
+				"step": 1,
+				"inputTokens": 9282,
+				"outputTokens": 481,
+				"calls": ["getAuthoringGuide"]
+			},
+			{
+				"step": 2,
+				"inputTokens": 25873,
+				"outputTokens": 23,
+				"calls": ["getAuthoringGuide"]
+			},
+			{
+				"step": 3,
+				"inputTokens": 26191,
+				"outputTokens": 40,
+				"calls": ["getAuthoringGuide"]
+			},
+			{
+				"step": 4,
+				"inputTokens": 26569,
+				"outputTokens": 117,
+				"calls": ["updateApp"]
+			},
+			{
+				"step": 5,
+				"inputTokens": 26703,
+				"outputTokens": 426,
+				"calls": ["generateSchema"]
+			},
+			{
+				"step": 6,
+				"inputTokens": 27159,
+				"outputTokens": 1268,
+				"calls": ["createModule"]
+			},
+			{
+				"step": 7,
+				"inputTokens": 28735,
+				"outputTokens": 225,
+				"calls": ["getModule", "getForm"]
+			},
+			{
+				"step": 8,
+				"inputTokens": 30246,
+				"outputTokens": 118,
+				"calls": ["finishWorkflow"]
+			}
+		],
+		"searches": [
+			{
+				"step": 1,
+				"loaded": [
+					"getAuthoringGuide",
+					"addFields",
+					"createForm",
+					"createModule",
+					"editField",
+					"generateSchema",
+					"updateApp",
+					"updateModule"
+				]
+			},
+			{
+				"step": 7,
+				"loaded": ["getForm", "getModule"]
+			}
+		]
+	},
+	"ages": [
+		{
+			"age": -1,
+			"valid": false,
+			"phoneVisible": false,
+			"phoneRequired": false
+		},
+		{
+			"age": 0,
+			"valid": true,
+			"phoneVisible": false,
+			"phoneRequired": false
+		},
+		{
+			"age": 17,
+			"valid": true,
+			"phoneVisible": false,
+			"phoneRequired": false
+		},
+		{
+			"age": 18,
+			"valid": true,
+			"phoneVisible": true,
+			"phoneRequired": false
+		},
+		{
+			"age": 120,
+			"valid": true,
+			"phoneVisible": true,
+			"phoneRequired": false
+		},
+		{
+			"age": 121,
+			"valid": false,
+			"phoneVisible": true,
+			"phoneRequired": false
+		}
+	],
+	"personalizedNote": ["Thank you, Ada Example."],
+	"requiredness": [
+		{
+			"name": "",
+			"age": "18",
+			"valid": false,
+			"nameRequired": true,
+			"ageRequired": true,
+			"phoneRequired": false
+		},
+		{
+			"name": "Ada Example",
+			"age": "",
+			"valid": false,
+			"nameRequired": true,
+			"ageRequired": true,
+			"phoneRequired": false
+		},
+		{
+			"name": "Ada Example",
+			"age": "2.5",
+			"valid": true,
+			"nameRequired": true,
+			"ageRequired": true,
+			"phoneRequired": false
+		},
+		{
+			"name": "Ada Example",
+			"age": "18",
+			"valid": true,
+			"nameRequired": true,
+			"ageRequired": true,
+			"phoneRequired": false
+		}
+	],
+	"knownGap": "Preview accepts a fractional answer in an int field before submission. Investigating the shared numeric value boundary; do not treat integer validity as passed."
+}

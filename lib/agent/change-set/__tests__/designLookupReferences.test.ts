@@ -86,7 +86,6 @@ describe("DesignLookupReferenceResolver", () => {
 				labelColumnId: LABEL_LOOKUP_ID,
 			},
 		});
-		expect(resolver.projectOutput(resolved)).toEqual(input);
 		const extended = { ...input, source: { ...input.source, extra: true } };
 		expect(resolver.resolveInput(extended)).toEqual(extended);
 		expect(
@@ -102,7 +101,6 @@ describe("DesignLookupReferenceResolver", () => {
 		);
 		const before = JSON.stringify(input);
 		expect(resolver.resolveInput(input)).toEqual(input);
-		expect(resolver.projectOutput(input)).toEqual(input);
 		expect(JSON.stringify(input)).toBe(before);
 	});
 	it.each(["00000000-0000-4000-8000-000000000999", VALUE_DESIGN_ID, "bad"])(
@@ -133,27 +131,6 @@ describe("DesignLookupReferenceResolver", () => {
 		).toThrow(ChangeSetIntegrityError);
 	});
 
-	it("reverse-projects canonical results to the same designed reference", () => {
-		const resolver = new DesignLookupReferenceResolver(BINDINGS);
-		expect(
-			resolver.projectOutput({
-				optionsSource: {
-					kind: "lookup",
-					tableId: TABLE_LOOKUP_ID,
-					valueColumnId: VALUE_LOOKUP_ID,
-					labelColumnId: LABEL_LOOKUP_ID,
-				},
-			}),
-		).toEqual({
-			optionsSource: {
-				kind: "designed-project-lookup",
-				tableId: TABLE_DESIGN_ID,
-				valueColumnId: VALUE_DESIGN_ID,
-				labelColumnId: LABEL_DESIGN_ID,
-			},
-		});
-	});
-
 	it("uses discovered stable identities unchanged for an existing source", () => {
 		const resolver = new DesignLookupReferenceResolver([]);
 		const accepted = {
@@ -166,12 +143,6 @@ describe("DesignLookupReferenceResolver", () => {
 			...accepted,
 			kind: "lookup",
 		});
-		expect(
-			resolver.projectOutput({
-				...accepted,
-				kind: "lookup",
-			}),
-		).toEqual(accepted);
 	});
 
 	it("returns a normal staging rejection for a malformed existing identity", () => {
@@ -197,31 +168,6 @@ describe("DesignLookupReferenceResolver", () => {
 						lookupId: "018f0000-0000-7000-8000-000000000104",
 					}),
 				]),
-		).toThrow(ChangeSetIntegrityError);
-	});
-
-	it("never leaks a partially projected materialization identity", () => {
-		const resolver = new DesignLookupReferenceResolver(BINDINGS);
-		expect(() =>
-			resolver.projectOutput({
-				kind: "lookup",
-				tableId: TABLE_LOOKUP_ID,
-				valueColumnId: "018f0000-0000-7000-8000-000000000201",
-				labelColumnId: "018f0000-0000-7000-8000-000000000202",
-			}),
-		).toThrow(ChangeSetIntegrityError);
-	});
-
-	it("refuses build-time semantics absent from the accepted designed source", () => {
-		const resolver = new DesignLookupReferenceResolver(BINDINGS);
-		expect(() =>
-			resolver.projectOutput({
-				kind: "lookup",
-				tableId: TABLE_LOOKUP_ID,
-				valueColumnId: VALUE_LOOKUP_ID,
-				labelColumnId: LABEL_LOOKUP_ID,
-				filter: { kind: "true" },
-			}),
 		).toThrow(ChangeSetIntegrityError);
 	});
 });

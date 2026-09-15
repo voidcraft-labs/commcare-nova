@@ -118,7 +118,7 @@ export interface SliceExecutionBrief {
 	readonly moduleRealizations: readonly {
 		readonly compositionId: DesignId;
 		/** Exact private-workspace identity for this accepted composition. The
-		 * executor declares or references this handle so equal display names and
+		 * server binds this key so equal display names and
 		 * record hosts never become an identity heuristic. */
 		readonly blueprintModuleHandle: ChangeSetHandle;
 		readonly action: "create" | "reuse";
@@ -1009,81 +1009,90 @@ function section(heading: string, body: string): string {
 	return `## ${heading}\n${body}`;
 }
 
-function jsonSection(
-	heading: string,
-	members: readonly unknown[],
-): string | null {
-	if (members.length === 0) return null;
-	return section(
-		heading,
-		members.map((member) => JSON.stringify(member)).join("\n"),
-	);
+function jsonSection(heading: string, value: unknown): string | null {
+	if (Array.isArray(value))
+		return value.length
+			? section(
+					heading,
+					value.map((member) => JSON.stringify(member)).join("\n"),
+				)
+			: null;
+	return value === undefined ? null : section(heading, JSON.stringify(value));
 }
 
-export function renderBriefMessage(brief: SliceExecutionBrief): string {
+/** Working context retains accepted semantics once. Compiler instructions,
+ * lineage digests, and internal binding keys stay in the durable brief. */
+export function renderBriefMessage(
+	brief: SliceExecutionBrief,
+	resolveReferences: (value: unknown) => unknown = (value) => value,
+): string {
 	const blocks: Array<string | null> = [
 		section(
-			"One-app charter",
-			`Name: ${brief.charter.appName}\n${brief.charter.objective}\nDelivery: ${brief.charter.deliveryContext}. This session builds one app in the current Project.${
+			"App",
+			`Name: ${brief.charter.appName}\n${brief.charter.objective}\nDelivery: ${brief.charter.deliveryContext}.${
 				brief.charter.localization === undefined
-					? "\nWorker content: author canonical strings in English."
-					: `\nWorker content: author every string in ${languageDescriptor(brief.charter.localization.sourceLanguage)}. Do not add target-language overlays in this workflow slice; the post-build localization finalizer owns ${brief.charter.localization.targets.length} target language(s).`
+					? "\nWrite worker content in English."
+					: `\nWrite worker content in ${languageDescriptor(brief.charter.localization.sourceLanguage)}. Nova adds the accepted translations after construction.`
 			}`,
 		),
+		section("Workflow", `${brief.slice.name}: ${brief.slice.goal}`),
 		section(
-			"This workflow slice",
-			[
-				`${brief.slice.name} — ${brief.slice.goal}`,
-				`Role: ${brief.slice.role}. Risk: ${brief.slice.risk}.`,
-				`Build these coherent parts in order: ${brief.slice.constructionGroups.map((group) => group.name).join(", ")}.`,
-			].join("\n"),
+			"Available operations",
+			`Reads: ${brief.toolProfile.readTools.join(", ")}.\nChanges: ${brief.toolProfile.mutationTools.join(", ")}.`,
 		),
-		section(
-			"Semantic construction checklist",
-			brief.constructionChecklist
-				.map(
-					(group) =>
-						`${group.groupName}\n${group.items
-							.map((item) => `- ${item.kind}: ${item.requirement}`)
-							.join("\n")}`,
-				)
-				.join("\n"),
-		),
-		section(
-			"Allowed executor operations",
-			`Reads: ${brief.toolProfile.readTools.join(", ") || "none"}.\nMutations: ${brief.toolProfile.mutationTools.join(", ")}.`,
-		),
-		section("Workflow semantics", JSON.stringify(brief.workflow)),
+		jsonSection("Workflow requirements", resolveReferences(brief.workflow)),
+		jsonSection("Earlier workflows", brief.prerequisiteWorkflows),
+		jsonSection("People", brief.actors),
 		jsonSection(
-			"Prerequisite workflows already established",
-			brief.prerequisiteWorkflows,
+			"Records",
+			resolveReferences(
+				brief.records.map((record) => ({
+					...record,
+					caseType: brief.recordRealizations.find(
+						(item) => item.recordId === record.id,
+					)?.blueprintCaseType,
+					parentCaseType: brief.recordRealizations.find(
+						(item) => item.recordId === record.id,
+					)?.parentBlueprintCaseType,
+				})),
+			),
 		),
-		jsonSection("Actors", brief.actors),
-		jsonSection("Records and properties", brief.records),
-		jsonSection("Exact record lowering", brief.recordRealizations),
 		jsonSection("Lists and searches", brief.lists),
 		jsonSection("Access", brief.access),
 		jsonSection("Navigation", brief.navigation),
-		jsonSection("Module composition", brief.moduleCompositions),
-		jsonSection("Form composition", brief.formCompositions),
-		...(brief.entryPointRealizations === undefined
-			? []
-			: [
-					jsonSection(
-						"Entry points to create after all navigation and forms exist",
-						brief.entryPointRealizations,
-					),
-				]),
 		jsonSection(
-			"Module and selection realization instructions",
-			brief.moduleRealizations,
+			"Modules",
+			brief.moduleCompositions.map((composition) => ({
+				...composition,
+				action: brief.moduleRealizations.find(
+					(item) => item.compositionId === composition.id,
+				)?.action,
+			})),
 		),
-		jsonSection("Exact form realization instructions", brief.formRealizations),
+		jsonSection("Forms", brief.formCompositions),
+		jsonSection(
+			"Entry points",
+			brief.entryPointRealizations?.map((entry) => ({
+				kind: entry.kind,
+				module: brief.moduleCompositions.find(
+					(item) => item.id === entry.moduleCompositionId,
+				)?.name,
+				...(entry.blueprintFormHandle && {
+					form: brief.formRealizations.find(
+						(item) =>
+							blueprintFormHandle(item.compositionId) ===
+							entry.blueprintFormHandle,
+					)?.name,
+				}),
+				id: entry.id,
+				...(entry.ignoreDisplayConditions && { ignoreDisplayConditions: true }),
+			})) ?? [],
+		),
 		jsonSection("External requirements", brief.externalRequirements),
-		jsonSection("App decisions", brief.decisions),
-		jsonSection("App assumptions", brief.assumptions),
+		jsonSection("Decisions", brief.decisions),
+		jsonSection("Assumptions", brief.assumptions),
 		jsonSection("External actions", brief.externalActions),
-		section("Capability boundary", JSON.stringify(brief.capabilityBoundary)),
+		jsonSection("Capability boundary", brief.capabilityBoundary),
 		section(
 			"Platform constraints",
 			brief.loweringConstraints

@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.8024. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $0.8566. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -126,8 +126,23 @@ consequences and confirmations, and moves full automation setup guides to focuse
 reads. Its local validation and independent reviews have passed; publication is
 pending. The following reference slice extends scalar names to case operations,
 case-list orders, worker and organization settings, and shared data resources,
-including same-request references. It is under validation and independent review.
-Build-executor integration, migration, and broader quality evidence remain open.
+including same-request references. It has passed local validation and two
+independent reviews; publication is pending. Executor integration is now being
+validated: shared authored values and hosted discovery, server-owned module/form
+construction facts, a bounded workspace overview, and requirements without
+duplicate compiler instructions. Its 135 Postgres tests and 547 related tests,
+typecheck, and lint pass. Local estimates are 373 system-prompt tokens and
+199 initially mounted tool tokens; the full deferred catalog is still 72,265
+tokens, with the largest definition at 5,255. These estimates use the same
+production definitions as `/agents`; they are not provider counts. Two independent
+reviews cleared the corrected executor slice. A [bounded model-driven trial](../research/agent-executor-authoring-2026-09-13.md)
+committed its registration workflow in eight requests and passed the observed
+range, requiredness, conditional-visibility, and personalized-note checks. An
+additional fractional-input check exposed a Preview numeric-value gap; that
+remains open, and this is not general quality evidence. The existing versioned attempt lifecycle
+supersedes incompatible private work and opens a fresh context; persisted app
+and mutation shapes have not changed. Further deterministic construction and
+broader quality evidence remain open.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

@@ -1249,18 +1249,54 @@ async function stageInTransaction(
 	}
 	await faultBoundary("after-stage-insert");
 	if (outcome.handles.length > 0) {
-		await tx
-			.insertInto("design_change_set_handles")
-			.values(
-				outcome.handles.map((entry) => ({
-					change_set_id: args.changeSetId,
-					handle: entry.handle,
-					uuid: entry.uuid,
-					entity_kind: entry.entityKind,
-					binding_request_id: args.requestId,
-				})),
+		// The change-set row is locked. A removed entity can be recreated with
+		// its exact accepted identity, but its original declaration stays put.
+		const existing = await tx
+			.selectFrom("design_change_set_handles")
+			.select(["handle", "uuid", "entity_kind"])
+			.where("change_set_id", "=", args.changeSetId)
+			.where((eb) =>
+				eb.or([
+					eb(
+						"handle",
+						"in",
+						outcome.handles.map((entry) => entry.handle),
+					),
+					eb(
+						"uuid",
+						"in",
+						outcome.handles.map((entry) => entry.uuid),
+					),
+				]),
 			)
 			.execute();
+		const byHandle = new Map(existing.map((entry) => [entry.handle, entry]));
+		const byUuid = new Map(existing.map((entry) => [entry.uuid, entry]));
+		const declarations = [];
+		for (const entry of outcome.handles) {
+			const prior = byHandle.get(entry.handle);
+			if (prior?.uuid === entry.uuid && prior.entity_kind === entry.entityKind)
+				continue;
+			if (prior || byUuid.has(entry.uuid))
+				throw new ChangeSetIntegrityError(
+					"An implementation binding cannot be reassigned.",
+				);
+			const row = {
+				change_set_id: args.changeSetId,
+				handle: entry.handle,
+				uuid: entry.uuid,
+				entity_kind: entry.entityKind,
+				binding_request_id: args.requestId,
+			};
+			declarations.push(row);
+			byHandle.set(entry.handle, row);
+			byUuid.set(entry.uuid, row);
+		}
+		if (declarations.length > 0)
+			await tx
+				.insertInto("design_change_set_handles")
+				.values(declarations)
+				.execute();
 	}
 	/* Handle declarations are an append-only audit ledger. A correction may
 	 * remove the authored entity a symbol once named, but pruning belongs to
