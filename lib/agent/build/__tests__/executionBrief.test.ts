@@ -733,9 +733,14 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(brief.prerequisiteWorkflows.map((workflow) => workflow.id)).toEqual([
 			ids.taskRegister,
 		]);
-		expect(renderBriefMessage(brief)).toContain(
-			`"parentModuleCompositionId":"${ids.modulePatients}"`,
-		);
+		const modules = fixtureValue(
+			renderBriefMessage(brief).split("## Modules\n")[1],
+			"modules",
+		)
+			.split("\n\n## ")[0]
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(modules[1].parentModuleCompositionId).toBe(modules[0].id);
 	});
 
 	it("lowers semantic record names to stable Blueprint case-type keys", () => {
@@ -1151,7 +1156,11 @@ describe("deriveSliceExecutionBrief", () => {
 
 	it("carries requirements and concrete record mappings once, without implementation bookkeeping", () => {
 		const brief = briefAt(1);
+		// Identity-shaped source prose must remain literal while references change.
+		brief.workflow.goal = brief.actors[0].id;
+		const before = structuredClone(brief);
 		const message = renderBriefMessage(brief);
+		expect(brief).toEqual(before);
 		const sections = new Map(
 			message
 				.split(/(?:^|\n\n)## /)
@@ -1161,32 +1170,65 @@ describe("deriveSliceExecutionBrief", () => {
 					return [block.slice(0, boundary), block.slice(boundary + 1)];
 				}),
 		);
-		expect(
-			JSON.parse(
-				fixtureValue(sections.get("Workflow requirements"), "workflow"),
-			),
-		).toEqual(brief.workflow);
+		const workflow = JSON.parse(
+			fixtureValue(sections.get("Workflow requirements"), "workflow"),
+		);
 		const records = fixtureValue(sections.get("Records"), "records")
 			.split("\n")
 			.map((line) => JSON.parse(line));
-		for (const record of brief.records)
-			expect(records).toContainEqual({
-				...record,
-				caseType: brief.recordRealizations.find(
-					(item) => item.recordId === record.id,
-				)?.blueprintCaseType,
-				...(brief.recordRealizations.find((item) => item.recordId === record.id)
-					?.parentBlueprintCaseType
-					? {
-							parentCaseType: brief.recordRealizations.find(
-								(item) => item.recordId === record.id,
-							)?.parentBlueprintCaseType,
-						}
-					: {}),
-			});
+		const people = fixtureValue(sections.get("People"), "people")
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(workflow.name).toBe(brief.workflow.name);
+		expect(workflow.goal).toBe(brief.workflow.goal);
+		expect(workflow.startingConditions).toEqual(
+			brief.workflow.startingConditions,
+		);
+		expect(workflow.id).toMatch(/^@/);
+		const modules = fixtureValue(sections.get("Modules"), "modules")
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const availableWorkflows = new Set([
+			workflow.id,
+			...["Earlier workflows", "Reading saved records"].flatMap((section) =>
+				(sections.get(section) ?? "")
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => JSON.parse(line).id),
+			),
+		]);
+		for (const module of modules) {
+			expect(
+				brief.moduleCompositions.some((item) => item.id === module.id),
+			).toBe(true);
+			expect(
+				module.workflowIds.every((id: string) => availableWorkflows.has(id)),
+			).toBe(true);
+		}
+
+		expect(
+			workflow.actorIds.every((id: string) =>
+				people.some((person) => person.id === id),
+			),
+		).toBe(true);
+		for (const [index, record] of brief.records.entries()) {
+			const visible = records[index];
+			expect(visible.name).toBe(record.name);
+			expect(visible.id).toMatch(/^@/);
+			expect(visible.caseType).toBe(
+				brief.recordRealizations.find((item) => item.recordId === record.id)
+					?.blueprintCaseType,
+			);
+			if (record.id === brief.workflow.contextRecordId)
+				expect(workflow.contextRecordId).toBe(visible.id);
+			for (const [propertyIndex, property] of record.properties.entries()) {
+				const shown = visible.properties[propertyIndex];
+				expect(shown).toEqual({ ...property, id: shown.id });
+				expect(shown.id).toMatch(/^@/);
+			}
+		}
 		expect(message).not.toContain("blueprintModuleHandle");
 		expect(message).not.toContain("blueprintFormHandle");
-		expect(sections.has("Semantic construction checklist")).toBe(false);
 		expect(sections.has("External actions")).toBe(false);
 	});
 
@@ -1195,6 +1237,9 @@ describe("deriveSliceExecutionBrief", () => {
 		const first = fixtureValue(contract.formCompositions[0], "registration");
 		const workflow = fixtureValue(contract.workflows[0], "workflow");
 		const module = fixtureValue(contract.moduleCompositions[0], "module");
+		// Equal role names still need distinct references in the rendered forms.
+		contract.actors[0].name = "Worker";
+		contract.actors[1].name = "Worker";
 		workflow.actorIds = [ids.actorChw, ids.actorSupervisor];
 		module.actorIds = [ids.actorChw, ids.actorSupervisor];
 		first.variant = "actor-specific";
@@ -1237,19 +1282,51 @@ describe("deriveSliceExecutionBrief", () => {
 				expect.objectContaining({
 					name: "Registration A",
 					variant: "actor-specific",
-					actorIds: [ids.actorChw],
+					actorIds: [expect.stringMatching(/^@/)],
 				}),
 				expect.objectContaining({
 					name: "Registration B",
 					purpose: second.purpose,
-					actorIds: [ids.actorSupervisor],
+					actorIds: [expect.stringMatching(/^@/)],
 				}),
 			]),
 		);
+		expect(forms[0].actorIds[0]).not.toBe(forms[1].actorIds[0]);
 		expect(formText).toContain("**Patient name**");
 		expect(formText).toContain("Enter the name the household uses.");
 		[first.actorIds, second.actorIds] = [second.actorIds, first.actorIds];
 		expect(message(contract)).not.toBe(original);
+	});
+
+	it("keeps external actions joined to their displayed requirements", () => {
+		const contract = cloneContract(makeContract());
+		const workflow = contract.workflows[0];
+		const requirement = {
+			id: did(9900),
+			name: "Project setup",
+			kind: "deployment-readiness" as const,
+			description: "Configure the project before deploying.",
+			relatedWorkflowIds: [workflow.id],
+			blocksConstruction: false,
+		};
+		contract.externalRequirements.push(requirement);
+		workflow.externalRequirementIds.push(requirement.id);
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: plan.slices[0].id,
+		});
+		expect(brief.externalActions).toHaveLength(1);
+		const rendered = renderBriefMessage(brief);
+		const section = (heading: string) =>
+			JSON.parse(rendered.split(`## ${heading}\n`)[1].split("\n\n## ")[0]);
+		const visibleRequirement = section("External requirements");
+		const action = section("External actions");
+		expect(visibleRequirement.name).toBe(requirement.name);
+		expect(action.requirementId).toBe(visibleRequirement.id);
+		expect(brief.externalActions[0].requirementId).toBe(requirement.id);
 	});
 
 	it("has a stable digest and refuses unknown slices", () => {

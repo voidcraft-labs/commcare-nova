@@ -5,8 +5,15 @@ import {
 	respondWithObject,
 	withResponsesPeer,
 } from "@/lib/agent/__tests__/responsesPeer";
+import {
+	fixtureValue,
+	ids,
+	makeBuildPlan,
+	makeContract,
+} from "@/lib/agent/design/__tests__/fixtures";
 import { OPENAI_COMPACTION_THRESHOLD } from "@/lib/models";
-import { productionExecutorStep } from "../executorLoop";
+import { deriveSliceExecutionBrief } from "../executionBrief";
+import { buildExecutorTools, productionExecutorStep } from "../executorLoop";
 
 const definitions = {
 	searchBlueprint: {
@@ -44,6 +51,57 @@ function event(response: ServerResponse, value: unknown) {
 }
 
 describe("production executor Responses boundary", () => {
+	it("offers only the accepted workflow's tools to hosted discovery", async () => {
+		const plan = makeBuildPlan();
+		const brief = deriveSliceExecutionBrief({
+			contract: makeContract(),
+			revision: { id: ids.revisionId, digest: "b".repeat(64) },
+			plan,
+			sliceId: fixtureValue(plan.slices[0], "registration slice").id,
+		});
+		let offered: { type: string; name?: string; defer_loading?: boolean }[] =
+			[];
+		await withResponsesPeer(
+			(request, response) => {
+				let body = "";
+				request.setEncoding("utf8");
+				request.on("data", (chunk: string) => {
+					body += chunk;
+				});
+				request.on("end", () => {
+					offered = JSON.parse(body).tools;
+					respondWithObject(response, "Ready");
+				});
+			},
+			async (provider) => {
+				await productionExecutorStep(provider("gpt-5.6-luna"))({
+					...args(),
+					tools: buildExecutorTools(brief),
+				});
+			},
+		);
+		expect(
+			offered.filter((entry) => entry.type === "tool_search"),
+		).toHaveLength(1);
+		const names = offered.flatMap((entry) => (entry.name ? [entry.name] : []));
+		expect(names).toEqual([
+			...brief.toolProfile.readTools,
+			...brief.toolProfile.mutationTools,
+			"finishWorkflow",
+			"reportExecutionBlocker",
+		]);
+		expect(names).toContain("createModule");
+		expect(names).toContain("editField");
+		expect(names).not.toContain("addAutomations");
+		expect(names).toContain("addUserProperties");
+		expect(names).not.toContain("configureCaseSelection");
+		for (const entry of offered.filter(
+			(entry) =>
+				entry.name &&
+				!["finishWorkflow", "reportExecutionBlocker"].includes(entry.name),
+		))
+			expect(entry.defer_loading).toBe(true);
+	});
 	it("serializes the cache, privacy and tool policy and returns fully decoded text/reasoning/usage", async () => {
 		let requestBody: unknown;
 		await withResponsesPeer(

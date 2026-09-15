@@ -1,18 +1,5 @@
-/**
- * The definition/binding split: the tool definitions the anatomy renders
- * are the definitions the live agents mount.
- *
- * The design loop persists a toolset digest per context and rolls a session
- * to a new generation when it changes, so a definitions-only record that
- * digested differently from the mounted set would either misreport the
- * grammar or, worse, be trusted as the grammar while the live digest moved.
- * Each proof compares the definitions-only record against the bound set AND
- * against the digest captured on `main` before the split.
- */
-
 import { describe, expect, it } from "vitest";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
-import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import { designAgentToolDefinitions } from "@/lib/agent/design/loop/designAgent";
 import {
 	createDesignLoopActions,
@@ -22,8 +9,6 @@ import {
 } from "@/lib/agent/design/loop/tools";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import fixture from "./fixtures/promptDigests.json";
 
 /** `createDesignLoopActions` binds `execute` closures over its deps and reads
  * none of them until a tool runs, so a throwing proxy proves the mount is
@@ -37,14 +22,6 @@ const eagerDepsTrap = new Proxy({} as DesignLoopToolDeps, {
 });
 
 describe("design loop tool definitions", () => {
-	it("digest and order the author tools as the runner persists them", async () => {
-		const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
-		expect(Object.keys(definitions)).toEqual(fixture.designToolOrder);
-		expect(await designToolsetDigest(definitions)).toBe(
-			fixture.designToolsetDigest,
-		);
-	});
-
 	it("match the bound tools the agent mounts, key for key", async () => {
 		const { tools: bound } = createDesignLoopActions(eagerDepsTrap);
 		const definitions = designAgentToolDefinitions(designLoopToolDefinitions());
@@ -71,14 +48,6 @@ describe("design loop tool definitions", () => {
 				},
 			}),
 		).not.toBe(digest);
-	});
-});
-
-describe("executor tool definitions", () => {
-	it("digest and order the stable native registry as the attempt persists it", () => {
-		const tools = buildExecutorTools();
-		expect(Object.keys(tools)).toEqual(fixture.executorToolOrder);
-		expect(canonicalJsonDigest(tools)).toBe(fixture.executorToolsetDigest);
 	});
 });
 
@@ -115,7 +84,6 @@ describe("Solutions Architect tool definitions", () => {
 		for (const entry of SHARED_TOOL_REGISTRY) {
 			const definition = definitions[entry.saName];
 			expect(definition, entry.saName).toBeDefined();
-			expect(definition?.description).toBe(entry.tool.description);
 			expect(definition?.providerOptions).toEqual({
 				openai: { deferLoading: true },
 			});

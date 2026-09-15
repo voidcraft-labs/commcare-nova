@@ -34,7 +34,7 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
  * References and collection closure require the final contract, but two
  * declarations may never share one DesignId at any intermediate revision.
  */
-function collectDesignIdentities(
+export function collectDesignIdentities(
 	candidate: Record<string, unknown>,
 ): Array<{ id: string; path: Path }> {
 	const identities: Array<{ id: string; path: Path }> = [];

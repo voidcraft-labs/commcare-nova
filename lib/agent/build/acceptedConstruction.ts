@@ -138,11 +138,15 @@ export function prepareAcceptedConstruction(args: {
 		});
 		return found.uuid;
 	}
-	function unique<T>(items: readonly T[], noun: string): T {
+	function unique<T>(
+		items: readonly T[],
+		noun: string,
+		acceptedNames: readonly string[],
+	): T {
 		if (items.length !== 1)
 			throw new AuthoringInputError(
 				items.length === 0
-					? `No accepted ${noun} matches this request.`
+					? `No accepted ${noun} matches this request. Accepted ${noun}s for ${brief.workflow.name}: ${acceptedNames.join(", ") || "none"}.`
 					: `Several accepted ${noun}s have this name. Supply the composition ID to select one.`,
 			);
 		return items[0];
@@ -188,6 +192,7 @@ export function prepareAcceptedConstruction(args: {
 						identity(item.compositionId).uuid === form.formUuid),
 			),
 			"form",
+			brief.formRealizations.map((item) => item.name),
 		);
 		form.formUuid = declare(realization.compositionId);
 		form.type = realization.blueprintFormType;
@@ -208,6 +213,7 @@ export function prepareAcceptedConstruction(args: {
 						identity(item.compositionId).uuid === input.moduleUuid),
 			),
 			"module",
+			brief.moduleCompositions.map((item) => item.name),
 		);
 		input.moduleUuid = declare(realization.compositionId);
 		input.case_type = realization.hostRecord?.blueprintCaseType ?? null;
@@ -245,7 +251,11 @@ export function prepareAcceptedConstruction(args: {
 					doc.modules[implementation.uuid]?.name === input.moduleUuid)
 			);
 		});
-		const module = unique(moduleMatches, "module");
+		const module = unique(
+			moduleMatches,
+			"module",
+			brief.moduleCompositions.map((item) => item.name),
+		);
 		const form = prepareForm(input, module.compositionId);
 		input.moduleUuid = identity(form.moduleCompositionId).uuid;
 	} else {

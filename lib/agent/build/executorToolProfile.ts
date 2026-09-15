@@ -3,9 +3,8 @@
  * The accepted plan names Blueprint areas, not tools. This is the single
  * exhaustive lowering table from those semantic areas to the read and
  * mutation operations the server admits for that slice. Correction operations
- * live in the same area as creation. The provider-facing tool grammar stays
- * immutable across slices; this profile remains the execution brief and hard
- * dispatch allowlist.
+ * live in the same area as creation. This profile selects the discoverable
+ * tools and independently supplies the hard dispatch allowlist.
  */
 
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
@@ -101,9 +100,8 @@ const MUTATIONS_BY_AREA = {
 } as const satisfies Readonly<Record<BlueprintArea, readonly string[]>>;
 
 /* Reviewed construction has no Design Contract carrier for a complete
- * CommCare Connect target. Keep the shared operation mounted in the immutable
- * grammar, but do not authorize it from the generic forms area: a future
- * accepted Connect shape must opt its exact target into a slice explicitly. */
+ * CommCare Connect target. The generic forms area cannot expose or authorize
+ * it; a future accepted Connect shape must opt its exact target into a slice. */
 
 function uniqueInRegistryOrder(names: ReadonlySet<string>): string[] {
 	return Array.from(CHANGE_SET_TOOL_REGISTRY.keys()).filter((name) =>
@@ -180,9 +178,8 @@ export function deriveExecutorToolProfile(
 	};
 }
 
-/** One immutable provider-facing executor grammar. A slice's derived profile
- * remains the server-enforced authorization policy and brief vocabulary; it
- * never changes which operation arms are sent to the model. */
+/** Complete construction catalog for inspection. Live attempts use their
+ * derived profile to select both discoverable and authorized operations. */
 export const STABLE_EXECUTOR_TOOL_PROFILE: ExecutorToolProfile = {
 	blueprintAreas: Object.keys(READS_BY_AREA) as BlueprintArea[],
 	readTools: Array.from(CHANGE_SET_TOOL_REGISTRY.entries())

@@ -1,14 +1,14 @@
 # Authoring pilot: write content, bind identities in Nova
 
-Native tools are the selected direction for the next implementation slice.
+The September 12 pilot selected native tools for the production implementation.
 Agents supply authored wording and expressions; Nova resolves their references
 before the existing canonical tools prepare mutations. This removes storage
 encoding from the model's task without weakening identity or validation.
 
 The client pilot establishes feasibility. It does not establish general quality,
 complete feature coverage, or an optimal prompt. The production SA, executor,
-and MCP remain unchanged in this slice. The [delivery plan](../plans/agent-authoring-quality.md)
-continues with the complete shared authoring boundary.
+and MCP were unchanged during this initial comparison. The [integrated results](agent-authoring-results-2026-09-13.md)
+describe the subsequent shared authoring boundary.
 
 ## What ran
 
@@ -130,8 +130,9 @@ Use native tools for the production redesign. The model completed the corrected
 task through ordinary calls, and authored strings preserved the canonical
 identity guarantees. Hosted JavaScript also succeeded but did not demonstrate
 better app behavior here. It adds program execution, output shaping, and durable
-replay responsibilities. The local adapter remains only as reproducible research
-until the experiment is retired, never as a parallel production interface.
+replay responsibilities. The prototypes were retired after the production authoring boundary replaced
+them. Git history preserves the experiment; the local evaluator now exercises
+the production interface.
 
 The experiment is intentionally incomplete: only eight operations, a subset of
 field kinds and sources, plain Results columns, and scalar Search are exposed.
@@ -150,7 +151,7 @@ no blinded reviewers, repeated final-version samples, held-out tasks, Astra
 comparison, process-recovery test, or full feature study yet. These limitations
 preclude a claim that the short prompt produces better apps in general.
 
-The next slice must make the chosen interface complete and coherent across SA,
-build, MCP, inspection, and guidance. Keep stable identity, canonical admission,
-tenant authority, and durable recovery below that interface. Then evaluate the
-integrated design and editing workflows on broader and held-out cases.
+The production implementation carries this boundary across SA, construction,
+MCP, inspection, and guidance, preserving canonical admission and durable
+recovery. See the [integrated measurements](agent-authoring-results-2026-09-13.md)
+for subsequent evidence and its limits.

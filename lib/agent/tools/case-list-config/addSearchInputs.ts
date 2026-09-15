@@ -65,7 +65,7 @@ export type AddSearchInputsResult = AddSearchInputsSuccess | { error: string };
 
 export const addSearchInputsTool = {
 	description:
-		"Add search inputs to a module's case list. Returns the minted uuids (input order) for later update/remove/reorder calls. Visible inputs may carry a hint, a required condition (`{}` always, or `when` over sibling inputs, session values, and fixed values, never case data), and one check (`validation.rule` over the answer and its siblings); `matches-pattern` (Java regex, unanchored) is admitted only in those two slots. `select` / `multi-select` inputs offer choices from a Project lookup table (`options`). A `hidden` input's `value` is worked out when the Search screen opens and carried with the search (a search time, the worker's id), never shown and never a filter; it reads session values, fixed values, `now()`, `today()`, no case data and no other input. Required and check run in the browser app only.",
+		"Add Search questions and return their identities in input order. Visible questions can have a hint, conditional requiredness, and one validation rule; these checks run in the browser app only. Conditions can use Search answers and worker values before record selection. matches-pattern uses unanchored Java regex in requiredness and validation only. Choice questions use a Project table. A hidden value is calculated when Search opens from constants, worker values, now() or today(); it is carried with the search, not displayed or used as a filter, and cannot read answers or case data.",
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,

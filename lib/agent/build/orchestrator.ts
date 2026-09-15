@@ -528,13 +528,14 @@ export async function runBuildOrchestration(
 		};
 		const openExecutorContext = async (
 			semanticScopeKey: string,
+			brief: Parameters<typeof buildExecutorTools>[0],
 		): Promise<ExecutorConversationContext> => {
 			const persisted = await openDesignModelContext({
 				designSessionId: args.designSessionId,
 				kind: "executor",
 				modelId: MODEL_ROLES.buildExecutor.modelId,
 				promptVersion: EXECUTOR_PROMPT_VERSION,
-				toolsetDigest: canonicalJsonDigest(buildExecutorTools()),
+				toolsetDigest: canonicalJsonDigest(buildExecutorTools(brief)),
 				contextVersion: MODEL_CONTEXT_VERSION,
 				semanticScopeKey,
 				authority: modelContextAuthority,
@@ -672,7 +673,7 @@ export async function runBuildOrchestration(
 						plan,
 						isGenesis,
 					);
-					const executorContext = await openExecutorContext(attempt.id);
+					const executorContext = await openExecutorContext(attempt.id, brief);
 					args.writer.write({
 						type: "data-build-slice-started",
 						data: progressEnvelope(args.designSessionId, head, {

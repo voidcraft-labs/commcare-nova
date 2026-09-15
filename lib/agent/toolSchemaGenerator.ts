@@ -52,11 +52,8 @@
 //
 // ## Per-kind docs
 //
-// The `kind` enum's description aggregates every kind's `saDocs` (from
-// `fieldRegistry[kind].saDocs`), one line per kind, so the SA reads the
-// per-kind guide exactly where it chooses the value. Adding a new kind to
-// `fieldKinds` therefore propagates through the generator automatically — no
-// generator edits, no re-hand-rolling of documentation strings.
+// Kind choices come from the domain inventory. Focused authoring guidance
+// describes their behavior when an agent needs it.
 
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
@@ -74,18 +71,6 @@ import {
 	uuidSchema,
 	xpathExpressionSchema,
 } from "@/lib/domain";
-
-/**
- * The per-kind guide — one line per kind from `fieldRegistry[kind].saDocs`
- * — stated ONCE in the system prompt ("Field kinds"); the tool schemas'
- * `kind` enums carry a pointer, not the guide. Adding a new kind to
- * `fieldKinds` propagates automatically.
- */
-export function fieldKindGuide(): string {
-	return fieldKinds
-		.map((k) => `- \`${k}\`: ${fieldRegistry[k].saDocs}`)
-		.join("\n");
-}
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
@@ -141,21 +126,9 @@ const FIELD_DOCS = {
 		"underscore-joined slug (prefer_not_to_say) with no spaces or quotes; " +
 		"its `label` carries the wording.",
 	caseWrite:
-		"Complete case destination for this answer. `caseType` names the case " +
-		"type and `property` names the property on that type. The module's own " +
-		"type writes its primary case; a different type creates a child case " +
-		"(that child needs a writer whose `property` is `case_name`). The field " +
-		"id may differ from the property. Attachment kinds (image, audio, " +
-		'video, signature, file) additionally require `mode: "url"`, which ' +
-		"saves a link to the attached file, and cannot write `case_name` or " +
-		"`external_id`. The link is the only way back to the file: CommCare " +
-		"never displays a case attachment inside the app, on either client. " +
-		"Every other kind must leave `mode` out. On a form that opens ONE " +
-		"existing case, a writer to that case's type opens with the current " +
-		"value and edits it in place (`case_name` too; a `default_value` there " +
-		"never shows); a child-type writer opens blank and creates a child case " +
-		"per submission; several-case forms open blank. Repeated events (a " +
-		"visit, a meeting) are child cases, never overwritten on the loaded case.",
+		"Save this answer to {caseType, property}. Writing the module's case type updates its primary record; another type creates a child and needs a case_name writer. The question id and property name are independent. " +
+		'Attachments require mode: "url" and save a link, not an in-app attachment display; they cannot write case_name or external_id. Omit mode for other answers. ' +
+		"A single-record form starts primary writers with saved values, taking precedence over default_value. Child writers and several-case forms start blank. Use child records when each submission needs its own history.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +

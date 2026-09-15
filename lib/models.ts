@@ -129,9 +129,9 @@ export const MODEL_ROLES = {
 		msPerModelStep: 90_000,
 	},
 	documentExtractor: {
-		modelId: "gpt-5.6-luna",
-		reasoningEffort: "xhigh",
-		msPerModelStep: 90_000,
+		modelId: "gpt-5.6-sol",
+		reasoningEffort: "medium",
+		msPerModelStep: 60_000,
 	},
 	translator: {
 		modelId: "gpt-5.6-sol",

@@ -36,6 +36,9 @@ import type {
 	WorkflowInput,
 	WorkList,
 } from "@/lib/agent/design/contract";
+import { appDesignContractBaseSchema } from "@/lib/agent/design/contract";
+import { collectDesignIdentities } from "@/lib/agent/design/graph";
+import { projectDesignIdentityHandles } from "@/lib/agent/design/identityProjection";
 import type { DesignId } from "@/lib/agent/design/ids";
 import {
 	PLATFORM_CONSTRAINTS,
@@ -1064,6 +1067,88 @@ export function renderBriefMessage(
 	brief: SliceExecutionBrief,
 	resolveReferences: (value: unknown) => unknown = (value) => value,
 ): string {
+	// The stored brief keeps exact lineage. Its reader needs recognizable names
+	// for the same relationships, not UUID copying or a second identity ledger.
+	const requirements = {
+		workflows: [
+			brief.workflow,
+			...(brief.readWorkflows ?? []),
+			...brief.prerequisiteWorkflows,
+		],
+		actors: brief.actors,
+		records: resolveReferences(
+			brief.records.map((record) => ({
+				...record,
+				caseType: brief.recordRealizations.find(
+					(item) => item.recordId === record.id,
+				)?.blueprintCaseType,
+				parentCaseType: brief.recordRealizations.find(
+					(item) => item.recordId === record.id,
+				)?.parentBlueprintCaseType,
+			})),
+		),
+		lists: brief.lists,
+		access: brief.access,
+		moduleCompositions: brief.moduleCompositions.map((composition) => ({
+			...composition,
+			action: brief.moduleRealizations.find(
+				(item) => item.compositionId === composition.id,
+			)?.action,
+		})),
+		formCompositions: brief.formCompositions,
+		externalRequirements: brief.externalRequirements,
+		decisions: brief.decisions,
+		assumptions: brief.assumptions,
+	};
+	const names = new Map<string, string>();
+	const taken = new Set<string>();
+	const declarations = collectDesignIdentities(requirements);
+	const declaredIds = new Set(declarations.map((item) => item.id));
+	// These identities are valid creation addresses, including for equal names.
+	const constructionIds = new Set([
+		...brief.moduleCompositions.map((item) => item.id as string),
+		...brief.formCompositions.map((item) => item.id as string),
+	]);
+	for (const { id, path } of declarations) {
+		if (names.has(id) || constructionIds.has(id)) continue;
+		let parent: unknown = requirements;
+		const labels: string[] = [];
+		for (const key of path.slice(0, -1)) {
+			parent = (parent as Record<string | number, unknown>)[key];
+			if (parent && typeof parent === "object") {
+				const label =
+					"name" in parent
+						? parent.name
+						: "inputHandle" in parent
+							? parent.inputHandle
+							: "headingMarkdown" in parent
+								? parent.headingMarkdown
+								: undefined;
+				if (typeof label === "string") labels.push(label);
+			}
+		}
+		const name = uniqueSlug(labels.join(" "), String(path[0]), taken);
+		taken.add(name);
+		names.set(id, `@${name}`);
+	}
+	// A shared module and access policy can cover later workflows too. Their
+	// unprovided identities are not instructions to build those workflows now.
+	requirements.moduleCompositions = requirements.moduleCompositions.map(
+		(module) => ({
+			...module,
+			workflowIds: module.workflowIds.filter((id) => declaredIds.has(id)),
+		}),
+	);
+	requirements.access = requirements.access.map((policy) => ({
+		...policy,
+		targets: policy.targets.filter((target) => declaredIds.has(target.id)),
+	}));
+	const visible = projectDesignIdentityHandles(
+		appDesignContractBaseSchema,
+		{ ...requirements, workflows: resolveReferences(requirements.workflows) },
+		[...names].map(([designId, handle]) => ({ designId, handle })),
+	) as typeof requirements;
+	const readCount = brief.readWorkflows?.length ?? 0;
 	const blocks: Array<string | null> = [
 		section(
 			"App",
@@ -1074,43 +1159,18 @@ export function renderBriefMessage(
 			}`,
 		),
 		section("Workflow", `${brief.slice.name}: ${brief.slice.goal}`),
-		section(
-			"Available operations",
-			`Reads: ${brief.toolProfile.readTools.join(", ")}.\nChanges: ${brief.toolProfile.mutationTools.join(", ")}.`,
-		),
-		jsonSection("Workflow requirements", resolveReferences(brief.workflow)),
+		jsonSection("Workflow requirements", visible.workflows[0]),
 		jsonSection(
 			"Reading saved records",
-			resolveReferences(brief.readWorkflows),
+			visible.workflows.slice(1, 1 + readCount),
 		),
-		jsonSection("Earlier workflows", brief.prerequisiteWorkflows),
-		jsonSection("People", brief.actors),
-		jsonSection(
-			"Records",
-			resolveReferences(
-				brief.records.map((record) => ({
-					...record,
-					caseType: brief.recordRealizations.find(
-						(item) => item.recordId === record.id,
-					)?.blueprintCaseType,
-					parentCaseType: brief.recordRealizations.find(
-						(item) => item.recordId === record.id,
-					)?.parentBlueprintCaseType,
-				})),
-			),
-		),
-		jsonSection("Lists and searches", brief.lists),
-		jsonSection("Access", brief.access),
-		jsonSection(
-			"Modules",
-			brief.moduleCompositions.map((composition) => ({
-				...composition,
-				action: brief.moduleRealizations.find(
-					(item) => item.compositionId === composition.id,
-				)?.action,
-			})),
-		),
-		jsonSection("Forms", brief.formCompositions),
+		jsonSection("Earlier workflows", visible.workflows.slice(1 + readCount)),
+		jsonSection("People", visible.actors),
+		jsonSection("Records", visible.records),
+		jsonSection("Lists and searches", visible.lists),
+		jsonSection("Access", visible.access),
+		jsonSection("Modules", visible.moduleCompositions),
+		jsonSection("Forms", visible.formCompositions),
 		jsonSection(
 			"Entry points",
 			brief.entryPointRealizations?.map((entry) => ({
@@ -1129,10 +1189,16 @@ export function renderBriefMessage(
 				...(entry.ignoreDisplayConditions && { ignoreDisplayConditions: true }),
 			})) ?? [],
 		),
-		jsonSection("External requirements", brief.externalRequirements),
-		jsonSection("Decisions", brief.decisions),
-		jsonSection("Assumptions", brief.assumptions),
-		jsonSection("External actions", brief.externalActions),
+		jsonSection("External requirements", visible.externalRequirements),
+		jsonSection("Decisions", visible.decisions),
+		jsonSection("Assumptions", visible.assumptions),
+		jsonSection(
+			"External actions",
+			brief.externalActions.map((action) => ({
+				...action,
+				requirementId: names.get(action.requirementId) ?? action.requirementId,
+			})),
+		),
 		jsonSection("Capability boundary", brief.capabilityBoundary),
 		section(
 			"Platform constraints",

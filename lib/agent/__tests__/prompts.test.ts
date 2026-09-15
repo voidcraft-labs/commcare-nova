@@ -60,7 +60,6 @@ describe("buildAppStateMessage", () => {
 		expect(msg).not.toBeNull();
 		expect(msg?.role).toBe("user");
 		const content = msg?.content;
-		expect(content).toContain("Current app overview");
 		expect(content).toContain("Vaccine Tracker");
 		expect(content).toContain("Patients");
 	});

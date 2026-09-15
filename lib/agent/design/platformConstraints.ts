@@ -178,7 +178,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 		statement:
-			"Display conditions, including conditions over worker properties, are the supported in-app role and navigation gate. They do not decide which cases a worker restores or which cases live search can return, so a role-safe design pairs those gates with the intended ownership or location model and with search filters that enforce the same boundary; remote search may reach beyond assigned restore ownership when its query permits it. A remote case-search comparison must be anchored to a case property, so different role populations normally use separate role-gated navigation entries over the same case type, each with its own case-property filter, rather than a standalone worker-role clause inside one shared query.",
+			"Display conditions control navigation, including visibility by worker role. They do not restrict restored records or live search results. Ownership and location control restoration; search needs its own access filters and may reach beyond assigned records. Every remote search comparison must involve a case property; a standalone worker-role clause is not supported.",
 		sourceAnchor: "docs/research/advanced-case-actions.md::2.1-2.4",
 	},
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: {
@@ -191,7 +191,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	REPEATED_EVENTS_ARE_CHILD_RECORDS: {
 		code: "REPEATED_EVENTS_ARE_CHILD_RECORDS",
 		statement:
-			"A case property holds one value and the running app exposes no per-case history. In a one-case selected-record or close form, every input that writes to the loaded record's own type is seeded from that record when the form opens, so writing an event's fields directly onto the parent replaces the previous event's values and reopens pre-filled with them. Inputs that write to a child type are never seeded and create one new record per submission, so each occurrence of a repeated event (a visit, a meeting, a delivery) is a child record created from that form, and the parent record holds only derived rollups.",
+			"A case property stores its current value; the running app cannot read that property's past values. When a workflow needs separate event history, save each occurrence as a child record. If only the current value matters, updating the parent is sufficient. On a one-case follow-up or close form, direct inputs for the selected record open with its saved values; inputs for a new child start blank.",
 		sourceAnchor: "lib/commcare/deriveCaseConfig.ts::deriveCaseConfig",
 	},
 };

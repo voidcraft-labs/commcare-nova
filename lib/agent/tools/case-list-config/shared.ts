@@ -162,7 +162,7 @@ const intervalColumnInputArm = intervalColumnArm
 const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 	...newColumnIdentity,
 	linkText: linkColumnArm.shape.linkText.describe(
-		'What every row\'s link says, the same wording down the whole column ("View photo"). Reach for a `link` column when the property holds an address rather than a value a person reads, which is most often the property an attachment question saves to. Two CommCare limits to tell the user about: this wording is ONE string for every app language, because the wire has nowhere to carry a translated one, and the cell is a real link in CommCare Web Apps only, while the Android app shows the address as plain text.',
+		'Link label shared by every row and app language, such as "View photo". Use a link column for a saved URL. CommCare Web Apps opens it as a link; Android shows the address as text.',
 	),
 });
 const calculatedColumnInputArm = calculatedColumnArm
@@ -358,7 +358,7 @@ function refineSearchInputBoundary(
 			code: "custom",
 			path: ["required", "when"],
 			message:
-				'A required condition runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Compare the other search inputs (`{kind: "input", searchInputUuid}`), fixed values, or current-user/session values.',
+				"A required condition runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Compare other Search answers (#search/name), fixed values, or worker/session values.",
 		});
 	}
 	if (
@@ -376,11 +376,8 @@ function refineSearchInputBoundary(
 
 /**
  * The three prompt slots every visible arm shares. The descriptions are
- * deliberately terse: the seven arms inline them on three tools, so every
- * word here is paid twenty-one times per request. The semantics (Search
- * screen scope, browser-app-only enforcement, one check per input,
- * `matches-pattern` admitted only here) live in the SA prompt and the tool
- * descriptions, which are sent once.
+ * shared by all visible input kinds. The tool description explains their
+ * Search-screen scope and browser enforcement.
  */
 const visibleSearchInputSlots = {
 	hint: z

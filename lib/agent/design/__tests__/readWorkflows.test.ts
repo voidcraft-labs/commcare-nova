@@ -198,9 +198,23 @@ describe("read-only workflows", () => {
 		expect(brief.recordRealizations.map((record) => record.recordId)).toContain(
 			context.id,
 		);
-		expect(renderBriefMessage(brief)).toContain(
-			JSON.stringify({ id: context.id, name: context.name }).slice(0, -1),
+		const displayed = renderBriefMessage(brief)
+			.split("\n")
+			.filter((line) => line.startsWith("{"))
+			.map((line) => JSON.parse(line));
+		const displayedContext = fixtureValue(
+			displayed.find((item) => item.name === context.name),
+			"context record in the executor message",
 		);
+		const displayedHistory = fixtureValue(
+			displayed.find((item) => item.name === history.name),
+			"history record in the executor message",
+		);
+		expect(displayedContext.id).not.toBe(displayedHistory.id);
+		expect(displayed.find((item) => item.name === reading.name)).toMatchObject({
+			contextRecordId: displayedContext.id,
+			readback: [{ recordId: displayedHistory.id }],
+		});
 	});
 
 	it("keeps a construction slice for a read task that creates its own list", () => {

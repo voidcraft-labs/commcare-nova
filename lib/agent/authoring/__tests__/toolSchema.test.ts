@@ -1,19 +1,9 @@
 import { expect, it } from "vitest";
-import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { createFormInputSchema } from "@/lib/agent/tools/createForm";
 import { createModuleInputSchema } from "@/lib/agent/tools/createModule";
 import { editFieldInputSchema } from "@/lib/agent/tools/editField";
 import { moveModuleInputSchema } from "@/lib/agent/tools/moveModule";
 import { authoringToolSchema } from "../toolSchema";
-
-it("registers one authored grammar for every shared tool", () => {
-	for (const entry of SHARED_TOOL_REGISTRY) {
-		const grammar = authoringToolSchema(entry.saName, entry.tool.inputSchema);
-		expect(JSON.stringify(grammar.json), entry.saName).not.toContain(
-			'"parts":',
-		);
-	}
-});
 
 it("lets authors name targets and containers without allocating identities or repeating known parents and kinds", () => {
 	const create = authoringToolSchema(

@@ -1,5 +1,6 @@
-import type { OpenAIProvider, OpenAIToolOptions } from "@ai-sdk/openai";
 import type { ToolSet } from "ai";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
+import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
 import {
 	SHARED_TOOL_REGISTRY,
 	type SharedToolRegistryEntry,
@@ -7,14 +8,11 @@ import {
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
 import type { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
-import { prepareAuthoringInput } from "../input";
-import { projectAuthoringReadInContext } from "../output";
-import { nativePilotTools } from "./native";
 
-/** The baseline sends the current production grammar unchanged. Only operations
+/** The trial sends the production grammar unchanged. Only operations
  * on the disposable app may execute; Project resources are outside this trial.
  * This measures an edit task, not the separate design/build orchestration. */
-export function currentPilotTools(
+export function authoringTrialTools(
 	workspace: CanonicalMutationWorkspace,
 ): ToolSet {
 	return Object.fromEntries(
@@ -70,30 +68,6 @@ export function currentPilotTools(
 						],
 		),
 	);
-}
-
-/** The provider owns the JavaScript sandbox. Nova still owns validation,
- * authorization, ordering and commit. This trial has no restart/resume path. */
-export function programmaticPilotTools(
-	workspace: CanonicalMutationWorkspace,
-	provider: OpenAIProvider,
-): ToolSet {
-	return {
-		program: provider.tools.programmaticToolCalling(),
-		...Object.fromEntries(
-			Object.entries(nativePilotTools(workspace)).map(([name, definition]) => [
-				name,
-				{
-					...definition,
-					providerOptions: {
-						openai: {
-							allowedCallers: ["programmatic"],
-						} satisfies OpenAIToolOptions,
-					},
-				},
-			]),
-		),
-	};
 }
 
 /** Repeated delivery of one call reuses its outcome in this process. Retain
