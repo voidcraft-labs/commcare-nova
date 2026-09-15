@@ -83,8 +83,12 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
 }
 
 /**
- * Map plugin error codes to the closed `ApiKeyUnauthorizedReason` set.
- * Unknown codes fall through to `"api key invalid"`.
+ * Map the plugin error codes the route has positively judged to the closed
+ * `ApiKeyUnauthorizedReason` set. A code this route does not know maps to
+ * `null`, and `handleApiKeyMcp` answers it as an outage: only a verdict the
+ * plugin documents may tell a client its key is bad, so a plugin upgrade
+ * that reports its collapsed database error under a new code degrades to a
+ * 503 (and a logged code to map), never to a discarded key.
  *
  * Both `INVALID_API_KEY` (the plugin's hash-not-found code, verified
  * at `validateApiKey` in
@@ -108,7 +112,7 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
  */
 function mapApiKeyErrorCode(
 	code: string | undefined,
-): ApiKeyUnauthorizedReason {
+): ApiKeyUnauthorizedReason | null {
 	switch (code) {
 		case "KEY_NOT_FOUND":
 		case "INVALID_API_KEY":
@@ -118,7 +122,7 @@ function mapApiKeyErrorCode(
 		case "KEY_DISABLED":
 			return "api key disabled";
 		default:
-			return "api key invalid";
+			return null;
 	}
 }
 
@@ -209,10 +213,21 @@ export async function handleApiKeyMcp(
 			}
 		}
 		const reason = mapApiKeyErrorCode(code);
+		if (reason === null) {
+			log.error(
+				"[mcp/api-key] verify answered a code this route does not map",
+				undefined,
+				{
+					...audit,
+					pluginCode: code ?? "unknown",
+				},
+			);
+			return mcpUnavailableResponse();
+		}
 		log.warn("[mcp/api-key] verify failed", {
 			...audit,
 			reason,
-			pluginCode: code ?? "unknown",
+			pluginCode: code,
 		});
 		return apiKeyUnauthorizedResponse(reason);
 	}

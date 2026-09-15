@@ -351,9 +351,8 @@ describe("POST /api/mcp (API-key path)", () => {
 		 * fires when the bearer's hash doesn't match any stored row
 		 * (key never existed, was deleted, or was forged). Pin the
 		 * production behavior; a regression that drops the
-		 * `INVALID_API_KEY` case from `mapApiKeyErrorCode` would
-		 * silently change every "no such key" 401 to a fallback
-		 * description. */
+		 * `INVALID_API_KEY` case from `mapApiKeyErrorCode` would turn
+		 * every "no such key" 401 into an unknown-code 503. */
 		verifyApiKeyMock.mockResolvedValue({
 			valid: false,
 			error: { code: "INVALID_API_KEY", message: "Invalid API key." },
@@ -412,6 +411,24 @@ describe("POST /api/mcp (API-key path)", () => {
 
 		expect(res.status).toBe(503);
 		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(registerNovaToolsMock).not.toHaveBeenCalled();
+	});
+
+	it("answers 503 for a plugin code this route does not map, never a discarded key", async () => {
+		/* Only a documented verdict may tell a client its key is bad. A
+		 * plugin upgrade that reports its collapsed database error under a
+		 * new code must degrade to a retryable outage, not to the 401 this
+		 * route exists to stop sending during outages. */
+		verifyApiKeyMock.mockResolvedValue({
+			valid: false,
+			error: { code: "SOMETHING_NEW", message: "new plugin verdict" },
+			key: null,
+		});
+		const res = await dispatch(buildRequest("Bearer sk-nova-v1-newcode01"));
+
+		expect(res.status).toBe(503);
+		expect(res.headers.get("WWW-Authenticate")).toBeNull();
+		expect(apiKeyRowExistsMock).not.toHaveBeenCalled();
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 

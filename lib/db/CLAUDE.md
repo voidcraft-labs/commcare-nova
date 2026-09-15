@@ -42,7 +42,12 @@ it. Share strength still waits behind, and blocks, every claim/release/settle
 UPDATE, while the row's `FOR SHARE` authorization reads and the `FOR KEY
 SHARE` foreign-key checks of `chat_stream_chunks` appends proceed during a
 multi-second transcript rewrite; an exclusive lock there parks that traffic
-on pooled connections and exhausts the per-instance pool. ONE deliberate amendment sits in front of
+on pooled connections and exhausts the per-instance pool. Because the share
+lock no longer serializes writers of a thread whose row does not exist yet,
+every thread writer takes a per-thread transaction advisory lock
+(`threads.ts::lockThreadIdentity`) between the authority row and the thread
+row, so two same-holder writers creating one fresh thread insert then merge
+instead of colliding. ONE deliberate amendment sits in front of
 that convention: a transaction that CREATES, claims, reacquires, pauses,
 settles, refunds, reaps, or discards a holder/reservation — on either target
 kind — takes the per-actor generation admission gate FIRST

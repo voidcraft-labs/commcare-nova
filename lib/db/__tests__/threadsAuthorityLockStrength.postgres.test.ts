@@ -20,9 +20,16 @@
  * the snapshot open, so a parked statement is cancelled by Postgres (its
  * connection stays usable and its transaction rolls back cleanly) rather
  * than abandoned by a client-side timer.
+ *
+ * The last case covers what share strength gives up: the authority row no
+ * longer serializes writers of a thread whose row does not exist yet, so the
+ * per-thread identity lock (`lockThreadIdentity`) must. Two same-holder
+ * writers creating one fresh thread are parked on that identity from a third
+ * session, released together, and must both land: one inserts, the other
+ * merges.
  */
 import type { UIMessage } from "ai";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { loadAppInTransaction } from "../canonicalCommitKernel";
 import type { GenerationTarget } from "../generationTargets";
@@ -31,6 +38,7 @@ import { appendStreamChunks } from "../streamChunks";
 import {
 	loadThread,
 	persistResponseSnapshot,
+	threadIdentityLockScope,
 	upsertThreadTurn,
 } from "../threads";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -263,6 +271,67 @@ describe("thread authority lock strength", () => {
 					await probeStreamChunkAppend(contenders, target, runId);
 				},
 			);
+		},
+		CASE_TIMEOUT_MS,
+	);
+
+	it(
+		"two same-holder writers creating the same fresh thread queue on its identity and both land",
+		async () => {
+			const appId = "app-fresh-thread-race";
+			const runId = "run-fresh-thread-race";
+			const threadId = "thread-fresh-race";
+			await seedHeldApp(appId, runId);
+			const target: GenerationTarget = { kind: "app", appId };
+			const contenders = createPerTestAppDb(h.uri());
+			__setAppDbForTests(contenders.appDb);
+			const turn = (streamId: string, messages: UIMessage[]) =>
+				upsertThreadTurn({
+					target,
+					threadId,
+					runId,
+					streamId,
+					holderNonce: NONCE,
+					threadType: "build",
+					messages,
+					expectedProjectId: PROJECT,
+				});
+			try {
+				const results = await whileBlocked(
+					h,
+					(pg) =>
+						pg.query(
+							"SELECT pg_advisory_xact_lock(hashtextextended($1, 0::bigint))",
+							[threadIdentityLockScope(threadId)],
+						),
+					() =>
+						Promise.all([
+							turn("stream-a", [userMsg("m1", "first")]),
+							turn("stream-b", [
+								userMsg("m1", "first"),
+								userMsg("m2", "second"),
+							]),
+						]),
+					async (settled, pg) => {
+						expect(settled).toBe(false);
+						/* Both writers hold the app row in share mode and are parked
+						 * on the identity, not on each other. */
+						await vi.waitFor(async () => {
+							await pg.query("SELECT pg_stat_clear_snapshot()");
+							const parked = await pg.query<{ count: number }>(
+								"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+							);
+							expect(parked.rows[0]?.count).toBe(2);
+						});
+					},
+				);
+				expect(results).toEqual([true, true]);
+			} finally {
+				__setAppDbForTests(h.db());
+				await contenders.destroy();
+			}
+			const doc = await loadThread(target, threadId);
+			expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
 		},
 		CASE_TIMEOUT_MS,
 	);
