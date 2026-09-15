@@ -247,7 +247,7 @@ export const setCaseSearchAdvancedBodySchema = z
 		excludedOwnerIds: globallyResolvedOwnerExpressionSchema
 			.nullable()
 			.describe(
-				"Globally evaluated ValueExpression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
+				"Expression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
 			),
 		searchFirst: z
 			.literal(true)
@@ -289,7 +289,7 @@ export const setCaseSearchDisplayBodySchema = z
 		searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
 			.nullable()
 			.describe(
-				"Predicate AST gating whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
+				"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
 			),
 	})
 	.strict();

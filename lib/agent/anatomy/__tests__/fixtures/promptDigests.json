@@ -4,8 +4,8 @@
 		"version": "build-executor-v20"
 	},
 	"designInstructions": {
-		"digest": "9b786d2d85dc01734906e4609d5cfd58111dfb6c01ae2e8d2dfbba8dc673483c",
-		"version": "design-agent-v26"
+		"digest": "6bf38f7b69984908e51deb479d924d93581f77a024921f6e04e70a9869a87c1e",
+		"version": "design-agent-v27"
 	},
 	"designReviewerSystem": {
 		"digest": "40969318f4a7b49975c6ec96bfdfef63da37b4efac19f03d9ef1bbeaf7072dff",
@@ -38,8 +38,9 @@
 		"finishDesign",
 		"requestReview"
 	],
-	"executorToolsetDigest": "632e3df65fd603dbe449717a7c7ca7bd565b9f33141dfa33aa5ed84d12b2aab9",
+	"executorToolsetDigest": "7e004d6f79f7d36f307fdb97e053f1ad947c9810cd8a1ab08988475ce73fe65f",
 	"executorToolOrder": [
+		"getAuthoringGuide",
 		"getAutomations",
 		"getLanguages",
 		"getTranslatableContent",

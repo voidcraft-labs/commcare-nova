@@ -48,6 +48,7 @@ import { moveFormLinkTool } from "@/lib/agent/tools/form-links/moveFormLink";
 import { removeFormLinkTool } from "@/lib/agent/tools/form-links/removeFormLink";
 import { updateFormLinkTool } from "@/lib/agent/tools/form-links/updateFormLink";
 import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
+import { getAuthoringGuideTool } from "@/lib/agent/tools/getAuthoringGuide";
 import { getFieldTool } from "@/lib/agent/tools/getField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import { getLookupTablesTool } from "@/lib/agent/tools/getLookupTables";
@@ -236,6 +237,13 @@ const LOOKUP_WRITE_POLICY: ToolExecutionPolicy = {
 };
 
 export const SHARED_TOOL_REGISTRY = [
+	{
+		saName: "getAuthoringGuide",
+		mcpName: "get_authoring_guide",
+		tool: getAuthoringGuideTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
 	{
 		saName: "getAutomations",
 		mcpName: "get_automations",

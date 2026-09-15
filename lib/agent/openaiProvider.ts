@@ -19,7 +19,7 @@
  * and success behavior against a live local server.
  */
 
-import { createOpenAI, type OpenAIProvider } from "@ai-sdk/openai";
+import { createOpenAI, type OpenAIProvider, openai } from "@ai-sdk/openai";
 import { Agent, type Dispatcher, fetch as undiciFetch } from "undici";
 
 /** Transport ceiling for one model call's headers AND its inter-chunk idle
@@ -27,6 +27,9 @@ import { Agent, type Dispatcher, fetch as undiciFetch } from "undici";
  *  this exists only to beat the 300s undici default that no long reasoning
  *  call survives. */
 export const MODEL_CALL_TIMEOUT_MS = 20 * 60_000;
+
+/** Provider-owned tools have no transport or credentials until a model call. */
+export const novaOpenAITools = openai.tools;
 
 /** The fetch every production provider instance uses. The AI SDK's fetch
  *  contract is the DOM signature; Undici's equivalent structural types are

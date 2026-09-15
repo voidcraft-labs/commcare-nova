@@ -9,7 +9,7 @@
  * run a model, which a page must never do.
  */
 
-import { type ModelMessage, tool } from "ai";
+import type { ModelMessage } from "ai";
 import { projectArchitectHistory } from "@/lib/agent/architectHistory";
 import { wrapAttachment } from "@/lib/agent/documentExtraction";
 import {
@@ -116,18 +116,7 @@ async function architectHistory(
 ): Promise<ModelMessage[]> {
 	/* Definition-only tools: the same description, schema, and strictness
 	 * the architect mounts, with no execute. The pipeline reads only those. */
-	const tools = Object.fromEntries(
-		Object.entries(solutionsArchitectToolDefinitions()).map(
-			([name, definition]) => [
-				name,
-				tool({
-					description: definition.description,
-					inputSchema: definition.inputSchema,
-					strict: definition.strict,
-				}),
-			],
-		),
-	);
+	const tools = solutionsArchitectToolDefinitions();
 	const projected = await projectArchitectHistory({
 		messages: placeholderAttachments(messages),
 		tools,
@@ -258,7 +247,7 @@ export const solutionsArchitectComposition: RoleComposition = {
 				file: "lib/agent/solutionsArchitect.ts",
 				symbol: "solutionsArchitectToolDefinitions",
 			},
-			note: "askQuestions first, then every shared registry tool through the chat wire projection. strict: false on all of them.",
+			note: "Tool search and askQuestions are available initially. OpenAI loads shared tools when the agent needs them. Function inputs use Nova's authored grammar with strict: false.",
 		});
 		switch (spec.id) {
 			case "next-turn":

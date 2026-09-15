@@ -1,30 +1,15 @@
-/**
- * Solutions Architect — single ToolLoopAgent for conversation, generation, and editing.
- *
- * ONE shared tool set serves both modes: conversation, the data-model
- * tool (`generateSchema` — a build's first commit, and how a new case
- * type enters an existing app), reads, mutations, case-list /
- * case-search config, media. Build vs edit picks the prompt and the
- * model — never the tool set. Both prompts are static; each turn's
- * blueprint summary rides a per-turn message the route appends
- * (`buildAppStateMessage`), keeping the system prompt cache-stable.
- *
- * Vocabulary is domain-native: tool arguments, return shapes, and the
- * system prompt all use `field` / `kind` / `validate` / `validate_msg` /
- * `caseWrite`. Tool args flow straight into the reducer helpers in
- * `blueprintHelpers.ts`.
- *
- * The SA owns no document: a `CanonicalMutationWorkspace` over the
- * GenerationContext host holds the current `BlueprintDoc`, serializes every
- * tool invocation by a synchronously allocated ordinal, and adopts each
- * commit's (or conflict reload's) authoritative snapshot — see
- * `lib/agent/workspace/`. Stream-event payloads carry fine-grained
- * `data-mutations` events the host emits after each canonical commit. There
- * is no finishing tool: the chat route finalizes a build at drain end
- * (status flip + case-store materialize + the `data-done` signal).
+/** The editor's ToolLoopAgent. Shared tools accept authored values, which are
+ * bound inside the authorized canonical workspace before validation and commit.
+ * The workspace serializes calls and adopts committed or reloaded state. The
+ * route owns run finalization; new-app design and construction live in build/.
  */
 
-import { type FlexibleSchema, stepCountIs, ToolLoopAgent } from "ai";
+import {
+	type FlexibleSchema,
+	stepCountIs,
+	ToolLoopAgent,
+	type ToolSet,
+} from "ai";
 import type { ZodType } from "zod";
 import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
@@ -37,7 +22,12 @@ import {
 } from "@/lib/db/commitGuard";
 import type { BlueprintDoc } from "@/lib/domain";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
+import { AuthoringInputError } from "./authoring/errors";
+import { prepareAuthoringInput } from "./authoring/input";
+import { projectAuthoringReadInContext } from "./authoring/output";
+import { authoringToolSchema } from "./authoring/toolSchema";
 import type { GenerationContext } from "./generationContext";
+import { novaOpenAITools } from "./openaiProvider";
 import { buildSolutionsArchitectPrompt } from "./prompts";
 import {
 	SHARED_TOOL_REGISTRY,
@@ -56,14 +46,6 @@ interface ToolCallOptionsLike {
 	toolCallId?: string;
 }
 
-/** One SA tool's provider-facing definition: the description and the chat
- *  wire schema, with no server binding. */
-export interface SolutionsArchitectToolDefinition {
-	readonly description: string;
-	readonly inputSchema: FlexibleSchema<unknown>;
-	readonly strict: false;
-}
-
 /** Chat-surface wire projection — AST stubs on the wire, full Zod
  *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
  *  so the cast holds. */
@@ -71,21 +53,6 @@ function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
 	return wireToolSchema(schema as ZodType<I>);
 }
 
-/**
- * Every SA tool definition in provider order: the client-side `askQuestions`
- * first, then each `SHARED_TOOL_REGISTRY` entry under its SA name. This is
- * exactly what the model sees; `createSolutionsArchitect` attaches `execute`
- * to these same objects, so the mounted grammar and this pure catalog cannot
- * drift. Pure: no context, no database.
- *
- * Every tool opts out of the Responses API's default strict-mode schema
- * normalization, which forces EVERY property present on every call
- * (optionals become required; the model pads unused slots with null, or
- * invents filler where null isn't in the type). Non-strict lets the model
- * omit what doesn't apply, fewer output tokens per call and less context
- * echo on every later step, and our own Zod validation remains the real
- * gate either way.
- */
 /** Steps per turn: the tool loop stops here whatever the model wants next. */
 export const SOLUTIONS_ARCHITECT_MAX_STEPS = 80;
 
@@ -96,11 +63,12 @@ export const SOLUTIONS_ARCHITECT_MAX_STEPS = 80;
  * chat route's turn-level re-run (`lib/agent/turnRetry`) owns those. */
 export const SOLUTIONS_ARCHITECT_MAX_RETRIES = 4;
 
-export function solutionsArchitectToolDefinitions(): Record<
-	string,
-	SolutionsArchitectToolDefinition
-> {
+/** The inspection catalog and runtime use these same definitions. Shared tools
+ * load through hosted search and retain omission semantics with strict: false.
+ * Full canonical validation follows authored-value binding on the server. */
+export function solutionsArchitectToolDefinitions(): ToolSet {
 	return {
+		toolSearch: novaOpenAITools.toolSearch(),
 		askQuestions: {
 			description: askQuestionsTool.description,
 			inputSchema: wire(askQuestionsTool.inputSchema),
@@ -111,9 +79,11 @@ export function solutionsArchitectToolDefinitions(): Record<
 				entry.saName,
 				{
 					description: entry.tool.description,
-					inputSchema: wire(entry.tool.inputSchema as ZodType<unknown>),
+					inputSchema: authoringToolSchema(entry.saName, entry.tool.inputSchema)
+						.inputSchema,
 					strict: false,
-				} satisfies SolutionsArchitectToolDefinition,
+					providerOptions: { openai: { deferLoading: true } },
+				},
 			]),
 		),
 	};
@@ -205,10 +175,20 @@ export function createSolutionsArchitect(
 						execute: async (invocationCtx) => {
 							throwIfTerminalRunError();
 							try {
-								const outcome = await t.execute(input, invocationCtx);
+								const prepared = await prepareAuthoringInput({
+									toolName: saName,
+									schema: t.inputSchema,
+									input,
+									ctx: invocationCtx,
+								});
+								const outcome = await t.execute(prepared, invocationCtx);
 								switch (outcome.kind) {
 									case "read":
-										return outcome.data;
+										return projectAuthoringReadInContext(
+											saName,
+											outcome.data,
+											invocationCtx,
+										);
 									case "mutate": {
 										/* A committed row migration that PARKED saved case values
 										 * stashed a note on the host — append it to a
@@ -266,7 +246,10 @@ export function createSolutionsArchitect(
 					 * `{ error }` envelope. Terminal signals — lost access, moved
 					 * Project, lost holder, batch-id collision — are NOT caught:
 					 * they propagate (latched above) and fail the run. */
-					if (err instanceof BlueprintCommitRejectedError) {
+					if (
+						err instanceof BlueprintCommitRejectedError ||
+						err instanceof AuthoringInputError
+					) {
 						return { error: err.message };
 					}
 					throw err;
@@ -279,6 +262,7 @@ export function createSolutionsArchitect(
 	// appear in the SA/MCP registry. Every executable shared tool comes directly
 	// from that registry; the SA and MCP cannot carry divergent module lists.
 	const sharedTools = {
+		toolSearch: definitions.toolSearch,
 		// `askQuestions` is the one client-side tool — no `execute`, the
 		// agent stops for user input when the model calls it. Kept as a
 		// bare `{ description, inputSchema }` object so the AI SDK can

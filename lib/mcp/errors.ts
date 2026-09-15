@@ -43,6 +43,7 @@
  * `content[0].text` as a JSON object.
  */
 
+import { AuthoringInputError } from "@/lib/agent/authoring/errors";
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import { AppPaginationError } from "@/lib/db/appPagination";
@@ -285,6 +286,7 @@ export function toMcpErrorResult(
 
 	if (
 		err instanceof McpInvalidInputError ||
+		err instanceof AuthoringInputError ||
 		err instanceof AppPaginationError
 	) {
 		/* Argument-validation failures short-circuit the classifier

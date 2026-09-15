@@ -12,21 +12,18 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import {
 	AUTHORABLE_IDENTITY_POINTER_REGISTRY,
-	type AuthorableIdentityPointer,
 	collectIdentitySchemaPointers,
 } from "@/lib/agent/identityPointerRegistry";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
-	LOOKUP_UUID_V7_PATTERN,
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 	uuidSchema,
 } from "@/lib/domain";
-import { predicateSchema, valueExpressionSchema } from "@/lib/domain/predicate";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
 
@@ -80,45 +77,6 @@ beforeAll(async () => {
 	}
 });
 
-function signature(pointer: AuthorableIdentityPointer): string {
-	return [pointer.logicalPointer, pointer.family, pointer.pattern].join("|");
-}
-
-function signatures(
-	pointers: readonly AuthorableIdentityPointer[],
-): readonly string[] {
-	return [...new Set(pointers.map(signature))].sort();
-}
-
-function assertRejectionMatrix(
-	pointers: readonly AuthorableIdentityPointer[],
-): void {
-	for (const pointer of pointers) {
-		const matcher = new RegExp(pointer.pattern);
-		for (const invalid of GENERAL_UUID_REJECTIONS) {
-			expect(
-				matcher.test(invalid),
-				`${pointer.tool} ${pointer.schemaPointer} accepted ${invalid}`,
-			).toBe(false);
-		}
-		if (pointer.pattern === LOOKUP_UUID_V7_PATTERN.source) {
-			expect(
-				matcher.test(CANONICAL_UUID_V4),
-				`${pointer.tool} ${pointer.schemaPointer} accepted non-v7 UUID`,
-			).toBe(false);
-		} else {
-			expect(
-				matcher.test(CANONICAL_UUID_V4),
-				`${pointer.tool} ${pointer.schemaPointer} rejected canonical v4 UUID`,
-			).toBe(true);
-		}
-		expect(
-			matcher.test(CANONICAL_UUID),
-			`${pointer.tool} ${pointer.schemaPointer} rejected canonical v7 UUID`,
-		).toBe(true);
-	}
-}
-
 describe("shared-tool authored identity registry", () => {
 	it("has duplicate-free classified pointers for module ownership and confirmation", () => {
 		const exactPointers = AUTHORABLE_IDENTITY_POINTER_REGISTRY.map(
@@ -164,89 +122,21 @@ describe("shared-tool authored identity registry", () => {
 		}
 	});
 
-	it("keeps collected non-AST pointers and the sampled rejection matrix identical in local Zod, compact SA, and real MCP tools/list schemas", () => {
-		/* The SA wire flattens the AST family into self-contained merged roots
-		 * (`wireSchemas.ts`), so pointers that the canonical emission reaches
-		 * through AST definitions sit at different logical paths there — or,
-		 * on a tool whose wire never emits a ValueExpression definition, only
-		 * in the prompt's grammar. Outside the AST family the three surfaces
-		 * must stay pointer-identical; inside it, the SA wire may only ever
-		 * carry a subset of the canonical slots, and the registry-wide sweep
-		 * below proves every canonical AST identity slot survives somewhere
-		 * on the SA wire with its exact pattern. */
-		const astDefNames = new Set(
-			Object.keys(
-				((
-					z.toJSONSchema(
-						z.object({
-							predicate: predicateSchema,
-							valueExpression: valueExpressionSchema,
-						}),
-						{ target: "draft-7", io: "input" },
-					) as JsonNode
-				).definitions ?? {}) as JsonNode,
-			),
-		);
-		const isAstPointer = (pointer: AuthorableIdentityPointer): boolean =>
-			pointer.logicalPointer
-				.split("/")
-				.some(
-					(segment) =>
-						segment.startsWith("$") && astDefNames.has(segment.slice(1)),
-				);
-		const astSlotSignatures = (
-			pointers: readonly AuthorableIdentityPointer[],
-		): readonly string[] =>
-			[
-				...new Set(
-					pointers
-						.filter(isAstPointer)
-						.map((p) => `${p.property}|${p.family}|${p.pattern}`),
-				),
-			].sort();
-		const localAstSlots = new Set<string>();
-		const saAstSlots = new Set<string>();
-		for (const { mcpName, tool } of SHARED_TOOL_REGISTRY) {
-			const local = collectIdentitySchemaPointers(
-				mcpName,
-				z.toJSONSchema(tool.inputSchema, {
-					target: "draft-2020-12",
-					io: "input",
-				}) as JsonNode,
+	it("publishes the same authored grammar through SA and actual MCP tools/list", () => {
+		for (const { saName, mcpName, tool } of SHARED_TOOL_REGISTRY) {
+			const expected = authoringToolSchema(saName, tool.inputSchema).json;
+			const listed = mcpSchemas.get(mcpName);
+			expect(listed, mcpName).toBeDefined();
+			if (!listed) throw new Error(`Missing ${mcpName}`);
+			const actual = structuredClone(listed);
+			const properties = actual.properties as Record<string, unknown>;
+			delete properties.app_id;
+			actual.required = (actual.required as string[]).filter(
+				(name) => name !== "app_id",
 			);
-			const sa = collectIdentitySchemaPointers(
-				mcpName,
-				wireToolSchema(tool.inputSchema as z.ZodType).jsonSchema as JsonNode,
-			);
-			const mcpJson = mcpSchemas.get(mcpName);
-			expect(mcpJson, `${mcpName} missing from tools/list`).toBeDefined();
-			if (mcpJson === undefined) continue;
-			const mcp = collectIdentitySchemaPointers(mcpName, mcpJson);
-
-			expect(
-				signatures(sa.filter((p) => !isAstPointer(p))),
-				`${mcpName} SA identity drift`,
-			).toEqual(signatures(local.filter((p) => !isAstPointer(p))));
-			const localAst = astSlotSignatures(local);
-			for (const slot of astSlotSignatures(sa)) {
-				expect(
-					localAst.includes(slot),
-					`${mcpName} SA wire invents AST identity slot ${slot}`,
-				).toBe(true);
-			}
-			for (const slot of localAst) localAstSlots.add(slot);
-			for (const slot of astSlotSignatures(sa)) saAstSlots.add(slot);
-			expect(signatures(mcp), `${mcpName} MCP identity drift`).toEqual(
-				signatures(local),
-			);
-			assertRejectionMatrix(local);
-			assertRejectionMatrix(sa);
-			assertRejectionMatrix(mcp);
+			if (!("required" in expected)) delete actual.required;
+			expect(actual, mcpName).toEqual(expected);
 		}
-		expect(
-			[...saAstSlots].sort(),
-			"AST identity slots lost from the SA wire",
-		).toEqual([...localAstSlots].sort());
 	});
 
 	it("collects nested and array identities and refuses an unclassified canonical identity", () => {

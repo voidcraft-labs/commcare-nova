@@ -93,7 +93,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.array(addFieldsItemSchema)
 			.min(1)
 			.describe(
-				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Same per-field shape as addFields; use parentUuid on an item to nest it under a predeclared group/repeat created earlier in this list.",
+				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Use parentUuid to place a field inside a group, repeat, or section.",
 			),
 		purpose: z
 			.string()

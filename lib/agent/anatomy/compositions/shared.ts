@@ -3,8 +3,13 @@
  * read as lists of what the model receives rather than as plumbing.
  */
 
-import { type ModelMessage, zodSchema } from "ai";
-import type { z } from "zod";
+import {
+	asSchema,
+	type FlexibleSchema,
+	type ModelMessage,
+	zodSchema,
+} from "ai";
+import { z } from "zod";
 import type { PromptSegment } from "@/lib/agent/promptSegments";
 import { strictWireJsonSchema } from "@/lib/agent/strictStructuredOutput";
 import { modelMessagesContainCompaction } from "@/lib/chat/compaction";
@@ -59,9 +64,13 @@ export function systemItem(args: {
  * `FlexibleSchema` (with a possibly lazy `jsonSchema`) or a plain JSON
  * schema object. */
 export interface ToolDefinitionSource {
-	readonly description: string;
+	readonly description?: unknown;
 	readonly inputSchema: unknown;
 	readonly strict?: boolean;
+	readonly type?: string;
+	readonly id?: string;
+	readonly args?: unknown;
+	readonly providerOptions?: unknown;
 }
 
 /** The schema exactly as the wire carries it: its JSON serialization.
@@ -73,6 +82,10 @@ export function wireJson(value: unknown): unknown {
 }
 
 async function resolveJsonSchema(inputSchema: unknown): Promise<unknown> {
+	if (typeof inputSchema === "function")
+		return wireJson(
+			await asSchema(inputSchema as FlexibleSchema<unknown>).jsonSchema,
+		);
 	if (
 		typeof inputSchema === "object" &&
 		inputSchema !== null &&
@@ -90,9 +103,24 @@ export async function toolViews(
 	return Promise.all(
 		Object.entries(definitions).map(async ([name, definition]) => ({
 			name,
-			description: definition.description,
+			description:
+				typeof definition.description === "string"
+					? definition.description
+					: "",
 			inputSchema: await resolveJsonSchema(definition.inputSchema),
 			strict: definition.strict,
+			deferred: z
+				.object({ openai: z.object({ deferLoading: z.literal(true) }) })
+				.safeParse(definition.providerOptions).success,
+			...(definition.type === "provider" && {
+				providerTool: {
+					id: definition.id ?? name,
+					args: wireJson(definition.args),
+				},
+			}),
+			...(definition.providerOptions !== undefined && {
+				providerOptions: wireJson(definition.providerOptions),
+			}),
 			...(allowed && { allowed: allowed.has(name) }),
 		})),
 	);

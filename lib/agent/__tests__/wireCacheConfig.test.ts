@@ -34,7 +34,13 @@ interface CapturedBody {
 					prompt_cache_breakpoint?: { mode?: string };
 			  }>;
 	}>;
-	tools?: Array<{ name?: string; strict?: boolean; parameters?: unknown }>;
+	tools?: Array<{
+		type: string;
+		name?: string;
+		strict?: boolean;
+		parameters?: unknown;
+		defer_loading?: boolean;
+	}>;
 }
 
 async function captureEditTurns(): Promise<CapturedBody[]> {
@@ -117,6 +123,16 @@ describe("actual SA edit-turn Responses wire", () => {
 		for (const body of bodies) {
 			expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
 			expect(body.store).toBe(false);
+			expect(body.tools).toContainEqual(
+				expect.objectContaining({ type: "tool_search" }),
+			);
+			expect(
+				body.tools
+					?.filter(
+						(tool) => tool.type === "function" && tool.name !== "askQuestions",
+					)
+					.every((tool) => tool.defer_loading === true),
+			).toBe(true);
 			expect(body.include).toContain("reasoning.encrypted_content");
 			expect(body.reasoning).toMatchObject({
 				effort: MODEL_ROLES.followUpEditor.reasoningEffort,
@@ -131,6 +147,7 @@ describe("actual SA edit-turn Responses wire", () => {
 				body.tools?.find((tool) => tool.name === "updateModule"),
 			).toMatchObject({
 				strict: false,
+				defer_loading: true,
 				parameters: {
 					required: ["moduleUuid"],
 					properties: { moduleUuid: { type: "string" }, name: {} },

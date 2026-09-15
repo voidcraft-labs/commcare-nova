@@ -24,6 +24,7 @@ import {
 	moduleUuidOfForm,
 	printXPath,
 	type ResolveFieldPath,
+	type ResolveSearchInputName,
 	type ResolveUserPropertySlug,
 	searchInputNameResolver,
 	userPropertySlugResolver,
@@ -43,6 +44,8 @@ export function parseAuthoredXPath(
 	resolveField: ResolveFieldPath,
 	source: string,
 	selectedCaseType?: string,
+	resolveSearchInput?: ResolveSearchInputName,
+	allowExternalFormPaths = false,
 ): XPathExpression {
 	const form = formUuid ? doc.forms[formUuid] : undefined;
 	const moduleUuid = formUuid ? moduleUuidOfForm(doc, formUuid) : undefined;
@@ -55,12 +58,20 @@ export function parseAuthoredXPath(
 		source,
 		resolveField,
 		resolvableUserPropertySlug(doc),
-		searchInputNameResolver(doc, formUuid),
+		resolveSearchInput ?? searchInputNameResolver(doc, formUuid),
 		{ requireBoundNames: true, selectedCaseType: boundCaseType },
 	);
-	if (parsed.issues.length) {
+	const issues = parsed.issues.filter(
+		(issue) =>
+			!(
+				allowExternalFormPaths &&
+				issue.kind === "unresolved-reference" &&
+				(issue.source.startsWith("/data/") || issue.source.startsWith("#form/"))
+			),
+	);
+	if (issues.length) {
 		throw new Error(
-			parsed.issues
+			issues
 				.map((issue) =>
 					issue.kind === "syntax"
 						? `Invalid expression: ${issue.source}`

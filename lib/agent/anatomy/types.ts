@@ -73,6 +73,9 @@ export interface ToolDefinitionView {
 	readonly description: string;
 	readonly inputSchema: unknown;
 	readonly strict: boolean | undefined;
+	readonly providerTool?: { readonly id: string; readonly args: unknown };
+	readonly providerOptions?: unknown;
+	readonly deferred?: boolean;
 	/** Executor only: whether this slice's `allowedTools` admits the tool. */
 	readonly allowed?: boolean;
 }
@@ -288,6 +291,7 @@ export type WeighedItem =
 	  })
 	| (Omit<Extract<ContextItem, { kind: "tools" }>, "tools"> & {
 			readonly weight: Weight;
+			readonly catalogWeight: Weight;
 			readonly tools: readonly WeighedTool[];
 	  })
 	| (Exclude<ContextItem, { kind: "system" | "tools" }> & {

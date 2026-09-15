@@ -185,9 +185,8 @@ export function parseXPathExpressionWithIssues(
 			enter(node) {
 				if (
 					node.type === T.NameTest &&
-					!identitySpans.some(
-						(span) => span.from <= node.from && span.to >= node.to,
-					)
+					!spans.some((span) => span.from <= node.from && span.to >= node.to) &&
+					!hasExplicitPathContext(node.node, source)
 				)
 					issues.push({
 						kind: "unresolved-reference",
@@ -217,6 +216,31 @@ export function parseXPathExpressionWithIssues(
 		parts.push({ kind: "text", text: source.slice(cursor) });
 	}
 	return { expression: { parts }, issues };
+}
+
+/** An explicit XPath initializer owns its path steps and predicate context.
+ * These are existing carrier paths, whose namespaces and capabilities are
+ * checked by canonical admission. A sibling expression cannot inherit them. */
+function hasExplicitPathContext(node: SyntaxNode, source: string): boolean {
+	function initialized(path: SyntaxNode | null): boolean {
+		if (!path) return false;
+		if (path.name === "Invoke") {
+			const name = path.getChild("FunctionName");
+			return (
+				name !== null &&
+				["instance", "current"].includes(source.slice(name.from, name.to))
+			);
+		}
+		return (
+			(T.Children.has(path.type) ||
+				T.Descendants.has(path.type) ||
+				path.name === "Filtered") &&
+			initialized(path.firstChild)
+		);
+	}
+	for (let parent = node.parent; parent; parent = parent.parent)
+		if (initialized(parent)) return true;
+	return false;
 }
 
 function collectLeafSpans(

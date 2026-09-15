@@ -123,7 +123,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 
 	/* Shared SA tools — one manifest, one adapter, one source of truth
 	 * with the chat-side `solutionsArchitect` factory. */
-	for (const { mcpName, tool, requires } of SHARED_TOOL_REGISTRY) {
-		registerSharedTool(server, mcpName, tool, ctx, requires);
+	for (const { saName, mcpName, tool, requires } of SHARED_TOOL_REGISTRY) {
+		registerSharedTool(server, mcpName, tool, ctx, requires, saName);
 	}
 }

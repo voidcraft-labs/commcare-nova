@@ -1,5 +1,6 @@
 import type { SyntaxNode } from "@lezer/common";
 import { parser } from "@/lib/commcare/xpath";
+import { AuthoringInputError } from "./errors";
 
 /** A transient parse tree, never stored or executed. Uses the existing grammar. */
 export type AuthoredExpression =
@@ -60,14 +61,18 @@ export function parseAuthoringExpression(
 		},
 	});
 	if (error)
-		throw new Error(`Invalid expression near character ${error.from + 1}.`);
+		throw new AuthoringInputError(
+			`Invalid expression near character ${error.from + 1}.`,
+		);
 	const text = (node: SyntaxNode) => source.slice(node.from, node.to);
 	function children(node: SyntaxNode) {
 		const result: SyntaxNode[] = [];
 		for (let child = node.firstChild; child; child = child.nextSibling) {
 			if (expressionNodes.has(child.name)) result.push(child);
 			else if (!separators.has(child.name)) {
-				throw new Error(`Use a named reference for ${text(child)}.`);
+				throw new AuthoringInputError(
+					`Use a named reference for ${text(child)}.`,
+				);
 			}
 		}
 		return result;
@@ -84,7 +89,8 @@ export function parseAuthoringExpression(
 			};
 		if (node.name === "HashtagRef") {
 			const namespace = node.getChild("HashtagType");
-			if (!namespace) throw new Error("A reference needs a namespace.");
+			if (!namespace)
+				throw new AuthoringInputError("A reference needs a namespace.");
 			return {
 				kind: "reference",
 				namespace: text(namespace),
@@ -94,7 +100,8 @@ export function parseAuthoringExpression(
 		if (node.name === "Invoke") {
 			const args = node.getChild("ArgumentList");
 			const name = node.getChild("FunctionName");
-			if (!args || !name) throw new Error("Incomplete expression function.");
+			if (!args || !name)
+				throw new AuthoringInputError("Incomplete expression function.");
 			return {
 				kind: "call",
 				name: text(name),
@@ -112,10 +119,11 @@ export function parseAuthoringExpression(
 				left: visit(operands[0]),
 				right: visit(operands[1]),
 			};
-		throw new Error(`Unsupported expression: ${text(node)}.`);
+		throw new AuthoringInputError(`Unsupported expression: ${text(node)}.`);
 	}
 	const roots = children(tree.topNode);
-	if (roots.length !== 1) throw new Error("Supply one complete expression.");
+	if (roots.length !== 1)
+		throw new AuthoringInputError("Supply one complete expression.");
 	return visit(roots[0]);
 }
 

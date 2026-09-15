@@ -93,14 +93,26 @@ export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
  */
 export function prepareToolOptionsSource(
 	source: ProjectedOptionsSource,
+	previous?: SelectOptionsSource,
 ): SelectOptionsSource {
 	if (source.kind === "lookup") return source;
+	const existing = previous?.kind === "inline" ? previous.options : [];
 	return {
 		kind: "inline",
-		options: source.options.map(({ optionUuid, ...option }) => ({
-			...option,
-			uuid: optionUuid ?? uuidSchema.parse(crypto.randomUUID()),
-		})),
+		options: source.options.map(({ optionUuid, ...option }) => {
+			const matches = existing.filter((prior) =>
+				optionUuid === undefined
+					? prior.value === option.value
+					: prior.uuid === optionUuid,
+			);
+			const prior = matches.length === 1 ? matches[0] : undefined;
+			return {
+				...option,
+				uuid:
+					optionUuid ?? prior?.uuid ?? uuidSchema.parse(crypto.randomUUID()),
+				...(prior?.media && { media: prior.media }),
+			};
+		}),
 	};
 }
 

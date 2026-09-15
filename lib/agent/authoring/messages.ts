@@ -5,6 +5,7 @@ import {
 	automationMessagePartSchema,
 	automationMessageTemplateSchema,
 } from "@/lib/domain/automations";
+import { AuthoringInputError } from "./errors";
 import { parseInterpolatedText, printInterpolatedText } from "./text";
 
 export function parseAuthoringMessage(
@@ -16,7 +17,7 @@ export function parseAuthoringMessage(
 	const parts = parseInterpolatedText<AutomationMessagePart>(source, (name) => {
 		const [scope, property, extra] = name.replace(/^#/, "").split("/");
 		if (!property || extra !== undefined)
-			throw new Error(`{{${name}}} must name one message value.`);
+			throw new AuthoringInputError(`{{${name}}} must name one message value.`);
 		if (scope === "recipient" || scope === "case-owner")
 			return automationMessagePartSchema.parse({
 				kind: "context-property",
@@ -24,7 +25,7 @@ export function parseAuthoringMessage(
 				property,
 			});
 		if (scope !== "case" && scope !== "parent" && scope !== "host")
-			throw new Error(`Unknown message scope: ${scope}.`);
+			throw new AuthoringInputError(`Unknown message scope: ${scope}.`);
 		const target =
 			scope === "case"
 				? root
@@ -35,7 +36,9 @@ export function parseAuthoringMessage(
 					? caseTypes.find((type) => type.name === root.parent_type)
 					: undefined;
 		if (!target)
-			throw new Error(`There is no ${scope} record for ${caseType}.`);
+			throw new AuthoringInputError(
+				`There is no ${scope} record for ${caseType}.`,
+			);
 		// The canonical automation validator owns property availability and
 		// message-specific shadowing. Binding owns only the reference identity.
 		return automationMessagePartSchema.parse({

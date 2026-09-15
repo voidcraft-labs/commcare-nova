@@ -232,7 +232,12 @@ export const editFieldTool = {
 			const preparedOptionsSource =
 				fieldUpdates.optionsSource === undefined
 					? undefined
-					: prepareToolOptionsSource(fieldUpdates.optionsSource);
+					: prepareToolOptionsSource(
+							fieldUpdates.optionsSource,
+							"optionsSource" in resolved.field
+								? resolved.field.optionsSource
+								: undefined,
+						);
 
 			// Replacement options may preserve identities already owned by this
 			// field, but may not capture another authored object's UUID or repeat

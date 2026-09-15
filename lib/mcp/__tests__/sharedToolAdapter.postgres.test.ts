@@ -100,12 +100,12 @@ it("adds fields once, preserves returned identities and drains matching event en
 								fieldUuid,
 								id: "consent",
 								kind: "single_select",
-								label: proseText("Consent"),
+								label: "Consent",
 								optionsSource: {
 									kind: "inline",
 									options: [
-										{ optionUuid: yes, value: "yes", label: proseText("Yes") },
-										{ optionUuid: no, value: "no", label: proseText("No") },
+										{ optionUuid: yes, value: "yes", label: "Yes" },
+										{ optionUuid: no, value: "no", label: "No" },
 									],
 								},
 							},
@@ -223,7 +223,9 @@ it("preserves object-level and nested schema refinements through actual SDK disp
 				content: [
 					{
 						type: "text",
-						text: expect.stringContaining("Input validation error"),
+						text: expect.stringMatching(
+							/Input validation error|"error_type":"invalid_input"/,
+						),
 					},
 				],
 			});
@@ -243,7 +245,7 @@ it("enforces current roles for read and write tools and rejects foreign/deleted 
 			name: "add_fields",
 			arguments: {
 				...address,
-				fields: [{ id: "note", kind: "text", label: proseText("Note") }],
+				fields: [{ id: "note", kind: "text", label: "Note" }],
 			},
 		});
 		expect(denied).toEqual({
@@ -328,7 +330,7 @@ it("refuses duplicate field ids without writes and strips app_id from the actual
 								{
 									id: "patient_name",
 									kind: "text",
-									label: proseText("Duplicate"),
+									label: "Duplicate",
 								},
 							],
 						},
@@ -360,7 +362,7 @@ it("commits a real conversion plus patch as one change, with no prefix or log on
 			updates: {
 				kind: "barcode",
 				id: "patient_code",
-				label: proseText("Patient code"),
+				label: "Patient code",
 			},
 		};
 		const rejected = await client.callTool({
@@ -790,7 +792,7 @@ it("admits a staged conversion whose required calculation arrives in the same ca
 					arguments: {
 						...address,
 						fieldUuid,
-						updates: { kind: "hidden", calculate },
+						updates: { kind: "hidden", calculate: '"automatic"' },
 					},
 				}),
 			),

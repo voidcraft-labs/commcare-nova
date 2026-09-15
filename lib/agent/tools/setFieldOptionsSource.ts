@@ -60,7 +60,10 @@ export const setFieldOptionsSourceTool = {
 
 			// The one `optionUuid` -> `uuid` bridge, run before the identity
 			// guard so admission sees the stored shape it will persist.
-			const source = prepareToolOptionsSource(input.source);
+			const source = prepareToolOptionsSource(
+				input.source,
+				field.optionsSource,
+			);
 			// A replacement may keep identities this field already owns, but may
 			// not capture another authored object's UUID or repeat one inside the
 			// source — the same rule `editField` applies to the same slot.

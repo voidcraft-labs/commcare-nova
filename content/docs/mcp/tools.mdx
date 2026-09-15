@@ -7,35 +7,29 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 
 ## Easy starting point
 
-`get_agent_prompt` returns the same instructions Commcare Nova's own web builder follows when it builds apps. Tell your agent to call it on its first turn (with `mode: "build"` for a new app or `mode: "edit"` for an existing one) and follow the text it returns. You don't have to do this, your agent can drive the tools however it wants, but starting from the instructions Commcare Nova already tunes for these tools is the fastest path to good results.
+`get_agent_prompt` gives an external agent Nova's app-building guidance. Build mode
+orients a new app; edit mode also includes the current app state. Use
+`get_authoring_guide` for detailed field, expression, and automation references.
 
-It's a long result, a whole system prompt. A prompt that fits the model-facing result budget arrives as plain text. A larger prompt instead arrives as a `nova-agent-prompt-page` JSON object. Have your agent save its `prompt_chunk`, call the tool again with the same `mode` and `app_id` plus `next_cursor`, and repeat until `complete` is true. `offset_unit` is `unicode-code-points`: `chunk_start`, `chunk_end`, and `prompt_length` count Unicode code points, not UTF-16 code units or UTF-8 bytes, and a chunk never splits a surrogate pair. Each page must have the same `prompt_sha256`, each `chunk_start` must equal the preceding `chunk_end`, and the final `chunk_end` must equal `prompt_length`. The agent can then concatenate the chunks in order and follow the assembled prompt. If the app changes while those pages are being fetched, CommCare Nova refuses to mix the snapshots and asks the agent to restart without a cursor. Edit mode is available to Project members with view access, including viewers. Every continuation checks that access again; a saved cursor does not preserve access after membership is removed.
+If the guidance and app state exceed the result budget, the prompt arrives in
+pages. Follow `next_cursor` with the same mode and app until `complete` is true.
+Pages carry one `prompt_sha256` and contiguous Unicode-code-point offsets; a changed
+app requires restarting the read. Edit-mode reads require current Project access,
+including on each continuation.
 
 The complete assembled prompt always ends with the line `NOVA-PROMPT-END`. Have your agent check for it and stop if it's missing. Pagination keeps all guidance and the complete app summary; it does not shorten either one to fit.
 
-## Stable identities and structured content
+## Authoring and stable identities
 
-Read an app before editing it. Commcare Nova returns stable UUIDs for modules, forms,
-fields, choices, case-list columns, search inputs, automations and their nested
-criteria, updates, recipients, events, and filters, worker-information
-properties, roles, personas, organization levels, place-information properties,
-places, case operations, after-submit links, Project data tables, columns, and rows. Editing tools address those
-objects by their UUID parameters, such as `moduleUuid`, `formUuid`,
-`fieldUuid`, `columnUuid` (the case-list column), `searchInputUuid`,
-`operationUuid`, and `linkUuid`, rather than by a display name, saved field id, path, list
-position, or operation id. Project data tables and columns carry their UUID on
-`id`. Names, saved ids, lookup tags, and column export names remain readable,
-editable authoring values; changing one does not retarget a UUID-linked
-reference.
+Read the relevant part of an app before editing it. Results include stable IDs
+for retained objects. Module, form, and field targets also accept unambiguous names
+or field paths. Other targeted resources use the IDs returned by reads.
 
-When one item in a creation call will be referenced by another item in that
-same call, give it its final UUID in the matching creation slot:
-`moduleUuid`, `formUuid`, `fieldUuid`, `optionUuid`, `columnUuid`,
-`searchInputUuid`, or `operationUuid`. Otherwise, omit that slot and let Commcare Nova
-mint the UUID. A same-call group or repeat parent must appear earlier in the
-field list and declare `fieldUuid`. An operation whose result is consumed by a
-later operation must likewise appear earlier; predeclaring identity does not
-change execution order.
+Nova assigns omitted creation identities. New fields can refer to other fields
+in the same request by name, including forward references and parent containers.
+Where a scalar relationship still requires an ID, supply the new item's identity
+in its creation slot. Advanced operations run in their declared order; a consumed
+operation must precede the operation that uses its result.
 
 Every successful creation result returns the final identities it created in
 input order, including identities Commcare Nova minted. Field receipts nest their inline
@@ -61,32 +55,28 @@ writer. Lookup-backed choices use the canonical
 there are no `tableUuid` or column-UUID aliases. Option media is changed through
 the dedicated media tools.
 
-MCP expression slots take Commcare Nova's typed AST, not an XPath source string. For
-example, a field reference is a part such as
-`{ "kind": "field-ref", "uuid": "<field UUID>" }`; a complete XPath value is
-`{ "parts": [/* text and typed reference parts */] }`. Reference-capable prose
-uses the same outer `{ "parts": [...] }` shape with explicit reference atoms.
-Plain text that happens to contain `#form/name` stays plain text. Predicate and
-ValueExpression leaves likewise use UUIDs, for example
-`{ "kind": "field", "uuid": "<field UUID>" }`,
-`{ "kind": "input", "searchInputUuid": "<search input UUID>" }`,
-`{ "kind": "id-of", "opUuid": "<operation UUID>" }`, and
-`{ "kind": "session-user-property", "userPropertyUuid": "<property UUID>" }`.
+Wording and expressions are authored as text. A label such as `Hello {{name}}`
+inserts the answer to `name`; a condition such as `#form/age >= 18` reads that
+answer. Nova binds names to stable identities when the request runs, so renaming
+or moving a field preserves its references. Literal opening braces and backslashes
+are escaped with a backslash. Read tools return the same wording and expression
+format accepted by edits.
 
-There are exactly two name-keyed leaves, both deliberate: a case property, which
-uses `(caseType, property)`, and a CommCare session field Commcare Nova does not own,
-which names one field out of a closed framework set.
+A module, form, or field target accepts its stable ID or an unambiguous name.
+Use the full path for nested fields. Nova can infer parents from an existing form
+or field identity; when a parent is supplied, it must match. New fields can name
+a parent container created in the same request. Nova assigns creation identities
+when omitted. Existing IDs remain useful when names collide.
 
-This is only the machine contract. In Commcare Nova's visual XPath editor, people still
-type and read friendly expressions such as `#form/first_name`; Commcare Nova resolves
-that text to identity when the edit commits and prints the current friendly
-path when it is opened again. Users are never asked to write a UUID-shaped
-XPath.
+Record queries use expressions such as `#case/age >= 18`. Within a data-table
+filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
+references for field types, form logic, record queries, and automations. Lookup
+choice sources retain explicit `tableId`, `valueColumnId`, and `labelColumnId`.
 
-Lookup expressions use the same identity rule. A row-scoped column is
-`{ "kind": "table-column", "tableId": "...", "columnId": "..." }`; table
-lookups and lookup-backed choice sources likewise use `tableId` and column ids,
-never table tags, export names, or display labels.
+Validation and repeat settings read back in their editable shapes. Choice lists
+retain option identities; attached option media is reported separately and changed
+through the media tools. Translation source fingerprints are opaque tokens: echo
+the token from the current read when setting or reviewing a translation.
 
 ## Browsing apps
 

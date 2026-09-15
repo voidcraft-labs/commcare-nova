@@ -5,7 +5,6 @@ import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildExpressionReference } from "../expressionReference";
-import { buildSolutionsArchitectPrompt } from "../prompts";
 import { addCaseListColumnsTool } from "../tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../tools/case-list-config/addSearchInputs";
 import { setCaseListFilterTool } from "../tools/case-list-config/setCaseListFilter";
@@ -369,11 +368,6 @@ describe("lookup author identity boundary", () => {
 });
 
 describe("generated expression grammar", () => {
-	it("includes the current generated reference in the actual edit prompt", () => {
-		const grammar = buildExpressionReference();
-		expect(grammar.length).toBeGreaterThan(0);
-		expect(buildSolutionsArchitectPrompt()).toContain(grammar);
-	});
 	it("prints every primitive union as its members, never as a bare object", () => {
 		/* The model reads this text to learn what a literal may carry. A
 		 * JSON-schema union of primitives reaches the printer either as

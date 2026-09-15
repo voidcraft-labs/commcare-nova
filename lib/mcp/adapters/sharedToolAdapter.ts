@@ -45,16 +45,18 @@
  * into the log stream. The adapter's job is to delegate + envelope, never
  * to re-apply.
  *
- * **`app_id` splicing.** The MCP tool schema safely extends the shared
- * tool's exact Zod object with an `app_id` argument (shared tools take
- * `appId` from `ctx`). Keeping the Zod object intact is load-bearing:
- * spreading `.shape` would silently discard object-level refinements such
- * as configure_connect's mode/participants relationship. The callback
- * strips `app_id` before forwarding to the shared tool's `execute`.
+ * The registered Standard JSON Schema adds app_id to the shared authored
+ * grammar without expanding reusable definitions. After authorization, the
+ * callback binds names and runs the original canonical schema, including every
+ * relational refinement. It strips app_id before invoking the tool.
+
  */
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
+import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
+import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import type {
 	MutatingToolResult,
 	ReadToolResult,
@@ -97,9 +99,8 @@ export interface SharedToolModule {
 	/** Human-readable description surfaced to the LLM in MCP tool listing. */
 	readonly description: string;
 	/**
-	 * Full ZodObject input schema — never a raw shape. The MCP SDK accepts an
-	 * exact schema, so the adapter preserves object-level refinements while
-	 * adding its boundary-owned `app_id` field.
+	 * The canonical schema used after authored input is bound. Its object-level
+	 * refinements remain authoritative; the registered grammar checks authored shapes.
 	 */
 	readonly inputSchema: z.ZodObject<z.ZodRawShape>;
 	execute(
@@ -123,23 +124,57 @@ export interface SharedToolModule {
  *   handler and shared across all `registerSharedTool` calls for that
  *   request-ish lifetime (scope check already happened upstream).
  */
+const mcpSchemas = new WeakMap<object, ReturnType<typeof mcpAuthoringSchema>>();
+
+function mcpAuthoringSchema(authoredJson: Record<string, unknown>) {
+	const json = {
+		...authoredJson,
+		properties: {
+			...z.record(z.string(), z.unknown()).parse(authoredJson.properties),
+			app_id: { type: "string" as const, description: "App to open." },
+		},
+		required: [
+			...z.array(z.string()).parse(authoredJson.required ?? []),
+			"app_id",
+		],
+	};
+	const schema = z.fromJSONSchema(json, { registry: z.registry() });
+	return {
+		"~standard": {
+			version: 1 as const,
+			vendor: "nova",
+			types: undefined as
+				| { input: Record<string, unknown>; output: Record<string, unknown> }
+				| undefined,
+			validate(value: unknown) {
+				const parsed = schema.safeParse(value);
+				return parsed.success
+					? { value: z.record(z.string(), z.unknown()).parse(parsed.data) }
+					: { issues: parsed.error.issues };
+			},
+			jsonSchema: { input: () => json, output: () => json },
+		},
+	};
+}
+
 export function registerSharedTool(
 	server: McpServer,
 	toolName: string,
 	tool: SharedToolModule,
 	ctx: ToolContext,
 	required: AppCapability,
+	saName = toolName.replace(/_([a-z])/g, (_match, letter: string) =>
+		letter.toUpperCase(),
+	),
 ): void {
-	/* Extend the exact shared schema with the boundary-owned app id. The SDK's
-	 * `registerTool` accepts a complete Zod schema, and `safeExtend` preserves
-	 * all object-level checks. Never project through `.shape`: doing so turns a
-	 * relationally refined schema into independent fields and makes invalid
-	 * mode/participant combinations appear callable. */
-	const mcpSchema = tool.inputSchema.safeExtend({
-		app_id: z
-			.string()
-			.describe("App id to target. Must be an app the caller can access."),
-	});
+	/* Preserve the shared authored JSON as registered. Canonical refinements
+	 * run after scoped binding inside the authorized invocation. */
+	const authoredJson = authoringToolSchema(saName, tool.inputSchema).json;
+	let mcpSchema = mcpSchemas.get(authoredJson);
+	if (!mcpSchema) {
+		mcpSchema = mcpAuthoringSchema(authoredJson);
+		mcpSchemas.set(authoredJson, mcpSchema);
+	}
 
 	/* Both return branches (success / error envelope) structurally
 	 * satisfy the SDK's `CallToolResult` type — success has a
@@ -225,7 +260,25 @@ export function registerSharedTool(
 					});
 					const outcome = await workspace.invoke({
 						toolName,
-						execute: (invocationCtx) => tool.execute(toolInput, invocationCtx),
+						execute: async (invocationCtx) => {
+							const prepared = await prepareAuthoringInput({
+								toolName: saName,
+								schema: tool.inputSchema,
+								input: toolInput,
+								ctx: invocationCtx,
+							});
+							const result = await tool.execute(prepared, invocationCtx);
+							return result.kind === "read"
+								? {
+										...result,
+										data: await projectAuthoringReadInContext(
+											saName,
+											result.data,
+											invocationCtx,
+										),
+									}
+								: result;
+						},
 					});
 					const finalPayload = projectResult(
 						outcome,
