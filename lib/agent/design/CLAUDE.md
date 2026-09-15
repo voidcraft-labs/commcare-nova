@@ -26,6 +26,19 @@ reported at their owning object. It does not inspect external rows, deployment
 readiness or target-language overlays, infer intent, execute a form, or prove
 conformance. Unit F's canonical reports and completion review remain open.
 
+`conformance.ts` supplies the first deterministic comparison with accepted
+workflows. The executor runs it at `finishWorkflow` beside the existing private
+candidate checks. Exact durable bindings establish form, module and input
+identity; the domain action inventory and explicit operations establish whether
+an accepted record action or property write is absent. Incompatible answer and
+property types also refuse finalization. A property association alone never
+requires a write. These are structural absence/type proofs, not proof of a
+condition, value, target instance, readback, access, or overall completion.
+Link, owner and retype semantics remain outside these initial rules. Direct
+Builder and MCP mutations do not consult them.
+The [rule contract](../../../docs/architecture/workflow-conformance.md) records
+each proof and its limits.
+
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
   The design loop's model-facing tools also accept short `@handle` strings;
   identities are minted deterministically from (session, handle), so a

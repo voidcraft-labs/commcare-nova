@@ -1,5 +1,9 @@
 import { AuthoringInputError } from "@/lib/agent/authoring/errors";
 import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
+import {
+	assessAcceptedWorkflow,
+	type ConformanceFinding,
+} from "@/lib/agent/design/conformance";
 import { withoutToolPresentation } from "../toolResults";
 import {
 	acceptedConstructionIdentities,
@@ -1852,6 +1856,11 @@ export async function runSliceExecutor(
 							executionHandles,
 						);
 						const acceptedIssues = [
+							...assessAcceptedWorkflow({
+								doc: workspace.currentSnapshot().doc,
+								brief,
+								bindings: executionHandles,
+							}),
 							...acceptedEntryPointIssues(
 								workspace.currentSnapshot().doc,
 								brief,
@@ -2580,6 +2589,7 @@ function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,
 	acceptedRequirementIssues: readonly (
+		| ConformanceFinding
 		| AcceptedInputRequirementIssue
 		| AcceptedModulePlacementIssue
 		| AcceptedSelectionRealizationIssue
@@ -2632,7 +2642,18 @@ function projectDiagnostics(
 				}),
 		};
 	});
-	const allFindings = [...acceptedRequirementIssues, ...validatorFindings];
+	const allFindings = [
+		...acceptedRequirementIssues.map((finding) =>
+			"coordinates" in finding
+				? {
+						code: finding.code,
+						message: finding.message,
+						coordinates: finding.coordinates,
+					}
+				: finding,
+		),
+		...validatorFindings,
+	];
 	return {
 		revision: diagnostics.snapshotRevision,
 		findingCount: allFindings.length,
