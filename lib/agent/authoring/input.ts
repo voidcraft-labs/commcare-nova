@@ -32,6 +32,8 @@ import {
 	parseAuthoringExpression,
 } from "./expressionSyntax";
 import { authoringFingerprint } from "./fingerprints";
+import { bindNamedIdentity } from "./identityBindings";
+import { namedIdentityInputs } from "./identitySchema";
 import { parseAuthoringMessage } from "./messages";
 import {
 	parseQueryPredicate,
@@ -45,6 +47,7 @@ import {
 	decodeAuthoringValues,
 } from "./schema";
 import { normalizeExpression, normalizeText } from "./text";
+import { authoringToolSchema } from "./toolSchema";
 
 type Input = Record<string, unknown>;
 const record = z.record(z.string(), z.unknown());
@@ -194,6 +197,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 		);
 		return matches.length === 1 ? matches[0].uuid : undefined;
 	});
+	if (toolName === "createModule")
+		root.moduleUuid = uuidSchema.parse(input.moduleUuid);
 
 	function prepareForm(
 		form: Input,
@@ -286,6 +291,20 @@ async function prepareInput<S extends z.ZodType>(args: {
 		];
 	}
 	if (toolName === "updateSearchInput" && moduleUuid) {
+		if (typeof input.searchInputUuid === "string")
+			bindNamedIdentity({
+				toolName,
+				input,
+				scope: root,
+				slot: {
+					family: "search-input",
+					path: ["searchInputUuid"],
+					value: input.searchInputUuid,
+					replace: (value) => {
+						input.searchInputUuid = value;
+					},
+				},
+			});
 		const replacement = record.parse(input.searchInput);
 		const uuid = uuidSchema.parse(input.searchInputUuid);
 		const current = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
@@ -403,10 +422,76 @@ async function prepareInput<S extends z.ZodType>(args: {
 		}
 	}
 
-	// Read the authorized catalog only if expressions are actually encountered.
-	// This prepares no DB rows and adds no context to the model's request.
+	// Read authorized catalogs only when a name or expression needs them. These
+	// server reads prepare no rows and add no model context.
 	let tables: AuthoringScopeOptions["tables"];
 	let locations: AuthoringScopeOptions["locations"];
+	let tablesLoaded = false;
+	async function loadTables() {
+		if (tablesLoaded) return;
+		tables = (await ctx.lookupCatalog?.())?.definitions;
+		tablesLoaded = true;
+	}
+	async function loadLocations() {
+		if (locations) return;
+		locations =
+			ctx.appId === null
+				? []
+				: (
+						await readOrganization({
+							appId: ctx.appId,
+							projectId: ctx.projectId,
+							actorUserId: ctx.userId,
+							role: "tool",
+							changeSource: {
+								kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
+								runId: ctx.runId,
+							},
+							...(ctx.chatRunHolder && { chatRunHolder: ctx.chatRunHolder }),
+						})
+					).locations.map((location) => ({
+						uuid: location.id,
+						name: location.name,
+						siteCode: location.siteCode,
+					}));
+	}
+	function optionsAt(path: AuthoringPath) {
+		const selected = scopes
+			.filter((scope) =>
+				scope.path.every((part, index) => path[index] === part),
+			)
+			.at(-1);
+		if (!selected)
+			throw new AuthoringInputError("This content has no authoring scope.");
+		return { ...selected.options, tables, locations };
+	}
+	const references = namedIdentityInputs(
+		toolName,
+		authoringToolSchema(toolName, schema).identitySchema,
+		input,
+	).filter((slot) => !uuidSchema.safeParse(slot.value).success);
+	if (
+		references.some(
+			(slot) =>
+				slot.family === "lookup-table" || slot.family === "lookup-column",
+		)
+	)
+		await loadTables();
+	if (references.some((slot) => slot.family === "location"))
+		await loadLocations();
+	// Resolve owners before their children, independent of JSON property order.
+	const priority = (family: string) =>
+		family === "module" || family === "lookup-table"
+			? 0
+			: family === "form"
+				? 1
+				: family === "field"
+					? 2
+					: 3;
+	for (const slot of references.sort(
+		(a, b) => priority(a.family) - priority(b.family),
+	))
+		bindNamedIdentity({ toolName, input, slot, scope: optionsAt(slot.path) });
 	let needsLocations = false;
 	let needsTables = false;
 	const scanFamily =
@@ -433,52 +518,16 @@ async function prepareInput<S extends z.ZodType>(args: {
 		relationship: scanFamily("relationship"),
 	};
 	decodeAuthoringValues(schema, input, scan);
-	if (needsTables) tables = (await ctx.lookupCatalog?.())?.definitions;
-	if (needsLocations) {
-		locations =
-			ctx.appId === null
-				? []
-				: (
-						await readOrganization({
-							appId: ctx.appId,
-							projectId: ctx.projectId,
-							actorUserId: ctx.userId,
-							role: "tool",
-							changeSource: {
-								kind: ctx.chatRunHolder === undefined ? "mcp" : "chat",
-								runId: ctx.runId,
-							},
-							...(ctx.chatRunHolder && { chatRunHolder: ctx.chatRunHolder }),
-						})
-					).locations.map((location) => ({
-						uuid: location.id,
-						name: location.name,
-					}));
-	}
+	if (needsTables) await loadTables();
+	if (needsLocations) await loadLocations();
 
 	function scopeAt(path: AuthoringPath) {
-		const selected = scopes
-			.filter((scope) =>
-				scope.path.every((part, index) => path[index] === part),
-			)
-			.at(-1);
-		if (!selected)
-			throw new AuthoringInputError("This content has no authoring scope.");
 		const searchValidation = [
 			"configureCaseList",
 			"addSearchInputs",
 			"updateSearchInput",
 		].includes(toolName);
-		return authoringValueScope(
-			{
-				...selected.options,
-				tables,
-				locations,
-			},
-			input,
-			path,
-			searchValidation,
-		);
+		return authoringValueScope(optionsAt(path), input, path, searchValidation);
 	}
 	function textAt(value: unknown, path: AuthoringPath) {
 		const scope = scopeAt(path);

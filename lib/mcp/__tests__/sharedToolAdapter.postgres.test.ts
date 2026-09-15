@@ -10,6 +10,12 @@ import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { getFormTool } from "@/lib/agent/tools/getForm";
 import {
+	addLocationPropertiesTool,
+	addOrganizationLevelsTool,
+	createLocationTool,
+	getOrganizationTool,
+} from "@/lib/agent/tools/organization";
+import {
 	buildCaseTypeMap,
 	withProjectContext,
 	withSchemaContext,
@@ -83,6 +89,148 @@ async function events(appId: string) {
 		.execute();
 	return rows.map((row) => row.event);
 }
+
+it("binds names throughout a recursive place request and stores property identities", async () => {
+	const { doc } = await seed();
+	await withMcpClient(
+		(server) => {
+			registerSharedTool(
+				server,
+				"add_organization_levels",
+				addOrganizationLevelsTool,
+				context,
+				"edit",
+			);
+			registerSharedTool(
+				server,
+				"add_location_properties",
+				addLocationPropertiesTool,
+				context,
+				"edit",
+			);
+			registerSharedTool(
+				server,
+				"create_location",
+				createLocationTool,
+				context,
+				"edit",
+			);
+			registerSharedTool(
+				server,
+				"get_organization",
+				getOrganizationTool,
+				context,
+				"view",
+			);
+		},
+		async (client) => {
+			async function call(name: string, input: Record<string, unknown>) {
+				const result = await client.callTool({
+					name,
+					arguments: { app_id: doc.appId, ...input },
+				});
+				expect(result.isError, resultText(result)).not.toBe(true);
+				const payload = JSON.parse(resultText(result));
+				expect(payload).not.toHaveProperty("error");
+				return payload;
+			}
+			await call("add_organization_levels", {
+				levels: [
+					{
+						code: "district",
+						name: "District",
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+					{
+						code: "clinic",
+						name: "Clinic",
+						parentLevelUuid: "District",
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+					{
+						code: "ward",
+						name: "Ward",
+						parentLevelUuid: "Clinic",
+						caseFlow: { workers: "none", ownsCases: false },
+						addressBook: { reach: "own-branch" },
+					},
+				],
+			});
+			await call("add_location_properties", {
+				properties: [{ slug: "staff", label: "Staff" }],
+			});
+			const before = await call("get_organization", {});
+			const created = await call("create_location", {
+				expectedRevision: before.revision,
+				name: "North",
+				levelUuid: "District",
+				values: { staff: "8" },
+				descendants: [
+					{
+						name: "Central",
+						levelUuid: "Clinic",
+						values: { Staff: "4" },
+						descendants: [
+							{ name: "Outreach", levelUuid: "Ward", values: { staff: "2" } },
+						],
+					},
+				],
+			});
+			await call("create_location", {
+				expectedRevision: created.revision,
+				parentId: "North",
+				levelUuid: "Clinic",
+				name: "South",
+				values: { staff: "3" },
+			});
+			const saved = await call("get_organization", { includeValues: true });
+			const app = await loadApp(doc.appId);
+			if (!app?.blueprint) throw new Error("Missing saved app.");
+			const property = Object.values(app.blueprint.locationProperties ?? {})[0];
+			const levels = Object.values(app.blueprint.organizationLevels ?? {});
+			expect(saved.locations).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: "Outreach",
+						levelUuid: levels.find((item) => item.name === "Ward")?.uuid,
+						values: { [property.uuid]: "2" },
+					}),
+					expect.objectContaining({
+						name: "South",
+						parentId: created.location.id,
+						values: { [property.uuid]: "3" },
+					}),
+				]),
+			);
+			const duplicate = await client.callTool({
+				name: "create_location",
+				arguments: {
+					app_id: doc.appId,
+					expectedRevision: saved.revision,
+					parentId: "North",
+					levelUuid: "Clinic",
+					name: "Duplicate",
+					values: { staff: "1", Staff: "2" },
+				},
+			});
+			expect(duplicate.isError).toBe(true);
+			expect(duplicate.content).toEqual([
+				{
+					type: "text",
+					text: expect.stringContaining(
+						"Two values reference the same property",
+					),
+				},
+			]);
+			const unchanged = await call("get_organization", { includeValues: true });
+			expect(unchanged.locations).toEqual(saved.locations);
+			expect(unchanged.revision).toBe(saved.revision);
+		},
+	);
+});
+
 it("adds fields once, preserves returned identities and drains matching event envelopes before replying", async () => {
 	const { doc, address } = await seed();
 	const fieldUuid = testUuid("mcp-created-select");

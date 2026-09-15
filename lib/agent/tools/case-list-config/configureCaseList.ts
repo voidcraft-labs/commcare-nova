@@ -68,7 +68,7 @@ export const configureCaseListInputSchema = z
 			.min(1)
 			.optional()
 			.describe(
-				`Known columns to add. Their input order is their initial Results and Details order. Supply columnUuid when an order in this call references the new column. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
+				`Columns to add, in their initial Results and Details order. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
 			),
 		searchInputs: z
 			.array(searchInputDefInputSchema)
@@ -94,15 +94,11 @@ export const configureCaseListInputSchema = z
 		resultsColumnOrder: z
 			.array(uuidInputSchema)
 			.optional()
-			.describe(
-				"Complete visible Results-field order after additions, using existing UUIDs and any declared columnUuid values from this call.",
-			),
+			.describe("Complete visible Results-field order after additions."),
 		detailsColumnOrder: z
 			.array(uuidInputSchema)
 			.optional()
-			.describe(
-				"Complete visible Details-field order after additions, using existing UUIDs and any declared columnUuid values from this call.",
-			),
+			.describe("Complete visible Details-field order after additions."),
 		searchInputOrder: z
 			.array(uuidInputSchema)
 			.optional()

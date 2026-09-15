@@ -120,11 +120,14 @@ completed creation and clarified repair with independent Preview observations.
 Their first requests used 47,323 and 12,336 input tokens. Discovery loaded nine
 tools and reloaded several definitions during creation. The independently reviewed, green guidance PR #589 and plugin PR #58 separate static MCP guidance from app reads, shares a concise app overview
 across editor/retry/MCP, and replace copied plugin manuals with server references.
-The next result slice replaces repeated success prose with operation facts, keeps
+The result slice replaces repeated success prose with operation facts, keeps
 transcript presentation out of live and resumed model messages, preserves saved-data
 consequences and confirmations, and moves full automation setup guides to focused
-reads. It is under validation and independent review. Scalar reference coverage,
-build-executor integration, migration, and broader quality evidence remain open.
+reads. Its local validation and independent reviews have passed; publication is
+pending. The following reference slice extends scalar names to case operations,
+case-list orders, worker and organization settings, and shared data resources,
+including same-request references. It is under validation and independent review.
+Build-executor integration, migration, and broader quality evidence remain open.
 These intermediate counts do not complete the slice.
 
 Expand the selected interface to the current supported authoring capabilities.

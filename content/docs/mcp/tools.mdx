@@ -24,14 +24,20 @@ or integration. The current interface has no `app_id` or `cursor` argument on
 ## Authoring and stable identities
 
 Read the relevant part of an app before editing it. Results include stable IDs
-for retained objects. Module, form, and field targets also accept unambiguous names
-or field paths. Other targeted resources use the IDs returned by reads.
+for retained objects. Named resources also accept unambiguous names: modules,
+forms, field paths, choice values, case-list headers, Search answers, case
+operations, roles, personas, worker and place properties, organization levels,
+places, automations, and data tables and columns. Deep links accept their external
+ID. Names resolve within their owning form, module, or data table; duplicate names
+require a stable ID. Media assets, data rows, form links, and anonymous automation
+items keep the IDs returned by reads.
 
 Nova assigns omitted creation identities. New fields can refer to other fields
 in the same request by name, including forward references and parent containers.
-Where a scalar relationship still requires an ID, supply the new item's identity
-in its creation slot. Advanced operations run in their declared order; a consumed
-operation must precede the operation that uses its result.
+Case operations and case-list orders can likewise name items created in the same
+request, and a new organization level can name its parent level. Advanced
+operations run in their declared order; a consumed operation must precede the
+operation that uses its result.
 
 Every successful creation result returns the final identities it created in
 input order, including identities Commcare Nova minted. Field receipts nest their inline

@@ -113,8 +113,8 @@ function references(value: unknown, result = new Set<string>()): Set<string> {
 	return result;
 }
 
-/** Remove definitions made unreachable when a storage family becomes text. */
-function pruneDefinitions(json: Json) {
+/** Remove definitions made unreachable by an authoring projection. */
+export function pruneDefinitions(json: Json) {
 	for (const key of ["definitions", "$defs"]) {
 		const definitions = json[key] as Record<string, unknown> | undefined;
 		if (!definitions) continue;

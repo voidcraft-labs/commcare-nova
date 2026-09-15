@@ -80,7 +80,7 @@ export interface AuthoringScopeOptions {
 	caseTypes?: readonly CaseType[];
 	/** Authoritatively Project-scoped, rows-free data definitions. */
 	tables?: readonly LookupTableDefinition[];
-	locations?: readonly { uuid: Uuid; name: string }[];
+	locations?: readonly { uuid: Uuid; name: string; siteCode?: string }[];
 	operations?: readonly { uuid: Uuid; name: string }[];
 	tableId?: string;
 	patternMatching?: true;

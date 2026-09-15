@@ -38,7 +38,7 @@
 		"finishDesign",
 		"requestReview"
 	],
-	"executorToolsetDigest": "27ae80862b63185ed6ff7a3173f88f97c66e2f07c92f38b25e98ad542ee911f1",
+	"executorToolsetDigest": "0cfcd082c8c44d133baadbe62f07acfbb5302a5c566f9f1f8c8363ed5810b1a3",
 	"executorToolOrder": [
 		"getAuthoringGuide",
 		"getAutomations",
