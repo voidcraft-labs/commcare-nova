@@ -7,7 +7,6 @@ import {
 	designResponseAppendKey,
 	designTerminalOmissionCanCorrect,
 	designTerminalOmissionCorrectionPrefix,
-	designToolPulsePhase,
 	designTurnProvenanceId,
 	designWaitForInputCanPause,
 	designWaitResponseAppendKey,
@@ -25,16 +24,6 @@ import {
 	designStepBudgetReached,
 } from "@/lib/agent/design/loop/designAgent";
 import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
-
-describe("designToolPulsePhase", () => {
-	it("switches to review as soon as requestReview starts", () => {
-		expect(designToolPulsePhase("requestReview", "revise")).toBe("review");
-	});
-
-	it("keeps the current phase for semantic design updates", () => {
-		expect(designToolPulsePhase("updateWorkflows", "revise")).toBe("revise");
-	});
-});
 
 describe("design POST step budget", () => {
 	it("counts completed steps from prior transient stream attempts", () => {
@@ -756,7 +745,7 @@ describe("answered design continuation", () => {
 		]);
 	});
 
-	it("closes an orphaned durable question call before provider redrive", async () => {
+	it("closes an unanswered question without inventing an answer", async () => {
 		const continuation = await projectAnsweredDesignContinuation({
 			uiMessages: [],
 			modelContext: [call],
@@ -772,7 +761,7 @@ describe("answered design continuation", () => {
 						toolName: "askQuestions",
 						output: {
 							type: "json",
-							value: { error: expect.stringContaining("interrupted") },
+							value: { error: expect.any(String) },
 						},
 					},
 				],

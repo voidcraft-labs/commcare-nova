@@ -7,6 +7,7 @@ import {
 	runDesignAgentLoop,
 	validateAuthorizedProjectLookupEvidence,
 } from "@/lib/agent/build/designLoopRunner";
+import { openDesignModelContext } from "@/lib/agent/build/modelContextStore";
 import type { OrchestratorStreamWriter } from "@/lib/agent/build/orchestrator";
 import {
 	type DesignArtifactWriteAuthority,
@@ -30,7 +31,7 @@ import {
 	DesignRepairTracker,
 } from "@/lib/agent/design/loop/gates";
 import {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 	type DesignLoopToolDeps,
 } from "@/lib/agent/design/loop/tools";
@@ -174,7 +175,7 @@ function mount(
 		requiredQuestionsWereAnswered?: DesignLoopToolDeps["requiredQuestionsWereAnswered"];
 	} = {},
 ) {
-	return createDesignLoopTools(
+	const actions = createDesignLoopActions(
 		{
 			designSessionId: sessionId,
 			runId: RUN_ID,
@@ -228,6 +229,7 @@ function mount(
 		} satisfies DesignLoopToolDeps,
 		options.executionQueue,
 	);
+	return { ...actions.tools, reviewDraft: actions.reviewDraft };
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -338,7 +340,7 @@ function resolvedContract(contract: AppDesignContract): AppDesignContract {
 }
 
 async function authorWholeContract(
-	tools: ReturnType<typeof createDesignLoopTools>,
+	tools: ReturnType<typeof createDesignLoopActions>["tools"],
 	contract: AppDesignContract,
 ): Promise<void> {
 	const projected = modelContract(contract);
@@ -452,7 +454,7 @@ describe("semantic design loop", () => {
 			const contract = withLookup ? makeLookupContract() : makeContract();
 			await authorWholeContract(tools, contract);
 			expect(await call(tools.finishDesign)).toMatchObject({ ok: true });
-			expect(await call(tools.requestReview)).toMatchObject({
+			expect(await tools.reviewDraft()).toMatchObject({
 				ok: true,
 				accepted: true,
 			});
@@ -530,7 +532,7 @@ describe("semantic design loop", () => {
 			})
 			.execute();
 
-		const result = await call(mount(pkg).requestReview);
+		const result = await mount(pkg).reviewDraft();
 		expect(result).toMatchObject({ ok: true, accepted: true });
 		const accepted = await readLatestAcceptedDesignRevision(sessionId);
 		if (accepted === null) throw new Error("accepted revision missing");
@@ -564,7 +566,7 @@ describe("semantic design loop", () => {
 		 * the freshly submitted draft (a stale memo would refuse with "No
 		 * draft exists to review"), and the acceptance path re-reads again to
 		 * derive the plan from the accepted head. */
-		expect(await call(tools.requestReview)).toMatchObject({
+		expect(await tools.reviewDraft()).toMatchObject({
 			ok: true,
 			accepted: true,
 		});
@@ -978,6 +980,119 @@ describe("semantic design loop", () => {
 		});
 	});
 
+	it("rechecks the required question after a crash following the paid response commit", async () => {
+		const pkg = await makePackage();
+		await insertDesignSourcePackage({ pkg, authority: authority() });
+		const contract = makeContract();
+		const question = {
+			id: did(1250),
+			question: "Which thresholds should the pilot use?",
+			blocking: true,
+			relatedElementIds: [ids.taskVisit],
+		};
+		contract.openQuestions = [question];
+		const tools = mount(pkg);
+		await authorWholeContract(tools, contract);
+		expect(await call(tools.finishDesign)).toMatchObject({
+			diagnostic: { code: "design-construction-needs-input" },
+		});
+		const questionInput = {
+			header: REQUIRED_DESIGN_QUESTIONS_HEADER,
+			questions: [{ question: question.question, options: [] }],
+		};
+		const wrongInput = {
+			...questionInput,
+			questions: [{ question: "What is your favorite color?", options: [] }],
+		};
+		await withDesignResponses(
+			[
+				[
+					{
+						type: "tool",
+						name: "askQuestions",
+						callId: "wrong-required-card",
+						input: wrongInput,
+					},
+				],
+				[
+					{
+						type: "tool",
+						name: "askQuestions",
+						callId: "correct-required-card",
+						input: questionInput,
+					},
+				],
+			],
+			async (_model, requests, transport) => {
+				const chunks: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
+				const messages: NovaUIMessage[] = [
+					{
+						id: "m1",
+						role: "user",
+						parts: [{ type: "text", text: "Track CHW visits." }],
+					},
+				];
+				const args: DesignLoopRunnerArgs = {
+					designSessionId: sessionId,
+					projectId: PROJECT,
+					threadId: messageRef().threadId,
+					runId: RUN_ID,
+					actorUserId: ACTOR,
+					holderNonce: NONCE,
+					responseMessageId: "pilot-question",
+					messages,
+					pkg,
+					designCtx: new DesignGenerationContext({
+						apiKey: "synthetic-local-only",
+						transport,
+						userId: ACTOR,
+						projectId: PROJECT,
+						runId: RUN_ID,
+						designSessionId: sessionId,
+					}),
+					writer: {
+						write: (chunk) => {
+							chunks.push(chunk);
+						},
+					},
+					signal: new AbortController().signal,
+					head: () => null,
+					packageDeps,
+				};
+				const controller = new AbortController();
+				await expect(
+					runDesignAgentLoop({
+						...args,
+						signal: controller.signal,
+						onAgentStep: () => controller.abort(),
+					}),
+				).rejects.toHaveProperty("name", "AbortError");
+				const replay: typeof chunks = [];
+				const outcome = await runDesignAgentLoop({
+					...args,
+					writer: { write: (chunk) => replay.push(chunk) },
+				});
+				const cards = replay.filter(
+					(chunk) => chunk.type === "tool-input-available",
+				);
+				expect(outcome).toEqual({
+					kind: "awaiting-input",
+					headRevisionId: null,
+				});
+				expect(requests).toHaveLength(2);
+				expect(cards).toHaveLength(1);
+				expect(cards).toMatchObject([
+					{
+						type: "tool-input-available",
+						toolCallId: "correct-required-card",
+						toolName: "askQuestions",
+						input: questionInput,
+					},
+				]);
+			},
+		);
+	});
+
 	it("resumes a native required-question card and applies the person's confirmed decision before acceptance", async () => {
 		const pkg = await makePackage();
 		await insertDesignSourcePackage({ pkg, authority: authority() });
@@ -1054,14 +1169,6 @@ describe("semantic design loop", () => {
 						input: {},
 					},
 				],
-				[
-					{
-						type: "tool",
-						name: "requestReview",
-						callId: "review-confirmed-design",
-						input: {},
-					},
-				],
 				[{ type: "text", text: JSON.stringify(cleanReview()) }],
 			],
 			async (_model, requests, transport) => {
@@ -1120,6 +1227,36 @@ describe("semantic design loop", () => {
 					throw new Error("The native question card is missing");
 				const cardInput = askQuestionsInputSchema.parse(card.input);
 				expect(cardInput).toEqual(questionInput);
+				// A deployment may replace the provider context before the saved
+				// question reaches the public thread. Recover the exact card and
+				// its answer authority from the immutable predecessor lineage.
+				await openDesignModelContext({
+					designSessionId: sessionId,
+					kind: "design",
+					modelId: "offline-context-replacement",
+					promptVersion: "offline-context-replacement",
+					toolsetDigest: "a".repeat(64),
+					contextVersion: "offline-context-replacement",
+					authority: authority(),
+				});
+				const replay: typeof chunks = [];
+				expect(
+					await runDesignAgentLoop({
+						...args,
+						writer: { write: (chunk) => replay.push(chunk) },
+					}),
+				).toEqual({ kind: "awaiting-input", headRevisionId: null });
+				expect(
+					replay.filter((chunk) => chunk.type === "tool-input-available"),
+				).toEqual([
+					{
+						type: "tool-input-available",
+						toolCallId: "required-pilot-card",
+						toolName: "askQuestions",
+						input: questionInput,
+					},
+				]);
+				expect(requests).toHaveLength(1);
 				const beforeAnswer = await workspaceRows();
 				expect(
 					await call(tools.updateOpenQuestions, {
@@ -1156,7 +1293,7 @@ describe("semantic design loop", () => {
 				});
 				if (result.kind !== "planned")
 					throw new Error(`Expected planned design: ${JSON.stringify(result)}`);
-				expect(requests).toHaveLength(4);
+				expect(requests).toHaveLength(3);
 				expect(JSON.stringify(requests[1].input)).toContain(
 					"Use clinic protocol thresholds for the pilot.",
 				);
@@ -1228,19 +1365,8 @@ describe("semantic design loop", () => {
 		});
 		const initialDraftId = String(initialDraft.revisionId);
 		const immutableDraft = await readDesignRevision(initialDraftId);
-		const reviewResult = await call(tools.requestReview);
+		const reviewResult = await tools.reviewDraft();
 		expect(reviewResult).toMatchObject({ accepted: false });
-		expect(reviewResult.message).not.toContain("expectedRevision");
-		/* Findings return in the agent's symbol vocabulary: the server-minted
-		 * finding identity projects to its positional @f handle and affected
-		 * elements to their declared handles — the exact symbols the next
-		 * state packet prints and a disposition consumes. */
-		const blockingFinding = object(array(reviewResult.findings)[0]);
-		if (blockingFinding === undefined) throw new Error("finding missing");
-		expect(blockingFinding.id).toEqual({ handle: "@f1" });
-		expect(blockingFinding.affectedElementIds).toEqual([
-			{ handle: handleForFixtureId(ids.taskVisit) },
-		]);
 
 		/* An unknown finding handle refuses before the generic resolver could
 		 * mint a plausible wrong identity for it. */
@@ -1306,7 +1432,7 @@ describe("semantic design loop", () => {
 			accepted: false,
 		});
 		expect(await readLatestAcceptedDesignRevision(sessionId)).toBeNull();
-		expect(await call(tools.requestReview)).toMatchObject({
+		expect(await tools.reviewDraft()).toMatchObject({
 			ok: true,
 			accepted: true,
 		});

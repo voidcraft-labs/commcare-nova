@@ -1,11 +1,9 @@
 /**
  * Design-loop gates: pure legality over the durable artifact record.
  *
- * The design agent drives; the SERVER gates. Which submit tool is legal is
- * decided here, from the session's persisted revisions, reviews, and plan,
- * never from the model's account of what happened. Every refusal names the
- * legal next action, person to person, because the refusal text IS the tool
- * result the model repairs from.
+ * Author submissions and server review share these gates. Legality follows
+ * persisted revisions, reviews, and plans, never the model's account of what
+ * happened. Refusals explain the state and the available next action.
  *
  * The cycle model: `submitContract` OPENS a design cycle (a draft lineage
  * that runs to an accepted revision). It is legal again only when later
@@ -33,13 +31,14 @@ import {
 	readLatestDesignBuildPlanForRevision,
 } from "@/lib/agent/design/artifactStore";
 import type { OpenQuestion } from "@/lib/agent/design/contract";
+import { findingBlocksAcceptance } from "@/lib/agent/design/review";
 
-export const DESIGN_LOOP_TOOL_NAMES = [
+export const DESIGN_LOOP_ACTION_NAMES = [
 	"submitContract",
-	"requestReview",
+	"reviewDraft",
 	"submitRevision",
 ] as const;
-export type DesignLoopToolName = (typeof DESIGN_LOOP_TOOL_NAMES)[number];
+export type DesignLoopActionName = (typeof DESIGN_LOOP_ACTION_NAMES)[number];
 
 /** Design-author steps per logical user turn. Sized so a legitimate extended-depth design (a
  *  question round, contract, review, correction review, further revision,
@@ -192,7 +191,7 @@ export interface DesignGateState {
 	 * The replacement draft atomically retires that plan's open execution
 	 * carriers when it is inserted. */
 	readonly supersedesPlanExecution: boolean;
-	readonly verdicts: Readonly<Record<DesignLoopToolName, GateVerdict>>;
+	readonly verdicts: Readonly<Record<DesignLoopActionName, GateVerdict>>;
 	/** One sentence for tool results and the state message: what the server
 	 *  expects next. */
 	readonly expectedNext: string;
@@ -240,7 +239,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 				return {
 					legal: false,
 					refusal:
-						"A draft already exists and nothing from the user has arrived since it was written, so there is nothing to redesign from. Request its independent review with requestReview.",
+						"A draft already exists and nothing from the user has arrived since it was written, so there is nothing to redesign from. Nova will independently review the saved draft.",
 				};
 			}
 			return { legal: true };
@@ -257,7 +256,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 		return { legal: true };
 	})();
 
-	const requestReview: GateVerdict = (() => {
+	const reviewDraft: GateVerdict = (() => {
 		if (head === null || head.lifecycle !== "draft") {
 			return {
 				legal: false,
@@ -291,7 +290,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 			return {
 				legal: false,
 				refusal:
-					"This draft has no persisted review yet, so there are no findings to disposition. Request the independent review with requestReview.",
+					"This draft has no persisted review yet, so there are no findings to disposition. Nova will independently review the saved draft.",
 			};
 		}
 		return { legal: true };
@@ -299,7 +298,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 
 	const verdicts = {
 		submitContract,
-		requestReview,
+		reviewDraft,
 		submitRevision,
 	};
 	return {
@@ -317,7 +316,7 @@ export function evaluateDesignGates(ancestry: DesignAncestry): DesignGateState {
 }
 
 function deriveExpectedNext(
-	verdicts: Record<DesignLoopToolName, GateVerdict>,
+	verdicts: Record<DesignLoopActionName, GateVerdict>,
 	blockingQuestions: readonly string[],
 	plan: DesignBuildPlanRecord | null,
 ): string {
@@ -333,8 +332,8 @@ function deriveExpectedNext(
 	if (verdicts.submitRevision.legal) {
 		return "Update the reviewed design and blocking finding dispositions with the native semantic calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
 	}
-	if (verdicts.requestReview.legal) {
-		return "The expected next step is requestReview. askQuestions remains available.";
+	if (verdicts.reviewDraft.legal) {
+		return "The saved draft is ready for independent review.";
 	}
 	if (verdicts.submitContract.legal) {
 		return "Continue the implicit workspace with native semantic design calls, then call finishDesign. Several known updates may be emitted in one response. askQuestions remains available.";
@@ -351,7 +350,7 @@ function deriveExpectedNext(
  */
 export class DesignRepairTracker {
 	private rejectionsByKind = new Map<
-		DesignLoopToolName,
+		DesignLoopActionName,
 		{
 			count: number;
 			stage: DesignSubmissionValidationStage;
@@ -367,7 +366,7 @@ export class DesignRepairTracker {
 	private pendingUserQuestions: readonly OpenQuestion[] = [];
 
 	noteSubmissionRejection(
-		kind: DesignLoopToolName,
+		kind: DesignLoopActionName,
 		rejection: DesignSubmissionRejection,
 	): void {
 		const previous = this.rejectionsByKind.get(kind);
@@ -444,7 +443,7 @@ export class DesignRepairTracker {
 		this.sequenceErrors = 0;
 	}
 
-	noteAccepted(kind: DesignLoopToolName): void {
+	noteAccepted(kind: DesignLoopActionName): void {
 		this.rejectionsByKind.delete(kind);
 		this.sequenceErrors = 0;
 		this.pendingUserQuestions = [];
@@ -453,4 +452,22 @@ export class DesignRepairTracker {
 	fatalError(): DesignLoopBudgetError | undefined {
 		return this.fatal;
 	}
+}
+
+/** A process may stop after recording a clean review and before acceptance.
+ * Resume that server work only while the reviewed sources remain current. */
+export function pendingReviewAcceptance(gates: DesignGateState) {
+	if (
+		gates.head?.lifecycle !== "draft" ||
+		gates.head.sourcePackageDigest !== gates.currentPackageDigest ||
+		gates.headReviews.length === 0
+	)
+		return null;
+	if (
+		gates.headReviews.some((review) =>
+			review.envelope.payload.findings.some(findingBlocksAcceptance),
+		)
+	)
+		return null;
+	return gates.headReviews.at(-1) ?? null;
 }

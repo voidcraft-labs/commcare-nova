@@ -10,7 +10,7 @@ import { parseLookupRevision } from "@/lib/lookup/schema";
 import { MODEL_ROLES } from "@/lib/models";
 import { createDesignAgent, type DesignAgentArgs } from "../designAgent";
 import {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 	type DesignLoopToolDeps,
 } from "../tools";
@@ -243,7 +243,7 @@ export function wireAgent(
 		packageDigest: computeSourcePackageDigest(base),
 	};
 	const queue = createDesignToolExecutionQueue();
-	const tools = createDesignLoopTools(
+	const { tools } = createDesignLoopActions(
 		{
 			designSessionId: pkg.designSessionId,
 			runId: "wire-run",
@@ -292,7 +292,6 @@ export function wireAgent(
 		model,
 		tools,
 		toolExecutionQueue: queue,
-		phase: "author",
 		catalogText: "CATALOG",
 		constraintsText: "CONSTRAINTS",
 		instructions: "You are Nova's designer.",

@@ -1,7 +1,7 @@
 /**
- * The design agent: ONE `ToolLoopAgent` that asks, drafts, dispositions,
- * and plans, on the same machinery the SA runs on. The server gates every
- * phase transition (`gates.ts` via the tools); this factory owns prompt
+ * The design author asks questions, drafts, and resolves review findings
+ * through a ToolLoopAgent. The server starts independent review and derives
+ * the build plan. This factory owns prompt
  * composition, tool registration, and the provider options that make the
  * loop cacheable: one growing context under a per-session `promptCacheKey`,
  * giving the provider the same exact prefix to reuse across steps and a
@@ -40,7 +40,7 @@ import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { designLoopStepBudget } from "./gates";
 import { DESIGN_STATE_MESSAGE_HEADING } from "./packageRender";
 import type {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	createDesignToolExecutionQueue,
 } from "./tools";
 
@@ -69,13 +69,12 @@ export const DESIGN_WAIT_FOR_INPUT_DESCRIPTION =
 
 export interface DesignAgentArgs {
 	readonly model: LanguageModel;
-	readonly tools: ReturnType<typeof createDesignLoopTools>;
+	readonly tools: ReturnType<typeof createDesignLoopActions>["tools"];
 	/** Reserves every parsed provider call before server execution begins, so
 	 * client-side questions and server-side tools share one response order. */
 	readonly toolExecutionQueue: ReturnType<
 		typeof createDesignToolExecutionQueue
 	>;
-	readonly phase: "author" | "review" | "revision" | "awaiting-input";
 	/** Static instruction suffix: the capability catalog plus the citable
 	 *  platform constraints, byte-identical across a deploy's sessions. */
 	readonly catalogText: string;
@@ -640,7 +639,6 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		updateFindingDispositions: args.tools.updateFindingDispositions,
 		inspectDesign: args.tools.inspectDesign,
 		finishDesign: args.tools.finishDesign,
-		requestReview: args.tools.requestReview,
 	};
 	type StableDesignTools = typeof stableTools;
 	const registerToolInput =
@@ -673,16 +671,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 		updateFindingDispositions: registerToolInput("updateFindingDispositions"),
 		inspectDesign: registerToolInput("inspectDesign"),
 		finishDesign: registerToolInput("finishDesign"),
-		requestReview: registerToolInput("requestReview"),
 	} satisfies Required<ToolInputRefinement<StableDesignTools>>;
-	const phaseTerminal =
-		args.phase === "author"
-			? "finishDesign"
-			: args.phase === "review"
-				? "requestReview"
-				: args.phase === "revision"
-					? "finishDesign"
-					: null;
 	return new ToolLoopAgent({
 		model: args.model,
 		instructions: composeDesignInstructions(
@@ -698,8 +687,7 @@ export function createDesignAgent(args: DesignAgentArgs) {
 				args.stepBudgetAllowance,
 			) ||
 			designPhaseTerminalSucceeded(steps, DESIGN_WAIT_FOR_INPUT_TOOL) ||
-			(phaseTerminal !== null &&
-				designPhaseTerminalSucceeded(steps, phaseTerminal)),
+			designPhaseTerminalSucceeded(steps, "finishDesign"),
 		/* Establishment-level provider retries, matching the SA's patience;
 		 * mid-stream failures are the loop runner's bounded redrive. */
 		maxRetries: 4,

@@ -3,8 +3,21 @@
 
 import { describe, expect, it } from "vitest";
 import { withResponsesPeer } from "@/lib/agent/__tests__/responsesPeer";
-import { FIXTURE_THREAD_ID } from "@/lib/agent/design/__tests__/fixtures";
-import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
+import {
+	FIXTURE_THREAD_ID,
+	fixtureValue,
+	ids,
+	makeContract,
+} from "@/lib/agent/design/__tests__/fixtures";
+import {
+	persistAcceptedDesignFixture,
+	persistDraftDesignFixture,
+	persistReviewedDesignFixture,
+} from "@/lib/agent/design/__tests__/persistedFixtures";
+import {
+	readDesignReviewsForRevisions,
+	readDesignRevisionsForSession,
+} from "@/lib/agent/design/artifactStore";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
 import {
 	type ProviderOutput,
@@ -17,7 +30,13 @@ import {
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
+	createLookupRow,
+	createLookupTable,
+	updateLookupRow,
+} from "@/lib/lookup/service";
+import {
 	type DesignLoopRunnerArgs,
+	inspectAuthorizedProjectData,
 	runDesignAgentLoop,
 } from "../designLoopRunner";
 import {
@@ -132,6 +151,17 @@ const messages: NovaUIMessage[] = [
 		],
 	},
 ];
+const patientMessages: NovaUIMessage[] = [
+	{
+		id: "m1",
+		role: "user",
+		parts: [{ type: "text", text: "Track patients and their visits." }],
+	},
+];
+const cleanReview: ProviderOutput = {
+	type: "text",
+	text: JSON.stringify({ summary: "The design is coherent.", findings: [] }),
+};
 function visibleTerminals(
 	chunks: Parameters<OrchestratorStreamWriter["write"]>[0][],
 ) {
@@ -143,6 +173,316 @@ function visibleTerminals(
 }
 
 describe("durable design loop runner", () => {
+	it("returns changed Project data to the author when resuming clean-review acceptance", async () => {
+		const session = await seed();
+		const scope = { projectId: PROJECT, actorId: ACTOR, role: "owner" };
+		const table = await createLookupTable(scope, {
+			name: "Risk levels",
+			tag: "risk_levels",
+			columns: [{ wireName: "risk", label: "Risk", dataType: "text" }],
+		});
+		const column = fixtureValue(table.columns[0], "risk column");
+		const row = await createLookupRow(scope, {
+			tableId: table.id,
+			expectedTableRevision: table.tableRevision,
+			toIndex: 0,
+			values: { [column.id]: "routine" },
+		});
+		const inspected = await inspectAuthorizedProjectData(
+			{
+				actorUserId: ACTOR,
+				designSessionId: session,
+				holderNonce: NONCE,
+				projectId: PROJECT,
+				runId: RUN,
+			},
+			{
+				tableId: table.id,
+				choiceProjection: {
+					valueColumnId: column.id,
+					labelColumnId: column.id,
+				},
+			},
+		);
+		if (
+			!("kind" in inspected) ||
+			inspected.kind !== "rows" ||
+			!inspected.choiceProjection
+		)
+			throw new Error("Expected a choice inspection");
+		const contract = makeContract();
+		const risk = fixtureValue(
+			contract.records
+				.flatMap((record) => record.properties)
+				.find((property) => property.id === ids.factRisk),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		risk.choiceSource = {
+			kind: "existing-project-lookup",
+			tableId: table.id,
+			valueColumnId: column.id,
+			labelColumnId: column.id,
+			inspection: inspected.choiceProjection.inspection,
+		};
+		const fixture = await persistReviewedDesignFixture({
+			designSessionId: session,
+			authority,
+			contract,
+		});
+		await updateLookupRow(scope, {
+			tableId: table.id,
+			expectedTableRevision: row.tableRevision,
+			rowId: row.rowId,
+			values: { [column.id]: "urgent" },
+		});
+		await withDesignResponses(
+			[[wait("changed-project-data")]],
+			async (_model, requests, transport) => {
+				expect(
+					(
+						await runDesignAgentLoop(
+							await argsFor(session, transport, patientMessages, []),
+						)
+					).kind,
+				).toBe("awaiting-input");
+				expect(JSON.stringify(requests[0]?.input)).toContain("reviewAdmission");
+				expect(JSON.stringify(requests[0]?.input)).toContain("changed");
+				expect(
+					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+						fixture.draft.id,
+					),
+				).toHaveLength(1);
+				expect(
+					(await readDesignRevisionsForSession(session)).map(
+						(revision) => revision.lifecycle,
+					),
+				).toEqual(["draft"]);
+				expect(
+					await h
+						.db()
+						.selectFrom("design_model_context_items")
+						.select("append_key")
+						.where("append_key", "like", "review-admission:%")
+						.execute(),
+				).toHaveLength(1);
+			},
+		);
+	});
+	it("hands a blocking review to the author as saved findings without accepting the draft", async () => {
+		const session = await seed();
+		const fixture = await persistDraftDesignFixture({
+			designSessionId: session,
+			authority,
+		});
+		const claim = "The visit workflow needs explicit confirmation after save.";
+		const correction: ProviderOutput = {
+			type: "text",
+			text: JSON.stringify({
+				summary: "One correction is needed.",
+				findings: [
+					{
+						severity: "important",
+						dispositionClass: "design-correction",
+						claim,
+						evidenceRefs: [{ source: "S1" }],
+						affectedElements: [],
+						proposedResolution: "Confirm the saved visit summary.",
+					},
+				],
+			}),
+		};
+		await withDesignResponses(
+			[[correction], [wait("correction-pause")]],
+			async (_model, requests, transport) => {
+				expect(
+					(
+						await runDesignAgentLoop(
+							await argsFor(session, transport, patientMessages, []),
+						)
+					).kind,
+				).toBe("awaiting-input");
+				expect(JSON.stringify(requests[1]?.input)).toContain(claim);
+				expect(
+					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+						fixture.draft.id,
+					),
+				).toHaveLength(1);
+				expect(
+					(await readDesignRevisionsForSession(session)).map(
+						(revision) => revision.lifecycle,
+					),
+				).toEqual(["draft"]);
+			},
+		);
+	});
+	it("bounds unusable independent reviews without buying author requests or accepting the draft", async () => {
+		const session = await seed();
+		const fixture = await persistDraftDesignFixture({
+			designSessionId: session,
+			authority,
+		});
+		const unusable: ProviderOutput = {
+			type: "text",
+			text: JSON.stringify({ summary: "", findings: [] }),
+		};
+		await withDesignResponses(
+			[[unusable], [unusable]],
+			async (_model, requests, transport) => {
+				expect(
+					await runDesignAgentLoop(
+						await argsFor(session, transport, patientMessages, []),
+					),
+				).toMatchObject({
+					kind: "failed",
+					errorType: "design-submission-nonconvergent",
+				});
+				expect(requests).toHaveLength(2);
+				for (const request of requests) expect(request.tools ?? []).toEqual([]);
+				expect(
+					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+						fixture.draft.id,
+					),
+				).toEqual([]);
+				expect(
+					(await readDesignRevisionsForSession(session)).map(
+						(revision) => revision.lifecycle,
+					),
+				).toEqual(["draft"]);
+			},
+		);
+	});
+	it("reviews a saved draft directly and derives its plan without an author request", async () => {
+		const session = await seed();
+		const fixture = await persistDraftDesignFixture({
+			designSessionId: session,
+			authority,
+		});
+		await withDesignResponses(
+			[[cleanReview]],
+			async (_model, requests, transport) => {
+				const args = await argsFor(session, transport, patientMessages, []);
+				expect(args.pkg.packageDigest).toBe(fixture.pkg.packageDigest);
+				const outcome = await runDesignAgentLoop(args);
+				expect(outcome.kind).toBe("planned");
+				expect(requests).toHaveLength(1);
+				expect(requests[0]).toMatchObject({
+					text: { format: { type: "json_schema" } },
+				});
+				expect(requests[0]?.tools ?? []).toEqual([]);
+				expect(
+					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+						fixture.draft.id,
+					),
+				).toHaveLength(1);
+				expect(
+					(await readDesignRevisionsForSession(session)).map(
+						(revision) => revision.lifecycle,
+					),
+				).toEqual(["draft", "accepted"]);
+				expect(
+					await h.db().selectFrom("design_model_steps").selectAll().execute(),
+				).toEqual([]);
+			},
+		);
+	});
+	it("resumes acceptance after the clean review committed without buying another review", async () => {
+		const session = await seed();
+		const fixture = await persistReviewedDesignFixture({
+			designSessionId: session,
+			authority,
+		});
+		await withDesignResponses([], async (_model, _requests, transport) => {
+			const outcome = await runDesignAgentLoop(
+				await argsFor(session, transport, patientMessages, []),
+			);
+			expect(outcome.kind).toBe("planned");
+			if (outcome.kind !== "planned")
+				throw new Error("Expected a recovered plan");
+			expect(outcome.revision.envelope.inputArtifactDigests).toEqual([
+				fixture.draft.artifactDigest,
+				fixture.review.artifactDigest,
+			]);
+			expect(
+				(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+					fixture.draft.id,
+				),
+			).toHaveLength(1);
+		});
+	});
+	it.each(["wait", "question"] as const)(
+		"restores a durable %s before reviewing a saved draft after replacement",
+		async (terminal) => {
+			const session = await seed();
+			await withDesignResponses(
+				[[terminal === "wait" ? wait("saved-pause") : ask("saved-pause")]],
+				async (_model, requests, transport) => {
+					const args = await argsFor(session, transport, patientMessages, []);
+					expect((await runDesignAgentLoop(args)).kind).toBe("awaiting-input");
+					const fixture = await persistDraftDesignFixture({
+						designSessionId: session,
+						authority,
+					});
+					const replay: Parameters<OrchestratorStreamWriter["write"]>[0][] = [];
+					expect(
+						(
+							await runDesignAgentLoop(
+								await argsFor(session, transport, patientMessages, replay),
+							)
+						).kind,
+					).toBe("awaiting-input");
+					expect(visibleTerminals(replay)).toEqual([
+						terminal === "wait" ? "waitForInput" : "askQuestions",
+					]);
+					expect(requests).toHaveLength(1);
+					expect(
+						(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+							fixture.draft.id,
+						),
+					).toEqual([]);
+				},
+			);
+		},
+	);
+	it("gives newer requirements to the author before reviewing an older draft", async () => {
+		const session = await seed();
+		const fixture = await persistDraftDesignFixture({
+			designSessionId: session,
+			authority,
+		});
+		await withDesignResponses(
+			[[wait("new-requirements")]],
+			async (_model, requests, transport) => {
+				const args = await argsFor(
+					session,
+					transport,
+					[
+						...patientMessages,
+						{
+							id: "m2",
+							role: "user",
+							parts: [
+								{
+									type: "text",
+									text: "Also track referrals. More details are coming.",
+								},
+							],
+						},
+					],
+					[],
+				);
+				expect((await runDesignAgentLoop(args)).kind).toBe("awaiting-input");
+				expect(
+					requests[0]?.tools?.some((tool) => tool.name === "finishDesign"),
+				).toBe(true);
+				expect(
+					(await readDesignReviewsForRevisions([fixture.draft.id])).get(
+						fixture.draft.id,
+					),
+				).toEqual([]);
+			},
+		);
+	});
 	it("persists a paid wait, replays its complete UI after replacement, and accepts new input", async () => {
 		const session = await seed();
 		await withDesignResponses(
@@ -251,6 +591,15 @@ describe("durable design loop runner", () => {
 					expect(visibleTerminals(chunks)).toEqual([
 						order === "wait-first" ? "waitForInput" : "askQuestions",
 					]);
+					const replay: typeof chunks = [];
+					expect(
+						await runDesignAgentLoop(
+							await argsFor(session, transport, messages, replay),
+						),
+					).toEqual({ kind: "awaiting-input", headRevisionId: null });
+					expect(visibleTerminals(replay)).toEqual([
+						order === "wait-first" ? "waitForInput" : "askQuestions",
+					]);
 					const items = await h
 						.db()
 						.selectFrom("design_model_context_items")
@@ -325,56 +674,69 @@ describe("durable design loop runner", () => {
 			expect(requests).toEqual([]);
 		});
 	});
-	it("cancels an actual partial provider response and joins its socket", async () => {
-		const session = await seed();
-		const received = Promise.withResolvers<void>();
-		const closed = Promise.withResolvers<void>();
-		let calls = 0;
-		await withResponsesPeer(
-			(request, response) => {
-				calls += 1;
-				request.resume();
-				response.once("close", () => closed.resolve());
-				response.writeHead(200, { "content-type": "text/event-stream" });
-				response.write(
-					`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_partial", created_at: 1, model: "offline-design" } })}\n\n`,
-				);
-				received.resolve();
-			},
-			async (_provider, transport) => {
-				const args = await argsFor(session, transport, messages, []);
-				const controller = new AbortController();
-				const pending = runDesignAgentLoop({
-					...args,
-					signal: controller.signal,
-				}).then(
-					(value) => ({ value }),
-					(error: unknown) => ({ error }),
-				);
-				try {
-					await received.promise;
-					controller.abort();
-					const outcome = await pending;
-					expect(outcome).toHaveProperty("error", controller.signal.reason);
-					await closed.promise;
-					expect(calls).toBe(1);
-					expect(
-						await h
-							.db()
-							.selectFrom("design_model_steps")
-							.select("event_kind")
-							.execute(),
-					).toEqual([{ event_kind: "started" }]);
-					expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual(
+	it.each(["author", "review"] as const)(
+		"cancels a partial %s response and joins its socket",
+		async (phase) => {
+			const session = await seed();
+			if (phase === "review")
+				await persistDraftDesignFixture({
+					designSessionId: session,
+					authority,
+				});
+			const received = Promise.withResolvers<void>();
+			const closed = Promise.withResolvers<void>();
+			let calls = 0;
+			await withResponsesPeer(
+				(request, response) => {
+					calls += 1;
+					request.resume();
+					response.once("close", () => closed.resolve());
+					response.writeHead(200, { "content-type": "text/event-stream" });
+					response.write(
+						`data: ${JSON.stringify({ type: "response.created", response: { id: "resp_partial", created_at: 1, model: "offline-design" } })}\n\n`,
+					);
+					received.resolve();
+				},
+				async (_provider, transport) => {
+					const args = await argsFor(
+						session,
+						transport,
+						phase === "review" ? patientMessages : messages,
 						[],
 					);
-				} finally {
-					controller.abort();
-					await pending;
-				}
-			},
-		);
-	});
+					const controller = new AbortController();
+					const pending = runDesignAgentLoop({
+						...args,
+						signal: controller.signal,
+					}).then(
+						(value) => ({ value }),
+						(error: unknown) => ({ error }),
+					);
+					try {
+						await received.promise;
+						controller.abort();
+						const outcome = await pending;
+						expect(outcome).toHaveProperty("error", controller.signal.reason);
+						await closed.promise;
+						expect(calls).toBe(1);
+						expect(
+							await h
+								.db()
+								.selectFrom("design_model_steps")
+								.select("event_kind")
+								.execute(),
+						).toEqual(phase === "author" ? [{ event_kind: "started" }] : []);
+						expect(
+							await h.db().selectFrom("apps").selectAll().execute(),
+						).toEqual([]);
+					} finally {
+						controller.abort();
+						await pending;
+					}
+				},
+			);
+		},
+	);
 	it("restores genuine durable state after compaction despite a user-supplied state heading", async () => {
 		const session = await seed();
 		await withDesignResponses(

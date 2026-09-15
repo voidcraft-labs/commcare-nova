@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
-	createDesignLoopTools,
+	createDesignLoopActions,
 	type DesignLoopToolDeps,
 	designLoopToolDefinitions,
 	designToolsetDigest,
@@ -24,19 +24,19 @@ import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitec
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import fixture from "./fixtures/promptDigests.json";
 
-/** `createDesignLoopTools` binds `execute` closures over its deps and reads
+/** `createDesignLoopActions` binds `execute` closures over its deps and reads
  * none of them until a tool runs, so a throwing proxy proves the mount is
  * definition-pure while yielding the exact bound record. */
 const eagerDepsTrap = new Proxy({} as DesignLoopToolDeps, {
 	get(_target, property) {
 		throw new Error(
-			`createDesignLoopTools read deps.${String(property)} at mount time.`,
+			`createDesignLoopActions read deps.${String(property)} at mount time.`,
 		);
 	},
 });
 
 describe("design loop tool definitions", () => {
-	it("digest and order the 20 loop tools as the runner persists them", async () => {
+	it("digest and order the author tools as the runner persists them", async () => {
 		const definitions = designLoopToolDefinitions();
 		expect(Object.keys(definitions)).toEqual(fixture.designToolOrder);
 		expect(await designToolsetDigest(definitions)).toBe(
@@ -45,7 +45,7 @@ describe("design loop tool definitions", () => {
 	});
 
 	it("match the bound tools the agent mounts, key for key", async () => {
-		const bound = createDesignLoopTools(eagerDepsTrap);
+		const { tools: bound } = createDesignLoopActions(eagerDepsTrap);
 		const definitions = designLoopToolDefinitions();
 		expect(Object.keys(bound)).toEqual(Object.keys(definitions));
 		expect(await designToolsetDigest(bound)).toBe(

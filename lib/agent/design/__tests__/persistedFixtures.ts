@@ -18,7 +18,7 @@ import { FIXTURE_THREAD_ID, makeContract } from "./fixtures";
 /** Persist actual schema/graph/digest-admitted artifacts through their owners.
  * The clean review is controlled fixture content, not a claim about an LLM.
  * The supplied session must already carry the caller's live authority. */
-export async function persistAcceptedRevisionFixture(args: {
+export async function persistDraftDesignFixture(args: {
 	designSessionId: string;
 	authority: DesignArtifactWriteAuthority;
 	contract?: AppDesignContract;
@@ -91,6 +91,13 @@ export async function persistAcceptedRevisionFixture(args: {
 		lifecycle: "draft",
 		authority,
 	});
+	return { pkg, draft, envelope };
+}
+
+export async function persistReviewedDesignFixture(
+	args: Parameters<typeof persistDraftDesignFixture>[0],
+) {
+	const { pkg, draft, envelope } = await persistDraftDesignFixture(args);
 	const review = await insertDesignReview({
 		envelope: envelope(
 			"design-review",
@@ -105,18 +112,26 @@ export async function persistAcceptedRevisionFixture(args: {
 			[draft.artifactDigest],
 		),
 		designRevisionId: draft.id,
-		authority,
+		authority: args.authority,
 	});
+	return { pkg, draft, review, envelope };
+}
+
+export async function persistAcceptedRevisionFixture(
+	args: Parameters<typeof persistDraftDesignFixture>[0],
+) {
+	const { pkg, draft, review, envelope } =
+		await persistReviewedDesignFixture(args);
 	const accepted = await insertDesignRevision({
 		envelope: envelope(
 			"design-contract",
-			contract,
+			draft.envelope.payload,
 			draft.revision + 1,
 			draft.id,
 			[draft.artifactDigest, review.artifactDigest],
 		),
 		lifecycle: "accepted",
-		authority,
+		authority: args.authority,
 	});
 	return { pkg, draft, review, accepted, envelope };
 }

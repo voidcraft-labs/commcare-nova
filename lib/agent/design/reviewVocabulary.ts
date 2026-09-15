@@ -104,8 +104,8 @@ export function projectBoundIdsToHandles(
  * positional projection, recomputable from persisted state anywhere it is
  * needed. `@f1..@fN` runs continuously across the given reviews in their
  * persisted `review_ordinal` order (callers pass them that way), findings in
- * array order, so the numbering a `requestReview` result prints is exactly
- * the numbering the next state packet and a disposition resolve against.
+ * array order. The state packet and disposition resolver use this same
+ * projection.
  */
 export function deriveFindingHandleBindings(
 	reviews: ReadonlyArray<{
