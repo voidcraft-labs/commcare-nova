@@ -90,7 +90,7 @@ export type SetCaseListFilterResult =
 
 export const setCaseListFilterTool = {
 	description:
-		"Set or clear a module's always-on case-list filter (applied before any search). A Predicate sets it; null clears it — never use match-all as a clear.",
+		"Set or clear the record filter applied before Search. Null clears it.",
 	inputSchema: setCaseListFilterInputSchema,
 	async execute(
 		input: SetCaseListFilterInput,

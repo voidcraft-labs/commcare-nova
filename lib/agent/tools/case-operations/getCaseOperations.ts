@@ -25,8 +25,7 @@ export type GetCaseOperationsResult =
 	| { readonly error: string };
 
 export const getCaseOperationsTool = {
-	description:
-		"List every case operation in execution order. Addresses and every Nova-owned reference use stable UUIDs; authored ids and names remain readable metadata.",
+	description: "Read a form's advanced record operations in execution order.",
 	inputSchema: operationAddressSchema,
 	async execute(
 		input: GetCaseOperationsInput,

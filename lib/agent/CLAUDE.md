@@ -59,6 +59,22 @@ External consumers (`app/api/chat/route.ts`, `app/api/compile/route.ts`, `compon
 
 **The SA speaks domain vocabulary end-to-end.** Tool names, tool arguments, tool return shapes, and the system prompt all use domain names (`field`, `kind`, `validate`, `validate_msg`, `caseWrite`). There is no CommCare→domain translation layer anywhere in this directory — SA tool args feed directly into `blueprintHelpers.ts` reducers.
 
+`recordName` on form creation and update is an authored expression over the
+existing primary `case_name` writer. `lib/doc/formRecordName.ts` reuses a suitable
+text answer or calculated writer in the same guarded batch; no parallel naming
+state is persisted. New module record types are declared atomically, and omitted
+Results columns default to Name. Explicit column configurations still need a
+visible column. Advanced create operations retain their dedicated `name` value.
+
+`evaluateForm` / MCP `evaluate_form` is a non-writing form observation. It captures
+authorized worker-scoped records and Project lookup data, then runs the production
+FormEngine and XPath dispatcher in an isolated Node worker. It never invokes
+Preview's schema healing or usercase materialization. Results distinguish field
+validation and a proposed submission from a committed transaction. The worker
+owns a 30-second, 128 MiB evaluation budget and is terminated and joined on every
+outcome. `build:xpath-worker` builds both browser XPath and server form assets;
+normal test commands build them before running.
+
 Every case-writing field carries one complete `caseWrite: { caseType, property }` destination. `id` is only the form-local question path and the friendly `#form/<id>` projection; it is not inferred as a case-property name and may differ from `caseWrite.property`. Creation requires the complete pair. On edit, a complete pair retargets this writer and `null` clears it; changing `id` never renames case data. The only standard scalar destinations admitted here are `case_name` and `external_id`; field/operation writer scaffolds never synthesize catalog entries for them, their storage type is always text (visible non-text writers reject; hidden calculations retain their expression-driven shape), and all other reserved/system names are rejected. Generic case-operation `writes` may target `external_id`, but not `case_name`, whose dedicated create/name/rename facets remain its only operation owners. The separate shared `renameCaseProperties` / `rename_case_properties` action owns app-wide property renames as one complete simultaneous name relation; case properties are the deliberate name-keyed exception to UUID object addresses.
 
 CommCare wire terms live at one genuine boundary outside `lib/agent/`: `lib/commcare/` (XForm emission, HQ JSON expander, validator, suite-entry derivation). The commit gate feeds `BlueprintDoc` through the validator directly — no wire-format round-trip inside the agent layer.

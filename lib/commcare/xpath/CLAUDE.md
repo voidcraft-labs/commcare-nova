@@ -25,7 +25,7 @@ to the selected record type. A separate `resolveFormReference` can accept short
 parsing keeps its existing resolver. Instance- and current-rooted paths retain
 literal path semantics.
 
-`FUNCTION_REGISTRY` may admit only functions classified as JavaRosa native,
+The domain `expressionFunctions.ts` signatures may admit only functions classified as JavaRosa native,
 proven-lowered, or path initializers used in their required path-root position,
 and every admitted call shape must have a faithful Preview execution path. Do
 not infer compatibility from an XPath version or a familiar function name:
@@ -53,3 +53,8 @@ CSQL needs an explicit decision only when the expression can reach a CSQL
 carrier.
 
 `lowerXPathForJavaRosa` preserves all source bytes outside the replacement ranges and applies nested edits from the CST; never replace function text with regex. Malformed input passes through because the commit validator owns syntax. An additional source transformation requires its own native runtime equivalence proof; unrelated arithmetic rewrites change already-valid app semantics.
+
+`is-blank(value)` has the same meaning in forms and record expressions: missing
+and empty are blank; zero, false and whitespace are not. At the wire boundary it
+lowers to a string-length check. Native corpus tests exercise nested calls, scalar
+types and missing answers against Core, not just the emitted spelling.

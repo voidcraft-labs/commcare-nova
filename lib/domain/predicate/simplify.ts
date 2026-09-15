@@ -114,6 +114,16 @@ export function simplifyForEmission(predicate: Predicate): Predicate {
 				}),
 			};
 		case "is-blank":
+			if (
+				predicate.left.kind === "term" &&
+				predicate.left.term.kind === "literal"
+			) {
+				return predicate.left.term.value === null ||
+					predicate.left.term.value === ""
+					? matchAll()
+					: matchNone();
+			}
+			return { ...predicate, left: simplifyExpression(predicate.left) };
 		case "matches-pattern":
 			return { ...predicate, left: simplifyExpression(predicate.left) };
 		case "match":

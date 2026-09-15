@@ -98,5 +98,7 @@ export function compileLiteral(lit: Literal): AliasableExpression<unknown> {
 				: "numeric";
 		return eb.cast(eb.val(lit.value), cast);
 	}
-	return eb.val(lit.value);
+	return typeof lit.value === "boolean"
+		? eb.cast(eb.val(lit.value), "boolean")
+		: eb.val(lit.value);
 }

@@ -300,7 +300,7 @@ async function commit(
 
 export const addUserPropertiesTool = {
 	description:
-		"Add one or more worker-information properties. Returns stable uuids for role and persona values. During an initial build, call this immediately after updateApp and before generateSchema, createModule, or any other call that authors a condition, calculation, module, or form which may reference custom worker information.",
+		"Define worker details that roles, personas, forms and rules can use.",
 	inputSchema: addUserPropertiesInputSchema,
 	async execute(
 		input: z.infer<typeof addUserPropertiesInputSchema>,
@@ -352,7 +352,7 @@ export const addUserPropertiesTool = {
 
 export const updateUserPropertyTool = {
 	description:
-		"Update one worker-information property by stable uuid. Omit to keep; null clears required or accepted values.",
+		"Edit one worker-information field and its accepted values or requiredness.",
 	inputSchema: updateUserPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserPropertyInputSchema>,
@@ -437,8 +437,7 @@ export const removeUserPropertyTool = {
 };
 
 export const addUserTypesTool = {
-	description:
-		"Add one or more reusable worker roles. Value entries target worker information by stable uuid.",
+	description: "Define reusable worker roles and their default information.",
 	inputSchema: addUserTypesInputSchema,
 	async execute(
 		input: z.infer<typeof addUserTypesInputSchema>,
@@ -489,7 +488,7 @@ export const addUserTypesTool = {
 
 export const updateUserTypeTool = {
 	description:
-		"Update one role by stable uuid. valuePatch changes or clears one UUID-addressed worker-information value; omission leaves every value unchanged.",
+		"Edit a worker role. valuePatch sets or clears individual default values.",
 	inputSchema: updateUserTypeInputSchema,
 	async execute(
 		input: z.infer<typeof updateUserTypeInputSchema>,
@@ -575,7 +574,7 @@ export const removeUserTypeTool = {
 
 export const addPersonasTool = {
 	description:
-		"Add one or more named Preview workers. Roles and worker-information values use stable uuids.",
+		"Create named Preview workers with roles and worker-information values.",
 	inputSchema: addPersonasInputSchema,
 	async execute(
 		input: z.infer<typeof addPersonasInputSchema>,
@@ -637,7 +636,7 @@ export const addPersonasTool = {
 
 export const updatePersonaTool = {
 	description:
-		"Update one Preview persona by stable uuid. valuePatch changes or clears one UUID-addressed override; omission leaves every override unchanged.",
+		"Edit a Preview worker. valuePatch sets or clears individual overrides.",
 	inputSchema: updatePersonaInputSchema,
 	async execute(
 		input: z.infer<typeof updatePersonaInputSchema>,
@@ -746,8 +745,7 @@ function valuesOutput(
 }
 
 export const getUsersTool = {
-	description:
-		"Read the app's worker information, roles, and personas with stable uuids for follow-up edits.",
+	description: "Read worker details, roles and Preview personas.",
 	inputSchema: getUsersInputSchema,
 	async execute(
 		_input: z.infer<typeof getUsersInputSchema>,

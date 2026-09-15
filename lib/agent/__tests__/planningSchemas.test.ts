@@ -141,12 +141,7 @@ describe("caseTypeRecordSchema", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("teaches the option value's slug shape in the schema, then refuses a value with a space", () => {
-		const describedOptions = z.toJSONSchema(caseTypeRecordSchema);
-		const text = JSON.stringify(describedOptions);
-		expect(text).toContain("prefer_not_to_say");
-		expect(text).toContain("underscores");
-
+	it("refuses a select option value containing a space", () => {
 		const result = caseTypeRecordSchema.safeParse({
 			...validRecord,
 			properties: [
@@ -162,7 +157,6 @@ describe("caseTypeRecordSchema", () => {
 			],
 		});
 		expect(result.success).toBe(false);
-		expect(result.error?.issues[0]?.message).toContain("underscores");
 		expect(result.error?.issues[0]?.path).toEqual([
 			"properties",
 			0,

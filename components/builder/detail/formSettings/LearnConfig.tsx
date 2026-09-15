@@ -27,7 +27,7 @@ import type { CommitOutcome, ConnectLearnConfig } from "@/lib/domain";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
-import { useConnectLintContext } from "./useConnectLintContext";
+import { useFormLintContext } from "./useFormLintContext";
 
 /**
  * Shared prop contract for connect-mode sub-config components. `connect`
@@ -83,7 +83,7 @@ export function LearnConfig({
 	const lastAssessmentRef = useRef(assessment);
 	if (lm) lastLearnRef.current = lm;
 	if (assessment) lastAssessmentRef.current = assessment;
-	const getLintContext = useConnectLintContext(formUuid);
+	const getLintContext = useFormLintContext(formUuid);
 	// AST-stored slot ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
 	const userScoreText = useXPathText(assessment?.user_score);

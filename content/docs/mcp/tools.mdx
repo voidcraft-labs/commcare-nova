@@ -46,6 +46,14 @@ under its form, and `create_module` nests forms, fields, choices, and born
 case-list columns under its module. Continue from that result: no read-after-write
 is required just to discover a new UUID.
 
+A new record module declares its record type and starts with a Name column
+unless you supply other Results columns. Set a form's `recordName` to an answer
+or expression, such as `#form/name` or `concat(#form/borrower, ' - ', #form/tool)`.
+Nova creates the underlying writer and preserves other saved answers. Advanced
+create operations use their `name` expression for the same purpose.
+`get_form` returns the current naming rule and navigation; `get_module` describes
+its normal opening screen, including Search or Results where applicable.
+
 Adding a form to a module that currently shows only a case list keeps that list
 and makes the form available in the same step. No separate module-setting change
 is needed. A registration form reached from an empty search result remains
@@ -85,9 +93,24 @@ when omitted. Existing IDs remain useful when names collide.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
 filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
-references for workflows, field types, form logic, record queries, languages,
+references for workflows, field types, forms, expressions, languages,
 people and places, shared data, and automations. Lookup
 choice sources retain explicit `tableId`, `valueColumnId`, and `labelColumnId`.
+
+Forms and record expressions share their common functions. `is-blank(value)`
+accepts any value: missing and empty are blank; zero, false and whitespace are not.
+`coalesce` returns the first nonblank argument, or the last argument as its fallback.
+For a function's scope and argument count, use `get_authoring_guide` with
+`topic: "expressions"` and `functionName`.
+
+`evaluate_form` runs a form with supplied answers using the production Preview
+engine. It reports question state, validation and a proposed submission without
+saving records. Existing records and lookup data come from the authorized worker's
+current data; a private new app has no saved records yet. Repeat rows, a selected
+worker, language and Search answers can be supplied when relevant. Evaluation is
+limited to 30 seconds and 128 MiB. Media capture and the submission transaction
+still need the running app; an evaluation result does not prove deployment or
+successful storage.
 
 Validation and repeat settings read back in their editable shapes. Choice lists
 retain option identities; attached option media is reported separately and changed

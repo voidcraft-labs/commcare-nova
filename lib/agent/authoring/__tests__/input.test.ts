@@ -18,6 +18,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import { FormEngine } from "@/lib/preview/engine/formEngine";
 import { prepareAuthoringInput } from "../input";
 import { projectAuthoringRead } from "../output";
 import { authoringToolSchema } from "../toolSchema";
@@ -56,6 +57,116 @@ function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
 	}
 	return { ...harness, call };
 }
+
+it("creates and edits record names without making the author construct name writers or declare the type twice", async () => {
+	const h = authoring();
+	await h.call("createModule", {
+		name: "Loans",
+		case_type: "loan",
+		case_list_columns: [{ kind: "plain", field: "case_name", header: "Loan" }],
+		forms: [
+			{
+				name: "Lend",
+				type: "registration",
+				recordName: "concat(#form/borrower, ' - ', #form/tool)",
+				fields: [
+					{
+						kind: "text",
+						id: "borrower",
+						label: "Borrower",
+						caseWrite: { caseType: "loan", property: "borrower" },
+					},
+					{
+						kind: "text",
+						id: "tool",
+						label: "Tool",
+						caseWrite: { caseType: "loan", property: "tool" },
+					},
+				],
+			},
+		],
+	});
+	const form = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Lend",
+	);
+	if (!form) throw new Error("The form was not created.");
+	const submission = () => {
+		const doc = h.currentDoc();
+		const engine = new FormEngine(
+			{
+				form: doc.forms[form.uuid],
+				formUuid: form.uuid,
+				fields: doc.fields,
+				fieldOrder: doc.fieldOrder,
+				caseTypes: doc.caseTypes ?? [],
+			},
+			"loan",
+		);
+		engine.setValue("/data/borrower", "Ada");
+		engine.setValue("/data/tool", "Drill");
+		return engine.computeSubmissionMutation({
+			entryKey: "11111111-1111-4111-8111-111111111111",
+		});
+	};
+	expect(submission()).toMatchObject({
+		kind: "registration",
+		primary: {
+			caseName: "Ada - Drill",
+			properties: { borrower: "Ada", tool: "Drill" },
+		},
+	});
+	const read = z
+		.object({ recordName: z.string() })
+		.parse(await h.call("getForm", { formUuid: "Lend", moduleUuid: "Loans" }));
+	const before = h.currentDoc();
+	await h.call("updateForm", {
+		formUuid: "Lend",
+		moduleUuid: "Loans",
+		recordName: read.recordName,
+	});
+	expect(h.currentDoc()).toEqual(before);
+	await h.call("updateForm", {
+		formUuid: "Lend",
+		moduleUuid: "Loans",
+		recordName: "#form/borrower",
+	});
+	expect(submission()).toMatchObject({
+		kind: "registration",
+		primary: {
+			caseName: "Ada",
+			properties: { borrower: "Ada", tool: "Drill" },
+		},
+	});
+	await h.call("createForm", {
+		moduleUuid: "Loans",
+		name: "Quick lend",
+		type: "registration",
+		recordName: "#form/name",
+		fields: [{ kind: "text", id: "name", label: "Loan name" }],
+	});
+	const quick = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Quick lend",
+	);
+	if (!quick) throw new Error("The quick form was not created.");
+	const doc = h.currentDoc();
+	const engine = new FormEngine(
+		{
+			form: quick,
+			formUuid: quick.uuid,
+			fields: doc.fields,
+			fieldOrder: doc.fieldOrder,
+			caseTypes: doc.caseTypes ?? [],
+		},
+		"loan",
+	);
+	engine.setValue("/data/name", "Saw for Bea");
+	expect(
+		engine.computeSubmissionMutation({
+			entryKey: "11111111-1111-4111-8111-111111111111",
+		}),
+	).toMatchObject({ primary: { caseName: "Saw for Bea" } });
+	expect(doc.fieldOrder[quick.uuid]).toHaveLength(1);
+});
 
 it("uses scoped short names for nested questions, wording, conditions, edits and insertion anchors", async () => {
 	const h = authoring();

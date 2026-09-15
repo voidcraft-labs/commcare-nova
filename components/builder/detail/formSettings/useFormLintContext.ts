@@ -7,7 +7,7 @@ import type { Uuid } from "@/lib/doc/types";
 
 /**
  * Produces a memoized `getLintContext()` callback for CodeMirror XPath
- * fields rendered inside connect sub-configs. Reads the doc store
+ * fields in form settings. Reads the doc store
  * imperatively via `getState()` so the lint context always reflects the
  * latest blueprint: subscribing would rebuild the context on every
  * unrelated doc change and cause CodeMirror to thrash.
@@ -16,7 +16,7 @@ import type { Uuid } from "@/lib/doc/types";
  * (valid paths, case properties, form entries) that the xpath-lint plugin
  * needs without walking the full doc on each keystroke.
  */
-export function useConnectLintContext(formUuid: Uuid) {
+export function useFormLintContext(formUuid: Uuid) {
 	const docStore = useContext(BlueprintDocContext);
 	return useCallback((): XPathLintContext | undefined => {
 		if (!docStore) return undefined;

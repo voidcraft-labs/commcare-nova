@@ -8,7 +8,8 @@
  */
 
 import type { z } from "zod";
-import type { Uuid } from "@/lib/domain";
+import { formRecordName } from "@/lib/doc/formRecordName";
+import { formNavigation, type Uuid } from "@/lib/domain";
 import { type FormSnapshot, formSnapshot } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
@@ -31,11 +32,12 @@ export type GetFormResult =
 			moduleUuid: Uuid;
 			formUuid: Uuid;
 			form: FormSnapshot;
+			navigation: ReturnType<typeof formNavigation>;
+			recordName?: ReturnType<typeof formRecordName>;
 	  };
 
 export const getFormTool = {
-	description:
-		"Get a form by stable module and form UUIDs. Returns the full form including all fields (nested by group/repeat containers).",
+	description: "Read a form, its questions, record naming rule and navigation.",
 	inputSchema: getFormInputSchema,
 	async execute(
 		input: GetFormInput,
@@ -54,12 +56,15 @@ export const getFormTool = {
 				data: { error: `Form UUID "${formUuid}" is not readable.` },
 			};
 		}
+		const recordName = formRecordName(doc, formUuid);
 		return {
 			kind: "read",
 			data: {
 				moduleUuid,
 				formUuid,
 				form: snapshot,
+				navigation: formNavigation(doc, formUuid),
+				...(recordName && { recordName }),
 			},
 		};
 	},

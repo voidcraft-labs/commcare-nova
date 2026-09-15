@@ -1821,17 +1821,6 @@ describe("checkPredicate — matches-pattern admission", () => {
 		).toBe(true);
 	});
 
-	it("rejects a literal subject with the operand-shape reason", () => {
-		const p = matchesPattern(literal("123-45-6789"), "^[0-9]{3}-");
-		const result = checkPredicate(p, { ...ctx, patternMatching: true });
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0].code).toBe("runtime-value");
-			expect(result.errors[0].path).toEqual(["left"]);
-		}
-	});
-
 	it("propagates an unresolved input from the subject at ['left']", () => {
 		const p = matchesPattern(input(testUuid("missing")), "^x");
 		const result = checkPredicate(p, { ...ctx, patternMatching: true });
@@ -1869,22 +1858,6 @@ describe("checkPredicate — is-blank operand-shape rules", () => {
 	it("accepts is-blank on a session-context reference", () => {
 		const p = isBlank(sessionContext("userid"));
 		expect(checkPredicate(p, ctx).ok).toBe(true);
-	});
-
-	it("rejects is-blank on a literal", () => {
-		// Same category-error rationale as `is-null` — the literal-
-		// in-`left` shape is meaningless. Pinning the rejection
-		// independently for each operator (rather than parameterizing
-		// over the kind) keeps the failure message naming the operator
-		// the author actually used.
-		const p = isBlank(literal("x"));
-		const result = checkPredicate(p, ctx);
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0].path).toEqual(["left"]);
-			expect(result.errors[0].message).toMatch(/literal/i);
-		}
 	});
 
 	it("propagates unresolved-input errors from is-blank's left", () => {

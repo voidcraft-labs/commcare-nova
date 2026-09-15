@@ -483,7 +483,7 @@ async function commitLanguageMutations(
 
 export const getLanguagesTool = {
 	description:
-		"Read the app's source, runtime default, and target languages as exact identities with derived display names, text direction, automatic-translation status, and complete per-language translation coverage counts. Manual authoring and copy work for every individual living language; automatic-translation availability is a separate direction-specific policy.",
+		"Read the source, default and target languages, translation coverage and automatic-translation availability.",
 	inputSchema: getLanguagesInputSchema,
 	async execute(
 		_input: z.infer<typeof getLanguagesInputSchema>,
@@ -539,7 +539,7 @@ export const getLanguagesTool = {
 
 export const getTranslatableContentTool = {
 	description:
-		"Read one bounded, snapshot-bound page from the app's complete static worker-facing translation inventory. Each row includes source, effective target, explicit provenance/review state, context, and protected reference parts. Continue with nextCursor until complete; restart without a cursor if the inventory or filtered translation state changed.",
+		"Read a page of translatable app content with its source, target text, context and review state. Continue with nextCursor; restart if the source changed.",
 	inputSchema: getTranslatableContentInputSchema,
 	async execute(
 		input: z.infer<typeof getTranslatableContentInputSchema>,
@@ -629,7 +629,7 @@ export const getTranslatableContentTool = {
 
 export const addLanguageTool = {
 	description:
-		"Add one app language atomically by copying every currently effective worker-facing value from an existing app language — the canonical source language unless copyFrom names another. The copied entries begin Needs review; the new language is never born blank. Automatic translation is a separate explicit action and is not implied by this tool.",
+		"Add a target language by copying the current text from copyFrom, or the source language. Copied text starts as Needs review; this does not translate it.",
 	inputSchema: addLanguageInputSchema,
 	async execute(
 		input: z.infer<typeof addLanguageInputSchema>,
@@ -693,7 +693,7 @@ export const addLanguageTool = {
 
 export const updateLanguageTool = {
 	description:
-		"Make an existing language the runtime default, or change a language's identity. Changing the sole language of a one-language app relabels the canonical source in place; changing a target language carries its explicit translations to the new identity in one atomic batch. A multilingual app's source identity cannot be changed. Worker-facing names and text direction derive from the identity and are never authored.",
+		"Set the default language or change a language identity. A multilingual source identity is fixed. Changing an identity preserves text and does not translate it.",
 	inputSchema: updateLanguageInputSchema,
 	async execute(
 		input: z.infer<typeof updateLanguageInputSchema>,
@@ -861,7 +861,7 @@ function integrityMessage(
 
 export const updateTranslationsTool = {
 	description:
-		"Set, clear, or explicitly review up to 50 target-language entries atomically. Set operations must echo the current source fingerprint they translated and begin Needs review. Review operations must echo both the exact explicit entry and the current source fingerprint reviewed, so no peer can change either side unseen. Answer and record insertions must remain intact.",
+		"Set, clear or review translations. Use fingerprints from the current read so edits cannot overwrite a changed source or translation. Keep answer and record insertions intact.",
 	inputSchema: updateTranslationsInputSchema,
 	async execute(
 		input: z.infer<typeof updateTranslationsInputSchema>,

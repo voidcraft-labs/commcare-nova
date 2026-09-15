@@ -55,8 +55,7 @@ export type RemoveCaseListColumnResult =
 	| { error: string };
 
 export const removeCaseListColumnTool = {
-	description:
-		"Remove one column from a module's case list, keyed by columnUuid. Returns the remaining column count so the SA confirms the edit landed on the right entry.",
+	description: "Remove a field from Results and Details.",
 	inputSchema: removeCaseListColumnInputSchema,
 	async execute(
 		input: RemoveCaseListColumnInput,

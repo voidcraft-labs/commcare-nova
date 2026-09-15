@@ -13,6 +13,7 @@ import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormEntrySection } from "./FormEntrySection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
+import { RecordNameSection } from "./RecordNameSection";
 import type { FormSettingsSectionProps } from "./types";
 
 /** Shell prop shape: the standard section props plus a dismiss callback
@@ -61,6 +62,7 @@ export function FormSettingsPanel({
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
+				<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
 				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />

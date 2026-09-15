@@ -14,6 +14,7 @@ import {
 	caseListConfig,
 } from "@/lib/__tests__/docHelpers";
 import type { FormLink } from "@/lib/domain";
+import { moduleLanding } from "@/lib/domain";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import type {
 	AfterSubmitChoice,
@@ -26,7 +27,7 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../screens/afterSubmitRouting";
-import { moduleLanding, openModuleLanding } from "../screens/moduleLanding";
+import { openModuleLanding } from "../screens/moduleLanding";
 
 const CARE = testUuid("mod-care");
 const BROWSE = testUuid("mod-browse");

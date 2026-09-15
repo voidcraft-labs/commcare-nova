@@ -77,7 +77,7 @@ function moveRefusal(
 
 export const moveCaseOperationTool = {
 	description:
-		"Move one case operation after another operation identified by UUID, or to the beginning. Refuses dependency-breaking or non-portable wire order and names the involved operations.",
+		"Reorder an advanced record operation. Dependencies must remain before their consumers.",
 	inputSchema: moveCaseOperationInputSchema,
 	async execute(
 		input: MoveCaseOperationInput,

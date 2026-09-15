@@ -94,47 +94,25 @@ function makeKindEnum(kinds: readonly FieldKind[]) {
 // per-kind shape.
 
 const FIELD_DOCS = {
-	id:
-		"snake_case identifier, letter first. Names this question in the form " +
-		"and in friendly XPath such as #form/first_name. It is independent " +
-		"from any case property the answer writes.",
-	label:
-		"Visible wording. An empty label makes a group transparent or a repeat titleless.",
-	hint: "Short helper text under the input.",
-	help: "Longer tap-to-expand guidance. Plain text.",
-	required: 'XPath condition making an answer mandatory — "true()" for always.',
-	validate:
-		"XPath rule the answer must satisfy (`.` is the answer), checked " +
-		"when the user leaves the field. Write the real rule for the " +
-		"field's meaning.",
-	validate_msg: "Error shown when `validate` fails.",
-	relevant: "XPath condition that shows/hides the field.",
-	calculate:
-		"XPath recomputed whenever a referenced field changes and on every " +
-		"form load. hidden fields only — for a value fixed at load, use " +
-		"default_value, never both: the calculate re-runs after the default is " +
-		"seeded, so the default never shows.",
+	id: "Question identifier: lowercase words joined by underscores, starting with a letter. Independent of its saved record property.",
+	label: "Visible wording. Empty labels hide group chrome or repeat titles.",
+	hint: "Short guidance below the question.",
+	help: "Longer guidance opened on demand.",
+	required: "Require an answer when this condition holds.",
+	validate: "Answer validation; . refers to this question's value.",
+	validate_msg: "Explanation shown when validation fails.",
+	relevant: "Show this field when the condition holds.",
+	calculate: "A hidden value that updates as its dependencies change.",
 	default_value:
-		"XPath evaluated ONCE when a new form instance opens, never " +
-		"recomputed. For values that must track other fields, use calculate, " +
-		"never both on a hidden field: the calculate re-runs after the " +
-		"default is seeded, so the default never shows.",
+		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
 	optionsSource:
-		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
-		'"lookup" with table/column IDs and an optional row filter. ' +
-		"Each inline option's `value` is the stored answer token, a lowercase " +
-		"underscore-joined slug (prefer_not_to_say) with no spaces or quotes; " +
-		"its `label` carries the wording.",
+		"Inline choices or a Project data table with an optional row filter.",
 	caseWrite:
-		"Save this answer to {caseType, property}. Writing the module's case type updates its primary record; another type creates a child and needs a case_name writer. The question id and property name are independent. " +
-		'Attachments require mode: "url" and save a link, not an in-app attachment display; they cannot write case_name or external_id. Omit mode for other answers. ' +
-		"A single-record form starts primary writers with saved values, taking precedence over default_value. Child writers and several-case forms start blank. Use child records when each submission needs its own history.",
+		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. Capture fields save URLs with mode url; other fields omit mode. Use recordName for the primary record's name.",
 	repeat_mode:
-		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
-		'— row count from `count`. "query_bound" — one row per case id ' +
-		"from `ids_query`. Counts and queries freeze at form load.",
-	repeat_count: "XPath giving the row count (count_bound only).",
-	ids_query: "XPath resolving to the case ids to iterate (query_bound only).",
+		"Worker-added rows, a fixed count, or rows from a record query. Counts and queries are captured when each repeat instance opens.",
+	repeat_count: "Row count for a count-bound repeat.",
+	ids_query: "Record IDs for a query-bound repeat.",
 } as const satisfies Record<string, string>;
 
 // ── Reusable Zod field primitives ───────────────────────────────────

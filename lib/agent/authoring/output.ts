@@ -222,6 +222,13 @@ export function projectAuthoringRead(args: {
 			const { fields, ...form } = record.parse(payload.form);
 			return {
 				...payload,
+				...(payload.recordName !== undefined && {
+					recordName: project(
+						xpathExpressionSchema,
+						payload.recordName,
+						scope(uuidSchema.parse(form.uuid)),
+					),
+				}),
 				form: {
 					...record.parse(
 						project(formSchema, form, scope(uuidSchema.parse(form.uuid))),

@@ -1528,24 +1528,8 @@ const matchNoneSchema = z.object({ kind: z.literal("match-none") }).strict();
 //     equality in `if(count(input), real_predicate, match-all())`
 //     so absent inputs short-circuit cleanly.
 //
-// The schema accepts every Term variant in `left` — property refs,
-// search-input refs, both session-ref kinds, and (structurally only)
-// literals. A literal-shaped left is meaningless (a literal is the
-// value itself; "is the literal 5
-// absent" is ill-formed), but the schema is structural-only and
-// admits the shape. The type-checker rule (in
-// `lib/domain/predicate/typeChecker.ts`) rejects literal-shaped
-// `left`; the type checker is the right layer for the constraint because it has the
-// term-discriminator context to surface a semantic-class error.
-
-// `left` is `ValueExpression` (not bare `Term`) so expression-shaped
-// operands (`is-blank(arith(prop, literal(0), "div"))`) compose at
-// the AST level. The type checker's literal-rejection rule (a literal is the value itself,
-// not a runtime read whose presence is in question) extends to
-// literal-shaped ValueExpressions via the `term` arm — see
-// `checkAbsenceOperator` in `typeChecker.ts`. Term-shaped operands
-// flow through unchanged: builders auto-wrap Term inputs as
-// ValueExpression-of-Term.
+// Any value can be blank. Literals and calculated values follow the same rule:
+// missing and empty are blank; zero, false and whitespace are not.
 
 const isBlankSchema = z
 	.object({

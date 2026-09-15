@@ -32,6 +32,7 @@
  */
 
 import { z } from "zod";
+import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import { declareCaseTypeForField } from "@/lib/doc/scaffolds";
 import {
 	searchAnswerFields,
@@ -47,11 +48,13 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
+import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
 import { addFormMutations } from "../blueprintHelpers";
 import { closeConditionInputSchema } from "../planningSchemas";
 import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -83,6 +86,12 @@ export const createFormInputSchema = moduleAddressSchema
 				"Stable UUID for the new form. Omit when nothing in this call references the form.",
 			),
 		name: z.string().min(1).describe("Form display name"),
+		recordName: xpathExpressionSchema
+			.optional()
+			.describe(
+				"Name of the record this form creates or updates, using an answer or an expression.",
+			),
+
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
@@ -92,7 +101,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.array(addFieldsItemSchema)
 			.min(1)
 			.describe(
-				"The form's fields, in order — a form is created together with its content in one call (a registration form must include a case_name writer). Use parentUuid to place a field inside a group, repeat, or section.",
+				"The form's fields, in order — a form is created together with its content in one call (set recordName for registration). Use parentUuid to place a field inside a group, repeat, or section.",
 			),
 		purpose: z
 			.string()
@@ -140,8 +149,7 @@ export type CreateFormResult =
 	| { error: string };
 
 export const createFormTool = {
-	description:
-		"Add a new form to a module together with its fields, in one call. The form and its content land as one unit — pass every field the form needs (use addFields later for additions).",
+	description: "Create a form with its questions in one atomic change.",
 	inputSchema: createFormInputSchema,
 	async execute(
 		input: CreateFormInput,
@@ -152,6 +160,7 @@ export const createFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: requestedFormUuid,
 			name,
+			recordName,
 			type,
 			fields,
 			purpose,
@@ -292,6 +301,14 @@ export const createFormTool = {
 				...assembly.mutations,
 				...carried,
 			];
+			if (recordName !== undefined)
+				mutations.push(
+					...formRecordNameMutations(
+						applyToDoc(doc, mutations),
+						formUuid,
+						recordName,
+					),
+				);
 			const commit = await guardedMutate(
 				ctx,
 				mutations,

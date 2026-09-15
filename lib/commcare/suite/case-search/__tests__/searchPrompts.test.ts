@@ -149,7 +149,7 @@ it("binds each display and assertion locale to its own stable translation units"
 		test: "true()",
 	});
 	expect(onlyXml(xmlChildren(prompts[1], "required")).attributes).toEqual({
-		test: `${field("first_name")} = ''`,
+		test: `string-length(string(${field("first_name")})) = 0`,
 	});
 });
 it("binds both choice widgets to the entire filtered fixture row contract", () => {

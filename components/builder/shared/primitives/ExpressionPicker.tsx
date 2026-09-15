@@ -44,7 +44,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -210,15 +210,6 @@ export function ExpressionPicker({
 		readonly target: ExpressionCardSchema<ValueExpression["kind"]>;
 	} | null>(null);
 	const schema = expressionCardSchemas[value.kind];
-	// `forbidDirectLiteral` is deliberately local to this node. Once the
-	// current expression is calculated (`if`, `coalesce`, math, and so on),
-	// literal descendants are valid inputs to that calculation and must not
-	// inherit the root absence-check restriction.
-	const childConstraint = useMemo<SlotConstraint>(() => {
-		if (constraint.forbidDirectLiteral !== true) return constraint;
-		const { forbidDirectLiteral: _forbidDirectLiteral, ...rest } = constraint;
-		return rest;
-	}, [constraint]);
 	const Component = schema.component as React.ComponentType<{
 		value: ValueExpression;
 		onChange: (next: ValueExpression) => void;
@@ -471,7 +462,7 @@ export function ExpressionPicker({
 				value={value}
 				onChange={onChange}
 				path={path}
-				constraint={childConstraint}
+				constraint={constraint}
 			/>
 		</CardShell>
 	);
@@ -518,7 +509,7 @@ function termSeedForSlot(
 		}
 	}
 
-	if (presentation === "subject" || constraint.forbidDirectLiteral === true) {
+	if (presentation === "subject") {
 		const tableColumnDecl = ctx.tableScope?.columns.find(
 			(candidate) =>
 				constraint.accepts === "any" ||
@@ -609,12 +600,10 @@ export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 		return tableLookupDefault(ctx, constraint);
 	}
 
-	const { forbidDirectLiteral: _forbidDirectLiteral, ...childConstraint } =
-		constraint;
 	// Widen the generic registry return to the discriminated union so the
 	// kind checks below narrow the corresponding AST arm normally.
 	const seed: ValueExpression = schema.defaultValue(ctx);
-	const branchSeed = () => termSeedForSlot(ctx, childConstraint, "value");
+	const branchSeed = () => termSeedForSlot(ctx, constraint, "value");
 
 	if (seed.kind === "if") {
 		return ifExpr(seed.cond, branchSeed(), branchSeed());
@@ -639,7 +628,7 @@ export function defaultExpressionForSlot<K extends ValueExpression["kind"]>(
 		return coalesce(first, ...rest);
 	}
 	if (seed.kind === "date-add") {
-		const dateConstraint = dateAddOperandConstraint(childConstraint);
+		const dateConstraint = dateAddOperandConstraint(constraint);
 		// The standard seed is `today() + 7 days`. In a datetime-only parent
 		// slot, adapt the result-following operand before the AST reaches the
 		// commit gate; `date-add` returns exactly its starting value's type.

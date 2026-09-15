@@ -13,6 +13,7 @@ import type {
 	PostSubmitDestination,
 	Uuid,
 } from "@/lib/domain";
+import { type ModuleLanding, moduleLanding } from "@/lib/domain";
 import type { CreatedChildCaseReceipt } from "@/lib/preview/engine/caseDataBindingTypes";
 import type {
 	AfterSubmitChoice,
@@ -28,7 +29,6 @@ import {
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
-import { type ModuleLanding, moduleLanding } from "./moduleLanding";
 
 export type AfterSubmitRoute =
 	/** No link fired: the form's own post-submit destination. */

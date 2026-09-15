@@ -221,7 +221,7 @@ function searchFirstMutations(
 
 export const configureCaseListTool = {
 	description:
-		"Configure a module's case list as one coherent resource: add known columns and search inputs, set or clear its filter, compose the search screen, and arrange Results, Details, and search-input order. Search display uses the four root fields searchScreenTitle, searchScreenSubtitle, searchButtonLabel, and searchButtonDisplayCondition, matching setCaseSearchDisplay; provide all four together and use null to clear a slot. Omit any other part that should stay unchanged. Returns created UUIDs.",
+		"Configure Results, Details and Search together: add columns or Search questions, set the filter and arrange each screen. Supply all four Search display settings together; omit other parts to keep them.",
 	inputSchema: configureCaseListInputSchema,
 	async execute(
 		input: ConfigureCaseListInput,

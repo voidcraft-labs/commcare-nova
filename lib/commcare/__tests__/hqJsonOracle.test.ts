@@ -962,7 +962,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 		expect(email).toMatchObject({
 			name: "email",
 			required: {
-				test: "instance('search-input:results')/input/field[@name='case_name'] = ''",
+				test: "string-length(string(instance('search-input:results')/input/field[@name='case_name'])) = 0",
 				text: { en: "Give an email when the name is blank." },
 			},
 			validations: [

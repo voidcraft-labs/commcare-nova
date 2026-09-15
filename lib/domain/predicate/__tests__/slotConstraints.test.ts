@@ -156,12 +156,6 @@ describe("left-subject constraints", () => {
 		expect(range.accepts.has("text")).toBe(false);
 	});
 
-	it("makes the absence literal restriction node-local", () => {
-		const absence = absenceSubjectConstraint();
-		expect(absence.accepts).toBe("any");
-		expect(absence.forbidDirectLiteral).toBe(true);
-	});
-
 	it("returns stable descriptors for render-time memoization", () => {
 		expect(comparisonSubjectConstraint("gt")).toBe(
 			comparisonSubjectConstraint("gt"),
@@ -345,7 +339,6 @@ describe("branchConstraint", () => {
 			accepts: new Set<ResolvedType>(["date", "datetime"]),
 			nonEmpty: true,
 			termOnly: true,
-			forbidDirectLiteral: true,
 		} as const;
 		expect(branchConstraint(parent, undefined, ANY_TYPE)).toBe(parent);
 	});
@@ -369,14 +362,12 @@ describe("branchConstraint", () => {
 				accepts: "any",
 				nonEmpty: true,
 				termOnly: true,
-				forbidDirectLiteral: true,
 			},
 			"date",
 		);
 		expect(narrowed).toMatchObject({
 			nonEmpty: true,
 			termOnly: true,
-			forbidDirectLiteral: true,
 		});
 		expect(narrowed.accepts).toEqual(new Set<ResolvedType>(["date", ANY_TYPE]));
 	});

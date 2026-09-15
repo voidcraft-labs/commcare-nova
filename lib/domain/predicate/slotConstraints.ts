@@ -46,18 +46,11 @@ import type { ComparisonKind, MatchMode, ValueExpression } from "./types";
  *     non-match).
  *   - `termOnly` — an explicitly restricted slot admits only a `term`
  *     arm. Match values may contain composed expressions.
- *   - `forbidDirectLiteral` — the slot may contain every otherwise-
- *     admissible expression except a literal directly at this node.
- *     Descendants of a calculated expression remain unrestricted. This
- *     mirrors the absence operators' exact checker rule: `is-blank(5)` is
- *     meaningless, while `is-blank(if(..., 5, ...))` is a runtime read whose
- *     result can genuinely be absent.
  */
 export interface SlotConstraint {
 	readonly accepts: ReadonlySet<ResolvedType> | "any";
 	readonly nonEmpty?: boolean;
 	readonly termOnly?: boolean;
-	readonly forbidDirectLiteral?: boolean;
 }
 
 /** The unconstrained slot — the additive default while plumbing, and
@@ -143,11 +136,6 @@ const COMPARISON_SUBJECT_CONSTRAINTS: Readonly<
 const IN_SUBJECT_CONSTRAINT: SlotConstraint = {
 	accepts: IN_SUBJECT_TYPES,
 };
-const ABSENCE_SUBJECT_CONSTRAINT: SlotConstraint = {
-	accepts: "any",
-	forbidDirectLiteral: true,
-};
-
 // ── Per-slot constraint factories ─────────────────────────────────
 //
 // One per typed slot family. Each delegates its accept-set to the
@@ -175,10 +163,9 @@ export function betweenSubjectConstraint(): SlotConstraint {
 	return COMPARISON_SUBJECT_CONSTRAINTS.gte;
 }
 
-/** Absence checks accept every resolved expression type, but the checker
- * rejects a literal placed directly in `left`. */
+/** Any value can be tested for blankness. */
 export function absenceSubjectConstraint(): SlotConstraint {
-	return ABSENCE_SUBJECT_CONSTRAINT;
+	return ANY_CONSTRAINT;
 }
 
 /** A comparison's object slot (`eq`/`neq`/`gt`/… right): any value type

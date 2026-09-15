@@ -88,7 +88,7 @@ const isFallbackPin = (mutation: Mutation, formUuid: Uuid): boolean =>
 
 export const addFormLinksTool = {
 	description:
-		"Add one or more after-submit links to a form. After the form is submitted its links are checked in order and the first true condition is followed; an unconditional link is the otherwise and can only be last. With conditional links and no otherwise link, the form's post_submit is where people go when nothing matches, and Nova stores it explicitly if it was not set. Conditions and datums run after the form has closed: they read case-ref, #user, and session values, never form answers, so save an answer to a case property first. When a link names datums it must name every selection datum the target needs.",
+		"Add after-submit routes. The first matching condition wins; an unconditional route must be last. Conditions read saved records and worker values after the form closes, so they cannot use unsaved answers.",
 	inputSchema: addFormLinksInputSchema,
 	async execute(
 		input: AddFormLinksInput,

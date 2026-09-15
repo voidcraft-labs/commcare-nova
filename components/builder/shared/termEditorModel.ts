@@ -266,14 +266,7 @@ export function computeModeAdmission(
 	);
 	const textAdmitted = constraintAdmitsType(constraint, "text");
 	const typeAdmission: ModeAdmission = {
-		literal:
-			constraint.forbidDirectLiteral === true
-				? {
-						admitted: false,
-						reason:
-							"Use case information, a search answer, app information, or a calculation here",
-					}
-				: { admitted: true },
+		literal: { admitted: true },
 		property: hasAcceptedProperty
 			? { admitted: true }
 			: { admitted: false, reason },

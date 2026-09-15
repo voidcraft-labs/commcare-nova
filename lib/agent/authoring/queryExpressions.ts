@@ -1,4 +1,8 @@
 import {
+	functionArityIssue,
+	QUERY_FUNCTIONS,
+} from "@/lib/domain/expressionFunctions";
+import {
 	type CheckError,
 	checkExpression,
 	type Predicate,
@@ -42,20 +46,16 @@ const comparisons: Record<string, string> = {
 };
 const arithmetic = new Set(["+", "-", "*", "div", "mod"]);
 
-function arity(
-	name: string,
-	args: readonly Node[],
-	minimum: number,
-	maximum = minimum,
-) {
-	if (args.length < minimum || args.length > maximum)
-		throw new AuthoringInputError(
-			`${name} expects ${minimum === maximum ? minimum : `${minimum}–${maximum}`} arguments; received ${args.length}.`,
-		);
+function arity(name: string, args: readonly Node[]) {
+	const spec = QUERY_FUNCTIONS.get(name);
+	if (!spec)
+		throw new AuthoringInputError(`Unknown expression function: ${name}.`);
+	const issue = functionArityIssue(name, args.length, spec);
+	if (issue) throw new AuthoringInputError(issue);
 }
 function isCall(node: Node, name: string) {
 	if (node.kind !== "call" || node.name !== name) return false;
-	arity(name, node.args, 0);
+	arity(name, node.args);
 	return true;
 }
 
@@ -68,11 +68,11 @@ function literalValue(node: Node): string | number | boolean | null {
 	}
 	if (node.kind === "call") {
 		if (["true", "false", "null"].includes(node.name)) {
-			arity(node.name, node.args, 0);
+			arity(node.name, node.args);
 			return node.name === "null" ? null : node.name === "true";
 		}
 		if (node.name === "concat") {
-			arity(node.name, node.args, 1, Number.MAX_SAFE_INTEGER);
+			arity(node.name, node.args);
 			const values = node.args.map(literalValue);
 			if (values.every((value) => typeof value === "string"))
 				return values.join("");
@@ -100,7 +100,7 @@ function boolean(node: Node): boolean {
 }
 function literal(node: Node): ObjectValue {
 	if (node.kind === "call" && node.name === "literal") {
-		arity(node.name, node.args, 1, 2);
+		arity(node.name, node.args);
 		return {
 			kind: "literal",
 			value: literalValue(node.args[0]),
@@ -124,10 +124,10 @@ function relation(node: Node): RelationPath {
 	const { name, args } = node;
 	let result: ObjectValue;
 	if (name === "self") {
-		arity(name, args, 0);
+		arity(name, args);
 		result = { kind: "self" };
 	} else if (name === "children" || name === "related") {
-		arity(name, args, 0, 2);
+		arity(name, args);
 		result = {
 			kind: name === "children" ? "subcase" : "any-relation",
 			identifier: args[1] ? string(args[1]) : "parent",
@@ -135,12 +135,12 @@ function relation(node: Node): RelationPath {
 				!isCall(args[0], "unbounded") && { ofCaseType: string(args[0]) }),
 		};
 	} else if (name === "ancestor") {
-		arity(name, args, 1, Number.MAX_SAFE_INTEGER);
+		arity(name, args);
 		result = {
 			kind: "ancestor",
 			via: args.map((step) => {
 				if (step.kind === "call" && step.name === "link") {
-					arity(step.name, step.args, 1, 2);
+					arity(step.name, step.args);
 					return {
 						identifier: string(step.args[0]),
 						...(step.args[1] && { throughCaseType: string(step.args[1]) }),
@@ -163,7 +163,7 @@ function compiler(bindings: QueryBindings) {
 		if (node.kind === "call") {
 			const { name, args } = node;
 			if (name === "property") {
-				arity(name, args, 2, 3);
+				arity(name, args);
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
 				if (via && origin !== bindings.typeContext.currentCaseType)
@@ -181,7 +181,7 @@ function compiler(bindings: QueryBindings) {
 				};
 			}
 			if (name === "via") {
-				arity(name, args, 2);
+				arity(name, args);
 				const path = relation(args[0]);
 				const property = compiler(bindings.forRelation(path)).term(args[1]);
 				if (property.kind !== "prop" || property.via !== undefined)
@@ -194,29 +194,29 @@ function compiler(bindings: QueryBindings) {
 				return { ...property, caseType: origin, via: path };
 			}
 			if (["field", "search", "user"].includes(name)) {
-				arity(name, args, 1);
+				arity(name, args);
 				return bindings.reference(
 					name === "field" ? "form" : name,
 					string(args[0]).split("/"),
 				);
 			}
 			if (name === "session") {
-				arity(name, args, 1);
+				arity(name, args);
 				return { kind: "session-context", field: string(args[0]) };
 			}
 			if (name === "external-user") {
-				arity(name, args, 1);
+				arity(name, args);
 				return { kind: "session-user", field: string(args[0]) };
 			}
 			if (name === "location") {
-				arity(name, args, 1);
+				arity(name, args);
 				return {
 					kind: "fixed-location",
 					locationUuid: bindings.identity("location", string(args[0])),
 				};
 			}
 			if (name === "owner-location") {
-				arity(name, args, 2);
+				arity(name, args);
 				return {
 					kind: "owner-location-at-level",
 					levelUuid: bindings.identity("level", string(args[0])),
@@ -224,7 +224,7 @@ function compiler(bindings: QueryBindings) {
 				};
 			}
 			if (name === "table-column") {
-				arity(name, args, 2);
+				arity(name, args);
 				const tableId = bindings.identity("table", string(args[0]));
 				return {
 					kind: "table-column",
@@ -267,7 +267,7 @@ function compiler(bindings: QueryBindings) {
 		if (node.kind !== "call") return { kind: "term", term: term(node) };
 		const { name, args } = node;
 		if (name === "quotient") {
-			arity(name, args, 2);
+			arity(name, args);
 			const result = {
 				kind: "arith",
 				op: "div",
@@ -279,18 +279,18 @@ function compiler(bindings: QueryBindings) {
 			return result;
 		}
 		if (["today", "now", "acting-user", "unowned"].includes(name)) {
-			arity(name, args, 0);
+			arity(name, args);
 			return { kind: name };
 		}
 		if (name === "id-of") {
-			arity(name, args, 1);
+			arity(name, args);
 			return {
 				kind: name,
 				opUuid: bindings.identity("operation", string(args[0])),
 			};
 		}
 		if (name === "lookup") {
-			arity(name, args, 3);
+			arity(name, args);
 			const tableId = bindings.identity("table", string(args[0]));
 			return {
 				kind: "table-lookup",
@@ -300,7 +300,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "date-add") {
-			arity(name, args, 3);
+			arity(name, args);
 			const interval = string(args[2]);
 			return {
 				kind: name,
@@ -310,21 +310,23 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (["date", "datetime", "number"].includes(name)) {
-			arity(name, args, 1);
+			arity(name, args);
 			return {
 				kind: name === "number" ? "double" : `${name}-coerce`,
 				value: value(args[0]),
 			};
 		}
 		if (name === "concat" || name === "coalesce") {
-			arity(name, args, 1, Number.MAX_SAFE_INTEGER);
+			arity(name, args);
+			if (args.length === 0)
+				return { kind: "term", term: { kind: "literal", value: "" } };
 			return {
 				kind: name,
 				[name === "concat" ? "parts" : "values"]: args.map(value),
 			};
 		}
 		if (name === "if") {
-			arity(name, args, 3);
+			arity(name, args);
 			return {
 				kind: name,
 				cond: predicate(args[0]),
@@ -334,10 +336,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "switch") {
-			if (args.length < 4 || args.length % 2 !== 0)
-				throw new AuthoringInputError(
-					"switch() needs a value, one or more match/result pairs, and a fallback.",
-				);
+			arity(name, args);
 			const cases = [];
 			for (let i = 1; i < args.length - 1; i += 2)
 				// biome-ignore lint/suspicious/noThenProperty: Canonical AST data, never a callable thenable.
@@ -350,7 +349,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "count") {
-			arity(name, args, 1, 2);
+			arity(name, args);
 			const via = relation(args[0]);
 			return {
 				kind: name,
@@ -361,7 +360,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "format-date") {
-			arity(name, args, 2);
+			arity(name, args);
 			return { kind: name, date: value(args[0]), pattern: string(args[1]) };
 		}
 		return { kind: "term", term: term(node) };
@@ -392,22 +391,24 @@ function compiler(bindings: QueryBindings) {
 			);
 		const { name, args } = node;
 		if (name === "true" || name === "false") {
-			arity(name, args, 0);
+			arity(name, args);
 			return { kind: name === "true" ? "match-all" : "match-none" };
 		}
 		if (name === "all" || name === "any") {
-			arity(name, args, 1, Number.MAX_SAFE_INTEGER);
+			arity(name, args);
+			if (args.length === 0)
+				return { kind: name === "all" ? "match-all" : "match-none" };
 			return {
 				kind: name === "all" ? "and" : "or",
 				clauses: args.map(predicate),
 			};
 		}
 		if (name === "not") {
-			arity(name, args, 1);
+			arity(name, args);
 			return { kind: name, clause: predicate(args[0]) };
 		}
 		if (name === "in") {
-			arity(name, args, 2, Number.MAX_SAFE_INTEGER);
+			arity(name, args);
 			return {
 				kind: name,
 				left: value(args[0]),
@@ -415,15 +416,15 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "is-blank") {
-			arity(name, args, 1);
+			arity(name, args);
 			return { kind: name, left: value(args[0]) };
 		}
 		if (name === "matches-pattern") {
-			arity(name, args, 2);
+			arity(name, args);
 			return { kind: name, left: value(args[0]), pattern: string(args[1]) };
 		}
 		if (name === "between") {
-			arity(name, args, 3, 5);
+			arity(name, args);
 			return {
 				kind: name,
 				left: value(args[0]),
@@ -434,7 +435,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (["fuzzy", "phonetic", "fuzzy-date", "starts-with"].includes(name)) {
-			arity(name, args, 2);
+			arity(name, args);
 			return {
 				kind: "match",
 				mode: name,
@@ -443,7 +444,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "selected-any" || name === "selected-all") {
-			arity(name, args, 2, Number.MAX_SAFE_INTEGER);
+			arity(name, args);
 			return {
 				kind: "multi-select-contains",
 				quantifier: name === "selected-any" ? "any" : "all",
@@ -452,7 +453,7 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "within-distance") {
-			arity(name, args, 4);
+			arity(name, args);
 			const unit = string(args[3]);
 			return {
 				kind: name,
@@ -468,14 +469,14 @@ function compiler(bindings: QueryBindings) {
 			};
 		}
 		if (name === "when-provided") {
-			arity(name, args, 2);
+			arity(name, args);
 			const input = term(args[0]);
 			if (input.kind !== "input")
 				throw new AuthoringInputError("when-provided() needs a Search answer.");
 			return { kind: "when-input-present", input, clause: predicate(args[1]) };
 		}
 		if (name === "exists" || name === "missing") {
-			arity(name, args, 1, 2);
+			arity(name, args);
 			const via = relation(args[0]);
 			return {
 				kind: name,

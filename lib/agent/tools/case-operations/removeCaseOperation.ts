@@ -61,7 +61,7 @@ function removalRefusal(
 
 export const removeCaseOperationTool = {
 	description:
-		"Remove one case operation by stable UUID. Refuses removal while another operation still depends on it; dependency refusals name every dependent.",
+		"Remove an advanced record operation. Refuses while another operation depends on it.",
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,

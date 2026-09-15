@@ -73,7 +73,7 @@ export type AddCaseListColumnsResult =
 
 export const addCaseListColumnsTool = {
 	description:
-		"Add columns to a module's case list. Returns the minted uuids (input order) for later update/remove/reorder calls.",
+		"Add fields to Results and Details. Returns their created IDs in input order.",
 	inputSchema: addCaseListColumnsInputSchema,
 	async execute(
 		input: AddCaseListColumnsInput,

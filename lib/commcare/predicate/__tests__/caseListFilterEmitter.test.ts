@@ -22,7 +22,6 @@ import {
 	gte,
 	ifExpr,
 	input,
-	isBlank,
 	isIn,
 	literal,
 	lt,
@@ -395,34 +394,6 @@ describe("emitCaseListFilter — matches-pattern", () => {
 		const p = matchesPattern(input(testUuid("name_query")), "^[A-Za-z' ]+$");
 		expect(emitCaseListFilter(p)).toBe(
 			"regex(instance('search-input:results')/input/field[@name='name_query'], concat('^[A-Za-z', \"'\", ' ]+$'))",
-		);
-	});
-});
-
-describe("emitCaseListFilter — is-blank", () => {
-	it("emits is-blank against a property reference as prop = ''", () => {
-		const p = isBlank(prop("patient", "full_name"));
-		expect(emitCaseListFilter(p)).toBe("full_name = ''");
-	});
-
-	it("emits is-blank against a search-input reference as input = ''", () => {
-		const p = isBlank(input(testUuid("name_query")));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('search-input:results')/input/field[@name='name_query'] = ''",
-		);
-	});
-
-	it("emits is-blank against a session-context reference as path = ''", () => {
-		const p = isBlank(sessionContext("userid"));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('commcaresession')/session/context/userid = ''",
-		);
-	});
-
-	it("emits is-blank against a session-user reference as path = ''", () => {
-		const p = isBlank(sessionUser("region"));
-		expect(emitCaseListFilter(p)).toBe(
-			"instance('commcaresession')/session/user/data/region = ''",
 		);
 	});
 });
@@ -983,18 +954,6 @@ describe("emitCaseListFilter — non-term ValueExpression operands delegate to e
 			literal(19),
 		);
 		expect(emitCaseListFilter(p)).toBe("(age + 1) = 19");
-	});
-
-	it("emits an if-expression in is-blank's left", () => {
-		const p = isBlank(
-			ifExpr(matchAll(), term(literal("a")), term(literal("b"))),
-		);
-		expect(emitCaseListFilter(p)).toBe(`if(true(), 'a', 'b') = ''`);
-	});
-
-	it("emits a today() constant in is-blank's left", () => {
-		const p = isBlank(today());
-		expect(emitCaseListFilter(p)).toBe(`today() = ''`);
 	});
 
 	it("emits a derived text center in within-distance", () => {

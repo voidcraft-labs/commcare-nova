@@ -32,7 +32,7 @@
 //     comparison operators; operands are `ValueExpression` and route
 //     through the on-device value-expression emitter, which handles
 //     every arm of the union (term, arith, conditional, etc.).
-//   - `is-blank`: emits `<term> = ''`. CCHQ wire
+//   - `is-blank`: tests the string projection for emptiness. CCHQ wire
 //     collapses absent / cleared / empty alike on every dialect; the
 //     equality form is the closest CCHQ shape for both operators.
 //     The Postgres runtime preserves the AST distinction natively.
@@ -301,7 +301,7 @@ function emitPredicate(
 		case "when-input-present":
 			return emitWhenInputPresent(p, root, context, anchor, termContext);
 		case "is-blank":
-			return `${emitOnDeviceExpression(p.left, root, context, anchor, termContext)} = ''`;
+			return `string-length(string(${emitOnDeviceExpression(p.left, root, context, anchor, termContext)})) = 0`;
 		case "matches-pattern":
 			// JavaRosa `regex(value, pattern)` is `Pattern.compile(pattern)
 			// .matcher(value).find()` (`XPathRegexFunc.java`): unanchored, Java

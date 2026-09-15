@@ -65,7 +65,7 @@ export type SetCaseSearchDisplayResult =
 
 export const setCaseSearchDisplayTool = {
 	description:
-		"Set a module's case-search display cluster: screen title, subtitle, button label, button display predicate. null clears a slot. Advanced filters live on setCaseSearchAdvanced.",
+		"Set Search's title, subtitle, button text and button visibility. Null clears a setting.",
 	inputSchema: setCaseSearchDisplayInputSchema,
 	async execute(
 		input: SetCaseSearchDisplayInput,

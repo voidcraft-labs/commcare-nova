@@ -60,14 +60,6 @@ export interface RuleLocation extends LocatedRuleNode {
 	readonly trail: readonly LocatedRuleNode[];
 }
 
-function withoutDirectLiteralConstraint(
-	constraint: SlotConstraint,
-): SlotConstraint {
-	if (constraint.forbidDirectLiteral !== true) return constraint;
-	const { forbidDirectLiteral: _forbidDirectLiteral, ...rest } = constraint;
-	return rest;
-}
-
 function typeAt(
 	value: ValueExpression,
 	currentCaseType: string,
@@ -355,7 +347,6 @@ function locateExpression(
 	if (remaining.length === 0) return nextTrail;
 
 	const [first, second, third, fourth] = remaining;
-	const childConstraint = withoutDirectLiteralConstraint(constraint);
 	const descendExpression = (
 		child: ValueExpression | undefined,
 		consumed: EditorPath,
@@ -409,7 +400,7 @@ function locateExpression(
 					value.date,
 					[first],
 					remaining.slice(1),
-					dateAddOperandConstraint(childConstraint),
+					dateAddOperandConstraint(constraint),
 					"Date",
 				);
 			}
@@ -479,7 +470,7 @@ function locateExpression(
 						[first, second],
 						remaining.slice(2),
 						branchConstraint(
-							childConstraint,
+							constraint,
 							...value.values
 								.filter((_, index) => index !== second)
 								.map((item) => typeAt(item, currentCaseType, ctx)),
@@ -504,7 +495,7 @@ function locateExpression(
 					[first, second],
 					remaining.slice(2),
 					branchConstraint(
-						childConstraint,
+						constraint,
 						typeAt(value.else, currentCaseType, ctx),
 					),
 					"Use this value",
@@ -516,7 +507,7 @@ function locateExpression(
 						[first, second],
 						remaining.slice(2),
 						branchConstraint(
-							childConstraint,
+							constraint,
 							typeAt(value.then, currentCaseType, ctx),
 						),
 						"Otherwise",
@@ -539,7 +530,7 @@ function locateExpression(
 					[first, second],
 					remaining.slice(2),
 					branchConstraint(
-						childConstraint,
+						constraint,
 						...value.cases.map((item) =>
 							typeAt(item.then, currentCaseType, ctx),
 						),
@@ -555,7 +546,7 @@ function locateExpression(
 						[first, second, third, fourth],
 						remaining.slice(4),
 						branchConstraint(
-							childConstraint,
+							constraint,
 							typeAt(value.fallback, currentCaseType, ctx),
 							...value.cases
 								.filter((_, index) => index !== third)

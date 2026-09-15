@@ -1,13 +1,11 @@
 /**
- * CommCare XPath function registry — argument counts, return types, parameter types.
+ * Expression function signatures shared by authoring, validation and documentation.
  *
  * Source of truth for arities: commcare-core's ASTNodeFunctionCall.java
  * Source of truth for types: XPath 1.0 spec + CommCare runtime behavior
  *
  * -1 for maxArgs means variadic (no upper limit).
  */
-
-import { javaRosaFunctionCapability } from "@/lib/commcare/xpath/functionCapabilities";
 
 /** JavaRosa runtime types plus 'any' for polymorphic contexts. */
 export type XPathType =
@@ -28,8 +26,8 @@ export interface FunctionSpec {
 	volatile?: boolean;
 	/** Positional parameter types. Omit for variadic or all-any functions. */
 	paramTypes?: XPathType[];
-	/** Optional custom arity validation. Return error string or undefined. */
-	validate?: (argCount: number) => string | undefined;
+	/** Variadic groups add this many arguments after the minimum. */
+	argumentStep?: number;
 }
 
 // Shorthand constructors for common patterns
@@ -88,6 +86,7 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 
 	// ── Boolean / Logic ───────────────────────────────────────────────
 	["not", bool(1, 1, ["boolean"])],
+	["is-blank", bool(1, 1)],
 
 	// ── Numeric (1 arg) ───────────────────────────────────────────────
 	["abs", num(1, 1, ["number"])],
@@ -158,10 +157,7 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 		{
 			...any(3, -1),
 			evaluation: "lazy",
-			validate: (n) =>
-				n % 2 !== 1
-					? "cond() requires an odd number of arguments (test1, val1, ..., default)"
-					: undefined,
+			argumentStep: 2,
 		},
 	],
 
@@ -187,10 +183,7 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 		"weighted-checklist",
 		{
 			...bool(2, -1),
-			validate: (n) =>
-				n < 2 || n % 2 !== 0
-					? "weighted-checklist() requires an even number of arguments (min, max, bool1, weight1, ...)"
-					: undefined,
+			argumentStep: 2,
 		},
 	],
 
@@ -222,15 +215,6 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	["sleep", { ...any(2, 2, ["number", "any"]), volatile: true }],
 ]);
 
-for (const name of FUNCTION_REGISTRY.keys()) {
-	const capability = javaRosaFunctionCapability(name);
-	if (capability === "unsupported" || capability === "context-handler") {
-		throw new Error(
-			`FUNCTION_REGISTRY admits ${name}(), but the JavaRosa carrier contract does not.`,
-		);
-	}
-}
-
 /** Case-insensitive lookup for suggesting corrections (e.g. "Today" → "today"). */
 export function findCaseInsensitiveMatch(name: string): string | undefined {
 	const lower = name.toLowerCase();
@@ -238,4 +222,102 @@ export function findCaseInsensitiveMatch(name: string): string | undefined {
 		if (key.toLowerCase() === lower) return key;
 	}
 	return undefined;
+}
+
+export type FunctionArity = Pick<
+	FunctionSpec,
+	"minArgs" | "maxArgs" | "argumentStep"
+>;
+
+/** Query expressions share ordinary operations with forms. Relationships and
+ * record selection add functions whose arguments have a different scope. */
+export const QUERY_FUNCTIONS: ReadonlyMap<string, FunctionArity> = new Map([
+	...[
+		"true",
+		"false",
+		"today",
+		"now",
+		"date",
+		"number",
+		"format-date",
+		"not",
+		"is-blank",
+		"concat",
+		"coalesce",
+		"if",
+		"starts-with",
+	].map((name): [string, FunctionArity] => {
+		const spec = FUNCTION_REGISTRY.get(name);
+		if (!spec) throw new Error(`Missing shared expression signature: ${name}`);
+		return [name, spec];
+	}),
+	...Object.entries({
+		null: [0, 0],
+		self: [0, 0],
+		unbounded: [0, 0],
+		"acting-user": [0, 0],
+		unowned: [0, 0],
+		children: [0, 2],
+		related: [0, 2],
+		ancestor: [1, -1],
+		link: [1, 2],
+		property: [2, 3],
+		via: [2, 2],
+		field: [1, 1],
+		search: [1, 1],
+		user: [1, 1],
+		session: [1, 1],
+		"external-user": [1, 1],
+		location: [1, 1],
+		"owner-location": [2, 2],
+		"table-column": [2, 2],
+		literal: [1, 2],
+		quotient: [2, 2],
+		"id-of": [1, 1],
+		lookup: [3, 3],
+		"date-add": [3, 3],
+		datetime: [1, 1],
+		count: [1, 2],
+		all: [0, -1],
+		any: [0, -1],
+		in: [2, -1],
+		"matches-pattern": [2, 2],
+		between: [3, 5],
+		"selected-any": [2, -1],
+		"selected-all": [2, -1],
+		fuzzy: [2, 2],
+		phonetic: [2, 2],
+		"fuzzy-date": [2, 2],
+		"within-distance": [4, 4],
+		"when-provided": [2, 2],
+		exists: [1, 2],
+		missing: [1, 2],
+	}).map(([name, [minArgs, maxArgs]]): [string, FunctionArity] => [
+		name,
+		{ minArgs, maxArgs },
+	]),
+	["switch", { minArgs: 4, maxArgs: -1, argumentStep: 2 }],
+]);
+
+export function functionArgumentCount(spec: FunctionArity): string {
+	if (spec.minArgs === spec.maxArgs) return `${spec.minArgs} arguments`;
+	if (spec.argumentStep === 2)
+		return `an ${spec.minArgs % 2 === 0 ? "even" : "odd"} number of arguments, at least ${spec.minArgs}`;
+	return spec.maxArgs === -1
+		? `${spec.minArgs} or more arguments`
+		: `${spec.minArgs} to ${spec.maxArgs} arguments`;
+}
+
+export function functionArityIssue(
+	name: string,
+	count: number,
+	spec: FunctionArity,
+): string | undefined {
+	if (
+		count >= spec.minArgs &&
+		(spec.maxArgs === -1 || count <= spec.maxArgs) &&
+		(count - spec.minArgs) % (spec.argumentStep ?? 1) === 0
+	)
+		return;
+	return `${name}() needs ${functionArgumentCount(spec)}; received ${count}.`;
 }

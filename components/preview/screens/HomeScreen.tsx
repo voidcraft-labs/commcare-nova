@@ -25,7 +25,7 @@ import {
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import { makeTranslationUnitId } from "@/lib/domain";
+import { makeTranslationUnitId, moduleLanding } from "@/lib/domain";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
@@ -43,7 +43,7 @@ import {
 	usePreviewMenuCaseSelections,
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
-import { moduleLanding, openModuleLanding } from "./moduleLanding";
+import { openModuleLanding } from "./moduleLanding";
 
 export function HomeScreen() {
 	const canonicalAppName = useAppName();

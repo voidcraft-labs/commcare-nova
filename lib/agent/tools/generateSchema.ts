@@ -72,7 +72,7 @@ export type GenerateSchemaResult =
 
 export const generateSchemaTool = {
 	description:
-		"Record the app's data model onto the app. A call may declare complete new case types or append genuinely new properties to an existing authored type; it never replaces an existing property or changes an existing parent relation. When extending a type, pass only the new property definitions. A bare auto-declared type is filled in. createModule then references a case type by name, and fields writing a recorded property may inherit its intrinsic type, canonical label, and choice catalog; field hint, requiredness, and validation remain specific to each form.",
+		"Define record types, relationships and shared properties. Existing types accept new properties; existing definitions are preserved. Use updateCaseProperty to edit property details. Questions can inherit a declared property's type, wording and choices.",
 	inputSchema: generateSchemaInputSchema,
 	async execute(
 		input: GenerateSchemaInput,

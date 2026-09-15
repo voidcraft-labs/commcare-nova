@@ -47,7 +47,7 @@ export type UpdateFormLinkResult =
 
 export const updateFormLinkTool = {
 	description:
-		"Update one after-submit link by its linkUuid. Supply the link's complete desired shape; only the slots that changed are written. Removing the condition makes it the otherwise link, which must already be last; adding a condition to the otherwise link leaves the form's post_submit as the fallback, stored explicitly if it was not set.",
+		"Replace one after-submit route. An unconditional route must be last; otherwise the form's post-submit setting supplies the fallback.",
 	inputSchema: updateFormLinkInputSchema,
 	async execute(
 		input: UpdateFormLinkInput,

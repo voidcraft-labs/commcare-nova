@@ -61,7 +61,8 @@ export type GetFieldResult =
 	  };
 
 export const getFieldTool = {
-	description: "Get a single field by stable UUID within its form.",
+	description:
+		"Read one question or container, including its wording, behavior and saved-value destination.",
 	inputSchema: getFieldInputSchema,
 	async execute(
 		input: GetFieldInput,

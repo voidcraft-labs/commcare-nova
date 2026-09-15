@@ -28,7 +28,7 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 
 ## Blank semantics — locked invariant
 
-`is-blank` is the one stored absence operator. It matches an absent or empty value, exactly the distinction every CommCare wire target can preserve with `prop = ''`. The live schema and editor do not carry a strict-absent arm that some targets would have to widen.
+`is-blank` is the one stored absence operator. It matches an absent or empty value, including literals and calculated values. Zero, false and whitespace are not blank. Device expressions compare a string projection; CSQL retains its property-missing query semantics. The live schema and editor do not carry a strict-absent arm that some targets would have to widen.
 
 ## `matches-pattern` — one leaf, one runtime
 

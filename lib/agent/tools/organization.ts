@@ -306,7 +306,7 @@ export const setLocationArchivedToolInputSchema = z
 
 export const getOrganizationTool = {
 	description:
-		"Read organization levels, place-information fields, the current revision, and places (including archived) with stable uuids. One bounded cursor pages across all three collections, so accumulate each collection until page.complete is true; if a page says restart, begin again without a cursor. Request includeValues only when saved custom values are needed.",
+		"Read organization levels, place fields, revisions and places, including archived places. Continue with the returned cursor; restart if requested. Include saved custom values only when needed.",
 	inputSchema: getOrganizationInputSchema,
 	async execute(
 		input: z.infer<typeof getOrganizationInputSchema>,
@@ -460,7 +460,7 @@ export const getOrganizationTool = {
 
 export const addOrganizationLevelsTool = {
 	description:
-		"Add organization levels. Codes are create-once wire identities; use returned uuids for parents, place creation, settings, and owner expressions.",
+		"Define organization levels and their hierarchy. Level codes remain fixed after creation.",
 	inputSchema: addOrganizationLevelsInputSchema,
 	async execute(
 		input: z.infer<typeof addOrganizationLevelsInputSchema>,
@@ -535,7 +535,7 @@ export const addOrganizationLevelsTool = {
 
 export const updateOrganizationLevelTool = {
 	description:
-		"Update an organization level by uuid. Its code is intentionally immutable; omitted fields stay unchanged and null clears optional description or parent.",
+		"Edit an organization level's name, description or parent. Its code remains fixed.",
 	inputSchema: updateOrganizationLevelInputSchema,
 	async execute(
 		input: z.infer<typeof updateOrganizationLevelInputSchema>,
@@ -588,7 +588,7 @@ export const removeOrganizationLevelTool = {
 
 export const addLocationPropertiesTool = {
 	description:
-		"Add app-wide place-information fields. Values are stored on places by the returned stable property uuids, so slug renames do not rewrite rows.",
+		"Define information stored about places. Renaming a property preserves its saved values.",
 	inputSchema: addLocationPropertiesInputSchema,
 	async execute(
 		input: z.infer<typeof addLocationPropertiesInputSchema>,
@@ -651,8 +651,7 @@ export const addLocationPropertiesTool = {
 };
 
 export const updateLocationPropertyTool = {
-	description:
-		"Update one place-information field by stable uuid. Omit to keep; null clears optional constraints.",
+	description: "Edit one place-information field and its rules.",
 	inputSchema: updateLocationPropertyInputSchema,
 	async execute(
 		input: z.infer<typeof updateLocationPropertyInputSchema>,
@@ -731,7 +730,7 @@ function rowResult<T>(
 
 export const createLocationTool = {
 	description:
-		"Create one place after its level is saved. It is a root place only when parentId is null; otherwise parentId creates it under that existing place. The new place may carry a bounded structurally nested descendants tree committed atomically. Use descendants when an active reverse-hop owner rule requires a destination below this new source place; nesting declares parentage and the compact result mirrors it with final UUIDs. Pass the exact current expectedRevision from getOrganization or the preceding place write, and chain the returned revision before another create. Omit siteCode to derive a create-once code from the name.",
+		"Create a place and optional nested descendants together. Use the current organization revision; the result returns the next revision. Omit siteCode to derive a permanent code from the name.",
 	inputSchema: createLocationToolInputSchema,
 	async execute(
 		input: z.infer<typeof createLocationToolInputSchema>,

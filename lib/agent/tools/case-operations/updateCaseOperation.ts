@@ -39,7 +39,7 @@ export type UpdateCaseOperationResult =
 
 export const updateCaseOperationTool = {
 	description:
-		"Update one case operation by stable UUID. Supply its complete desired shape; Nova emits only the identity-keyed slots that actually changed, so unrelated concurrent edits compose.",
+		"Replace one advanced record operation, keeping its identity. Read its current definition before editing.",
 	inputSchema: updateCaseOperationInputSchema,
 	async execute(
 		input: UpdateCaseOperationInput,

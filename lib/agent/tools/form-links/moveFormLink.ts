@@ -44,7 +44,7 @@ export type MoveFormLinkResult =
 
 export const moveFormLinkTool = {
 	description:
-		"Move one after-submit link after another link identified by UUID, or to the front with null. Links are checked in order and the first true condition wins, so order is meaning. Refuses an order that puts a conditional link after the otherwise link, or the otherwise link anywhere but last, and names the links involved.",
+		"Reorder an after-submit route. The first matching condition wins; an unconditional route must stay last.",
 	inputSchema: moveFormLinkInputSchema,
 	async execute(
 		input: MoveFormLinkInput,

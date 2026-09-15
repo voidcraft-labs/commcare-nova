@@ -433,6 +433,11 @@ function checkQueryPredicate(
 			return;
 		}
 		case "is-blank":
+			if (
+				predicate.left.kind === "term" &&
+				predicate.left.term.kind === "literal"
+			)
+				return;
 			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
 			return;
 		case "matches-pattern":

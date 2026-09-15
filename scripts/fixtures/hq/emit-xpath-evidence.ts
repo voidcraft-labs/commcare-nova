@@ -4,9 +4,9 @@ import AdmZip from "adm-zip";
 import { buildDoc, f, xp } from "../../../lib/__tests__/docHelpers";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
-import { FUNCTION_REGISTRY } from "../../../lib/commcare/validator/functionRegistry";
 import { runValidation } from "../../../lib/commcare/validator/runner";
 import {
+	blankValueCases,
 	nativeCoercionCases,
 	nativePathCases,
 	normalizationCases,
@@ -18,6 +18,10 @@ import { lowerXPathForJavaRosa } from "../../../lib/commcare/xpath/javaRosaLower
 import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "../../../lib/domain";
+import {
+	FUNCTION_REGISTRY,
+	functionArityIssue,
+} from "../../../lib/domain/expressionFunctions";
 
 const output = resolve(process.argv[2] ?? "/tmp/nova-xpath-evidence");
 mkdirSync(output, { recursive: true });
@@ -73,6 +77,7 @@ writeFileSync(
 );
 const encoded = (value: string) => Buffer.from(value).toString("base64");
 const rows = [
+	...blankValueCases,
 	...normalizationCases,
 	...nativePathCases,
 	...nativeCoercionCases,
@@ -102,10 +107,7 @@ const signatures = [];
 for (const [name, spec] of FUNCTION_REGISTRY) {
 	if (!JAVAROSA_NATIVE_FUNCTIONS.has(name)) continue;
 	for (let count = 0; count <= 10; count++) {
-		const accepted =
-			count >= spec.minArgs &&
-			(spec.maxArgs === -1 || count <= spec.maxArgs) &&
-			spec.validate?.(count) === undefined;
+		const accepted = functionArityIssue(name, count, spec) === undefined;
 		signatures.push(
 			`${encoded(`${name}(${Array.from({ length: count }, () => "'x'").join(", ")})`)}	${accepted}`,
 		);

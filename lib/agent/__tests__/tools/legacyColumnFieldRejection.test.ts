@@ -81,14 +81,6 @@ describe("updateModule legacy column field rejection", () => {
 });
 
 describe("createModule legacy column field rejection", () => {
-	it("rejects a case type without its valid-by-construction Results seed", () => {
-		const result = createModuleInputSchema.safeParse({
-			name: "Patients",
-			case_type: "patient",
-		});
-		expect(result.success).toBe(false);
-	});
-
 	it("input schema rejects the legacy undiscriminated column shape", () => {
 		// The key is current, but the old flat entry is not. Creation accepts
 		// only a canonical discriminated Column and never maps this shape.

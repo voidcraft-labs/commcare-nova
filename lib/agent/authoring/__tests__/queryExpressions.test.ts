@@ -11,6 +11,7 @@ import {
 	evaluatePreviewSearchExpression,
 	evaluatePreviewSearchPredicate,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { AuthoringInputError } from "../errors";
 import {
 	parseAuthoringExpression,
 	quoteAuthoringLiteral,
@@ -103,6 +104,42 @@ const printContext: QueryPrintContext = {
 	},
 };
 const printer = queryPrinter(printContext);
+
+it("executes shared blank operations and empty collections without special authoring forms", () => {
+	const session = previewSessionValues(
+		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+	);
+	for (const [source, expected] of [
+		["is-blank('')", true],
+		["is-blank(0)", false],
+		["is-blank(false())", false],
+		["is-blank(' ')", false],
+		["all()", true],
+		["any()", false],
+	] as const) {
+		expect(
+			evaluatePreviewSearchPredicate(
+				parseQueryPredicate(source, scope),
+				[],
+				session,
+				new Map(),
+			),
+			source,
+		).toBe(expected);
+	}
+	for (const [source, expected] of [
+		["concat()", ""],
+		["coalesce('', 'fallback')", "fallback"],
+		["coalesce(0, 3)", "0"],
+		["coalesce(false(), true())", "false"],
+	] as const) {
+		const value = parseQueryValue(source, scope);
+		expect(evaluatePreviewSearchExpression(value, session), source).toBe(
+			expected,
+		);
+		expect(parseQueryValue(printer.value(value), scope)).toEqual(value);
+	}
+});
 
 it("uses real division while preserving explicit integer division in existing expressions", () => {
 	const session = previewSessionValues(
@@ -317,7 +354,7 @@ it("rejects unresolved paths, incomplete syntax, and unsupported calls instead o
 		"between(#case/age, 18, unbounded(65))",
 	])
 		expect(() => parseQueryPredicate(source, scope)).toThrow(
-			"expects 0 arguments",
+			AuthoringInputError,
 		);
 	expect(() =>
 		parseQueryPredicate(

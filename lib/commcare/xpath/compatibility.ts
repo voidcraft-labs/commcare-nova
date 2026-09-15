@@ -1,5 +1,8 @@
 import type { SyntaxNode } from "@lezer/common";
-import { FUNCTION_REGISTRY } from "../validator/functionRegistry";
+import {
+	FUNCTION_REGISTRY,
+	functionArityIssue,
+} from "@/lib/domain/expressionFunctions";
 import type { XPathCarrierProfile } from "./carriers";
 import {
 	inspectXPathFunctionCalls,
@@ -65,11 +68,7 @@ function registrySignatureIsInvalid(
 ): boolean {
 	const spec = FUNCTION_REGISTRY.get(name);
 	if (spec === undefined) return false;
-	if (spec.validate?.(argumentCount) !== undefined) return true;
-	return (
-		argumentCount < spec.minArgs ||
-		(spec.maxArgs !== -1 && argumentCount > spec.maxArgs)
-	);
+	return functionArityIssue(name, argumentCount, spec) !== undefined;
 }
 
 const STRUCTURAL_TOKENS = new Set([

@@ -55,6 +55,7 @@ import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
+import { formRecordNameMutations } from "@/lib/doc/formRecordName";
 import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
@@ -109,6 +110,7 @@ import {
 	updateUserTypeMutations,
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
+import type { XPathExpression } from "@/lib/domain";
 import {
 	type Automation,
 	type AutomationSchedule,
@@ -367,6 +369,7 @@ export interface BlueprintMutations {
 	 * planner may add or remove a participant.
 	 */
 	updateForm: (uuid: Uuid, patch: FormAuthoringPatch) => CommitOutcome;
+	setFormRecordName: (uuid: Uuid, value: XPathExpression) => CommitOutcome;
 	/**
 	 * Refine the complete configuration of a form that already participates
 	 * in Connect. This cannot add or remove participation; those membership
@@ -1216,6 +1219,20 @@ export function createBlueprintMutations(
 				}
 				if (mutations.length === 0) return COMMITTED;
 				return toOutcome(guardedApply(mutations));
+			},
+
+			setFormRecordName(uuid, value) {
+				try {
+					return toOutcome(
+						guardedApply(formRecordNameMutations(get(), uuid, value)),
+					);
+				} catch (error) {
+					const messages = [
+						error instanceof Error ? error.message : String(error),
+					];
+					if (announce) notifyRejectedCommit(messages);
+					return { ok: false, messages };
+				}
 			},
 
 			refineFormConnect(uuid, connect) {

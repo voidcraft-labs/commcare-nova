@@ -35,10 +35,7 @@
 // `multi-select-contains` requires the `property` slot to resolve
 // to `multi_select` specifically (a Nova authoring policy stricter
 // than CCHQ's wire-layer dispatch — see `checkMultiSelectContains`
-// for the rationale); `is-blank` accepts any non-literal
-// Term in `left` and reject literal-shaped `left` as a category
-// error (a literal is the value itself, not a runtime read whose
-// presence is in question — see `checkAbsenceOperator`); `between`
+// for the rationale); `is-blank` accepts any value; `between`
 // requires `left` and any provided bounds to resolve to one of the
 // ordered types and detects literal-pair `lower > upper`
 // impossibility (see `checkBetween`); `exists` / `missing` walk
@@ -243,7 +240,6 @@ export type CheckErrorCode =
 	| "match-value"
 	| "match-value-empty"
 	| "multi-select-property"
-	| "runtime-value"
 	| "pattern-match-unavailable"
 	| "range-order"
 	| "relation-origin"
@@ -504,13 +500,7 @@ function walk(
 			// composed predicate that includes a sentinel.
 			return;
 		case "is-blank":
-			// Every non-literal Term
-			// variant is accepted (any property / input / session ref
-			// can resolve to absent at runtime) and literal-shaped
-			// `left` is rejected as a category error. A literal is the
-			// value itself; "is the literal 5 absent" / "is the literal
-			// 5 blank" is ill-formed, not a runtime question.
-			checkAbsenceOperator(p, ctx, errors, path);
+			checkExpression(p.left, ctx, errors, [...path, "left"]);
 			return;
 		case "matches-pattern":
 			checkPatternMatch(p, ctx, errors, path);
@@ -994,68 +984,7 @@ function checkMultiSelectContains(
 	}
 }
 
-/**
- * Operand-shape check for `is-blank` (absent-or-empty). The operator
- * asks whether `left` resolves to absent or empty, which only has
- * authoring semantics for terms whose value is read
- * at runtime — property refs, search-input refs, session-user refs,
- * session-context refs.
- *
- * Literal-shaped `left` is rejected as a category error: a literal
- * is the value itself (`literal("x")` IS the string `"x"`;
- * `literal(null)` IS null), not a runtime read whose presence is in
- * question. "Is the literal 5 absent?" is ill-formed regardless of its
- * literal value.
- * Pinning the rejection at the type-checker layer (rather than the
- * schema layer) keeps the schema structurally simple — every Term
- * variant is admitted at parse — and concentrates the semantic-class
- * rule in one place where the term discriminator is in scope.
- *
- * For non-literal terms, the helper resolves the term type for its
- * side effects (so unknown-property / unknown-input errors surface
- * uniformly with the comparison checker) but does not constrain it
- * — any data type can be absent at runtime, so there is no narrowing
- * to apply. The error path is `[...path, "left"]` so the editor
- * highlights the offending operand directly, matching the comparison
- * operators' per-side error attachment.
- *
- * `is-blank` emits `prop = ''` on every CCHQ dialect, with the
- * server-side `case_property_query()` short-circuit collapsing empty-
- * value queries to absent-or-empty semantics in CSQL.
- */
-function checkAbsenceOperator(
-	p: Extract<Predicate, { kind: "is-blank" }>,
-	ctx: TypeContext,
-	errors: CheckError[],
-	path: CheckPath,
-): void {
-	// Literal-shaped operands are rejected as a category error. The
-	// operand is `ValueExpression`, so a literal arrives inside the
-	// `term` arm — pattern-match through the wrapper to keep the
-	// rejection in place. Higher-order ValueExpression arms (`arith`,
-	// `if`, `count`, etc.) are accepted: an arithmetic expression can
-	// resolve to absent at runtime ("is the per-unit ratio
-	// undefined?"), so the ill-formed framing only applies to pure-
-	// literal operands. The arm walks the `value` even after pushing
-	// the rejection error so any nested resolution failures inside
-	// the literal-bearing wrapper still surface.
-	if (p.left.kind === "term" && p.left.term.kind === "literal") {
-		errors.push({
-			path: [...path, "left"],
-			code: "runtime-value",
-			message: `Operator '${p.kind}' cannot be applied to a literal, a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
-		});
-		return;
-	}
-	checkExpression(p.left, ctx, errors, [...path, "left"]);
-}
-
-/**
- * `matches-pattern` rules. The slot must run on the device's Pattern engine
- * (`ctx.patternMatching`), and `left` follows the absence operator's shape
- * rule: any runtime read is a text to test, a literal is not a question.
- * The pattern's Java syntax is not checked here; the schema pins it nonblank.
- */
+/** Pattern syntax and evaluation belong to the device runtime. */
 function checkPatternMatch(
 	p: Extract<Predicate, { kind: "matches-pattern" }>,
 	ctx: TypeContext,
@@ -1069,14 +998,6 @@ function checkPatternMatch(
 			message:
 				"Operator 'matches-pattern' can only run where the device evaluates the rule with its Java Pattern engine: a Search field's required condition or check. This setting is evaluated elsewhere (the server's search language, the case store, or a device surface without a pattern engine), so use a comparison or a text match instead.",
 		});
-	}
-	if (p.left.kind === "term" && p.left.term.kind === "literal") {
-		errors.push({
-			path: [...path, "left"],
-			code: "runtime-value",
-			message: `Operator '${p.kind}' cannot be applied to a literal, a literal is the value itself, not a runtime read to test against a pattern. Use a property / input / session reference in 'left'.`,
-		});
-		return;
 	}
 	checkExpression(p.left, ctx, errors, [...path, "left"]);
 }

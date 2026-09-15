@@ -65,7 +65,7 @@ export type AddSearchInputsResult = AddSearchInputsSuccess | { error: string };
 
 export const addSearchInputsTool = {
 	description:
-		"Add Search questions and return their identities in input order. Visible questions can have a hint, conditional requiredness, and one validation rule; these checks run in the browser app only. Conditions can use Search answers and worker values before record selection. matches-pattern uses unanchored Java regex in requiredness and validation only. Choice questions use a Project table. A hidden value is calculated when Search opens from constants, worker values, now() or today(); it is carried with the search, not displayed or used as a filter, and cannot read answers or case data.",
+		"Add Search questions or hidden Search values. Visible questions support requiredness and validation over Search answers and worker values. Hidden values initialize from constants or worker values before answers or record selection.",
 	inputSchema: addSearchInputsInputSchema,
 	async execute(
 		input: AddSearchInputsInput,

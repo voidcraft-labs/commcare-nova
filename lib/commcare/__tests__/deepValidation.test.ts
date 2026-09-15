@@ -7,6 +7,7 @@ import {
 	blueprintDocSchema,
 	type CaseType,
 } from "@/lib/domain";
+import { findCaseInsensitiveMatch } from "@/lib/domain/expressionFunctions";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -24,7 +25,6 @@ import {
 import { buildFieldTree } from "../../preview/engine/fieldTree";
 import { TriggerDag } from "../../preview/engine/triggerDag";
 import { type DeepValidationError, validateBlueprintDeep } from "../validator";
-import { findCaseInsensitiveMatch } from "../validator/functionRegistry";
 import { runValidation } from "../validator/runner";
 import { validateXPath } from "../validator/xpathValidator";
 

@@ -21,6 +21,7 @@ let root: string;
 const assets = {
 	"public/xpath-worker/xpath-worker.js": "worker bytes",
 	"public/favicon.ico": "icon bytes",
+	"public/form-evaluation/worker.mjs": "form evaluation bytes",
 	".next/static/chunks/app.js": "chunk bytes",
 	"node_modules/@img/sharp-libvips/lib/libvips.so": "native library bytes",
 };
@@ -72,6 +73,7 @@ test.each([
 	[".next/standalone/server.js", "standalone server"],
 	["public", "public assets"],
 	["public/xpath-worker/xpath-worker.js", "built XPath worker"],
+	["public/form-evaluation/worker.mjs", "built form evaluation worker"],
 	[".next/static", "built static assets"],
 	["node_modules/@img", "sharp runtime assets"],
 ])(
