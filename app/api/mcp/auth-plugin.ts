@@ -172,7 +172,7 @@ export const novaMcpPlugin = (): BetterAuthPlugin => ({
 				const req = ctx.request;
 				if (!req) {
 					log.error("[mcp] plugin endpoint invoked without request");
-					return new Response(null, { status: 503 });
+					return mcpUnavailableResponse();
 				}
 				return dispatchMcpAuthRequest(req);
 			},

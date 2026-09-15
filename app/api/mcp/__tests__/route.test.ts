@@ -135,16 +135,20 @@ async function dispatch(req: Request): Promise<Response> {
 	const res = await dispatchMcpAuthRequest(req);
 	if (!req.bodyUsed) await req.arrayBuffer();
 	const text = await res.text();
-	if (text) {
-		const json = res.headers.get("content-type")?.includes("text/event-stream")
-			? text
-					.split(/\r?\n/)
-					.filter((line) => line.startsWith("data: "))
-					.map((line) => JSON.parse(line.slice(6)))
-					.at(-1)
-			: JSON.parse(text);
-		envelopes.set(res, json);
+	const contentType = res.headers.get("content-type") ?? "";
+	if (text && contentType.includes("text/event-stream")) {
+		envelopes.set(
+			res,
+			text
+				.split(/\r?\n/)
+				.filter((line) => line.startsWith("data: "))
+				.map((line) => JSON.parse(line.slice(6)))
+				.at(-1),
+		);
+	} else if (text && contentType.includes("application/json")) {
+		envelopes.set(res, JSON.parse(text));
 	}
+	/* A 503 carries a plain-text explanation, never an envelope. */
 	return res;
 }
 
@@ -530,6 +534,8 @@ describe("POST /api/mcp (API-key path)", () => {
 		expect(res.status).toBe(503);
 		expect(res.headers.get("WWW-Authenticate")).toBeNull();
 		expect(res.headers.get("Retry-After")).toBe("5");
+		/* The body speaks to the person reading a raw response. */
+		expect(res.headers.get("Content-Type")).toContain("text/plain");
 		expect(registerNovaToolsMock).not.toHaveBeenCalled();
 	});
 

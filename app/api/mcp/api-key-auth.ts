@@ -31,11 +31,9 @@ import { mcpUnavailableResponse } from "./unavailable";
  * `KEY_DISABLED`, etc.); `mapApiKeyErrorCode` translates them into
  * this vocabulary. New plugin error codes that we want to surface
  * differently get a new entry here, never a widening of the type.
- * An outage is never a reason: every judgment about the key the route
- * could NOT make (the verifier threw, the verifier could not read a
- * stored key, the user-status read failed) answers
- * `mcpUnavailableResponse` (503), so the client keeps its key and
- * retries instead of discarding a working credential.
+ * An outage is never a reason: a judgment the route could NOT make
+ * answers `mcpUnavailableResponse` (503) instead, so the client keeps
+ * its key and retries rather than discarding a working credential.
  */
 type ApiKeyUnauthorizedReason =
 	| "api key invalid"
@@ -99,12 +97,10 @@ function apiKeyForbiddenResponse(reason: "api key missing scope"): Response {
  * difference is preserved on the server side via the `pluginCode`
  * field of the verify-failed `log.warn`.
  *
- * `INVALID_API_KEY` is ALSO the code the plugin's `verifyApiKey`
- * substitutes for any non-`APIError` thrown on the way to the row (a
- * pool acquire timeout, a dropped connection): its catch logs the
- * error and answers as if the hash missed. `handleApiKeyMcp` separates
- * that reading BEFORE mapping, with `apiKeyRowExists`, so this mapper
- * only ever sees a genuine miss.
+ * `INVALID_API_KEY` is also what the plugin answers for a database
+ * error during its lookup; `handleApiKeyMcp` separates that reading
+ * BEFORE mapping (see `apiKeyRowExists`), so this mapper only ever
+ * sees a genuine miss.
  *
  * `INSUFFICIENT_API_KEY_PERMISSIONS` is reserved by the plugin for
  * the org-keys path (`checkOrgApiKeyPermission`); not reachable on a
@@ -162,54 +158,59 @@ const PREFIX_LOG_LENGTH = NOVA_API_KEY_PREFIX.length + 6;
  *
  * An outage is a 503, never a 401. Three reads can fail without the
  * key having been judged: the verifier throws; the verifier answers
- * `INVALID_API_KEY` for a key whose row IS stored (its catch
- * substitutes that code for a database error, so only the stored row
- * tells a miss from an outage — `apiKeyRowExists`, asked only on that
- * answer); the user-status read throws. Each rejects the request
- * (fail-closed: nothing authenticates during an outage) with
- * `mcpUnavailableResponse`, because a `401 invalid_token` would tell a
- * client holding a working key to discard it and re-authenticate.
+ * `INVALID_API_KEY` for a key whose row IS stored (`apiKeyRowExists`
+ * explains why that is an outage); the user-status read throws. Each
+ * rejects the request (fail-closed: nothing authenticates during an
+ * outage) with `mcpUnavailableResponse`, because a `401 invalid_token`
+ * would tell a client holding a working key to discard it.
  */
 export async function handleApiKeyMcp(
 	req: Request,
 	key: string,
 ): Promise<Response> {
 	const auth = await getAuth();
-	const audit = () => ({
+	const audit = {
 		prefixSeen: key.slice(0, PREFIX_LOG_LENGTH),
 		ip: callerIpFromHeaders(req.headers),
-	});
+	};
 
 	let result: Awaited<ReturnType<typeof auth.api.verifyApiKey>>;
 	try {
 		result = await auth.api.verifyApiKey({ body: { key } });
 	} catch (err) {
-		log.error("[mcp/api-key] verify threw", err, audit());
+		/* The plugin swallows its own database errors (see
+		 * `apiKeyRowExists`), so a throw here is a novel failure, not the
+		 * outage signal, and earns Sentry like the sibling reads below. */
+		log.error("[mcp/api-key] verify threw", err, audit);
 		return mcpUnavailableResponse();
 	}
 
 	if (!result.valid || !result.key) {
 		const code = result.error?.code ?? undefined;
-		if (code === "INVALID_API_KEY" || code === undefined) {
+		if (code === "INVALID_API_KEY") {
+			/* A miss or the plugin's substituted database error: only the
+			 * stored row tells them apart (see `apiKeyRowExists`). */
 			let stored: boolean;
 			try {
 				stored = await apiKeyRowExists(key);
 			} catch (err) {
-				log.error("[mcp/api-key] key lookup unavailable", err, audit());
+				log.error("[mcp/api-key] key lookup unavailable", err, audit);
 				return mcpUnavailableResponse();
 			}
 			if (stored) {
-				log.error(
-					"[mcp/api-key] verify could not read a stored key",
-					undefined,
-					{ ...audit(), pluginCode: code ?? "unknown" },
-				);
+				/* Cloud Logging only: the plugin already reported the
+				 * underlying error through the auth-logger bridge, and one
+				 * Sentry event per request during an outage says nothing new. */
+				log.warn("[mcp/api-key] verify could not read a stored key", {
+					...audit,
+					pluginCode: code,
+				});
 				return mcpUnavailableResponse();
 			}
 		}
 		const reason = mapApiKeyErrorCode(code);
 		log.warn("[mcp/api-key] verify failed", {
-			...audit(),
+			...audit,
 			reason,
 			pluginCode: code ?? "unknown",
 		});
@@ -246,7 +247,7 @@ export async function handleApiKeyMcp(
 		if (!scopes.includes(required)) {
 			log.warn("[mcp/api-key] missing floor scope", {
 				keyId: verifiedKey.id,
-				ip: audit().ip,
+				ip: audit.ip,
 				missing: required,
 				granted: scopes,
 			});
@@ -271,7 +272,7 @@ export async function handleApiKeyMcp(
 		log.error("[mcp/api-key] user-status lookup failed", err, {
 			keyId: verifiedKey.id,
 			userId,
-			...audit(),
+			...audit,
 		});
 		return mcpUnavailableResponse();
 	}
@@ -279,7 +280,7 @@ export async function handleApiKeyMcp(
 		log.warn("[mcp/api-key] user disabled or deleted", {
 			keyId: verifiedKey.id,
 			userId,
-			...audit(),
+			...audit,
 		});
 		return apiKeyUnauthorizedResponse("user disabled");
 	}

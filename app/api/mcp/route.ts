@@ -37,6 +37,7 @@
 
 import { getAuth } from "@/lib/auth";
 import { log } from "@/lib/logger";
+import { mcpUnavailableResponse } from "./unavailable";
 
 /**
  * Next.js App Router segment config (`maxDuration` is the magic export
@@ -86,7 +87,7 @@ const dispatch = async (req: Request): Promise<Response> => {
 		});
 	} catch (err) {
 		log.error("[mcp] failed to synthesize auth-router request", err);
-		return new Response(null, { status: 503 });
+		return mcpUnavailableResponse();
 	}
 	const auth = await getAuth();
 	return auth.handler(authReq);

@@ -3,30 +3,27 @@
  * real Postgres with three concurrent sessions.
  *
  * `threads.ts::lockThreadTargetAuthority` holds the app row, the
- * design-session row, or both `FOR SHARE`, then the thread row `FOR UPDATE`.
- * The contract: while a transcript write is mid-flight, its authority row
- * still admits the run's other share-mode traffic — the `FOR SHARE` app read
- * behind every authorization (`loadAppInTransaction`) and the
- * `FOR KEY SHARE` an appended `chat_stream_chunks` row takes through its
- * design-session foreign key (`appendStreamChunks`). An exclusive authority
- * lock parks both behind the write; each parked statement then holds a
- * pooled connection, which is how one long transcript rewrite exhausts a
- * small per-instance pool and fails unrelated requests on their acquire
- * timeout.
+ * design-session row, or both `FOR SHARE`, then the thread row `FOR UPDATE`
+ * (its docblock owns the why). The contract under test: while a transcript
+ * write is mid-flight, its authority row still admits the run's other
+ * share-mode traffic — the `FOR SHARE` app read behind every authorization
+ * (`loadAppInTransaction`) and the `FOR KEY SHARE` an appended
+ * `chat_stream_chunks` row takes through its design-session foreign key
+ * (`appendStreamChunks`).
  *
- * Each case parks the snapshot on a held thread row (its second lock), waits
- * until Postgres reports it blocked, probes the authority row from a third
- * session with the production readers and writers, then releases the thread
- * row and lets the snapshot land. A probe that waits is a failure, not a
- * hang: the per-test database carries a server-side `statement_timeout` for
- * every session the probes and the snapshot open, so a parked statement is
- * cancelled by Postgres (its connection stays usable and its transaction
- * rolls back cleanly) rather than abandoned by a client-side timer, and the
- * holder is released in `finally` either way.
+ * Each case parks a barrier snapshot behind a held thread row (its second
+ * lock) with the shared `whileBlocked` barrier, probes the authority row from
+ * a third session with the production reader and writer while Postgres
+ * reports the snapshot blocked, then releases the row and lets the snapshot
+ * land. A probe that waits is a failure, not a hang: the per-test database
+ * carries a server-side `statement_timeout` for every session the probes and
+ * the snapshot open, so a parked statement is cancelled by Postgres (its
+ * connection stays usable and its transaction rolls back cleanly) rather
+ * than abandoned by a client-side timer.
  */
 import type { UIMessage } from "ai";
-import { Client } from "pg";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { loadAppInTransaction } from "../canonicalCommitKernel";
 import type { GenerationTarget } from "../generationTargets";
 import { __setAppDbForTests } from "../pg";
@@ -132,69 +129,46 @@ async function whileSnapshotParked(
 	threadId: string,
 	probe: (contenders: ReturnType<typeof createPerTestAppDb>) => Promise<void>,
 ): Promise<void> {
-	const contenders = createPerTestAppDb(h.uri());
-	const holder = new Client({ connectionString: h.uri() });
-	const observer = new Client({ connectionString: h.uri() });
-	/* Settled, never rejecting: the snapshot is owned from the moment it
-	 * starts, so a cancellation while a probe is still running is reported
-	 * below rather than escaping as an unhandled rejection. */
-	let outcome: Promise<PromiseSettledResult<void>[]> | undefined;
-	try {
-		await holder.connect();
-		await observer.connect();
-		/* Every session the contender pool opens from here on (the snapshot's
-		 * and the probes') inherits the bound; the holder and observer, already
-		 * open, keep waiting on purpose. */
-		const bound = await observer.query<{ statement: string }>(
+	/* Every session the contender pool opens from here on (the snapshot's
+	 * and the probes') inherits the bound; the harness pool's session, already
+	 * open, is not used while anything is parked. */
+	const bound = await h
+		.pool()
+		.query<{ statement: string }>(
 			"SELECT format('ALTER DATABASE %I SET statement_timeout = %L', current_database(), $1::text) AS statement",
 			[PROBE_STATEMENT_TIMEOUT],
 		);
-		await observer.query(bound.rows[0]?.statement ?? "");
-		await holder.query("BEGIN");
-		await holder.query(
-			"SELECT thread_id FROM threads WHERE thread_id = $1 FOR UPDATE",
-			[threadId],
-		);
-		const holderPid = (
-			await holder.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
-		).rows[0]?.pid;
-		expect(holderPid).toBeTypeOf("number");
-
-		__setAppDbForTests(contenders.appDb);
-		outcome = Promise.allSettled([
-			persistResponseSnapshot({
-				target,
-				threadId,
-				streamId: STREAM,
-				expectedProjectId: PROJECT,
-				responseMessage: assistantMsg("m2", "step one"),
-				clearMarker: false,
-			}),
-		]);
-		/* The snapshot has taken its authority lock and is now waiting on the
-		 * thread row: exactly one backend is blocked by the holder. */
-		await vi.waitFor(
-			async () => {
-				const blocked = await observer.query<{ count: number }>(
-					"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))",
-					[holderPid],
-				);
-				expect(blocked.rows[0]?.count).toBe(1);
+	await h.pool().query(bound.rows[0]?.statement ?? "");
+	const contenders = createPerTestAppDb(h.uri());
+	__setAppDbForTests(contenders.appDb);
+	try {
+		await whileBlocked(
+			h,
+			(pg) =>
+				pg.query(
+					"SELECT thread_id FROM threads WHERE thread_id = $1 FOR UPDATE",
+					[threadId],
+				),
+			() =>
+				persistResponseSnapshot({
+					target,
+					threadId,
+					streamId: STREAM,
+					expectedProjectId: PROJECT,
+					responseMessage: assistantMsg("m2", "step one"),
+					clearMarker: false,
+				}),
+			async (settled) => {
+				/* The snapshot holds its authority lock and waits on the thread
+				 * row; the probes below must not wait on it. */
+				expect(settled).toBe(false);
+				await probe(contenders);
 			},
-			{ timeout: 5_000 },
 		);
-
-		await probe(contenders);
 	} finally {
-		await holder.query("ROLLBACK").catch(() => undefined);
-		await holder.end();
-		await outcome;
 		__setAppDbForTests(h.db());
 		await contenders.destroy();
-		await observer.end();
 	}
-	const [landed] = (await outcome) ?? [];
-	if (landed?.status === "rejected") throw landed.reason;
 	/* The write was parked, not skipped: it landed once the row freed. */
 	const doc = await loadThread(target, threadId);
 	expect(doc?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);

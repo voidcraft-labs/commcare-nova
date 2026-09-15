@@ -33,9 +33,9 @@
  *      message id, and a kept partial would win the richer-version merge
  *      over the retry's growing fold.
  *
- * All writers are row-locked read-modify-writes (`withAppTx`, the thread
- * row `FOR UPDATE` behind its authority row held `FOR SHARE`; see
- * `lockThreadTargetAuthority`), and the merge writers MERGE by message id
+ * All writers are row-locked read-modify-writes (`withAppTx`; the thread
+ * row `FOR UPDATE` behind its authority row, whose share strength
+ * `lockThreadTargetAuthority` explains), and the merge writers MERGE by message id
  * (`mergeTranscript`) rather than rewrite — a stale client or a late barrier
  * can add to a transcript, never erase it (`clawBackThreadResponse` is the
  * one deliberate, triple-guarded exception). The loaders reconcile markers
