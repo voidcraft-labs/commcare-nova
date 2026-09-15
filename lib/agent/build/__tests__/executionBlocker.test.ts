@@ -1,5 +1,6 @@
 /** Native structured-decision boundary over a frozen, admitted plan and brief. */
 import { describe, expect, it } from "vitest";
+import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import {
 	respondWithObject,
 	withResponsesPeer,
@@ -10,15 +11,13 @@ import {
 	makeContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
+import { projectBlueprintImplementation } from "@/lib/agent/design/projection/blueprint";
 import { MODEL_ROLES } from "@/lib/models";
 import {
 	executionBlockerSchema,
 	resolveExecutionBlocker,
 } from "../executionBlocker";
-import {
-	deriveSliceExecutionBrief,
-	renderBriefMessage,
-} from "../executionBrief";
+import { deriveSliceExecutionBrief } from "../executionBrief";
 
 function fixture() {
 	const acceptedContract = makeContract();
@@ -33,9 +32,13 @@ function fixture() {
 		sliceId: fixtureValue(currentPlan.slices[0], "first slice").id,
 	});
 	return {
-		acceptedContract,
-		currentPlan,
 		brief,
+		candidate: {
+			revision: 3,
+			implementation: projectBlueprintImplementation(
+				makeCanonicalGenesisDoc("Current plot app"),
+			),
+		},
 		diagnostics: { code: "MISSING_PARENT", candidateRevision: 3 },
 		blocker: executionBlockerSchema.parse({
 			schemaVersion: 1,
@@ -143,29 +146,18 @@ describe("architect blocker decisions", () => {
 					},
 				},
 			},
-			input: expect.arrayContaining([
-				expect.objectContaining({
-					role: "user",
-					content: [
-						{
-							type: "input_text",
-							text: [
-								"## Accepted design contract",
-								JSON.stringify(args.acceptedContract),
-								"## Deterministic build plan",
-								JSON.stringify(args.currentPlan),
-								"## Accepted execution brief",
-								renderBriefMessage(args.brief),
-								"## Compiler report",
-								JSON.stringify(args.blocker),
-								"## Current server diagnostics",
-								JSON.stringify(args.diagnostics),
-							].join("\n\n"),
-						},
-					],
-				}),
-			]),
 		});
+		const wire = JSON.stringify(body);
+		for (const evidence of [
+			"Current plot app",
+			"MISSING_PARENT",
+			"The visit has no patient connection.",
+			"updateCaseProperty",
+			args.candidate.implementation.snapshotDigest,
+		])
+			expect(wire).toContain(evidence);
+		expect(wire).not.toContain("Deterministic build plan");
+		expect(wire).not.toContain("Accepted design contract");
 	});
 	it.each([
 		{ kind: "plan-repair", reason: "Invent different slices" },

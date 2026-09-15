@@ -61,6 +61,10 @@ import type {
 	ChangeSetMutationWorkspace,
 	StagedInputPreparation,
 } from "@/lib/agent/change-set/workspace";
+import {
+	type BlueprintImplementation,
+	projectBlueprintImplementation,
+} from "@/lib/agent/design/projection/blueprint";
 import { durableModelValueDigest } from "@/lib/agent/modelMessagePersistence";
 import { novaOpenAITools } from "@/lib/agent/openaiProvider";
 import {
@@ -114,6 +118,7 @@ export type ExecutorWorkspace = Pick<
 	ChangeSetMutationWorkspace,
 	| "stageDispatch"
 	| "inspect"
+	| "inspectState"
 	| "currentSnapshot"
 	| "currentExecutionCheckpoint"
 	| "resolveDesignLookupReferences"
@@ -225,6 +230,10 @@ export type SliceBlockerResolver = (args: {
 	readonly blocker: ExecutionBlocker;
 	readonly brief: SliceExecutionBrief;
 	readonly diagnostics: unknown;
+	readonly candidate: {
+		readonly revision: number;
+		readonly implementation: BlueprintImplementation;
+	};
 	readonly signal: AbortSignal;
 }) => Promise<ArchitectBlockerDecision>;
 
@@ -1211,12 +1220,10 @@ export async function runSliceExecutor(
 			args.resolveBlocker({
 				blocker,
 				brief,
-				diagnostics:
-					failure.diagnostics ??
-					projectDiagnostics(
-						await awaitWithAbort(workspace.inspect(), boundedSignal),
-						brief,
-					),
+				...(await awaitWithAbort(
+					blockerContext(workspace, brief, failure.diagnostics),
+					boundedSignal,
+				)),
 				signal: boundedSignal,
 			}),
 			boundedSignal,
@@ -2088,10 +2095,10 @@ export async function runSliceExecutor(
 								args.resolveBlocker({
 									blocker: parsed.data,
 									brief,
-									diagnostics: projectDiagnostics(
-										await awaitWithAbort(workspace.inspect(), boundedSignal),
-										brief,
-									),
+									...(await awaitWithAbort(
+										blockerContext(workspace, brief),
+										boundedSignal,
+									)),
 									signal: boundedSignal,
 								}),
 								boundedSignal,
@@ -2536,6 +2543,30 @@ function terminalProtocolCode(error: unknown): string | null {
 
 /** Bounded diagnostics for the model: enough findings to act on, never the
  *  whole validator dump. */
+async function blockerContext(
+	workspace: ExecutorWorkspace,
+	brief: SliceExecutionBrief,
+	reportedFailure?: unknown,
+) {
+	const { snapshot, diagnostics, lookupContext } =
+		await workspace.inspectState();
+	return {
+		candidate: {
+			revision: snapshot.revision,
+			implementation: projectBlueprintImplementation(
+				snapshot.doc,
+				lookupContext.kind === "available"
+					? lookupContext.definitions
+					: undefined,
+			),
+		},
+		diagnostics: {
+			current: projectDiagnostics(diagnostics, brief),
+			...(reportedFailure === undefined ? {} : { reportedFailure }),
+		},
+	};
+}
+
 function projectDiagnostics(
 	diagnostics: Awaited<ReturnType<ExecutorWorkspace["inspect"]>>,
 	brief: SliceExecutionBrief,

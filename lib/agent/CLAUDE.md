@@ -78,6 +78,15 @@ handoff: Nova owns the publish gate when a concrete target is selected.
 
 ## What lives here
 
+The build repair helper receives one accepted workflow brief, current private
+candidate, server diagnostics, builder report, and descriptions of the exact
+operations authorized for that slice. It uses the same readable content
+projection as shared tools and the domain field-action inventory. It receives
+neither a duplicate full contract and plan nor authority to reset construction.
+Both reported blockers and automatic repeated-failure escalation supply the
+current workspace revision and document digest before the bounded model call.
+No conformance or completion claim follows from this inspection.
+
 - `solutionsArchitect.ts` mounts the editor's `ToolLoopAgent`. Hosted search loads shared authoring tools on demand. The wrapper binds input inside `CanonicalMutationWorkspace`, projects read results, preserves saved-data consequences, and surfaces a commit conflict after the workspace reloads. Terminal scope and run-holder errors remain terminal. The workspace serializes invocations and adopts each commit's authoritative document. The route owns run finalization; reviewed new-app construction lives in `build/`.
 - `prompts.ts` composes static editor and MCP build prompts around purpose, collaboration, and app-quality judgment. Detailed syntax is available through `getAuthoringGuide`, not injected into every turn. `buildAppStateMessage` appends current state separately; MCP role guidance is static, fetched by mode without app data, and ends with `NOVA-PROMPT-END`. `appOverview.ts` supplies the separate editor/retry state and MCP `get_app` overview; scoped reads supply detailed content.
 - `wireSchemas.ts` serves the agent-owned question and lifecycle schemas. Shared tools use `authoring/toolSchema.ts`; the executor omits accepted construction slots through `build/executorWireSchemas.ts`. The full canonical Zod schema runs after binding; no stored AST input alternative is accepted on the new interface.

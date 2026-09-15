@@ -1088,6 +1088,14 @@ an already valid app or a direct builder/MCP edit.
 
 ### 9.2 Deterministic implementation projection
 
+The first reader, `lib/agent/design/projection/blueprint.ts`, is implemented
+and used by the build repair helper. It projects source-language Blueprint
+content and configured field actions with stable identities and a snapshot
+digest. Unreadable sections remain explicit. Effective catalog reconciliation,
+reference-index evidence, external resource/readiness state, canonical sequence
+binding, receipts, conformance and completion reports still belong to the
+unfinished work below. The repair reader is not a completion gate.
+
 Add `lib/agent/design/projection/` readers that project the current canonical
 app into a compact semantic view:
 

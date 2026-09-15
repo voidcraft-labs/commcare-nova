@@ -161,6 +161,9 @@ function readonlyWorkspace(options: {
 		async inspect() {
 			throw new Error("Pure admission must not finalize a workspace");
 		},
+		async inspectState() {
+			throw new Error("Pure admission must not inspect repair state");
+		},
 	};
 }
 function severalSelectionWorkspace(

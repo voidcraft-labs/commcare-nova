@@ -18,15 +18,23 @@ import {
 	loadChangeSet,
 	loadChangeSetSteps,
 } from "@/lib/agent/change-set/store";
-import { ChangeSetMutationWorkspace } from "@/lib/agent/change-set/workspace";
+import {
+	ChangeSetMutationWorkspace,
+	type ChangeSetWorkspaceHost,
+} from "@/lib/agent/change-set/workspace";
 import {
 	fixtureValue,
 	makeWorkflowChainContract,
 } from "@/lib/agent/design/__tests__/fixtures";
 import { persistAcceptedDesignFixture } from "@/lib/agent/design/__tests__/persistedFixtures";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
+import {
+	readToolLookupCatalog,
+	readToolLookupDefinitions,
+} from "@/lib/agent/lookupContext";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
+import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { MODEL_CONTEXT_VERSION, MODEL_ROLES } from "@/lib/models";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
@@ -41,6 +49,7 @@ import {
 	type ExecutorStepFn,
 	productionExecutorStep,
 	runSliceExecutor,
+	type SliceBlockerResolver,
 } from "../executorLoop";
 import { EXECUTOR_PROMPT_VERSION } from "../executorPrompt";
 import {
@@ -64,6 +73,11 @@ const h = setupAppStateTestDb("executor_native_", {
 const ACTOR = "executor-actor";
 const PROJECT = "executor-project";
 const RUN = "executor-run";
+const LOOKUP_SCOPE = {
+	projectId: PROJECT,
+	actorId: ACTOR,
+	role: "owner" as const,
+};
 type Call = { id: string; name: string; input: unknown };
 
 function respondWithCalls(response: ServerResponse, calls: readonly Call[]) {
@@ -216,9 +230,12 @@ async function fixture() {
 			},
 		};
 	}
-	const host = {
+	const host: ChangeSetWorkspaceHost = {
 		actorUserId: ACTOR,
 		runId: RUN,
+		lookupDefinitions: (tableIds) =>
+			readToolLookupDefinitions(LOOKUP_SCOPE, tableIds),
+		lookupCatalog: () => readToolLookupCatalog(LOOKUP_SCOPE),
 		chatRunHolder: {
 			mode: "build" as const,
 			runId: RUN,
@@ -297,6 +314,7 @@ async function fixture() {
 		options: {
 			context?: ExecutorConversationContext;
 			budget?: Partial<SliceExecutionBudget>;
+			resolveBlocker?: SliceBlockerResolver;
 		} = {},
 	) {
 		const recovered = await beginOrRecoverSliceAttempt(attemptArgs);
@@ -315,6 +333,7 @@ async function fixture() {
 				workspace,
 				step,
 				budget,
+				resolveBlocker: options.resolveBlocker,
 				signal: new AbortController().signal,
 				context: options.context ?? (await openContext()),
 				contextScopeKey: attempt.id,
@@ -914,6 +933,170 @@ describe("persisted executor Responses journeys", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({ validator_repair_count: 1, commit_attempts_used: 1 });
 	});
+
+	it.each(["reported", "repeated"] as const)(
+		"grounds a %s blocker in the current private candidate before repair",
+		async (mode) => {
+			const f = await fixture();
+			const table = await createLookupTable(LOOKUP_SCOPE, {
+				name: "Destinations",
+				tag: "destinations",
+				columns: [{ wireName: "name", label: "Name", dataType: "text" }],
+			});
+			await createLookupRow(LOOKUP_SCOPE, {
+				tableId: table.id,
+				toIndex: 0,
+				expectedTableRevision: table.tableRevision,
+				values: {
+					[table.columns[0].id]: "Private row must not enter helper context",
+				},
+			});
+			const moduleCall: Call = {
+				...f.calls.module,
+				input: {
+					...f.calls.module.input,
+					forms: [
+						{
+							...f.calls.module.input.forms[0],
+							fields: [
+								...f.calls.module.input.forms[0].fields,
+								{
+									kind: "single_select",
+									id: "destination",
+									label: "Destination",
+									optionsSource: {
+										kind: "lookup",
+										tableId: table.id,
+										valueColumnId: table.columns[0].id,
+										labelColumnId: table.columns[0].id,
+										filter: "#row/name != ''",
+									},
+								},
+							],
+						},
+					],
+				},
+			};
+			const caseType = f.calls.schema.input.caseTypes[0].name;
+			const schema: Call = {
+				...f.calls.schema,
+				input: {
+					caseTypes: [
+						{
+							name: caseType,
+							properties: [
+								...f.calls.schema.input.caseTypes[0].properties,
+								{
+									name: "beds",
+									label: "Beds",
+									data_type: "int",
+									validation: "between(., 1, 50)",
+									validation_msg: "Enter 1 to 50.",
+								},
+							],
+						},
+					],
+				},
+			};
+			const report: Call = {
+				id: "report",
+				name: "reportExecutionBlocker",
+				input: {
+					schemaVersion: 1,
+					observations: ["The catalog validation cannot compile."],
+					requestedDecision: "How can this property rule be repaired?",
+				},
+			};
+			let requests = 0;
+			let helperCalls = 0;
+			const outcome = await withResponsesPeer(
+				(_request, response) => {
+					requests += 1;
+					respondWithCalls(
+						response,
+						requests === 1
+							? [
+									schema,
+									moduleCall,
+									mode === "reported" ? report : f.calls.finish,
+								]
+							: mode === "repeated" && requests === 2
+								? [{ ...f.calls.finish, id: "finish-again" }]
+								: [
+										{
+											id: "repair",
+											name: "updateCaseProperty",
+											input: {
+												caseType,
+												property: "beds",
+												updates: { validation: ". >= 1 and . <= 50" },
+											},
+										},
+										{ ...f.calls.finish, id: "finish-repaired" },
+									],
+					);
+				},
+				(provider) =>
+					f.run(
+						productionExecutorStep(provider(MODEL_ROLES.buildExecutor.modelId)),
+						{
+							async resolveBlocker(args) {
+								helperCalls += 1;
+								expect(args.candidate.revision).toBe(2);
+								expect(args.candidate.implementation.unreadable).toEqual([]);
+								expect(
+									args.candidate.implementation.modules[0].forms[0].definition,
+								).toMatchObject({
+									fields: expect.arrayContaining([
+										expect.objectContaining({
+											id: "destination",
+											optionsSource: expect.objectContaining({
+												filter: "(#row/name != '')",
+											}),
+										}),
+									]),
+								});
+								expect(JSON.stringify(args.candidate)).not.toContain(
+									"Private row must not enter helper context",
+								);
+								expect(args.candidate.implementation.records).toContainEqual(
+									expect.objectContaining({
+										name: caseType,
+										properties: expect.arrayContaining([
+											expect.objectContaining({
+												name: "beds",
+												definition: expect.objectContaining({
+													validation: "between(., 1, 50)",
+												}),
+											}),
+										]),
+									}),
+								);
+								expect(
+									args.candidate.implementation.modules[0].forms[0]
+										.fieldActions,
+								).toMatchObject([{ action: "create", caseType }]);
+								expect(args.brief.toolProfile.mutationTools).toContain(
+									"updateCaseProperty",
+								);
+								expect(
+									await h.db().selectFrom("apps").select("id").execute(),
+								).toEqual([]);
+								return {
+									kind: "continue",
+									guidance:
+										"Update the beds catalog validation to . >= 1 and . <= 50.",
+								};
+							},
+						},
+					),
+			);
+			expect(helperCalls).toBe(1);
+			expect(outcome.kind).toBe("committed");
+			const steps = await loadChangeSetSteps(f.changeSet.id);
+			expect(steps).toHaveLength(3);
+		},
+	);
 
 	it("ends repeated canonical input rejection without spending an architect blocker", async () => {
 		const f = await fixture();
