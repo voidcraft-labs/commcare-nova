@@ -126,7 +126,11 @@ export function classifyIdentity(
 		return "location-property";
 	}
 
-	if (property === "moduleUuid" || property === "confirmedModuleUuids") {
+	if (
+		property === "moduleUuid" ||
+		property === "confirmedModuleUuids" ||
+		property === "parentCaseModuleUuid"
+	) {
 		return "module";
 	}
 	if (

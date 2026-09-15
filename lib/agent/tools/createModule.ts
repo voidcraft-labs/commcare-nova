@@ -151,6 +151,11 @@ export const createModuleInputSchema = z
 				"Stable UUID of the top-level module that should contain this module. Omit to create a top-level module.",
 			),
 		name: z.string().min(1).describe("Module display name"),
+		parentCaseModuleUuid: uuidSchema
+			.optional()
+			.describe(
+				"Select a parent record from this module before showing this module's records. Omit for a flat list.",
+			),
 		case_type: z
 			.string()
 			.min(1)
@@ -269,6 +274,7 @@ export const createModuleTool = {
 		const {
 			moduleUuid: requestedModuleUuid,
 			parentModuleUuid,
+			parentCaseModuleUuid,
 			name,
 			case_type,
 			purpose,
@@ -315,6 +321,7 @@ export const createModuleTool = {
 					uuid: moduleUuid,
 					name,
 					...(parentModuleUuid !== undefined && { parentModuleUuid }),
+					...(parentCaseModuleUuid !== undefined && { parentCaseModuleUuid }),
 					...(case_type && { caseType: case_type }),
 					...(case_list_only && { caseListOnly: case_list_only }),
 					...(purpose != null && { purpose }),

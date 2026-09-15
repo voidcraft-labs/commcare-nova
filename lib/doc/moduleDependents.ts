@@ -21,6 +21,21 @@ export function planModuleChildDependentsOnRemove(
 	parentModuleUuid: Uuid,
 ): ModuleChildDependentsPlan {
 	const indexed = referencingSlotsOf(doc, entityTargetKey(parentModuleUuid));
+	const selectors = doc.moduleOrder.filter((uuid) =>
+		indexed.get(uuid)?.includes("module_case_parent"),
+	);
+	if (selectors.length > 0) {
+		const names = selectors
+			.map((uuid) => `"${doc.modules[uuid]?.name ?? uuid}"`)
+			.join(", ");
+		const message = `This menu supplies parent records to ${names}. Change their parent selection before removing it.`;
+		return {
+			kind: "blocked",
+			childUuids: selectors,
+			message,
+			userMessage: message,
+		};
+	}
 	const children = childModuleUuids(doc, parentModuleUuid).filter((uuid) =>
 		indexed.get(uuid)?.includes("module_parent"),
 	);

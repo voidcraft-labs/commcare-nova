@@ -306,6 +306,7 @@ describe("searchFirstUniqueInstance", () => {
 				},
 			],
 		);
+		doc.modules[OTHER].parentCaseModuleUuid = FOLLOWUP;
 		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 			(error) => error.code === CODE,
 		);
@@ -338,6 +339,7 @@ describe("searchFirstUniqueInstance", () => {
 				},
 			],
 		);
+		doc.modules[FOLLOWUP].parentCaseModuleUuid = OTHER;
 		expect(codes(doc, CODE)).toEqual([]);
 	});
 

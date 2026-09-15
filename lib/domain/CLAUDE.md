@@ -360,3 +360,5 @@ walks destination order and derives ownership; labels and suggested IDs come
 from this same domain seam. A destination rename does not rename its external
 ID. Runtime selection requirements and wire eligibility are projections, never
 stored beside the destination.
+
+`Module.parentCaseModuleUuid` names an explicit parent-record selector. Absence means a flat list, even for a child record type. It is independent of structural `parentModuleUuid`; changing catalog ancestry never chooses a navigation route. The selector must use the direct parent type and form an acyclic route. Extension indexes are not child-selection edges.

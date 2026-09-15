@@ -1220,3 +1220,5 @@ intent while letting HQ bind hydration to the actual source case. Otherwise a
 manual query may only retain an existing source selection under the same datum.
 `FORM_LINK_SEARCH_CASE_UNREPRESENTABLE` refuses incompatible manual assignments
 at both shared mutation gates. Ordinary list destinations retain manual values.
+
+Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the HQ `parent_select` and shared session-datum projection read that identity; catalog ancestry and structural menu nesting do not infer it. Flat modules may contain child records and unparented records of the same type. Parent selectors follow direct non-extension child indexes. The existing target-specific HQ refusal for a multiple-parent selector remains; Preview and local CCZ retain their supported union semantics.

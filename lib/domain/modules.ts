@@ -2642,6 +2642,8 @@ export const moduleSchema = z
 		name: z.string(),
 		/** Optional parent menu. Omission is a top-level module. */
 		parentModuleUuid: uuidSchema.optional(),
+		/** Select a parent record from this module before selecting this module's records. */
+		parentCaseModuleUuid: uuidSchema.optional(),
 		caseType: z.string().optional(),
 		caseListOnly: z.boolean().optional(),
 		purpose: z.string().optional(),

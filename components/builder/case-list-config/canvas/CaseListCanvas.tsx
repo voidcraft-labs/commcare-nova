@@ -51,8 +51,10 @@ import {
 	AddInformationControl,
 	DisplayFieldComposer,
 } from "./DisplayFieldComposer";
+import { ParentCaseSelectionSetting } from "./ParentCaseSelectionSetting";
 
 export interface CaseListCanvasProps {
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly caseType: CaseType | undefined;
 	readonly caseTypes?: readonly CaseType[];
@@ -97,6 +99,7 @@ export interface CaseListCanvasProps {
 }
 
 export function CaseListCanvas({
+	moduleUuid,
 	config,
 	caseType,
 	caseTypes,
@@ -161,6 +164,7 @@ export function CaseListCanvas({
 				</header>
 
 				<div className="space-y-10">
+					<ParentCaseSelectionSetting moduleUuid={moduleUuid} />
 					<CaseSelectionSetting
 						value={config.selection}
 						canEdit={canEdit}

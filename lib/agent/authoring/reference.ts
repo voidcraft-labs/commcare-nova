@@ -20,7 +20,9 @@ export const AUTHORING_REFERENCE = {
 	workflows:
 		() => `Design forms around the worker's tasks and the records that persist between visits. Registration creates a record; follow-up changes a selected record; close completes it. A survey collects information without selecting a record. Set recordName to an answer or expression for the record's display name. New record modules declare their type and default to a Name column. Use caseWrite to save other answers; advanced operations describe additional ordered effects on other records.
 
-Modules organize navigation. A submenu relationship does not create a relationship between records. Each form has one owning module; different entry routes do not require copies of the form. Give each record lifecycle a usable way to begin, return and finish when the user's workflow needs those steps.
+Modules organize navigation. Record ancestry, submenu placement and parent selection are separate choices. setCaseTypeParent changes the record relationship. parentCaseModuleUuid makes a module select a parent first; omit it for a flat list, including records without parents. A submenu only groups menus. Each form has one owning module; different entry routes do not require copies of the form. Give each record lifecycle a usable way to begin, return and finish when the user's workflow needs those steps.
+
+To create a child while working with its parent, use a parent follow-up form with caseWrite destinations on the direct child type. This supports ordinary answers and captured evidence in one submission. A registration form creates an independent record, even in a module with parent selection.
 
 A several-case form applies one shared answer to each selected record. Questions start blank rather than borrowing one record's value, even if the worker selects just one case. Blank preserves each record's existing value; a configured starting value or calculation is shared. Never choose a representative record to fill the form.
 

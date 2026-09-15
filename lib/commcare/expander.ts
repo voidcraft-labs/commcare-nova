@@ -183,11 +183,6 @@ export function expandDoc(
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const localization = commCareLocalization(authoredDoc);
 
-	// Child case type map: child_case_type → parent module index. Derived
-	// from `case_types[].parent_type` + matching module case types. The
-	// expander uses this to activate `parent_select` on the child
-	// module so case-loading entries select the parent before the child.
-	// Registration creates its own case without loading catalog parents. Case list columns never affect this — they're presentation.
 	// `moduleOrder` and each `formOrder` array are the canonical display
 	// sequences. Every index this expander assigns (`mIdx`, menu/command order,
 	// form-link target `m{i}-f{j}`) addresses those arrays; the compiler walks
@@ -196,17 +191,6 @@ export function expandDoc(
 	const sortedFormOrder: Record<string, Uuid[]> = {};
 	for (const moduleUuid of sortedModuleUuids) {
 		sortedFormOrder[moduleUuid] = orderedFormUuids(doc, moduleUuid);
-	}
-
-	const childCaseParents = new Map<string, number>();
-	if (doc.caseTypes) {
-		for (const ct of doc.caseTypes) {
-			if (!ct.parent_type) continue;
-			const parentIdx = sortedModuleUuids.findIndex(
-				(mUuid) => moduleCaseTypeForActions(doc, mUuid) === ct.parent_type,
-			);
-			if (parentIdx !== -1) childCaseParents.set(ct.name, parentIdx);
-		}
 	}
 
 	// Pre-generate each module's HQ `unique_id` up front. `parent_select`
@@ -516,21 +500,15 @@ export function expandDoc(
 			shell.case_list.media_audio = caseListMedia.media_audio;
 		}
 
-		// Activate `parent_select` when this module's case type appears
-		// as a child elsewhere — CommCare walks up to the parent module
-		// to prompt for a parent case before selecting the existing child.
-		// Reading the parent's id from `moduleUniqueIds` (not from a
-		// sibling `modules[parentIdx]` entry that might not exist yet in
-		// the mid-map state) keeps this a single-pass derivation.
-		if (mod.caseType) {
-			const parentIdx = childCaseParents.get(mod.caseType);
-			if (parentIdx !== undefined && parentIdx !== mIdx) {
-				shell.parent_select = {
-					active: true,
-					relationship: "parent",
-					module_id: moduleUniqueIds[parentIdx],
-				};
-			}
+		if (mod.parentCaseModuleUuid !== undefined) {
+			const parentId = moduleUniqueIdOf.get(mod.parentCaseModuleUuid);
+			if (parentId === undefined)
+				throw new Error(`Missing parent selector for module ${moduleUuid}.`);
+			shell.parent_select = {
+				active: true,
+				relationship: "parent",
+				module_id: parentId,
+			};
 		}
 
 		return shell;

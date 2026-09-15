@@ -3726,8 +3726,8 @@ test.describe("authenticated builder", () => {
 				});
 				await expect(archivedModule).toBeVisible();
 				await archivedModule.click();
-				// Archived referrals are child cases of Patients. Opening that module
-				// therefore runs the existing parent-first selector before showing its
+				// Archived referrals explicitly select through Patients. Opening that
+				// module runs the parent-first selector before showing its
 				// direct children. Pick the patient this submission linked, then continue
 				// into the originally requested Results screen.
 				await expect(

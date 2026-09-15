@@ -322,6 +322,7 @@ export function caseOperationFixture(scenario: OperationScenario) {
 	});
 	if (scenario === "nested") {
 		doc.modules[doc.moduleOrder[1]].parentModuleUuid = doc.moduleOrder[0];
+		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
 	}
 	doc.forms[FORM].caseOperations = operations;
 	return doc;

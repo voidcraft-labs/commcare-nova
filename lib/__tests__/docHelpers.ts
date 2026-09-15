@@ -179,6 +179,7 @@ export interface ModuleSpec {
 	name: string;
 	caseType?: string;
 	caseListOnly?: boolean;
+	parentCaseModuleUuid?: string;
 	purpose?: string;
 	displayCondition?: Module["displayCondition"];
 	caseListConfig?: CaseListConfigSpec;
@@ -302,6 +303,9 @@ export function buildDoc(spec: DocSpec = {}): BlueprintDoc {
 			id: modSpec.id ?? modSpec.name.toLowerCase().replace(/\s+/g, "_"),
 			name: modSpec.name,
 			...(modSpec.caseType !== undefined && { caseType: modSpec.caseType }),
+			...(modSpec.parentCaseModuleUuid !== undefined && {
+				parentCaseModuleUuid: testUuid(modSpec.parentCaseModuleUuid),
+			}),
 			...(modSpec.caseListOnly !== undefined && {
 				caseListOnly: modSpec.caseListOnly,
 			}),

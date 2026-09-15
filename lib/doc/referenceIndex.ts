@@ -764,6 +764,11 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 	const search = mod.caseSearchConfig;
 	for (const slot of MODULE_REFERENCE_SLOTS) {
 		switch (slot.slot) {
+			case "module_case_parent":
+				if (mod.parentCaseModuleUuid !== undefined) {
+					sink.edge(entityTargetKey(mod.parentCaseModuleUuid), slot.slot);
+				}
+				break;
 			case "module_parent":
 				if (mod.parentModuleUuid !== undefined) {
 					sink.edge(entityTargetKey(mod.parentModuleUuid), slot.slot);

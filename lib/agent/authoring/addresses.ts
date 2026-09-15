@@ -102,13 +102,14 @@ export function bindToolAddress(
 		input.formUuid = form.uuid;
 		input.moduleUuid = moduleUuidOfForm(doc, form.uuid);
 	}
-	if (typeof input.parentModuleUuid === "string")
-		input.parentModuleUuid = resolve(
-			input.parentModuleUuid,
-			modules,
-			moduleName,
-			"Parent module",
-		).uuid;
+	for (const key of ["parentModuleUuid", "parentCaseModuleUuid"])
+		if (typeof input[key] === "string")
+			input[key] = resolve(
+				input[key],
+				modules,
+				moduleName,
+				"Parent module",
+			).uuid;
 
 	// Existing insertion anchors belong to the selected form. New field parents
 	// are bound later, once every field in the atomic request has an identity.

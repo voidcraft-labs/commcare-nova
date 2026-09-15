@@ -155,7 +155,7 @@ export function searchFirstUniqueInstance(
 			validationError(
 				"SEARCH_FIRST_UNIQUE_INSTANCE",
 				"module",
-				`Module "${mod.name}" selects a parent case from "${selectsFromModule.name}" first, and "${selectsFromModule.name}" opens on Search. CommCare gives both selections the same search results and cannot tell them apart. Turn Search first off on "${selectsFromModule.name}", or change the case types so "${mod.name}" no longer selects its parent there.`,
+				`Module "${mod.name}" selects a parent case from "${selectsFromModule.name}" first, and "${selectsFromModule.name}" opens on Search. CommCare gives both selections the same search results and cannot tell them apart. Turn Search first off on "${selectsFromModule.name}", or change the parent selection on "${mod.name}" to use another module or a flat list.`,
 				{ moduleUuid, moduleName: mod.name },
 				{ parentSelectModuleUuid: selectsFrom as string },
 			),

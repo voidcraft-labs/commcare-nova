@@ -52,7 +52,20 @@ revision is ready. New schema alone does not make old readers compatible.
    appends a complete baseline at a new sequence, and abandons private work that
    depends on the old base. It preserves canonical content, cases, resources,
    plans, messages, billing, and all old history. Rescan until empty.
-7. Serve the new revision. Verify a complete app's thread opens for ordinary
+7. Freeze legacy parent selectors with `scripts/scan-case-selection.ts --out
+   <private-manifest> --source-revision <old-serving-sha>`. It records the exact
+   projected selector, app sequence, Project, source and target digests. Resolve
+   every refusal before continuing; synthetic, extension or inert old routes
+   need an intentional repair. Keep this manifest. The scanner creates it
+   exclusively so an old plan cannot be overwritten accidentally.
+8. Run `scripts/migrate-case-selection.ts --plan <private-manifest> --execute`
+   in the same write-capable environment. Each app is checked under its run and
+   document locks, receives a system-attributed replayable edit, and must fold
+   to the planned target. Open private work is abandoned; unfinished app status
+   and existing history remain. Retry this original manifest after a failure.
+   Never rescan the new runtime for migration candidates: new flat lists are
+   intentional. This adds no SQL format, dual reader or new fold horizon.
+9. Serve the new revision. Verify a complete app's thread opens for ordinary
    editing, an incomplete session resumes from its current state, and a new
    request starts with the Markdown tools.
 

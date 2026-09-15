@@ -35,11 +35,17 @@
  */
 
 import { z } from "zod";
+import { updateModuleMutation } from "@/lib/doc/addModuleMutation";
 import { columnAddMutation } from "@/lib/doc/caseListColumnMutations";
 import { planCaseTypeRetirementOnRetype } from "@/lib/doc/caseTypeRetirement";
 import { setModuleDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { caseTypeCatalogMutations } from "@/lib/doc/scaffolds";
-import { asUuid, findAuthoredBlueprintIdentity, type Uuid } from "@/lib/domain";
+import {
+	asUuid,
+	findAuthoredBlueprintIdentity,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import { updateModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -64,6 +70,12 @@ import type {
 
 export const updateModuleInputSchema = moduleAddressSchema
 	.extend({
+		parentCaseModuleUuid: uuidSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Select a parent record from this module before showing this module's records. Null uses a flat list; omission keeps the current route.",
+			),
 		name: z
 			.string()
 			.min(1)
@@ -103,7 +115,7 @@ export type UpdateModuleResult =
 
 export const updateModuleTool = {
 	description:
-		"Update a module's display name, case type, and/or its display condition. Set case_type before adding registration/followup/close forms to a module created without one.",
+		"Update a module's name, case type, parent-record selection, or visibility.",
 	inputSchema: updateModuleInputSchema,
 	async execute(
 		input: UpdateModuleInput,
@@ -116,15 +128,20 @@ export const updateModuleTool = {
 			case_type,
 			case_list_columns,
 			displayCondition,
+			parentCaseModuleUuid,
 		} = input;
 		try {
-			if (name == null && case_type == null && displayCondition === undefined) {
+			if (
+				name == null &&
+				case_type == null &&
+				displayCondition === undefined &&
+				parentCaseModuleUuid === undefined
+			) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error:
-							"Nothing to update — no slot was given. Pass `name`, `case_type`, and/or `displayCondition` (`case_list_columns` only seeds columns alongside `case_type`, it never updates on its own).",
+						error: "Choose a module setting to update.",
 					},
 				};
 			}
@@ -201,6 +218,9 @@ export const updateModuleTool = {
 			 * chokepoint. Catalog writes lead so the type is present when the
 			 * column resolves. */
 			const mutations = [
+				...(parentCaseModuleUuid === undefined
+					? []
+					: [updateModuleMutation(moduleUuid, { parentCaseModuleUuid })]),
 				...caseTypeCatalogMutations(doc, retirement, case_type ?? undefined),
 				...updateModuleMutations(mod, {
 					...(name != null && { name }),

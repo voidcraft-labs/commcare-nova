@@ -169,6 +169,8 @@ export const VALIDITY_CLASS_BY_CODE = {
 	PERSONA_LOCATION_PRIMARY_REPEATED: "soundness",
 	// ── Module-level ─────────────────────────────────────────────────
 	NO_CASE_TYPE: "soundness",
+	CASE_PARENT_SELECTION_INVALID: "soundness",
+	CASE_PARENT_SELECTION_CONFLICT: "soundness",
 	CASE_LIST_ONLY_HAS_FORMS: "soundness",
 	CASE_LIST_ONLY_NO_CASE_TYPE: "soundness",
 	NO_FORMS_OR_CASE_LIST: "soundness",

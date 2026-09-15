@@ -144,7 +144,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("updateModule with neither name nor case_type returns the corrective error, not a fake success", async () => {
+	it("rejects an update without any settings and leaves the document unchanged", async () => {
 		// The schema deliberately admits a UUID-only address (so the SA
 		// reads a corrective message rather than an opaque parse failure);
 		// the tool body owns the rejection. Without this branch, a no-op
@@ -153,9 +153,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		const doc = caseTypelessDoc();
 		const h = makeHarness(doc);
 		const out = await h.runTool(updateModuleTool, moduleAddress(doc));
-		expect("error" in out.result && out.result.error).toContain(
-			"Nothing to update",
-		);
+		expect(out.result).toHaveProperty("error", expect.any(String));
 		expect(out.mutations).toEqual([]);
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});

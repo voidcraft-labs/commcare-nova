@@ -68,6 +68,8 @@ function source(
 		})),
 	});
 	doc.modules[CHILD].parentModuleUuid = ROOT;
+	if (childCaseType === "person")
+		doc.modules[CHILD].parentCaseModuleUuid = ROOT;
 	assertAdmittedPreviewDoc(doc);
 	return { ...doc, caseTypes };
 }
@@ -213,6 +215,7 @@ describe("Preview menu projection", () => {
 				...base.modules,
 				[ROOT]: module(ROOT, "clinic"),
 				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+				[CHILD]: { ...base.modules[CHILD], parentCaseModuleUuid: OTHER_ROOT },
 			},
 		};
 		const selected = {
@@ -243,7 +246,7 @@ describe("Preview menu projection", () => {
 		expect(previewCaseDescendantModuleUuids(doc, "household")).toEqual([CHILD]);
 	});
 
-	it("skips a survey-only case-type module when choosing a parent selector", () => {
+	it("uses the explicit selector despite an earlier module for the same type", () => {
 		const base = source("person");
 		const surveyField = fieldSchema.parse({
 			uuid: testUuid("survey_notes"),
@@ -258,6 +261,7 @@ describe("Preview menu projection", () => {
 				[ROOT]: module(ROOT, "clinic"),
 				[SURVEY_ROOT]: module(SURVEY_ROOT, "household"),
 				[OTHER_ROOT]: module(OTHER_ROOT, "household"),
+				[CHILD]: { ...base.modules[CHILD], parentCaseModuleUuid: OTHER_ROOT },
 			},
 			moduleOrder: [ROOT, CHILD, SURVEY_ROOT, OTHER_ROOT],
 			forms: {

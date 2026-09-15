@@ -3,10 +3,10 @@
  * future authoring. Serving code has no alternate snapshot reader. */
 import { sql, type Transaction } from "kysely";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { ChangeSetIntegrityError } from "@/lib/agent/change-set/errors";
 import { lockActorGenerationGateForAppHolder } from "@/lib/db/actorGenerationGate";
-import { loadAppInTransaction } from "@/lib/db/apps";
 import {
-	loadStrictAppSnapshotFromRowInTransaction,
+	loadSchemaAdmittedAppSnapshotFromRowInTransaction,
 	PERSISTED_BLUEPRINT_APP_COLUMNS,
 	type PersistedBlueprintAppRow,
 } from "@/lib/db/canonicalCommitKernel";
@@ -24,12 +24,12 @@ export interface AuthoringBaselineFinding {
 	reason?: string;
 }
 
-export async function inspectAuthoringBaseline(
+/** Operator source read: old semantics may need the following migration before
+ * they pass the current gate. Canonical schema and identities remain strict. */
+export async function loadAuthoringMigrationApp(
 	tx: Transaction<AppDatabase>,
 	appId: string,
-): Promise<AuthoringBaselineFinding | null> {
-	// The scanner owns a repeatable-read, read-only transaction. The writer
-	// owns the app lock before calling this same inspection.
+) {
 	const root = (await tx
 		.selectFrom("apps")
 		.select(PERSISTED_BLUEPRINT_APP_COLUMNS)
@@ -46,7 +46,18 @@ export async function inspectAuthoringBaseline(
 		.where("id", "=", appId)
 		.executeTakeFirst()) as PersistedBlueprintAppRow | undefined;
 	if (!root) return null;
-	const { app } = await loadStrictAppSnapshotFromRowInTransaction(tx, root);
+	return (await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, root))
+		.app;
+}
+
+export async function inspectAuthoringBaseline(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+): Promise<AuthoringBaselineFinding | null> {
+	// The scanner owns a repeatable-read, read-only transaction. The writer
+	// owns the app lock before calling this same inspection.
+	const app = await loadAuthoringMigrationApp(tx, appId);
+	if (!app) return null;
 	const row = await tx
 		.selectFrom("apps")
 		.select(LEASE_COLUMNS)
@@ -83,7 +94,13 @@ export async function inspectAuthoringBaseline(
 		reason = "Historical fold differs from the current canonical document.";
 	} catch (error) {
 		// Database failures are not evidence that a baseline needs replacing.
-		if (error && typeof error === "object" && "code" in error) throw error;
+		if (
+			!(error instanceof ChangeSetIntegrityError) &&
+			error &&
+			typeof error === "object" &&
+			"code" in error
+		)
+			throw error;
 		reason = error instanceof Error ? error.message : String(error);
 	}
 	const prior = await tx
@@ -144,7 +161,7 @@ export async function repairAuthoringBaselineInTransaction(
 		.execute();
 	const finding = await inspectAuthoringBaseline(tx, appId);
 	if (finding?.status !== "ready") return finding;
-	const app = await loadAppInTransaction(tx, appId);
+	const app = await loadAuthoringMigrationApp(tx, appId);
 	if (!app) throw new Error("The locked app disappeared.");
 	const projected = await sql<{
 		snapshot: unknown;

@@ -1,5 +1,4 @@
 import {
-	CASE_FORM_TYPES,
 	type CaseType,
 	caseSelectionCanFlowBetweenModules,
 	type Form,
@@ -161,10 +160,10 @@ export function previewMenuCaseContext(
 			selectedByModuleUuid,
 		};
 	}
-	const childCaseType = doc.caseTypes.find(
-		(type) => type.name === mod.caseType,
-	);
-	const parentCaseType = childCaseType?.parent_type;
+	const caseParentModuleUuid = mod.parentCaseModuleUuid;
+	const parentCaseType = caseParentModuleUuid
+		? doc.modules[caseParentModuleUuid]?.caseType
+		: undefined;
 	if (!parentCaseType) {
 		return {
 			...emptyCaseContext(),
@@ -172,21 +171,6 @@ export function previewMenuCaseContext(
 			selectedByModuleUuid,
 		};
 	}
-	const caseParentModuleUuid = doc.moduleOrder.find((candidateUuid) => {
-		if (candidateUuid === moduleUuid) return false;
-		const candidate = doc.modules[candidateUuid];
-		if (candidate?.caseType !== parentCaseType) return false;
-		/* Match the case-activity gate used by the emitted parent-select
-		 * projection. A survey-only module may retain a case type for authoring,
-		 * but it has no case session and cannot act as a parent selector. */
-		return (
-			candidate.caseListOnly === true ||
-			(doc.formOrder[candidateUuid] ?? []).some((formUuid) => {
-				const form = doc.forms[formUuid];
-				return form !== undefined && CASE_FORM_TYPES.has(form.type);
-			})
-		);
-	});
 	if (!caseParentModuleUuid) {
 		return {
 			...emptyCaseContext(),
