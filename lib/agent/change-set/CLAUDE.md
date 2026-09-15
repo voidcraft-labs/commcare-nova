@@ -82,11 +82,12 @@ gate, and integrity services every other write uses.
   bounded fold in `lib/db/canonicalMutationFold.ts`) replayed through the
   durable steps. Caches are discardable; replay is the authority.
 - `handles.ts` retains exact internal implementation bindings. The executor
-  binds accepted module/form compositions to UUIDs in server preparation; new
+  binds accepted modules, forms and workflow inputs to UUIDs in server preparation; new
   one-to-one compositions use their accepted UUID bytes through that explicit
   binding. Existing verified bindings win. Names never infer the identity of
-  an existing implementation. Fields, choices, and other creations need no
-  extra symbols: their canonical staged mutations and receipts retain identity.
+  an existing implementation. Supplemental fields, choices and other creations
+  need no extra symbols: canonical mutations and receipts retain their identity.
+  Input bindings do not restrict ordinary additions to an earlier workflow's form.
   A binding cannot reassign a lineage key or UUID. Only bindings whose entities
   survive the staged candidate are persisted; recovery also omits deleted
   inherited entities. Earlier committed slices contribute verified bindings

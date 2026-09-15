@@ -1,6 +1,7 @@
 /** Pure accepted-design admission and identity projections. Native execution
  * and durable recovery are exercised in executorLoop.postgres.test.ts. */
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
@@ -16,6 +17,7 @@ import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
@@ -25,7 +27,10 @@ import {
 import { acceptedInputRequirementIssues } from "../acceptedInputParity";
 import { acceptedSelectionRealizationIssues } from "../acceptedSelectionParity";
 import {
+	blueprintFormHandle,
+	blueprintInputHandle,
 	deriveSliceExecutionBrief,
+	formCompositionInputs,
 	type SliceExecutionBrief,
 } from "../executionBrief";
 import {
@@ -381,11 +386,34 @@ describe("accepted input requirement parity", () => {
 			sliceBrief.moduleRealizations[0],
 			"visit module realization",
 		);
+		const form = fixtureValue(sliceBrief.formRealizations[0], "visit form");
+		const formUuid = fixtureValue(
+			doc.formOrder[moduleUuid]?.[0],
+			"form identity",
+		);
+		const field = fixtureValue(
+			Object.values(doc.fields).find((field) => field.id === "visit_summary"),
+			"visit input",
+		);
+		const input = fixtureValue(
+			formCompositionInputs(form)[0],
+			"accepted input",
+		);
 		return [
 			{
 				handle: realization.blueprintModuleHandle,
 				uuid: moduleUuid,
 				entityKind: "module",
+			},
+			{
+				handle: blueprintFormHandle(form.compositionId),
+				uuid: formUuid,
+				entityKind: "form",
+			},
+			{
+				handle: blueprintInputHandle(input.compositionItemId),
+				uuid: field.uuid,
+				entityKind: "field",
 			},
 		];
 	}
@@ -429,6 +457,67 @@ describe("accepted input requirement parity", () => {
 				realizedDoc,
 				requiredBrief,
 				visitHandles(realizedDoc, requiredBrief),
+			),
+		).toEqual([]);
+	});
+
+	it("follows exact input identity through renames and moves, without guessing from matching names", () => {
+		const doc = visitDoc(true);
+		const sliceBrief = visitBrief();
+		const handles = visitHandles(doc, sliceBrief);
+		const fieldBinding = fixtureValue(
+			handles.find((item) => item.entityKind === "field"),
+			"field binding",
+		);
+		const formBinding = fixtureValue(
+			handles.find((item) => item.entityKind === "form"),
+			"form binding",
+		);
+		const field = doc.fields[fieldBinding.uuid];
+		const form = doc.forms[formBinding.uuid];
+		const group = fixtureValue(
+			doc.fieldOrder[form.uuid]?.[0],
+			"original group",
+		);
+		const moved = produce(doc, (draft) => {
+			applyMutations(draft, [
+				{
+					kind: "updateField",
+					targetKind: "text",
+					uuid: field.uuid,
+					patch: { id: "renamed_notes" },
+				},
+				{
+					kind: "renameForm",
+					uuid: form.uuid,
+					newId: "Renamed visit",
+				},
+				{
+					kind: "moveField",
+					uuid: field.uuid,
+					toParentUuid: form.uuid,
+					after: null,
+				},
+				{ kind: "removeField", uuid: group },
+			]);
+		});
+		assertAdmittedDoc(moved);
+		expect(
+			acceptedInputRequirementIssues(moved, sliceBrief, handles),
+		).toMatchObject([
+			{
+				location: { fieldUuid: fieldBinding.uuid },
+				details: { blueprintFieldId: "renamed_notes" },
+			},
+		]);
+		const unboundDoc = visitDoc(true);
+		expect(
+			acceptedInputRequirementIssues(
+				unboundDoc,
+				sliceBrief,
+				visitHandles(unboundDoc, sliceBrief).filter(
+					(item) => item.entityKind !== "field",
+				),
 			),
 		).toEqual([]);
 	});

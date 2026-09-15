@@ -233,6 +233,14 @@ export function blueprintFormHandle(compositionId: DesignId): ChangeSetHandle {
 	);
 }
 
+export function blueprintInputHandle(
+	compositionItemId: DesignId,
+): ChangeSetHandle {
+	return changeSetHandleSchema.parse(
+		`@input_${compositionItemId.replaceAll("-", "")}`,
+	);
+}
+
 /** Derive once from complete accepted composition, reserving authored IDs before
  * allocating defaults so a generated name never steals an explicit identity. */
 export function acceptedEntryPointRealizations(
@@ -359,9 +367,8 @@ interface FormCompositionItemLowering {
 	readonly compositionItemId: DesignId;
 	readonly blueprintFieldKind: "workflow-input" | "label";
 	readonly inputHandle?: string;
-	/** Exact form-local field id for an accepted workflow input. Keeping this
-	 * deterministic lets finalization compare the realized field's contextual
-	 * behavior with the accepted input instead of guessing by label or order. */
+	/** Initial form-local name. Creation binds the accepted input to a stable
+	 * field identity; later renames do not change that binding. */
 	readonly blueprintFieldId?: string;
 	readonly markdown?: string;
 	readonly recordSummary?: {
@@ -369,6 +376,27 @@ interface FormCompositionItemLowering {
 		readonly propertyIds: readonly DesignId[];
 		readonly purpose: string;
 	};
+}
+
+export function formCompositionInputs(
+	realization: SliceExecutionBrief["formRealizations"][number],
+) {
+	const items =
+		realization.layoutLowering.kind === "root-fields"
+			? realization.layoutLowering.items
+			: realization.layoutLowering.groups.flatMap((group) => group.items);
+	return items.flatMap((item) =>
+		item.blueprintFieldKind === "workflow-input" &&
+		item.inputHandle !== undefined
+			? [
+					{
+						compositionItemId: item.compositionItemId,
+						inputHandle: item.inputHandle,
+						fieldId: item.blueprintFieldId ?? item.inputHandle,
+					},
+				]
+			: [],
+	);
 }
 
 function lowerCompositionItems(

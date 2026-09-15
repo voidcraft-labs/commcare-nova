@@ -9,6 +9,11 @@ validate authored shapes and prepare input inside the authorized, serialized
 workspace invocation. The executor performs durable replay lookup first, then
 supplies accepted module/form construction facts and records their exact
 implementation bindings alongside the staged mutations.
+Accepted workflow inputs bind to field identities in the same preparation.
+Creation uses their form-local names or explicit accepted identities; existing
+bindings survive renames and moves. These lineage keys never enter tool inputs
+or the canonical document, and they do not infer a case write from an input's
+association with a record property.
 Accepted catalog preparation uses canonical literal text and the same creation
 identity allocator; it does not reinterpret accepted labels as answer references.
 Canonical schemas and the existing commit gate remain authoritative.

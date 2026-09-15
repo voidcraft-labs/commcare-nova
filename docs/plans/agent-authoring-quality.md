@@ -210,7 +210,9 @@ history, navigation, and a complete garden build remain unproved.
 [Accepted record preparation](../research/agent-accepted-record-catalog-2026-09-13.md)
 moves catalog definitions already determined by the design into server-owned
 preparation through the ordinary private workspace. Exact accepted input bindings
-and semantic completion remain unfinished.
+now accompany field creation in the same durable mutation. Required-condition
+checks follow those identities after renames and moves; missing inputs and the
+meaning of conditions remain part of unfinished semantic completion.
 
 The next trial built all three garden workflows from that recorded design in
 36 requests for $0.3641. Testing the resulting app exposed a submission defect:

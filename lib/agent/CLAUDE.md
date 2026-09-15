@@ -191,7 +191,7 @@ private `blueprintModuleHandle`; admission and finalization resolve that
 durable binding instead of treating a display name plus record host as
 identity, so valid equal-name modules remain distinct. Its diagnostics also
 include a deterministic parity check between each accepted workflow input's
-required-condition presence and the exact realized field ID, alongside the ordinary whole-document findings, so a
+required-condition presence and its exact durable field binding, alongside the ordinary whole-document findings, so a
 record-catalog default cannot silently make an optional update question
 required. Wire-invalid, private-mutation-rejected, and
 validator-repair outcomes increment

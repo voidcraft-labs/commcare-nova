@@ -11,14 +11,16 @@ import {
 import type { ModuleHandleBinding } from "./acceptedModulePlacement";
 import {
 	blueprintFormHandle,
+	blueprintInputHandle,
+	formCompositionInputs,
 	type SliceExecutionBrief,
 } from "./executionBrief";
 
 /** An explicit one-to-one implementation binding. Design identities retain
- * their separate type; only accepted module/form compositions bind here. */
+ * their separate type; only accepted composition entities bind here. */
 export interface AcceptedConstructionIdentity {
 	readonly compositionId: DesignId;
-	readonly kind: "module" | "form";
+	readonly kind: "module" | "form" | "field";
 	readonly uuid: Uuid;
 	/** Internal lineage key, never an authoring argument. */
 	readonly bindingKey: ChangeSetHandle;
@@ -42,7 +44,7 @@ export function acceptedConstructionIdentities(args: {
 	const result: AcceptedConstructionIdentity[] = [];
 	function bind(
 		compositionId: DesignId,
-		kind: "module" | "form",
+		kind: AcceptedConstructionIdentity["kind"],
 		bindingKey: ChangeSetHandle,
 	) {
 		const existing = bindings.find((item) => item.handle === bindingKey);
@@ -53,7 +55,12 @@ export function acceptedConstructionIdentities(args: {
 			);
 		planned.add(uuid);
 		if (existing) {
-			const entity = kind === "module" ? doc.modules[uuid] : doc.forms[uuid];
+			const entity =
+				kind === "module"
+					? doc.modules[uuid]
+					: kind === "form"
+						? doc.forms[uuid]
+						: doc.fields[uuid];
 			if (existing.entityKind !== kind || !entity)
 				throw new Error(
 					`The accepted ${kind} binding ${compositionId} no longer identifies that entity.`,
@@ -74,8 +81,15 @@ export function acceptedConstructionIdentities(args: {
 	}
 	for (const module of brief.moduleRealizations)
 		bind(module.compositionId, "module", module.blueprintModuleHandle);
-	for (const form of brief.formRealizations)
+	for (const form of brief.formRealizations) {
 		bind(form.compositionId, "form", blueprintFormHandle(form.compositionId));
+		for (const input of formCompositionInputs(form))
+			bind(
+				input.compositionItemId,
+				"field",
+				blueprintInputHandle(input.compositionItemId),
+			);
+	}
 	return result;
 }
 
@@ -92,10 +106,15 @@ export function prepareAcceptedConstruction(args: {
 }): { input: Input; bindings: readonly StageHandleAllocation[] } {
 	const { toolName, brief, doc } = args;
 	const input = structuredClone(args.input);
-	if (toolName !== "createModule" && toolName !== "createForm")
+	if (
+		toolName !== "createModule" &&
+		toolName !== "createForm" &&
+		toolName !== "addFields"
+	)
 		return { input, bindings: [] };
 	const identities = acceptedConstructionIdentities(args);
 	const bindings: StageHandleAllocation[] = [];
+	const declared = new Set<DesignId>();
 	const identity = (id: DesignId) => {
 		const found = identities.find((item) => item.compositionId === id);
 		if (!found) throw new Error(`Missing construction identity ${id}.`);
@@ -107,6 +126,11 @@ export function prepareAcceptedConstruction(args: {
 			throw new AuthoringInputError(
 				`This ${found.kind} already exists. Edit it instead.`,
 			);
+		if (declared.has(id))
+			throw new AuthoringInputError(
+				`This accepted ${found.kind} appears more than once in the request.`,
+			);
+		declared.add(id);
 		bindings.push({
 			handle: found.bindingKey,
 			uuid: found.uuid,
@@ -123,6 +147,37 @@ export function prepareAcceptedConstruction(args: {
 			);
 		return items[0];
 	}
+	function prepareFields(
+		form: Input,
+		realization?: SliceExecutionBrief["formRealizations"][number],
+	) {
+		const inputs = realization ? formCompositionInputs(realization) : [];
+		for (const field of (form.fields ?? []) as Input[]) {
+			const matches = inputs.filter(
+				(item) =>
+					item.fieldId === field.id ||
+					identity(item.compositionItemId).uuid === field.fieldUuid,
+			);
+			if (matches.length === 0) {
+				if (identities.some((item) => item.uuid === field.fieldUuid))
+					throw new AuthoringInputError(
+						"That identity belongs to another accepted element.",
+					);
+				continue;
+			}
+			if (matches.length !== 1)
+				throw new AuthoringInputError(
+					"The field name and identity refer to different accepted inputs.",
+				);
+			const accepted = matches[0];
+			const expected = identity(accepted.compositionItemId);
+			if (field.fieldUuid !== undefined && field.fieldUuid !== expected.uuid)
+				throw new AuthoringInputError(
+					`Input ${accepted.inputHandle} has a different accepted identity. Omit fieldUuid when creating it.`,
+				);
+			field.fieldUuid = declare(accepted.compositionItemId);
+		}
+	}
 	function prepareForm(form: Input, moduleId?: DesignId) {
 		const realization = unique(
 			brief.formRealizations.filter(
@@ -136,6 +191,7 @@ export function prepareAcceptedConstruction(args: {
 		);
 		form.formUuid = declare(realization.compositionId);
 		form.type = realization.blueprintFormType;
+		prepareFields(form, realization);
 		return realization;
 	}
 	if (toolName === "createModule") {
@@ -180,7 +236,7 @@ export function prepareAcceptedConstruction(args: {
 				"This accepted module contains a case list only.",
 			);
 		for (const form of forms) prepareForm(form, realization.compositionId);
-	} else {
+	} else if (toolName === "createForm") {
 		const moduleMatches = brief.moduleRealizations.filter((item) => {
 			const implementation = identity(item.compositionId);
 			return (
@@ -192,6 +248,16 @@ export function prepareAcceptedConstruction(args: {
 		const module = unique(moduleMatches, "module");
 		const form = prepareForm(input, module.compositionId);
 		input.moduleUuid = identity(form.moduleCompositionId).uuid;
+	} else {
+		bindToolAddress(toolName, input, doc);
+		const realization = brief.formRealizations.find(
+			(item) =>
+				identity(item.compositionId).exists &&
+				identity(item.compositionId).uuid === input.formUuid,
+		);
+		prepareFields(input, realization);
 	}
 	return { input, bindings };
 }
+
+import { bindToolAddress } from "@/lib/agent/authoring/addresses";
