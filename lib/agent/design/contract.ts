@@ -18,6 +18,7 @@ import { sourceRefSchema } from "@/lib/agent/design/evidence";
 import { validateDesignGraph } from "@/lib/agent/design/graph";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import {
+	EXISTING_LOOKUP_CHOICE_SCHEMA_MARKER,
 	type LookupChoiceProjectionRow,
 	lookupChoiceProjectionAttestationSchema,
 } from "@/lib/agent/design/lookupChoiceAttestation";
@@ -243,10 +244,11 @@ export const existingLookupChoiceSourceSchema = z
 		valueColumnId: lookupColumnIdSchema,
 		labelColumnId: lookupColumnIdSchema,
 		inspection: lookupChoiceProjectionAttestationSchema.describe(
-			"Constant-size, revision-bound attestation returned by inspectProjectData for the complete ordered saved-value and label projection. Copy every field exactly; never calculate or edit it.",
+			"Server-bound evidence for the complete ordered saved-value and label projection at the selected table revision.",
 		),
 	})
-	.strict();
+	.strict()
+	.meta({ [EXISTING_LOOKUP_CHOICE_SCHEMA_MARKER]: true });
 export type ExistingLookupChoiceSource = z.infer<
 	typeof existingLookupChoiceSourceSchema
 >;

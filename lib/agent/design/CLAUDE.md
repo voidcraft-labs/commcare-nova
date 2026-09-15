@@ -368,12 +368,24 @@ cursor-paged authorized Project table catalog or one cursor-bound page of at
 most 100 rows; it never accepts names as identity. Catalog cursors bind the
 exact Project revision and table/column position, so the author must read until
 `complete` and restart without a cursor if Project data changes between pages.
-A saved-value/label choice projection also returns one constant-size
-attestation over the complete ordered table: the server binds
-the revision and display metadata, hashes exact row identities/order/cells, and
-counts invalid, distinct, duplicate, and blank-label rows. Only that attestation
-enters the Design Contract; submission and materialization recompute it from
-authorized Project data rather than trusting model-authored metrics.
+A saved-value/label choice projection returns useful counts over the complete
+ordered table. The author selects the table, value and label columns, and
+`tableRevision`; `lookupChoiceAuthoring.ts` binds the full evidence through the
+authorized Project reader. The server records the revision and display metadata,
+hashes row identities/order/cells, and counts invalid, distinct, duplicate, and
+blank-label rows. The model neither copies nor authors this evidence. Authoring
+state projects it back to the selected revision. Existing workspace operations
+and the source contract retain the evidence needed for replay after a source is
+removed from the candidate; no separate receipt registry exists. Submission,
+acceptance, and materialization retain their current Project-data checks.
+For the September 2026 cutover, run `scripts/scan-design-choice-workspaces.ts`
+before deploying over old data. The separate
+`scripts/migrate-design-choice-workspaces.ts --execute` retires open private
+workspaces containing incorrect historical evidence at a table's current
+revision. Unsubmitted work in those workspaces must be reauthored from the saved
+sources; history, immutable artifacts, identity bindings, and app/Project data
+remain intact. Held runs block repair. Re-run the scan afterward. These scripts
+are operator tools, never a compatibility path in runtime authoring.
 `inspectDesign` reads selected exact state only when
 a model needs a narrow workspace lookup. `waitForInput` is the explicit terminal when the
 conversation says more requirements are coming but no question is ready yet.

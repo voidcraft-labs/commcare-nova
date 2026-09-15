@@ -311,29 +311,22 @@ describe("lookup identity domains", () => {
 			tableId: lookup,
 			valueColumnId: lookup,
 			labelColumnId: lookup,
-			inspection: {
-				tableRevision: "7",
-				tableName: "Risks",
-				valueColumnLabel: "Value",
-				labelColumnLabel: "Label",
-				rowCount: 2,
-				projectionDigest: "a".repeat(64),
-				distinctValueCount: 2,
-				invalidValueCount: 0,
-				blankLabelCount: 0,
-				duplicateValueCount: 0,
-			},
+			tableRevision: "7",
 		};
 		expectWire(
 			designCollectionUpdateInputSchemas.records,
 			recordInput(null, existing),
 		);
 		expect(
-			canonical(
+			validate(
 				designCollectionUpdateInputSchemas.records,
-				recordInput(null, existing),
-			).upserts[0].properties[0].choiceSource,
-		).toEqual(existing);
+				recordInput(null, {
+					...existing,
+					inspection: { tableRevision: "7" },
+				}),
+			).valid,
+		).toBe(false);
+
 		for (const key of ["tableId", "valueColumnId", "labelColumnId"])
 			expect(
 				validate(

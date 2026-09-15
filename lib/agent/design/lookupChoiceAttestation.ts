@@ -12,6 +12,10 @@ import type {
 } from "@/lib/lookup/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
+/** Authoring binds the evidence for this reference; callers select a revision. */
+export const EXISTING_LOOKUP_CHOICE_SCHEMA_MARKER =
+	"x-nova-existing-lookup-choice";
+
 const boundedRowCountSchema = z
 	.number()
 	.int()
