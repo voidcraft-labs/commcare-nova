@@ -123,8 +123,9 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [stable source labels #600](https://github.com/voidcraft-labs/commcare-nova/pull/600),
 [read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602),
 [derived selection #603](https://github.com/voidcraft-labs/commcare-nova/pull/603),
-and [current working context #604](https://github.com/voidcraft-labs/commcare-nova/pull/604).
-These 18 Nova PRs form native GitHub stack #601; all 24 checks on each PR are green.
+[current working context #604](https://github.com/voidcraft-labs/commcare-nova/pull/604),
+and [choice wording #605](https://github.com/voidcraft-labs/commcare-nova/pull/605).
+These 19 Nova PRs form native GitHub stack #601; every PR has all CI checks green.
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 
@@ -175,12 +176,16 @@ is available through focused inspection. Offline replay of the recorded trial
 reduces state material from 207,372 to 34,750 characters with no additional paid
 calls.
 
-The current choice-wording slice carries accepted labels and saved codes through
+The independently reviewed choice-wording slice carries accepted labels and saved codes through
 design, review and execution. Authors can state the labels directly; Nova derives
 codes unless specific values are supplied. It replaces the old values-only
-carrier through the same one-time format retirement. Construction prerequisite
-meaning and end-to-end app quality remain open; another paid trial should test
-these improvements together.
+carrier through the same one-time format retirement.
+
+The current construction-order slice removes model-authored schedule IDs. Worker
+starting conditions remain explicit, while Nova derives build dependencies from
+the design. Record definitions move to their first consumer, including earlier
+lists and child catalogs. End-to-end app quality remains open; another paid trial
+should test these improvements together.
 
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove

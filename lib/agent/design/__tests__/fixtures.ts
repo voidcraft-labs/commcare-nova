@@ -87,7 +87,7 @@ export const ids = {
 
 export function makeContract(): AppDesignContract {
 	return appDesignContractSchema.parse({
-		schemaVersion: 4,
+		schemaVersion: 5,
 		id: ids.contract,
 		charter: {
 			appName: "CHW patient visits",
@@ -176,8 +176,8 @@ export function makeContract(): AppDesignContract {
 				actorIds: [ids.actorChw],
 				goal: "Create a usable patient record.",
 				trigger: "A community health worker meets a new patient.",
-				prerequisiteWorkflowIds: [],
-				prerequisites: ["The worker knows the patient's name"],
+
+				startingConditions: ["The worker knows the patient's name"],
 				inputs: [
 					{
 						handle: "patient_name",
@@ -252,8 +252,8 @@ export function makeContract(): AppDesignContract {
 				goal: "Save a visit against an existing patient.",
 				trigger: "The worker completes a home visit.",
 				contextRecordId: ids.recPatient,
-				prerequisiteWorkflowIds: [ids.taskRegister],
-				prerequisites: ["The patient is registered"],
+
+				startingConditions: ["The patient is registered"],
 				inputs: [
 					{
 						handle: "visit_summary",
@@ -536,8 +536,8 @@ export function addPatientReviewWorkflow(contract: AppDesignContract): void {
 		id: ids.taskReview,
 		name: "Review patient",
 		goal: "Review the selected patient's latest information.",
-		prerequisiteWorkflowIds: [ids.taskRegister],
-		prerequisites: ["The patient is registered"],
+
+		startingConditions: ["The patient is registered"],
 	});
 	contract.charter.includedWorkflowIds.push(ids.taskReview);
 
@@ -666,8 +666,8 @@ export function makeWorkflowChainContract(count: number): AppDesignContract {
 			actorIds: [ids.actorChw],
 			goal: `Complete workflow ${index + 1}.`,
 			trigger: `The worker starts workflow ${index + 1}.`,
-			prerequisiteWorkflowIds: index === 0 ? [] : [workflowIds[index - 1]],
-			prerequisites: index === 0 ? [] : [`Workflow ${index} is complete`],
+
+			startingConditions: index === 0 ? [] : [`Workflow ${index} is complete`],
 			inputs: [
 				{
 					handle: `workflow_${index + 1}_value`,

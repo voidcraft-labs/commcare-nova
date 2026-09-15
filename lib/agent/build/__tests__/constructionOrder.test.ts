@@ -25,8 +25,9 @@ import {
 	deriveSliceExecutionBrief,
 } from "../executionBrief";
 
-function historyDesign() {
+function historyDesign(nested = true) {
 	const contract = cloneContract(makeContract());
+	if (!nested) contract.charter.initialWorkflowId = ids.taskVisit;
 	addPatientReviewWorkflow(contract);
 	const parent = fixtureValue(contract.moduleCompositions[0], "patient home");
 	parent.workflowIds = parent.workflowIds.filter((id) => id !== ids.taskReview);
@@ -42,8 +43,8 @@ function historyDesign() {
 	Object.assign(review, {
 		name: "Review visit",
 		goal: "Read an earlier visit without changing it.",
-		prerequisiteWorkflowIds: [ids.taskVisit],
-		prerequisites: ["A visit has been recorded."],
+
+		startingConditions: ["A visit has been recorded."],
 		contextRecordId: record.id,
 		inputs: [],
 		decisions: [],
@@ -78,7 +79,7 @@ function historyDesign() {
 		...parent,
 		id: ids.moduleVisits,
 		name: "Visit history",
-		parentModuleCompositionId: parent.id,
+		...(nested ? { parentModuleCompositionId: parent.id } : {}),
 		hostRecordId: record.id,
 		workflowIds: [review.id],
 		listIds: [listId],
@@ -106,10 +107,15 @@ function historyDesign() {
 	return appDesignContractSchema.parse(contract);
 }
 
-it.each(["list", "form"] as const)(
-	"constructs visit history as an accepted %s view with its writer",
-	async (view) => {
-		const contract = historyDesign();
+it.each([
+	{ view: "list", nested: true },
+	{ view: "form", nested: true },
+	{ view: "list", nested: false },
+	{ view: "form", nested: false },
+] as const)(
+	"constructs $view history before its writer with a nested menu: $nested",
+	async ({ view, nested }) => {
+		const contract = historyDesign(nested);
 		if (view === "list") {
 			contract.formCompositions = contract.formCompositions.filter(
 				(form) => form.workflowId !== ids.taskReview,
@@ -168,10 +174,11 @@ it.each(["list", "form"] as const)(
 			expect(reviewSlice.prerequisiteSliceIds).toContain(writerSlice.id);
 			expect(writerSlice.prerequisiteSliceIds).not.toContain(reviewSlice.id);
 		} else {
-			expect(plan.slices.map((item) => item.workflowId)).toEqual([
-				ids.taskRegister,
-				ids.taskVisit,
-			]);
+			expect(plan.slices.map((item) => item.workflowId)).toEqual(
+				nested
+					? [ids.taskRegister, ids.taskVisit]
+					: [ids.taskVisit, ids.taskRegister],
+			);
 			expect(writer.readWorkflows?.map((item) => item.id)).toEqual([
 				ids.taskReview,
 			]);
@@ -279,7 +286,7 @@ it.each(["list", "form"] as const)(
 		).toHaveProperty("ok", true);
 		expect(h.currentDoc().modules[ids.moduleVisits]).toMatchObject({
 			caseListOnly: true,
-			parentModuleUuid: parentUuid,
+			...(nested ? { parentModuleUuid: parentUuid } : {}),
 		});
 		expect(h.currentDoc()).not.toBe(beforeViewer);
 		const saved = await h.runTool(
@@ -318,7 +325,7 @@ it.each(["list", "form"] as const)(
 			expect(h.currentDoc().formOrder[ids.moduleVisits] ?? []).toHaveLength(0);
 		}
 		expect(h.currentDoc().modules[ids.moduleVisits]?.parentModuleUuid).toBe(
-			parentUuid,
+			nested ? parentUuid : undefined,
 		);
 		expect(runValidation(h.currentDoc(), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
 			[],

@@ -2,7 +2,6 @@
 
 import type { z } from "zod";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
-import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
 import {
 	moduleSelectionIntent,
 	selectionConsumerWorkflowIds,
@@ -680,19 +679,6 @@ export function validateDesignGraph(
 			"The initial useful workflow must be included in this app.",
 		);
 	}
-	const initialWorkflow = contract.workflows.find(
-		(workflow) => workflow.id === contract.charter.initialWorkflowId,
-	);
-	if (
-		initialWorkflow !== undefined &&
-		initialWorkflow.prerequisiteWorkflowIds.length > 0
-	) {
-		issue(
-			ctx,
-			["charter", "initialWorkflowId"],
-			"The initial workflow must not depend on another workflow.",
-		);
-	}
 	if (
 		contract.charter.includedWorkflowIds.length !== contract.workflows.length ||
 		new Set(contract.charter.includedWorkflowIds).size !==
@@ -732,20 +718,6 @@ export function validateDesignGraph(
 				"record",
 			);
 		}
-		workflow.prerequisiteWorkflowIds.forEach((id, index) => {
-			expect(
-				workflows,
-				id,
-				["workflows", workflowIndex, "prerequisiteWorkflowIds", index],
-				"workflow",
-			);
-			if (id === workflow.id)
-				issue(
-					ctx,
-					["workflows", workflowIndex, "prerequisiteWorkflowIds", index],
-					"A workflow cannot depend on itself.",
-				);
-		});
 		const handles = new Set<string>();
 		for (const [collection, entries] of [
 			["inputs", workflow.inputs],
@@ -895,32 +867,6 @@ export function validateDesignGraph(
 		});
 	}
 
-	/* Workflow dependencies must be acyclic. Shared prerequisite closures are
-	 * valid, so only a back edge to the active recursion stack is a cycle. */
-	const workflowById = new Map<string, AppDesignContract["workflows"][number]>(
-		contract.workflows.map((value) => [value.id, value]),
-	);
-	const workflowState = new Map<string, "active" | "complete">();
-	const visitWorkflow = (id: string): boolean => {
-		const state = workflowState.get(id);
-		if (state === "active") return true;
-		if (state === "complete") return false;
-		workflowState.set(id, "active");
-		const cyclic = (workflowById.get(id)?.prerequisiteWorkflowIds ?? []).some(
-			visitWorkflow,
-		);
-		workflowState.set(id, "complete");
-		return cyclic;
-	};
-	for (const [index, workflow] of contract.workflows.entries()) {
-		if (visitWorkflow(workflow.id))
-			issue(
-				ctx,
-				["workflows", index, "prerequisiteWorkflowIds"],
-				"Workflow prerequisites must not form a cycle.",
-			);
-	}
-
 	contract.lists.forEach((list, listIndex) => {
 		list.actorIds.forEach((id, index) => {
 			expect(actors, id, ["lists", listIndex, "actorIds", index], "actor");
@@ -966,7 +912,7 @@ export function validateDesignGraph(
 		issue(
 			ctx,
 			["moduleCompositions"],
-			"Workflow and module construction prerequisites must not form a cycle.",
+			"Menu and form construction dependencies must not form a cycle.",
 		);
 	}
 	if (
@@ -1123,26 +1069,6 @@ export function validateDesignGraph(
 							ctx,
 							["moduleCompositions", compositionIndex, "hostRecordId"],
 							"A different-record child menu must be owned by the same workflow as or a later workflow than the parent menu's first form, so the parent case selection exists before the child is built.",
-						);
-					}
-					const firstChildWriter = parentFormChildWriterWorkflowIds(
-						contract,
-						parent.id,
-						composition.hostRecordId,
-					).sort(
-						(left, right) =>
-							(workflowRank.get(left) ?? Number.MAX_SAFE_INTEGER) -
-							(workflowRank.get(right) ?? Number.MAX_SAFE_INTEGER),
-					)[0];
-					if (
-						firstChildWriter !== undefined &&
-						(workflowRank.get(childOwner) ?? Number.MAX_SAFE_INTEGER) >
-							(workflowRank.get(firstChildWriter) ?? Number.MAX_SAFE_INTEGER)
-					) {
-						issue(
-							ctx,
-							["moduleCompositions", compositionIndex, "hostRecordId"],
-							"A child menu that displays cases created by a parent-menu form must be owned by the same workflow as or an earlier workflow than the first such form, so its required viewer exists before that form is built.",
 						);
 					}
 				}

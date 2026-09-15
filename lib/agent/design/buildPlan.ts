@@ -30,6 +30,7 @@ import {
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import { deriveConstructionSchedule } from "./constructionOwnership";
 import { assignReadWorkflowOwners } from "./readWorkflows";
+import { workflowDataReferences } from "./workflowReferences";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -250,6 +251,10 @@ function deriveOwnerByElement(
 				(rank.get(b) ?? Number.MAX_SAFE_INTEGER),
 		)[0] ?? initial;
 	const ownerByElement = new Map<string, string>();
+	const dataReferences = contract.workflows.map((workflow) => ({
+		workflowId: workflow.id,
+		...workflowDataReferences(contract, workflow),
+	}));
 	const moduleOwnersByListId = new Map<string, string[]>();
 	for (const composition of contract.moduleCompositions) {
 		const moduleOwner = moduleOwnerById.get(composition.id) ?? initial;
@@ -294,43 +299,24 @@ function deriveOwnerByElement(
 		);
 	}
 	for (const record of contract.records) {
-		const references = contract.workflows.filter(
-			(workflow) =>
-				workflow.contextRecordId === record.id ||
-				workflow.recordEffects.some(
-					(effect) =>
-						effect.recordId === record.id ||
-						effect.sourceRecordId === record.id,
-				) ||
-				workflow.readback.some((readback) => readback.recordId === record.id),
-		);
-		const creators = references.filter((workflow) =>
-			workflow.recordEffects.some(
-				(effect) => effect.recordId === record.id && effect.kind === "create",
-			),
-		);
+		// A catalog entry is needed when its first form or list is built, even
+		// if a later workflow is the first one that creates a record instance.
 		ownerByElement.set(
 			record.id,
-			earliest(
-				(creators.length > 0 ? creators : references).map(
-					(workflow) => workflow.id,
-				),
-			),
+			earliest([
+				...dataReferences
+					.filter((references) => references.recordIds.has(record.id))
+					.map((references) => references.workflowId),
+				...contract.moduleCompositions
+					.filter((module) => module.hostRecordId === record.id)
+					.flatMap((module) => moduleOwnerById.get(module.id) ?? []),
+			]),
 		);
+
 		for (const property of record.properties) {
-			const directUsers = contract.workflows.filter(
-				(workflow) =>
-					workflow.inputs.some((input) => input.propertyId === property.id) ||
-					workflow.decisions.some((decision) =>
-						decision.inputPropertyIds.includes(property.id),
-					) ||
-					workflow.recordEffects.some((effect) =>
-						effect.writes.some((write) => write.propertyId === property.id),
-					) ||
-					workflow.readback.some((readback) =>
-						readback.propertyIds.includes(property.id),
-					),
-			);
+			const directUsers = dataReferences
+				.filter((references) => references.propertyIds.has(property.id))
+				.map((references) => references.workflowId);
 			const listUsers = contract.lists
 				.filter((list) =>
 					[
@@ -343,10 +329,36 @@ function deriveOwnerByElement(
 					const owner = listOwnerById.get(list.id);
 					return owner === undefined ? [] : [owner];
 				});
+			ownerByElement.set(property.id, earliest([...directUsers, ...listUsers]));
+		}
+	}
+	// Property consumers and child catalogs also need their record types. Move
+	// catalog ownership earlier without moving the worker's forms or tasks.
+	for (const record of contract.records) {
+		ownerByElement.set(
+			record.id,
+			earliest([
+				ownerByElement.get(record.id) ?? initial,
+				...record.properties.flatMap(
+					(property) => ownerByElement.get(property.id) ?? [],
+				),
+			]),
+		);
+	}
+	const recordById = new Map<string, AppDesignContract["records"][number]>(
+		contract.records.map((record) => [record.id, record]),
+	);
+	for (const record of contract.records) {
+		const owner = ownerByElement.get(record.id) ?? initial;
+		const seen = new Set<string>([record.id]);
+		let parentId = record.parentRecordId;
+		while (parentId !== undefined && !seen.has(parentId)) {
+			seen.add(parentId);
 			ownerByElement.set(
-				property.id,
-				earliest([...directUsers.map((workflow) => workflow.id), ...listUsers]),
+				parentId,
+				earliest([owner, ownerByElement.get(parentId) ?? initial]),
 			);
+			parentId = recordById.get(parentId)?.parentRecordId;
 		}
 	}
 	for (const list of contract.lists) {
@@ -390,6 +402,7 @@ function requiredPrerequisiteWorkflowIds(
 	contract: AppDesignContract,
 	orderedWorkflowIds: readonly string[],
 	constructionPrerequisites: ReadonlyMap<string, ReadonlySet<string>>,
+	ownerByElement: ReadonlyMap<string, string>,
 ): Map<string, string[]> {
 	const required = new Map(
 		[...constructionPrerequisites].map(([id, dependencies]) => [
@@ -397,6 +410,17 @@ function requiredPrerequisiteWorkflowIds(
 			new Set(dependencies),
 		]),
 	);
+	for (const workflow of contract.workflows) {
+		const { recordIds, propertyIds } = workflowDataReferences(
+			contract,
+			workflow,
+		);
+		for (const id of [...recordIds, ...propertyIds]) {
+			const owner = ownerByElement.get(id);
+			if (owner !== undefined && owner !== workflow.id)
+				required.get(workflow.id)?.add(owner);
+		}
+	}
 	/* Module selection is realized only after every affected case-loading form
 	 * exists. Choose the latest covered workflow in the same deterministic order
 	 * used for slices, then make every other covered workflow its prerequisite.
@@ -621,6 +645,7 @@ function deriveBuildPlanProjection(args: DeriveBuildPlanArgs): BuildPlan {
 		contract,
 		orderedWorkflowIds,
 		schedule.prerequisites,
+		ownerByElement,
 	);
 	assignReadWorkflowOwners({
 		contract,

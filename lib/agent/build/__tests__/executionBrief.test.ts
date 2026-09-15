@@ -76,6 +76,72 @@ describe("deriveSliceExecutionBrief", () => {
 		).toEqual(choices);
 	});
 
+	it.each(["flat", "sectioned"] as const)(
+		"carries a %s form's saved summary before a later writer owns any work",
+		(layout) => {
+			const contract = makeWorkflowChainContract(2);
+			const [record, laterRecord] = contract.records;
+			const [first, later] = contract.workflows;
+			const savedValue = laterRecord.properties[0];
+			record.properties.push(savedValue);
+			contract.records = [record];
+			first.contextRecordId = record.id;
+			first.recordEffects[0].kind = "update";
+			later.recordEffects[0].recordId = record.id;
+			later.readback[0].recordId = record.id;
+			const module = contract.moduleCompositions[0];
+			module.workflowIds.push(later.id);
+			contract.moduleCompositions = [module];
+			const [firstForm, laterForm] = contract.formCompositions;
+			firstForm.mode = "selected-record";
+			laterForm.moduleCompositionId = module.id;
+			if (firstForm.layout.kind !== "flat")
+				throw new Error("Expected a flat fixture");
+			const items = [
+				{
+					kind: "record-summary" as const,
+					id: did(9800),
+					recordId: record.id,
+					propertyIds: [savedValue.id],
+					purpose: "Show the saved value before updating this record.",
+				},
+				...firstForm.layout.items,
+			];
+			firstForm.layout =
+				layout === "flat"
+					? { ...firstForm.layout, items }
+					: {
+							kind: "sectioned",
+							rationale: "Read the saved context before entering the update.",
+							sections: [
+								{
+									id: did(9801),
+									headingMarkdown: "Current record",
+									purpose: "Review and update the record.",
+									items,
+								},
+							],
+						};
+			const plan = deriveBuildPlan({ contract, revision: REVISION });
+			const firstSlice = plan.slices[0];
+			expect(firstSlice.workflowId).toBe(first.id);
+			expect(
+				firstSlice.constructionGroups.flatMap((group) => group.elements),
+			).toContainEqual({ kind: "property", id: savedValue.id });
+			const brief = deriveSliceExecutionBrief({
+				contract,
+				revision: REVISION,
+				plan,
+				sliceId: firstSlice.id,
+			});
+			expect(brief.records[0].properties).toContainEqual(savedValue);
+			expect(
+				first.readback.flatMap((entry) => entry.propertyIds),
+			).not.toContain(savedValue.id);
+			expect(plan.slices[1].prerequisiteSliceIds).toContain(firstSlice.id);
+		},
+	);
+
 	it("carries destination access with its menu's workflow", () => {
 		const contract = makeWorkflowChainContract(3);
 		contract.actors.push(fixtureValue(makeContract().actors[1], "supervisor"));
@@ -417,8 +483,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"visit workflow",
 		);
-		visit.prerequisiteWorkflowIds = [];
-		visit.prerequisites = [];
+
+		visit.startingConditions = [];
 		contract.workflows = [visit];
 		contract.charter.includedWorkflowIds = [ids.taskVisit];
 		contract.charter.initialWorkflowId = ids.taskVisit;
@@ -465,8 +531,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"visit workflow",
 		);
-		visit.prerequisiteWorkflowIds = [];
-		visit.prerequisites = [];
+
+		visit.startingConditions = [];
 		contract.workflows = [visit];
 		contract.charter.includedWorkflowIds = [ids.taskVisit];
 		contract.charter.initialWorkflowId = ids.taskVisit;
@@ -636,8 +702,8 @@ describe("deriveSliceExecutionBrief", () => {
 			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
 			"child workflow",
 		);
-		childWorkflow.prerequisiteWorkflowIds = [];
-		childWorkflow.prerequisites = [];
+
+		childWorkflow.startingConditions = [];
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
 		const slice = fixtureValue(
 			plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
@@ -926,17 +992,8 @@ describe("deriveSliceExecutionBrief", () => {
 					action: position === index ? "create" : "reuse",
 				})),
 			);
-			expect(brief.prerequisiteWorkflows).toEqual(
-				index === 0
-					? []
-					: [
-							{
-								id: did(3000 + index - 1),
-								name: `Workflow ${index}`,
-								goal: `Complete workflow ${index}.`,
-							},
-						],
-			);
+			expect(brief.prerequisiteWorkflows).toEqual([]);
+
 			expect(brief.lists).toEqual([]);
 			expect(brief.access).toEqual([]);
 			expect(brief.externalRequirements).toEqual([]);
@@ -949,8 +1006,7 @@ describe("deriveSliceExecutionBrief", () => {
 	it("carries the materialized preceding sibling into a later root-module brief", () => {
 		const contract = makeThirteenWorkflowContract();
 		for (const workflow of contract.workflows) {
-			workflow.prerequisiteWorkflowIds = [];
-			workflow.prerequisites = [];
+			workflow.startingConditions = [];
 		}
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
 		const secondSlice = fixtureValue(

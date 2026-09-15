@@ -25,6 +25,7 @@ import {
 	makeLookupContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
+	makeWorkflowChainContract,
 	messageRef,
 } from "./fixtures";
 
@@ -178,35 +179,21 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("rejects a child viewer built after a parent-menu form creates its cases", () => {
-		const contract = cloneContract(makeNestedMenuContract());
-		const child = fixtureValue(
-			contract.moduleCompositions.find(
-				(composition) => composition.id === ids.moduleVisits,
-			),
-			"child module composition",
-		);
-		child.hostRecordId = ids.recVisit;
-		const parentWriter = fixtureValue(
-			contract.workflows.find((workflow) => workflow.id === ids.taskRegister),
-			"parent writer workflow",
-		);
-		const visitCreate = fixtureValue(
-			contract.workflows
-				.find((workflow) => workflow.id === ids.taskVisit)
-				?.recordEffects.find(
-					(effect) =>
-						effect.kind === "create" && effect.recordId === ids.recVisit,
-				),
-			"visit create effect",
-		);
-		parentWriter.recordEffects.push({
-			...structuredClone(visitCreate),
-			handle: "create_visit_from_registration",
+	it("rejects an initial child writer whose only viewer needs a later form", () => {
+		const contract = makeWorkflowChainContract(2);
+		const [parent, child] = contract.records;
+		child.parentRecordId = parent.id;
+		child.relationshipMeaning = "Each child belongs to its parent.";
+		expect(messages(contract)).toBe("");
+		contract.workflows[0].recordEffects.push({
+			handle: "create_child",
+			recordId: child.id,
+			kind: "create",
+			writes: [],
+			outcome: "A child is saved with its parent.",
 		});
-
-		expect(messages(contract)).toContain(
-			"must be owned by the same workflow as or an earlier workflow than the first such form",
+		expect(messages(contract)).toBe(
+			"The initial workflow must not depend on another workflow to construct its module or forms.",
 		);
 	});
 
@@ -685,11 +672,7 @@ describe("lean Design Contract graph", () => {
 		]);
 	});
 
-	it("rejects workflow dependency cycles and duplicate local handles", () => {
-		const cycle = cloneContract(makeContract());
-		cycle.workflows[0]?.prerequisiteWorkflowIds.push(ids.taskVisit);
-		expect(messages(cycle)).toContain("must not form a cycle");
-
+	it("rejects duplicate local handles", () => {
 		const handles = cloneContract(makeContract());
 		const workflow = handles.workflows[0];
 		if (!workflow) throw new Error("fixture workflow missing");
@@ -702,20 +685,18 @@ describe("lean Design Contract graph", () => {
 		expect(messages(handles)).toContain("handles must be unique");
 	});
 
-	it("accepts convergent workflow dependencies and requires a root first workflow", () => {
+	it("admits related worker tasks without interpreting them as a build schedule", () => {
 		const diamond = cloneContract(makeContract());
 		const visit = fixtureValue(diamond.workflows[1], "visit workflow");
 		const parallel = {
 			...structuredClone(visit),
 			id: did(801),
 			name: "Parallel visit preparation",
-			prerequisiteWorkflowIds: [ids.taskRegister],
 		};
 		const convergent = {
 			...structuredClone(visit),
 			id: did(802),
 			name: "Convergent follow-up",
-			prerequisiteWorkflowIds: [ids.taskVisit, parallel.id],
 		};
 		diamond.workflows.push(parallel, convergent);
 		diamond.charter.includedWorkflowIds.push(parallel.id, convergent.id);
@@ -751,12 +732,6 @@ describe("lean Design Contract graph", () => {
 			});
 		}
 		expect(appDesignContractSchema.safeParse(diamond).success).toBe(true);
-
-		const dependentRoot = cloneContract(makeContract());
-		dependentRoot.charter.initialWorkflowId = ids.taskVisit;
-		expect(messages(dependentRoot)).toContain(
-			"initial workflow must not depend",
-		);
 	});
 
 	it("requires form-only inputs to declare a data shape", () => {

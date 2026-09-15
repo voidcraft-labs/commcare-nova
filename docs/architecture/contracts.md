@@ -409,8 +409,8 @@ may supply labels and let Nova derive codes, or supply explicit codes when their
 values matter. Review and execution receive the accepted pairs. Project lookup
 choices retain their separate source and revision contract.
 
-Current design readers accept contract version 4 and workspace storage version
-5. The [one-time format cutover](design-format-cutover.md) retires incompatible
+Current design readers accept contract version 5 and workspace storage version
+6. The [one-time format cutover](design-format-cutover.md) retires incompatible
 private sessions while preserving canonical apps, conversations and billing.
 Retirement removes a session from typed artifact selection and run authority;
 it never upgrades historical meaning during a read.
@@ -449,13 +449,21 @@ form when every actor can see each requested property. If all of its constructio
 belongs to earlier work, its workflow element joins the last prerequisite's
 group and its requirements remain in that slice's brief. Completion still
 requires the exact nonempty committed receipts for the whole plan.
-Menu membership is worker-facing meaning, not construction ownership. The
-planner may establish an accepted child list with the workflow that first writes
-its records, then add its own forms in their original workflow slices. Graph
-admission uses that same ownership derivation. Ownership is fixed before sorting
-construction dependencies, including each form's module, so scheduling cannot
-change which slice creates a home. Construction cycles and prerequisites for the
-initial workflow are rejected before acceptance. The shared form-creation path
+Worker starting conditions describe the situation in which a task is useful;
+they do not schedule construction. Nova derives dependencies from forms, menu
+homes, selection and shared data definitions. Record catalogs belong to their
+first consumer, including lists, in-form summaries, properties and parent catalogs
+needed by a child. Saving the first record instance need not own its definition.
+Menu membership is worker-facing meaning. Form-only homes belong to their first
+form; accepted lists are claimed when a ready workflow needs them. Readiness is
+read-only and checks menu homes, parent selection and any suitable child viewer.
+The initial workflow has priority, then design order settles ties. Claiming a
+list assigns its needed parent lists and records actual prior-owner dependencies.
+Other lists stay with their first participating workflow or a later parent-ready
+workflow. Later forms keep their own workflows. Graph admission and planning use
+this same derivation, rejecting construction cycles and prerequisites for the
+initial workflow. An unrelated record's explicit creation needs no viewer.
+The shared form-creation path
 converts a viewer into a form-bearing module in one admitted mutation batch;
 a no-matches registration keeps its existing case-list entry behavior.
 External actions are separate from Blueprint effects. Current plan admission
