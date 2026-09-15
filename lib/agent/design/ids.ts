@@ -67,7 +67,7 @@ export function asDesignId(value: string): DesignId {
 
 /**
  * The model-facing symbol grammar for design identities. The design loop's
- * stage tools accept `{ "handle": "@x" }` objects wherever a design-ID slot
+ * stage tools accept `"@x"` strings wherever a design-ID slot
  * appears, and the reviewer's output schema accepts the same bare symbols in
  * its element slots. Lives here (a leaf) so the reviewer schema can share it
  * without importing the loop's tool machinery.

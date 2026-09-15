@@ -49,6 +49,10 @@ import {
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import {
+	mapDesignIdentitySlots,
+	projectDesignIdentityHandles,
+} from "@/lib/agent/design/identityProjection";
+import {
 	DESIGN_HANDLE_PATTERN,
 	DESIGN_IDENTITY_SCHEMA_MARKER,
 	type DesignIdentityHandleEntityKind,
@@ -78,6 +82,7 @@ import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
 import {
 	designRevisionResultSchemaFor,
 	findingBlocksAcceptance,
+	findingDispositionSchema,
 	validateSensitivityNotSilentlyLowered,
 } from "@/lib/agent/design/review";
 import { runDesignReviewer } from "@/lib/agent/design/reviewer";
@@ -316,15 +321,8 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 }
 
 const DESIGN_HANDLE_ARM = {
-	type: "object",
-	properties: {
-		handle: {
-			type: "string",
-			pattern: DESIGN_HANDLE_PATTERN.source,
-		},
-	},
-	required: ["handle"],
-	additionalProperties: false,
+	type: "string",
+	pattern: DESIGN_HANDLE_PATTERN.source,
 } as const;
 
 /** A design-ID string node in the strict wire projection. The marker comes
@@ -343,7 +341,7 @@ function isDesignIdStringNode(node: Record<string, unknown>): boolean {
 
 /** The model names semantic design elements; the server mints their stable
  * UUIDs. Every design-ID slot — required or optional, declaration or
- * reference — widens to `uuid | { handle }` (plus a null arm where the slot
+ * reference — widens to `uuid | @name` (plus a null arm where the slot
  * was optional) so the strict provider grammar can express a handle; a slot
  * left bare would pin the model to raw UUIDs the server then refuses.
  * Persisted schemas remain UUID-only. Only explicitly marked DesignId leaves
@@ -374,157 +372,28 @@ function widenDesignIdsToHandles(node: unknown): unknown {
 	);
 }
 
-function resolveLocalSchemaRef(
-	root: Record<string, unknown>,
-	ref: string,
-): Record<string, unknown> | null {
-	if (!ref.startsWith("#/")) return null;
-	let current: unknown = root;
-	for (const encoded of ref.slice(2).split("/")) {
-		if (!isJsonObject(current)) return null;
-		const key = encoded.replaceAll("~1", "/").replaceAll("~0", "~");
-		current = current[key];
-	}
-	return isJsonObject(current) ? current : null;
-}
-
-function schemaArmMatchesValue(
-	arm: Record<string, unknown>,
-	value: unknown,
-	root: Record<string, unknown>,
-): boolean {
-	const resolved =
-		typeof arm.$ref === "string"
-			? (resolveLocalSchemaRef(root, arm.$ref) ?? arm)
-			: arm;
-	if (resolved.type === "null") return value === null;
-	if (resolved.type === "string") return typeof value === "string";
-	if (resolved.type === "number" || resolved.type === "integer")
-		return typeof value === "number";
-	if (resolved.type === "boolean") return typeof value === "boolean";
-	if (resolved.type === "array") return Array.isArray(value);
-	if (resolved.type !== "object" || !isJsonObject(value)) return false;
-	if (!isJsonObject(resolved.properties)) return true;
-	const discriminators = Object.entries(resolved.properties).filter(
-		(entry): entry is [string, Record<string, unknown>] =>
-			isJsonObject(entry[1]) && "const" in entry[1],
-	);
-	return discriminators.every(([key, schema]) => value[key] === schema.const);
-}
-
-const designIdentityJsonSchemas = new WeakMap<
-	z.ZodType,
-	Record<string, unknown>
->();
-
-function designIdentityJsonSchema(schema: z.ZodType): Record<string, unknown> {
-	const existing = designIdentityJsonSchemas.get(schema);
-	if (existing !== undefined) return existing;
-	const emitted = z.toJSONSchema(schema, { io: "input" }) as Record<
-		string,
-		unknown
-	>;
-	designIdentityJsonSchemas.set(schema, emitted);
-	return emitted;
-}
-
-/** Collect raw UUIDs only from schema-declared DesignId leaves. Union arms
- * are selected by their literal discriminators, so a `tableId` in an
- * existing-lookup arm remains a lookup UUID while the same spelling in a
- * designed-source arm remains a DesignId. */
 function designIdentityOccurrencesForSchema(
 	schema: z.ZodType,
 	value: unknown,
-	path: string,
 ): Array<{ path: string; value: string }> {
-	const root = designIdentityJsonSchema(schema);
 	const occurrences: Array<{ path: string; value: string }> = [];
-	const visit = (
-		node: unknown,
-		entry: unknown,
-		entryPath: string,
-		seenRefs: ReadonlySet<string>,
-	): void => {
-		if (!isJsonObject(node)) return;
-		if (node[DESIGN_IDENTITY_SCHEMA_MARKER] === true) {
-			if (typeof entry === "string" && designIdSchema.safeParse(entry).success)
-				occurrences.push({ path: entryPath, value: entry });
-			return;
-		}
-		if (typeof node.$ref === "string" && !seenRefs.has(node.$ref)) {
-			const resolved = resolveLocalSchemaRef(root, node.$ref);
-			if (resolved !== null)
-				visit(resolved, entry, entryPath, new Set([...seenRefs, node.$ref]));
-			return;
-		}
-		for (const carrier of ["oneOf", "anyOf"] as const) {
-			if (!Array.isArray(node[carrier])) continue;
-			const arms = node[carrier].filter(isJsonObject);
-			const matches = arms.filter((arm) =>
-				schemaArmMatchesValue(arm, entry, root),
-			);
-			for (const arm of matches.length === 1 ? matches : arms) {
-				visit(arm, entry, entryPath, seenRefs);
-			}
-			return;
-		}
-		if (Array.isArray(node.allOf))
-			for (const arm of node.allOf) visit(arm, entry, entryPath, seenRefs);
-		if (Array.isArray(entry) && node.items !== undefined) {
-			entry.forEach((item, index) => {
-				visit(node.items, item, `${entryPath}.${index}`, seenRefs);
-			});
-			return;
-		}
-		if (!isJsonObject(entry) || !isJsonObject(node.properties)) return;
-		for (const [key, childSchema] of Object.entries(node.properties)) {
-			if (!(key in entry)) continue;
-			visit(
-				childSchema,
-				entry[key],
-				entryPath === "" ? key : `${entryPath}.${key}`,
-				seenRefs,
-			);
-		}
-	};
-	visit(root, value, path, new Set());
+	mapDesignIdentitySlots(schema, value, (entry, path) => {
+		if (typeof entry === "string")
+			occurrences.push({ path: path.join("."), value: entry });
+		return entry;
+	});
 	return occurrences;
 }
 
-function stagedDesignIdentityOccurrences(
-	input: Record<string, unknown>,
-): Array<{ path: string; value: string }> {
-	const occurrences: Array<{ path: string; value: string }> = [];
-	if (isJsonObject(input.root))
-		occurrences.push(
-			...designIdentityOccurrencesForSchema(
-				setDesignRootInputSchema,
-				input.root,
-				"root",
-			),
-		);
-	if (!Array.isArray(input.collections)) return occurrences;
-	for (const [index, collection] of input.collections.entries()) {
-		if (!isJsonObject(collection) || typeof collection.collection !== "string")
-			continue;
-		const schema =
-			designCollectionUpdateInputSchemas[
-				collection.collection as keyof typeof designCollectionUpdateInputSchemas
-			];
-		if (schema === undefined) continue;
-		occurrences.push(
-			...designIdentityOccurrencesForSchema(
-				schema,
-				collection,
-				`collections.${index}`,
-			),
-		);
-	}
-	return occurrences;
+function stagedDesignIdentityOccurrences(input: unknown) {
+	return designIdentityOccurrencesForSchema(
+		designArtifactWorkspaceOperationSchema,
+		input,
+	);
 }
 
 /** The exact provider-facing JSON grammar of a handle-widened design tool.
- * Exported so tests can prove the wire admits a handle object everywhere a
+ * Exported so tests can prove the wire admits a name everywhere a
  * design identity is expressible. */
 export function designToolWireSchema(schema: z.ZodType): unknown {
 	return widenDesignIdsToHandles(strictWireJsonSchema(schema));
@@ -535,32 +404,20 @@ function strictWireWithHandles(schema: z.ZodType) {
 }
 
 export function resolveDesignWorkspaceHandles(
+	schema: z.ZodType,
 	value: unknown,
 	designSessionId: string,
 ): unknown {
-	if (Array.isArray(value)) {
-		return value.map((entry) =>
-			resolveDesignWorkspaceHandles(entry, designSessionId),
-		);
-	}
-	if (!isJsonObject(value)) return value;
-	if (
-		Object.keys(value).length === 1 &&
-		typeof value.handle === "string" &&
-		DESIGN_HANDLE_PATTERN.test(value.handle)
-	) {
-		return designIdSchema.parse(
-			deterministicDesignId(
-				`design-workspace-v1:${designSessionId}:${value.handle}`,
-			),
-		);
-	}
-	return Object.fromEntries(
-		Object.entries(value).map(([key, entry]) => [
-			key,
-			resolveDesignWorkspaceHandles(entry, designSessionId),
-		]),
-	);
+	return mapDesignIdentitySlots(schema, value, (entry) => {
+		const handle = handleValue(entry);
+		return handle === null
+			? entry
+			: designIdSchema.parse(
+					deterministicDesignId(
+						`design-workspace-v1:${designSessionId}:${handle}`,
+					),
+				);
+	});
 }
 
 const DESIGN_COLLECTION_ENTITY_KINDS = {
@@ -583,11 +440,8 @@ const DESIGN_COLLECTION_ENTITY_KINDS = {
 >;
 
 function handleValue(value: unknown): string | null {
-	return isJsonObject(value) &&
-		Object.keys(value).length === 1 &&
-		typeof value.handle === "string" &&
-		DESIGN_HANDLE_PATTERN.test(value.handle)
-		? value.handle
+	return typeof value === "string" && DESIGN_HANDLE_PATTERN.test(value)
+		? value
 		: null;
 }
 
@@ -695,22 +549,9 @@ export function collectDesignIdentityHandleBindings(
 }
 
 function collectDesignHandleReferences(value: unknown): string[] {
-	const handles: string[] = [];
-	const visit = (entry: unknown): void => {
-		if (Array.isArray(entry)) {
-			for (const nested of entry) visit(nested);
-			return;
-		}
-		if (!isJsonObject(entry)) return;
-		const handle = handleValue(entry);
-		if (handle !== null) {
-			handles.push(handle);
-			return;
-		}
-		for (const nested of Object.values(entry)) visit(nested);
-	};
-	visit(value);
-	return handles;
+	return stagedDesignIdentityOccurrences(value)
+		.map((entry) => entry.value)
+		.filter((entry) => DESIGN_HANDLE_PATTERN.test(entry));
 }
 
 /** The ledger's marker kind for a handle first seen as a REFERENCE. The
@@ -783,7 +624,7 @@ export function designReservedHandleIssue(
 }
 
 /**
- * Resolve `{ handle: "@f1" }` finding references in a revision stage's
+ * Resolve `"@f1"` finding references in a revision stage's
  * dispositions BEFORE the generic workspace resolver sees them: findings are
  * server-minted identities, not session-deterministic handle mints, so the
  * generic resolver would deterministically produce a WRONG UUID that parses.
@@ -842,28 +683,37 @@ export function resolveDesignFindingHandles(
 
 /** Model-facing projection: persisted artifacts remain UUID-only while every
  * identity with a durable symbol is rendered back through that symbol. */
-export function projectDesignIdentityHandles(
-	value: unknown,
-	bindings: ReadonlyArray<{
-		readonly handle: string;
-		readonly designId: string;
-	}>,
-): unknown {
-	const byId = new Map(
-		bindings.map((binding) => [binding.designId, binding.handle] as const),
-	);
-	const visit = (entry: unknown): unknown => {
-		if (typeof entry === "string") {
-			const handle = byId.get(entry);
-			return handle === undefined ? entry : { handle };
-		}
-		if (Array.isArray(entry)) return entry.map(visit);
-		if (!isJsonObject(entry)) return entry;
-		return Object.fromEntries(
-			Object.entries(entry).map(([key, nested]) => [key, visit(nested)]),
-		);
-	};
-	return visit(value);
+export const designWorkspaceIdentitySchema = appDesignContractBaseSchema.extend(
+	{
+		dispositions: z.array(findingDispositionSchema).optional(),
+	},
+);
+
+function projectDesignInspection(
+	view: ReturnType<typeof inspectDesignWorkspaceCandidate>,
+	bindings: readonly DesignIdentityHandleBinding[],
+) {
+	if (view.kind === "summary") return view;
+	if (view.kind === "root" || view.kind === "sourceRoot")
+		return {
+			...view,
+			root: projectDesignIdentityHandles(
+				setDesignRootInputSchema,
+				view.root,
+				bindings,
+			),
+		};
+	if (view.collection === undefined) return view;
+	const schema =
+		view.collection === "dispositions"
+			? updateFindingDispositionsInputSchema
+			: designCollectionUpdateInputSchemas[view.collection];
+	const projected = projectDesignIdentityHandles(
+		schema,
+		{ upserts: view.items },
+		bindings,
+	) as { upserts: unknown[] };
+	return { ...view, items: projected.upserts };
 }
 
 /** Replace every ledger-bound design UUID in a diagnostic line with the
@@ -1362,7 +1212,7 @@ function parseHandledStage<T>(
 ) {
 	return parseStage(
 		schema,
-		resolveDesignWorkspaceHandles(input, designSessionId),
+		resolveDesignWorkspaceHandles(schema, input, designSessionId),
 	);
 }
 
@@ -1620,16 +1470,22 @@ export function designCreationIdentityIssue(
 	for (const declaration of declarations) {
 		if (
 			typeof declaration.value === "string" &&
+			designIdSchema.safeParse(declaration.value).success &&
 			!existing.has(declaration.value)
 		) {
-			return `${declaration.path} declares a new design identity with a raw UUID. Use a readable handle such as {"handle":"@name"}; raw UUIDs may reference only identities proven to exist in the accepted base.`;
+			return `${declaration.path} declares a new design identity with a raw UUID. Use a readable handle such as "@name"; raw UUIDs may reference only identities proven to exist in the accepted base.`;
 		}
 	}
 	const declarationPaths = new Set(declarations.map(({ path }) => path));
-	const occurrences = stagedDesignIdentityOccurrences(input);
+	// Finding identities have already been resolved against the current review.
+	// They belong to that review, not to the contract's declaration ledger.
+	const { dispositions: _dispositions, ...contractInput } = input;
+	const occurrences = stagedDesignIdentityOccurrences(contractInput);
 	const unknown = occurrences.find(
 		(occurrence) =>
-			!existing.has(occurrence.value) && !declarationPaths.has(occurrence.path),
+			designIdSchema.safeParse(occurrence.value).success &&
+			!existing.has(occurrence.value) &&
+			!declarationPaths.has(occurrence.path),
 	);
 	if (unknown !== undefined) {
 		return `${unknown.path} references an unknown raw design UUID. Use the declared readable handle for new design elements; raw UUIDs may reference only identities proven to exist in the accepted base.`;
@@ -2021,7 +1877,7 @@ export function createDesignLoopActions(
 					});
 					return {
 						ok: true,
-						view: projectDesignIdentityHandles(
+						view: projectDesignInspection(
 							inspectDesignWorkspaceCandidate({
 								kind,
 								candidate: state.candidate,

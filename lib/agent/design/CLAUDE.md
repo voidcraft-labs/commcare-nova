@@ -18,7 +18,7 @@ valid direct Builder or MCP edit.
 ## Authority
 
 - `ids.ts` defines `DesignId`, a UUID brand separate from Blueprint `Uuid`.
-  The design loop's model-facing tools also accept short `@handle` objects;
+  The design loop's model-facing tools also accept short `@handle` strings;
   identities are minted deterministically from (session, handle), so a
   reference and its declaration always converge on one UUID and authoring is
   ORDER-FREE: a forward reference binds eagerly under the ledger's
@@ -28,9 +28,11 @@ valid direct Builder or MCP edit.
   possible. Invented raw UUID declarations still reject, symbols still
   resolve before the unchanged UUID-only schemas parse, and the reserved
   `@f<N>` namespace can never enter a design reference. State and
-  inspection project every bound identity back through its handle. The
+  inspection project bound identities back through their names.
+  `identityProjection.ts` walks schema-declared identity slots for both author
+  and reviewer; literal text is never rebound, even when it equals a name or UUID. The
   semantic update and inspect tools ship `strict: true`. Their provider grammar
-  widens explicitly marked DesignId slots to `uuid | { handle }`, keeping the
+  widens explicitly marked DesignId slots to `uuid | @name`, keeping the
   null arm where the slot was optional. The `x-nova-design-identity` marker is
   consumed before provider serialization; Project lookup, source and media
   UUIDs retain their own canonical identity semantics even in same-named slots.

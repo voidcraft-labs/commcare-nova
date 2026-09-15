@@ -4,18 +4,18 @@
 		"version": "build-executor-v21"
 	},
 	"designInstructions": {
-		"digest": "623036c363e3e7a41988e1f9bdc22e94e7680ec1272180f8342cccec8fd4a9fd",
-		"version": "design-agent-v30"
+		"digest": "45c5b3c6f9aaa9128fc0bf165dabf339f74f54739ba19ccb70f27996b07b5c9e",
+		"version": "design-agent-v31"
 	},
 	"designReviewerSystem": {
 		"digest": "40969318f4a7b49975c6ec96bfdfef63da37b4efac19f03d9ef1bbeaf7072dff",
-		"version": "design-reviewer-v20"
+		"version": "design-reviewer-v21"
 	},
 	"extractSystem": {
 		"digest": "39df659a59ec1a50aa7fff1686f8456cef8811a8a391e32c817605fb50a821e5",
 		"version": 4
 	},
-	"designToolsetDigest": "a379de0fc0e91eb56ea8d6c0f90f3787969d6e0948a347c127971bcd3c2edfff",
+	"designToolsetDigest": "054640eea9abd2530cb2ce6ac2b83b432e78b56ff29155ee980d476b03b94a75",
 	"designToolOrder": [
 		"inspectProjectData",
 		"setDesignRoot",

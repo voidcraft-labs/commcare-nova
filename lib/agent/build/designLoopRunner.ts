@@ -40,6 +40,7 @@ import {
 } from "@/lib/agent/design/artifactWorkspaceStore";
 import {
 	type AppDesignContract,
+	appDesignContractBaseSchema,
 	appDesignContractSchema,
 	type DesignConstructionIssue,
 	designConstructionQuestionRequirements,
@@ -49,6 +50,7 @@ import {
 	type OpenQuestion,
 } from "@/lib/agent/design/contract";
 import type { DesignGenerationContext } from "@/lib/agent/design/designGenerationContext";
+import { projectDesignIdentityHandles } from "@/lib/agent/design/identityProjection";
 import {
 	computeLookupChoiceProjectionAttestation,
 	lookupChoiceAttestationsEqual,
@@ -91,12 +93,13 @@ import {
 	type DesignProjectDataInspectionResult,
 	type DesignProjectDataTable,
 	designToolsetDigest,
+	designWorkspaceIdentitySchema,
 	designWorkspaceLineageForGates,
 	ensureDerivedBuildPlan,
 	type InspectProjectDataInput,
-	projectDesignIdentityHandles,
 } from "@/lib/agent/design/loop/tools";
 import { DESIGN_PROMPT_VERSIONS } from "@/lib/agent/design/prompts";
+import { designFindingSchema } from "@/lib/agent/design/review";
 import { deriveFindingHandleBindings } from "@/lib/agent/design/reviewVocabulary";
 import type {
 	BuildSourcePackageArgs,
@@ -1726,6 +1729,7 @@ export async function runDesignAgentLoop(
 								return openReviews.map((review) => ({
 									summary: review.envelope.payload.summary,
 									findings: projectDesignIdentityHandles(
+										z.array(designFindingSchema),
 										review.envelope.payload.findings,
 										projectionBindings,
 									),
@@ -1742,10 +1746,12 @@ export async function runDesignAgentLoop(
 									workspace.candidate,
 								),
 								candidate: projectDesignIdentityHandles(
+									designWorkspaceIdentitySchema,
 									workspace.candidate,
 									workspace.handleBindings,
 								) as Record<string, unknown>,
 								sourceContract: projectDesignIdentityHandles(
+									appDesignContractBaseSchema,
 									workspace.sourceContract,
 									workspace.handleBindings,
 								) as Record<string, unknown> | null,

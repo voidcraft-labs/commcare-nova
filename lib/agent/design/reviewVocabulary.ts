@@ -65,40 +65,6 @@ export function sourceTagByRefKey(
 	);
 }
 
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/**
- * Render-time projection of a contract (or any JSON) into the reviewer's
- * symbol vocabulary: every string equal to a bound design ID becomes its bare
- * `"@handle"` string. Unbound UUIDs pass through raw — the reviewer schema's
- * element slot accepts either spelling, so a defensive gap in the ledger
- * degrades to today's behavior instead of hiding an element. Junk-tolerant by
- * design: a non-contract value walks through unchanged.
- *
- * Deliberately DISTINCT from the loop's `projectDesignIdentityHandles`, which
- * projects into `{ handle }` objects for the stage-tool grammar; the reviewer
- * emits bare strings, so it reads bare strings.
- */
-export function projectBoundIdsToHandles(
-	value: unknown,
-	bindings: readonly ReviewHandleBinding[],
-): unknown {
-	const byId = new Map(
-		bindings.map((binding) => [binding.designId, binding.handle] as const),
-	);
-	const visit = (entry: unknown): unknown => {
-		if (typeof entry === "string") return byId.get(entry) ?? entry;
-		if (Array.isArray(entry)) return entry.map(visit);
-		if (!isJsonObject(entry)) return entry;
-		return Object.fromEntries(
-			Object.entries(entry).map(([key, nested]) => [key, visit(nested)]),
-		);
-	};
-	return visit(value);
-}
-
 /**
  * Review findings never enter the identity ledger — their handles are this
  * positional projection, recomputable from persisted state anywhere it is
