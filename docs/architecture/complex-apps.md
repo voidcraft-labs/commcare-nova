@@ -2461,17 +2461,17 @@ confirm or the exact blockers to repair.
 
 The accepted design contract describes selection as module behavior, including
 for a form-host module that uses only its default Results screen and has no
-authored work list. Each module setting names the exact selected-record and
-close workflows it affects, whether workers choose one or several cases, and
-the several-case maximum. A queue-only parent's setting also names and governs
-its same-record child consumers. The build compiler makes the final affected
+authored work list. Workers choose one record by default. A module may specify
+several-record selection and its maximum. Nova derives the affected workflows
+from the module's selected-record and close forms. A queue-only parent's setting
+also governs its same-record child consumers. The build compiler makes the final affected
 workflow depend on the others and places one deterministic realization only
 after every relevant form exists; it never enables several-case selection early
 on a registration-only module. A new module may therefore be born with its
 several-case setting and consumer in one call, while a later workflow configures
-an existing module after its final consumer. Stored design contracts normalize
-the earlier one-workflow list hint into exact one-case module coverage at the
-persistence boundary.
+an existing module after its final consumer. Current readers accept only the current design format. The
+[one-time format cutover](design-format-cutover.md) retires obsolete private
+design metadata while preserving canonical apps and data.
 
 Results rows and tiles both support multiple selection. A grouped tile remains
 one selectable group whose selection is its first case; its other body rows are

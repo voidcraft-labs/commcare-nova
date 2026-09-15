@@ -290,7 +290,6 @@ describe("deriveSliceExecutionBrief", () => {
 			"patient module",
 		);
 		module.selection = {
-			workflowIds: [ids.taskVisit],
 			cases: "several",
 			maximum: 12,
 		};
@@ -336,7 +335,6 @@ describe("deriveSliceExecutionBrief", () => {
 		const contract = cloneContract(makeContract());
 		addPatientReviewWorkflow(contract);
 		fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
-			workflowIds: [ids.taskVisit, ids.taskReview],
 			cases: "several",
 			maximum: 12,
 		};
@@ -404,7 +402,6 @@ describe("deriveSliceExecutionBrief", () => {
 			role: "form-host",
 			listIds: [],
 			selection: {
-				workflowIds: [ids.taskVisit],
 				cases: "several",
 				maximum: 8,
 			},
@@ -460,7 +457,6 @@ describe("deriveSliceExecutionBrief", () => {
 		parent.role = "queue-only";
 		parent.workflowIds = [ids.taskVisit];
 		parent.selection = {
-			workflowIds: [ids.taskVisit],
 			cases: "several",
 			maximum: 6,
 		};
@@ -530,6 +526,82 @@ describe("deriveSliceExecutionBrief", () => {
 			),
 		).not.toHaveProperty("selectionRealization");
 		expect(brief.toolProfile.mutationTools).toContain("configureCaseSelection");
+	});
+
+	it("configures a shared parent selection after all consuming siblings, excluding registration", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		addPatientReviewWorkflow(contract);
+		const parent = fixtureValue(contract.moduleCompositions[0], "patient menu");
+		const visit = fixtureValue(contract.moduleCompositions[1], "visit menu");
+		parent.role = "queue-only";
+		parent.selection = { cases: "several", maximum: 6 };
+		delete visit.selection;
+		const registrationId = did(910);
+		const reviewId = did(911);
+		for (const [id, workflowId, name] of [
+			[registrationId, ids.taskRegister, "Register patient"],
+			[reviewId, ids.taskReview, "Review patient"],
+		] as const) {
+			contract.moduleCompositions.push({
+				...structuredClone(visit),
+				id,
+				workflowIds: [workflowId],
+				name,
+			});
+			fixtureValue(
+				contract.formCompositions.find(
+					(form) => form.workflowId === workflowId,
+				),
+				name,
+			).moduleCompositionId = id;
+		}
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const briefs = plan.slices.map((slice) =>
+			deriveSliceExecutionBrief({
+				contract,
+				revision: REVISION,
+				plan,
+				sliceId: slice.id,
+			}),
+		);
+		const visitIndex = plan.slices.findIndex(
+			(slice) => slice.workflowId === ids.taskVisit,
+		);
+		const reviewIndex = plan.slices.findIndex(
+			(slice) => slice.workflowId === ids.taskReview,
+		);
+		expect(reviewIndex).toBeGreaterThan(visitIndex);
+		expect(
+			fixtureValue(plan.slices[reviewIndex], "review slice")
+				.prerequisiteSliceIds,
+		).toContain(fixtureValue(plan.slices[visitIndex], "visit slice").id);
+		const configured = briefs.flatMap((brief, index) =>
+			brief.moduleRealizations.flatMap((module) =>
+				module.selectionRealization
+					? [
+							{
+								index,
+								id: module.compositionId,
+								selection: module.selectionRealization,
+							},
+						]
+					: [],
+			),
+		);
+		expect(configured).toHaveLength(3);
+		expect(configured.map((entry) => entry.id)).toEqual([
+			parent.id,
+			visit.id,
+			reviewId,
+		]);
+		for (const entry of configured) {
+			expect(entry.index).toBe(reviewIndex);
+			expect(entry.selection).toMatchObject({
+				workflowIds: [ids.taskVisit, ids.taskReview],
+				cases: "several",
+				maximum: 6,
+			});
+		}
 	});
 
 	it("carries parent and sibling closure into a child menu brief", () => {

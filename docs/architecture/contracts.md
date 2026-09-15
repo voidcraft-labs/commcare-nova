@@ -404,8 +404,8 @@ there is no parallel navigation intent. The execution brief includes a menu's
 access and actors for its construction owner and hosted workflows, without
 copying policies from unrelated placement anchors.
 
-Current design readers accept contract version 2 and workspace storage version
-3. The [one-time format cutover](design-format-cutover.md) retires incompatible
+Current design readers accept contract version 3 and workspace storage version
+4. The [one-time format cutover](design-format-cutover.md) retires incompatible
 private sessions while preserving canonical apps, conversations and billing.
 Retirement removes a session from typed artifact selection and run authority;
 it never upgrades historical meaning during a read.

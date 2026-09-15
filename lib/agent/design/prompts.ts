@@ -17,8 +17,8 @@ import {
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v36",
-	reviewer: "design-reviewer-v25",
+	agent: "design-agent-v37",
+	reviewer: "design-reviewer-v26",
 	planner: "design-plan-v8",
 } as const;
 
@@ -72,7 +72,7 @@ ${SOURCE_DATA_CONTRACT}
 
 ${DESIGN_QUALITY_GUIDANCE}
 
-Read each workflow from the worker's starting situation through submission and the next action. Check the data relationships and effects, access, lists and searches, connectivity assumptions, and external dependencies against its promised outcome. Review the form and menu experience even when the data model has more serious defects. A valid data model alone does not make a useful app. For a several-case module, the same answers must be appropriate for every affected selected-record and close workflow; selection.workflowIds must name all of them, including consumers without a custom list.
+Read each workflow from the worker's starting situation through submission and the next action. Check the data relationships and effects, access, lists and searches, connectivity assumptions, and external dependencies against its promised outcome. Review the form and menu experience even when the data model has more serious defects. A valid data model alone does not make a useful app. Workers select one record by default. When a module allows several, the same answers must be appropriate for every selected-record and close form it contains, including same-record child forms beneath a queue-only parent.
 
 Review existing choice sources using their server-bound names, revision, and quality metrics. Nova verifies the full projection; the author does not supply that proof. Check that any proposed shared-table change has relevant approval evidence and an honest impact statement. Drafts have no Project-data effects.
 

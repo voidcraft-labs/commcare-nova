@@ -170,7 +170,6 @@ describe("deterministic build planning", () => {
 		const contract = cloneContract(makeContract());
 		addPatientReviewWorkflow(contract);
 		fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
-			workflowIds: [ids.taskVisit, ids.taskReview],
 			cases: "several",
 			maximum: 12,
 		};
@@ -267,7 +266,7 @@ describe("deterministic build planning", () => {
 		parent.listIds = [parentList.id];
 		parentForm.mode = "selected-record";
 		parentFormOwner.contextRecordId = parent.hostRecordId;
-		parent.selection = { workflowIds: [parentFormOwner.id], cases: "one" };
+		parent.selection = { cases: "one" };
 		delete displaced.hostRecordId;
 		parentOwnerForm.mode = "standalone";
 		parentForm.moduleCompositionId = parent.id;
@@ -334,7 +333,7 @@ describe("deterministic build planning", () => {
 			writerForm.moduleCompositionId = parent.id;
 			writerForm.mode = "selected-record";
 			writer.contextRecordId = parent.hostRecordId;
-			parent.selection = { workflowIds: [writer.id], cases: "one" };
+			parent.selection = { cases: "one" };
 			contract.moduleCompositions.splice(2, 1);
 			writerEffect.recordId = fixtureValue(
 				child.hostRecordId,

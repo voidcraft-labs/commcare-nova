@@ -23,7 +23,10 @@ import {
 	buildPlanLookupMaterializationSchema,
 } from "@/lib/agent/design/lookupMaterializationTypes";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
-import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
+import {
+	moduleSelectionIntent,
+	selectionRealizationWorkflowId,
+} from "@/lib/agent/design/selectionCoverage";
 import { canonicalJsonText } from "@/lib/utils/canonicalJson";
 import { deriveConstructionSchedule } from "./constructionOwnership";
 import { assignReadWorkflowOwners } from "./readWorkflows";
@@ -400,13 +403,14 @@ function requiredPrerequisiteWorkflowIds(
 	 * This adds no cycle: a prerequisite always precedes its dependent in that
 	 * topological order. */
 	for (const composition of contract.moduleCompositions) {
-		if (composition.selection === undefined) continue;
+		const selection = moduleSelectionIntent(contract, composition);
+		if (selection === undefined) continue;
 		const realizationWorkflowId = selectionRealizationWorkflowId(
-			composition.selection.workflowIds,
+			selection.workflowIds,
 			orderedWorkflowIds,
 		);
 		if (realizationWorkflowId === undefined) continue;
-		for (const workflowId of composition.selection.workflowIds) {
+		for (const workflowId of selection.workflowIds) {
 			if (workflowId !== realizationWorkflowId) {
 				required.get(realizationWorkflowId)?.add(workflowId);
 			}

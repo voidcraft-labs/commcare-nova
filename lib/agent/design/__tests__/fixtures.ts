@@ -87,7 +87,7 @@ export const ids = {
 
 export function makeContract(): AppDesignContract {
 	return appDesignContractSchema.parse({
-		schemaVersion: 2,
+		schemaVersion: 3,
 		id: ids.contract,
 		charter: {
 			appName: "CHW patient visits",
@@ -328,7 +328,6 @@ export function makeContract(): AppDesignContract {
 					"Give workers one patient-centered home for registration, selection, and follow-up.",
 				role: "form-and-queue",
 				selection: {
-					workflowIds: [ids.taskVisit],
 					cases: "one",
 				},
 				workflowIds: [ids.taskRegister, ids.taskVisit],
@@ -523,9 +522,7 @@ export function cloneContract(contract: AppDesignContract): AppDesignContract {
 	return structuredClone(contract);
 }
 
-/** Add a second patient-context form workflow to exercise module-wide
- * selection coverage. Callers choose the final selection workflowIds after
- * adding it. */
+/** Add a second patient-context form workflow to exercise derived selection coverage. */
 export function addPatientReviewWorkflow(contract: AppDesignContract): void {
 	const visitWorkflow = fixtureValue(
 		contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
@@ -593,7 +590,6 @@ export function makeNestedMenuContract(): AppDesignContract {
 		parentModuleCompositionId: parent.id,
 		role: "form-host",
 		selection: {
-			workflowIds: [ids.taskVisit],
 			cases: "one",
 		},
 		workflowIds: [ids.taskVisit],

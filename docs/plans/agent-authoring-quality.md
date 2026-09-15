@@ -1,7 +1,7 @@
 **Improve agent authoring**
 
 Status: implementation authorized and in progress. Research and baseline
-measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $11.9643 across 157 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
+measurements are complete. Slice 1's [comparisons and interface decision](../research/agent-authoring-pilot-2026-09-12.md) are independently reviewed with all CI green in [PR #586](https://github.com/voidcraft-labs/commcare-nova/pull/586). Native tools are the selected direction: agents author wording and expressions as text; Nova binds names to canonical identities. The earlier proposal to expose typed reference parts was rejected as unnecessary agent work. Both native and hosted JavaScript candidates completed the corrected client workflow and repair scenarios. This establishes feasibility for that narrow task, not general quality or feature coverage. Total conservative model spend is $21.1575 across 193 completed generation requests, with no pending reservations. Slice 2 must finish the remaining authoring surface before this stack lands. The delivery endpoint is a PR or
 PR stack with independent subagent review for every slice and all required CI
 green; merge is not authorized yet.
 
@@ -120,7 +120,9 @@ The reviewed, green stack has shipped the implementation to PRs, pending merge:
 [role context and discovery #597](https://github.com/voidcraft-labs/commcare-nova/pull/597),
 [construction ownership #598](https://github.com/voidcraft-labs/commcare-nova/pull/598),
 [one menu model and format retirement #599](https://github.com/voidcraft-labs/commcare-nova/pull/599),
-and [stable source labels #600](https://github.com/voidcraft-labs/commcare-nova/pull/600).
+[stable source labels #600](https://github.com/voidcraft-labs/commcare-nova/pull/600),
+and [read-only workflows #602](https://github.com/voidcraft-labs/commcare-nova/pull/602).
+These 16 Nova PRs form native GitHub stack #601; all 24 checks on each PR are green.
 The matching [plugin PR #58](https://github.com/voidcraft-labs/nova-plugin/pull/58)
 is also reviewed and green. None is merged.
 
@@ -137,7 +139,7 @@ The duplicate navigation collection is gone. Menus carry their own hierarchy,
 actors and access; the server owns contract and workspace format metadata.
 The separate scan and retirement command replaces old-format replay and the
 narrower evidence repair while preserving apps, conversations and billing.
-PR #599 has two independent reviews and all 19 CI checks green.
+PR #599 has two independent reviews and all 24 CI checks green.
 
 PR #600 gives authors and reviewers stable source labels. Tool inputs,
 source messages, claims, candidates and findings use those labels; Nova binds
@@ -146,17 +148,24 @@ or figure, and existing source, consent and Project-data checks remain in place.
 Repeated continuation prose also leaves the state packet. The lookup tool's
 local estimate falls from 8,337 to 5,492 tokens; the design tool catalog from
 24,101 to 21,256. Its final head `baf7877e` is independently reviewed and all
-19 CI checks are green.
+24 CI checks are green.
 
 The [third garden trial](../research/agent-design-read-workflows-2026-09-13.md)
 passed its first structural submission and reached independent review, but
 stopped at the 24-request cap with no accepted app. Nova forced a form onto the
-author's read-only history workflow. The current slice admits complete list and
-detail tasks, then assigns a read task already implemented by earlier
-construction to that work's existing group. Its requirements remain in the
-execution brief without an empty executor slice. Local replay of the exact
-candidate now passes; independent review, full CI and an end-to-end app trial
-remain before this slice is complete.
+author's read-only history workflow. PR #602 admits complete list and detail tasks, then assigns a read task
+already implemented by earlier construction to that work's existing group. Its
+requirements remain in the execution brief without an empty executor slice.
+Local replay passes, independent review is complete, and all 24 CI checks are green.
+
+The [fourth garden trial](../research/agent-design-selection-2026-09-13.md) reached
+three drafts and reviews, then stopped at its 36-request cap without an app.
+It exposed an impossible review request to maintain a redundant selection
+workflow list, missing support for explicit choice wording, ambiguity between
+construction order and worker prerequisites, and accumulated duplicate state.
+The current slice derives selection consumers and supplies the ordinary
+one-record default. Choice wording, current context and end-to-end app quality
+remain open; another paid trial should test those improvements together.
 
 Remaining tool design, deterministic construction, other role context
 and broader quality evidence stay open. Local tokenizer estimates do not prove

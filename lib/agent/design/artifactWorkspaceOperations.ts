@@ -22,6 +22,7 @@ import {
 } from "@/lib/agent/design/contract";
 import { designIdSchema } from "@/lib/agent/design/ids";
 import { findingDispositionSchema } from "@/lib/agent/design/review";
+import { DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION } from "./formats";
 import {
 	canonicalMenuOrder,
 	type DesignMenu,
@@ -311,8 +312,6 @@ export const designArtifactWorkspaceOperationSchema = z.discriminatedUnion(
 export type DesignArtifactWorkspaceOperation = z.infer<
 	typeof designArtifactWorkspaceOperationSchema
 >;
-
-const DESIGN_WORKSPACE_OPERATION_STORAGE_VERSION = 3;
 
 const storedDesignArtifactWorkspaceOperationSchema = z
 	.object({

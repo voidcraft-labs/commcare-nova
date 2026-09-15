@@ -64,7 +64,6 @@ function brief(): SliceExecutionBrief {
 function severalVisitBrief(): SliceExecutionBrief {
 	const contract = cloneContract(makeContract());
 	fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
-		workflowIds: [ids.taskVisit],
 		cases: "several",
 		maximum: 12,
 	};
