@@ -35,10 +35,14 @@
  * while a writer waits for its row: the writer, parked on the session row
  * held by the materialization, must resolve to the bound app's holder once
  * that commits rather than reading the cleared session authority as a lost
- * run.
+ * run, and it must give the session row back before it takes the app row
+ * (the Project move holds the app row and then updates the sessions bound to
+ * it, so the reverse order is a deadlock): parked on the app row after that
+ * re-resolution, the writer must leave a holder transition on the session
+ * row free to land.
  */
 import type { UIMessage } from "ai";
-import type { Client } from "pg";
+import { Client } from "pg";
 import { describe, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { loadAppInTransaction } from "../canonicalCommitKernel";
@@ -142,17 +146,12 @@ async function seedLiveThread(
  * `probe` against the authority row from a third session while Postgres
  * reports the snapshot blocked, then release the row and land the snapshot.
  */
-async function whileSnapshotParked(
-	target: GenerationTarget,
-	threadId: string,
-	probe: (
-		contenders: ReturnType<typeof createPerTestAppDb>,
-		controller: Client,
-	) => Promise<{ landed: Promise<unknown> } | undefined>,
-): Promise<void> {
-	/* Every session the contender pool opens from here on (the snapshot's
-	 * and the probes') inherits the bound; the harness pool's session, already
-	 * open, is not used while anything is parked. */
+/**
+ * Bound every statement of every session the contender pool opens from here
+ * on (the parked writer's and the probes'). Sessions already open keep
+ * waiting on purpose.
+ */
+async function boundStatements(): Promise<void> {
 	const bound = await h
 		.pool()
 		.query<{ statement: string }>(
@@ -166,10 +165,42 @@ async function whileSnapshotParked(
 		);
 	}
 	await h.pool().query(statement);
+}
+
+/** Read one session's backend pid. */
+async function backendPid(client: Client): Promise<number> {
+	const row = await client.query<{ pid: number }>(
+		"SELECT pg_backend_pid() AS pid",
+	);
+	const pid = row.rows[0]?.pid;
+	if (typeof pid !== "number") throw new Error("Postgres reported no pid.");
+	return pid;
+}
+
+/** How many backends are waiting on a lock `pid` holds. */
+async function blockedBy(observer: Client, pid: number): Promise<number> {
+	await observer.query("SELECT pg_stat_clear_snapshot()");
+	const blocked = await observer.query<{ count: number }>(
+		"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))",
+		[pid],
+	);
+	return blocked.rows[0]?.count ?? 0;
+}
+
+async function whileSnapshotParked(
+	target: GenerationTarget,
+	threadId: string,
+	probe: (
+		contenders: ReturnType<typeof createPerTestAppDb>,
+		controller: Client,
+		own: (transition: Promise<unknown>) => void,
+	) => Promise<void>,
+): Promise<void> {
+	await boundStatements();
 	const contenders = createPerTestAppDb(h.uri());
 	__setAppDbForTests(contenders.appDb);
-	/* A holder transition the probe started while parked; it may land only
-	 * after the snapshot does. */
+	/* A holder transition the probe started while parked, owned from the
+	 * moment it starts; it may land only after the snapshot does. */
 	let transition: Promise<unknown> | undefined;
 	try {
 		await whileBlocked(
@@ -192,7 +223,9 @@ async function whileSnapshotParked(
 				/* The snapshot holds its authority lock and waits on the thread
 				 * row; the share-mode probes must not wait on it. */
 				expect(settled).toBe(false);
-				transition = (await probe(contenders, controller))?.landed;
+				await probe(contenders, controller, (started) => {
+					transition = started;
+				});
 			},
 		);
 		await transition;
@@ -210,17 +243,20 @@ async function whileSnapshotParked(
 /**
  * Start a holder-transition UPDATE of the authority row and prove Postgres
  * parks it behind the snapshot (the backend the holder is blocking), not
- * behind the holder itself. Handed back still pending, behind a wrapper so
- * nothing awaits it before the release; it lands after the snapshot does.
+ * behind the holder itself. The pending UPDATE is handed to `own` before any
+ * assertion, so the caller's teardown settles it on every outcome; it lands
+ * after the snapshot does.
  */
 async function probeHolderTransitionWaits(
 	controller: Client,
 	update: () => Promise<unknown>,
-): Promise<{ landed: Promise<unknown> }> {
+	own: (transition: Promise<unknown>) => void,
+): Promise<void> {
 	let settled = false;
 	const transition = update().finally(() => {
 		settled = true;
 	});
+	own(transition);
 	await vi.waitFor(async () => {
 		await controller.query("SELECT pg_stat_clear_snapshot()");
 		const waiting = await controller.query<{ count: number }>(
@@ -237,9 +273,6 @@ async function probeHolderTransitionWaits(
 		expect(waiting.rows[0]?.count).toBe(1);
 	});
 	expect(settled).toBe(false);
-	/* Wrapped so the async return does not adopt (and wait on) the pending
-	 * transition itself. */
-	return { landed: transition };
 }
 
 async function probeAppAuthorizationRead(
@@ -287,14 +320,17 @@ describe("thread authority lock strength", () => {
 			await whileSnapshotParked(
 				target,
 				"thread-app-lock",
-				async (contenders, controller) => {
+				async (contenders, controller, own) => {
 					await probeAppAuthorizationRead(contenders, appId);
-					return probeHolderTransitionWaits(controller, () =>
-						contenders.appDb
-							.updateTable("apps")
-							.set({ updated_at: new Date() })
-							.where("id", "=", appId)
-							.execute(),
+					await probeHolderTransitionWaits(
+						controller,
+						() =>
+							contenders.appDb
+								.updateTable("apps")
+								.set({ updated_at: new Date() })
+								.where("id", "=", appId)
+								.execute(),
+						own,
 					);
 				},
 			);
@@ -316,14 +352,17 @@ describe("thread authority lock strength", () => {
 			await whileSnapshotParked(
 				target,
 				"thread-session-lock",
-				async (contenders, controller) => {
+				async (contenders, controller, own) => {
 					await probeStreamChunkAppend(contenders, target, runId);
-					return probeHolderTransitionWaits(controller, () =>
-						contenders.appDb
-							.updateTable("design_sessions")
-							.set({ updated_at: new Date() })
-							.where("id", "=", sessionId)
-							.execute(),
+					await probeHolderTransitionWaits(
+						controller,
+						() =>
+							contenders.appDb
+								.updateTable("design_sessions")
+								.set({ updated_at: new Date() })
+								.where("id", "=", sessionId)
+								.execute(),
+						own,
 					);
 				},
 			);
@@ -350,7 +389,6 @@ describe("thread authority lock strength", () => {
 				async (contenders) => {
 					await probeAppAuthorizationRead(contenders, appId);
 					await probeStreamChunkAppend(contenders, target, runId);
-					return undefined;
 				},
 			);
 		},
@@ -479,6 +517,107 @@ describe("thread authority lock strength", () => {
 			const doc = await loadThread(target, threadId);
 			expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 			expect(doc?.active_stream_id).toBe(STREAM);
+		},
+		CASE_TIMEOUT_MS,
+	);
+
+	it(
+		"a writer that re-resolves to the bound app gives the session row back before taking the app row",
+		async () => {
+			const appId = "app-released-session";
+			const runId = "run-released-session";
+			const threadId = "thread-released-session";
+			await seedHeldApp(appId, runId);
+			const sessionId = await seedHeldSession(runId);
+			const target: GenerationTarget = {
+				kind: "design-session",
+				designSessionId: sessionId,
+			};
+			await boundStatements();
+			const contenders = createPerTestAppDb(h.uri());
+			__setAppDbForTests(contenders.appDb);
+			/* Two holders: the materialization transfer on the session row, and
+			 * a holder transition on the app row the writer re-resolves to. The
+			 * transition's lock is `FOR NO KEY UPDATE`, what an UPDATE takes: it
+			 * blocks the writer's share read but not the key share the transfer's
+			 * own `app_id` foreign-key check needs. */
+			const transfer = new Client({ connectionString: h.uri() });
+			const appHolder = new Client({ connectionString: h.uri() });
+			let outcome: Promise<PromiseSettledResult<boolean>[]> | undefined;
+			try {
+				await transfer.connect();
+				await appHolder.connect();
+				await appHolder.query("BEGIN");
+				await appHolder.query(
+					"SELECT id FROM apps WHERE id = $1 FOR NO KEY UPDATE",
+					[appId],
+				);
+				const appHolderPid = await backendPid(appHolder);
+				await transfer.query("BEGIN");
+				await transfer.query(
+					"SELECT id FROM design_sessions WHERE id = $1 FOR UPDATE",
+					[sessionId],
+				);
+				const transferPid = await backendPid(transfer);
+
+				outcome = Promise.allSettled([
+					upsertThreadTurn({
+						target,
+						threadId,
+						runId,
+						streamId: STREAM,
+						holderNonce: NONCE,
+						threadType: "build",
+						messages: [userMsg("m1", "build me an app")],
+						expectedProjectId: PROJECT,
+					}),
+				]);
+				/* The writer read no app and is parked on the session row. */
+				await vi.waitFor(
+					async () => expect(await blockedBy(transfer, transferPid)).toBe(1),
+					{ timeout: 5_000 },
+				);
+				await transfer.query(
+					`UPDATE design_sessions
+					 SET app_id = $1, state = 'materialized',
+					     run_id = NULL, run_holder_nonce = NULL, run_actor_user_id = NULL,
+					     run_mode = NULL, run_lease_expires_at = NULL,
+					     res_period = NULL, res_reserved = NULL, res_settled = NULL,
+					     res_user_id = NULL, res_run_id = NULL
+					 WHERE id = $2`,
+					[appId, sessionId],
+				);
+				await transfer.query("COMMIT");
+				/* The writer saw the binding, re-resolved, and is now parked on the
+				 * app row. */
+				await vi.waitFor(
+					async () => expect(await blockedBy(appHolder, appHolderPid)).toBe(1),
+					{ timeout: 5_000 },
+				);
+				/* The session row is free: a holder transition on it lands while
+				 * the writer waits for the app. With the session lock still held
+				 * this UPDATE would wait behind the writer until the statement
+				 * bound cancelled it. */
+				await contenders.appDb
+					.updateTable("design_sessions")
+					.set({ updated_at: new Date() })
+					.where("id", "=", sessionId)
+					.execute();
+				await appHolder.query("ROLLBACK");
+			} finally {
+				await transfer.query("ROLLBACK").catch(() => undefined);
+				await appHolder.query("ROLLBACK").catch(() => undefined);
+				await transfer.end();
+				await appHolder.end();
+				if (outcome !== undefined) await outcome;
+				__setAppDbForTests(h.db());
+				await contenders.destroy();
+			}
+			const [landed] = (await outcome) ?? [];
+			if (landed?.status === "rejected") throw landed.reason;
+			expect(landed?.value).toBe(true);
+			const doc = await loadThread(target, threadId);
+			expect(doc?.messages.map((m) => m.id)).toEqual(["m1"]);
 		},
 		CASE_TIMEOUT_MS,
 	);

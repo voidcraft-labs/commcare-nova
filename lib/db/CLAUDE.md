@@ -47,7 +47,13 @@ lock no longer serializes writers of a thread whose row does not exist yet,
 every thread writer takes a per-thread transaction advisory lock
 (`threads.ts::lockThreadIdentity`) between the authority row and the thread
 row, so two same-holder writers creating one fresh thread insert then merge
-instead of colliding. ONE deliberate amendment sits in front of
+instead of colliding. A thread writer never holds the `design_sessions` row
+while acquiring the `apps` row: the Project move holds the app row and then
+updates the session rows bound to it, so that reverse order is a deadlock.
+The pre-app arm of `lockThreadTargetAuthority` therefore re-reads `app_id`
+under its session share lock and, when the session materialized while it
+waited, rolls back to a savepoint to release that lock before re-resolving
+through the bound-app arm (app row, then session row). ONE deliberate amendment sits in front of
 that convention: a transaction that CREATES, claims, reacquires, pauses,
 settles, refunds, reaps, or discards a holder/reservation — on either target
 kind — takes the per-actor generation admission gate FIRST

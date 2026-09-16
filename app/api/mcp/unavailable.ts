@@ -7,11 +7,13 @@
  * is not that. A 503 with `Retry-After` says what is true, the server could
  * not answer just now, and Claude Code treats it as transient and retries.
  * No `WWW-Authenticate`: nothing about the credential is being challenged.
- * The body speaks to the person reading a raw response.
+ * The body speaks to the person reading a raw response and names no cause,
+ * because the shim returns it for anything that stopped the check, not only
+ * the database.
  */
 export function mcpUnavailableResponse(): Response {
 	return new Response(
-		"Nova could not reach its own database while checking this request, so nothing was decided about your credentials and nothing was rejected. Please try again in a few seconds. This clears on its own once the database answers again.",
+		"Nova could not finish checking this request, so nothing was decided about your credentials and nothing was rejected. Please try again in a few seconds.",
 		{
 			status: 503,
 			headers: {
