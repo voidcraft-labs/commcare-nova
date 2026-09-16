@@ -27,7 +27,7 @@
  * than abandoned by a client-side timer.
  *
  * Two more cases cover the edges of the authority resolution. Share
- * strength no longer serializes writers of a thread whose row does not exist
+ * strength does not serialize writers of a thread whose row does not exist
  * yet, so the per-thread identity lock (`lockThreadIdentity`) must: two
  * same-holder writers creating one fresh thread are parked on that identity
  * from a third session, released together, and must both land, one

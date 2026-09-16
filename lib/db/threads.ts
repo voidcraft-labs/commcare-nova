@@ -425,8 +425,11 @@ async function lockThreadTargetAuthority(
 		.executeTakeFirst();
 	if (session?.app_id != null) {
 		/* Materialized while this writer waited: give the session lock back
-		 * and take the bound-app arm in its own order. */
+		 * and take the bound-app arm in its own order. The rollback restarts
+		 * the subtransaction, so it is released too; both arms then continue
+		 * at the same transaction level. */
 		await sql`ROLLBACK TO SAVEPOINT thread_authority`.execute(tx);
+		await sql`RELEASE SAVEPOINT thread_authority`.execute(tx);
 		return lockBoundAppAuthority(tx, target.designSessionId, session.app_id);
 	}
 	await sql`RELEASE SAVEPOINT thread_authority`.execute(tx);
