@@ -33,8 +33,9 @@
  *      message id, and a kept partial would win the richer-version merge
  *      over the retry's growing fold.
  *
- * All writers are row-locked read-modify-writes (`withAppTx` +
- * `FOR UPDATE`), and the merge writers MERGE by message id
+ * All writers are row-locked read-modify-writes (`withAppTx`; the thread
+ * row `FOR UPDATE` behind its identity lock and its authority row, whose
+ * share strength `lockThreadTargetAuthority` explains), and the merge writers MERGE by message id
  * (`mergeTranscript`) rather than rewrite — a stale client or a late barrier
  * can add to a transcript, never erase it (`clawBackThreadResponse` is the
  * one deliberate, triple-guarded exception). The loaders reconcile markers
@@ -311,10 +312,10 @@ export class ThreadAttachmentUnavailableError extends Error {
  * Replace THIS thread's exact conversation media reference set
  * (`thread_media_refs`) in the same transaction as the candidate transcript
  * — the split half of the media projection: Blueprint commits own
- * `media_asset_refs`, thread writes own only their thread's rows. The target
- * lock (app or design-session row) serializes every writer of this thread,
- * while shared asset locks serialize admission against metadata deletion, so
- * a committed carrier and its exact reverse edge cannot diverge.
+ * `media_asset_refs`, thread writes own only their thread's rows. The thread
+ * identity lock (`lockThreadIdentity`) serializes every writer of this
+ * thread, while shared asset locks serialize admission against metadata
+ * deletion, so a committed carrier and its exact reverse edge cannot diverge.
  */
 async function admitExactThreadMediaProjection(
 	tx: Transaction<AppDatabase>,
@@ -357,14 +358,36 @@ type LockedThreadAuthority =
 
 /**
  * Lock one thread target's authority row — the first lock of every thread
- * write (fixed order: authority row → thread row → media assets).
+ * write (fixed order: authority row → thread identity → thread row → media
+ * assets).
  *
- * App target: the app row `FOR UPDATE`, exactly as before. Design-session
- * target: the session's app mapping is resolved WITHOUT a held lock first —
- * a MATERIALIZED (or completed edit) session delegates authority to its
- * bound app, whose row is then the one locked (the mapping is write-once, so
- * the unlocked read cannot go stale in the direction that matters); an
- * active pre-app session locks its own row (§11.7's lock order).
+ * The authority row is held `FOR SHARE`, never `FOR UPDATE`: a thread writer
+ * PROVES the holder and never transitions it. Share strength still excludes
+ * every holder transition — a claim, release, settle, or reap UPDATEs the
+ * row, and an UPDATE waits behind a share lock — so the lease read here
+ * stands for the whole write. What share strength leaves alone is the
+ * row's other share-mode traffic during a run: the `FOR SHARE`
+ * authorization reads every request makes (`appAccess.ts`,
+ * `caseMutationAuthorization.ts`) and the `FOR KEY SHARE` a foreign-key
+ * check takes when `chat_stream_chunks` appends a row for a design-session
+ * target. A transcript write rewrites the whole `messages` column and holds
+ * its transaction for seconds on a long thread; an exclusive authority lock
+ * would park that traffic behind it, and each parked statement holds one of
+ * the instance's few pooled connections, so unrelated requests on the same
+ * instance fail on their acquire timeout. The run's own exclusive writers
+ * (heartbeats, guarded commits, the settle) do still queue for the
+ * rewrite's duration; share strength frees only share-mode traffic.
+ *
+ * App target: the app row. Design-session target: the session's app mapping
+ * is resolved WITHOUT a held lock first — a MATERIALIZED (or completed edit)
+ * session delegates authority to its bound app, whose row is then the one
+ * locked, then the session row (§11.7's lock order); an active pre-app
+ * session locks its own row. The mapping is write-once, so that unlocked
+ * read can go stale in exactly one direction: a session with no app can
+ * materialize while this writer waits for its row. The pre-app arm's locked
+ * read carries `app_id` to see that, releases the session lock it took (a
+ * savepoint), and re-resolves through the bound-app arm, so no writer ever
+ * holds the two rows in the reverse order.
  */
 async function lockThreadTargetAuthority(
 	tx: Transaction<AppDatabase>,
@@ -375,7 +398,7 @@ async function lockThreadTargetAuthority(
 			.selectFrom("apps")
 			.select([...LEASE_COLUMNS, "project_id"])
 			.where("id", "=", target.appId)
-			.forUpdate()
+			.forShare()
 			.executeTakeFirst();
 		if (!app) return null;
 		return {
@@ -391,38 +414,84 @@ async function lockThreadTargetAuthority(
 		.executeTakeFirst();
 	if (!mapping) return null;
 	if (mapping.app_id !== null) {
-		const app = await tx
-			.selectFrom("apps")
-			.select([...LEASE_COLUMNS, "project_id"])
-			.where("id", "=", mapping.app_id)
-			.forUpdate()
-			.executeTakeFirst();
-		if (!app) return null;
-		const session = await tx
-			.selectFrom("design_sessions")
-			.select("state")
-			.where("id", "=", target.designSessionId)
-			.forUpdate()
-			.executeTakeFirst();
-		if (!session || session.state === "retired") return null;
-		return {
-			kind: "app",
-			projectId: app.project_id,
-			lease: runLeaseState(leaseView(app)),
-		};
+		return lockBoundAppAuthority(tx, target.designSessionId, mapping.app_id);
 	}
+	await sql`SAVEPOINT thread_authority`.execute(tx);
 	const session = await tx
 		.selectFrom("design_sessions")
-		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state"])
+		.select([...DESIGN_SESSION_LEASE_COLUMNS, "project_id", "state", "app_id"])
 		.where("id", "=", target.designSessionId)
-		.forUpdate()
+		.forShare()
 		.executeTakeFirst();
+	if (session?.app_id != null) {
+		/* Materialized while this writer waited: give the session lock back
+		 * and take the bound-app arm in its own order. The rollback restarts
+		 * the subtransaction, so it is released too; both arms then continue
+		 * at the same transaction level. */
+		await sql`ROLLBACK TO SAVEPOINT thread_authority`.execute(tx);
+		await sql`RELEASE SAVEPOINT thread_authority`.execute(tx);
+		return lockBoundAppAuthority(tx, target.designSessionId, session.app_id);
+	}
+	await sql`RELEASE SAVEPOINT thread_authority`.execute(tx);
 	if (!session || session.state === "retired") return null;
 	return {
 		kind: "design-session",
 		projectId: session.project_id,
 		lease: designSessionLeaseState(session),
 	};
+}
+
+/** The bound-app arm: the app row, then the session row, both `FOR SHARE`. */
+async function lockBoundAppAuthority(
+	tx: Transaction<AppDatabase>,
+	designSessionId: string,
+	appId: string,
+): Promise<LockedThreadAuthority | null> {
+	const app = await tx
+		.selectFrom("apps")
+		.select([...LEASE_COLUMNS, "project_id"])
+		.where("id", "=", appId)
+		.forShare()
+		.executeTakeFirst();
+	if (!app) return null;
+	const session = await tx
+		.selectFrom("design_sessions")
+		.select("state")
+		.where("id", "=", designSessionId)
+		.forShare()
+		.executeTakeFirst();
+	if (!session || session.state === "retired") return null;
+	return {
+		kind: "app",
+		projectId: app.project_id,
+		lease: runLeaseState(leaseView(app)),
+	};
+}
+
+/** The advisory-lock scope every writer of one thread serializes on. */
+export function threadIdentityLockScope(threadId: string): string {
+	return `nova:thread:${threadId}`;
+}
+
+/**
+ * Serialize every writer of one thread id — the second lock of every thread
+ * write, between the authority row and the thread row. The thread row
+ * `FOR UPDATE` that follows covers only a row that exists, and the authority
+ * row is held in share mode, so without this lock two same-holder writers
+ * racing to create the same fresh thread would both read no row and both
+ * INSERT it: the loser's unique violation would fail the turn instead of
+ * merging it. A transaction advisory lock in the 64-bit keyspace, released at
+ * commit; a hash collision only over-serializes two unrelated threads.
+ */
+async function lockThreadIdentity(
+	tx: Transaction<AppDatabase>,
+	threadId: string,
+): Promise<void> {
+	await sql`
+		SELECT pg_advisory_xact_lock(
+			hashtextextended(${threadIdentityLockScope(threadId)}, 0::bigint)
+		)
+	`.execute(tx);
 }
 
 /** Prove the admitted holder against the locked authority row — the app
@@ -587,13 +656,14 @@ export async function upsertThreadTurn(args: {
 	const logCtx = { target: args.target, threadId: args.threadId };
 	const result = await withAppTx(async (tx) => {
 		// Fixed lock order: authority row (app or design session) -> thread
-		// row. Every competing thread writer queues on the thread row, so
-		// proving the holder can never deadlock against another writer that
-		// already holds it.
+		// identity -> thread row. Every competing thread writer queues on the
+		// identity, whether or not the row exists yet, so proving the holder
+		// can never deadlock against another writer that already holds it.
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority || authority.projectId !== args.expectedProjectId) {
 			throw new RunHolderLostError("released");
 		}
+		await lockThreadIdentity(tx, args.threadId);
 		const holderLost: "superseded" | "released" | null =
 			threadTargetHolderMatches(authority, {
 				mode: args.threadType,
@@ -761,6 +831,7 @@ export async function mergeThreadTurnMessages(args: {
 		if (!authority || authority.projectId !== args.expectedProjectId) {
 			return false;
 		}
+		await lockThreadIdentity(tx, args.threadId);
 		const existing = await tx
 			.selectFrom("threads")
 			.select(["app_id", "design_session_id", "messages", "clawed_back_ids"])
@@ -849,6 +920,7 @@ export async function persistResponseSnapshot(args: {
 	await withAppTx(async (tx) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority) return;
+		await lockThreadIdentity(tx, args.threadId);
 		/* Inline `selectFrom` + row lock (not the shared target-select helper):
 		 * the row-lock privilege scanner must statically prove the locked
 		 * table, and a builder returned from a helper has no provable target. */
@@ -972,6 +1044,7 @@ export async function clawBackThreadResponse(args: {
 	await withAppTx(async (tx) => {
 		const authority = await lockThreadTargetAuthority(tx, args.target);
 		if (!authority) return;
+		await lockThreadIdentity(tx, args.threadId);
 		/* Inline for the row-lock scanner, as above. */
 		const rowQuery = tx
 			.selectFrom("threads")

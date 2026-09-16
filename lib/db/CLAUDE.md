@@ -35,7 +35,25 @@ decides anything about a run locks its AUTHORITY ROW first (`SELECT … FOR
 UPDATE` via `lockAppRow`, or the `design_sessions` row for a pre-app target),
 then touches other rows (credit months, entities, the stream). Per-target
 contention resolves as row-lock waits, and every decision reads row state
-inside the locking transaction. ONE deliberate amendment sits in front of
+inside the locking transaction. Thread writers differ in lock STRENGTH, not
+order: `threads.ts::lockThreadTargetAuthority` holds the authority row `FOR
+SHARE`, because a transcript write proves the holder and never transitions
+it. Share strength still waits behind, and blocks, every claim/release/settle
+UPDATE, while the row's `FOR SHARE` authorization reads and the `FOR KEY
+SHARE` foreign-key checks of `chat_stream_chunks` appends proceed during a
+multi-second transcript rewrite; an exclusive lock there parks that traffic
+on pooled connections and exhausts the per-instance pool. Because a share
+lock does not serialize writers of a thread whose row does not exist yet,
+every thread writer takes a per-thread transaction advisory lock
+(`threads.ts::lockThreadIdentity`) between the authority row and the thread
+row, so two same-holder writers creating one fresh thread insert then merge
+instead of colliding. A thread writer never holds the `design_sessions` row
+while acquiring the `apps` row: the Project move holds the app row and then
+updates the session rows bound to it, so that reverse order is a deadlock.
+The pre-app arm of `lockThreadTargetAuthority` therefore re-reads `app_id`
+under its session share lock and, when the session materialized while it
+waited, rolls back to a savepoint to release that lock before re-resolving
+through the bound-app arm (app row, then session row). ONE deliberate amendment sits in front of
 that convention: a transaction that CREATES, claims, reacquires, pauses,
 settles, refunds, reaps, or discards a holder/reservation — on either target
 kind — takes the per-actor generation admission gate FIRST
@@ -502,7 +520,8 @@ The tables:
 replaced its PK with the two partial unique indexes). A build thread stays
 design-session-targeted after materialization; the thread/stream writers
 resolve a materialized session's bound app WITHOUT a held lock and then
-lock the APP row as the authority (`threads.ts::lockThreadTargetAuthority`),
+lock the APP row `FOR SHARE` as the authority
+(`threads.ts::lockThreadTargetAuthority`),
 so run authority delegates exactly as §11.7 orders the locks — and target
 LIVENESS delegates the same way (`generationTargetHeldLive`: a session
 carrying an `app_id` answers with the app's liveness, so a stream reconnect

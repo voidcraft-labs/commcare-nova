@@ -75,6 +75,12 @@ interface AuthOAuthRefreshTokenTable {
 
 interface AuthApikeyTable {
 	id: string;
+	/**
+	 * The bearer's STORED form: `defaultKeyHasher(bearer)` under the plugin's
+	 * default hashing (Nova's mount in `lib/auth.ts` leaves `disableKeyHashing`
+	 * off), never the bearer itself. `apiKeyRowExists` matches on it.
+	 */
+	key: string;
 	/** The key's owner — Better Auth's `references: "user"` foreign key. */
 	referenceId: string;
 	name: string | null;

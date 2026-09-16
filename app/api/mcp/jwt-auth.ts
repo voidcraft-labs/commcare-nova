@@ -38,6 +38,7 @@ import { log } from "@/lib/logger";
 import { parseScopes } from "@/lib/mcp/scopes";
 import type { JwtClaims, ToolContext } from "@/lib/mcp/types";
 import { dispatchMcpTools } from "./dispatch";
+import { mcpUnavailableResponse } from "./unavailable";
 
 /**
  * Closed set of reasons that flow into the `error_description` param
@@ -51,8 +52,7 @@ type JwtUnauthorizedReason =
 	| "missing subject claim"
 	| "missing token issue time"
 	| "consent revoked"
-	| "account disabled"
-	| "auth check failed";
+	| "account disabled";
 
 /**
  * Build a 401 with the upstream plugin's `WWW-Authenticate` shape plus
@@ -144,14 +144,16 @@ export const handleJwtMcp: (req: Request) => Promise<Response> =
 			 * grant was revoked from `/settings` would keep authenticating
 			 * until expiry: `hasActiveConsent` compares `iat` against the
 			 * per-grant revocation watermark, so a stale token fails
-			 * immediately. A lookup failure returns 401 with the same
-			 * reasoning as the missing-claim paths: fail-closed posture. */
+			 * immediately. A lookup FAILURE still rejects (fail-closed), but as
+			 * a 503: the token was never judged, so a 401 `invalid_token` would
+			 * make the client discard a working grant and re-run OAuth over a
+			 * database blip it should simply retry. */
 			let consentActive: boolean;
 			try {
 				consentActive = await hasActiveConsent(jwt.sub, clientId, jwt.iat);
 			} catch (err) {
 				log.error("[mcp] consent lookup failed", err);
-				return jwtUnauthorizedResponse("auth check failed");
+				return mcpUnavailableResponse();
 			}
 			if (!consentActive) {
 				return jwtUnauthorizedResponse("consent revoked");
@@ -165,15 +167,16 @@ export const handleJwtMcp: (req: Request) => Promise<Response> =
 			 * JWT path enforce the SAME `isUserActive` gate the API-key path runs, so
 			 * revocation is universal across both MCP bearers. Fail CLOSED on a lookup
 			 * error (the consent check above is fail-closed too): a transient datastore
-			 * outage rejects rather than authenticates a possibly-banned user. (The
-			 * web-session choke points fail OPEN instead, to avoid mass sign-out;
-			 * rejecting a narrow MCP call is the safer trade here.) */
+			 * outage rejects rather than authenticates a possibly-banned user, and it
+			 * rejects as a 503 so the client retries instead of discarding its token.
+			 * (The web-session choke points fail OPEN instead, to avoid mass
+			 * sign-out; rejecting a narrow MCP call is the safer trade here.) */
 			let userActive: boolean;
 			try {
 				userActive = await isUserActive(jwt.sub);
 			} catch (err) {
 				log.error("[mcp] user-status lookup failed", err);
-				return jwtUnauthorizedResponse("auth check failed");
+				return mcpUnavailableResponse();
 			}
 			if (!userActive) {
 				log.warn("[mcp] user disabled or deleted", { sub: jwt.sub, clientId });

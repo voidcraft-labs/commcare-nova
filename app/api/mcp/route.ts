@@ -37,6 +37,7 @@
 
 import { getAuth } from "@/lib/auth";
 import { log } from "@/lib/logger";
+import { mcpUnavailableResponse } from "./unavailable";
 
 /**
  * Next.js App Router segment config (`maxDuration` is the magic export
@@ -86,10 +87,21 @@ const dispatch = async (req: Request): Promise<Response> => {
 		});
 	} catch (err) {
 		log.error("[mcp] failed to synthesize auth-router request", err);
-		return new Response(null, { status: 503 });
+		return mcpUnavailableResponse();
 	}
-	const auth = await getAuth();
-	return auth.handler(authReq);
+	/* Better Auth runs its rate limiter in the router's `onRequest`, outside
+	 * the router's own error handling, and that limiter reads
+	 * `auth_rate_limit` on the shared pool. A database failure there throws
+	 * out of `auth.handler` before either bearer path runs, so it is caught
+	 * here and answered like every other outage: a 503 the client retries,
+	 * never the 500 a bare throw would become. */
+	try {
+		const auth = await getAuth();
+		return await auth.handler(authReq);
+	} catch (err) {
+		log.error("[mcp] auth router threw before a verdict", err);
+		return mcpUnavailableResponse();
+	}
 };
 
 /**
