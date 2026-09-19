@@ -23,7 +23,7 @@ interface ChatMessageProps {
 		toolCallId: string;
 		output: unknown;
 	}) => void;
-	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
+	pendingAnswerRef?: React.RefObject<((text: string) => void) | null>;
 	toolInteractionsDisabled?: boolean;
 	/** Set by ChatSidebar for the last message while the SSE stream is open.
 	 *  Drives the reasoning panel's "Thinking…" shimmer: narrowed below to "the

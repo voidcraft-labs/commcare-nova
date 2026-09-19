@@ -62,14 +62,14 @@ describe("database privilege convergence contract", () => {
 				NOVA_DB_LOCAL_URL: "postgres://local",
 			}),
 		).toBeNull();
-		expect(() => readDatabasePrivilegeRoleConfig({})).toThrowError(
+		expect(() => readDatabasePrivilegeRoleConfig({})).toThrow(
 			expect.objectContaining({ code: "role_config_missing" }),
 		);
 		expect(() =>
 			readDatabasePrivilegeRoleConfig({
 				NOVA_MIGRATION_DB_USER: config.migrationRole,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_config_partial" }));
+		).toThrow(expect.objectContaining({ code: "role_config_partial" }));
 		expect(
 			readDatabasePrivilegeRoleConfig({
 				NOVA_MIGRATION_DB_USER: config.migrationRole,
@@ -85,7 +85,7 @@ describe("database privilege convergence contract", () => {
 				NOVA_CAPTURE_CLEANUP_DB_USER: config.cleanupRole,
 				NOVA_AUDIT_DB_USER: config.auditRole,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_config_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_config_invalid" }));
 	});
 
 	test("classifies every migrated table and rejects unknown or missing tables", () => {
@@ -115,21 +115,21 @@ describe("database privilege convergence contract", () => {
 				...REQUIRED_PUBLIC_TABLES,
 				"unclassified_table",
 			]),
-		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
+		).toThrow(expect.objectContaining({ code: "schema_inventory_drift" }));
 		expect(() =>
 			auditPublicTableInventory([...REQUIRED_PUBLIC_TABLES, "cases"]),
-		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
+		).toThrow(expect.objectContaining({ code: "schema_inventory_drift" }));
 		expect(() =>
 			auditPublicTableInventory(
 				REQUIRED_PUBLIC_TABLES.filter((name) => name !== "auth_member"),
 			),
-		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
-		expect(() => auditRuntimeCaseTableInventory([])).toThrowError(
+		).toThrow(expect.objectContaining({ code: "schema_inventory_drift" }));
+		expect(() => auditRuntimeCaseTableInventory([])).toThrow(
 			expect.objectContaining({ code: "schema_inventory_drift" }),
 		);
 		expect(() =>
 			auditRuntimeCaseTableInventory(["cases", "runtime_shadow"]),
-		).toThrowError(expect.objectContaining({ code: "schema_inventory_drift" }));
+		).toThrow(expect.objectContaining({ code: "schema_inventory_drift" }));
 	});
 
 	test("tells an unknown table apart from a missing one, and says the fix", () => {
@@ -221,7 +221,7 @@ describe("database privilege convergence contract", () => {
 				),
 				safeMembership,
 			),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(
 				config,
@@ -232,72 +232,72 @@ describe("database privilege convergence contract", () => {
 				),
 				safeMembership,
 			),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				runtimeCanUseMigration: true,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				cleanupCanUseRuntime: true,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				auditCanUseRuntime: true,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				migrationCanUseRuntime: false,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				migrationCanSetRuntime: false,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				runtimeCanCreateDatabase: true,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				runtimeCanCreatePublicSchema: true,
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				unexpectedRuntimeParentRoles: ["legacy-owner"],
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				unexpectedMigrationParentRoles: ["cluster-admin"],
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				unexpectedCleanupParentRoles: ["runtime-owner"],
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 		expect(() =>
 			assertDatabaseRolePolicy(config, roles, {
 				...safeMembership,
 				unexpectedAuditParentRoles: ["runtime-owner"],
 			}),
-		).toThrowError(expect.objectContaining({ code: "role_policy_invalid" }));
+		).toThrow(expect.objectContaining({ code: "role_policy_invalid" }));
 	});
 });

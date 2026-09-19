@@ -2,12 +2,10 @@ import { z } from "zod";
 import { lookupOptionsSourceSchema } from "../lookupCarriers";
 import { type SelectOption, selectOptionSchema } from "./base";
 
-export const inlineOptionsSourceSchema = z
-	.object({
-		kind: z.literal("inline"),
-		options: z.array(selectOptionSchema).min(2),
-	})
-	.strict();
+export const inlineOptionsSourceSchema = z.strictObject({
+	kind: z.literal("inline"),
+	options: z.array(selectOptionSchema).min(2),
+});
 
 export const selectOptionsSourceSchema = z.discriminatedUnion("kind", [
 	inlineOptionsSourceSchema,

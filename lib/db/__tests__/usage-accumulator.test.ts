@@ -71,8 +71,8 @@ vi.mock("../credits", () => ({
 	refundDesignSessionReservation: refundDesignSessionReservationMock,
 }));
 
-// `@/lib/logger` is globally stubbed in vitest.setup.ts and `clearMocks: true`
-// wipes each stub's call history between tests, so the finalize-log tests
+// `@/lib/logger` is globally stubbed in vitest.setup.ts and Vitest's `clearMocks`
+// default wipes each stub's call history between tests, so the finalize-log tests
 // assert on the `log.info` stub directly (no per-test re-spy needed).
 import { log } from "@/lib/logger";
 import { estimateCost, UsageAccumulator } from "../usage";

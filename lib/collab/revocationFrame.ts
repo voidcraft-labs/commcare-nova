@@ -15,9 +15,9 @@ export const REVOCATION_REASONS = [
 	"client-upgrade-required",
 ] as const;
 
-export const revocationFrameSchema = z
-	.object({ reason: z.enum(REVOCATION_REASONS) })
-	.strict();
+export const revocationFrameSchema = z.strictObject({
+	reason: z.enum(REVOCATION_REASONS),
+});
 
 export type RevocationFrame = z.infer<typeof revocationFrameSchema>;
 export type RevocationReason = RevocationFrame["reason"];

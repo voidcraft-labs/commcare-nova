@@ -7,7 +7,9 @@ import {
 // `import.meta.dirname`, not `__dirname`: vite accepts three config
 // loaders (bundle / runner / native) and only the bundle loader shims CJS
 // globals — this file stays strict-ESM-clean so it loads identically under
-// all three, whichever any tool or future default picks.
+// all three, whichever any tool or future default picks. The `.mts` extension
+// is part of that: package.json declares no module type, so the native loader
+// would read a `.ts` config as CommonJS.
 const configDir = import.meta.dirname;
 
 export default defineConfig({
@@ -20,16 +22,15 @@ export default defineConfig({
 		// Only the Postgres project owns Docker. A selected ordinary test never
 		// imports the migration graph or provisions an unused database. Projects
 		// share the default sequence group and worker pool; no extra concurrency.
+		// Inline projects inherit this root config (setup file, aliases, timeouts).
 		projects: [
 			{
-				extends: true,
 				test: {
 					name: "unit",
 					exclude: ["**/*.postgres.test.{ts,tsx}"],
 				},
 			},
 			{
-				extends: true,
 				test: {
 					name: "postgres",
 					include: ["**/*.postgres.test.{ts,tsx}"],
@@ -39,34 +40,41 @@ export default defineConfig({
 		],
 		// Files whose change must force a `--changed` run (the fast local
 		// loop, `npm run test:changed`) to re-run the WHOLE suite: they sit
-		// OUTSIDE every test's import graph yet change how all tests execute
-		// (installed deps — including a lockfile-only bump that leaves
-		// package.json untouched — this config, the global boundary substitutes
-		// and Motion configuration, and shared database preparation). Vitest exposes this option
-		// only at the root, so migration/template changes conservatively force
-		// the whole selected run. CI never scopes: its test
-		// jobs run every test file, sharded.
-		// Patterns match the absolute paths `vitest --changed` feeds
-		// picomatch; note the no-trailing-`/**` form — vitest's own default
-		// trigger appends `/**`, which silently fails to match a bare config
-		// file there.
+		// OUTSIDE every test's import graph yet change how all tests execute.
+		// Vitest's defaults cover package.json and this config, and it adds the
+		// setup files itself. Nova adds a lockfile-only bump that leaves
+		// package.json untouched, and shared database preparation. Vitest exposes
+		// this option only at the root, so migration/template changes
+		// conservatively force the whole selected run. CI never scopes: its test
+		// jobs run every test file, sharded. Patterns match the absolute paths
+		// `vitest --changed` feeds picomatch.
 		forceRerunTriggers: [
-			"**/package.json",
+			...vitestConfigDefaults.forceRerunTriggers,
 			"**/package-lock.json",
-			"**/{vitest,vite}.config.*",
-			"**/vitest.setup.ts",
 			"**/lib/case-store/sql/__tests__/{globalSetup,applyMigrations}.ts",
 			"**/lib/case-store/migrations/**",
 		],
-		// Container boot is the long pole. 60 s default test timeout
-		// applies to test bodies, not to globalSetup itself; raising
-		// `hookTimeout` covers fixtures that touch the container.
+		// Vitest's defaults choose the console reporter (a quieter one under a
+		// coding agent) and add GitHub's annotations and job summary inside
+		// Actions. A `--reporter` flag would replace that whole list, so the CI
+		// timing report joins it here instead.
+		reporters: [
+			...vitestConfigDefaults.reporters,
+			...(process.env.CI ? ["./scripts/ci/test-timings.ts"] : []),
+		],
+		// Keep transformed modules on disk between runs. The key covers each
+		// file's content, this config and the resolve aliases, and the cache sits
+		// under node_modules, so a reinstall clears it. `vitest --clearCache`
+		// clears it by hand.
+		fsModuleCache: true,
+		// Test code is ESM like the app: a stray `__dirname` or `require` fails
+		// here as it would in production.
+		injectCjsGlobals: false,
+		// A failing `test.each` row names itself in full.
+		taskTitleValueFormatTruncate: 0,
+		// Fixtures that touch the Postgres container get longer than the 10 s
+		// hook default. Test bodies keep Vitest's 5 s default.
 		hookTimeout: 30_000,
-		// Clear mock call history between tests so assertions like
-		// `expect(log.warn).toHaveBeenCalledWith(...)` don't leak across
-		// test boundaries. Implementations set via `.mockImplementation(...)`
-		// inside a test persist (use `.mockRestore()` if that matters).
-		clearMocks: true,
 		// Vitest's `exclude` REPLACES the defaults rather than extending
 		// them, so spread + append: node_modules / .git stay excluded,
 		// plus we drop `.claude/worktrees/**` to stop the main checkout's

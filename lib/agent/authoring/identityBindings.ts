@@ -82,6 +82,8 @@ export function bindNamedIdentity(args: {
 	const { toolName, input, slot } = args;
 	// An explicit identity keeps the owning tool's existing missing-item and
 	// no-op semantics. Names must resolve, never turn into new identities.
+	// `safeParse`, not the `validate` type guard: a guard that returns here
+	// would narrow the string `slot.value` to `never` for the name lookups below.
 	if (uuidSchema.safeParse(slot.value).success) return;
 	const scope = { ...args.scope };
 	let fieldUuid: string | undefined;
@@ -89,12 +91,12 @@ export function bindNamedIdentity(args: {
 	for (const part of slot.path) {
 		const object = record(owner);
 		if (object) {
-			if (uuidSchema.safeParse(object.fieldUuid).success)
-				fieldUuid = uuidSchema.parse(object.fieldUuid);
-			if (uuidSchema.safeParse(object.moduleUuid).success)
-				scope.moduleUuid = uuidSchema.parse(object.moduleUuid);
-			if (uuidSchema.safeParse(object.formUuid).success)
-				scope.formUuid = uuidSchema.parse(object.formUuid);
+			const field = uuidSchema.safeParse(object.fieldUuid);
+			if (field.success) fieldUuid = field.data;
+			const module = uuidSchema.safeParse(object.moduleUuid);
+			if (module.success) scope.moduleUuid = module.data;
+			const form = uuidSchema.safeParse(object.formUuid);
+			if (form.success) scope.formUuid = form.data;
 		}
 		owner =
 			object?.[part] ??

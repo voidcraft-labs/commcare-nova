@@ -2,7 +2,7 @@ import { jsonSchema } from "ai";
 import { z } from "zod";
 import { CREATION_IDENTITY_SPECS } from "./creationIdentities";
 import { projectNamedIdentitySchemas } from "./identitySchema";
-import { readableToolSchema } from "./readableSchema";
+import { mapSubschemas, readableToolSchema } from "./readableSchema";
 import { authoringJsonSchema, pruneDefinitions } from "./schema";
 
 type Json = Record<string, unknown>;
@@ -56,6 +56,25 @@ function changePath(
 function optional(node: Json, key: string) {
 	if (Array.isArray(node.required))
 		node.required = node.required.filter((value) => value !== key);
+}
+
+/** OpenAI function schemas have no `propertyNames`: the provider removes the
+ * keyword and warns on every request. The record states what its keys are
+ * instead. Name binding reads `identitySchema`, and the canonical schema checks
+ * every key once names are bound. */
+function describeRecordKeys(schema: Json): Json {
+	const { propertyNames, ...described } = mapSubschemas(
+		schema,
+		describeRecordKeys,
+	);
+	const keys = record(propertyNames)?.description;
+	if (typeof keys !== "string") return described;
+	return {
+		...described,
+		description: [described.description, `Keys: ${keys}`]
+			.filter((text) => typeof text === "string")
+			.join(" "),
+	};
 }
 
 const cache = new WeakMap<z.ZodType, Map<string, ReturnType<typeof project>>>();
@@ -114,6 +133,7 @@ function project(toolName: string, canonical: z.ZodType) {
 				];
 			},
 		);
+	json = describeRecordKeys(json);
 	pruneDefinitions(json);
 	json = readableToolSchema(json);
 	const authored = z.fromJSONSchema(json, { registry: z.registry() });

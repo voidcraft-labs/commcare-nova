@@ -674,6 +674,13 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 				clientRegistrationDefaultScopes: [...NOVA_OAUTH_DEFAULT_CLIENT_SCOPES],
 				clientRegistrationAllowedScopes: [...NOVA_OAUTH_ALLOWED_CLIENT_SCOPES],
 				clientRegistrationClientSecretExpiration: "30d",
+				/* Every OAuth client here is an MCP client, and they retry: a
+				 * dropped token response, or two sessions reading one credential
+				 * file, presents a refresh token seconds after it rotated. Within
+				 * this window that returns the rotation's own response. Outside
+				 * it, reuse still revokes every token the user holds for the
+				 * client. Thirty seconds is what Better Auth's `mcp()` sets. */
+				refreshTokenReuseInterval: 30,
 				rateLimit: {
 					register: { window: 60, max: 5 },
 				},
@@ -717,11 +724,12 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 			 * `@better-auth/oauth-provider` rotates refresh tokens
 			 * unconditionally (`createRefreshToken` writes
 			 * `revoked: <Date>` to the prior row on every refresh), and
-			 * there is no toggle to disable rotation. When two concurrent
-			 * sessions share one credential file, the second session's
-			 * stale refresh token triggers a cascade revocation that wipes
-			 * every row for that `(userId, clientId)` pair — both sessions
-			 * are forced back through interactive OAuth. That security
+			 * there is no toggle to disable rotation. When concurrent
+			 * sessions share one credential file, a session still holding
+			 * a refresh token past `refreshTokenReuseInterval` triggers a
+			 * cascade revocation that wipes every row for that
+			 * `(userId, clientId)` pair — every session is forced back
+			 * through interactive OAuth. That security
 			 * posture is correct for human-using-Claude-Code-on-commcare.app
 			 * but fights the service-identity-with-many-workers shape ACE
 			 * has. API keys give that shape a credential model that matches

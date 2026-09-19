@@ -82,7 +82,7 @@ function cleanLanguageIdentity(
  * language lists its required writing systems).
  */
 export const languageIdentityInputSchema = z
-	.object({
+	.strictObject({
 		language: z
 			.string()
 			.regex(
@@ -115,62 +115,57 @@ export const languageIdentityInputSchema = z
 				"ISO 3166-1 alpha-2 region whose conventions the language follows (MX, SG). Always skippable — omit it for the language's general conventions.",
 			),
 	})
-	.strict()
 	.superRefine((value, ctx) => {
 		for (const message of identityIssues(cleanLanguageIdentity(value))) {
 			ctx.addIssue({ code: "custom", message });
 		}
 	});
 
-export const getLanguagesInputSchema = z.object({}).strict();
+export const getLanguagesInputSchema = z.strictObject({});
 
-export const getTranslatableContentInputSchema = z
-	.object({
-		language: languageIdentityInputSchema.describe(
-			"Existing app language whose effective worker-facing values and status should be read.",
+export const getTranslatableContentInputSchema = z.strictObject({
+	language: languageIdentityInputSchema.describe(
+		"Existing app language whose effective worker-facing values and status should be read.",
+	),
+	query: z
+		.string()
+		.trim()
+		.max(255)
+		.nullable()
+		.optional()
+		.describe(
+			"Optional case-insensitive search across source text, role, breadcrumb, and context.",
 		),
-		query: z
-			.string()
-			.trim()
-			.max(255)
-			.nullable()
-			.optional()
-			.describe(
-				"Optional case-insensitive search across source text, role, breadcrumb, and context.",
-			),
-		status: z.enum(translationStatuses).nullable().optional(),
-		role: z.enum(translationUnitRoles).nullable().optional(),
-		ownerKind: z.enum(translationUnitOwnerKinds).nullable().optional(),
-		moduleUuid: uuidSchema.nullable().optional(),
-		formUuid: uuidSchema.nullable().optional(),
-		cursor: z
-			.string()
-			.max(2048)
-			.nullable()
-			.optional()
-			.describe(
-				"Opaque snapshot-bound cursor from the preceding page. Omit for the first page.",
-			),
-		limit: z.number().int().min(1).max(50).default(25),
-	})
-	.strict();
+	status: z.enum(translationStatuses).nullable().optional(),
+	role: z.enum(translationUnitRoles).nullable().optional(),
+	ownerKind: z.enum(translationUnitOwnerKinds).nullable().optional(),
+	moduleUuid: uuidSchema.nullable().optional(),
+	formUuid: uuidSchema.nullable().optional(),
+	cursor: z
+		.string()
+		.max(2048)
+		.nullable()
+		.optional()
+		.describe(
+			"Opaque snapshot-bound cursor from the preceding page. Omit for the first page.",
+		),
+	limit: z.number().int().min(1).max(50).default(25),
+});
 
-export const addLanguageInputSchema = z
-	.object({
-		language: languageIdentityInputSchema.describe(
-			"The exact identity of the language to add.",
+export const addLanguageInputSchema = z.strictObject({
+	language: languageIdentityInputSchema.describe(
+		"The exact identity of the language to add.",
+	),
+	copyFrom: languageIdentityInputSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Existing app language whose currently effective values seed every new target entry. Defaults to the app's canonical source language.",
 		),
-		copyFrom: languageIdentityInputSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Existing app language whose currently effective values seed every new target entry. Defaults to the app's canonical source language.",
-			),
-	})
-	.strict();
+});
 
 export const updateLanguageInputSchema = z
-	.object({
+	.strictObject({
 		action: z.enum(["set-default", "change-identity"]),
 		language: languageIdentityInputSchema.describe(
 			"Existing app language the action applies to.",
@@ -182,7 +177,6 @@ export const updateLanguageInputSchema = z
 				"The identity that replaces this language for change-identity. Omit for set-default.",
 			),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		const replacementExpected = input.action === "change-identity";
 		if ((input.replacement != null) !== replacementExpected) {
@@ -196,64 +190,55 @@ export const updateLanguageInputSchema = z
 		}
 	});
 
-export const removeLanguageInputSchema = z
-	.object({
-		language: languageIdentityInputSchema.describe(
-			"Existing target language to remove.",
-		),
-	})
-	.strict();
+export const removeLanguageInputSchema = z.strictObject({
+	language: languageIdentityInputSchema.describe(
+		"Existing target language to remove.",
+	),
+});
 
 const translationUpdateSchema = z.discriminatedUnion("operation", [
-	z
-		.object({
-			operation: z.literal("set"),
-			unitId: z.string().min(1).startsWith("tu1:"),
-			expectedSourceFingerprint: z
-				.string()
-				.min(1)
-				.describe(
-					"Current sourceFingerprint returned by getTranslatableContent for the source text that was translated.",
-				),
-			value: localizedValueSchema,
-			translatedFrom: languageIdentityInputSchema
-				.nullable()
-				.optional()
-				.describe(
-					"Existing app language used as the translation source. Defaults to the app's canonical source language.",
-				),
-		})
-		.strict(),
-	z
-		.object({
-			operation: z.literal("clear"),
-			unitId: z.string().min(1).startsWith("tu1:"),
-		})
-		.strict(),
-	z
-		.object({
-			operation: z.literal("review"),
-			unitId: z.string().min(1).startsWith("tu1:"),
-			expectedSourceFingerprint: z.string().min(1),
-			expectedCurrentSourceFingerprint: z
-				.string()
-				.min(1)
-				.describe(
-					"Current sourceFingerprint returned by getTranslatableContent for the source text reviewed.",
-				),
-			expectedValue: localizedValueSchema,
-		})
-		.strict(),
+	z.strictObject({
+		operation: z.literal("set"),
+		unitId: z.string().min(1).startsWith("tu1:"),
+		expectedSourceFingerprint: z
+			.string()
+			.min(1)
+			.describe(
+				"Current sourceFingerprint returned by getTranslatableContent for the source text that was translated.",
+			),
+		value: localizedValueSchema,
+		translatedFrom: languageIdentityInputSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Existing app language used as the translation source. Defaults to the app's canonical source language.",
+			),
+	}),
+	z.strictObject({
+		operation: z.literal("clear"),
+		unitId: z.string().min(1).startsWith("tu1:"),
+	}),
+	z.strictObject({
+		operation: z.literal("review"),
+		unitId: z.string().min(1).startsWith("tu1:"),
+		expectedSourceFingerprint: z.string().min(1),
+		expectedCurrentSourceFingerprint: z
+			.string()
+			.min(1)
+			.describe(
+				"Current sourceFingerprint returned by getTranslatableContent for the source text reviewed.",
+			),
+		expectedValue: localizedValueSchema,
+	}),
 ]);
 
 export const updateTranslationsInputSchema = z
-	.object({
+	.strictObject({
 		language: languageIdentityInputSchema.describe(
 			"Existing target language whose entries change.",
 		),
 		updates: z.array(translationUpdateSchema).min(1).max(50),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		const seen = new Set<string>();
 		for (const [index, update] of input.updates.entries()) {
@@ -329,24 +314,20 @@ interface TranslationContentFilters {
 	readonly formUuid: Uuid | null;
 }
 
-const translationCursorSchema = z
-	.object({
-		version: z.literal(2),
-		digest: z.string().length(64),
-		offset: z.number().int().nonnegative(),
-		filters: z
-			.object({
-				language: appLanguageIdentitySchema,
-				query: z.string().max(255).nullable(),
-				status: z.enum(translationStatuses).nullable(),
-				role: z.enum(translationUnitRoles).nullable(),
-				ownerKind: z.enum(translationUnitOwnerKinds).nullable(),
-				moduleUuid: uuidSchema.nullable(),
-				formUuid: uuidSchema.nullable(),
-			})
-			.strict(),
-	})
-	.strict();
+const translationCursorSchema = z.strictObject({
+	version: z.literal(2),
+	digest: z.string().length(64),
+	offset: z.number().int().nonnegative(),
+	filters: z.strictObject({
+		language: appLanguageIdentitySchema,
+		query: z.string().max(255).nullable(),
+		status: z.enum(translationStatuses).nullable(),
+		role: z.enum(translationUnitRoles).nullable(),
+		ownerKind: z.enum(translationUnitOwnerKinds).nullable(),
+		moduleUuid: uuidSchema.nullable(),
+		formUuid: uuidSchema.nullable(),
+	}),
+});
 
 function encodeTranslationCursor(
 	payload: z.infer<typeof translationCursorSchema>,

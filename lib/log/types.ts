@@ -145,8 +145,8 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		rawFinishReason: z.string().min(1).optional(),
 		// AI SDK timings derive from performance.now(), so fractional
 		// milliseconds are valid and should not make event recording fail.
-		stepTimeMs: z.number().finite().nonnegative().optional(),
-		responseTimeMs: z.number().finite().nonnegative().optional(),
+		stepTimeMs: z.number().nonnegative().optional(),
+		responseTimeMs: z.number().nonnegative().optional(),
 		toolCallIds: z.array(z.string().min(1)).min(1).optional(),
 	}),
 	/* Design-tool-outcome annotation — payload-free observability for private

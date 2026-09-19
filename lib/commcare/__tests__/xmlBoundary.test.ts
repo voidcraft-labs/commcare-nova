@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
 import { isTag } from "domhandler";
 import { textContent } from "domutils";
+import { decodeXML } from "entities";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
@@ -34,14 +35,12 @@ import { parseXml, xmlParseIssue } from "../xmlParse";
 
 const corpus = z
 	.array(
-		z
-			.object({
-				name: z.string(),
-				xml: z.string(),
-				accepted: z.boolean(),
-				policyOnly: z.boolean().optional(),
-			})
-			.strict(),
+		z.strictObject({
+			name: z.string(),
+			xml: z.string(),
+			accepted: z.boolean(),
+			policyOnly: z.boolean().optional(),
+		}),
 	)
 	.parse(
 		JSON.parse(
@@ -96,6 +95,12 @@ describe("XML admission and consumer boundaries", () => {
 		expect(textContent(roots[0])).toBe(raw);
 		expect(serializeXml(parseXml(encoded))).toBe(encoded);
 		expect(element.attribs).toEqual({ value: raw });
+		// Label prose decodes an authored reference before it is serialized. That
+		// step keeps the XML code point too, rather than the Windows-1252 glyph an
+		// HTML decoder substitutes for the C1 range.
+		expect(
+			serializeXml(el("label", {}, [text(decodeXML("&#128;&#x9f;"))])),
+		).toBe("<label>&#x80;&#x9f;</label>");
 	});
 
 	it.each([

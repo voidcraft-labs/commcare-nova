@@ -2,7 +2,7 @@
 
 import { Icon } from "@iconify/react/offline";
 import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
-import type { ComponentProps, MutableRefObject } from "react";
+import type { ComponentProps, RefObject } from "react";
 import {
 	createContext,
 	useCallback,
@@ -48,7 +48,7 @@ function useConversation(): ConversationContextValue {
 export type ConversationProps = ComponentProps<"div"> & {
 	/** Hands the scroll controller to the owner (the sidebar's send handlers
 	 *  call `scrollToLatest` on it). */
-	controllerRef?: MutableRefObject<ChatScrollController | null>;
+	controllerRef?: RefObject<ChatScrollController | null>;
 };
 
 export const Conversation = ({
@@ -81,7 +81,7 @@ export const Conversation = ({
 	);
 
 	return (
-		<ConversationContext.Provider value={contextValue}>
+		<ConversationContext value={contextValue}>
 			<div
 				className={cn("relative flex-1 overflow-y-hidden", className)}
 				role="log"
@@ -89,7 +89,7 @@ export const Conversation = ({
 			>
 				{children}
 			</div>
-		</ConversationContext.Provider>
+		</ConversationContext>
 	);
 };
 

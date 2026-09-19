@@ -28,16 +28,14 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-const participantSchema = z
-	.object({
-		formUuid: uuidSchema.describe(
-			"The stable UUID of a form that participates in this complete target state.",
-		),
-		connect: connectFormConfigSchema.describe(
-			"The form's complete mode-compatible Connect configuration. Omit an id to have Nova derive it once; an explicit id is kept or rejected, never rewritten.",
-		),
-	})
-	.strict();
+const participantSchema = z.strictObject({
+	formUuid: uuidSchema.describe(
+		"The stable UUID of a form that participates in this complete target state.",
+	),
+	connect: connectFormConfigSchema.describe(
+		"The form's complete mode-compatible Connect configuration. Omit an id to have Nova derive it once; an explicit id is kept or rejected, never rewritten.",
+	),
+});
 
 const participantsSchema = z
 	.array(participantSchema)
@@ -58,7 +56,7 @@ const participantsSchema = z
 	});
 
 export const configureConnectInputSchema = z
-	.object({
+	.strictObject({
 		mode: z
 			.enum(["learn", "deliver"])
 			.nullable()
@@ -71,7 +69,6 @@ export const configureConnectInputSchema = z
 				"The complete set of participating forms for a non-null mode. Every unlisted form becomes auxiliary and has any old Connect block cleared. Omit when mode is null.",
 			),
 	})
-	.strict()
 	.superRefine((target, ctx) => {
 		if (target.mode === null && target.participants !== undefined) {
 			ctx.addIssue({

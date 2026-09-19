@@ -85,13 +85,11 @@ export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
  * on its module found nothing, carries the search answers, and is listed
  * nowhere else. A form with no `entry` enters from the module menu.
  */
-export const formEntrySchema = z
-	.object({
-		kind: z.literal("search-no-matches"),
-		/** The action's label on Results; the form's name when absent. */
-		label: z.string().min(1).optional(),
-	})
-	.strict();
+export const formEntrySchema = z.strictObject({
+	kind: z.literal("search-no-matches"),
+	/** The action's label on Results; the form's name when absent. */
+	label: z.string().min(1).optional(),
+});
 export type FormEntry = z.infer<typeof formEntrySchema>;
 
 /** Whether the form is a menu item of its module. */
@@ -128,24 +126,20 @@ export function defaultPostSubmit(
 	return options.searchFirst === true ? "module" : "previous";
 }
 
-const closeConditionSchema = z
-	.object({
-		// The checked field, by stable uuid — rename-proof identity, the
-		// same contract as form-link targets. The frozen one-off migration
-		// converts textual ids before this final schema is installed; the live
-		// schema admits no empty or unresolved placeholder.
-		field: uuidSchema,
-		answer: z.string(),
-		operator: z.enum(["=", "selected"]).optional(),
-	})
-	.strict();
+const closeConditionSchema = z.strictObject({
+	// The checked field, by stable uuid — rename-proof identity, the
+	// same contract as form-link targets. The frozen one-off migration
+	// converts textual ids before this final schema is installed; the live
+	// schema admits no empty or unresolved placeholder.
+	field: uuidSchema,
+	answer: z.string(),
+	operator: z.enum(["=", "selected"]).optional(),
+});
 
-const formLinkDatumSchema = z
-	.object({
-		name: z.string().min(1),
-		xpath: xpathExpressionSchema,
-	})
-	.strict();
+const formLinkDatumSchema = z.strictObject({
+	name: z.string().min(1),
+	xpath: xpathExpressionSchema,
+});
 export type FormLinkDatum = z.infer<typeof formLinkDatumSchema>;
 
 /**
@@ -173,19 +167,15 @@ export function uniqueFormLinkDatumNames(
 }
 
 export const formLinkTargetSchema = z.discriminatedUnion("type", [
-	z
-		.object({
-			type: z.literal("form"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-		})
-		.strict(),
-	z
-		.object({
-			type: z.literal("module"),
-			moduleUuid: uuidSchema,
-		})
-		.strict(),
+	z.strictObject({
+		type: z.literal("form"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+	}),
+	z.strictObject({
+		type: z.literal("module"),
+		moduleUuid: uuidSchema,
+	}),
 ]);
 
 /**
@@ -193,26 +183,24 @@ export const formLinkTargetSchema = z.discriminatedUnion("type", [
  * layer builds the link PATCH from this shape (`clearablePartialPatch` needs
  * a plain object schema); everything else uses `formLinkSchema`.
  */
-export const formLinkObjectSchema = z
-	.object({
-		/** Immutable identity: every editor, mutation anchor, and finding
-		 *  addresses the link by it. */
-		uuid: uuidSchema,
-		// The structural XPath schema permits an empty AST. Authoring text
-		// boundaries clear an empty condition, and projections interpret
-		// an empty printed condition as unconditional.
-		condition: xpathExpressionSchema.optional(),
-		target: formLinkTargetSchema,
-		/**
-		 * Explicit session values for the target. Absent means CommCare
-		 * matches the target's datums against this form's own session
-		 * (HQ's `_get_datums_matched_to_source`); present means the link
-		 * names every selection datum the target needs. `[]` is not a state:
-		 * it would be a second spelling of "match automatically".
-		 */
-		datums: z.array(formLinkDatumSchema).min(1).optional(),
-	})
-	.strict();
+export const formLinkObjectSchema = z.strictObject({
+	/** Immutable identity: every editor, mutation anchor, and finding
+	 *  addresses the link by it. */
+	uuid: uuidSchema,
+	// The structural XPath schema permits an empty AST. Authoring text
+	// boundaries clear an empty condition, and projections interpret
+	// an empty printed condition as unconditional.
+	condition: xpathExpressionSchema.optional(),
+	target: formLinkTargetSchema,
+	/**
+	 * Explicit session values for the target. Absent means CommCare
+	 * matches the target's datums against this form's own session
+	 * (HQ's `_get_datums_matched_to_source`); present means the link
+	 * names every selection datum the target needs. `[]` is not a state:
+	 * it would be a second spelling of "match automatically".
+	 */
+	datums: z.array(formLinkDatumSchema).min(1).optional(),
+});
 export const formLinkSchema = formLinkObjectSchema.superRefine((link, ctx) =>
 	uniqueFormLinkDatumNames(link.datums, ctx),
 );
@@ -230,24 +218,22 @@ export type FormLinkTarget = FormLink["target"];
  * rules (earlier-create order, repeat correlation, session type, and text
  * expression result) because those require the containing form/module/doc.
  */
-const newCaseTargetSchema = z
-	.object({
-		kind: z.literal("new"),
-		idFrom: uuidSchema.optional(),
-	})
-	.strict();
+const newCaseTargetSchema = z.strictObject({
+	kind: z.literal("new"),
+	idFrom: uuidSchema.optional(),
+});
 
-const operationCaseTargetSchema = z
-	.object({ kind: z.literal("op"), opUuid: uuidSchema })
-	.strict();
+const operationCaseTargetSchema = z.strictObject({
+	kind: z.literal("op"),
+	opUuid: uuidSchema,
+});
 
-const sessionCaseTargetSchema = z
-	.object({ kind: z.literal("session") })
-	.strict();
+const sessionCaseTargetSchema = z.strictObject({ kind: z.literal("session") });
 
-const expressionCaseTargetSchema = z
-	.object({ kind: z.literal("expression"), expr: valueExpressionSchema })
-	.strict();
+const expressionCaseTargetSchema = z.strictObject({
+	kind: z.literal("expression"),
+	expr: valueExpressionSchema,
+});
 
 export const caseTargetSchema = z.discriminatedUnion("kind", [
 	newCaseTargetSchema,
@@ -280,27 +266,23 @@ export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
 	"user-owner-mapping-case",
 ]);
 
-export const caseOperationWriteSchema = z
-	.object({
-		property: authoredCasePropertyNameSchema,
-		value: valueExpressionSchema,
-		condition: predicateSchema.optional(),
-	})
-	.strict();
+export const caseOperationWriteSchema = z.strictObject({
+	property: authoredCasePropertyNameSchema,
+	value: valueExpressionSchema,
+	condition: predicateSchema.optional(),
+});
 export type CaseOperationWrite = {
 	property: string;
 	value: ValueExpression;
 	condition?: Predicate;
 };
 
-export const caseOperationLinkSchema = z
-	.object({
-		identifier: z.string(),
-		targetType: z.string(),
-		target: caseTargetSchema.nullable(),
-		relationship: z.enum(["child", "extension"]),
-	})
-	.strict();
+export const caseOperationLinkSchema = z.strictObject({
+	identifier: z.string(),
+	targetType: z.string(),
+	target: caseTargetSchema.nullable(),
+	relationship: z.enum(["child", "extension"]),
+});
 export type CaseOperationLink = z.infer<typeof caseOperationLinkSchema>;
 
 /**
@@ -316,47 +298,41 @@ const caseOperationCommonShape = {
 	id: z.string(),
 	caseType: z.string(),
 	condition: predicateSchema.optional(),
-	forEach: z.object({ repeat: uuidSchema }).strict().optional(),
+	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 } as const;
 
 export const caseOperationSchema = z.discriminatedUnion("action", [
-	z
-		.object({
-			...caseOperationCommonShape,
-			action: z.literal("create"),
-			target: newCaseTargetSchema,
-			name: valueExpressionSchema,
-			owner: valueExpressionSchema.optional(),
-			links: z.array(caseOperationLinkSchema).optional(),
-			rename: z.never().optional(),
-			retype: z.never().optional(),
-		})
-		.strict(),
-	z
-		.object({
-			...caseOperationCommonShape,
-			action: z.literal("update"),
-			target: existingCaseTargetSchema,
-			name: z.never().optional(),
-			owner: valueExpressionSchema.optional(),
-			rename: valueExpressionSchema.optional(),
-			retype: z.string().optional(),
-			links: z.array(caseOperationLinkSchema).optional(),
-		})
-		.strict(),
-	z
-		.object({
-			...caseOperationCommonShape,
-			action: z.literal("close"),
-			target: existingCaseTargetSchema,
-			name: z.never().optional(),
-			owner: z.never().optional(),
-			rename: z.never().optional(),
-			retype: z.never().optional(),
-			links: z.never().optional(),
-		})
-		.strict(),
+	z.strictObject({
+		...caseOperationCommonShape,
+		action: z.literal("create"),
+		target: newCaseTargetSchema,
+		name: valueExpressionSchema,
+		owner: valueExpressionSchema.optional(),
+		links: z.array(caseOperationLinkSchema).optional(),
+		rename: z.never().optional(),
+		retype: z.never().optional(),
+	}),
+	z.strictObject({
+		...caseOperationCommonShape,
+		action: z.literal("update"),
+		target: existingCaseTargetSchema,
+		name: z.never().optional(),
+		owner: valueExpressionSchema.optional(),
+		rename: valueExpressionSchema.optional(),
+		retype: z.string().optional(),
+		links: z.array(caseOperationLinkSchema).optional(),
+	}),
+	z.strictObject({
+		...caseOperationCommonShape,
+		action: z.literal("close"),
+		target: existingCaseTargetSchema,
+		name: z.never().optional(),
+		owner: z.never().optional(),
+		rename: z.never().optional(),
+		retype: z.never().optional(),
+		links: z.never().optional(),
+	}),
 ]);
 
 /**
@@ -419,55 +395,46 @@ export const connectIdSchema = z
 	.max(CONNECT_ID_MAX_LENGTH)
 	.regex(XML_ELEMENT_NAME_PATTERN);
 
-const connectLearnModuleSchema = z
-	.object({
-		id: connectIdSchema,
-		name: z.string(),
-		description: z.string(),
-		time_estimate: persistableJsonPositiveIntegerSchema,
-	})
-	.strict();
-const connectAssessmentSchema = z
-	.object({
-		id: connectIdSchema,
-		// An XPath expression consumed only by the XForm bind emitter. Either
-		// side may set it (the SA points it at a hidden score field; the UI
-		// panel lets a user override), but if absent the wire layer in
-		// `lib/commcare/xform/builder.ts` emits the canonical default at bind
-		// time — the same contract `deliver_unit.entity_id` / `entity_name`
-		// hold. Optional here matches what's true: the doc tracks what was
-		// set, the wire layer fills the rest.
-		user_score: xpathExpressionSchema.optional(),
-	})
-	.strict();
-const connectDeliverUnitSchema = z
-	.object({
-		id: connectIdSchema,
-		name: z.string(),
-		// `entity_id` / `entity_name` are XPath expressions consumed only by
-		// the XForm bind emitter. Either side may set them (the SA can opt
-		// into custom expressions; a UI panel could let a user override),
-		// but if absent the wire layer in `lib/commcare/xform/builder.ts`
-		// emits the canonical defaults at bind time. Optional here matches
-		// what's true: the doc tracks what was set, the wire layer fills
-		// the rest.
-		entity_id: xpathExpressionSchema.optional(),
-		entity_name: xpathExpressionSchema.optional(),
-	})
-	.strict();
-const connectTaskSchema = z
-	.object({
-		id: connectIdSchema,
-		name: z.string(),
-		description: z.string(),
-	})
-	.strict();
+const connectLearnModuleSchema = z.strictObject({
+	id: connectIdSchema,
+	name: z.string(),
+	description: z.string(),
+	time_estimate: persistableJsonPositiveIntegerSchema,
+});
+const connectAssessmentSchema = z.strictObject({
+	id: connectIdSchema,
+	// An XPath expression consumed only by the XForm bind emitter. Either
+	// side may set it (the SA points it at a hidden score field; the UI
+	// panel lets a user override), but if absent the wire layer in
+	// `lib/commcare/xform/builder.ts` emits the canonical default at bind
+	// time — the same contract `deliver_unit.entity_id` / `entity_name`
+	// hold. Optional here matches what's true: the doc tracks what was
+	// set, the wire layer fills the rest.
+	user_score: xpathExpressionSchema.optional(),
+});
+const connectDeliverUnitSchema = z.strictObject({
+	id: connectIdSchema,
+	name: z.string(),
+	// `entity_id` / `entity_name` are XPath expressions consumed only by
+	// the XForm bind emitter. Either side may set them (the SA can opt
+	// into custom expressions; a UI panel could let a user override),
+	// but if absent the wire layer in `lib/commcare/xform/builder.ts`
+	// emits the canonical defaults at bind time. Optional here matches
+	// what's true: the doc tracks what was set, the wire layer fills
+	// the rest.
+	entity_id: xpathExpressionSchema.optional(),
+	entity_name: xpathExpressionSchema.optional(),
+});
+const connectTaskSchema = z.strictObject({
+	id: connectIdSchema,
+	name: z.string(),
+	description: z.string(),
+});
 export const connectLearnConfigSchema = z
-	.object({
+	.strictObject({
 		learn_module: connectLearnModuleSchema.optional(),
 		assessment: connectAssessmentSchema.optional(),
 	})
-	.strict()
 	.refine(
 		(config) =>
 			config.learn_module !== undefined || config.assessment !== undefined,
@@ -475,11 +442,10 @@ export const connectLearnConfigSchema = z
 	);
 
 export const connectDeliverConfigSchema = z
-	.object({
+	.strictObject({
 		deliver_unit: connectDeliverUnitSchema.optional(),
 		task: connectTaskSchema.optional(),
 	})
-	.strict()
 	.refine(
 		(config) => config.deliver_unit !== undefined || config.task !== undefined,
 		"Connect deliver configuration must contain a deliver unit or task.",
@@ -504,52 +470,50 @@ export type ConnectAssessment = z.infer<typeof connectAssessmentSchema>;
 export type ConnectDeliverUnit = z.infer<typeof connectDeliverUnitSchema>;
 export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
-export const formSchema = z
-	.object({
-		entryPoint: formEntryPointSchema.optional(),
-		uuid: uuidSchema,
-		id: z.string(),
-		name: z.string(),
-		type: z.enum(FORM_TYPES),
-		purpose: z.string().optional(),
-		/**
-		 * Optional running-app menu visibility rule. The Predicate AST keeps
-		 * references typed and rename-safe; validator context rules decide which
-		 * terms are meaningful for this form's navigation position.
-		 */
-		displayCondition: predicateSchema.optional(),
-		closeCondition: closeConditionSchema.optional(),
-		connect: connectConfigSchema.optional(),
-		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
-		/**
-		 * Present when the form is not a menu item. A no-matches form has a
-		 * fixed after-submit (Results showing the case it registered), so
-		 * Only explicit App home is allowed for `postSubmit`; `formLinks` and
-		 * `displayCondition` are refused on it
-		 * by the validator rather than the schema, which keeps the patch and
-		 * clear shapes ordinary.
-		 */
-		entry: formEntrySchema.optional(),
-		/**
-		 * Where the app goes after this form is submitted, checked in order:
-		 * the first link whose condition holds is followed, and `postSubmit`
-		 * is where it goes when none does. Array position IS the sequence;
-		 * each link carries its own uuid. `[]` is not a state: the reducers
-		 * delete the slot when the last link goes.
-		 */
-		formLinks: z.array(formLinkSchema).min(1).optional(),
-		/** Ordered, typed case effects: what one submission does to the case
-		 *  universe, in the order the runtime applies it. */
-		caseOperations: z.array(caseOperationReadSchema).optional(),
-		/**
-		 * Image shown on the form's menu tile — the per-form
-		 * affordance within a module's menu.
-		 */
-		icon: formIconRefSchema.optional(),
-		/** Audio version of the form's menu label, for audio-prompt playback. */
-		audioLabel: mediaAssetIdSchema.optional(),
-	})
-	.strict();
+export const formSchema = z.strictObject({
+	entryPoint: formEntryPointSchema.optional(),
+	uuid: uuidSchema,
+	id: z.string(),
+	name: z.string(),
+	type: z.enum(FORM_TYPES),
+	purpose: z.string().optional(),
+	/**
+	 * Optional running-app menu visibility rule. The Predicate AST keeps
+	 * references typed and rename-safe; validator context rules decide which
+	 * terms are meaningful for this form's navigation position.
+	 */
+	displayCondition: predicateSchema.optional(),
+	closeCondition: closeConditionSchema.optional(),
+	connect: connectConfigSchema.optional(),
+	postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
+	/**
+	 * Present when the form is not a menu item. A no-matches form has a
+	 * fixed after-submit (Results showing the case it registered), so
+	 * Only explicit App home is allowed for `postSubmit`; `formLinks` and
+	 * `displayCondition` are refused on it
+	 * by the validator rather than the schema, which keeps the patch and
+	 * clear shapes ordinary.
+	 */
+	entry: formEntrySchema.optional(),
+	/**
+	 * Where the app goes after this form is submitted, checked in order:
+	 * the first link whose condition holds is followed, and `postSubmit`
+	 * is where it goes when none does. Array position IS the sequence;
+	 * each link carries its own uuid. `[]` is not a state: the reducers
+	 * delete the slot when the last link goes.
+	 */
+	formLinks: z.array(formLinkSchema).min(1).optional(),
+	/** Ordered, typed case effects: what one submission does to the case
+	 *  universe, in the order the runtime applies it. */
+	caseOperations: z.array(caseOperationReadSchema).optional(),
+	/**
+	 * Image shown on the form's menu tile — the per-form
+	 * affordance within a module's menu.
+	 */
+	icon: formIconRefSchema.optional(),
+	/** Audio version of the form's menu label, for audio-prompt playback. */
+	audioLabel: mediaAssetIdSchema.optional(),
+});
 export type Form = z.infer<typeof formSchema>;
 
 export type FormKindMetadata = {

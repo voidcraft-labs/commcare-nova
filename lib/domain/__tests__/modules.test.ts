@@ -78,7 +78,7 @@ describe("moduleSchema — caseListConfig presence", () => {
 	});
 
 	it("rejects unknown top-level keys", () => {
-		// `moduleSchema` is `.strict()`, so any key outside the declared
+		// `moduleSchema` is strict, so any key outside the declared
 		// slot set fails to parse rather than stripping silently. A
 		// stale generator emitting a legacy field (e.g. `caseListColumns`)
 		// or a typo (`__unknown_*`) cannot reach the typed surface — the
@@ -107,7 +107,7 @@ describe("caseListConfigSchema — canonical shape", () => {
 	});
 
 	it("rejects unknown top-level keys", () => {
-		// `caseListConfigSchema` is `.strict()`. Any unknown
+		// `caseListConfigSchema` is strict. Any unknown
 		// top-level key fails to parse rather than stripping silently,
 		// so a stale generator emitting an unknown field (e.g.
 		// `detailColumns`) or a typo cannot reach the typed surface.
@@ -502,7 +502,7 @@ describe("columnSchema — authored display shapes", () => {
 
 	it("rejects an extraneous field slot on a calculated column (calc has no field)", () => {
 		// The calculated arm has no `field` slot — the expression is
-		// the source. The arm is `.strict()` (inherited from
+		// the source. The arm is strict (inherited from
 		// `columnBase`), so a payload carrying `field` fails to parse
 		// rather than stripping. A stale caller mixing the plain-arm
 		// shape with the calculated arm is rejected up front.
@@ -814,7 +814,7 @@ describe("searchInputDefSchema — authored prompt shapes", () => {
 
 	it("rejects an advanced input shipping `xpath` instead of `predicate`", () => {
 		// The advanced arm declares `predicate` as a required slot and
-		// is `.strict()`, so a payload shipping `xpath` (a stale name)
+		// is strict, so a payload shipping `xpath` (a stale name)
 		// fails on both axes — the missing required slot AND the
 		// unknown `xpath` key. Either failure mode rejects the parse.
 		const parsed = searchInputDefSchema.safeParse({
@@ -1108,8 +1108,8 @@ describe("caseSearchConfigSchema — display labels + advanced cluster", () => {
 		).toThrow();
 	});
 
-	it("rejects unknown top-level keys (.strict())", () => {
-		// `.strict()` rejects unknown keys at parse rather than
+	it("rejects unknown top-level keys", () => {
+		// A strict schema rejects unknown keys at parse rather than
 		// stripping them silently. The contract holds for any unknown
 		// name, so the test inputs varied generic shapes (string,
 		// nested object, mixed array) to confirm the rejection isn't

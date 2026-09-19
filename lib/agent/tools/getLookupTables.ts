@@ -9,21 +9,17 @@ import { type ReadToolResult, requireInvocationAppId } from "./common";
 /** Leaves ample room for the shared MCP result envelope below its 100k cap. */
 export const LOOKUP_CATALOG_PAGE_MAX_BYTES = 70_000;
 const LOOKUP_CATALOG_CURSOR_RESERVE_BYTES = 1_000;
-const catalogCursorSchema = z
-	.object({
-		v: z.literal(1),
-		projectId: z.string().min(1),
-		projectRevision: z.string(),
-		tableIndex: z.number().int().nonnegative(),
-		columnOffset: z.number().int().nonnegative(),
-	})
-	.strict();
+const catalogCursorSchema = z.strictObject({
+	v: z.literal(1),
+	projectId: z.string().min(1),
+	projectRevision: z.string(),
+	tableIndex: z.number().int().nonnegative(),
+	columnOffset: z.number().int().nonnegative(),
+});
 
-export const getLookupTablesInputSchema = z
-	.object({
-		cursor: z.string().min(1).max(4096).optional(),
-	})
-	.strict();
+export const getLookupTablesInputSchema = z.strictObject({
+	cursor: z.string().min(1).max(4096).optional(),
+});
 export type GetLookupTablesInput = z.infer<typeof getLookupTablesInputSchema>;
 
 interface CatalogColumn {

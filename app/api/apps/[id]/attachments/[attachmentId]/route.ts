@@ -41,12 +41,10 @@ import {
 	getStoredObjectMetadata,
 } from "@/lib/storage/media";
 
-const retargetBodySchema = z
-	.object({
-		expectedInstancePath: z.string().min(1).max(1024),
-		instancePath: z.string().min(1).max(1024),
-	})
-	.strict();
+const retargetBodySchema = z.strictObject({
+	expectedInstancePath: z.string().min(1).max(1024),
+	instancePath: z.string().min(1).max(1024),
+});
 
 const RETARGET_METADATA_MAX_BYTES = 3 * 1024;
 

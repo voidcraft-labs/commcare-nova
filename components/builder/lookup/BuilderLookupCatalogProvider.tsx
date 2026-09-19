@@ -92,11 +92,11 @@ const BuilderLookupCatalogBoundary = memo(
 					data-builder-resource="lookup-catalog"
 					data-state={value.kind}
 				/>
-				<LookupCommitContext.Provider value={commitState}>
-					<BuilderLookupCatalogContext.Provider value={value}>
+				<LookupCommitContext value={commitState}>
+					<BuilderLookupCatalogContext value={value}>
 						{children}
-					</BuilderLookupCatalogContext.Provider>
-				</LookupCommitContext.Provider>
+					</BuilderLookupCatalogContext>
+				</LookupCommitContext>
 			</>
 		);
 	},

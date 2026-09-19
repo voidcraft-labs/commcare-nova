@@ -65,9 +65,9 @@ export function CommCareConnectionProvider({
 		[settings],
 	);
 	return (
-		<CommCareConnectionContext.Provider value={value}>
+		<CommCareConnectionContext value={value}>
 			{children}
-		</CommCareConnectionContext.Provider>
+		</CommCareConnectionContext>
 	);
 }
 

@@ -21,9 +21,9 @@ export function PortaledContentDirectionProvider({
 	readonly children: ReactNode;
 }) {
 	return (
-		<PortaledContentDirectionContext.Provider value={direction}>
+		<PortaledContentDirectionContext value={direction}>
 			{children}
-		</PortaledContentDirectionContext.Provider>
+		</PortaledContentDirectionContext>
 	);
 }
 

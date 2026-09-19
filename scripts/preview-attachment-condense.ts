@@ -29,7 +29,7 @@ import {
 	type AttachmentCondenser,
 	extractDocument,
 } from "../lib/agent/documentExtraction";
-import { generateObjectWith } from "../lib/agent/subGeneration";
+import { streamObjectWith } from "../lib/agent/subGeneration";
 import {
 	assetKindForExtension,
 	isDocumentKind,
@@ -94,7 +94,7 @@ function makeCondenser(
 		// The one structured extraction call, with usage recorded for the
 		// cost print.
 		async extractDocumentStructured(opts) {
-			const r = await generateObjectWith({
+			const r = await streamObjectWith({
 				model,
 				system: opts.system,
 				schema: opts.schema,

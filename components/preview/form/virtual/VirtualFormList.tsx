@@ -323,7 +323,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 
 	return (
 		<InsertionIntentProvider>
-			<FieldPickerContext.Provider value={questionPickerCtx}>
+			<FieldPickerContext value={questionPickerCtx}>
 				<VirtualFormProvider
 					formUuid={formUuid}
 					toggleCollapse={toggleCollapse}
@@ -378,7 +378,7 @@ export const VirtualFormList = memo(function VirtualFormList({
 						}
 					</Menu.Root>
 				</VirtualFormProvider>
-			</FieldPickerContext.Provider>
+			</FieldPickerContext>
 		</InsertionIntentProvider>
 	);
 });

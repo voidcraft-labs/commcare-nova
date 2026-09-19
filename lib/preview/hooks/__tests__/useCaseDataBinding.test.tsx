@@ -559,9 +559,9 @@ describe("useCaseCount request identity", () => {
 			const session = createBuilderSessionStore({ appId: APP_ID });
 			return ({ children }: { children: ReactNode }) => (
 				<BuilderSessionContext value={session}>
-					<ReconcilerContext.Provider value={scopeContext(projectScopeId)}>
+					<ReconcilerContext value={scopeContext(projectScopeId)}>
 						{children}
-					</ReconcilerContext.Provider>
+					</ReconcilerContext>
 				</BuilderSessionContext>
 			);
 		};

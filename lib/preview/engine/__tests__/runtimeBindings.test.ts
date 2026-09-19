@@ -831,7 +831,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(
+		).toThrow(
 			new SearchInputValuesError(
 				new Map([["visit_dates", DATE_RANGE_PAIR_REQUIRED_MESSAGE]]),
 			),
@@ -855,7 +855,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(DATE_RANGE_PAIR_REQUIRED_MESSAGE);
+		).toThrow(DATE_RANGE_PAIR_REQUIRED_MESSAGE);
 	});
 
 	it("returns matchAll() when both `:from` and `:to` are absent", () => {
@@ -898,7 +898,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
+		).toThrow(DATE_RANGE_INVALID_MESSAGE);
 	});
 
 	it("rejects calendar-invalid bounds (`2024-13-45` is not a real day)", () => {
@@ -926,7 +926,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
+		).toThrow(DATE_RANGE_INVALID_MESSAGE);
 	});
 
 	it("rejects a completed pair when one bound is malformed", () => {
@@ -951,7 +951,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(DATE_RANGE_INVALID_MESSAGE);
+		).toThrow(DATE_RANGE_INVALID_MESSAGE);
 	});
 
 	it("rejects a reversed pair instead of returning a mysterious empty list", () => {
@@ -976,7 +976,7 @@ describe("composeRuntimeFilter — range mode", () => {
 				PATIENT,
 				CASE_TYPE_SCHEMAS,
 			),
-		).toThrowError(DATE_RANGE_ORDER_MESSAGE);
+		).toThrow(DATE_RANGE_ORDER_MESSAGE);
 	});
 });
 

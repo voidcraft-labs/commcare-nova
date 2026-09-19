@@ -7,7 +7,7 @@
  *   2. Threads the app's Project and the optional kind/cursor.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { listMediaAssetsTool } from "../listMediaAssets";
@@ -31,10 +31,6 @@ vi.mock("@/lib/db/mediaAssets", async (importOriginal) => {
 		...actual,
 		listReadyAssetsForProject,
 	};
-});
-
-beforeEach(() => {
-	vi.clearAllMocks();
 });
 
 /** A minimal `ready` asset record for the mock to return. */

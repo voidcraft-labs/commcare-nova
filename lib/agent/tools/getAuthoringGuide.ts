@@ -5,19 +5,17 @@ import {
 } from "../authoring/reference";
 import type { ReadToolResult } from "./common";
 
-const inputSchema = z
-	.object({
-		topic: z.enum(
-			Object.keys(AUTHORING_REFERENCE) as (keyof typeof AUTHORING_REFERENCE)[],
+const inputSchema = z.strictObject({
+	topic: z.enum(
+		Object.keys(AUTHORING_REFERENCE) as (keyof typeof AUTHORING_REFERENCE)[],
+	),
+	functionName: z
+		.string()
+		.optional()
+		.describe(
+			"For expressions: look up one function's availability and arguments.",
 		),
-		functionName: z
-			.string()
-			.optional()
-			.describe(
-				"For expressions: look up one function's availability and arguments.",
-			),
-	})
-	.strict();
+});
 
 export const getAuthoringGuideTool = {
 	description: "Read guidance on a topic, or look up an expression function.",

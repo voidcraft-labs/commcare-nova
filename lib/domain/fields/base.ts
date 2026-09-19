@@ -74,12 +74,10 @@ export type StructuralFieldBase = {
 	id: string;
 };
 
-export const structuralFieldBase = z
-	.object({
-		uuid: uuidSchema,
-		id: z.string(),
-	})
-	.strict();
+export const structuralFieldBase = z.strictObject({
+	uuid: uuidSchema,
+	id: z.string(),
+});
 
 /**
  * Every visible field has identity, a form question/node id, a display
@@ -127,12 +125,10 @@ export interface CaseWrite {
 	property: AuthoredCasePropertyName;
 }
 
-export const caseWriteSchema = z
-	.object({
-		caseType: z.string().min(1, "Case type must not be empty."),
-		property: authoredCasePropertyNameSchema,
-	})
-	.strict();
+export const caseWriteSchema = z.strictObject({
+	caseType: z.string().min(1, "Case type must not be empty."),
+	property: authoredCasePropertyNameSchema,
+});
 
 /**
  * How a capture field's answer reaches the case.
@@ -236,14 +232,12 @@ export type SelectOption = {
 	uuid: Uuid;
 };
 
-export const selectOptionSchema = z
-	.object({
-		value: z.string(),
-		label: proseTemplateSchema,
-		media: mediaSchema.optional(),
-		uuid: uuidSchema,
-	})
-	.strict();
+export const selectOptionSchema = z.strictObject({
+	value: z.string(),
+	label: proseTemplateSchema,
+	media: mediaSchema.optional(),
+	uuid: uuidSchema,
+});
 
 /**
  * A fresh select's two starter options — the smallest set the select

@@ -28,7 +28,7 @@ const exactLookupTableNameSchema = z.string().refine((value) => {
 }, "Expected a canonical lookup table name.");
 
 const lookupTableManifestEntrySchema = z
-	.object({
+	.strictObject({
 		id: lookupTableIdSchema,
 		name: exactLookupTableNameSchema,
 		tag: lookupTagSchema,
@@ -39,7 +39,6 @@ const lookupTableManifestEntrySchema = z
 		rowsRevision: lookupRevisionSchema,
 		tableRevision: lookupRevisionSchema,
 	})
-	.strict()
 	.superRefine((table, ctx) => {
 		const expectedTableRevision =
 			compareLookupRevisions(table.definitionRevision, table.rowsRevision) >= 0
@@ -56,12 +55,11 @@ const lookupTableManifestEntrySchema = z
 	});
 
 export const lookupManifestFrameSchema: z.ZodType<LookupManifest> = z
-	.object({
+	.strictObject({
 		projectId: z.string().min(1),
 		projectRevision: lookupRevisionSchema,
 		tables: z.array(lookupTableManifestEntrySchema),
 	})
-	.strict()
 	.superRefine((manifest, ctx) => {
 		const ids = new Set<string>();
 		const tags = new Set<string>();

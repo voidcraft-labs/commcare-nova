@@ -144,11 +144,7 @@ export function Tooltip({ children, ...props }: TooltipProviderProps) {
 	const tooltip = useTooltip(props);
 
 	if (!props.useDelayGroup) {
-		return (
-			<TooltipContext.Provider value={tooltip}>
-				{children}
-			</TooltipContext.Provider>
-		);
+		return <TooltipContext value={tooltip}>{children}</TooltipContext>;
 	}
 
 	return (
@@ -156,9 +152,7 @@ export function Tooltip({ children, ...props }: TooltipProviderProps) {
 			delay={{ open: props.delay ?? 0, close: props.closeDelay ?? 0 }}
 			timeoutMs={props.timeout}
 		>
-			<TooltipContext.Provider value={tooltip}>
-				{children}
-			</TooltipContext.Provider>
+			<TooltipContext value={tooltip}>{children}</TooltipContext>
 		</FloatingDelayGroup>
 	);
 }

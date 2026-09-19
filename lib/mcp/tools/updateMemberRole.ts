@@ -35,25 +35,23 @@ import { rethrowAsMcpProjectAccess } from "../ownership";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-const updateMemberRoleInputSchema = z
-	.object({
-		project_id: z
-			.string()
-			.min(1)
-			.describe("The Project the member belongs to, from list_projects."),
-		member_id: z
-			.string()
-			.min(1)
-			.describe(
-				"The member to change, from list_members' member_id (the membership-row id, not the user id).",
-			),
-		role: z
-			.enum(ASSIGNABLE_PROJECT_ROLES)
-			.describe(
-				"The member's new role: viewer (read only), editor (edit apps and data), or admin (also manage members). Owner isn't assignable, and the owner's own role can't be changed.",
-			),
-	})
-	.strict();
+const updateMemberRoleInputSchema = z.strictObject({
+	project_id: z
+		.string()
+		.min(1)
+		.describe("The Project the member belongs to, from list_projects."),
+	member_id: z
+		.string()
+		.min(1)
+		.describe(
+			"The member to change, from list_members' member_id (the membership-row id, not the user id).",
+		),
+	role: z
+		.enum(ASSIGNABLE_PROJECT_ROLES)
+		.describe(
+			"The member's new role: viewer (read only), editor (edit apps and data), or admin (also manage members). Owner isn't assignable, and the owner's own role can't be changed.",
+		),
+});
 
 /**
  * Register the `update_member_role` tool on an `McpServer`.

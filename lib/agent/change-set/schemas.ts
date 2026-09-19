@@ -24,23 +24,19 @@ const findingFingerprintSchema = z.string().regex(/^[a-f0-9]{16}$/);
  * fingerprints and counts, never full findings (inspect recomputes current
  * details from the rehydrated overlay).
  */
-export const changeSetDiagnosticsSummarySchema = z
-	.object({
-		candidateDigest: sha256HexSchema,
-		findingCount: z.number().int().nonnegative(),
-		findingFingerprints: z.array(findingFingerprintSchema),
-		canCommit: z.boolean(),
-	})
-	.strict();
+export const changeSetDiagnosticsSummarySchema = z.strictObject({
+	candidateDigest: sha256HexSchema,
+	findingCount: z.number().int().nonnegative(),
+	findingFingerprints: z.array(findingFingerprintSchema),
+	canCommit: z.boolean(),
+});
 
 /** Persist the semantic answer with the write. Mutation bytes live in its step. */
-export const mutationReplayResultSchema = z
-	.object({
-		kind: z.literal("mutate"),
-		mutations: z.tuple([]),
-		result: z.record(z.string(), z.json()),
-	})
-	.strict();
+export const mutationReplayResultSchema = z.strictObject({
+	kind: z.literal("mutate"),
+	mutations: z.tuple([]),
+	result: z.record(z.string(), z.json()),
+});
 export type MutationReplayResult = z.infer<typeof mutationReplayResultSchema>;
 export type ChangeSetDiagnosticsSummary = z.infer<
 	typeof changeSetDiagnosticsSummarySchema
@@ -68,7 +64,7 @@ const stageErrorCodeSchema = z.enum([
  * its typed contents control whether execution may continue.
  */
 export const stageRequestReceiptSchema = z
-	.object({
+	.strictObject({
 		requestId: z.string().min(1),
 		disposition: z.enum(["staged", "noop", "rejected"]),
 		/** The workspace revision AFTER this request (staged: expected + 1;
@@ -81,14 +77,12 @@ export const stageRequestReceiptSchema = z
 		diagnostics: changeSetDiagnosticsSummarySchema.optional(),
 		replayResult: mutationReplayResultSchema.optional(),
 		error: z
-			.object({
+			.strictObject({
 				code: stageErrorCodeSchema,
 				message: z.string().min(1),
 			})
-			.strict()
 			.optional(),
 	})
-	.strict()
 	.superRefine((receipt, ctx) => {
 		if (
 			receipt.disposition !== "rejected" &&

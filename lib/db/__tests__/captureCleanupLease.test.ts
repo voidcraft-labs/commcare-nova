@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { withExclusiveCaptureCleanupWorker } from "../captureCleanupLease";
 
 const { getCaseStorePoolMock } = vi.hoisted(() => ({
@@ -8,10 +8,6 @@ const { getCaseStorePoolMock } = vi.hoisted(() => ({
 vi.mock("@/lib/case-store/postgres/connection", () => ({
 	getCaseStorePool: getCaseStorePoolMock,
 }));
-
-afterEach(() => {
-	vi.clearAllMocks();
-});
 
 describe("withExclusiveCaptureCleanupWorker", () => {
 	it("runs maintenance while holding one session lock and releases it afterward", async () => {

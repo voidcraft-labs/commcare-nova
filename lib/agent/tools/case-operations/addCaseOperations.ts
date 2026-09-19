@@ -26,18 +26,16 @@ import {
 export const addCaseOperationsInputSchema = operationAddressSchema.extend({
 	operations: z
 		.array(
-			z
-				.object({
-					operationUuid: uuidSchema
-						.optional()
-						.describe(
-							"Optional identity for the new operation. Nova assigns one when omitted.",
-						),
-					operation: caseOperationInputSchema.describe(
-						"Complete operation body.",
+			z.strictObject({
+				operationUuid: uuidSchema
+					.optional()
+					.describe(
+						"Optional identity for the new operation. Nova assigns one when omitted.",
 					),
-				})
-				.strict(),
+				operation: caseOperationInputSchema.describe(
+					"Complete operation body.",
+				),
+			}),
 		)
 		.min(1)
 		// Keep the batch duplicate-id check on the operations FIELD: the rule

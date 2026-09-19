@@ -1,4 +1,5 @@
 /** Cached session projections are controlled; live user authority is read from migrated Postgres. */
+import { APIError } from "better-auth/api";
 import { beforeEach, expect, it, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
@@ -12,7 +13,11 @@ vi.mock("@/lib/auth", async () => ({
 	getAuth: async () => ({ api: { getSession, signOut } }),
 }));
 
-import { requireAdmin, requireSession } from "@/lib/auth-utils";
+import {
+	requireAdmin,
+	requireSession,
+	resolveOpenAIKey,
+} from "@/lib/auth-utils";
 
 const database = setupAppStateTestDb("auth_live_gate_", {
 	authSchema: "migrated",
@@ -130,3 +135,31 @@ it("owns the activity update until PostgreSQL releases its row lock", async () =
 		.query('SELECT "lastActiveAt" FROM auth_user WHERE id = $1', ["actor"]);
 	expect(rows.rows[0].lastActiveAt).toBeInstanceOf(Date);
 });
+
+it("reads a cookie Better Auth refused as signed out", async () => {
+	getSession.mockRejectedValue(new APIError("UNAUTHORIZED"));
+	await expect(requireSession(request)).rejects.toMatchObject({ status: 401 });
+});
+
+it.each([
+	["the database dropped the connection", new Error("Connection terminated")],
+	[
+		"Better Auth could not read the session",
+		new APIError("INTERNAL_SERVER_ERROR"),
+	],
+])(
+	"answers a sign-in check that could not run (%s) as unavailable, not signed out",
+	async (_name, failure) => {
+		getSession.mockRejectedValue(failure);
+		await expect(requireSession(request)).rejects.toMatchObject({
+			status: 503,
+		});
+		await expect(requireAdmin(request)).rejects.toMatchObject({ status: 503 });
+		// The chat route reads this result instead of catching, so the same
+		// outage has to arrive as a result.
+		await expect(resolveOpenAIKey(request)).resolves.toMatchObject({
+			ok: false,
+			status: 503,
+		});
+	},
+);

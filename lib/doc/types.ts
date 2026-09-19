@@ -121,9 +121,7 @@ export const FIELD_MEDIA_SLOTS = [
  * whole-entity re-parse, so a required slot must never reach them as `null`.
  * Optionality is detected by whether the slot accepts `undefined`.
  */
-function clearablePartialPatch<
-	S extends { uuid: z.ZodTypeAny } & z.ZodRawShape,
->(
+function clearablePartialPatch<S extends { uuid: z.ZodType } & z.ZodRawShape>(
 	schema: z.ZodObject<S>,
 ): z.ZodObject<{
 	[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
@@ -135,15 +133,15 @@ function clearablePartialPatch<
 	const omitted = schema.omit({
 		uuid: true,
 	} as unknown as Parameters<typeof schema.omit>[0]);
-	const shape: Record<string, z.ZodTypeAny> = {};
+	const shape: Record<string, z.ZodType> = {};
 	for (const [key, value] of Object.entries(omitted.shape)) {
-		const slot = value as z.ZodTypeAny;
-		shape[key] = slot.safeParse(undefined).success ? slot.nullable() : slot;
+		const slot = value as z.ZodType;
+		shape[key] = slot.validate(undefined) ? slot.nullable() : slot;
 	}
 	// Required slots stay non-nullable at RUNTIME (a `null` for them is a
 	// parse error), but the inferred type marks every key nullable-optional —
 	// a uniform partial-patch shape consumers build typed patches against.
-	return z.object(shape).partial().strict() as unknown as z.ZodObject<{
+	return z.strictObject(shape).partial() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
 	}>;
 }
@@ -152,13 +150,11 @@ function caseOperationChangeSchemaFor(
 	operationValueSchema: typeof caseOperationSchema,
 ) {
 	return z.discriminatedUnion("operation", [
-		z
-			.object({
-				operation: z.literal("add"),
-				value: operationValueSchema,
-			})
-			.strict(),
-		z.object({ operation: z.literal("remove"), uuid: uuidSchema }).strict(),
+		z.strictObject({
+			operation: z.literal("add"),
+			value: operationValueSchema,
+		}),
+		z.strictObject({ operation: z.literal("remove"), uuid: uuidSchema }),
 	]);
 }
 
@@ -190,41 +186,34 @@ function caseOperationPatchSchemaFor(
 		.omit({ action: true, writes: true, links: true })
 		.strict();
 	const operationUpdateSchema = z.discriminatedUnion("targetAction", [
-		z
-			.object({
-				operation: z.literal("update"),
-				uuid: uuidSchema,
-				targetAction: operationValueSchema.options[0].shape.action,
-				patch: createOperationPatchSchema,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("update"),
-				uuid: uuidSchema,
-				targetAction: operationValueSchema.options[1].shape.action,
-				patch: updateOperationPatchSchema,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("update"),
-				uuid: uuidSchema,
-				targetAction: operationValueSchema.options[2].shape.action,
-				patch: closeOperationPatchSchema,
-			})
-			.strict(),
+		z.strictObject({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			targetAction: operationValueSchema.options[0].shape.action,
+			patch: createOperationPatchSchema,
+		}),
+		z.strictObject({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			targetAction: operationValueSchema.options[1].shape.action,
+			patch: updateOperationPatchSchema,
+		}),
+		z.strictObject({
+			operation: z.literal("update"),
+			uuid: uuidSchema,
+			targetAction: operationValueSchema.options[2].shape.action,
+			patch: closeOperationPatchSchema,
+		}),
 	]);
 	const writeSchema =
 		operationValueSchema.options[0].shape.writes.unwrap().element;
 	const writePatchSchema = z
-		.object({
+		.strictObject({
 			value: writeSchema.shape.value.optional(),
 			condition: writeSchema.shape.condition.unwrap().nullable().optional(),
 		})
-		.strict()
 		.refine((patch) => Object.keys(patch).length > 0, {
-			message: "A case-operation write patch must change at least one slot.",
+			error: "A case-operation write patch must change at least one slot.",
 		});
 	const linkSchema =
 		operationValueSchema.options[0].shape.links.unwrap().element;
@@ -233,91 +222,73 @@ function caseOperationPatchSchemaFor(
 		.partial()
 		.strict()
 		.refine((patch) => Object.keys(patch).length > 0, {
-			message: "A case-operation link patch must change at least one slot.",
+			error: "A case-operation link patch must change at least one slot.",
 		});
 	return z.discriminatedUnion("operation", [
 		operationUpdateSchema,
-		z
-			.object({
-				operation: z.literal("add-write"),
-				uuid: uuidSchema,
-				value: writeSchema,
-				/** Logical predecessor in this operation's write collection.
-				 * `null` means first; omission means intentional append. */
-				after: writeSchema.shape.property.nullable().optional(),
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("update-write"),
-				uuid: uuidSchema,
-				property: writeSchema.shape.property,
-				patch: writePatchSchema,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("remove-write"),
-				uuid: uuidSchema,
-				property: writeSchema.shape.property,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("move-write"),
-				uuid: uuidSchema,
-				property: writeSchema.shape.property,
-				after: writeSchema.shape.property.nullable(),
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("add-link"),
-				uuid: uuidSchema,
-				value: linkSchema,
-				/** Logical predecessor in this operation's link collection.
-				 * `null` means first; omission means intentional append. */
-				after: linkSchema.shape.identifier.nullable().optional(),
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("update-link"),
-				uuid: uuidSchema,
-				identifier: linkSchema.shape.identifier,
-				patch: linkPatchSchema,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("remove-link"),
-				uuid: uuidSchema,
-				identifier: linkSchema.shape.identifier,
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("move-link"),
-				uuid: uuidSchema,
-				identifier: linkSchema.shape.identifier,
-				after: linkSchema.shape.identifier.nullable(),
-			})
-			.strict(),
-		z
-			.object({
-				operation: z.literal("move"),
-				uuid: uuidSchema,
-				/**
-				 * The uuid this operation now follows, or `null` for first.
-				 *
-				 * The anchor is the whole placement — there is no separate rank for
-				 * the authoritative writer to fence. A placement named by a
-				 * neighbouring uuid cannot be shifted by a peer: the anchor either
-				 * still exists, or it does not and the move appends.
-				 */
-				after: uuidSchema.nullable(),
-			})
-			.strict(),
+		z.strictObject({
+			operation: z.literal("add-write"),
+			uuid: uuidSchema,
+			value: writeSchema,
+			/** Logical predecessor in this operation's write collection.
+			 * `null` means first; omission means intentional append. */
+			after: writeSchema.shape.property.nullable().optional(),
+		}),
+		z.strictObject({
+			operation: z.literal("update-write"),
+			uuid: uuidSchema,
+			property: writeSchema.shape.property,
+			patch: writePatchSchema,
+		}),
+		z.strictObject({
+			operation: z.literal("remove-write"),
+			uuid: uuidSchema,
+			property: writeSchema.shape.property,
+		}),
+		z.strictObject({
+			operation: z.literal("move-write"),
+			uuid: uuidSchema,
+			property: writeSchema.shape.property,
+			after: writeSchema.shape.property.nullable(),
+		}),
+		z.strictObject({
+			operation: z.literal("add-link"),
+			uuid: uuidSchema,
+			value: linkSchema,
+			/** Logical predecessor in this operation's link collection.
+			 * `null` means first; omission means intentional append. */
+			after: linkSchema.shape.identifier.nullable().optional(),
+		}),
+		z.strictObject({
+			operation: z.literal("update-link"),
+			uuid: uuidSchema,
+			identifier: linkSchema.shape.identifier,
+			patch: linkPatchSchema,
+		}),
+		z.strictObject({
+			operation: z.literal("remove-link"),
+			uuid: uuidSchema,
+			identifier: linkSchema.shape.identifier,
+		}),
+		z.strictObject({
+			operation: z.literal("move-link"),
+			uuid: uuidSchema,
+			identifier: linkSchema.shape.identifier,
+			after: linkSchema.shape.identifier.nullable(),
+		}),
+		z.strictObject({
+			operation: z.literal("move"),
+			uuid: uuidSchema,
+			/**
+			 * The uuid this operation now follows, or `null` for first.
+			 *
+			 * The anchor is the whole placement — there is no separate rank for
+			 * the authoritative writer to fence. A placement named by a
+			 * neighbouring uuid cannot be shifted by a peer: the anchor either
+			 * still exists, or it does not and the move appends.
+			 */
+			after: uuidSchema.nullable(),
+		}),
 	]);
 }
 
@@ -325,7 +296,7 @@ function caseSearchConfigPatchSchemaFor(
 	configSchema: typeof ordinaryCaseSearchConfigSchema,
 ) {
 	return z
-		.object({
+		.strictObject({
 			excludedOwnerIds: configSchema.shape.excludedOwnerIds.nullable(),
 			searchScreenTitle: configSchema.shape.searchScreenTitle.nullable(),
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),
@@ -334,8 +305,7 @@ function caseSearchConfigPatchSchemaFor(
 				configSchema.shape.searchButtonDisplayCondition.nullable(),
 			searchFirst: configSchema.shape.searchFirst.nullable(),
 		})
-		.partial()
-		.strict();
+		.partial();
 }
 
 // Every clearable slot is null-as-delete-safe: an absent `required` is not
@@ -361,16 +331,16 @@ const organizationLevelUpdatePatchSchema = clearablePartialPatch(
 		code: true,
 	})
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one organization-level field.",
+		error: "Change at least one organization-level field.",
 	});
 const locationPropertyUpdatePatchSchema = clearablePartialPatch(
 	locationPropertySchema,
 ).refine((patch) => Object.keys(patch).length > 0, {
-	message: "Change at least one location-property field.",
+	error: "Change at least one location-property field.",
 });
 
 const automationCaseUpdatePatchSchema = z
-	.object({
+	.strictObject({
 		name: automationSchema.options[0].shape.name.optional(),
 		caseType: automationSchema.options[0].shape.caseType.optional(),
 		criteriaOperator:
@@ -380,14 +350,13 @@ const automationCaseUpdatePatchSchema = z
 		closeCase: automationSchema.options[0].shape.closeCase.optional(),
 	})
 	.partial()
-	.strict()
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one automation field.",
+		error: "Change at least one automation field.",
 	});
 
 const alertShape = automationSchema.options[1].shape;
 const automationAlertUpdatePatchSchema = z
-	.object({
+	.strictObject({
 		name: alertShape.name.optional(),
 		caseType: alertShape.caseType.optional(),
 		criteriaOperator: alertShape.criteriaOperator.optional(),
@@ -400,9 +369,8 @@ const automationAlertUpdatePatchSchema = z
 		stopDateCaseProperty: alertShape.stopDateCaseProperty.nullable(),
 	})
 	.partial()
-	.strict()
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one automation field.",
+		error: "Change at least one automation field.",
 	});
 
 function automationItemEditSchemas<
@@ -410,36 +378,28 @@ function automationItemEditSchemas<
 	S extends z.ZodType<{ uuid: z.infer<typeof uuidSchema> }>,
 >(collection: C, valueSchema: S) {
 	return [
-		z
-			.object({
-				collection: z.literal(collection),
-				operation: z.literal("add"),
-				value: valueSchema,
-				after: uuidSchema.nullable().optional(),
-			})
-			.strict(),
-		z
-			.object({
-				collection: z.literal(collection),
-				operation: z.literal("update"),
-				value: valueSchema,
-			})
-			.strict(),
-		z
-			.object({
-				collection: z.literal(collection),
-				operation: z.literal("remove"),
-				uuid: uuidSchema,
-			})
-			.strict(),
-		z
-			.object({
-				collection: z.literal(collection),
-				operation: z.literal("move"),
-				uuid: uuidSchema,
-				after: uuidSchema.nullable(),
-			})
-			.strict(),
+		z.strictObject({
+			collection: z.literal(collection),
+			operation: z.literal("add"),
+			value: valueSchema,
+			after: uuidSchema.nullable().optional(),
+		}),
+		z.strictObject({
+			collection: z.literal(collection),
+			operation: z.literal("update"),
+			value: valueSchema,
+		}),
+		z.strictObject({
+			collection: z.literal(collection),
+			operation: z.literal("remove"),
+			uuid: uuidSchema,
+		}),
+		z.strictObject({
+			collection: z.literal(collection),
+			operation: z.literal("move"),
+			uuid: uuidSchema,
+			after: uuidSchema.nullable(),
+		}),
 	] as const;
 }
 
@@ -472,13 +432,11 @@ const alertAutomationItemEditSchema = z.union([
 		automationUserDataFilterSchema,
 	),
 ]);
-const userDataValuePatchSchema = z
-	.object({
-		userPropertyUuid: uuidSchema,
-		/** `null` is the JSON-stable spelling of removing one authored value. */
-		value: z.string().nullable(),
-	})
-	.strict();
+const userDataValuePatchSchema = z.strictObject({
+	userPropertyUuid: uuidSchema,
+	/** `null` is the JSON-stable spelling of removing one authored value. */
+	value: z.string().nullable(),
+});
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
@@ -643,15 +601,13 @@ const updateFieldPatchSchemaByKind = {
 
 const updateFieldArms = fieldKinds.map(
 	(targetKind) =>
-		z
-			.object({
-				kind: z.literal("updateField"),
-				uuid: uuidSchema,
-				targetKind: z.literal(targetKind),
-				// A final update always carries its patch.
-				patch: updateFieldPatchSchemaByKind[targetKind],
-			})
-			.strict() as unknown as UpdateFieldArm,
+		z.strictObject({
+			kind: z.literal("updateField"),
+			uuid: uuidSchema,
+			targetKind: z.literal(targetKind),
+			// A final update always carries its patch.
+			patch: updateFieldPatchSchemaByKind[targetKind],
+		}) as unknown as UpdateFieldArm,
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
 const finalMutationFamily = {
@@ -676,8 +632,8 @@ type MutationSchemaFamily = typeof finalMutationFamily;
  * Reports a case-operation update that also tries to set the operation's
  * `uuid`.
  *
- * `clearablePartialPatch` already omits `uuid`, so `.strict()` refuses this
- * shape on its own — the refusal is structural and this function does not
+ * `clearablePartialPatch` already omits `uuid`, so the strict patch refuses
+ * this shape on its own — the refusal is structural and this function does not
  * create it. What it creates is the SENTENCE. Strict parsing would otherwise
  * answer "Unrecognized key" for a caller (the SA, an MCP client) whose actual
  * mistake is believing an update can move an operation's identity, and that
@@ -757,35 +713,28 @@ function createMutationSchema({
 	predicate: mutationPredicateSchema,
 }: MutationSchemaFamily) {
 	const mutationArms = [
-		z
-			.object({
-				kind: z.literal("addEntryPoint"),
-				target: entryPointTargetSchema,
-				entryPoint: formEntryPointSchema,
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("updateEntryPoint"),
-				entryPointUuid: uuidSchema,
-				patch: z
-					.object({
-						id: entryPointIdSchema.optional(),
-						ignoreDisplayConditions: z.literal(true).nullable().optional(),
-					})
-					.strict()
-					.refine(
-						(p) => Object.keys(p).length > 0,
-						"Choose a setting to change.",
-					),
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("removeEntryPoint"),
-				entryPointUuid: uuidSchema,
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("addEntryPoint"),
+			target: entryPointTargetSchema,
+			entryPoint: formEntryPointSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("updateEntryPoint"),
+			entryPointUuid: uuidSchema,
+			patch: z
+				.strictObject({
+					id: entryPointIdSchema.optional(),
+					ignoreDisplayConditions: z.literal(true).nullable().optional(),
+				})
+				.refine(
+					(p) => Object.keys(p).length > 0,
+					"Choose a setting to change.",
+				),
+		}),
+		z.strictObject({
+			kind: z.literal("removeEntryPoint"),
+			entryPointUuid: uuidSchema,
+		}),
 		// Module
 		z.object({
 			kind: z.literal("addModule"),
@@ -962,51 +911,41 @@ function createMutationSchema({
 		// After-submit links: form-owned entities whose array position is the
 		// sequence, so add and move both say "after this link" (`null` first,
 		// absent appends), exactly like Search inputs.
-		z
-			.object({
-				kind: z.literal("addFormLink"),
-				formUuid: uuidSchema,
-				link: mutationFormLinkSchema,
-				/** The link this one now follows; `null` first, absent appends. */
-				after: uuidSchema.nullable().optional(),
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("updateFormLink"),
-				formUuid: uuidSchema,
-				uuid: uuidSchema,
-				patch: mutationFormLinkPatchSchema,
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("removeFormLink"),
-				formUuid: uuidSchema,
-				uuid: uuidSchema,
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("moveFormLink"),
-				formUuid: uuidSchema,
-				uuid: uuidSchema,
-				/** The link this one now follows, or `null` for first. */
-				after: uuidSchema.nullable(),
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("addFormLink"),
+			formUuid: uuidSchema,
+			link: mutationFormLinkSchema,
+			/** The link this one now follows; `null` first, absent appends. */
+			after: uuidSchema.nullable().optional(),
+		}),
+		z.strictObject({
+			kind: z.literal("updateFormLink"),
+			formUuid: uuidSchema,
+			uuid: uuidSchema,
+			patch: mutationFormLinkPatchSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("removeFormLink"),
+			formUuid: uuidSchema,
+			uuid: uuidSchema,
+		}),
+		z.strictObject({
+			kind: z.literal("moveFormLink"),
+			formUuid: uuidSchema,
+			uuid: uuidSchema,
+			/** The link this one now follows, or `null` for first. */
+			after: uuidSchema.nullable(),
+		}),
 		// Field
-		z
-			.object({
-				kind: z.literal("addField"),
-				parentUuid: uuidSchema,
-				field: fieldSchema,
-				/** The sibling this field follows under `parentUuid`, or `null` for
-				 *  first. Absent appends — the common case, and distinct from `null`
-				 *  so "add at the top" stays expressible. */
-				after: uuidSchema.nullable().optional(),
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("addField"),
+			parentUuid: uuidSchema,
+			field: fieldSchema,
+			/** The sibling this field follows under `parentUuid`, or `null` for
+			 *  first. Absent appends — the common case, and distinct from `null`
+			 *  so "add at the top" stays expressible. */
+			after: uuidSchema.nullable().optional(),
+		}),
 		z.object({ kind: z.literal("removeField"), uuid: uuidSchema }),
 		// A same-parent reorder splices the field to a new position in its
 		// parent's membership array; a cross-parent move splices it into the
@@ -1095,13 +1034,11 @@ function createMutationSchema({
 			kind: z.literal("renameCaseProperties"),
 			renames: z
 				.array(
-					z
-						.object({
-							caseType: z.string().min(1),
-							from: authoredCasePropertyNameSchema,
-							to: authoredCasePropertyNameSchema,
-						})
-						.strict(),
+					z.strictObject({
+						caseType: z.string().min(1),
+						from: authoredCasePropertyNameSchema,
+						to: authoredCasePropertyNameSchema,
+					}),
 				)
 				.min(1),
 		}),
@@ -1228,55 +1165,43 @@ function createMutationSchema({
 			after: uuidSchema.nullable().optional(),
 		}),
 		z.discriminatedUnion("targetKind", [
-			z
-				.object({
-					kind: z.literal("updateAutomation"),
-					uuid: uuidSchema,
-					targetKind: z.literal("case-update"),
-					patch: automationCaseUpdatePatchSchema,
-				})
-				.strict(),
-			z
-				.object({
-					kind: z.literal("updateAutomation"),
-					uuid: uuidSchema,
-					targetKind: z.literal("conditional-alert"),
-					patch: automationAlertUpdatePatchSchema,
-				})
-				.strict(),
+			z.strictObject({
+				kind: z.literal("updateAutomation"),
+				uuid: uuidSchema,
+				targetKind: z.literal("case-update"),
+				patch: automationCaseUpdatePatchSchema,
+			}),
+			z.strictObject({
+				kind: z.literal("updateAutomation"),
+				uuid: uuidSchema,
+				targetKind: z.literal("conditional-alert"),
+				patch: automationAlertUpdatePatchSchema,
+			}),
 		]),
-		z
-			.object({
-				kind: z.literal("removeAutomation"),
-				uuid: uuidSchema,
-				targetKind: z.enum(["case-update", "conditional-alert"]),
-			})
-			.strict(),
-		z
-			.object({
-				kind: z.literal("moveAutomation"),
-				uuid: uuidSchema,
-				targetKind: z.enum(["case-update", "conditional-alert"]),
-				after: uuidSchema.nullable(),
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("removeAutomation"),
+			uuid: uuidSchema,
+			targetKind: z.enum(["case-update", "conditional-alert"]),
+		}),
+		z.strictObject({
+			kind: z.literal("moveAutomation"),
+			uuid: uuidSchema,
+			targetKind: z.enum(["case-update", "conditional-alert"]),
+			after: uuidSchema.nullable(),
+		}),
 		z.discriminatedUnion("targetKind", [
-			z
-				.object({
-					kind: z.literal("editAutomationItem"),
-					automationUuid: uuidSchema,
-					targetKind: z.literal("case-update"),
-					edit: caseUpdateAutomationItemEditSchema,
-				})
-				.strict(),
-			z
-				.object({
-					kind: z.literal("editAutomationItem"),
-					automationUuid: uuidSchema,
-					targetKind: z.literal("conditional-alert"),
-					edit: alertAutomationItemEditSchema,
-				})
-				.strict(),
+			z.strictObject({
+				kind: z.literal("editAutomationItem"),
+				automationUuid: uuidSchema,
+				targetKind: z.literal("case-update"),
+				edit: caseUpdateAutomationItemEditSchema,
+			}),
+			z.strictObject({
+				kind: z.literal("editAutomationItem"),
+				automationUuid: uuidSchema,
+				targetKind: z.literal("conditional-alert"),
+				edit: alertAutomationItemEditSchema,
+			}),
 		]),
 		z.object({
 			kind: z.literal("setAutomationSchedule"),
@@ -1287,7 +1212,7 @@ function createMutationSchema({
 			kind: z.literal("updateAutomationSchedule"),
 			uuid: uuidSchema,
 			patch: z
-				.object({
+				.strictObject({
 					repeatEvery:
 						automationScheduleSchema.options[1].shape.repeatEvery.optional(),
 					totalIterations:
@@ -1298,9 +1223,8 @@ function createMutationSchema({
 						automationScheduleSchema.options[1].shape.startDayOfWeek.optional(),
 					start: automationScheduleSchema.options[1].shape.start.optional(),
 				})
-				.strict()
 				.refine((value) => Object.keys(value).length > 0, {
-					message: "Change at least one schedule field.",
+					error: "Change at least one schedule field.",
 				}),
 		}),
 		// ─── Granular case-list collections ──────────────────────────────────
@@ -1326,7 +1250,7 @@ function createMutationSchema({
 			afterInDetail: uuidSchema.nullable(),
 		}),
 		z
-			.object({
+			.strictObject({
 				kind: z.literal("updateColumn"),
 				moduleUuid: uuidSchema,
 				uuid: uuidSchema,
@@ -1334,14 +1258,12 @@ function createMutationSchema({
 				sortPatch: columnSortSchema.nullable().optional(),
 				tilePatch: tileCellSchema.nullable().optional(),
 				visibilityPatch: z
-					.object({
+					.strictObject({
 						surface: z.enum(["list", "detail"]),
 						visible: z.boolean(),
 					})
-					.strict()
 					.optional(),
 			})
-			.strict()
 			.superRefine((mutation, ctx) => {
 				const payloadCount = [
 					mutation.column,
@@ -1383,14 +1305,12 @@ function createMutationSchema({
 			/** The uuid this input now follows; `null` first, absent appends. */
 			after: uuidSchema.nullable().optional(),
 		}),
-		z
-			.object({
-				kind: z.literal("updateSearchInput"),
-				moduleUuid: uuidSchema,
-				uuid: uuidSchema,
-				searchInput: searchInputContentSchema,
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("updateSearchInput"),
+			moduleUuid: uuidSchema,
+			uuid: uuidSchema,
+			searchInput: searchInputContentSchema,
+		}),
 		z.object({
 			kind: z.literal("removeSearchInput"),
 			moduleUuid: uuidSchema,
@@ -1412,15 +1332,13 @@ function createMutationSchema({
 		z.object({
 			kind: z.literal("setCaseListMeta"),
 			uuid: uuidSchema,
-			patch: z
-				.object({
-					filter: mutationPredicateSchema.nullable().optional(),
-					selection: caseSelectionSchema.nullable().optional(),
-					icon: moduleIconRefSchema.nullable().optional(),
-					audioLabel: mediaAssetIdSchema.nullable().optional(),
-					tile: caseTileLayoutSchema.nullable().optional(),
-				})
-				.strict(),
+			patch: z.strictObject({
+				filter: mutationPredicateSchema.nullable().optional(),
+				selection: caseSelectionSchema.nullable().optional(),
+				icon: moduleIconRefSchema.nullable().optional(),
+				audioLabel: mediaAssetIdSchema.nullable().optional(),
+				tile: caseTileLayoutSchema.nullable().optional(),
+			}),
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//

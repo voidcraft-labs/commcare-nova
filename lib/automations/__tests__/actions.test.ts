@@ -82,7 +82,6 @@ function fixture() {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	mocks.getSession.mockResolvedValue({ user: { id: "member" } });
 	mocks.resolveAppScope.mockResolvedValue({
 		projectId: "project",

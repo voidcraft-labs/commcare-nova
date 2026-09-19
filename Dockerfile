@@ -103,14 +103,6 @@ RUN npx esbuild scripts/migrate-case-status-filters.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=case-status-filter-repair.cjs
-RUN npx esbuild scripts/migrate-better-auth-account-identity.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=better-auth-account-identity.cjs
-RUN npx esbuild scripts/migrate-better-auth-oauth-clients.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=better-auth-oauth-clients.cjs
 RUN npx esbuild scripts/migrate-select-option-values.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \

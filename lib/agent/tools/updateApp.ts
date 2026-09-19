@@ -22,14 +22,12 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const updateAppInputSchema = z
-	.object({
-		name: z
-			.string()
-			.min(1)
-			.describe("App display name (the title users see on devices)."),
-	})
-	.strict();
+export const updateAppInputSchema = z.strictObject({
+	name: z
+		.string()
+		.min(1)
+		.describe("App display name (the title users see on devices)."),
+});
 
 export type UpdateAppInput = z.infer<typeof updateAppInputSchema>;
 

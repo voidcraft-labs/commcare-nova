@@ -2,13 +2,13 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { log } from "@/lib/logger";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { classifyError } from "../errorClassifier";
 import { runStructuredWith } from "../modelRunContext";
-import { generateObjectWith, streamObjectWith } from "../subGeneration";
+import { streamObjectWith } from "../subGeneration";
 import { respondWithObject, withResponsesPeer } from "./responsesPeer";
 
 // The SDK and provider run unchanged. Socket ownership, final results and
@@ -28,7 +28,6 @@ const args = {
 	providerOptions: reasoningProviderOptions("high"),
 	signal: new AbortController().signal,
 };
-beforeEach(() => vi.clearAllMocks());
 
 it("validates streamed JSON and strict wire options, restores omission, and meters decoded usage", async () => {
 	const received = Promise.withResolvers<unknown>();
@@ -284,99 +283,68 @@ it("rejects an already-aborted call before reaching HTTP", async () => {
 	);
 });
 
-it.each(["streaming", "blocking"] as const)(
-	"serializes images and native PDF input through the real %s adapter",
-	async (mode) => {
-		for (const nativePdf of [false, true]) {
-			const received = Promise.withResolvers<{ input: unknown[] }>();
-			await withResponsesPeer(
-				(request, response) => {
-					let body = "";
-					request.setEncoding("utf8");
-					request.on("data", (chunk) => {
-						body += chunk;
-					});
-					request.on("end", () => {
-						received.resolve(JSON.parse(body));
-						if (mode === "streaming")
-							respondWithObject(response, '{"answer":"yes"}');
-						else {
-							response.writeHead(200, { "content-type": "application/json" });
-							response.end(
-								JSON.stringify({
-									id: "resp_local",
-									created_at: 1,
-									model: MODEL,
-									output: [
-										{
-											type: "message",
-											role: "assistant",
-											id: "msg_local",
-											content: [
-												{
-													type: "output_text",
-													text: '{"answer":"yes"}',
-													annotations: [],
-												},
-											],
-										},
-									],
-									usage: { input_tokens: 11, output_tokens: 7 },
-								}),
-							);
-						}
-					});
-				},
-				async (provider) => {
-					const generate =
-						mode === "streaming" ? streamObjectWith : generateObjectWith;
-					const result = await generate({
-						model: provider(MODEL),
-						system: "Extract",
-						schema,
-						prompt: "Document body",
-						...(nativePdf && {
-							file: {
-								mediaType: "application/pdf",
-								data: "data:application/pdf;base64,JVBERi0=",
-							},
-							instruction: "Read PDF",
-						}),
-						images: [
-							{
-								mediaType: "image/png",
-								data: "data:image/png;base64,iVBORw==",
-								label: "Figure 1",
-							},
-						],
-					});
-					expect(result.object).toEqual({ answer: "yes" });
-					const wire = await received.promise;
-					expect(wire.input).toContainEqual({
-						role: "user",
-						content: nativePdf
-							? [
-									{ type: "input_text", text: "Read PDF" },
-									{
-										type: "input_file",
-										filename: "part-1.pdf",
-										file_data: "data:application/pdf;base64,JVBERi0=",
-									},
-								]
-							: [
-									{ type: "input_text", text: "Document body" },
-									{ type: "input_text", text: "Figure 1" },
-									{
-										type: "input_image",
-										image_url: "data:image/png;base64,iVBORw==",
-									},
-								],
-					});
-				},
-			);
-		}
-	},
-);
+it("serializes images and native PDF input through the real adapter", async () => {
+	for (const nativePdf of [false, true]) {
+		const received = Promise.withResolvers<{ input: unknown[] }>();
+		await withResponsesPeer(
+			(request, response) => {
+				let body = "";
+				request.setEncoding("utf8");
+				request.on("data", (chunk) => {
+					body += chunk;
+				});
+				request.on("end", () => {
+					received.resolve(JSON.parse(body));
+					respondWithObject(response, '{"answer":"yes"}');
+				});
+			},
+			async (provider) => {
+				const result = await streamObjectWith({
+					model: provider(MODEL),
+					system: "Extract",
+					schema,
+					prompt: "Document body",
+					...(nativePdf && {
+						file: {
+							mediaType: "application/pdf",
+							data: "data:application/pdf;base64,JVBERi0=",
+						},
+						instruction: "Read PDF",
+					}),
+					images: [
+						{
+							mediaType: "image/png",
+							data: "data:image/png;base64,iVBORw==",
+							label: "Figure 1",
+						},
+					],
+				});
+				expect(result.object).toEqual({ answer: "yes" });
+				const wire = await received.promise;
+				expect(wire.input).toContainEqual({
+					role: "user",
+					content: nativePdf
+						? [
+								{ type: "input_text", text: "Read PDF" },
+								{
+									type: "input_file",
+									filename: "part-1.pdf",
+									file_data: "data:application/pdf;base64,JVBERi0=",
+								},
+							]
+						: [
+								{ type: "input_text", text: "Document body" },
+								{ type: "input_text", text: "Figure 1" },
+								{
+									type: "input_image",
+									image_url: "data:image/png;base64,iVBORw==",
+								},
+							],
+				});
+			},
+		);
+	}
+});
 
 function writePartial(response: ServerResponse) {
 	response.writeHead(200, { "content-type": "text/event-stream" });

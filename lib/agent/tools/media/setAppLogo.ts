@@ -29,15 +29,13 @@ import {
 	slotExpectation,
 } from "./shared";
 
-export const setAppLogoInputSchema = z
-	.object({
-		logo: nullableAssetSlot(
-			"Asset id of the image to use as the app logo (shown on the login and " +
-				"home screens), or null to clear it. Must be an image asset — discover " +
-				"image asset ids with list_media_assets.",
-		),
-	})
-	.strict();
+export const setAppLogoInputSchema = z.strictObject({
+	logo: nullableAssetSlot(
+		"Asset id of the image to use as the app logo (shown on the login and " +
+			"home screens), or null to clear it. Must be an image asset — discover " +
+			"image asset ids with list_media_assets.",
+	),
+});
 
 export type SetAppLogoInput = z.infer<typeof setAppLogoInputSchema>;
 

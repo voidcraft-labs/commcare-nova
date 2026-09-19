@@ -92,7 +92,6 @@ function imageExpectation(assetId: MediaAssetId): MediaAttachExpectation {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	rows.clear();
 });
 

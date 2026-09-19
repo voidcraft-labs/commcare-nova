@@ -592,7 +592,7 @@ export function reconcileFieldForKind(
  * the projection rather than collapsing to `Record<string, never>`.
  */
 function partialOf<
-	S extends { uuid: z.ZodTypeAny; kind: z.ZodTypeAny } & z.ZodRawShape,
+	S extends { uuid: z.ZodType; kind: z.ZodType } & z.ZodRawShape,
 >(
 	schema: z.ZodObject<S>,
 ): z.ZodObject<{
@@ -615,12 +615,12 @@ function partialOf<
 	const nullableShape = Object.fromEntries(
 		Object.entries(omitted.shape).map(([key, value]) => [
 			key,
-			(value as z.ZodTypeAny).safeParse(undefined).success
-				? (value as z.ZodTypeAny).nullable()
+			(value as z.ZodType).validate(undefined)
+				? (value as z.ZodType).nullable()
 				: value,
 		]),
 	);
-	return z.object(nullableShape).partial().strict() as unknown as z.ZodObject<{
+	return z.strictObject(nullableShape).partial() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
 			undefined extends z.output<S[K]> ? z.ZodNullable<S[K]> : S[K]
 		>;
@@ -676,7 +676,7 @@ export const fieldPatchSchemaByKind = {
 		partialOf(countBoundRepeatSchema),
 		partialOf(queryBoundRepeatSchema),
 	]),
-} as const satisfies { [K in FieldKind]: z.ZodTypeAny };
+} as const satisfies { [K in FieldKind]: z.ZodType };
 
 /**
  * Type-level shape of an `updateField` mutation's `patch` slot for a

@@ -207,7 +207,7 @@ export async function distill(
 	const clusterStream = streamText({
 		model: openai(DISTILL_MODEL),
 		output: Output.object({ schema: tagClusterSchema }),
-		system: `You are organizing CommCare platform knowledge for an AI agent that builds CommCare apps.
+		instructions: `You are organizing CommCare platform knowledge for an AI agent that builds CommCare apps.
 
 You will receive a flat array of topic tag strings. These tags were extracted from Confluence pages about CommCare. Many are near-duplicates with different formatting (e.g., "case management" vs "case-management").
 
@@ -386,7 +386,7 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 
 				const result = streamText({
 					model: openai(DISTILL_MODEL),
-					system: distillSystem,
+					instructions: distillSystem,
 					prompt,
 				});
 

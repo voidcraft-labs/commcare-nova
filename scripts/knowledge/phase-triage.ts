@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { z } from "zod";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
@@ -154,10 +154,10 @@ export async function triage(
 		const totalBatches = Math.ceil(pages.length / batchSize);
 
 		try {
-			const result = await generateObject({
+			const result = await generateText({
 				model: openai(TRIAGE_MODEL),
-				schema: triageBatchSchema,
-				system: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
+				output: Output.object({ schema: triageBatchSchema }),
+				instructions: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
 
 Rate each page:
 - **relevance** (0-10): How useful for an AI building CommCare apps? 0 = irrelevant (HR, sales, internal process). 10 = directly teaches CommCare app-building concepts.
@@ -175,7 +175,7 @@ Rate each page:
 
 			// Map results back, ensuring we have entries for all pages in batch
 			for (const page of batch) {
-				const classification = result.object.pages.find(
+				const classification = result.output.pages.find(
 					(c) => c.pageId === page.id,
 				);
 				if (classification) {

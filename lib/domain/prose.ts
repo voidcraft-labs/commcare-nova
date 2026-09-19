@@ -11,34 +11,26 @@ import { externalUserPropertyNameSchema } from "./externalUserProperty";
 import { uuidSchema } from "./uuid";
 import { type XPathPrintableDoc, xpathPrintContext } from "./xpath/print";
 
-export const proseTextPartSchema = z
-	.object({
-		kind: z.literal("text"),
-		text: z.string().min(1),
-	})
-	.strict();
+export const proseTextPartSchema = z.strictObject({
+	kind: z.literal("text"),
+	text: z.string().min(1),
+});
 
-export const proseFieldRefPartSchema = z
-	.object({
-		kind: z.literal("field-ref"),
-		uuid: uuidSchema,
-	})
-	.strict();
+export const proseFieldRefPartSchema = z.strictObject({
+	kind: z.literal("field-ref"),
+	uuid: uuidSchema,
+});
 
-export const proseCaseRefPartSchema = z
-	.object({
-		kind: z.literal("case-ref"),
-		caseType: z.string().min(1),
-		property: authoredCasePropertyNameSchema,
-	})
-	.strict();
+export const proseCaseRefPartSchema = z.strictObject({
+	kind: z.literal("case-ref"),
+	caseType: z.string().min(1),
+	property: authoredCasePropertyNameSchema,
+});
 
-export const proseUserPropertyRefPartSchema = z
-	.object({
-		kind: z.literal("user-property-ref"),
-		userPropertyUuid: uuidSchema,
-	})
-	.strict();
+export const proseUserPropertyRefPartSchema = z.strictObject({
+	kind: z.literal("user-property-ref"),
+	userPropertyUuid: uuidSchema,
+});
 
 /**
  * External CommCare session properties have no Nova-owned identity. Their
@@ -46,12 +38,10 @@ export const proseUserPropertyRefPartSchema = z
  * CommCare/session grammar as Predicate and XPath; document-aware admission
  * separately rejects a name claimed by Nova-owned worker information.
  */
-export const proseExternalUserRefPartSchema = z
-	.object({
-		kind: z.literal("user-ref"),
-		property: externalUserPropertyNameSchema,
-	})
-	.strict();
+export const proseExternalUserRefPartSchema = z.strictObject({
+	kind: z.literal("user-ref"),
+	property: externalUserPropertyNameSchema,
+});
 
 export const prosePartSchema = z.discriminatedUnion("kind", [
 	proseTextPartSchema,
@@ -64,10 +54,9 @@ export type ProsePart = z.infer<typeof prosePartSchema>;
 export type ProseReferencePart = Exclude<ProsePart, { kind: "text" }>;
 
 export const proseTemplateSchema = z
-	.object({
+	.strictObject({
 		parts: z.array(prosePartSchema),
 	})
-	.strict()
 	.superRefine((template, ctx) => {
 		for (let index = 1; index < template.parts.length; index++) {
 			if (
@@ -166,7 +155,7 @@ export class ProseProjectionError extends Error {
 }
 
 export function isProseTemplate(value: unknown): value is ProseTemplate {
-	return proseTemplateSchema.safeParse(value).success;
+	return proseTemplateSchema.validate(value);
 }
 
 /** Stored reference parts in document order. */

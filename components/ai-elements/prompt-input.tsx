@@ -11,12 +11,12 @@ import type {
 	ClipboardEventHandler,
 	ComponentProps,
 	FocusEventHandler,
-	FormEvent,
-	FormEventHandler,
 	HTMLAttributes,
 	KeyboardEventHandler,
 	PropsWithChildren,
 	RefObject,
+	SubmitEvent,
+	SubmitEventHandler,
 } from "react";
 import {
 	createContext,
@@ -247,11 +247,11 @@ export const PromptInputProvider = ({
 	);
 
 	return (
-		<PromptInputController.Provider value={controller}>
-			<ProviderAttachmentsContext.Provider value={attachments}>
+		<PromptInputController value={controller}>
+			<ProviderAttachmentsContext value={attachments}>
 				{children}
-			</ProviderAttachmentsContext.Provider>
-		</PromptInputController.Provider>
+			</ProviderAttachmentsContext>
+		</PromptInputController>
 	);
 };
 
@@ -328,7 +328,7 @@ export type PromptInputProps = Omit<
 	 *  composer exactly as the user had it. */
 	onSubmit: (
 		message: PromptInputMessage,
-		event: FormEvent<HTMLFormElement>,
+		event: SubmitEvent<HTMLFormElement>,
 	) => void | boolean | Promise<void> | Promise<boolean>;
 };
 
@@ -725,7 +725,7 @@ export const PromptInput = ({
 		[referencedSources, clearReferencedSources],
 	);
 
-	const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
+	const handleSubmit: SubmitEventHandler<HTMLFormElement> = useCallback(
 		async (event) => {
 			event.preventDefault();
 
@@ -808,16 +808,16 @@ export const PromptInput = ({
 	);
 
 	const withReferencedSources = (
-		<LocalReferencedSourcesContext.Provider value={refsCtx}>
+		<LocalReferencedSourcesContext value={refsCtx}>
 			{inner}
-		</LocalReferencedSourcesContext.Provider>
+		</LocalReferencedSourcesContext>
 	);
 
 	// Always provide LocalAttachmentsContext so children get validated add function
 	return (
-		<LocalAttachmentsContext.Provider value={attachmentsCtx}>
+		<LocalAttachmentsContext value={attachmentsCtx}>
 			{withReferencedSources}
-		</LocalAttachmentsContext.Provider>
+		</LocalAttachmentsContext>
 	);
 };
 

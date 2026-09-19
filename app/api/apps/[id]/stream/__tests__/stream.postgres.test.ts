@@ -70,14 +70,14 @@ import {
 import { proseText } from "@/lib/domain/prose";
 
 // Session extraction is the authentication boundary; database authorization is real.
-const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
+const { requireSessionMock, readSessionMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
-	getSessionSafeMock: vi.fn(),
+	readSessionMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
-	getSessionSafe: getSessionSafeMock,
+	readSession: readSessionMock,
 }));
 const originalCadence = process.env.NOVA_STREAM_CADENCE_MS;
 process.env.NOVA_STREAM_CADENCE_MS = "150";
@@ -559,8 +559,8 @@ beforeEach(async () => {
 	await h.seedProjectMember(USER, PROJECT, "editor");
 	await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
 	requireSessionMock.mockReset();
-	getSessionSafeMock.mockReset();
-	getSessionSafeMock.mockResolvedValue(sessionFor(USER));
+	readSessionMock.mockReset();
+	readSessionMock.mockResolvedValue(sessionFor(USER));
 });
 afterEach(async () => {
 	__setStreamReadTestHooksForTests(null);
@@ -1578,7 +1578,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const appId = await seedApp(0);
 		// A cookie that now resolves to a DIFFERENT user: the cadence closes on
 		// the identity mismatch.
-		getSessionSafeMock.mockResolvedValue(sessionFor(OTHER_USER));
+		readSessionMock.mockResolvedValue(sessionFor(OTHER_USER));
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
@@ -1589,7 +1589,12 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "revoked")).toBe(true);
 	});
 
-	it.each(["null session", "account read", "scope read"] as const)(
+	it.each([
+		"null session",
+		"session read",
+		"account read",
+		"scope read",
+	] as const)(
 		"keeps an authorized stream through transient %s failure and delivers the next real commit",
 		async (boundary) => {
 			const appId = await seedApp(0);
@@ -1598,9 +1603,14 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			const realAccount = apiKeys.isUserActive;
 			const realScope = appAccess.reauthorizeStreamScope;
 			if (boundary === "null session")
-				getSessionSafeMock.mockImplementation(async () => {
+				readSessionMock.mockImplementation(async () => {
 					attempts++;
 					return null;
+				});
+			if (boundary === "session read")
+				readSessionMock.mockImplementation(async () => {
+					if (++attempts <= 2) throw new Error("Connection terminated");
+					return sessionFor(USER);
 				});
 			if (boundary === "account read")
 				vi.spyOn(apiKeys, "isUserActive").mockImplementation(

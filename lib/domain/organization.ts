@@ -44,7 +44,7 @@ const nonemptyUniqueUuidArraySchema = z
 	.array(uuidSchema)
 	.min(1)
 	.refine((values) => new Set(values).size === values.length, {
-		message: "Level identities must not repeat.",
+		error: "Level identities must not repeat.",
 	});
 
 // ── Level codes ──────────────────────────────────────────────────────
@@ -87,10 +87,10 @@ export const locationValueTextSchema = z
 	// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not valid
 	// UTF-8. Keep catalog choices and stored values on one scalar contract.
 	.refine((value) => !value.includes("\u0000"), {
-		message: "A value cannot contain a NUL character.",
+		error: "A value cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "A value cannot contain an unpaired surrogate.",
+		error: "A value cannot contain an unpaired surrogate.",
 	});
 
 // ── Case flow — which cases a worker receives ────────────────────────
@@ -111,11 +111,11 @@ export const locationValueTextSchema = z
  */
 export const descendantCaseScopeSchema = z.discriminatedUnion("kind", [
 	/** Only the worker's own places own cases for them. */
-	z.object({ kind: z.literal("none") }).strict(),
+	z.strictObject({ kind: z.literal("none") }),
 	/** Every place below theirs, however deep. */
-	z.object({ kind: z.literal("all") }).strict(),
+	z.strictObject({ kind: z.literal("all") }),
 	/** Every place below theirs, stopping at this level. */
-	z.object({ kind: z.literal("down-to"), levelUuid: uuidSchema }).strict(),
+	z.strictObject({ kind: z.literal("down-to"), levelUuid: uuidSchema }),
 ]);
 export type DescendantCaseScope = z.infer<typeof descendantCaseScopeSchema>;
 
@@ -149,19 +149,15 @@ export type DescendantCaseScope = z.infer<typeof descendantCaseScopeSchema>;
  * live one and is what `workers` compiles to.
  */
 export const levelCaseFlowSchema = z.discriminatedUnion("workers", [
-	z
-		.object({
-			workers: z.literal("none"),
-			ownsCases: z.boolean(),
-		})
-		.strict(),
-	z
-		.object({
-			workers: z.literal("assigned"),
-			ownsCases: z.boolean(),
-			descendantCases: descendantCaseScopeSchema,
-		})
-		.strict(),
+	z.strictObject({
+		workers: z.literal("none"),
+		ownsCases: z.boolean(),
+	}),
+	z.strictObject({
+		workers: z.literal("assigned"),
+		ownsCases: z.boolean(),
+		descendantCases: descendantCaseScopeSchema,
+	}),
 ]);
 export type LevelCaseFlow = z.infer<typeof levelCaseFlowSchema>;
 
@@ -208,20 +204,18 @@ export const levelAddressBookSchema = z.discriminatedUnion("reach", [
 	 * unlimited expansion from the assigned location plus its un-expanded
 	 * ancestors.
 	 */
-	z
-		.object({
-			reach: z.literal("own-branch"),
-			/** Stop descending at this level (`expand_to`). */
-			downToLevelUuid: uuidSchema.optional(),
-			/** Also carry the top of the organization down to this level
-			 *  (`include_without_expanding`). This composes with the deep own
-			 *  branch above rather than replacing it, which is what makes it
-			 *  irreplaceable by `whole-organization` — it is how a worker
-			 *  carries a registry they will never own at while keeping their
-			 *  own subtree in full. */
-			alsoIncludeTopDownToLevelUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		reach: z.literal("own-branch"),
+		/** Stop descending at this level (`expand_to`). */
+		downToLevelUuid: uuidSchema.optional(),
+		/** Also carry the top of the organization down to this level
+		 *  (`include_without_expanding`). This composes with the deep own
+		 *  branch above rather than replacing it, which is what makes it
+		 *  irreplaceable by `whole-organization` — it is how a worker
+		 *  carries a registry they will never own at while keeping their
+		 *  own subtree in full. */
+		alsoIncludeTopDownToLevelUuid: uuidSchema.optional(),
+	}),
 	/**
 	 * Their own place, but only the named CONTIGUOUS levels below it. HQ's
 	 * `include_only` is applied at every recursive step: a skipped type prevents
@@ -231,37 +225,31 @@ export const levelAddressBookSchema = z.discriminatedUnion("reach", [
 	 * query honours `include_only` only when `expand_to` is unset — hence no
 	 * `downToLevelUuid` on this arm.
 	 */
-	z
-		.object({
-			reach: z.literal("own-branch-limited"),
-			levelUuids: nonemptyUniqueUuidArraySchema,
-			alsoIncludeTopDownToLevelUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		reach: z.literal("own-branch-limited"),
+		levelUuids: nonemptyUniqueUuidArraySchema,
+		alsoIncludeTopDownToLevelUuid: uuidSchema.optional(),
+	}),
 	/**
 	 * Everything under a level further up, so a worker can address sibling
 	 * places — the other clinics in their district, say. HQ's
 	 * `expand_from`, which the query ignores whenever `include_only` is
 	 * set, hence the two are separate arms.
 	 */
-	z
-		.object({
-			reach: z.literal("shared-branch"),
-			fromLevelUuid: uuidSchema,
-			downToLevelUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		reach: z.literal("shared-branch"),
+		fromLevelUuid: uuidSchema,
+		downToLevelUuid: uuidSchema.optional(),
+	}),
 	/**
 	 * The whole organization. HQ's `expand_from_root`, whose setter
 	 * (`LocationType.expand_from_root`) clears `expand_from` on the way in
 	 * — the platform itself treats them as exclusive.
 	 */
-	z
-		.object({
-			reach: z.literal("whole-organization"),
-			downToLevelUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		reach: z.literal("whole-organization"),
+		downToLevelUuid: uuidSchema.optional(),
+	}),
 ]);
 export type LevelAddressBook = z.infer<typeof levelAddressBookSchema>;
 
@@ -289,22 +277,16 @@ export type LevelAddressBook = z.infer<typeof levelAddressBookSchema>;
  * merely asks `filter(parent_type=self).exists()`, so two levels may
  * share one parent. Nothing here assumes a chain.
  */
-export const organizationLevelSchema = z
-	.object({
-		uuid: uuidSchema,
-		code: z
-			.string()
-			.min(1)
-			.max(LEVEL_CODE_MAX_LENGTH)
-			.regex(LEVEL_CODE_PATTERN),
-		name: z.string().min(1).max(LEVEL_NAME_MAX_LENGTH),
-		description: z.string().optional(),
-		/** The level directly above. Absent means this is a root level. */
-		parentLevelUuid: uuidSchema.optional(),
-		caseFlow: levelCaseFlowSchema,
-		addressBook: levelAddressBookSchema,
-	})
-	.strict();
+export const organizationLevelSchema = z.strictObject({
+	uuid: uuidSchema,
+	code: z.string().min(1).max(LEVEL_CODE_MAX_LENGTH).regex(LEVEL_CODE_PATTERN),
+	name: z.string().min(1).max(LEVEL_NAME_MAX_LENGTH),
+	description: z.string().optional(),
+	/** The level directly above. Absent means this is a root level. */
+	parentLevelUuid: uuidSchema.optional(),
+	caseFlow: levelCaseFlowSchema,
+	addressBook: levelAddressBookSchema,
+});
 export type OrganizationLevel = z.infer<typeof organizationLevelSchema>;
 
 /**
@@ -332,50 +314,48 @@ export type OrganizationLevel = z.infer<typeof organizationLevelSchema>;
  * — custom values reach the wire only as `<location_data>` children, never
  * as attributes, so they are never join keys.
  */
-export const locationPropertySchema = z
-	.object({
-		uuid: uuidSchema,
-		slug: z.string().min(1),
-		label: z.string().min(1).max(CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH),
-		/**
-		 * Whether a place must carry a value for this before it can be saved.
-		 *
-		 * Enforced by `lib/organization/valueCatalog.ts`, on location writes and
-		 * catalog commits. The
-		 * citation is not decoration: this field shipped once as a declaration
-		 * with no enforcement anywhere, and **a schema field that promises a
-		 * constraint it does not impose is worse than no field at all** — a
-		 * missing feature gets discovered, a phantom one gets inherited by
-		 * everyone who reads the schema and reasonably assumes the guarantee
-		 * holds. Any constraint added beside these three names where it is
-		 * enforced, or it is not a constraint.
-		 */
-		required: z.boolean().optional(),
-		/** A closed set of accepted values; absent means free text. The shared
-		 *  catalog check lets empty text through because
-		 *  CommCare's fixture emits an empty element for an unset field. */
-		choices: z
-			.array(
-				locationValueTextSchema.refine((value) => value.length > 0, {
-					message: "An accepted place-information value cannot be empty.",
-				}),
-			)
-			.min(1, "Accepted place-information values cannot be empty.")
-			.max(
-				MAX_LOCATION_PROPERTY_CHOICES,
-				"Place information has too many accepted values.",
-			)
-			.refine((choices) => new Set(choices).size === choices.length, {
-				message: "Accepted place-information values must be unique.",
-			})
-			.optional(),
-		/** Which levels carry this field; absent means every level. Enforced in
-		 *  the shared catalog check, against the level a place will HAVE, so
-		 *  retyping a place into a level its information does not apply to is
-		 *  refused rather than silently leaving values nothing will emit. */
-		levelUuids: nonemptyUniqueUuidArraySchema.optional(),
-	})
-	.strict();
+export const locationPropertySchema = z.strictObject({
+	uuid: uuidSchema,
+	slug: z.string().min(1),
+	label: z.string().min(1).max(CUSTOM_DATA_FIELD_LABEL_MAX_LENGTH),
+	/**
+	 * Whether a place must carry a value for this before it can be saved.
+	 *
+	 * Enforced by `lib/organization/valueCatalog.ts`, on location writes and
+	 * catalog commits. The
+	 * citation is not decoration: this field shipped once as a declaration
+	 * with no enforcement anywhere, and **a schema field that promises a
+	 * constraint it does not impose is worse than no field at all** — a
+	 * missing feature gets discovered, a phantom one gets inherited by
+	 * everyone who reads the schema and reasonably assumes the guarantee
+	 * holds. Any constraint added beside these three names where it is
+	 * enforced, or it is not a constraint.
+	 */
+	required: z.boolean().optional(),
+	/** A closed set of accepted values; absent means free text. The shared
+	 *  catalog check lets empty text through because
+	 *  CommCare's fixture emits an empty element for an unset field. */
+	choices: z
+		.array(
+			locationValueTextSchema.refine((value) => value.length > 0, {
+				error: "An accepted place-information value cannot be empty.",
+			}),
+		)
+		.min(1, "Accepted place-information values cannot be empty.")
+		.max(
+			MAX_LOCATION_PROPERTY_CHOICES,
+			"Place information has too many accepted values.",
+		)
+		.refine((choices) => new Set(choices).size === choices.length, {
+			error: "Accepted place-information values must be unique.",
+		})
+		.optional(),
+	/** Which levels carry this field; absent means every level. Enforced in
+	 *  the shared catalog check, against the level a place will HAVE, so
+	 *  retyping a place into a level its information does not apply to is
+	 *  refused rather than silently leaving values nothing will emit. */
+	levelUuids: nonemptyUniqueUuidArraySchema.optional(),
+});
 export type LocationProperty = z.infer<typeof locationPropertySchema>;
 
 /**
@@ -409,12 +389,10 @@ export type LocationProperty = z.infer<typeof locationPropertySchema>;
  * `additionalUuids` never contains `primaryUuid`; the list CommCare
  * receives is the primary followed by these.
  */
-export const personaLocationsSchema = z
-	.object({
-		primaryUuid: uuidSchema,
-		additionalUuids: z.array(uuidSchema).min(1).optional(),
-	})
-	.strict();
+export const personaLocationsSchema = z.strictObject({
+	primaryUuid: uuidSchema,
+	additionalUuids: z.array(uuidSchema).min(1).optional(),
+});
 export type PersonaLocations = z.infer<typeof personaLocationsSchema>;
 
 // ── Reading the collections ──────────────────────────────────────────

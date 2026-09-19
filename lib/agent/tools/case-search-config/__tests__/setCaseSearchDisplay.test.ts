@@ -240,7 +240,7 @@ describe("setCaseSearchDisplay", () => {
 	});
 
 	it("rejects unknown slot names at the SA boundary (strict input schema)", async () => {
-		// The display body is `.strict()` — every slot name outside the
+		// The display body is strict — every slot name outside the
 		// declared cluster parse-fails before the tool body runs. Pins
 		// the regression class: an SA handing a slot name the cluster
 		// doesn't carry hits the boundary, not a silent strip.

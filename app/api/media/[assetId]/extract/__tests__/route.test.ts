@@ -138,7 +138,6 @@ async function readNdjson(res: Response): Promise<{
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	userInProjectMock.mockResolvedValue(true);
 	// Default: comfortably under the spend cap so the gate is transparent to the

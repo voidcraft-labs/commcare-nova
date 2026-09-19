@@ -334,7 +334,7 @@ export function carrySearchAnswersMutations(
  * (a prompt named `case_id`, say, is searched, never written). */
 function hiddenPromptSavesAs(name: string): boolean {
 	return (
-		authoredCasePropertyNameSchema.safeParse(name).success &&
+		authoredCasePropertyNameSchema.validate(name) &&
 		!FORBIDDEN_CASE_WRITE_PROPERTIES.has(name)
 	);
 }

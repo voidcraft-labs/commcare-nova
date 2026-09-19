@@ -120,13 +120,13 @@ export const locationValuesSchema = z
 		locationValueTextSchema,
 	)
 	.refine((values) => Object.keys(values).length <= MAX_LOCATION_VALUES, {
-		message: "A place carries more information than Nova stores for one place.",
+		error: "A place carries more information than Nova stores for one place.",
 	});
 
 const locationValuePatchSchema = z
 	.record(uuidSchema, locationValueTextSchema.nullable())
 	.refine((values) => Object.keys(values).length === 1, {
-		message: "Change exactly one place-information value at a time.",
+		error: "Change exactly one place-information value at a time.",
 	});
 
 const locationNameSchema = z
@@ -135,20 +135,20 @@ const locationNameSchema = z
 	.min(1)
 	.max(LOCATION_NAME_MAX_LENGTH)
 	.refine((value) => !value.includes("\u0000"), {
-		message: "A place name cannot contain a NUL character.",
+		error: "A place name cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "A place name cannot contain an unpaired surrogate.",
+		error: "A place name cannot contain an unpaired surrogate.",
 	});
 
 const externalIdSchema = z
 	.string()
 	.max(EXTERNAL_ID_MAX_LENGTH)
 	.refine((value) => !value.includes("\u0000"), {
-		message: "An external ID cannot contain a NUL character.",
+		error: "An external ID cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "An external ID cannot contain an unpaired surrogate.",
+		error: "An external ID cannot contain an unpaired surrogate.",
 	});
 
 const createLocationValueFields = {
@@ -168,7 +168,7 @@ const createLocationValueFields = {
 		.transform((value) => value ?? {}),
 } as const;
 
-const createLocationValuesSchema = z.object(createLocationValueFields).strict();
+const createLocationValuesSchema = z.strictObject(createLocationValueFields);
 type CreateLocationValues = z.output<typeof createLocationValuesSchema>;
 
 export type CreateLocationDescendantInput = CreateLocationValues & {
@@ -177,16 +177,14 @@ export type CreateLocationDescendantInput = CreateLocationValues & {
 
 export const createLocationDescendantInputSchema: z.ZodType<CreateLocationDescendantInput> =
 	z.lazy(() =>
-		z
-			.object({
-				...createLocationValueFields,
-				/** Structure is parentage; no second identity vocabulary is needed. */
-				descendants: z
-					.array(createLocationDescendantInputSchema)
-					.max(MAX_ATOMIC_LOCATION_DESCENDANTS)
-					.optional(),
-			})
-			.strict(),
+		z.strictObject({
+			...createLocationValueFields,
+			/** Structure is parentage; no second identity vocabulary is needed. */
+			descendants: z
+				.array(createLocationDescendantInputSchema)
+				.max(MAX_ATOMIC_LOCATION_DESCENDANTS)
+				.optional(),
+		}),
 	);
 
 function preflightAtomicLocationDescendants(
@@ -220,28 +218,26 @@ function preflightAtomicLocationDescendants(
 	return value;
 }
 
-export const createLocationInputSchema = z
-	.object({
-		...createLocationValueFields,
-		parentId: uuidSchema.nullable().default(null),
-		/** Place it after this sibling; omitted appends. */
-		/** `null` means first; omitted means append. */
-		afterSiblingId: uuidSchema.nullable().optional(),
-		/**
-		 * New descendants committed with this root. This is the born-valid path
-		 * for growing an organization while a reverse-hop owner rule requires a
-		 * destination below every new source place.
-		 */
-		descendants: z
-			.preprocess(
-				preflightAtomicLocationDescendants,
-				z
-					.array(createLocationDescendantInputSchema)
-					.max(MAX_ATOMIC_LOCATION_DESCENDANTS),
-			)
-			.optional(),
-	})
-	.strict();
+export const createLocationInputSchema = z.strictObject({
+	...createLocationValueFields,
+	parentId: uuidSchema.nullable().default(null),
+	/** Place it after this sibling; omitted appends. */
+	/** `null` means first; omitted means append. */
+	afterSiblingId: uuidSchema.nullable().optional(),
+	/**
+	 * New descendants committed with this root. This is the born-valid path
+	 * for growing an organization while a reverse-hop owner rule requires a
+	 * destination below every new source place.
+	 */
+	descendants: z
+		.preprocess(
+			preflightAtomicLocationDescendants,
+			z
+				.array(createLocationDescendantInputSchema)
+				.max(MAX_ATOMIC_LOCATION_DESCENDANTS),
+		)
+		.optional(),
+});
 export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
 
 /**
@@ -258,7 +254,7 @@ export type CreateLocationInput = z.infer<typeof createLocationInputSchema>;
  * Unit 12 must always send the stored code.
  */
 export const updateLocationInputSchema = z
-	.object({
+	.strictObject({
 		name: locationNameSchema.optional(),
 		externalId: externalIdSchema.nullable().optional(),
 		latitude: coordinateSchema.nullable().optional(),
@@ -275,13 +271,12 @@ export const updateLocationInputSchema = z
 		/** null means first; omitted keeps the current order unless parent moves. */
 		afterSiblingId: uuidSchema.nullable().optional(),
 	})
-	.strict()
 	.refine(
 		(input) => input.values === undefined || input.valuePatch === undefined,
-		{ message: "Use either values or valuePatch, not both." },
+		{ error: "Use either values or valuePatch, not both." },
 	)
 	.refine((input) => Object.keys(input).length > 0, {
-		message: "Change at least one place field.",
+		error: "Change at least one place field.",
 	});
 export type UpdateLocationInput = z.infer<typeof updateLocationInputSchema>;
 
@@ -308,33 +303,31 @@ export const organizationRevisionSchema = z
 			!CANONICAL_DECIMAL.test(value) ||
 			value.length < INT64_MAX.length ||
 			(value.length === INT64_MAX.length && value <= INT64_MAX),
-		{ message: "A revision must fit in a signed 64-bit integer." },
+		{ error: "A revision must fit in a signed 64-bit integer." },
 	);
 
 /** Stable payload an archive confirmation binds to. The writer recomputes it
  * under its own locks and refuses if any consequence changed. */
 export const ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH = 255;
 
-export const archiveImpactSchema = z
-	.object({
-		revision: organizationRevisionSchema,
-		confirmationToken: z.string().regex(/^[a-f0-9]{64}$/),
-		affectedLocationCount: z.number().int().nonnegative(),
-		unassignedPersonaCount: z.number().int().nonnegative(),
-		unassignedPersonaPreview: z
-			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
-			.max(10),
-		ownedCases: z.number().int().nonnegative(),
-		blockingOwnerRuleFormCount: z.number().int().nonnegative(),
-		blockingOwnerRuleFormPreview: z
-			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
-			.max(10),
-		blockingAutomationCount: z.number().int().nonnegative(),
-		blockingAutomationPreview: z
-			.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
-			.max(10),
-	})
-	.strict();
+export const archiveImpactSchema = z.strictObject({
+	revision: organizationRevisionSchema,
+	confirmationToken: z.string().regex(/^[a-f0-9]{64}$/),
+	affectedLocationCount: z.number().int().nonnegative(),
+	unassignedPersonaCount: z.number().int().nonnegative(),
+	unassignedPersonaPreview: z
+		.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+		.max(10),
+	ownedCases: z.number().int().nonnegative(),
+	blockingOwnerRuleFormCount: z.number().int().nonnegative(),
+	blockingOwnerRuleFormPreview: z
+		.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+		.max(10),
+	blockingAutomationCount: z.number().int().nonnegative(),
+	blockingAutomationPreview: z
+		.array(z.string().max(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH))
+		.max(10),
+});
 
 export function parseOrganizationRevision(
 	value: unknown,

@@ -385,7 +385,7 @@ async function captureDatabaseProof(db: Kysely<unknown>): Promise<string> {
 		.digest("hex");
 }
 
-describe.sequential("canonical identity database migration", () => {
+describe("canonical identity database migration", { concurrent: false }, () => {
 	test("refuses an unowned app dependency before changing persisted state", async () => {
 		await seedLegacyApp(scratch.db);
 		await sql`CREATE TABLE unowned_app_reference (app_id text REFERENCES apps(id))`.execute(

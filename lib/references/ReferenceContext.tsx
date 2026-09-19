@@ -73,11 +73,11 @@ export function ReferenceProviderWrapper({
 	);
 
 	return (
-		<ReferenceCtx.Provider value={provider}>
-			<CurrentFormUuidCtx.Provider value={currentFormUuid}>
+		<ReferenceCtx value={provider}>
+			<CurrentFormUuidCtx value={currentFormUuid}>
 				{children}
-			</CurrentFormUuidCtx.Provider>
-		</ReferenceCtx.Provider>
+			</CurrentFormUuidCtx>
+		</ReferenceCtx>
 	);
 }
 
@@ -95,11 +95,7 @@ export function CurrentFormScope({
 	formUuid: string;
 	children: React.ReactNode;
 }) {
-	return (
-		<CurrentFormUuidCtx.Provider value={formUuid}>
-			{children}
-		</CurrentFormUuidCtx.Provider>
-	);
+	return <CurrentFormUuidCtx value={formUuid}>{children}</CurrentFormUuidCtx>;
 }
 
 /** Access the nearest ReferenceProvider. Returns null if outside a wrapper. */

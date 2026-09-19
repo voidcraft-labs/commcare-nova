@@ -35,7 +35,7 @@ import {
 import type { MutationSuccess } from "./shared/toolCallSummary";
 
 export const getAutomationsInputSchema = z
-	.object({
+	.strictObject({
 		automationUuid: uuidSchema
 			.optional()
 			.describe("One automation to inspect; omit to read all definitions."),
@@ -46,45 +46,40 @@ export const getAutomationsInputSchema = z
 				"Include this automation's manual CommCare HQ setup guide. Requires automationUuid.",
 			),
 	})
-	.strict()
 	.refine(
 		(input) =>
 			input.includeSetupGuide !== true || input.automationUuid !== undefined,
 		{
 			path: ["automationUuid"],
-			message: "Choose one automation for its setup guide.",
+			error: "Choose one automation for its setup guide.",
 		},
 	);
 
-export const addAutomationsInputSchema = z
-	.object({
-		automations: z
-			.array(automationSchema)
-			.min(1)
-			.max(50)
-			.describe(
-				"Complete rules in display order. Use record-property names and one plain-text or HTML email body. Nova assigns omitted identities. The automation reference covers recipient filters, host relationships, and timing.",
-			),
-		afterAutomationUuid: uuidSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Existing automation after which the new contiguous block belongs, null for first, or omit to append.",
-			),
-	})
-	.strict();
-
-export const updateAutomationInputSchema = z
-	.object({
-		automation: automationSchema.describe(
-			"Complete replacement for this automation. Preserve identities for retained rules and nested items; omitted items are removed.",
+export const addAutomationsInputSchema = z.strictObject({
+	automations: z
+		.array(automationSchema)
+		.min(1)
+		.max(50)
+		.describe(
+			"Complete rules in display order. Use record-property names and one plain-text or HTML email body. Nova assigns omitted identities. The automation reference covers recipient filters, host relationships, and timing.",
 		),
-	})
-	.strict();
+	afterAutomationUuid: uuidSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Existing automation after which the new contiguous block belongs, null for first, or omit to append.",
+		),
+});
 
-export const removeAutomationInputSchema = z
-	.object({ automationUuid: uuidSchema })
-	.strict();
+export const updateAutomationInputSchema = z.strictObject({
+	automation: automationSchema.describe(
+		"Complete replacement for this automation. Preserve identities for retained rules and nested items; omitted items are removed.",
+	),
+});
+
+export const removeAutomationInputSchema = z.strictObject({
+	automationUuid: uuidSchema,
+});
 
 interface SetupGuideResult {
 	readonly automationUuid: Uuid;

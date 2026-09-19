@@ -14,35 +14,36 @@ const identity = z
 	.refine((value) => value.trim().length > 0);
 const timestamp = z.iso.datetime({ offset: true }).optional();
 export const evaluationScenarioSchema = z
-	.object({
+	.strictObject({
 		records: z
 			.array(
-				z
-					.object({
-						id: identity,
-						caseType: identity,
-						name: z.string().min(1).max(1000).optional(),
-						parentId: identity.optional(),
-						properties: z
-							.record(
-								z.string().min(1).max(200),
-								z.union([
-									z.string().max(10_000),
-									z.number(),
-									z.array(z.string().max(10_000)).max(100),
-								]),
-							)
-							.optional(),
-						openedOn: timestamp,
-						modifiedOn: timestamp,
-						closedOn: timestamp,
-						externalId: identity.optional(),
-					})
-					.strict(),
+				z.strictObject({
+					id: identity,
+					caseType: identity,
+					name: z.string().min(1).max(1000).optional(),
+					parentId: identity.optional(),
+					properties: z
+						.record(
+							z
+								.string()
+								.min(1)
+								.max(200)
+								.describe("Case property name, up to 200 characters."),
+							z.union([
+								z.string().max(10_000),
+								z.number(),
+								z.array(z.string().max(10_000)).max(100),
+							]),
+						)
+						.optional(),
+					openedOn: timestamp,
+					modifiedOn: timestamp,
+					closedOn: timestamp,
+					externalId: identity.optional(),
+				}),
 			)
 			.max(200),
 	})
-	.strict()
 	.refine(
 		(value) => JSON.stringify(value).length <= 1_000_000,
 		"Test records exceed the evaluation size limit.",

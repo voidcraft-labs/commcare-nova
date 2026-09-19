@@ -430,30 +430,24 @@ export const deploymentResourceOwnershipSchema = z.enum(
 	DEPLOYMENT_RESOURCE_OWNERSHIPS,
 );
 
-export const deploymentFailureSchema = z
-	.object({
-		code: z.enum(DEPLOYMENT_FAILURE_CODES),
-		message: z.string().min(1),
-		details: z.array(z.string()).readonly(),
-	})
-	.strict();
+export const deploymentFailureSchema = z.strictObject({
+	code: z.enum(DEPLOYMENT_FAILURE_CODES),
+	message: z.string().min(1),
+	details: z.array(z.string()).readonly(),
+});
 
 export const deploymentPhaseOutcomeSchema = z.discriminatedUnion("status", [
-	z.object({ status: z.literal("succeeded"), at: z.string().min(1) }).strict(),
-	z
-		.object({
-			status: z.literal("pending"),
-			at: z.string().min(1),
-			reason: z.string().min(1),
-		})
-		.strict(),
-	z
-		.object({
-			status: z.literal("failed"),
-			at: z.string().min(1),
-			failure: deploymentFailureSchema,
-		})
-		.strict(),
+	z.strictObject({ status: z.literal("succeeded"), at: z.string().min(1) }),
+	z.strictObject({
+		status: z.literal("pending"),
+		at: z.string().min(1),
+		reason: z.string().min(1),
+	}),
+	z.strictObject({
+		status: z.literal("failed"),
+		at: z.string().min(1),
+		failure: deploymentFailureSchema,
+	}),
 ]);
 
 /**
@@ -465,28 +459,24 @@ export const deploymentPhaseOutcomeSchema = z.discriminatedUnion("status", [
  * nobody can act on. Every phase key is required and nullable, so "never
  * ran" is an explicit `null` rather than an absent key.
  */
-export const deploymentPhaseOutcomesSchema = z
-	.object({
-		preflight: deploymentPhaseOutcomeSchema.nullable(),
-		resources: deploymentPhaseOutcomeSchema.nullable(),
-		upload: deploymentPhaseOutcomeSchema.nullable(),
-		build: deploymentPhaseOutcomeSchema.nullable(),
-		release: deploymentPhaseOutcomeSchema.nullable(),
-		probe: deploymentPhaseOutcomeSchema.nullable(),
-	})
-	.strict();
+export const deploymentPhaseOutcomesSchema = z.strictObject({
+	preflight: deploymentPhaseOutcomeSchema.nullable(),
+	resources: deploymentPhaseOutcomeSchema.nullable(),
+	upload: deploymentPhaseOutcomeSchema.nullable(),
+	build: deploymentPhaseOutcomeSchema.nullable(),
+	release: deploymentPhaseOutcomeSchema.nullable(),
+	probe: deploymentPhaseOutcomeSchema.nullable(),
+});
 
 /** An app id as a caller states it, before it is authorized. */
 export const deploymentAppIdSchema = z.string().trim().min(1).max(255);
 
 /** The (app, server, project space) triple every deployment call names. */
-export const deploymentTargetSchema = z
-	.object({
-		appId: deploymentAppIdSchema,
-		server: deploymentServerSchema,
-		domain: z.string().trim().min(1).max(255),
-	})
-	.strict();
+export const deploymentTargetSchema = z.strictObject({
+	appId: deploymentAppIdSchema,
+	server: deploymentServerSchema,
+	domain: z.string().trim().min(1).max(255),
+});
 export type DeploymentTarget = z.infer<typeof deploymentTargetSchema>;
 
 /**
@@ -509,31 +499,27 @@ export const MAX_WORKERS_PER_PROVISION_CALL = 50;
  * suggestion from the persona's name; the surfaces show that suggestion
  * in an editable box rather than deciding silently.
  */
-export const provisionWorkersSchema = z
-	.object({
-		appId: deploymentAppIdSchema,
-		server: deploymentServerSchema,
-		domain: z.string().trim().min(1).max(255),
-		workers: z
-			.array(
-				z
-					.object({
-						personaUuid: z.string().min(1),
-						username: z.string().trim().min(1).max(128).optional(),
-					})
-					.strict(),
-			)
-			.min(1)
-			.max(MAX_WORKERS_PER_PROVISION_CALL)
-			.readonly(),
-		/**
-		 * The personas whose username already belongs to an account Nova did
-		 * not create, and which the caller is choosing to take over. Nothing
-		 * is ever adopted without being named here.
-		 */
-		adoptPersonaUuids: z.array(z.string().min(1)).readonly().optional(),
-	})
-	.strict();
+export const provisionWorkersSchema = z.strictObject({
+	appId: deploymentAppIdSchema,
+	server: deploymentServerSchema,
+	domain: z.string().trim().min(1).max(255),
+	workers: z
+		.array(
+			z.strictObject({
+				personaUuid: z.string().min(1),
+				username: z.string().trim().min(1).max(128).optional(),
+			}),
+		)
+		.min(1)
+		.max(MAX_WORKERS_PER_PROVISION_CALL)
+		.readonly(),
+	/**
+	 * The personas whose username already belongs to an account Nova did
+	 * not create, and which the caller is choosing to take over. Nothing
+	 * is ever adopted without being named here.
+	 */
+	adoptPersonaUuids: z.array(z.string().min(1)).readonly().optional(),
+});
 export type ProvisionWorkersRequest = z.infer<typeof provisionWorkersSchema>;
 
 /** Narrow an arbitrary string to a known CommCare server, or refuse. */

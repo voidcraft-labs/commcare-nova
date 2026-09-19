@@ -112,7 +112,7 @@ export async function PUT(
 		const requestKeys = Object.keys(request).toSorted((a, b) =>
 			a.localeCompare(b),
 		);
-		const batchId = z.string().uuid().safeParse(request.batchId);
+		const batchId = z.uuid().safeParse(request.batchId);
 		if (
 			requestKeys.length !== 2 ||
 			requestKeys[0] !== "batchId" ||

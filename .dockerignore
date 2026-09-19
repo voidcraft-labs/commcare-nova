@@ -41,8 +41,6 @@ scripts/lib/*
 !scripts/lib/caseTypeSchemaRetirement.ts
 !scripts/lib/caseParentRelationshipRepair.ts
 !scripts/lib/caseStatusFilterRepair.ts
-!scripts/lib/betterAuthAccountIdentity.ts
-!scripts/lib/betterAuthOauthClientMigration.ts
 !scripts/lib/xpathCarrierCompatibilityRepair.ts
 !scripts/lib/xpathCompatibilityScan.ts
 !scripts/lib/languageIdentityRepair.ts
@@ -56,8 +54,6 @@ scripts/lib/*
 .nova-build-cache
 !scripts/migrate-language-identity.ts
 !scripts/migrate-case-status-filters.ts
-!scripts/migrate-better-auth-account-identity.ts
-!scripts/migrate-better-auth-oauth-clients.ts
 !scripts/migrate-select-option-values.ts
 !scripts/lib/prodDb.ts
 

@@ -185,7 +185,7 @@ export const lookupCellInputSchema = z.union([
 			});
 		}
 	}),
-	z.number().finite(),
+	z.number(),
 ]);
 
 export const lookupRowValuesSchema = z
@@ -201,16 +201,14 @@ export const lookupRowValuesSchema = z
 	})
 	.overwrite((values) => values satisfies LookupRowValues);
 
-export const lookupColumnDraftSchema = z
-	.object({
-		wireName: lookupWireNameSchema,
-		label: lookupColumnLabelSchema,
-		dataType: lookupDataTypeSchema,
-	})
-	.strict();
+export const lookupColumnDraftSchema = z.strictObject({
+	wireName: lookupWireNameSchema,
+	label: lookupColumnLabelSchema,
+	dataType: lookupDataTypeSchema,
+});
 
 export const createLookupTableInputSchema = z
-	.object({
+	.strictObject({
 		name: lookupTableNameSchema,
 		tag: lookupTagSchema,
 		columns: z
@@ -218,7 +216,6 @@ export const createLookupTableInputSchema = z
 			.min(1, "A lookup table needs at least one column.")
 			.max(LOOKUP_MAX_COLUMNS),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		const seen = new Set<string>();
 		for (let index = 0; index < input.columns.length; index++) {
@@ -239,34 +236,39 @@ const expectedTableRevisionShape = {
 	expectedTableRevision: lookupRevisionSchema,
 };
 
-export const lookupExpectedTableRevisionInputSchema = z
-	.object(expectedTableRevisionShape)
-	.strict();
+export const lookupExpectedTableRevisionInputSchema = z.strictObject(
+	expectedTableRevisionShape,
+);
 
-export const updateLookupTableNameInputSchema = z
-	.object({ ...expectedTableRevisionShape, name: lookupTableNameSchema })
-	.strict();
+export const updateLookupTableNameInputSchema = z.strictObject({
+	...expectedTableRevisionShape,
+	name: lookupTableNameSchema,
+});
 
-export const updateLookupTableTagInputSchema = z
-	.object({ ...expectedTableRevisionShape, tag: lookupTagSchema })
-	.strict();
+export const updateLookupTableTagInputSchema = z.strictObject({
+	...expectedTableRevisionShape,
+	tag: lookupTagSchema,
+});
 
-export const addLookupColumnInputSchema = z
-	.object({ ...expectedTableRevisionShape, column: lookupColumnDraftSchema })
-	.strict();
+export const addLookupColumnInputSchema = z.strictObject({
+	...expectedTableRevisionShape,
+	column: lookupColumnDraftSchema,
+});
 
 const columnMutationShape = {
 	...expectedTableRevisionShape,
 	columnId: lookupColumnIdSchema,
 };
 
-export const updateLookupColumnLabelInputSchema = z
-	.object({ ...columnMutationShape, label: lookupColumnLabelSchema })
-	.strict();
+export const updateLookupColumnLabelInputSchema = z.strictObject({
+	...columnMutationShape,
+	label: lookupColumnLabelSchema,
+});
 
-export const updateLookupColumnWireNameInputSchema = z
-	.object({ ...columnMutationShape, wireName: lookupWireNameSchema })
-	.strict();
+export const updateLookupColumnWireNameInputSchema = z.strictObject({
+	...columnMutationShape,
+	wireName: lookupWireNameSchema,
+});
 
 export const lookupColumnIndexSchema = z
 	.number()
@@ -274,9 +276,10 @@ export const lookupColumnIndexSchema = z
 	.nonnegative()
 	.max(LOOKUP_MAX_COLUMNS - 1);
 
-export const moveLookupColumnInputSchema = z
-	.object({ ...columnMutationShape, toIndex: lookupColumnIndexSchema })
-	.strict();
+export const moveLookupColumnInputSchema = z.strictObject({
+	...columnMutationShape,
+	toIndex: lookupColumnIndexSchema,
+});
 
 export const lookupCreateRowIndexSchema = z
 	.number()
@@ -290,62 +293,57 @@ export const lookupExistingRowIndexSchema = z
 	.nonnegative()
 	.max(LOOKUP_MAX_ROWS - 1);
 
-export const createLookupRowInputSchema = z
-	.object({
-		...expectedTableRevisionShape,
-		toIndex: lookupCreateRowIndexSchema,
-		values: lookupRowValuesSchema,
-	})
-	.strict();
+export const createLookupRowInputSchema = z.strictObject({
+	...expectedTableRevisionShape,
+	toIndex: lookupCreateRowIndexSchema,
+	values: lookupRowValuesSchema,
+});
 
 const rowMutationShape = {
 	...expectedTableRevisionShape,
 	rowId: lookupRowIdSchema,
 };
 
-export const updateLookupRowInputSchema = z
-	.object({ ...rowMutationShape, values: lookupRowValuesSchema })
-	.strict();
+export const updateLookupRowInputSchema = z.strictObject({
+	...rowMutationShape,
+	values: lookupRowValuesSchema,
+});
 
-export const deleteLookupRowInputSchema = z.object(rowMutationShape).strict();
+export const deleteLookupRowInputSchema = z.strictObject(rowMutationShape);
 
-export const moveLookupRowInputSchema = z
-	.object({ ...rowMutationShape, toIndex: lookupExistingRowIndexSchema })
-	.strict();
+export const moveLookupRowInputSchema = z.strictObject({
+	...rowMutationShape,
+	toIndex: lookupExistingRowIndexSchema,
+});
 
-export const removeLookupColumnInputSchema = z
-	.object(columnMutationShape)
-	.strict();
+export const removeLookupColumnInputSchema =
+	z.strictObject(columnMutationShape);
 
-export const retypeLookupColumnInputSchema = z
-	.object({ ...columnMutationShape, dataType: lookupDataTypeSchema })
-	.strict();
+export const retypeLookupColumnInputSchema = z.strictObject({
+	...columnMutationShape,
+	dataType: lookupDataTypeSchema,
+});
 
 /** Which lookup resource's reference edges a caller is asking about. An
  *  absent `columnId` asks about the table itself. */
-export const lookupResourceReferenceQuerySchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		columnId: lookupColumnIdSchema.optional(),
-	})
-	.strict();
+export const lookupResourceReferenceQuerySchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	columnId: lookupColumnIdSchema.optional(),
+});
 
-export const replaceLookupRowsInputSchema = z
-	.object({
-		...expectedTableRevisionShape,
-		rows: z.array(lookupRowValuesSchema).max(LOOKUP_MAX_ROWS),
-	})
-	.strict();
+export const replaceLookupRowsInputSchema = z.strictObject({
+	...expectedTableRevisionShape,
+	rows: z.array(lookupRowValuesSchema).max(LOOKUP_MAX_ROWS),
+});
 
 /** Parses exact Postgres-derived storage measurements; it never estimates. */
 export const lookupStorageMeasurementSchema = z
-	.object({
+	.strictObject({
 		rowValueBytes: z
 			.array(z.number().int().nonnegative().max(LOOKUP_MAX_ROW_BYTES))
 			.max(LOOKUP_MAX_ROWS),
 		dataBytes: z.number().int().nonnegative().max(LOOKUP_MAX_TABLE_BYTES),
 	})
-	.strict()
 	.superRefine((measurement, ctx) => {
 		const sum = measurement.rowValueBytes.reduce(
 			(total, bytes) => total + bytes,

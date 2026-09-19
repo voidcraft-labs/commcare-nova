@@ -13,18 +13,20 @@
  *     `expect(log.warn).toHaveBeenCalledWith(...)` directly — the stubs
  *     preserve full call-tracking semantics.
  *
- * `clearMocks: true` in `vitest.config.ts` wipes each stub's call history
- * between tests so one test's assertions can't leak into another's.
+ * Vitest clears every mock's call history before each test (its `clearMocks`
+ * default), so one test's assertions can't leak into another's. Implementations
+ * set via `.mockImplementation(...)` inside a test persist.
  */
 import { afterEach, vi } from "vitest";
 
 /**
  * Fail any test that lets a React state update land outside `act(...)`.
  *
- * React reports those as a console warning, and vitest's reporter drops
- * console output on a passing test in a non-TTY (CI, or any piped run), so
- * the warnings were invisible to every automated check while the tests they
- * came from silently asserted a pre-update render. They are never cosmetic:
+ * React reports those as a console warning, and a warning never fails a test.
+ * Under a coding agent Vitest also selects its quiet reporter, which drops a
+ * passing test's console output entirely. So the warnings stopped nothing, and
+ * often were not even seen, while the tests they came from silently asserted a
+ * pre-update render. They are never cosmetic:
  * an update outside `act` means the work escaped the test — the assertions
  * ran against DOM that React had not committed yet, and the commit landed
  * during a later test or after teardown.
@@ -61,6 +63,35 @@ afterEach(() => {
 			"cases.\n\n" +
 			"If the named component is not one this test renders, the update was started " +
 			"by an earlier test that returned before its work committed — fix it there.",
+	);
+});
+
+/**
+ * Fail any test whose model call draws a provider warning.
+ *
+ * The AI SDK warns when a provider drops or rewrites something Nova sent: a
+ * schema keyword, a setting, a tool option. The request still succeeds, so
+ * nothing else notices that the model received something other than what Nova
+ * authored. Tests that drive the real provider against a loopback peer send
+ * production definitions, which makes this the place such a change surfaces.
+ */
+const providerWarnings: string[] = [];
+globalThis.AI_SDK_LOG_WARNINGS = ({ warnings, provider, model }) => {
+	for (const warning of warnings)
+		providerWarnings.push(
+			`${provider ?? "provider"} / ${model ?? "model"}: ${JSON.stringify(warning)}`,
+		);
+};
+
+afterEach(() => {
+	if (providerWarnings.length === 0) return;
+	const reported = [...new Set(providerWarnings)].join("\n");
+	providerWarnings.length = 0;
+	throw new Error(
+		`The AI SDK reported a provider warning while this test ran:\n\n${reported}\n\n` +
+			"The provider changed or dropped part of the request before sending it, so the " +
+			"model did not receive what Nova authored. Change what Nova sends so the " +
+			"provider passes it through unchanged.",
 	);
 });
 

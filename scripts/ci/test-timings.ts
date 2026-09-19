@@ -11,11 +11,13 @@ export default class TestTimings implements Reporter {
 			file: module.relativeModuleId,
 			testsMs: d.duration,
 			importMs: d.collectDuration,
+			workerMs: d.prepareDuration,
 			setupMs: d.setupDuration,
 			environmentMs: d.environmentSetupDuration,
 			totalMs:
 				d.duration +
 				d.collectDuration +
+				d.prepareDuration +
 				d.setupDuration +
 				d.environmentSetupDuration,
 		});

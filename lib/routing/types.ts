@@ -122,82 +122,65 @@ export const APP_SETUP_LABEL = "App setup";
  * branded `Uuid`.
  */
 export const locationSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("home") }).strict(),
+	z.strictObject({ kind: z.literal("home") }),
 	/* App setup carries no `moduleUuid` — it names no blueprint entity, which
 	 * is exactly what keeps it out of the structure tree's world. Every
 	 * module-keyed helper must therefore branch on it explicitly rather than
 	 * reading a uuid that isn't there. */
-	z
-		.object({
-			kind: z.literal("app-setup"),
-			section: z.enum(APP_SETUP_SECTIONS),
-			entryPointUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("app-setup"),
+		section: z.enum(APP_SETUP_SECTIONS),
+		entryPointUuid: uuidSchema.optional(),
+	}),
 	/* Project data carries no `moduleUuid` either, and for a stronger reason:
 	 * a lookup table belongs to the PROJECT, shared by every app in it. Its
 	 * `tableId` addresses one, which the blueprint has no authority over — the
 	 * doc can neither validate nor invalidate it, so the workspace itself owns
 	 * the "that table is gone" state. */
-	z
-		.object({
-			kind: z.literal("project-data"),
-			tableId: lookupTableIdSchema.optional(),
-		})
-		.strict(),
-	z.object({ kind: z.literal("module"), moduleUuid: uuidSchema }).strict(),
-	z
-		.object({
-			kind: z.literal("cases"),
-			moduleUuid: uuidSchema,
-			caseId: z.string().optional(),
-		})
-		.strict(),
-	z
-		.object({ kind: z.literal("search-config"), moduleUuid: uuidSchema })
-		.strict(),
-	z
-		.object({ kind: z.literal("detail-config"), moduleUuid: uuidSchema })
-		.strict(),
-	z.object({ kind: z.literal("data-review"), moduleUuid: uuidSchema }).strict(),
-	z
-		.object({ kind: z.literal("module-condition"), moduleUuid: uuidSchema })
-		.strict(),
-	z
-		.object({
-			kind: z.literal("form-condition"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("form-operations"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-			operationUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("project-data"),
+		tableId: lookupTableIdSchema.optional(),
+	}),
+	z.strictObject({ kind: z.literal("module"), moduleUuid: uuidSchema }),
+	z.strictObject({
+		kind: z.literal("cases"),
+		moduleUuid: uuidSchema,
+		caseId: z.string().optional(),
+	}),
+	z.strictObject({ kind: z.literal("search-config"), moduleUuid: uuidSchema }),
+	z.strictObject({ kind: z.literal("detail-config"), moduleUuid: uuidSchema }),
+	z.strictObject({ kind: z.literal("data-review"), moduleUuid: uuidSchema }),
+	z.strictObject({
+		kind: z.literal("module-condition"),
+		moduleUuid: uuidSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("form-condition"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+	}),
+	z.strictObject({
+		kind: z.literal("form-operations"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+		operationUuid: uuidSchema.optional(),
+	}),
 	// `/build/[id]/{formUuid}/links[/{linkUuid}]` — the form's after-submit
 	// links, with one selected link in the URL for the same reason
 	// `form-operations` carries its operation: a link must be sendable, and
 	// the rail body is keyed by it.
-	z
-		.object({
-			kind: z.literal("form-links"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-			linkUuid: uuidSchema.optional(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("form"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-			selectedUuid: uuidSchema.optional(),
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("form-links"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+		linkUuid: uuidSchema.optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("form"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+		selectedUuid: uuidSchema.optional(),
+	}),
 ]);
 
 export type Location = z.infer<typeof locationSchema>;

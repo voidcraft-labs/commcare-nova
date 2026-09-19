@@ -30,41 +30,34 @@ const shortDiagnosticString = z
 	.string()
 	.max(CLIENT_ERROR_LIMITS.shortDiagnosticString);
 
-const truncationSchema = z
-	.object({
-		messageBytes: z.number().int().nonnegative().optional(),
-		stackBytes: z.number().int().nonnegative().optional(),
-		componentStackBytes: z.number().int().nonnegative().optional(),
-		urlBytes: z.number().int().nonnegative().optional(),
-		diagnosticFields: z
-			.array(shortDiagnosticString)
-			.max(CLIENT_ERROR_LIMITS.truncatedFields)
-			.optional(),
-	})
-	.strict();
+const truncationSchema = z.strictObject({
+	messageBytes: z.number().int().nonnegative().optional(),
+	stackBytes: z.number().int().nonnegative().optional(),
+	componentStackBytes: z.number().int().nonnegative().optional(),
+	urlBytes: z.number().int().nonnegative().optional(),
+	diagnosticFields: z
+		.array(shortDiagnosticString)
+		.max(CLIENT_ERROR_LIMITS.truncatedFields)
+		.optional(),
+});
 
-const diagnosticsSchema = z
-	.object({
-		component: shortDiagnosticString.optional(),
-		operation: shortDiagnosticString.optional(),
-		failureKind: shortDiagnosticString.optional(),
-		appId: shortDiagnosticString.optional(),
-		clientBuildId: shortDiagnosticString.optional(),
-		baseSeq: z.number().int().nonnegative().optional(),
-		eventId: shortDiagnosticString.optional(),
-		payloadBytes: z.number().int().nonnegative().optional(),
-		httpStatus: z.number().int().nonnegative().optional(),
-		mutationIndex: z.number().int().nonnegative().nullable().optional(),
-		pointer: diagnosticString.optional(),
-		reason: shortDiagnosticString.optional(),
-		recoveryTrigger: shortDiagnosticString.optional(),
-		issues: z
-			.array(diagnosticString)
-			.max(CLIENT_ERROR_LIMITS.issues)
-			.optional(),
-		truncation: truncationSchema.optional(),
-	})
-	.strict();
+const diagnosticsSchema = z.strictObject({
+	component: shortDiagnosticString.optional(),
+	operation: shortDiagnosticString.optional(),
+	failureKind: shortDiagnosticString.optional(),
+	appId: shortDiagnosticString.optional(),
+	clientBuildId: shortDiagnosticString.optional(),
+	baseSeq: z.number().int().nonnegative().optional(),
+	eventId: shortDiagnosticString.optional(),
+	payloadBytes: z.number().int().nonnegative().optional(),
+	httpStatus: z.number().int().nonnegative().optional(),
+	mutationIndex: z.number().int().nonnegative().nullable().optional(),
+	pointer: diagnosticString.optional(),
+	reason: shortDiagnosticString.optional(),
+	recoveryTrigger: shortDiagnosticString.optional(),
+	issues: z.array(diagnosticString).max(CLIENT_ERROR_LIMITS.issues).optional(),
+	truncation: truncationSchema.optional(),
+});
 
 // ── Server-side flood control ─────────────────────────────────────────
 //
@@ -81,21 +74,19 @@ const diagnosticsSchema = z
 // only the per-request body-size cap below; aggregate request-rate control is
 // the edge's job.
 
-const clientErrorSchema = z
-	.object({
-		message: z.string(),
-		stack: z.string().optional(),
-		source: z.enum([
-			"window.onerror",
-			"unhandledrejection",
-			"error-boundary",
-			"manual",
-		]),
-		url: z.string(),
-		componentStack: z.string().optional(),
-		diagnostics: diagnosticsSchema.optional().default({}),
-	})
-	.strict();
+const clientErrorSchema = z.strictObject({
+	message: z.string(),
+	stack: z.string().optional(),
+	source: z.enum([
+		"window.onerror",
+		"unhandledrejection",
+		"error-boundary",
+		"manual",
+	]),
+	url: z.string(),
+	componentStack: z.string().optional(),
+	diagnostics: diagnosticsSchema.optional().default({}),
+});
 
 // ── Route Handler ─────────────────────────────────────────────────────
 

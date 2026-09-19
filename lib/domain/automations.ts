@@ -191,29 +191,25 @@ const propertyMatchCriterionCommon = {
 } as const;
 
 export const caseUpdatePropertyMatchCriterionSchema = z
-	.object({
+	.strictObject({
 		...propertyMatchCriterionCommon,
 		scope: z.enum(["case", "parent", "host"]),
 		matchType: z.enum(AUTOMATION_CASE_UPDATE_PROPERTY_MATCH_TYPES),
 	})
-	.strict()
 	.superRefine(validatePropertyMatchCriterion);
 
 export const alertPropertyMatchCriterionSchema = z
-	.object({
+	.strictObject({
 		...propertyMatchCriterionCommon,
 		scope: z.literal("case"),
 		matchType: z.enum(AUTOMATION_ALERT_PROPERTY_MATCH_TYPES),
 	})
-	.strict()
 	.superRefine(validatePropertyMatchCriterion);
 
-export const closedParentCriterionSchema = z
-	.object({
-		uuid: uuidSchema,
-		kind: z.literal("closed-parent"),
-	})
-	.strict();
+export const closedParentCriterionSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("closed-parent"),
+});
 
 /**
  * HQ evaluates a location criterion against either a location-owned case or
@@ -221,14 +217,12 @@ export const closedParentCriterionSchema = z
  * the place identity, never the target HQ location id; setup guidance resolves
  * the current human/site-code projection and deployment owns the remote map.
  */
-export const locationAutomationCriterionSchema = z
-	.object({
-		uuid: uuidSchema,
-		kind: z.literal("location"),
-		locationUuid: uuidSchema,
-		includeDescendants: z.boolean(),
-	})
-	.strict();
+export const locationAutomationCriterionSchema = z.strictObject({
+	uuid: uuidSchema,
+	kind: z.literal("location"),
+	locationUuid: uuidSchema,
+	includeDescendants: z.boolean(),
+});
 
 export const automationCaseUpdateCriterionSchema = z.discriminatedUnion(
 	"kind",
@@ -247,12 +241,10 @@ export type AutomationCriterion =
 	| z.infer<typeof automationCaseUpdateCriterionSchema>
 	| z.infer<typeof automationAlertCriterionSchema>;
 
-export const automationPropertyTargetSchema = z
-	.object({
-		scope: z.enum(["case", "parent", "host"]),
-		property: z.string().min(1).max(126),
-	})
-	.strict();
+export const automationPropertyTargetSchema = z.strictObject({
+	scope: z.enum(["case", "parent", "host"]),
+	property: z.string().min(1).max(126),
+});
 export type AutomationPropertyTarget = z.infer<
 	typeof automationPropertyTargetSchema
 >;
@@ -317,27 +309,21 @@ export type AutomationMessageContextProperty =
 	(typeof AUTOMATION_MESSAGE_CONTEXT_PROPERTIES)[number];
 
 export const automationMessagePartSchema = z.discriminatedUnion("kind", [
-	z
-		.object({
-			kind: z.literal("text"),
-			text: z.string().min(1),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("case-property"),
-			scope: automationPropertyTargetSchema.shape.scope,
-			caseType: z.string().min(1).max(126),
-			property: automationPropertyTargetSchema.shape.property,
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("context-property"),
-			context: z.enum(AUTOMATION_MESSAGE_CONTEXTS),
-			property: z.enum(AUTOMATION_MESSAGE_CONTEXT_PROPERTIES),
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("text"),
+		text: z.string().min(1),
+	}),
+	z.strictObject({
+		kind: z.literal("case-property"),
+		scope: automationPropertyTargetSchema.shape.scope,
+		caseType: z.string().min(1).max(126),
+		property: automationPropertyTargetSchema.shape.property,
+	}),
+	z.strictObject({
+		kind: z.literal("context-property"),
+		context: z.enum(AUTOMATION_MESSAGE_CONTEXTS),
+		property: z.enum(AUTOMATION_MESSAGE_CONTEXT_PROPERTIES),
+	}),
 ]);
 export type AutomationMessagePart = z.infer<typeof automationMessagePartSchema>;
 
@@ -349,10 +335,9 @@ export type AutomationMessagePart = z.infer<typeof automationMessagePartSchema>;
  * `case-property` part. The HQ token spelling is a one-way setup projection.
  */
 export const automationMessageTemplateSchema = z
-	.object({
+	.strictObject({
 		parts: z.array(automationMessagePartSchema).min(1).max(1_000),
 	})
-	.strict()
 	.superRefine((template, ctx) => {
 		for (let index = 1; index < template.parts.length; index += 1) {
 			if (
@@ -453,36 +438,31 @@ function automationMessageTemplateWithLimit(maxLength: number, label: string) {
 
 export const automationUpdateValueSchema = z.discriminatedUnion("kind", [
 	z
-		.object({ kind: z.literal("literal"), value: z.string().max(4_096) })
-		.strict()
+		.strictObject({ kind: z.literal("literal"), value: z.string().max(4_096) })
 		.refine((value) => isCanonicalHqCasePropertyValue(value.value), {
 			path: ["value"],
-			message:
+			error:
 				"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
 		}),
-	z
-		.object({
-			kind: z.literal("case-property"),
-			source: automationPropertyTargetSchema,
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("case-property"),
+		source: automationPropertyTargetSchema,
+	}),
 ]);
 export type AutomationUpdateValue = z.infer<typeof automationUpdateValueSchema>;
 
-export const automationCaseUpdateSchema = z
-	.object({
-		uuid: uuidSchema,
-		target: automationPropertyTargetSchema,
-		value: automationUpdateValueSchema,
-	})
-	.strict();
+export const automationCaseUpdateSchema = z.strictObject({
+	uuid: uuidSchema,
+	target: automationPropertyTargetSchema,
+	value: automationUpdateValueSchema,
+});
 export type AutomationCaseUpdate = z.infer<typeof automationCaseUpdateSchema>;
 
 const automationHqRecipientIdSchema = z
 	.string()
 	.max(255)
 	.refine((value) => value.trim().length > 0 && value === value.trim(), {
-		message:
+		error:
 			"A CommCare HQ recipient ID must be nonblank and have no surrounding whitespace.",
 	});
 
@@ -490,50 +470,40 @@ const automationRegisteredIdSchema = z
 	.string()
 	.max(126)
 	.refine((value) => value.trim().length > 0 && value === value.trim(), {
-		message:
+		error:
 			"A CommCare HQ registered ID must be nonblank and have no surrounding whitespace.",
 	});
 
 export const automationRecipientSchema = z.discriminatedUnion("kind", [
-	z.object({ uuid: uuidSchema, kind: z.literal("self") }).strict(),
-	z.object({ uuid: uuidSchema, kind: z.literal("owner") }).strict(),
-	z
-		.object({ uuid: uuidSchema, kind: z.literal("last-submitting-user") })
-		.strict(),
-	z.object({ uuid: uuidSchema, kind: z.literal("parent-case") }).strict(),
-	z.object({ uuid: uuidSchema, kind: z.literal("all-child-cases") }).strict(),
-	z
-		.object({
-			uuid: uuidSchema,
-			kind: z.enum([
-				"case-property-username",
-				"case-property-user-id",
-				"case-property-email",
-			]),
-			property: z.string().min(1).max(126),
-		})
-		.strict(),
-	z
-		.object({
-			uuid: uuidSchema,
-			kind: z.literal("location"),
-			locationUuid: uuidSchema,
-		})
-		.strict(),
-	z
-		.object({
-			uuid: uuidSchema,
-			kind: z.enum(["mobile-worker", "user-group", "case-group"]),
-			hqId: automationHqRecipientIdSchema,
-		})
-		.strict(),
-	z
-		.object({
-			uuid: uuidSchema,
-			kind: z.literal("custom"),
-			registeredId: automationRegisteredIdSchema,
-		})
-		.strict(),
+	z.strictObject({ uuid: uuidSchema, kind: z.literal("self") }),
+	z.strictObject({ uuid: uuidSchema, kind: z.literal("owner") }),
+	z.strictObject({ uuid: uuidSchema, kind: z.literal("last-submitting-user") }),
+	z.strictObject({ uuid: uuidSchema, kind: z.literal("parent-case") }),
+	z.strictObject({ uuid: uuidSchema, kind: z.literal("all-child-cases") }),
+	z.strictObject({
+		uuid: uuidSchema,
+		kind: z.enum([
+			"case-property-username",
+			"case-property-user-id",
+			"case-property-email",
+		]),
+		property: z.string().min(1).max(126),
+	}),
+	z.strictObject({
+		uuid: uuidSchema,
+		kind: z.literal("location"),
+		locationUuid: uuidSchema,
+	}),
+	z.strictObject({
+		uuid: uuidSchema,
+		kind: z.enum(["mobile-worker", "user-group", "case-group"]),
+		hqId: automationHqRecipientIdSchema,
+	}),
+	z.strictObject({
+		uuid: uuidSchema,
+		kind: z.literal("custom"),
+		registeredId: automationRegisteredIdSchema,
+	}),
 ]);
 export type AutomationRecipient = z.infer<typeof automationRecipientSchema>;
 
@@ -623,44 +593,35 @@ function validateSurveyContent(
 }
 
 export const automationContentSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("sms"),
+		message: automationMessageTemplateWithLimit(16_000, "An SMS message"),
+	}),
+	z.strictObject({
+		kind: z.literal("email"),
+		subject: automationMessageTemplateWithLimit(1_000, "An email subject"),
+		body: z.discriminatedUnion("kind", [
+			z.strictObject({
+				kind: z.literal("plain-text"),
+				message: automationMessageTemplateWithLimit(
+					64_000,
+					"A plain-text email message",
+				),
+			}),
+			z.strictObject({
+				kind: z.literal("rich-text"),
+				html: automationMessageTemplateWithLimit(
+					256_000,
+					"Rich-text email HTML",
+				),
+			}),
+		]),
+	}),
 	z
-		.object({
-			kind: z.literal("sms"),
-			message: automationMessageTemplateWithLimit(16_000, "An SMS message"),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("email"),
-			subject: automationMessageTemplateWithLimit(1_000, "An email subject"),
-			body: z.discriminatedUnion("kind", [
-				z
-					.object({
-						kind: z.literal("plain-text"),
-						message: automationMessageTemplateWithLimit(
-							64_000,
-							"A plain-text email message",
-						),
-					})
-					.strict(),
-				z
-					.object({
-						kind: z.literal("rich-text"),
-						html: automationMessageTemplateWithLimit(
-							256_000,
-							"Rich-text email HTML",
-						),
-					})
-					.strict(),
-			]),
-		})
-		.strict(),
-	z
-		.object({ kind: z.literal("sms-survey"), ...surveyContentBase })
-		.strict()
+		.strictObject({ kind: z.literal("sms-survey"), ...surveyContentBase })
 		.superRefine(validateSurveyContent),
 	z
-		.object({
+		.strictObject({
 			kind: z.literal("ivr"),
 			...formContentBase,
 			reminderIntervalsMinutes: z
@@ -670,84 +631,67 @@ export const automationContentSchema = z.discriminatedUnion("kind", [
 			includeCaseUpdatesInPartialSubmissions: z.boolean(),
 			maxQuestionAttempts: persistableJsonPositiveIntegerSchema.max(5),
 		})
-		.strict()
 		.superRefine(validatePartialSubmissionSettings),
+	z.strictObject({
+		kind: z.literal("sms-callback"),
+		message: automationMessageTemplateWithLimit(
+			16_000,
+			"An SMS callback message",
+		),
+		reminderIntervalsMinutes: z
+			.array(persistableJsonPositiveIntegerSchema)
+			.min(1)
+			.max(100),
+	}),
+	z.strictObject({
+		kind: z.literal("connect-message"),
+		message: automationMessageTemplateWithLimit(16_000, "A Connect message"),
+	}),
 	z
-		.object({
-			kind: z.literal("sms-callback"),
-			message: automationMessageTemplateWithLimit(
-				16_000,
-				"An SMS callback message",
-			),
-			reminderIntervalsMinutes: z
-				.array(persistableJsonPositiveIntegerSchema)
-				.min(1)
-				.max(100),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("connect-message"),
-			message: automationMessageTemplateWithLimit(16_000, "A Connect message"),
-		})
-		.strict(),
-	z
-		.object({ kind: z.literal("connect-survey"), ...surveyContentBase })
-		.strict()
+		.strictObject({ kind: z.literal("connect-survey"), ...surveyContentBase })
 		.superRefine(validateSurveyContent),
-	z
-		.object({
-			kind: z.literal("custom"),
-			registeredId: automationRegisteredIdSchema,
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("custom"),
+		registeredId: automationRegisteredIdSchema,
+	}),
 ]);
 export type AutomationContent = z.infer<typeof automationContentSchema>;
 
 export const timedEventTimingSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("specific-time"),
+		time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+	}),
+	z.strictObject({
+		kind: z.literal("random-window"),
+		time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+		windowMinutes: persistableJsonPositiveIntegerSchema.max(1_439),
+	}),
 	z
-		.object({
-			kind: z.literal("specific-time"),
-			time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("random-window"),
-			time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
-			windowMinutes: persistableJsonPositiveIntegerSchema.max(1_439),
-		})
-		.strict(),
-	z
-		.object({
+		.strictObject({
 			kind: z.literal("case-property-time"),
 			property: z.string().min(1).max(126),
 		})
-		.strict()
 		.describe(
 			"Read a custom case property at send time. After trimming, CommCare HQ requires the value to begin with H:MM or HH:MM and the whole value to parse as a time. Suffixes such as AM/PM or seconds are accepted. Blank, nonmatching, or unparseable values fall back to 12:00 PM.",
 		),
 ]);
 
-export const automationImmediateEventSchema = z
-	.object({
-		uuid: uuidSchema,
-		minutesToWait: persistableJsonNonnegativeIntegerSchema.max(5_256_000),
-		content: automationContentSchema,
-	})
-	.strict();
+export const automationImmediateEventSchema = z.strictObject({
+	uuid: uuidSchema,
+	minutesToWait: persistableJsonNonnegativeIntegerSchema.max(5_256_000),
+	content: automationContentSchema,
+});
 export type AutomationImmediateEvent = z.infer<
 	typeof automationImmediateEventSchema
 >;
 
-export const automationTimedEventSchema = z
-	.object({
-		uuid: uuidSchema,
-		day: persistableJsonIntegerSchema.min(-28).max(3_649),
-		timing: timedEventTimingSchema,
-		content: automationContentSchema,
-	})
-	.strict();
+export const automationTimedEventSchema = z.strictObject({
+	uuid: uuidSchema,
+	day: persistableJsonIntegerSchema.min(-28).max(3_649),
+	timing: timedEventTimingSchema,
+	content: automationContentSchema,
+});
 export type AutomationTimedEvent = z.infer<typeof automationTimedEventSchema>;
 
 export type TimedScheduleSetupForm = "custom-daily" | "weekly" | "monthly";
@@ -1035,11 +979,10 @@ function validateTimedSchedule(
 
 export const automationScheduleSchema = z.discriminatedUnion("kind", [
 	z
-		.object({
+		.strictObject({
 			kind: z.literal("immediate"),
 			events: z.array(automationImmediateEventSchema).min(1).max(100),
 		})
-		.strict()
 		.superRefine((schedule, ctx) => {
 			validateScheduleContentMode(schedule.events, ctx);
 			for (const [index, event] of schedule.events.entries()) {
@@ -1054,7 +997,7 @@ export const automationScheduleSchema = z.discriminatedUnion("kind", [
 			}
 		}),
 	z
-		.object({
+		.strictObject({
 			kind: z.literal("timed"),
 			/** Positive means days; negative means months. Zero is not legal. */
 			repeatEvery: persistableJsonIntegerSchema
@@ -1068,23 +1011,18 @@ export const automationScheduleSchema = z.discriminatedUnion("kind", [
 			startOffsetDays: persistableJsonIntegerSchema.min(-36_500).max(36_500),
 			startDayOfWeek: persistableJsonIntegerSchema.min(-1).max(6),
 			start: z.discriminatedUnion("kind", [
-				z.object({ kind: z.literal("rule-trigger") }).strict(),
-				z
-					.object({
-						kind: z.literal("case-property"),
-						property: z.string().min(1).max(126),
-					})
-					.strict(),
-				z
-					.object({
-						kind: z.literal("specific-date"),
-						date: z.iso.date(),
-					})
-					.strict(),
+				z.strictObject({ kind: z.literal("rule-trigger") }),
+				z.strictObject({
+					kind: z.literal("case-property"),
+					property: z.string().min(1).max(126),
+				}),
+				z.strictObject({
+					kind: z.literal("specific-date"),
+					date: z.iso.date(),
+				}),
 			]),
 			events: z.array(automationTimedEventSchema).min(1).max(366),
 		})
-		.strict()
 		.superRefine(validateTimedSchedule),
 ]);
 export type AutomationSchedule = z.infer<typeof automationScheduleSchema>;
@@ -1110,25 +1048,22 @@ function isHqUserFilterPropertyReference(value: string): boolean {
 export const automationUserDataFilterValueSchema = z.discriminatedUnion(
 	"kind",
 	[
+		z.strictObject({
+			kind: z.literal("literal"),
+			value: z
+				.string()
+				.max(4_096)
+				.refine((candidate) => !isHqUserFilterPropertyReference(candidate), {
+					error:
+						"A brace-wrapped HQ filter value is a live case-property lookup. Insert a case-property value instead, or change the literal text.",
+				}),
+		}),
 		z
-			.object({
-				kind: z.literal("literal"),
-				value: z
-					.string()
-					.max(4_096)
-					.refine((candidate) => !isHqUserFilterPropertyReference(candidate), {
-						message:
-							"A brace-wrapped HQ filter value is a live case-property lookup. Insert a case-property value instead, or change the literal text.",
-					}),
-			})
-			.strict(),
-		z
-			.object({
+			.strictObject({
 				kind: z.literal("case-property"),
 				caseType: z.string().min(1).max(126),
 				property: z.string().min(1).max(126),
 			})
-			.strict()
 			.describe(
 				"Use the triggering case's custom property as an accepted worker-filter value. Every triggering case must contain this property because CommCare HQ directly indexes it and raises an error when it is missing.",
 			),
@@ -1139,12 +1074,11 @@ export type AutomationUserDataFilterValue = z.infer<
 >;
 
 export const automationUserDataFilterSchema = z
-	.object({
+	.strictObject({
 		uuid: uuidSchema,
 		userPropertyUuid: uuidSchema,
 		values: z.array(automationUserDataFilterValueSchema).min(1).max(250),
 	})
-	.strict()
 	.superRefine((filter, ctx) => {
 		const seen = new Set<string>();
 		for (const [index, value] of filter.values.entries()) {
@@ -1175,24 +1109,20 @@ const automationSetupOnlyCriterionCommon = {
 		.string()
 		.max(AUTOMATION_SETUP_NOTE_MAX_LENGTH)
 		.refine((value) => value.trim().length > 0 && value === value.trim(), {
-			message:
+			error:
 				"An HQ-only condition must be nonblank and have no surrounding whitespace.",
 		}),
 } as const;
 
 export const automationSetupOnlyCriterionSchema = z.discriminatedUnion("kind", [
-	z
-		.object({
-			...automationSetupOnlyCriterionCommon,
-			kind: z.literal("ucr-filter"),
-		})
-		.strict(),
-	z
-		.object({
-			...automationSetupOnlyCriterionCommon,
-			kind: z.literal("registered-custom"),
-		})
-		.strict(),
+	z.strictObject({
+		...automationSetupOnlyCriterionCommon,
+		kind: z.literal("ucr-filter"),
+	}),
+	z.strictObject({
+		...automationSetupOnlyCriterionCommon,
+		kind: z.literal("registered-custom"),
+	}),
 ]);
 
 const automationCommon = {
@@ -1205,8 +1135,7 @@ const automationCommon = {
 			`Keep the automation name under ${AUTOMATION_NAME_MAX_LENGTH + 1} characters.`,
 		)
 		.refine((name) => name === name.trim() && name.length > 0, {
-			message:
-				"Enter a nonblank automation name without surrounding whitespace.",
+			error: "Enter a nonblank automation name without surrounding whitespace.",
 		}),
 	caseType: z.string().min(1).max(126),
 	criteriaOperator: z.enum(AUTOMATION_CRITERIA_OPERATORS),
@@ -1404,7 +1333,7 @@ function validateConditionalAlert(
 
 export const automationSchema = z.discriminatedUnion("kind", [
 	z
-		.object({
+		.strictObject({
 			...automationCommon,
 			kind: z.literal("case-update"),
 			criteria: z.array(automationCaseUpdateCriterionSchema).max(100),
@@ -1415,14 +1344,13 @@ export const automationSchema = z.discriminatedUnion("kind", [
 			updates: z.array(automationCaseUpdateSchema).max(250),
 			closeCase: z.boolean(),
 		})
-		.strict()
 		.superRefine(validateHtmlCriteriaShape)
 		.refine((rule) => rule.closeCase || rule.updates.length > 0, {
-			message:
+			error:
 				"A case-update rule must close the case or write at least one property.",
 		}),
 	z
-		.object({
+		.strictObject({
 			...automationCommon,
 			kind: z.literal("conditional-alert"),
 			criteria: z.array(automationAlertCriterionSchema).max(100),
@@ -1434,7 +1362,7 @@ export const automationSchema = z.discriminatedUnion("kind", [
 				.string()
 				.max(126)
 				.refine((value) => value.trim().length > 0 && value === value.trim(), {
-					message:
+					error:
 						"A default language code must be nonblank and have no surrounding whitespace.",
 				})
 				.optional(),
@@ -1443,7 +1371,6 @@ export const automationSchema = z.discriminatedUnion("kind", [
 			resetCaseProperty: z.string().min(1).max(126).optional(),
 			stopDateCaseProperty: z.string().min(1).max(126).optional(),
 		})
-		.strict()
 		.superRefine(validateConditionalAlert),
 ]);
 export type Automation = z.infer<typeof automationSchema>;

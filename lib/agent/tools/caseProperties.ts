@@ -18,26 +18,23 @@ const address = {
 	property: authoredCasePropertyNameSchema,
 };
 
-export const getCasePropertyInputSchema = z.object(address).strict();
+export const getCasePropertyInputSchema = z.strictObject(address);
 
 const {
 	name: _name,
 	data_type: _dataType,
 	...editable
 } = casePropertyInputSchema.shape;
-export const updateCasePropertyInputSchema = z
-	.object({
-		...address,
-		updates: z
-			.object(editable)
-			.partial()
-			.strict()
-			.refine(
-				(value) => Object.values(value).some((item) => item !== undefined),
-				"Supply at least one property setting to change.",
-			),
-	})
-	.strict();
+export const updateCasePropertyInputSchema = z.strictObject({
+	...address,
+	updates: z
+		.strictObject(editable)
+		.partial()
+		.refine(
+			(value) => Object.values(value).some((item) => item !== undefined),
+			"Supply at least one property setting to change.",
+		),
+});
 
 function findProperty(
 	ctx: ToolInvocationContext,

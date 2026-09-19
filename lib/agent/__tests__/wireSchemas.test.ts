@@ -46,14 +46,12 @@ function walkJson(
 }
 
 describe("compact provider expression schemas", () => {
-	const localSchema = z
-		.object({
-			predicate: predicateSchema,
-			valueExpression: valueExpressionSchema,
-			xpath: xpathExpressionSchema,
-			prose: proseTemplateSchema,
-		})
-		.strict();
+	const localSchema = z.strictObject({
+		predicate: predicateSchema,
+		valueExpression: valueExpressionSchema,
+		xpath: xpathExpressionSchema,
+		prose: proseTemplateSchema,
+	});
 	const wire = wireToolSchema(localSchema);
 	const json = wire.jsonSchema as JsonNode;
 
@@ -241,7 +239,7 @@ describe("compact provider expression schemas", () => {
 	});
 
 	it("admits direct Term operands and normalizes them before canonical parsing", async () => {
-		const shorthandSchema = z.object({ predicate: predicateSchema }).strict();
+		const shorthandSchema = z.strictObject({ predicate: predicateSchema });
 		const shorthandWire = wireToolSchema(shorthandSchema);
 		const input = {
 			predicate: {
@@ -295,7 +293,7 @@ describe("compact provider expression schemas", () => {
 	);
 
 	it("rejects malformed nested AST despite the intentionally shallow provider projection", async () => {
-		const schema = z.object({ predicate: predicateSchema }).strict();
+		const schema = z.strictObject({ predicate: predicateSchema });
 		const projected = wireToolSchema(schema);
 		const malformed = {
 			predicate: {

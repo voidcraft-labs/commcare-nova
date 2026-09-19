@@ -56,48 +56,36 @@ import { authoredCasePropertyNameSchema } from "../casePropertyName";
 import { externalUserPropertyNameSchema } from "../externalUserProperty";
 import { uuidSchema } from "../uuid";
 
-const xpathTextPartSchema = z
-	.object({
-		kind: z.literal("text"),
-		text: z.string(),
-	})
-	.strict();
+const xpathTextPartSchema = z.strictObject({
+	kind: z.literal("text"),
+	text: z.string(),
+});
 
-const xpathFieldRefPartSchema = z
-	.object({
-		kind: z.literal("field-ref"),
-		uuid: uuidSchema,
-	})
-	.strict();
+const xpathFieldRefPartSchema = z.strictObject({
+	kind: z.literal("field-ref"),
+	uuid: uuidSchema,
+});
 
-const xpathPathRefPartSchema = z
-	.object({
-		kind: z.literal("path-ref"),
-		uuid: uuidSchema,
-	})
-	.strict();
+const xpathPathRefPartSchema = z.strictObject({
+	kind: z.literal("path-ref"),
+	uuid: uuidSchema,
+});
 
-const xpathCaseRefPartSchema = z
-	.object({
-		kind: z.literal("case-ref"),
-		caseType: z.string(),
-		property: authoredCasePropertyNameSchema,
-	})
-	.strict();
+const xpathCaseRefPartSchema = z.strictObject({
+	kind: z.literal("case-ref"),
+	caseType: z.string(),
+	property: authoredCasePropertyNameSchema,
+});
 
-const xpathUserRefPartSchema = z
-	.object({
-		kind: z.literal("user-ref"),
-		property: externalUserPropertyNameSchema,
-	})
-	.strict();
+const xpathUserRefPartSchema = z.strictObject({
+	kind: z.literal("user-ref"),
+	property: externalUserPropertyNameSchema,
+});
 
-const xpathUserPropertyRefPartSchema = z
-	.object({
-		kind: z.literal("user-property-ref"),
-		userPropertyUuid: uuidSchema,
-	})
-	.strict();
+const xpathUserPropertyRefPartSchema = z.strictObject({
+	kind: z.literal("user-property-ref"),
+	userPropertyUuid: uuidSchema,
+});
 
 /**
  * A search answer carried into a no-matches registration form: the value
@@ -106,12 +94,10 @@ const xpathUserPropertyRefPartSchema = z
  * renamed prompt never rewrites the expression; printing resolves it to
  * `#search/<current name>`.
  */
-const xpathSearchAnswerRefPartSchema = z
-	.object({
-		kind: z.literal("search-answer-ref"),
-		searchInputUuid: uuidSchema,
-	})
-	.strict();
+const xpathSearchAnswerRefPartSchema = z.strictObject({
+	kind: z.literal("search-answer-ref"),
+	searchInputUuid: uuidSchema,
+});
 
 const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathTextPartSchema,
@@ -139,11 +125,9 @@ export type XPathPart = z.infer<typeof xpathPartSchema>;
 /** A reference-carrying part — everything except verbatim text. */
 export type XPathRefPart = Exclude<XPathPart, XPathTextPart>;
 
-export const xpathExpressionSchema = z
-	.object({
-		parts: z.array(xpathPartSchema),
-	})
-	.strict();
+export const xpathExpressionSchema = z.strictObject({
+	parts: z.array(xpathPartSchema),
+});
 
 export type XPathExpression = z.infer<typeof xpathExpressionSchema>;
 
@@ -151,7 +135,7 @@ export type XPathExpression = z.infer<typeof xpathExpressionSchema>;
  * cannot assume schema-parsed input, so the predicate validates every part and
  * rejects missing, unknown, or extra leaf fields. */
 export function isXPathExpression(value: unknown): value is XPathExpression {
-	return xpathExpressionSchema.safeParse(value).success;
+	return xpathExpressionSchema.validate(value);
 }
 
 /** The empty expression — prints as `""`. */

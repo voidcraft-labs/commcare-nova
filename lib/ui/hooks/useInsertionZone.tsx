@@ -256,9 +256,7 @@ export function InsertionIntentProvider({
 	const [binding] = useState(() => createBinding(config));
 	useEffect(() => binding.attach(), [binding]);
 	return (
-		<InsertionIntentContext.Provider value={binding}>
-			{children}
-		</InsertionIntentContext.Provider>
+		<InsertionIntentContext value={binding}>{children}</InsertionIntentContext>
 	);
 }
 

@@ -85,9 +85,7 @@ describe("parsePersistedJsonText", () => {
 			[secretToken, secretToken],
 			[`"${secretString}\\uZZZZ"`, secretString],
 		]) {
-			expect(() =>
-				parsePersistedJsonText(payload, "test carrier"),
-			).toThrowError(
+			expect(() => parsePersistedJsonText(payload, "test carrier")).toThrow(
 				expect.objectContaining({
 					message: expect.not.stringContaining(sentinel),
 				}),

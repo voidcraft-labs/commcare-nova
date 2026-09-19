@@ -28,7 +28,7 @@ export const authoredCasePropertyNameSchema = z
 		(value) =>
 			value !== "name" && value !== "date-opened" && value !== "external-id",
 		{
-			message:
+			error:
 				"Use Nova's canonical standard property name: case_name, date_opened, or external_id.",
 		},
 	);

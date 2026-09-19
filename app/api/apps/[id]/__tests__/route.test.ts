@@ -59,7 +59,6 @@ function params() {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	vi.mocked(resolveAuthorizedAppSnapshot).mockResolvedValue({
 		projectId: "project-1",

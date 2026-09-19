@@ -14,13 +14,11 @@ import {
 	uuidSchema,
 } from "@/lib/domain";
 
-export const moduleAddressSchema = z
-	.object({
-		moduleUuid: uuidSchema.describe(
-			"Stable module UUID, from get_app, get_module, or search_blueprint.",
-		),
-	})
-	.strict();
+export const moduleAddressSchema = z.strictObject({
+	moduleUuid: uuidSchema.describe(
+		"Stable module UUID, from get_app, get_module, or search_blueprint.",
+	),
+});
 
 export const formAddressSchema = moduleAddressSchema
 	.extend({

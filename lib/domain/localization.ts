@@ -22,30 +22,28 @@ import { ownRecordSchema } from "./records";
  * living language, valid script branch, valid region) is enforced at the
  * authoring boundaries — tool schemas, the design contract, and the picker.
  */
-export const appLanguageIdentitySchema = z
-	.object({
-		language: z
-			.string()
-			.regex(
-				/^[a-z]{3}$/,
-				"Use a lower-case three-letter ISO 639:2023 Set 3 identifier, such as cmn or spa.",
-			),
-		script: z
-			.string()
-			.regex(
-				/^[A-Z][a-z]{3}$/,
-				"Use a four-letter ISO 15924 script identifier in title case, such as Hans.",
-			)
-			.optional(),
-		region: z
-			.string()
-			.regex(
-				/^[A-Z]{2}$/,
-				"Use an upper-case two-letter ISO 3166-1 alpha-2 region identifier, such as MX.",
-			)
-			.optional(),
-	})
-	.strict();
+export const appLanguageIdentitySchema = z.strictObject({
+	language: z
+		.string()
+		.regex(
+			/^[a-z]{3}$/,
+			"Use a lower-case three-letter ISO 639:2023 Set 3 identifier, such as cmn or spa.",
+		),
+	script: z
+		.string()
+		.regex(
+			/^[A-Z][a-z]{3}$/,
+			"Use a four-letter ISO 15924 script identifier in title case, such as Hans.",
+		)
+		.optional(),
+	region: z
+		.string()
+		.regex(
+			/^[A-Z]{2}$/,
+			"Use an upper-case two-letter ISO 3166-1 alpha-2 region identifier, such as MX.",
+		)
+		.optional(),
+});
 export type AppLanguageIdentity = z.infer<typeof appLanguageIdentitySchema>;
 
 /**
@@ -103,16 +101,14 @@ export type TranslationOrigin = (typeof translationOrigins)[number];
 export const translationReviews = ["needs-review", "reviewed"] as const;
 export type TranslationReview = (typeof translationReviews)[number];
 
-export const translationEntrySchema = z
-	.object({
-		value: localizedValueSchema,
-		sourceFingerprint: z.string().min(1),
-		origin: z.enum(translationOrigins),
-		review: z.enum(translationReviews),
-		/** Historical provenance may name a language later removed from the app. */
-		translatedFrom: languageTagSchema,
-	})
-	.strict();
+export const translationEntrySchema = z.strictObject({
+	value: localizedValueSchema,
+	sourceFingerprint: z.string().min(1),
+	origin: z.enum(translationOrigins),
+	review: z.enum(translationReviews),
+	/** Historical provenance may name a language later removed from the app. */
+	translatedFrom: languageTagSchema,
+});
 export type TranslationEntry = z.infer<typeof translationEntrySchema>;
 
 const translationMapSchema = ownRecordSchema(
@@ -127,13 +123,12 @@ const translationMapSchema = ownRecordSchema(
  * derived — so the tags themselves are the complete language catalog.
  */
 export const appLocalizationSchema = z
-	.object({
+	.strictObject({
 		sourceLanguage: languageTagSchema,
 		defaultLanguage: languageTagSchema,
 		languageOrder: z.array(languageTagSchema).min(1),
 		translations: ownRecordSchema(languageTagSchema, translationMapSchema),
 	})
-	.strict()
 	.superRefine((localization, ctx) => {
 		const ordered = new Set<LanguageTag>();
 		for (const [index, tag] of localization.languageOrder.entries()) {

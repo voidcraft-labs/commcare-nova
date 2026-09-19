@@ -157,8 +157,8 @@ export function CaseListWorkspaceProvider({
 	const controllerMounted = activated || target !== null;
 
 	return (
-		<CaseListWorkspaceStoreContext.Provider value={workspaceStore}>
-			<CaseListInspectorStoreContext.Provider value={inspectorStore}>
+		<CaseListWorkspaceStoreContext value={workspaceStore}>
+			<CaseListInspectorStoreContext value={inspectorStore}>
 				{controllerMounted ? (
 					<ActiveControllerBridge
 						target={target}
@@ -167,7 +167,7 @@ export function CaseListWorkspaceProvider({
 					/>
 				) : null}
 				{children}
-			</CaseListInspectorStoreContext.Provider>
-		</CaseListWorkspaceStoreContext.Provider>
+			</CaseListInspectorStoreContext>
+		</CaseListWorkspaceStoreContext>
 	);
 }

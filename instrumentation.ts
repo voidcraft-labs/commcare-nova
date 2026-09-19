@@ -3,6 +3,10 @@ import * as Sentry from "@sentry/nextjs";
 export async function register() {
 	if (process.env.NEXT_RUNTIME === "nodejs") {
 		await import("./sentry.server.config");
+		const { logProviderWarnings } = await import(
+			"./lib/agent/providerWarnings"
+		);
+		logProviderWarnings();
 	}
 
 	if (process.env.NEXT_RUNTIME === "edge") {

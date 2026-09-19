@@ -41,14 +41,14 @@ import * as targetScope from "@/lib/db/generationTargetScope";
 import type { AppDatabase } from "@/lib/db/pg";
 import * as streamListener from "@/lib/db/streamListener";
 
-const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
+const { requireSessionMock, readSessionMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
-	getSessionSafeMock: vi.fn(),
+	readSessionMock: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
-	getSessionSafe: getSessionSafeMock,
+	readSession: readSessionMock,
 }));
 const previousCadence = process.env.NOVA_CHAT_STREAM_CADENCE_MS;
 process.env.NOVA_CHAT_STREAM_CADENCE_MS = "150";
@@ -166,7 +166,7 @@ async function collectUntil(
 
 	const userId = opts.userId ?? USER;
 	requireSessionMock.mockResolvedValue(sessionFor(userId));
-	getSessionSafeMock.mockResolvedValue(sessionFor(userId));
+	readSessionMock.mockResolvedValue(sessionFor(userId));
 
 	const response = await GET(req, {
 		params: Promise.resolve({ streamId }),
@@ -243,8 +243,8 @@ beforeEach(async () => {
 		status: "complete",
 	});
 	requireSessionMock.mockReset();
-	getSessionSafeMock.mockReset();
-	getSessionSafeMock.mockResolvedValue(sessionFor(USER));
+	readSessionMock.mockReset();
+	readSessionMock.mockResolvedValue(sessionFor(USER));
 });
 afterEach(async () => {
 	await closeStreamListener();
@@ -639,7 +639,7 @@ describe("auth posture", () => {
 							.query("UPDATE auth_user SET banned = true WHERE id = $1", [
 								USER,
 							]);
-					else getSessionSafeMock.mockResolvedValue(sessionFor(PEER));
+					else readSessionMock.mockResolvedValue(sessionFor(PEER));
 				},
 			});
 			expect(ended).toBe(true);

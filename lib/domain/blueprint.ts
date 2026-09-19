@@ -47,32 +47,26 @@ export {
 
 // Case type schemas — moved verbatim from lib/schemas/blueprint.ts.
 
-export const casePropertySchema = z
-	.object({
-		name: authoredCasePropertyNameSchema,
-		label: proseTemplateSchema,
-		data_type: casePropertyDataTypeSchema.optional(),
-		hint: proseTemplateSchema.optional(),
-		required: xpathExpressionSchema.optional(),
-		validation: xpathExpressionSchema.optional(),
-		validation_msg: proseTemplateSchema.optional(),
-		options: z
-			.array(
-				z.object({ value: z.string(), label: proseTemplateSchema }).strict(),
-			)
-			.optional(),
-	})
-	.strict();
+export const casePropertySchema = z.strictObject({
+	name: authoredCasePropertyNameSchema,
+	label: proseTemplateSchema,
+	data_type: casePropertyDataTypeSchema.optional(),
+	hint: proseTemplateSchema.optional(),
+	required: xpathExpressionSchema.optional(),
+	validation: xpathExpressionSchema.optional(),
+	validation_msg: proseTemplateSchema.optional(),
+	options: z
+		.array(z.strictObject({ value: z.string(), label: proseTemplateSchema }))
+		.optional(),
+});
 export type CaseProperty = z.infer<typeof casePropertySchema>;
 
-export const caseTypeSchema = z
-	.object({
-		name: z.string(),
-		properties: z.array(casePropertySchema),
-		parent_type: z.string().optional(),
-		relationship: z.enum(["child", "extension"]).optional(),
-	})
-	.strict();
+export const caseTypeSchema = z.strictObject({
+	name: z.string(),
+	properties: z.array(casePropertySchema),
+	parent_type: z.string().optional(),
+	relationship: z.enum(["child", "extension"]).optional(),
+});
 export type CaseType = z.infer<typeof caseTypeSchema>;
 
 export const CONNECT_TYPES = ["learn", "deliver"] as const;
@@ -94,79 +88,77 @@ export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
  */
 export const APP_GENESIS_FALLBACK_NAME = "Untitled";
 
-const blueprintDocObjectSchema = z
-	.object({
-		appId: z.string(),
-		appName: z.string(),
-		connectType: z.enum(CONNECT_TYPES).nullable(),
-		caseTypes: z.array(caseTypeSchema).nullable(),
-		/**
-		 * Optional app-level target-language overlay. Absence is the exact legacy
-		 * single-English state; canonical source strings stay on their ordinary
-		 * owning entities rather than being duplicated here.
-		 */
-		localization: appLocalizationSchema.optional(),
+const blueprintDocObjectSchema = z.strictObject({
+	appId: z.string(),
+	appName: z.string(),
+	connectType: z.enum(CONNECT_TYPES).nullable(),
+	caseTypes: z.array(caseTypeSchema).nullable(),
+	/**
+	 * Optional app-level target-language overlay. Absence is the exact legacy
+	 * single-English state; canonical source strings stay on their ordinary
+	 * owning entities rather than being duplicated here.
+	 */
+	localization: appLocalizationSchema.optional(),
 
-		modules: ownRecordSchema(uuidSchema, moduleSchema),
-		forms: ownRecordSchema(uuidSchema, formSchema),
-		fields: ownRecordSchema(uuidSchema, fieldSchema),
+	modules: ownRecordSchema(uuidSchema, moduleSchema),
+	forms: ownRecordSchema(uuidSchema, formSchema),
+	fields: ownRecordSchema(uuidSchema, fieldSchema),
 
-		moduleOrder: z.array(uuidSchema),
-		formOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
-		fieldOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
+	moduleOrder: z.array(uuidSchema),
+	formOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
+	fieldOrder: ownRecordSchema(uuidSchema, z.array(uuidSchema)),
 
-		/**
-		 * App-level logo for the web-apps surface. A single image —
-		 * no audio, no per-language variants — shown on the login
-		 * and home screens. Android-only logo slots are out of scope
-		 * for Nova's web-apps target.
-		 */
-		logo: mediaAssetIdSchema.optional(),
+	/**
+	 * App-level logo for the web-apps surface. A single image —
+	 * no audio, no per-language variants — shown on the login
+	 * and home screens. Android-only logo slots are out of scope
+	 * for Nova's web-apps target.
+	 */
+	logo: mediaAssetIdSchema.optional(),
 
-		/**
-		 * Who runs the app (`./users.ts`): the user-data property catalog,
-		 * the user types built on it, and the named preview personas that
-		 * act as those types.
-		 *
-		 * Each is a UUID-keyed record paired with a membership array that IS
-		 * its sequence, the same shape `moduleOrder` / `formOrder` use. Both
-		 * slots are OPTIONAL and omitted when empty, so an app that declares
-		 * none serializes byte-identically to one authored before they
-		 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
-		 * `personasOf` rather than defaulting at the call site.
-		 *
-		 * The record and its array cannot silently disagree: `assembleBlueprint`
-		 * throws on exactly that mismatch, which is the guard the hierarchical
-		 * collections have always relied on.
-		 */
-		userProperties: ownRecordSchema(uuidSchema, userPropertySchema).optional(),
-		userPropertyOrder: z.array(uuidSchema).optional(),
-		userTypes: ownRecordSchema(uuidSchema, userTypeSchema).optional(),
-		userTypeOrder: z.array(uuidSchema).optional(),
-		personas: ownRecordSchema(uuidSchema, personaSchema).optional(),
-		personaOrder: z.array(uuidSchema).optional(),
+	/**
+	 * Who runs the app (`./users.ts`): the user-data property catalog,
+	 * the user types built on it, and the named preview personas that
+	 * act as those types.
+	 *
+	 * Each is a UUID-keyed record paired with a membership array that IS
+	 * its sequence, the same shape `moduleOrder` / `formOrder` use. Both
+	 * slots are OPTIONAL and omitted when empty, so an app that declares
+	 * none serializes byte-identically to one authored before they
+	 * existed. Read them through `userPropertiesOf` / `userTypesOf` /
+	 * `personasOf` rather than defaulting at the call site.
+	 *
+	 * The record and its array cannot silently disagree: `assembleBlueprint`
+	 * throws on exactly that mismatch, which is the guard the hierarchical
+	 * collections have always relied on.
+	 */
+	userProperties: ownRecordSchema(uuidSchema, userPropertySchema).optional(),
+	userPropertyOrder: z.array(uuidSchema).optional(),
+	userTypes: ownRecordSchema(uuidSchema, userTypeSchema).optional(),
+	userTypeOrder: z.array(uuidSchema).optional(),
+	personas: ownRecordSchema(uuidSchema, personaSchema).optional(),
+	personaOrder: z.array(uuidSchema).optional(),
 
-		/** The app-authored shape of its organization. Location rows live in
-		 * the app-scoped organization store, not in BlueprintDoc. */
-		organizationLevels: ownRecordSchema(
-			uuidSchema,
-			organizationLevelSchema,
-		).optional(),
-		organizationLevelOrder: z.array(uuidSchema).optional(),
-		locationProperties: ownRecordSchema(
-			uuidSchema,
-			locationPropertySchema,
-		).optional(),
-		locationPropertyOrder: z.array(uuidSchema).optional(),
+	/** The app-authored shape of its organization. Location rows live in
+	 * the app-scoped organization store, not in BlueprintDoc. */
+	organizationLevels: ownRecordSchema(
+		uuidSchema,
+		organizationLevelSchema,
+	).optional(),
+	organizationLevelOrder: z.array(uuidSchema).optional(),
+	locationProperties: ownRecordSchema(
+		uuidSchema,
+		locationPropertySchema,
+	).optional(),
+	locationPropertyOrder: z.array(uuidSchema).optional(),
 
-		/** Human-applied HQ rules and alerts. Preview only evaluates current
-		 * matches; it never runs these schedules. */
-		automations: ownRecordSchema(uuidSchema, automationSchema).optional(),
-		automationOrder: z.array(uuidSchema).optional(),
+	/** Human-applied HQ rules and alerts. Preview only evaluates current
+	 * matches; it never runs these schedules. */
+	automations: ownRecordSchema(uuidSchema, automationSchema).optional(),
+	automationOrder: z.array(uuidSchema).optional(),
 
-		// fieldParent is NOT persisted — derived from fieldOrder on load.
-	})
-	.strict();
+	// fieldParent is NOT persisted — derived from fieldOrder on load.
+});
 
 type BlueprintTopologyInput = z.output<typeof blueprintDocObjectSchema>;
 

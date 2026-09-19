@@ -20,8 +20,7 @@
  */
 
 import { notFound } from "next/navigation";
-import { getLLMText } from "@/lib/docs/llm";
-import { source } from "@/lib/docs/source";
+import { docsLlms, source } from "@/lib/docs/source";
 
 export const revalidate = false;
 
@@ -32,7 +31,7 @@ export async function GET(_req: Request, { params }: RouteContext) {
 	const page = source.getPage(slug);
 	if (!page) notFound();
 
-	return new Response(await getLLMText(page), {
+	return new Response(await docsLlms.page(page), {
 		headers: {
 			"Content-Type": "text/markdown; charset=utf-8",
 		},

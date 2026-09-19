@@ -14,7 +14,7 @@ export const chatRunIdSchema = z
 	.refine((value) => value.trim().length > 0);
 
 /** Server-minted per-claim holder generation echoed only by continuations. */
-export const chatHolderNonceSchema = z.string().uuid();
+export const chatHolderNonceSchema = z.uuid();
 
 /**
  * Wire shape of the chat endpoint's request body.
@@ -56,7 +56,7 @@ export const chatRequestSchema = z.object({
 	 *  resume from Designs in progress). A fresh build sends neither this nor
 	 *  `appId` — the route creates and claims a new session. Never sent
 	 *  beside `appId`; a materialized session's turns address the app. */
-	designSessionId: z.string().uuid().optional(),
+	designSessionId: z.uuid().optional(),
 	/** Project captured by the server-rendered `/build/new` page. New-app
 	 *  creation targets this exact Project after a fresh server-side edit gate;
 	 *  it never re-resolves the session's mutable active Project mid-request. */

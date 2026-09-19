@@ -155,8 +155,8 @@ async function main() {
 			const previous = resolve(options.resume);
 			prior = z
 				.object({
-					appId: z.string().uuid(),
-					designSessionId: z.string().uuid(),
+					appId: z.uuid(),
+					designSessionId: z.uuid(),
 					projectId: z.string(),
 				})
 				.parse(

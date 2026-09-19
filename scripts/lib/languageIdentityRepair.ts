@@ -66,23 +66,20 @@ const designLanguageSchema = appLanguageIdentitySchema.superRefine(
 	},
 );
 
-const designTargetLanguageSchema = z
-	.object({
-		language: designLanguageSchema,
-		seedFrom: designLanguageSchema.describe(
-			"Configured language whose effective strings initialize this target before any requested translation.",
-		),
-		strategy: z.enum(["copy-only", "translate-with-nova"]),
-	})
-	.strict();
+const designTargetLanguageSchema = z.strictObject({
+	language: designLanguageSchema,
+	seedFrom: designLanguageSchema.describe(
+		"Configured language whose effective strings initialize this target before any requested translation.",
+	),
+	strategy: z.enum(["copy-only", "translate-with-nova"]),
+});
 
 const designLocalizationIntentSchema = z
-	.object({
+	.strictObject({
 		sourceLanguage: designLanguageSchema,
 		defaultLanguage: designLanguageSchema,
 		targets: z.array(designTargetLanguageSchema).max(32),
 	})
-	.strict()
 	.superRefine((intent, ctx) => {
 		const sourceTag = languageTag(intent.sourceLanguage);
 		const configured = new Set<LanguageTag>([sourceTag]);
@@ -146,130 +143,102 @@ type DesignLocalizationIntent = z.infer<typeof designLocalizationIntentSchema>;
 const OLD_LANGUAGE_CODE_PATTERN = /^[a-z]{2,3}(?:-[a-z]+)?$/;
 const oldLanguageCodeSchema = z.string().regex(OLD_LANGUAGE_CODE_PATTERN);
 
-const oldAppLanguageSchema = z
-	.object({
-		code: oldLanguageCodeSchema,
-		name: z.string().trim().min(1),
-		direction: z.enum(["ltr", "rtl"]),
-	})
-	.strict();
+const oldAppLanguageSchema = z.strictObject({
+	code: oldLanguageCodeSchema,
+	name: z.string().trim().min(1),
+	direction: z.enum(["ltr", "rtl"]),
+});
 type OldAppLanguage = z.infer<typeof oldAppLanguageSchema>;
 
-const oldTranslationEntrySchema = z
-	.object({
-		value: localizedValueSchema,
-		sourceFingerprint: z.string().min(1),
-		origin: z.enum(["copied", "ai", "human"]),
-		review: z.enum(["needs-review", "reviewed"]),
-		translatedFrom: oldLanguageCodeSchema,
-	})
-	.strict();
+const oldTranslationEntrySchema = z.strictObject({
+	value: localizedValueSchema,
+	sourceFingerprint: z.string().min(1),
+	origin: z.enum(["copied", "ai", "human"]),
+	review: z.enum(["needs-review", "reviewed"]),
+	translatedFrom: oldLanguageCodeSchema,
+});
 
-const oldAppLocalizationSchema = z
-	.object({
-		sourceLanguage: oldLanguageCodeSchema,
-		defaultLanguage: oldLanguageCodeSchema,
-		languageOrder: z.array(oldLanguageCodeSchema).min(1),
-		languages: ownRecordSchema(oldLanguageCodeSchema, oldAppLanguageSchema),
-		translations: ownRecordSchema(
-			oldLanguageCodeSchema,
-			ownRecordSchema(translationUnitIdSchema, oldTranslationEntrySchema),
-		),
-	})
-	.strict();
+const oldAppLocalizationSchema = z.strictObject({
+	sourceLanguage: oldLanguageCodeSchema,
+	defaultLanguage: oldLanguageCodeSchema,
+	languageOrder: z.array(oldLanguageCodeSchema).min(1),
+	languages: ownRecordSchema(oldLanguageCodeSchema, oldAppLanguageSchema),
+	translations: ownRecordSchema(
+		oldLanguageCodeSchema,
+		ownRecordSchema(translationUnitIdSchema, oldTranslationEntrySchema),
+	),
+});
 type OldAppLocalization = z.infer<typeof oldAppLocalizationSchema>;
 
-const oldDesignLanguageSchema = z
-	.object({
-		code: oldLanguageCodeSchema,
-		name: z.string().trim().min(1),
-		direction: z.enum(["ltr", "rtl"]),
-	})
-	.strict();
+const oldDesignLanguageSchema = z.strictObject({
+	code: oldLanguageCodeSchema,
+	name: z.string().trim().min(1),
+	direction: z.enum(["ltr", "rtl"]),
+});
 
-const oldDesignTargetSchema = z
-	.object({
-		language: oldDesignLanguageSchema,
-		seedFrom: oldLanguageCodeSchema,
-		strategy: z.enum(["copy-only", "translate-with-nova"]),
-	})
-	.strict();
+const oldDesignTargetSchema = z.strictObject({
+	language: oldDesignLanguageSchema,
+	seedFrom: oldLanguageCodeSchema,
+	strategy: z.enum(["copy-only", "translate-with-nova"]),
+});
 
-const oldDesignIntentSchema = z
-	.object({
-		sourceLanguage: oldDesignLanguageSchema,
-		defaultLanguage: oldLanguageCodeSchema,
-		targets: z.array(oldDesignTargetSchema).max(32),
-	})
-	.strict();
+const oldDesignIntentSchema = z.strictObject({
+	sourceLanguage: oldDesignLanguageSchema,
+	defaultLanguage: oldLanguageCodeSchema,
+	targets: z.array(oldDesignTargetSchema).max(32),
+});
 
 // Old-shape mutation payloads. Reference kinds are parsed with a lenient
 // string in the language slot because the old code grammar and the canonical
 // tag grammar overlap on bare three-letter codes; the mapping decides.
 
-const oldIdentityCarrierSchema = z
-	.object({
-		kind: z.enum(["relabelSourceLanguage", "addLanguage"]),
-		language: oldAppLanguageSchema,
-	})
-	.strict();
+const oldIdentityCarrierSchema = z.strictObject({
+	kind: z.enum(["relabelSourceLanguage", "addLanguage"]),
+	language: oldAppLanguageSchema,
+});
 
-const newIdentityCarrierSchema = z
-	.object({
-		kind: z.enum(["relabelSourceLanguage", "addLanguage"]),
-		language: appLanguageIdentitySchema,
-	})
-	.strict();
+const newIdentityCarrierSchema = z.strictObject({
+	kind: z.enum(["relabelSourceLanguage", "addLanguage"]),
+	language: appLanguageIdentitySchema,
+});
 
-const oldUpdateLanguageSchema = z
-	.object({
-		kind: z.literal("updateLanguage"),
-		code: oldLanguageCodeSchema,
-		patch: z
-			.object({
-				name: z.string().trim().min(1).optional(),
-				direction: z.enum(["ltr", "rtl"]).optional(),
-			})
-			.strict(),
-	})
-	.strict();
+const oldUpdateLanguageSchema = z.strictObject({
+	kind: z.literal("updateLanguage"),
+	code: oldLanguageCodeSchema,
+	patch: z.strictObject({
+		name: z.string().trim().min(1).optional(),
+		direction: z.enum(["ltr", "rtl"]).optional(),
+	}),
+});
 
-const codeReferenceCarrierSchema = z
-	.object({
-		kind: z.enum(["removeLanguage", "setDefaultLanguage"]),
-		code: z.string().min(1),
-	})
-	.strict();
+const codeReferenceCarrierSchema = z.strictObject({
+	kind: z.enum(["removeLanguage", "setDefaultLanguage"]),
+	code: z.string().min(1),
+});
 
-const anyCodeTranslationEntrySchema = z
-	.object({
-		value: localizedValueSchema,
-		sourceFingerprint: z.string().min(1),
-		origin: z.enum(["copied", "ai", "human"]),
-		review: z.enum(["needs-review", "reviewed"]),
-		translatedFrom: z.string().min(1),
-	})
-	.strict();
+const anyCodeTranslationEntrySchema = z.strictObject({
+	value: localizedValueSchema,
+	sourceFingerprint: z.string().min(1),
+	origin: z.enum(["copied", "ai", "human"]),
+	review: z.enum(["needs-review", "reviewed"]),
+	translatedFrom: z.string().min(1),
+});
 
-const setTranslationCarrierSchema = z
-	.object({
-		kind: z.literal("setTranslation"),
-		language: z.string().min(1),
-		unitId: translationUnitIdSchema,
-		entry: anyCodeTranslationEntrySchema.nullable(),
-	})
-	.strict();
+const setTranslationCarrierSchema = z.strictObject({
+	kind: z.literal("setTranslation"),
+	language: z.string().min(1),
+	unitId: translationUnitIdSchema,
+	entry: anyCodeTranslationEntrySchema.nullable(),
+});
 
-const reviewTranslationCarrierSchema = z
-	.object({
-		kind: z.literal("reviewTranslation"),
-		language: z.string().min(1),
-		unitId: translationUnitIdSchema,
-		expectedSourceFingerprint: z.string().min(1),
-		sourceFingerprint: z.string().min(1),
-		value: localizedValueSchema,
-	})
-	.strict();
+const reviewTranslationCarrierSchema = z.strictObject({
+	kind: z.literal("reviewTranslation"),
+	language: z.string().min(1),
+	unitId: translationUnitIdSchema,
+	expectedSourceFingerprint: z.string().min(1),
+	sourceFingerprint: z.string().min(1),
+	value: localizedValueSchema,
+});
 
 const LOCALIZATION_MUTATION_KINDS = [
 	"relabelSourceLanguage",
@@ -397,7 +366,7 @@ function mechanicalIdentity(
  * reports `needs-explicit`.
  */
 export function mapOldLanguageCode(code: string): OldLanguageCodeMapping {
-	if (languageTagSchema.safeParse(code).success) {
+	if (languageTagSchema.validate(code)) {
 		const identity = parseLanguageTag(code);
 		if (identityIssues(identity).length === 0) {
 			return { kind: "canonical", tag: code };
@@ -1123,8 +1092,7 @@ export function planLanguageIdentityRepair(
 			attempt.intentText,
 			`design_localization_attempts.intent ${attempt.id}`,
 		);
-		const canonical = designLocalizationIntentSchema.safeParse(parsed);
-		if (canonical.success) {
+		if (designLocalizationIntentSchema.validate(parsed)) {
 			const digest = canonicalJsonDigest(parsed);
 			if (digest !== attempt.intentDigest) {
 				block(

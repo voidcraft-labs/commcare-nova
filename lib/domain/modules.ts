@@ -100,12 +100,10 @@ export type SortType = (typeof SORT_TYPES)[number];
  * order is uniform across saga / preview / wire layers (no layer
  * assumes uniqueness).
  */
-export const columnSortSchema = z
-	.object({
-		direction: z.enum(SORT_DIRECTIONS),
-		priority: persistableJsonNonnegativeIntegerSchema,
-	})
-	.strict();
+export const columnSortSchema = z.strictObject({
+	direction: z.enum(SORT_DIRECTIONS),
+	priority: persistableJsonNonnegativeIntegerSchema,
+});
 export type ColumnSort = z.infer<typeof columnSortSchema>;
 
 // ── Interval-column units ────────────────────────────────────────
@@ -161,13 +159,11 @@ export type IntervalDisplay = (typeof INTERVAL_DISPLAYS)[number];
  * Optional surface-visibility and sort slots shared by every column kind.
  * Absent visibility defaults to "visible" at the wire layer.
  */
-const columnCommonSlots = z
-	.object({
-		sort: columnSortSchema.optional(),
-		visibleInList: z.boolean().optional(),
-		visibleInDetail: z.boolean().optional(),
-	})
-	.strict();
+const columnCommonSlots = z.strictObject({
+	sort: columnSortSchema.optional(),
+	visibleInList: z.boolean().optional(),
+	visibleInDetail: z.boolean().optional(),
+});
 
 // ── Case-tile cells ──────────────────────────────────────────────
 //
@@ -280,19 +276,17 @@ export type TileFontSize = (typeof TILE_FONT_SIZES)[number];
  * The five presentation slots are all optional; each maps 1:1 onto a
  * `<style>` attribute and is omitted from the wire when absent.
  */
-export const tileCellSchema = z
-	.object({
-		x: persistableJsonNonnegativeIntegerSchema,
-		y: persistableJsonNonnegativeIntegerSchema,
-		width: persistableJsonPositiveIntegerSchema,
-		height: persistableJsonPositiveIntegerSchema,
-		horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS).optional(),
-		verticalAlign: z.enum(TILE_VERTICAL_ALIGNS).optional(),
-		fontSize: z.enum(TILE_FONT_SIZES).optional(),
-		showBorder: z.boolean().optional(),
-		showShading: z.boolean().optional(),
-	})
-	.strict();
+export const tileCellSchema = z.strictObject({
+	x: persistableJsonNonnegativeIntegerSchema,
+	y: persistableJsonNonnegativeIntegerSchema,
+	width: persistableJsonPositiveIntegerSchema,
+	height: persistableJsonPositiveIntegerSchema,
+	horizontalAlign: z.enum(TILE_HORIZONTAL_ALIGNS).optional(),
+	verticalAlign: z.enum(TILE_VERTICAL_ALIGNS).optional(),
+	fontSize: z.enum(TILE_FONT_SIZES).optional(),
+	showBorder: z.boolean().optional(),
+	showShading: z.boolean().optional(),
+});
 export type TileCell = z.infer<typeof tileCellSchema>;
 
 /** Constructs a tile cell. Optional presentation slots are omitted
@@ -441,10 +435,10 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
 
 /** Base shape every column kind extends — uuid + the common
  *  optional slots (sort, visibility). Per-kind schemas add their
- *  required configuration on top. The `.strict()` on the base
- *  propagates through every `columnBase.extend({...})` chain below,
- *  so per-kind schemas reject unknown keys without restating
- *  `.strict()` on each arm.
+ *  required configuration on top. The base is a `z.strictObject`, and
+ *  strictness propagates through every `columnBase.extend({...})` chain
+ *  below, so per-kind schemas reject unknown keys without restating it
+ *  on each arm.
  *
  *  `tile` is the column's placement on the case list's tile grid. It
  *  sits here rather than in `columnCommonSlots` only because
@@ -452,12 +446,11 @@ export function tileHasBoxedCells(cells: readonly TileCell[]): boolean {
  *  optional common slot in every other respect, and
  *  `ColumnCommonSlots` carries it for the builders. */
 const columnBase = z
-	.object({
+	.strictObject({
 		uuid: uuidSchema,
 		tile: tileCellSchema.optional(),
 	})
-	.extend(columnCommonSlots.shape)
-	.strict();
+	.extend(columnCommonSlots.shape);
 
 // ── Column kinds ─────────────────────────────────────────────────
 //
@@ -511,26 +504,24 @@ const phoneColumnSchema = columnBase.extend({
  * name). The mapping is authored explicitly; values not in the
  * table render no mapped text.
  */
-const idMappingEntrySchema = z
-	.object({
-		// Nonempty whitespace-free token. A blank new-row control is local
-		// component state and is never a persisted mapping entry. The wire
-		// emits the entry as `selected(field, '<value>')`; CommCare's
-		// `selected()` is the XPath 1.0 space-tokenized membership
-		// predicate (it splits the property value on whitespace and
-		// checks set membership), so a `value` carrying whitespace
-		// would never match any case row — silent runtime failure.
-		// Reject blank/whitespace at the schema layer where the final row is
-		// constructed.
-		value: z
-			.string()
-			.regex(
-				/^\S+$/,
-				"ID-mapping value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
-			),
-		label: z.string(),
-	})
-	.strict();
+const idMappingEntrySchema = z.strictObject({
+	// Nonempty whitespace-free token. A blank new-row control is local
+	// component state and is never a persisted mapping entry. The wire
+	// emits the entry as `selected(field, '<value>')`; CommCare's
+	// `selected()` is the XPath 1.0 space-tokenized membership
+	// predicate (it splits the property value on whitespace and
+	// checks set membership), so a `value` carrying whitespace
+	// would never match any case row — silent runtime failure.
+	// Reject blank/whitespace at the schema layer where the final row is
+	// constructed.
+	value: z
+		.string()
+		.regex(
+			/^\S+$/,
+			"ID-mapping value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would silently fall through to the raw property value.",
+		),
+	label: z.string(),
+});
 const idMappingColumnSchema = columnBase.extend({
 	kind: z.literal("id-mapping"),
 	field: authoredCasePropertyNameSchema,
@@ -549,7 +540,7 @@ const idMappingColumnSchema = columnBase.extend({
 		.refine(
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
-				message:
+				error:
 					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
 			},
 		),
@@ -562,21 +553,19 @@ const idMappingColumnSchema = columnBase.extend({
  * on the wire via XPath's space-tokenized `selected()` predicate), but
  * the cell renders the mapped IMAGE instead of a text label.
  */
-const imageMapEntrySchema = z
-	.object({
-		// Same whitespace-free constraint + rationale as the id-mapping
-		// entry's `value`: the wire emits `selected(field, '<value>')`,
-		// which splits on whitespace before testing membership, so a value
-		// carrying whitespace would never match any case row.
-		value: z
-			.string()
-			.regex(
-				/^\S+$/,
-				"Image-map value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
-			),
-		assetId: mediaAssetIdSchema,
-	})
-	.strict();
+const imageMapEntrySchema = z.strictObject({
+	// Same whitespace-free constraint + rationale as the id-mapping
+	// entry's `value`: the wire emits `selected(field, '<value>')`,
+	// which splits on whitespace before testing membership, so a value
+	// carrying whitespace would never match any case row.
+	value: z
+		.string()
+		.regex(
+			/^\S+$/,
+			"Image-map value must be a single whitespace-free token, the wire layer matches it via XPath's space-tokenized `selected()` predicate, which splits both sides on whitespace before testing set membership. A value with spaces would never match any property and the cell would render no image.",
+		),
+	assetId: mediaAssetIdSchema,
+});
 const imageMapColumnSchema = columnBase.extend({
 	kind: z.literal("image-map"),
 	field: authoredCasePropertyNameSchema,
@@ -592,7 +581,7 @@ const imageMapColumnSchema = columnBase.extend({
 		.refine(
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
-				message:
+				error:
 					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
 			},
 		),
@@ -1055,15 +1044,13 @@ export function isSelectSearchInputType(
  *     date-range Search-input arm.
  */
 const scalarSearchInputModeSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("exact") }).strict(),
-	z.object({ kind: z.literal("fuzzy") }).strict(),
-	z.object({ kind: z.literal("starts-with") }).strict(),
-	z.object({ kind: z.literal("phonetic") }).strict(),
-	z.object({ kind: z.literal("fuzzy-date") }).strict(),
+	z.strictObject({ kind: z.literal("exact") }),
+	z.strictObject({ kind: z.literal("fuzzy") }),
+	z.strictObject({ kind: z.literal("starts-with") }),
+	z.strictObject({ kind: z.literal("phonetic") }),
+	z.strictObject({ kind: z.literal("fuzzy-date") }),
 ]);
-const rangeSearchInputModeSchema = z
-	.object({ kind: z.literal("range") })
-	.strict();
+const rangeSearchInputModeSchema = z.strictObject({ kind: z.literal("range") });
 export const searchInputModeSchema = z.union([
 	scalarSearchInputModeSchema,
 	rangeSearchInputModeSchema,
@@ -1082,18 +1069,16 @@ export type ScalarSearchInputMode = z.infer<typeof scalarSearchInputModeSchema>;
 // the binding interchangeable — an authored name can always be
 // referenced from a predicate without being silently rejected by
 // the predicate's stricter character rules.
-const searchInputBase = z
-	.object({
-		uuid: uuidSchema,
-		name: z
-			.string()
-			.regex(
-				XML_ELEMENT_NAME_PATTERN,
-				"Search input `name` must start with a letter or underscore and contain only letters, digits, or underscores. The name is interpolated both as an XML attribute value on the wire `<prompt>` and as an XPath token in the CSQL `instance('search-input:results')/input/field[@name='…']` reference; characters outside that class break one or both bindings.",
-			),
-		label: z.string(),
-	})
-	.strict();
+const searchInputBase = z.strictObject({
+	uuid: uuidSchema,
+	name: z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			"Search input `name` must start with a letter or underscore and contain only letters, digits, or underscores. The name is interpolated both as an XML attribute value on the wire `<prompt>` and as an XPath token in the CSQL `instance('search-input:results')/input/field[@name='…']` reference; characters outside that class break one or both bindings.",
+		),
+	label: z.string(),
+});
 
 /**
  * Whether a worker must answer a prompt before Search runs. `{}` is
@@ -1107,12 +1092,10 @@ const searchInputBase = z
  * directly — unlike a prompt `default`, which fires before anyone types.
  * Web Apps enforces this; Android never enforces prompt validation.
  */
-export const searchInputRequiredSchema = z
-	.object({
-		when: predicateSchema.optional(),
-		message: z.string().min(1).optional(),
-	})
-	.strict();
+export const searchInputRequiredSchema = z.strictObject({
+	when: predicateSchema.optional(),
+	message: z.string().min(1).optional(),
+});
 export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
 
 /**
@@ -1123,12 +1106,10 @@ export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
  * Search-screen scope as `required.when`; `message` is what the worker reads
  * when the rule is false.
  */
-export const searchInputValidationSchema = z
-	.object({
-		rule: predicateSchema,
-		message: z.string().min(1),
-	})
-	.strict();
+export const searchInputValidationSchema = z.strictObject({
+	rule: predicateSchema,
+	message: z.string().min(1),
+});
 export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
 
 /**
@@ -1187,9 +1168,9 @@ export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.strict();
 
 /** The sole mode a choice widget admits: its value IS the exact token. */
-const selectSearchInputModeSchema = z
-	.object({ kind: z.literal("exact") })
-	.strict();
+const selectSearchInputModeSchema = z.strictObject({
+	kind: z.literal("exact"),
+});
 
 /**
  * Simple choice input. `options` names the Project lookup table and the
@@ -2053,45 +2034,43 @@ export function multiSelectSearchInputRefusal(
  * so Nova must not invent one — the authoring surface measures and
  * states the consequence instead.
  */
-export const caseTileGroupingSchema = z
-	.object({
-		/**
-		 * The case-index identifier whose target is the group key —
-		 * `parent` for the relationship a `CaseType.parent_type`
-		 * declares (`lib/commcare/xform/caseBlocks.ts` emits that
-		 * identifier literally), or the identifier an advanced case
-		 * operation's link carries.
-		 *
-		 * Drawn from the same XML-element-name vocabulary
-		 * `RelationStep.identifier` uses, for the same reason: it is
-		 * written straight into the emitted `string(./index/<id>)` path
-		 * step, so anything outside that class would emit an expression
-		 * the runtime cannot parse. Constraining it here is what makes
-		 * the emitter total — there is no escaping step anywhere.
-		 */
-		identifier: z
-			.string()
-			.regex(
-				XML_ELEMENT_NAME_PATTERN,
-				"A grouping connection name must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's `string(./index/…)` path step, so characters outside that class emit an expression the runtime cannot parse.",
-			),
-		/**
-		 * Rows of the tile that form the group header, counted from the
-		 * top. Always stored and always emitted: the two sides default
-		 * `header-rows` differently — the CLIENT falls back to `1`
-		 * (`DetailGroupParser::parse`) while HQ's model defaults to `2`
-		 * (`commcare-hq/.../models/case_list.py::CaseTileGroupConfig.header_rows`)
-		 * — so an omitted attribute silently halves or doubles the
-		 * header depending on which side reads it.
-		 *
-		 * The bound here is the grid; the real constraint is
-		 * layout-relative (strictly less than the tile's occupied row
-		 * extent, and never splitting a cell) and lives in
-		 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
-		 */
-		headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
-	})
-	.strict();
+export const caseTileGroupingSchema = z.strictObject({
+	/**
+	 * The case-index identifier whose target is the group key —
+	 * `parent` for the relationship a `CaseType.parent_type`
+	 * declares (`lib/commcare/xform/caseBlocks.ts` emits that
+	 * identifier literally), or the identifier an advanced case
+	 * operation's link carries.
+	 *
+	 * Drawn from the same XML-element-name vocabulary
+	 * `RelationStep.identifier` uses, for the same reason: it is
+	 * written straight into the emitted `string(./index/<id>)` path
+	 * step, so anything outside that class would emit an expression
+	 * the runtime cannot parse. Constraining it here is what makes
+	 * the emitter total — there is no escaping step anywhere.
+	 */
+	identifier: z
+		.string()
+		.regex(
+			XML_ELEMENT_NAME_PATTERN,
+			"A grouping connection name must start with a letter or underscore and contain only letters, digits, or underscores. It is written straight into the group's `string(./index/…)` path step, so characters outside that class emit an expression the runtime cannot parse.",
+		),
+	/**
+	 * Rows of the tile that form the group header, counted from the
+	 * top. Always stored and always emitted: the two sides default
+	 * `header-rows` differently — the CLIENT falls back to `1`
+	 * (`DetailGroupParser::parse`) while HQ's model defaults to `2`
+	 * (`commcare-hq/.../models/case_list.py::CaseTileGroupConfig.header_rows`)
+	 * — so an omitted attribute silently halves or doubles the
+	 * header depending on which side reads it.
+	 *
+	 * The bound here is the grid; the real constraint is
+	 * layout-relative (strictly less than the tile's occupied row
+	 * extent, and never splitting a cell) and lives in
+	 * `lib/commcare/validator/rules/case-list/caseTileGrouping.ts`.
+	 */
+	headerRows: persistableJsonPositiveIntegerSchema.max(TILE_GRID_ROWS - 1),
+});
 export type CaseTileGrouping = z.infer<typeof caseTileGroupingSchema>;
 
 /**
@@ -2157,46 +2136,44 @@ export function tileGroupHeaderRowChoices(
 	return choices;
 }
 
-export const caseTileLayoutSchema = z
-	.object({
-		/**
-		 * Keep the tile on screen above every form in this module.
-		 *
-		 * Emits as `detail-persistent="m{N}_case_short"` on the entry's
-		 * case datum; Web Apps renders it in the sticky
-		 * `#persistent-case-tile` region above the form
-		 * (`cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView`,
-		 * stickiness from `.case-tile-container` in
-		 * `hqwebapp/static/cloudcare/scss/formplayer-webapp/case-tile.scss`).
-		 * The one surface that suppresses it is HQ's App Preview pane
-		 * (`menus/controller.js::showMenu` gates on
-		 * `displayOptions.singleAppMode`), which Nova does not target.
-		 *
-		 * `true` is the only stored value; absence is off, matching the
-		 * "visibility true is canonicalized as absence" convention the
-		 * column slots already follow.
-		 */
-		persistOnForms: z.literal(true).optional(),
-		/**
-		 * Cluster the list's rows under a shared connected case, drawing
-		 * the top `headerRows` rows of this same tile once per group from
-		 * the group's first case. Absent is ungrouped.
-		 *
-		 * Grouping lives INSIDE the layout rather than beside it, which
-		 * is what makes a `<group>` on a detail with no tile
-		 * unrepresentable instead of merely rejected. That state is
-		 * reachable in the wire and is silently broken: Formplayer sets
-		 * `groupHeaderRows` from the `<group>` whether or not tiles exist
-		 * (`EntityListResponse`'s constructor), so the list still
-		 * clusters and still pages by group, while
-		 * `cloudcare/.../formplayer/menus/utils.js::getCaseListView`
-		 * routes to `CaseTileGroupedListView` only when `tiles` is
-		 * present and therefore renders it flat. Nesting also means
-		 * turning the tile off clears the grouping in the same write.
-		 */
-		grouping: caseTileGroupingSchema.optional(),
-	})
-	.strict();
+export const caseTileLayoutSchema = z.strictObject({
+	/**
+	 * Keep the tile on screen above every form in this module.
+	 *
+	 * Emits as `detail-persistent="m{N}_case_short"` on the entry's
+	 * case datum; Web Apps renders it in the sticky
+	 * `#persistent-case-tile` region above the form
+	 * (`cloudcare/.../formplayer/menus/views.js::PersistentCaseTileView`,
+	 * stickiness from `.case-tile-container` in
+	 * `hqwebapp/static/cloudcare/scss/formplayer-webapp/case-tile.scss`).
+	 * The one surface that suppresses it is HQ's App Preview pane
+	 * (`menus/controller.js::showMenu` gates on
+	 * `displayOptions.singleAppMode`), which Nova does not target.
+	 *
+	 * `true` is the only stored value; absence is off, matching the
+	 * "visibility true is canonicalized as absence" convention the
+	 * column slots already follow.
+	 */
+	persistOnForms: z.literal(true).optional(),
+	/**
+	 * Cluster the list's rows under a shared connected case, drawing
+	 * the top `headerRows` rows of this same tile once per group from
+	 * the group's first case. Absent is ungrouped.
+	 *
+	 * Grouping lives INSIDE the layout rather than beside it, which
+	 * is what makes a `<group>` on a detail with no tile
+	 * unrepresentable instead of merely rejected. That state is
+	 * reachable in the wire and is silently broken: Formplayer sets
+	 * `groupHeaderRows` from the `<group>` whether or not tiles exist
+	 * (`EntityListResponse`'s constructor), so the list still
+	 * clusters and still pages by group, while
+	 * `cloudcare/.../formplayer/menus/utils.js::getCaseListView`
+	 * routes to `CaseTileGroupedListView` only when `tiles` is
+	 * present and therefore renders it flat. Nesting also means
+	 * turning the tile off clears the grouping in the same write.
+	 */
+	grouping: caseTileGroupingSchema.optional(),
+});
 export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 
 /**
@@ -2209,18 +2186,16 @@ export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
  * submission, and both export paths. The runtime still defends the received
  * set, but an authored app can never request a larger batch.
  */
-export const caseSelectionSchema = z
-	.object({
-		kind: z.literal("multiple"),
-		maximum: persistableJsonPositiveIntegerSchema.max(100),
-	})
-	.strict();
+export const caseSelectionSchema = z.strictObject({
+	kind: z.literal("multiple"),
+	maximum: persistableJsonPositiveIntegerSchema.max(100),
+});
 export type CaseSelection = z.infer<typeof caseSelectionSchema>;
 
 export type CaseSelectionCardinality = "single" | "multiple";
 
 export const caseListConfigSchema = z
-	.object({
+	.strictObject({
 		/**
 		 * The columns themselves — a SET, keyed by uuid. Its array position
 		 * carries no meaning, because Results and Details are two independent
@@ -2271,7 +2246,6 @@ export const caseListConfigSchema = z
 		 */
 		audioLabel: mediaAssetIdSchema.optional(),
 	})
-	.strict()
 	.superRefine((config, ctx) => {
 		const columnUuids = config.columns.map((column) => column.uuid);
 		const columnSet = new Set(columnUuids);
@@ -2487,66 +2461,62 @@ export const DEFAULT_CASE_SEARCH_BUTTON_LABEL = "Search";
 // they live on `caseListConfig` as the single source for both
 // screens.
 
-export const ordinaryCaseSearchConfigSchema = z
-	.object({
-		// Owner-availability slot.
-		// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
-		// space-separated list of owner ids whose cases are excluded from every
-		// Results path. It may use literals, session/current-user values, Search
-		// answers, and pure calculations over those values. It cannot read a case
-		// property or relationship because no case row exists in this global
-		// evaluation context. The document-aware gate checks that semantic scope.
-		// Rare in practice; the builder owns it beside Cases available.
-		//
-		// Wire-name continuity: at suite-XML emission time the slot
-		// translates to CCHQ's literal wire field
-		// `commcare_blacklisted_owner_ids` per
-		// `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
-		// The wire token is a CCHQ-controlled vocabulary; Nova's
-		// authoring vocabulary is `excludedOwnerIds`. The translation
-		// lives at `lib/commcare/suite/case-search/searchSession.ts`.
-		excludedOwnerIds: valueExpressionSchema.optional(),
+export const ordinaryCaseSearchConfigSchema = z.strictObject({
+	// Owner-availability slot.
+	// `excludedOwnerIds` evaluates ONCE, before a case is selected, to a
+	// space-separated list of owner ids whose cases are excluded from every
+	// Results path. It may use literals, session/current-user values, Search
+	// answers, and pure calculations over those values. It cannot read a case
+	// property or relationship because no case row exists in this global
+	// evaluation context. The document-aware gate checks that semantic scope.
+	// Rare in practice; the builder owns it beside Cases available.
+	//
+	// Wire-name continuity: at suite-XML emission time the slot
+	// translates to CCHQ's literal wire field
+	// `commcare_blacklisted_owner_ids` per
+	// `commcare-hq/corehq/apps/case_search/models.py::CASE_SEARCH_BLACKLISTED_OWNER_ID_KEY`.
+	// The wire token is a CCHQ-controlled vocabulary; Nova's
+	// authoring vocabulary is `excludedOwnerIds`. The translation
+	// lives at `lib/commcare/suite/case-search/searchSession.ts`.
+	excludedOwnerIds: valueExpressionSchema.optional(),
 
-		// Display labels for the search screen. The runtime renders the
-		// subtitle through a markdown formatter; the others are plain
-		// text. `searchButtonDisplayCondition` controls whether the case
-		// list's Search action is relevant. When the web wire auto-launches
-		// an input-free filtered search, an irrelevant action cannot launch;
-		// otherwise the same predicate simply hides the manual Search action.
-		// It never filters Results rows itself.
-		//
-		// Empty strings are rejected — every text input on the editor
-		// drops the slot to `undefined` when the user clears it, so
-		// "presence with empty body" is a structurally invalid state.
-		// Both wire emitters and preview share Nova's friendly defaults.
-		// Rejecting empty keeps the contract simple: present means useful
-		// authored copy; clearing a control removes the override.
-		searchScreenTitle: z.string().min(1).optional(),
-		searchScreenSubtitle: z.string().min(1).optional(),
-		searchButtonLabel: z.string().min(1).optional(),
-		searchButtonDisplayCondition: predicateSchema.optional(),
+	// Display labels for the search screen. The runtime renders the
+	// subtitle through a markdown formatter; the others are plain
+	// text. `searchButtonDisplayCondition` controls whether the case
+	// list's Search action is relevant. When the web wire auto-launches
+	// an input-free filtered search, an irrelevant action cannot launch;
+	// otherwise the same predicate simply hides the manual Search action.
+	// It never filters Results rows itself.
+	//
+	// Empty strings are rejected — every text input on the editor
+	// drops the slot to `undefined` when the user clears it, so
+	// "presence with empty body" is a structurally invalid state.
+	// Both wire emitters and preview share Nova's friendly defaults.
+	// Rejecting empty keeps the contract simple: present means useful
+	// authored copy; clearing a control removes the override.
+	searchScreenTitle: z.string().min(1).optional(),
+	searchScreenSubtitle: z.string().min(1).optional(),
+	searchButtonLabel: z.string().min(1).optional(),
+	searchButtonDisplayCondition: predicateSchema.optional(),
 
-		// Search first: the module opens on the Search screen and Results
-		// exist only after a completed search; the browse list goes away.
-		// Presence IS the switch (`true` or absent), so an app that never
-		// turned it on serializes byte-identically to one that cannot. On
-		// the wire this is CommCare's inline-search shape on every platform
-		// (`lib/commcare/suite/case-search/compileForPlatform.ts`).
-		searchFirst: z.literal(true).optional(),
-	})
-	.strict();
+	// Search first: the module opens on the Search screen and Results
+	// exist only after a completed search; the browse list goes away.
+	// Presence IS the switch (`true` or absent), so an app that never
+	// turned it on serializes byte-identically to one that cannot. On
+	// the wire this is CommCare's inline-search shape on every platform
+	// (`lib/commcare/suite/case-search/compileForPlatform.ts`).
+	searchFirst: z.literal(true).optional(),
+});
 
-export const ownerOnlyCaseSearchConfigSchema = z
-	.object({
-		/**
-		 * Private provenance for assigned-case availability without a Search
-		 * action. This is an exact stored arm: it requires the owner expression
-		 * and structurally forbids all ordinary Search screen/action settings.
-		 */
-		searchActionEnabled: z.literal(false),
-		excludedOwnerIds: valueExpressionSchema,
-	})
-	.strict();
+export const ownerOnlyCaseSearchConfigSchema = z.strictObject({
+	/**
+	 * Private provenance for assigned-case availability without a Search
+	 * action. This is an exact stored arm: it requires the owner expression
+	 * and structurally forbids all ordinary Search screen/action settings.
+	 */
+	searchActionEnabled: z.literal(false),
+	excludedOwnerIds: valueExpressionSchema,
+});
 
 export const caseSearchConfigSchema = z.union([
 	ordinaryCaseSearchConfigSchema,
@@ -2633,38 +2603,36 @@ export function caseSearchConfigAfterFinalInputRemoval(
 
 // ── Module ───────────────────────────────────────────────────────
 
-export const moduleSchema = z
-	.object({
-		entryPoint: entryPointSchema.optional(),
-		caseListEntryPoint: entryPointSchema.optional(),
-		uuid: uuidSchema,
-		id: z.string(), // semantic id (snake_case display slug)
-		name: z.string(),
-		/** Optional parent menu. Omission is a top-level module. */
-		parentModuleUuid: uuidSchema.optional(),
-		/** Select a parent record from this module before selecting this module's records. */
-		parentCaseModuleUuid: uuidSchema.optional(),
-		caseType: z.string().optional(),
-		caseListOnly: z.boolean().optional(),
-		purpose: z.string().optional(),
-		/**
-		 * Optional home-menu visibility rule. Module navigation has no current
-		 * case row, so validator context rules admit only global/session terms.
-		 */
-		displayCondition: predicateSchema.optional(),
-		caseListConfig: caseListConfigSchema.optional(),
-		caseSearchConfig: caseSearchConfigSchema.optional(),
-		/** Image shown on the module's home-screen tile. */
-		icon: moduleIconRefSchema.optional(),
-		/**
-		 * Audio version of the module's home-screen label, played by
-		 * audio-prompt mode — an accessibility affordance for
-		 * low-literacy field workers. Menu affordances carry image +
-		 * audio only; there is no video slot here.
-		 */
-		audioLabel: mediaAssetIdSchema.optional(),
-	})
-	.strict();
+export const moduleSchema = z.strictObject({
+	entryPoint: entryPointSchema.optional(),
+	caseListEntryPoint: entryPointSchema.optional(),
+	uuid: uuidSchema,
+	id: z.string(), // semantic id (snake_case display slug)
+	name: z.string(),
+	/** Optional parent menu. Omission is a top-level module. */
+	parentModuleUuid: uuidSchema.optional(),
+	/** Select a parent record from this module before selecting this module's records. */
+	parentCaseModuleUuid: uuidSchema.optional(),
+	caseType: z.string().optional(),
+	caseListOnly: z.boolean().optional(),
+	purpose: z.string().optional(),
+	/**
+	 * Optional home-menu visibility rule. Module navigation has no current
+	 * case row, so validator context rules admit only global/session terms.
+	 */
+	displayCondition: predicateSchema.optional(),
+	caseListConfig: caseListConfigSchema.optional(),
+	caseSearchConfig: caseSearchConfigSchema.optional(),
+	/** Image shown on the module's home-screen tile. */
+	icon: moduleIconRefSchema.optional(),
+	/**
+	 * Audio version of the module's home-screen label, played by
+	 * audio-prompt mode — an accessibility affordance for
+	 * low-literacy field workers. Menu affordances carry image +
+	 * audio only; there is no video slot here.
+	 */
+	audioLabel: mediaAssetIdSchema.optional(),
+});
 export type Module = z.infer<typeof moduleSchema>;
 
 /**

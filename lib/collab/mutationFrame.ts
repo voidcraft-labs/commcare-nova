@@ -17,17 +17,15 @@ import {
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 
-const mutationFrameEnvelopeSchema = z
-	.object({
-		seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
-		batchId: z.string().min(1),
-		actorId: z.string().min(1),
-		/** Present on a chat-SA frame; absent on an autosave/MCP frame. */
-		runId: z.string().min(1).optional(),
-		kind: z.enum(["autosave", "mcp", "chat"]),
-		mutations: z.unknown(),
-	})
-	.strict();
+const mutationFrameEnvelopeSchema = z.strictObject({
+	seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+	batchId: z.string().min(1),
+	actorId: z.string().min(1),
+	/** Present on a chat-SA frame; absent on an autosave/MCP frame. */
+	runId: z.string().min(1).optional(),
+	kind: z.enum(["autosave", "mcp", "chat"]),
+	mutations: z.unknown(),
+});
 
 export interface MutationFrame {
 	readonly seq: number;

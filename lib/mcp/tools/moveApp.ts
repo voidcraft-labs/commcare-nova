@@ -56,15 +56,13 @@ import { requireProjectAccess, rethrowAsMcpAccess } from "../ownership";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-const moveAppInputSchema = z
-	.object({
-		app_id: z.string().min(1).describe("The app to move."),
-		to_project_id: z
-			.string()
-			.min(1)
-			.describe("The destination Project, from list_projects."),
-	})
-	.strict();
+const moveAppInputSchema = z.strictObject({
+	app_id: z.string().min(1).describe("The app to move."),
+	to_project_id: z
+		.string()
+		.min(1)
+		.describe("The destination Project, from list_projects."),
+});
 
 /**
  * Register the `move_app` tool on an `McpServer`.

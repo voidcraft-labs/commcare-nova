@@ -10,7 +10,7 @@
 // resolved manifest). `reportMediaAttach` is tested with the logger mocked so
 // its log decision (and the empty-detail guard) is asserted directly.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -211,8 +211,6 @@ describe("mediaAttachWarnings", () => {
 });
 
 describe("reportMediaAttach", () => {
-	beforeEach(() => vi.clearAllMocks());
-
 	function result(over: Partial<MediaAttachResult> = {}): MediaAttachResult {
 		return {
 			matched: 0,

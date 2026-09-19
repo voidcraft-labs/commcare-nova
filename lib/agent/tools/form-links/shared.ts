@@ -26,26 +26,24 @@ export {
 	resolveFormAddress as resolveLinkAddress,
 } from "../shared/entityAddresses";
 
-const datumInputSchema = z
-	.object({
-		name: z
-			.string()
-			.min(1)
-			.describe(
-				"The session value the target reads, usually its case id datum such as case_id.",
-			),
-		xpath: xpathExpressionSchema.describe(
-			"Session-scope XPath that supplies the value after the form has closed, such as a case-ref or #user value. Never a form answer.",
+const datumInputSchema = z.strictObject({
+	name: z
+		.string()
+		.min(1)
+		.describe(
+			"The session value the target reads, usually its case id datum such as case_id.",
 		),
-	})
-	.strict();
+	xpath: xpathExpressionSchema.describe(
+		"Session-scope XPath that supplies the value after the form has closed, such as a case-ref or #user value. Never a form answer.",
+	),
+});
 
 /**
  * The complete author shape of one link. The stored link adds `uuid`; the
  * tool that admits this input mints or receives it separately.
  */
 export const formLinkInputSchema = z
-	.object({
+	.strictObject({
 		condition: xpathExpressionSchema
 			.nullable()
 			.optional()
@@ -64,7 +62,6 @@ export const formLinkInputSchema = z
 				"Explicit session values carried into the target. Omit or null to let CommCare match the target's case from this form's session. When present, name every selection datum the target needs; a partial list is refused.",
 			),
 	})
-	.strict()
 	.superRefine((link, ctx) => uniqueFormLinkDatumNames(link.datums, ctx));
 
 export type FormLinkInput = z.infer<typeof formLinkInputSchema>;

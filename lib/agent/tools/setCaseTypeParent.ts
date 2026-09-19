@@ -7,18 +7,14 @@ import {
 } from "./common";
 import type { MutationSuccess } from "./shared/toolCallSummary";
 
-export const setCaseTypeParentInputSchema = z
-	.object({
-		caseType: z.string().min(1),
-		parentType: z.string().min(1).nullable(),
-		relationship: z
-			.enum(["child", "extension"])
-			.optional()
-			.describe(
-				"Defaults to child. An extension shares its parent's lifecycle.",
-			),
-	})
-	.strict();
+export const setCaseTypeParentInputSchema = z.strictObject({
+	caseType: z.string().min(1),
+	parentType: z.string().min(1).nullable(),
+	relationship: z
+		.enum(["child", "extension"])
+		.optional()
+		.describe("Defaults to child. An extension shares its parent's lifecycle."),
+});
 
 export const setCaseTypeParentTool = {
 	description:

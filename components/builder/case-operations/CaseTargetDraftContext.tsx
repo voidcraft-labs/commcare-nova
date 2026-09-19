@@ -79,9 +79,7 @@ export function CaseTargetDraftProvider({
 	);
 
 	return (
-		<CaseTargetDraftContext.Provider value={value}>
-			{children}
-		</CaseTargetDraftContext.Provider>
+		<CaseTargetDraftContext value={value}>{children}</CaseTargetDraftContext>
 	);
 }
 

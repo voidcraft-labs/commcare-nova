@@ -54,20 +54,18 @@ const optionMediaAttachmentSchema = fieldAddressSchema
 	})
 	.strict();
 
-export const attachOptionMediaInputSchema = z
-	.object({
-		attachments: z
-			.array(optionMediaAttachmentSchema)
-			.min(1)
-			.describe(
-				"The option attachments to apply, each naming a select field, one " +
-					"of its option values, and the media bundle for it. Batch every " +
-					"attachment you're making in one call — a whole picture-choice " +
-					"field's options, across fields and forms as needed. The batch " +
-					"commits as a whole.",
-			),
-	})
-	.strict();
+export const attachOptionMediaInputSchema = z.strictObject({
+	attachments: z
+		.array(optionMediaAttachmentSchema)
+		.min(1)
+		.describe(
+			"The option attachments to apply, each naming a select field, one " +
+				"of its option values, and the media bundle for it. Batch every " +
+				"attachment you're making in one call — a whole picture-choice " +
+				"field's options, across fields and forms as needed. The batch " +
+				"commits as a whole.",
+		),
+});
 
 export type AttachOptionMediaInput = z.infer<
 	typeof attachOptionMediaInputSchema

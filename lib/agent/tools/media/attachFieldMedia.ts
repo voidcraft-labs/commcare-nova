@@ -77,19 +77,17 @@ const fieldMediaAttachmentSchema = fieldAddressSchema
 	})
 	.strict();
 
-export const attachFieldMediaInputSchema = z
-	.object({
-		attachments: z
-			.array(fieldMediaAttachmentSchema)
-			.min(1)
-			.describe(
-				"The field-slot attachments to apply, each naming a field, one of " +
-					"its message slots, and the media bundle for it. Batch every " +
-					"attachment you're making in one call — the fields can span " +
-					"different forms and modules. The batch commits as a whole.",
-			),
-	})
-	.strict();
+export const attachFieldMediaInputSchema = z.strictObject({
+	attachments: z
+		.array(fieldMediaAttachmentSchema)
+		.min(1)
+		.describe(
+			"The field-slot attachments to apply, each naming a field, one of " +
+				"its message slots, and the media bundle for it. Batch every " +
+				"attachment you're making in one call — the fields can span " +
+				"different forms and modules. The batch commits as a whole.",
+		),
+});
 
 export type AttachFieldMediaInput = z.infer<typeof attachFieldMediaInputSchema>;
 

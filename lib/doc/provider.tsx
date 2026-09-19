@@ -111,10 +111,10 @@ export function BlueprintDocProvider({
 	}
 
 	return (
-		<BlueprintDocContext.Provider value={storeRef.current}>
-			<BlueprintEditableContext.Provider value={canEdit}>
+		<BlueprintDocContext value={storeRef.current}>
+			<BlueprintEditableContext value={canEdit}>
 				{children}
-			</BlueprintEditableContext.Provider>
-		</BlueprintDocContext.Provider>
+			</BlueprintEditableContext>
+		</BlueprintDocContext>
 	);
 }

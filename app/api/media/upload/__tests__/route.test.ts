@@ -68,7 +68,6 @@ function reqWith(body: unknown) {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue({
 		user: { id: "user-1" },
 	} as never);

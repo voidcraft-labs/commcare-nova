@@ -146,29 +146,27 @@ async function readPlaces(
 
 const ORGANIZATION_PAGE_SIZE = 25;
 const ORGANIZATION_PAGE_MAX = 50;
-const organizationCursorPayloadSchema = z
-	.object({
-		revision: organizationRevisionSchema,
-		/**
-		 * Digest of the exact Blueprint-derived halves this page was computed
-		 * over — the ordered levels and place-information fields.
-		 *
-		 * The document now comes from the workspace snapshot rather than a
-		 * fresh persisted read, and the workspace's own tokens cannot bind it:
-		 * `canonicalSeq` is null for a whole chat run until its first commit
-		 * and for a genesis change set forever, and `revision` restarts at 0
-		 * on every fresh canonical workspace, so an MCP cursor would be honored
-		 * across a peer's commit. The content the page slices is the one thing
-		 * that is exactly comparable on every surface — and it restarts a page
-		 * only when the paged shape genuinely changed, not on any unrelated
-		 * Blueprint edit.
-		 */
-		shapeDigest: z.string(),
-		offset: z.number().int().nonnegative(),
-		query: z.string().max(255).nullable(),
-		includeValues: z.boolean(),
-	})
-	.strict();
+const organizationCursorPayloadSchema = z.strictObject({
+	revision: organizationRevisionSchema,
+	/**
+	 * Digest of the exact Blueprint-derived halves this page was computed
+	 * over — the ordered levels and place-information fields.
+	 *
+	 * The document now comes from the workspace snapshot rather than a
+	 * fresh persisted read, and the workspace's own tokens cannot bind it:
+	 * `canonicalSeq` is null for a whole chat run until its first commit
+	 * and for a genesis change set forever, and `revision` restarts at 0
+	 * on every fresh canonical workspace, so an MCP cursor would be honored
+	 * across a peer's commit. The content the page slices is the one thing
+	 * that is exactly comparable on every surface — and it restarts a page
+	 * only when the paged shape genuinely changed, not on any unrelated
+	 * Blueprint edit.
+	 */
+	shapeDigest: z.string(),
+	offset: z.number().int().nonnegative(),
+	query: z.string().max(255).nullable(),
+	includeValues: z.boolean(),
+});
 
 function encodeOrganizationCursor(
 	payload: z.infer<typeof organizationCursorPayloadSchema>,
@@ -190,26 +188,24 @@ function decodeOrganizationCursor(
 	}
 }
 
-export const getOrganizationInputSchema = z
-	.object({
-		query: z.string().trim().max(255).nullable().optional(),
-		/** Opaque snapshot-bound cursor returned by the preceding page. */
-		cursor: z.string().max(1024).nullable().optional(),
-		limit: z
-			.number()
-			.int()
-			.min(1)
-			.max(ORGANIZATION_PAGE_MAX)
-			.default(ORGANIZATION_PAGE_SIZE),
-		/** Saved custom values can be large; request them only when needed. */
-		includeValues: z.boolean().nullable().optional(),
-	})
-	.strict();
-export const addOrganizationLevelsInputSchema = z
-	.object({ levels: z.array(levelCreateSchema).min(1).max(50) })
-	.strict();
+export const getOrganizationInputSchema = z.strictObject({
+	query: z.string().trim().max(255).nullable().optional(),
+	/** Opaque snapshot-bound cursor returned by the preceding page. */
+	cursor: z.string().max(1024).nullable().optional(),
+	limit: z
+		.number()
+		.int()
+		.min(1)
+		.max(ORGANIZATION_PAGE_MAX)
+		.default(ORGANIZATION_PAGE_SIZE),
+	/** Saved custom values can be large; request them only when needed. */
+	includeValues: z.boolean().nullable().optional(),
+});
+export const addOrganizationLevelsInputSchema = z.strictObject({
+	levels: z.array(levelCreateSchema).min(1).max(50),
+});
 export const updateOrganizationLevelInputSchema = z
-	.object({
+	.strictObject({
 		uuid: uuidSchema,
 		name: levelCreateSchema.shape.name.optional(),
 		description: z.string().nullable().optional(),
@@ -217,31 +213,28 @@ export const updateOrganizationLevelInputSchema = z
 		caseFlow: levelCaseFlowSchema.optional(),
 		addressBook: levelAddressBookSchema.optional(),
 	})
-	.strict()
 	.refine((input) => Object.keys(input).length > 1, {
-		message: "Change at least one organization-level setting.",
+		error: "Change at least one organization-level setting.",
 	});
-export const removeOrganizationLevelInputSchema = z
-	.object({ uuid: uuidSchema })
-	.strict();
-export const addLocationPropertiesInputSchema = z
-	.object({
-		properties: z
-			.array(
-				propertyCreateSchema.extend({
-					locationPropertyUuid: uuidSchema
-						.optional()
-						.describe(
-							"Optional stable identity for this new place-information field. Omit it to let Nova mint one.",
-						),
-				}),
-			)
-			.min(1)
-			.max(100),
-	})
-	.strict();
+export const removeOrganizationLevelInputSchema = z.strictObject({
+	uuid: uuidSchema,
+});
+export const addLocationPropertiesInputSchema = z.strictObject({
+	properties: z
+		.array(
+			propertyCreateSchema.extend({
+				locationPropertyUuid: uuidSchema
+					.optional()
+					.describe(
+						"Optional stable identity for this new place-information field. Omit it to let Nova mint one.",
+					),
+			}),
+		)
+		.min(1)
+		.max(100),
+});
 export const updateLocationPropertyInputSchema = z
-	.object({
+	.strictObject({
 		uuid: uuidSchema,
 		slug: propertyCreateSchema.shape.slug.optional(),
 		label: propertyCreateSchema.shape.label.optional(),
@@ -249,13 +242,12 @@ export const updateLocationPropertyInputSchema = z
 		choices: locationPropertySchema.shape.choices.nullable(),
 		levelUuids: locationPropertySchema.shape.levelUuids.nullable().optional(),
 	})
-	.strict()
 	.refine((input) => Object.keys(input).length > 1, {
-		message: "Change at least one place-information setting.",
+		error: "Change at least one place-information setting.",
 	});
-export const removeLocationPropertyInputSchema = z
-	.object({ uuid: uuidSchema })
-	.strict();
+export const removeLocationPropertyInputSchema = z.strictObject({
+	uuid: uuidSchema,
+});
 export const createLocationToolInputSchema = createLocationInputSchema.extend({
 	expectedRevision: organizationRevisionSchema,
 });
@@ -269,19 +261,17 @@ export const updateLocationToolInputSchema = updateLocationInputSchema
 			Object.keys(input).some(
 				(key) => key !== "locationUuid" && key !== "expectedRevision",
 			),
-		{ message: "Change at least one place field." },
+		{ error: "Change at least one place field." },
 	);
-export const moveLocationToolInputSchema = z
-	.object({
-		locationUuid: uuidSchema,
-		parentUuid: uuidSchema.nullable(),
-		/** null means first; omitted means append. */
-		afterSiblingUuid: uuidSchema.nullable().optional(),
-		expectedRevision: organizationRevisionSchema,
-	})
-	.strict();
+export const moveLocationToolInputSchema = z.strictObject({
+	locationUuid: uuidSchema,
+	parentUuid: uuidSchema.nullable(),
+	/** null means first; omitted means append. */
+	afterSiblingUuid: uuidSchema.nullable().optional(),
+	expectedRevision: organizationRevisionSchema,
+});
 export const setLocationArchivedToolInputSchema = z
-	.object({
+	.strictObject({
 		locationUuid: uuidSchema,
 		archived: z.boolean(),
 		expectedRevision: organizationRevisionSchema,
@@ -290,7 +280,6 @@ export const setLocationArchivedToolInputSchema = z
 		confirm: z.boolean().optional(),
 		confirmedImpact: archiveImpactSchema.optional(),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		if (
 			input.archived &&

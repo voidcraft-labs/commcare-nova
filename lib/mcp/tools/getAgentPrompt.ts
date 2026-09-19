@@ -9,7 +9,7 @@ export function registerGetAgentPrompt(server: McpServer): void {
 		{
 			description:
 				"Get current Nova authoring guidance for a build or edit. The complete text ends with NOVA-PROMPT-END. Read app state separately with get_app.",
-			inputSchema: z.object({ mode: z.enum(PROMPT_MODES) }).strict(),
+			inputSchema: z.strictObject({ mode: z.enum(PROMPT_MODES) }),
 		},
 		async ({ mode }) => ({
 			content: [{ type: "text" as const, text: renderAgentPrompt(mode) }],

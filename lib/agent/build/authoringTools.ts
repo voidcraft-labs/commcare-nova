@@ -9,21 +9,20 @@ import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitec
 import { readSourceInputSchema } from "@/lib/agent/sources";
 import { languageIdentityInputSchema } from "@/lib/agent/tools/localization";
 
-const empty = z.object({}).strict();
-export const writePlanInputSchema = z
-	.object({ markdown: planMarkdownSchema })
-	.strict();
-export const editPlanInputSchema = z
-	.object({ oldText: z.string().min(1), newText: z.string() })
-	.strict();
-export const reviewInputSchema = z
-	.object({ focus: z.string().max(4000).optional() })
-	.strict();
-export const translateLanguageInputSchema = z
-	.object({
-		language: languageIdentityInputSchema,
-	})
-	.strict();
+const empty = z.strictObject({});
+export const writePlanInputSchema = z.strictObject({
+	markdown: planMarkdownSchema,
+});
+export const editPlanInputSchema = z.strictObject({
+	oldText: z.string().min(1),
+	newText: z.string(),
+});
+export const reviewInputSchema = z.strictObject({
+	focus: z.string().max(4000).optional(),
+});
+export const translateLanguageInputSchema = z.strictObject({
+	language: languageIdentityInputSchema,
+});
 
 export const PLANNING_TOOL_DEFINITIONS: ToolSet = {
 	readPlan: {

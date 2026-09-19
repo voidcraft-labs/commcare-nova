@@ -153,7 +153,7 @@ describe("case-search-config author schema boundaries", () => {
 	});
 
 	it("setCaseSearchDisplay: rejects unknown slot names (strict input boundary)", () => {
-		// The body shape is `.strict()` — slot names outside the
+		// The body shape is strict — slot names outside the
 		// declared cluster parse-fail rather than land as silent
 		// extras. Pins the regression class for stale or invented slot
 		// names handed by the SA.

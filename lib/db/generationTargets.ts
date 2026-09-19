@@ -14,13 +14,11 @@
 import { z } from "zod";
 
 export const generationTargetSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("app"), appId: z.string().min(1) }).strict(),
-	z
-		.object({
-			kind: z.literal("design-session"),
-			designSessionId: z.string().uuid(),
-		})
-		.strict(),
+	z.strictObject({ kind: z.literal("app"), appId: z.string().min(1) }),
+	z.strictObject({
+		kind: z.literal("design-session"),
+		designSessionId: z.uuid(),
+	}),
 ]);
 export type GenerationTarget = z.infer<typeof generationTargetSchema>;
 

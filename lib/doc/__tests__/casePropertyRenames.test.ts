@@ -770,7 +770,7 @@ describe("explicit app-wide case-property rename", () => {
 				produce(doc, (draft) => {
 					applyMutations(draft, command);
 				}),
-			).toThrowError(
+			).toThrow(
 				expect.objectContaining({
 					name: CasePropertyRenamePlanError.name,
 					issue: expect.objectContaining({ reason }),

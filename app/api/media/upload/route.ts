@@ -43,23 +43,21 @@ import {
 } from "@/lib/domain/multimedia";
 import { createSignedUploadUrl } from "@/lib/storage/media";
 
-const requestBodySchema = z
-	.object({
-		filename: z.string().min(1).max(255),
-		// Accepted as a free string and normalized below, not
-		// `z.enum(ALL_MIME_TYPES)`: a browser's `File.type` can be an
-		// alias (`image/apng` for an animated `.png`) or codec-
-		// parameterized (`video/mp4; codecs=...`); `normalizeMimeType`
-		// reconciles both to a canonical accepted type.
-		mimeType: z.string().min(1),
-		sizeBytes: z.number().int().positive(),
-		contentHash: z.string().regex(/^[a-f0-9]{64}$/),
-		// Present when the upload belongs to an app (the builder media pickers):
-		// scopes the asset to the app's Project. Absent for a personal upload
-		// (the chat file manager), which scopes to the caller's active Project.
-		appId: z.string().min(1).optional(),
-	})
-	.strict();
+const requestBodySchema = z.strictObject({
+	filename: z.string().min(1).max(255),
+	// Accepted as a free string and normalized below, not
+	// `z.enum(ALL_MIME_TYPES)`: a browser's `File.type` can be an
+	// alias (`image/apng` for an animated `.png`) or codec-
+	// parameterized (`video/mp4; codecs=...`); `normalizeMimeType`
+	// reconciles both to a canonical accepted type.
+	mimeType: z.string().min(1),
+	sizeBytes: z.number().int().positive(),
+	contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+	// Present when the upload belongs to an app (the builder media pickers):
+	// scopes the asset to the app's Project. Absent for a personal upload
+	// (the chat file manager), which scopes to the caller's active Project.
+	appId: z.string().min(1).optional(),
+});
 
 /**
  * This route's body is just the four-field metadata object above:

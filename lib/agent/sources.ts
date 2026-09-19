@@ -155,24 +155,22 @@ export async function loadSourceMaterial(args: {
 	return { digest, requests, documents, images };
 }
 
-export const readSourceInputSchema = z
-	.object({
-		document: z.string().describe("Document name or id."),
-		offset: z
-			.number()
-			.int()
-			.nonnegative()
-			.optional()
-			.describe("Character offset; starts at zero."),
-		length: z
-			.number()
-			.int()
-			.min(1)
-			.max(24_000)
-			.optional()
-			.describe("Characters to read; defaults to 12,000."),
-	})
-	.strict();
+export const readSourceInputSchema = z.strictObject({
+	document: z.string().describe("Document name or id."),
+	offset: z
+		.number()
+		.int()
+		.nonnegative()
+		.optional()
+		.describe("Character offset; starts at zero."),
+	length: z
+		.number()
+		.int()
+		.min(1)
+		.max(24_000)
+		.optional()
+		.describe("Characters to read; defaults to 12,000."),
+});
 
 export function readSource(material: SourceMaterial, raw: unknown) {
 	const input = readSourceInputSchema.parse(raw);
@@ -225,8 +223,8 @@ export function sourceAttachmentsMessage(
 				}),
 			},
 			...material.images.map((image) => ({
-				type: "image" as const,
-				image: new URL(image.dataUrl),
+				type: "file" as const,
+				data: new URL(image.dataUrl),
 				mediaType: image.mediaType,
 			})),
 		],

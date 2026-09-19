@@ -148,7 +148,7 @@ export const Reasoning = memo(
 		);
 
 		return (
-			<ReasoningContext.Provider value={contextValue}>
+			<ReasoningContext value={contextValue}>
 				{/* No self-margin (the vendored default's `mb-4` was bottom-only, which
 				 *  left the trigger cramped above and out of rhythm with its neighbors).
 				 *  The SA reply's MessageContent owns one uniform gap for every
@@ -161,7 +161,7 @@ export const Reasoning = memo(
 				>
 					{children}
 				</Collapsible>
-			</ReasoningContext.Provider>
+			</ReasoningContext>
 		);
 	},
 );

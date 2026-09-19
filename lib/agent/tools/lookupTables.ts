@@ -30,27 +30,23 @@ const authoringKeySchema = z
 	.min(1)
 	.max(200)
 	.refine((value) => /[A-Za-z0-9]/.test(value), "Use a nonblank request key.");
-const cellValueSchema = z.union([z.string(), z.number().finite()]);
-const createCellSchema = z
-	.object({
-		columnKey: authoringKeySchema.describe(
-			"Request-local column key from this createLookupTable call.",
-		),
-		value: cellValueSchema,
-	})
-	.strict();
-const existingCellSchema = z
-	.object({
-		columnId: lookupColumnIdSchema,
-		value: cellValueSchema,
-	})
-	.strict();
-const createRowSchema = z
-	.object({ cells: z.array(createCellSchema).max(250) })
-	.strict();
-const existingRowSchema = z
-	.object({ cells: z.array(existingCellSchema).max(250) })
-	.strict();
+const cellValueSchema = z.union([z.string(), z.number()]);
+const createCellSchema = z.strictObject({
+	columnKey: authoringKeySchema.describe(
+		"Request-local column key from this createLookupTable call.",
+	),
+	value: cellValueSchema,
+});
+const existingCellSchema = z.strictObject({
+	columnId: lookupColumnIdSchema,
+	value: cellValueSchema,
+});
+const createRowSchema = z.strictObject({
+	cells: z.array(createCellSchema).max(250),
+});
+const existingRowSchema = z.strictObject({
+	cells: z.array(existingCellSchema).max(250),
+});
 
 /** Keeps every success receipt safely below the shared MCP/model result
  * ceiling. Larger tables remain authorable through successive bounded calls. */
@@ -163,14 +159,12 @@ function requireCreatedId<T>(
 		`Lookup authoring omitted the created ${kind} receipt at input index ${index}.`,
 	);
 }
-export const getLookupTableRowsInputSchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		query: z.string().trim().max(200).optional(),
-		columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
-		cursor: z.string().min(1).max(4096).optional(),
-	})
-	.strict();
+export const getLookupTableRowsInputSchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	query: z.string().trim().max(200).optional(),
+	columnIds: z.array(lookupColumnIdSchema).max(250).optional(),
+	cursor: z.string().min(1).max(4096).optional(),
+});
 
 export const getLookupTableRowsTool = {
 	description:
@@ -202,17 +196,15 @@ export const getLookupTableRowsTool = {
 	},
 };
 
-export const createLookupTableToolInputSchema = z
-	.object({
-		name: lookupTableNameSchema,
-		tag: lookupTagSchema,
-		columns: z
-			.array(lookupColumnDraftSchema.safeExtend({ key: authoringKeySchema }))
-			.min(1)
-			.max(250),
-		rows: z.array(createRowSchema).max(5000).optional(),
-	})
-	.strict();
+export const createLookupTableToolInputSchema = z.strictObject({
+	name: lookupTableNameSchema,
+	tag: lookupTagSchema,
+	columns: z
+		.array(lookupColumnDraftSchema.safeExtend({ key: authoringKeySchema }))
+		.min(1)
+		.max(250),
+	rows: z.array(createRowSchema).max(5000).optional(),
+});
 
 export const createLookupTableTool = {
 	description:
@@ -276,13 +268,12 @@ export const createLookupTableTool = {
 };
 
 export const updateLookupTableToolInputSchema = z
-	.object({
+	.strictObject({
 		tableId: lookupTableIdSchema,
 		expectedTableRevision: lookupRevisionSchema,
 		name: lookupTableNameSchema.optional(),
 		tag: lookupTagSchema.optional(),
 	})
-	.strict()
 	.superRefine((value, ctx) => {
 		if (value.name === undefined && value.tag === undefined) {
 			ctx.addIssue({
@@ -316,22 +307,19 @@ export const updateLookupTableTool = {
 };
 
 const columnOperationSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("add"),
+		key: authoringKeySchema,
+		column: lookupColumnDraftSchema,
+		afterColumnId: lookupColumnIdSchema.nullable().optional(),
+	}),
 	z
-		.object({
-			kind: z.literal("add"),
-			key: authoringKeySchema,
-			column: lookupColumnDraftSchema,
-			afterColumnId: lookupColumnIdSchema.nullable().optional(),
-		})
-		.strict(),
-	z
-		.object({
+		.strictObject({
 			kind: z.literal("update"),
 			columnId: lookupColumnIdSchema,
 			label: lookupColumnLabelSchema.optional(),
 			wireName: lookupWireNameSchema.optional(),
 		})
-		.strict()
 		.superRefine((value, ctx) => {
 			if (value.label === undefined && value.wireName === undefined) {
 				ctx.addIssue({
@@ -340,32 +328,24 @@ const columnOperationSchema = z.discriminatedUnion("kind", [
 				});
 			}
 		}),
-	z
-		.object({
-			kind: z.literal("move"),
-			columnId: lookupColumnIdSchema,
-			afterColumnId: lookupColumnIdSchema.nullable(),
-		})
-		.strict(),
-	z
-		.object({ kind: z.literal("remove"), columnId: lookupColumnIdSchema })
-		.strict(),
-	z
-		.object({
-			kind: z.literal("retype"),
-			columnId: lookupColumnIdSchema,
-			dataType: lookupDataTypeSchema,
-		})
-		.strict(),
+	z.strictObject({
+		kind: z.literal("move"),
+		columnId: lookupColumnIdSchema,
+		afterColumnId: lookupColumnIdSchema.nullable(),
+	}),
+	z.strictObject({ kind: z.literal("remove"), columnId: lookupColumnIdSchema }),
+	z.strictObject({
+		kind: z.literal("retype"),
+		columnId: lookupColumnIdSchema,
+		dataType: lookupDataTypeSchema,
+	}),
 ]);
 
-export const editLookupColumnsToolInputSchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		expectedTableRevision: lookupRevisionSchema,
-		operations: z.array(columnOperationSchema).min(1).max(250),
-	})
-	.strict();
+export const editLookupColumnsToolInputSchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	expectedTableRevision: lookupRevisionSchema,
+	operations: z.array(columnOperationSchema).min(1).max(250),
+});
 
 export const editLookupColumnsTool = {
 	description:
@@ -417,37 +397,29 @@ export const editLookupColumnsTool = {
 };
 
 const rowOperationSchema = z.discriminatedUnion("kind", [
-	z
-		.object({
-			kind: z.literal("add"),
-			cells: z.array(existingCellSchema).max(250),
-			afterRowId: lookupRowIdSchema.nullable().optional(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("update"),
-			rowId: lookupRowIdSchema,
-			cells: z.array(existingCellSchema).max(250),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("move"),
-			rowId: lookupRowIdSchema,
-			afterRowId: lookupRowIdSchema.nullable(),
-		})
-		.strict(),
-	z.object({ kind: z.literal("remove"), rowId: lookupRowIdSchema }).strict(),
+	z.strictObject({
+		kind: z.literal("add"),
+		cells: z.array(existingCellSchema).max(250),
+		afterRowId: lookupRowIdSchema.nullable().optional(),
+	}),
+	z.strictObject({
+		kind: z.literal("update"),
+		rowId: lookupRowIdSchema,
+		cells: z.array(existingCellSchema).max(250),
+	}),
+	z.strictObject({
+		kind: z.literal("move"),
+		rowId: lookupRowIdSchema,
+		afterRowId: lookupRowIdSchema.nullable(),
+	}),
+	z.strictObject({ kind: z.literal("remove"), rowId: lookupRowIdSchema }),
 ]);
 
-export const editLookupRowsToolInputSchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		expectedTableRevision: lookupRevisionSchema,
-		operations: z.array(rowOperationSchema).min(1).max(5000),
-	})
-	.strict();
+export const editLookupRowsToolInputSchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	expectedTableRevision: lookupRevisionSchema,
+	operations: z.array(rowOperationSchema).min(1).max(5000),
+});
 
 export const editLookupRowsTool = {
 	description:
@@ -503,13 +475,11 @@ export const editLookupRowsTool = {
 	},
 };
 
-export const replaceLookupRowsToolInputSchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		expectedTableRevision: lookupRevisionSchema,
-		rows: z.array(existingRowSchema).max(5000),
-	})
-	.strict();
+export const replaceLookupRowsToolInputSchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	expectedTableRevision: lookupRevisionSchema,
+	rows: z.array(existingRowSchema).max(5000),
+});
 
 export const replaceLookupRowsTool = {
 	description:
@@ -560,12 +530,10 @@ export const replaceLookupRowsTool = {
 	},
 };
 
-export const removeLookupTableToolInputSchema = z
-	.object({
-		tableId: lookupTableIdSchema,
-		expectedTableRevision: lookupRevisionSchema,
-	})
-	.strict();
+export const removeLookupTableToolInputSchema = z.strictObject({
+	tableId: lookupTableIdSchema,
+	expectedTableRevision: lookupRevisionSchema,
+});
 
 export const removeLookupTableTool = {
 	description:

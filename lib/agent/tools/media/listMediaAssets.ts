@@ -34,22 +34,20 @@ import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
 import { requireToolProjectId } from "./shared";
 
-export const listMediaAssetsInputSchema = z
-	.object({
-		kind: z
-			.enum(MEDIA_KINDS)
-			.optional()
-			.describe(
-				"Filter to one media kind (`image` / `audio` / `video`). Omit to list every kind.",
-			),
-		cursor: z
-			.string()
-			.optional()
-			.describe(
-				"Opaque page cursor from a previous call's `nextCursor`. Omit for the first page.",
-			),
-	})
-	.strict();
+export const listMediaAssetsInputSchema = z.strictObject({
+	kind: z
+		.enum(MEDIA_KINDS)
+		.optional()
+		.describe(
+			"Filter to one media kind (`image` / `audio` / `video`). Omit to list every kind.",
+		),
+	cursor: z
+		.string()
+		.optional()
+		.describe(
+			"Opaque page cursor from a previous call's `nextCursor`. Omit for the first page.",
+		),
+});
 
 export type ListMediaAssetsInput = z.infer<typeof listMediaAssetsInputSchema>;
 

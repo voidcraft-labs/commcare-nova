@@ -296,7 +296,7 @@ function describeFieldFailure(
  * Reshape nested `validate`/`repeat` input into domain keys, then validate.
  * Before validating we FILTER the candidate to the kind's schema-declared
  * keys via `pickFieldKeysForKind` — the same projection `reconcileFieldForKind`
- * and the `updateField` reducer use. The per-kind schemas are `.strict()`,
+ * and the `updateField` reducer use. The per-kind schemas are strict,
  * so a stray key the kind doesn't declare would otherwise make the WHOLE
  * field fail to parse; filtering drops the stray key and keeps the field as
  * its valid subset. (The per-kind tool inputs already reject stray keys at

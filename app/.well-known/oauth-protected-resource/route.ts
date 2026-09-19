@@ -17,7 +17,7 @@
  * `resource_signing_alg_values_supported`: is filled in from the wired
  * `oauthProvider` plugin via the auth bound on `getServerClient()`.
  *
- * The `resource` value is the security tie to `validAudiences` in
+ * The `resource` value is the security tie to `resources` in
  * `lib/auth.ts`: the AS mints tokens with an `aud` claim matching this
  * URL, the MCP handler rejects tokens whose `aud` doesn't match. Both
  * references read from `MCP_RESOURCE_URL` so the link is enforced by

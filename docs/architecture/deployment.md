@@ -100,6 +100,16 @@ admission. A changed artifact updates only the image with an etag fence and
 executes the full migration/probe while the application compiles. This is an
 artifact proof, not a commit-path heuristic or a compiler-cache success flag.
 
+The migration runs while the previous revision is still serving, so every
+schema change must be one that revision can live with: relax or add first, and
+remove what it still reads in a later deploy.
+
+Better Auth checks its own tables when a process starts and refuses every auth
+request while they differ from its configuration. A managed table that holds a
+required column Better Auth does not write is such a difference, even when a
+trigger fills it. A bridge on a Better Auth table therefore uses a nullable
+column or a column default, never `NOT NULL` with a fill trigger.
+
 ## Stable infrastructure
 
 The source of truth is `config/deployment-jobs.json`,
@@ -154,7 +164,7 @@ The separate media policy identity remains available for explicit maintenance.
 Recurring migration retains ledgered schema migrations, Better Auth schema
 convergence, Nova auth initialization (including the canonical MCP resource),
 case-index convergence, privileges, and the complete rollback-only runtime
-fleet probe. Completed language, status, select-value, and Better Auth data repairs run
+fleet probe. Completed language, status, and select-value data repairs run
 only through their explicit CLIs. The narrower XPath verification remains an
 explicit read-only scan.
 

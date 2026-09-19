@@ -223,6 +223,8 @@ export async function createProjectInvitation(
 	 * only on the arguments, so rejecting here keeps malformed input from
 	 * ever holding the exclusive membership gate. Format first (an address
 	 * that isn't an email can't be invited anywhere), then the domain policy. */
+	// `safeParse`, not the `validate` type guard: inside this block the guard
+	// would type the address being reported as `never`.
 	if (!INVITE_EMAIL_SHAPE.safeParse(email).success) {
 		throw new ProjectManagementError(
 			`"${email}" doesn't look like an email address. Invitations need the invitee's sign-in email, like name@dimagi.com.`,

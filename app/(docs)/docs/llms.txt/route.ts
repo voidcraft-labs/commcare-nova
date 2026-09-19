@@ -4,8 +4,9 @@
  * per-page Markdown URLs without having to scrape rendered HTML.
  *
  * `fumadocs-core/source` ships an `llms()` helper that walks the
- * configured page tree and emits the index in canonical shape; the
- * route just exposes the bytes at the path the convention expects.
+ * configured page tree and emits the index in canonical shape
+ * (`docsLlms` in `lib/docs/source.ts`); the route just exposes the bytes
+ * at the path the convention expects.
  *
  * Wire path on each environment:
  *   - prod: `https://docs.commcare.app/llms.txt`, the docs subdomain
@@ -18,13 +19,12 @@
  * artifact: the contents only change on a fresh build.
  */
 
-import { llms } from "fumadocs-core/source";
-import { source } from "@/lib/docs/source";
+import { docsLlms } from "@/lib/docs/source";
 
 export const revalidate = false;
 
-export function GET(): Response {
-	return new Response(llms(source).index(), {
+export async function GET(): Promise<Response> {
+	return new Response(await docsLlms.index(), {
 		headers: {
 			"Content-Type": "text/plain; charset=utf-8",
 		},

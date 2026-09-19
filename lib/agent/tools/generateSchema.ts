@@ -52,11 +52,9 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-export const generateSchemaInputSchema = z
-	.object({
-		caseTypes: caseTypesOutputSchema.shape.case_types,
-	})
-	.strict();
+export const generateSchemaInputSchema = z.strictObject({
+	caseTypes: caseTypesOutputSchema.shape.case_types,
+});
 
 export type GenerateSchemaInput = z.infer<typeof generateSchemaInputSchema>;
 

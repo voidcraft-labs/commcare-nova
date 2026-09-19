@@ -64,7 +64,6 @@ const params = {
 
 describe("/api/apps/[id]/attachments/[attachmentId] URL-app binding", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
 		mocks.requireSession.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.resolveAppScope.mockResolvedValue({ projectId: "project-1" });
 		mocks.retarget.mockResolvedValue({
