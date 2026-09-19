@@ -22,7 +22,7 @@ interface AskQuestionsCardProps {
 		toolCallId: string;
 		output: unknown;
 	}) => void;
-	pendingAnswerRef?: React.MutableRefObject<((text: string) => void) | null>;
+	pendingAnswerRef?: React.RefObject<((text: string) => void) | null>;
 	disabled?: boolean;
 }
 

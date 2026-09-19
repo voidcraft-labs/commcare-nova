@@ -11,12 +11,12 @@ import type {
 	ClipboardEventHandler,
 	ComponentProps,
 	FocusEventHandler,
-	FormEvent,
-	FormEventHandler,
 	HTMLAttributes,
 	KeyboardEventHandler,
 	PropsWithChildren,
 	RefObject,
+	SubmitEvent,
+	SubmitEventHandler,
 } from "react";
 import {
 	createContext,
@@ -328,7 +328,7 @@ export type PromptInputProps = Omit<
 	 *  composer exactly as the user had it. */
 	onSubmit: (
 		message: PromptInputMessage,
-		event: FormEvent<HTMLFormElement>,
+		event: SubmitEvent<HTMLFormElement>,
 	) => void | boolean | Promise<void> | Promise<boolean>;
 };
 
@@ -725,7 +725,7 @@ export const PromptInput = ({
 		[referencedSources, clearReferencedSources],
 	);
 
-	const handleSubmit: FormEventHandler<HTMLFormElement> = useCallback(
+	const handleSubmit: SubmitEventHandler<HTMLFormElement> = useCallback(
 		async (event) => {
 			event.preventDefault();
 

@@ -50,6 +50,14 @@ behavior. Domain commands obtained from a hook belong in a production function
 that both the hook and its direct tests call. Native browser tests cover the
 remaining input, focus, layout and component wiring.
 
+Vitest and the esbuild-built Playwright component peers run the `react` and
+`react-dom` installed from `package.json`. The served app does not: Next's App
+Router aliases both to the React build it vendors under
+`node_modules/next/dist/compiled`, so the browser's React changes with `next`,
+not with the `react` dependency. Scheduling behavior can differ between the two,
+so a test must not assert how concurrent transitions interleave; a claim about
+what production React does is settled by reading the vendored build.
+
 Deployment store tests use real auth migrations and concurrent Postgres sessions.
 A database lock observer establishes that writes are waiting before releasing
 or committing the competing transaction. Concurrent-call tests using a
