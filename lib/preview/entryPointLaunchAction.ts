@@ -21,24 +21,20 @@ import type {
 	EntryPointSelection,
 } from "./entryPointLaunchTypes";
 
-const requestSchema = z
-	.object({
-		appId: z.string().min(1),
-		entryPointUuid: uuidSchema,
-		personaUuid: uuidSchema.optional(),
-		expectedSeq: z.number().int().nonnegative(),
-		selections: z
-			.array(
-				z
-					.object({
-						moduleUuid: uuidSchema,
-						caseIds: z.array(z.string().min(1)).max(1000),
-					})
-					.strict(),
-			)
-			.max(100),
-	})
-	.strict();
+const requestSchema = z.strictObject({
+	appId: z.string().min(1),
+	entryPointUuid: uuidSchema,
+	personaUuid: uuidSchema.optional(),
+	expectedSeq: z.number().int().nonnegative(),
+	selections: z
+		.array(
+			z.strictObject({
+				moduleUuid: uuidSchema,
+				caseIds: z.array(z.string().min(1)).max(1000),
+			}),
+		)
+		.max(100),
+});
 
 export async function launchEntryPointAction(input: {
 	appId: string;

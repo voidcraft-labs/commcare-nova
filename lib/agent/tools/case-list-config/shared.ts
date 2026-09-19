@@ -280,7 +280,7 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 		"Keep the tile on screen above every form in this module, so the worker can see which case they are filling the form in for. Leave it out for a tile that shows only on the case list.",
 	),
 	grouping: z
-		.object({
+		.strictObject({
 			identifier: caseTileGroupingSchema.shape.identifier.describe(
 				"The name of the case connection to group by, almost always `parent`. Grouping is by a CONNECTION, never by a property value: the heading is drawn from the first case in each group, which is only honest when every case in the group shares it.",
 			),
@@ -288,7 +288,6 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
 				`How many of the tile's top rows form the group heading. Rows above the line are drawn ONCE per group, from the group's first case; the rows below are drawn for every case. The line must be a clean cut: at least one field above it, at least one below it, and no field crossing it (a crossing field is drawn wholly in the heading, so every other case's value in it disappears). The grid is ${TILE_GRID_ROWS} rows tall.`,
 			),
 		})
-		.strict()
 		.optional()
 		.describe(
 			"Show the cases that share a connection together, under one heading. Leave it out for an ordinary tile list, one tile per case. Two consequences worth telling the user about: choosing a group opens its FIRST case (the rows beneath the heading cannot be chosen), and every case with no such connection lands together in one group. The list also pages by group, so a page holds whole groups and however many cases they carry.",
@@ -574,18 +573,16 @@ export const uuidInputSchema = uuidSchema;
  * `null` is how a field comes off the tile. A field the call does not name
  * keeps the place it already has.
  */
-export const tilePlacementInputSchema = z
-	.object({
-		columnUuid: uuidInputSchema.describe(
-			"Uuid of the case-list field to place. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+export const tilePlacementInputSchema = z.strictObject({
+	columnUuid: uuidInputSchema.describe(
+		"Uuid of the case-list field to place. Look at getModule's projection or run searchBlueprint to surface the current uuids.",
+	),
+	cell: tileCellInputSchema
+		.nullable()
+		.describe(
+			"Where this field sits on the grid, or null to take it off the tile entirely (it keeps its place in the case list, it just has no rectangle).",
 		),
-		cell: tileCellInputSchema
-			.nullable()
-			.describe(
-				"Where this field sits on the grid, or null to take it off the tile entirely (it keeps its place in the case list, it just has no rectangle).",
-			),
-	})
-	.strict();
+});
 
 export type TilePlacementInput = z.infer<typeof tilePlacementInputSchema>;
 

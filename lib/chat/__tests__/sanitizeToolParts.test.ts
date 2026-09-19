@@ -2,7 +2,7 @@
 // scenario under test is the one that bricked resumes: a thread persisted
 // before a deploy carries tool parts the CURRENT tool surface no longer
 // accepts — a retired tool name, or an IN-FLIGHT call (`input-available`)
-// whose surviving tool's `.strict()` input schema dropped a key the old
+// whose surviving tool's strict input schema dropped a key the old
 // call carries (`generateSchema`'s `appName`). The repair must drop
 // exactly the parts that remain invalid, preserve the SDK's native
 // `dynamic-tool` conversion for loadable terminal history, keep everything
@@ -16,13 +16,13 @@ import { sanitizeHistoricalToolParts } from "../sanitizeToolParts";
 const tools: ToolSet = {
 	generateSchema: tool({
 		description: "record the data model",
-		inputSchema: z
-			.object({ caseTypes: z.array(z.object({ name: z.string() })) })
-			.strict(),
+		inputSchema: z.strictObject({
+			caseTypes: z.array(z.object({ name: z.string() })),
+		}),
 	}),
 	searchBlueprint: tool({
 		description: "search",
-		inputSchema: z.object({ query: z.string() }).strict(),
+		inputSchema: z.strictObject({ query: z.string() }),
 	}),
 };
 
@@ -31,7 +31,7 @@ const user = (id: string, text: string): UIMessage =>
 
 const CLEAN_INPUT = { caseTypes: [{ name: "patient" }] };
 // The pre-deploy shape: `appName` was a required slot before naming moved
-// to `updateApp`; today's `.strict()` schema rejects the leftover key.
+// to `updateApp`; today's strict schema rejects the leftover key.
 const STALE_INPUT = { appName: "Clinic", caseTypes: [{ name: "patient" }] };
 
 const toolPart = (over: Record<string, unknown>) => ({

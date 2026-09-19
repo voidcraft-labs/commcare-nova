@@ -10,22 +10,21 @@ export const entryPointIdSchema = z
 		/^[a-z0-9_-]+$/,
 		"Use lowercase letters, numbers, underscores, or hyphens.",
 	);
-export const entryPointSchema = z
-	.object({ uuid: uuidSchema, id: entryPointIdSchema })
-	.strict();
+export const entryPointSchema = z.strictObject({
+	uuid: uuidSchema,
+	id: entryPointIdSchema,
+});
 export const formEntryPointSchema = entryPointSchema.extend({
 	ignoreDisplayConditions: z.literal(true).optional(),
 });
 export const entryPointTargetSchema = z.discriminatedUnion("kind", [
-	z.object({ kind: z.literal("module"), moduleUuid: uuidSchema }).strict(),
-	z.object({ kind: z.literal("case-list"), moduleUuid: uuidSchema }).strict(),
-	z
-		.object({
-			kind: z.literal("form"),
-			moduleUuid: uuidSchema,
-			formUuid: uuidSchema,
-		})
-		.strict(),
+	z.strictObject({ kind: z.literal("module"), moduleUuid: uuidSchema }),
+	z.strictObject({ kind: z.literal("case-list"), moduleUuid: uuidSchema }),
+	z.strictObject({
+		kind: z.literal("form"),
+		moduleUuid: uuidSchema,
+		formUuid: uuidSchema,
+	}),
 ]);
 export type EntryPoint = z.infer<typeof entryPointSchema>;
 export type FormEntryPoint = z.infer<typeof formEntryPointSchema>;

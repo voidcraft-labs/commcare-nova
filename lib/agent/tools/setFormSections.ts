@@ -63,27 +63,25 @@ export const setFormSectionsInputSchema = formAddressSchema
 	.extend({
 		sections: z
 			.array(
-				z
-					.object({
-						sectionUuid: uuidSchema
-							.nullable()
-							.optional()
-							.describe(
-								"An existing section to keep (its uuid from get_form), or a fresh uuid to create the page under when you need the handle before reading it back. Omit to let Nova mint one.",
-							),
-						label: proseTemplateSchema
-							.nullable()
-							.optional()
-							.describe(
-								"The page's title. null means untitled. Omit it to keep a kept section's current title; a new section without one is untitled.",
-							),
-						fields: z
-							.array(uuidSchema)
-							.describe(
-								"The page's top-level questions, in page order: the form's root fields, or direct children of a current section. A group or repeat moves with everything inside it, so name the group, never a field inside it.",
-							),
-					})
-					.strict(),
+				z.strictObject({
+					sectionUuid: uuidSchema
+						.nullable()
+						.optional()
+						.describe(
+							"An existing section to keep (its uuid from get_form), or a fresh uuid to create the page under when you need the handle before reading it back. Omit to let Nova mint one.",
+						),
+					label: proseTemplateSchema
+						.nullable()
+						.optional()
+						.describe(
+							"The page's title. null means untitled. Omit it to keep a kept section's current title; a new section without one is untitled.",
+						),
+					fields: z
+						.array(uuidSchema)
+						.describe(
+							"The page's top-level questions, in page order: the form's root fields, or direct children of a current section. A group or repeat moves with everything inside it, so name the group, never a field inside it.",
+						),
+				}),
 			)
 			.describe(
 				"The complete partition of the form's top-level questions into pages, first page first. Every top-level question appears in exactly one section. An empty list removes the sections and returns the questions to a single page in their current order.",

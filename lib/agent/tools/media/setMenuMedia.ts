@@ -88,21 +88,19 @@ const formMenuItemSchema = formAddressSchema
 	})
 	.strict();
 
-export const setMenuMediaInputSchema = z
-	.object({
-		items: z
-			.array(
-				z.discriminatedUnion("target", [
-					moduleMenuItemSchema,
-					formMenuItemSchema,
-				]),
-			)
-			.min(1)
-			.describe(
-				"The tiles to set — module tiles (target: module) and form tiles (target: form), mixed freely.",
-			),
-	})
-	.strict();
+export const setMenuMediaInputSchema = z.strictObject({
+	items: z
+		.array(
+			z.discriminatedUnion("target", [
+				moduleMenuItemSchema,
+				formMenuItemSchema,
+			]),
+		)
+		.min(1)
+		.describe(
+			"The tiles to set — module tiles (target: module) and form tiles (target: form), mixed freely.",
+		),
+});
 
 export type SetMenuMediaInput = z.infer<typeof setMenuMediaInputSchema>;
 

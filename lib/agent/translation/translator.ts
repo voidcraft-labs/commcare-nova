@@ -28,27 +28,23 @@ const MAX_BATCH_ESTIMATED_TOKENS = 12_000;
 const MAX_GLOSSARY_ENTRIES = 40;
 const MAX_GLOSSARY_CHARS = 6_000;
 
-export const translationBatchOutputSchema = z
-	.object({
-		translations: z
-			.array(
-				z
-					.object({
-						unitId: z
-							.string()
-							.min(1)
-							.describe("Exact opaque unitId from the request."),
-						translatedText: z
-							.string()
-							.describe(
-								"Target-language text. Preserve every protected token exactly once.",
-							),
-					})
-					.strict(),
-			)
-			.min(1),
-	})
-	.strict();
+export const translationBatchOutputSchema = z.strictObject({
+	translations: z
+		.array(
+			z.strictObject({
+				unitId: z
+					.string()
+					.min(1)
+					.describe("Exact opaque unitId from the request."),
+				translatedText: z
+					.string()
+					.describe(
+						"Target-language text. Preserve every protected token exactly once.",
+					),
+			}),
+		)
+		.min(1),
+});
 
 export type TranslationBatchOutput = z.infer<
 	typeof translationBatchOutputSchema

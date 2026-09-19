@@ -41,13 +41,11 @@ import type { ToolInvocationContext } from "../../workspace/types";
 import { type ReadToolResult, requireInvocationAppId } from "../common";
 import { requireToolProjectId } from "./shared";
 
-export const removeMediaAssetInputSchema = z
-	.object({
-		assetId: mediaAssetIdSchema.describe(
-			"The id of the media asset to delete (from list_media_assets).",
-		),
-	})
-	.strict();
+export const removeMediaAssetInputSchema = z.strictObject({
+	assetId: mediaAssetIdSchema.describe(
+		"The id of the media asset to delete (from list_media_assets).",
+	),
+});
 
 export type RemoveMediaAssetInput = z.infer<typeof removeMediaAssetInputSchema>;
 

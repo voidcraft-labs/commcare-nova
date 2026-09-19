@@ -402,13 +402,11 @@ export function resolveUploadMimeType(
  * `MediaAssetId`s; menu icons use the slot-specific `ModuleIconRef` /
  * `FormIconRef` unions in `builtinIcons.ts`.
  */
-export const mediaSchema = z
-	.object({
-		image: mediaAssetIdSchema.optional(),
-		audio: mediaAssetIdSchema.optional(),
-		video: mediaAssetIdSchema.optional(),
-	})
-	.strict();
+export const mediaSchema = z.strictObject({
+	image: mediaAssetIdSchema.optional(),
+	audio: mediaAssetIdSchema.optional(),
+	video: mediaAssetIdSchema.optional(),
+});
 export type Media = z.infer<typeof mediaSchema>;
 
 /**

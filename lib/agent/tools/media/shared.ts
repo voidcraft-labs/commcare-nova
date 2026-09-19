@@ -59,7 +59,7 @@ import { type GuardedMutateOutcome, guardedMutate } from "../common";
  * The full image/audio/video bundle carried by question-message slots and
  * select options. Reuses the domain `mediaSchema` verbatim so the tool
  * boundary and the stored shape can't drift — `mediaSchema` is
- * `.strict()` with three optional `mediaAssetIdSchema` slots, none of which
+ * strict with three optional `mediaAssetIdSchema` slots, none of which
  * carries a `.transform()`, so it lowers cleanly to JSON Schema for the
  * provider tool-input compiler.
  *

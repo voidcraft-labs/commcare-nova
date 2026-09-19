@@ -63,7 +63,7 @@ it("recovers an acknowledged provider response and an unacknowledged plan edit w
 	const usage = new Set<string>();
 	let interrupts = true;
 	let building = false;
-	const inputSchema = z.object({ markdown: z.string() }).strict();
+	const inputSchema = z.strictObject({ markdown: z.string() });
 	const tools = (): ToolSet => ({
 		writePlan: { inputSchema, strict: false },
 		...(building

@@ -135,7 +135,7 @@ import type { LoadCaseDatabaseSnapshotResult } from "./xpathInstances";
 /**
  * Strip the in-memory `fieldParent` reverse index a doc-store snapshot
  * carries — `pickBlueprintDoc` re-attaches it on the wire, but the
- * persisted `blueprintDocSchema` is `.strict()` and would reject the
+ * persisted `blueprintDocSchema` is strict and would reject the
  * undeclared key. A non-object input (a malformed wire payload — `null`,
  * `undefined`, a bare string) passes through untouched so the caller's
  * strict `safeParse` reports it as the typed `invalid-blueprint` arm

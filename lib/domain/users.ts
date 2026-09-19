@@ -330,24 +330,22 @@ const userPropertyChoicesSchema = z
 		}
 	});
 
-export const userPropertySchema = z
-	.object({
-		uuid: uuidSchema,
-		slug: z
-			.string()
-			.min(1)
-			.max(USER_PROPERTY_SLUG_MAX_LENGTH)
-			.regex(USER_PROPERTY_SLUG_PATTERN),
-		label: z.string().min(1).max(USER_PROPERTY_LABEL_MAX_LENGTH),
-		/** Whether CommCare requires a value when a worker account is created. */
-		required: z.boolean().optional(),
-		/**
-		 * A closed set of accepted values. Absent means free text. HQ stores
-		 * this as `Field.choices` and validates against it on user save.
-		 */
-		choices: userPropertyChoicesSchema.optional(),
-	})
-	.strict();
+export const userPropertySchema = z.strictObject({
+	uuid: uuidSchema,
+	slug: z
+		.string()
+		.min(1)
+		.max(USER_PROPERTY_SLUG_MAX_LENGTH)
+		.regex(USER_PROPERTY_SLUG_PATTERN),
+	label: z.string().min(1).max(USER_PROPERTY_LABEL_MAX_LENGTH),
+	/** Whether CommCare requires a value when a worker account is created. */
+	required: z.boolean().optional(),
+	/**
+	 * A closed set of accepted values. Absent means free text. HQ stores
+	 * this as `Field.choices` and validates against it on user save.
+	 */
+	choices: userPropertyChoicesSchema.optional(),
+});
 export type UserProperty = z.infer<typeof userPropertySchema>;
 
 /**
@@ -371,14 +369,12 @@ export type UserDataValues = z.infer<typeof userDataValuesSchema>;
  * `APP_USER_PROFILES` privilege, so provisioning through them would make
  * the app's roles depend on the target's plan.
  */
-export const userTypeSchema = z
-	.object({
-		uuid: uuidSchema,
-		name: z.string().min(1),
-		description: z.string().optional(),
-		values: userDataValuesSchema.optional(),
-	})
-	.strict();
+export const userTypeSchema = z.strictObject({
+	uuid: uuidSchema,
+	name: z.string().min(1),
+	description: z.string().optional(),
+	values: userDataValuesSchema.optional(),
+});
 export type UserType = z.infer<typeof userTypeSchema>;
 
 /**
@@ -391,19 +387,17 @@ export type UserType = z.infer<typeof userTypeSchema>;
  * A persona is not a Nova account and never authorizes anything;
  * authorization always belongs to the signed-in member.
  */
-export const personaSchema = z
-	.object({
-		uuid: uuidSchema,
-		name: z.string().min(1),
-		description: z.string().optional(),
-		/** The user type this persona acts as. */
-		userTypeUuid: uuidSchema.optional(),
-		/** Values that differ from the user type's defaults. */
-		values: userDataValuesSchema.optional(),
-		/** One valid-by-construction primary plus optional additional places. */
-		locations: personaLocationsSchema.optional(),
-	})
-	.strict();
+export const personaSchema = z.strictObject({
+	uuid: uuidSchema,
+	name: z.string().min(1),
+	description: z.string().optional(),
+	/** The user type this persona acts as. */
+	userTypeUuid: uuidSchema.optional(),
+	/** Values that differ from the user type's defaults. */
+	values: userDataValuesSchema.optional(),
+	/** One valid-by-construction primary plus optional additional places. */
+	locations: personaLocationsSchema.optional(),
+});
 export type Persona = z.infer<typeof personaSchema>;
 
 // ── Reading the collections ──────────────────────────────────────────

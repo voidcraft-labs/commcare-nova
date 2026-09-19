@@ -42,36 +42,26 @@ const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
  * last arm. App content and the plan remain with their own stores.
  */
 export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
-	z
-		.object({ kind: z.literal("planning"), sourceDigest: sha256Schema })
-		.strict(),
-	z
-		.object({ kind: z.literal("building"), appId: z.string().nullable() })
-		.strict(),
-	z.object({ kind: z.literal("reviewing-plan"), reviewId: z.uuid() }).strict(),
-	z
-		.object({
-			kind: z.literal("reviewing-app"),
-			reviewId: z.uuid(),
-			appSeq: z.number().int().positive(),
-		})
-		.strict(),
-	z.object({ kind: z.literal("awaiting-input") }).strict(),
-	z
-		.object({
-			kind: z.literal("finished"),
-			appId: z.string().min(1),
-			appSeq: z.number().int().positive(),
-		})
-		.strict(),
-	z
-		.object({
-			kind: z.literal("failed"),
-			failureId: z.uuid(),
-			recoverable: z.boolean(),
-			errorType: z.string().min(1),
-		})
-		.strict(),
+	z.strictObject({ kind: z.literal("planning"), sourceDigest: sha256Schema }),
+	z.strictObject({ kind: z.literal("building"), appId: z.string().nullable() }),
+	z.strictObject({ kind: z.literal("reviewing-plan"), reviewId: z.uuid() }),
+	z.strictObject({
+		kind: z.literal("reviewing-app"),
+		reviewId: z.uuid(),
+		appSeq: z.number().int().positive(),
+	}),
+	z.strictObject({ kind: z.literal("awaiting-input") }),
+	z.strictObject({
+		kind: z.literal("finished"),
+		appId: z.string().min(1),
+		appSeq: z.number().int().positive(),
+	}),
+	z.strictObject({
+		kind: z.literal("failed"),
+		failureId: z.uuid(),
+		recoverable: z.boolean(),
+		errorType: z.string().min(1),
+	}),
 ]);
 export type BuildOrchestratorState = z.infer<
 	typeof buildOrchestratorStateSchema

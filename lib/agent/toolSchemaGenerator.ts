@@ -186,19 +186,17 @@ const defaultValueField = () =>
  * and every historical alias are unknown-key rejections. Dedicated media
  * tools remain the sole owner of option media.
  */
-export const projectedSelectOptionSchema = z
-	.object({
-		optionUuid: uuidSchema
-			.optional()
-			.describe(
-				"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
-			),
-		value: selectOptionValueSchema,
-		label: proseTemplateSchema.describe(
-			"What people read for this choice. Put the wording here, never in `value`.",
+export const projectedSelectOptionSchema = z.strictObject({
+	optionUuid: uuidSchema
+		.optional()
+		.describe(
+			"Stable UUID for this option. Supply it when preserving an existing option or when another same-call value refers to it; otherwise Nova mints it.",
 		),
-	})
-	.strict();
+	value: selectOptionValueSchema,
+	label: proseTemplateSchema.describe(
+		"What people read for this choice. Put the wording here, never in `value`.",
+	),
+});
 
 /**
  * One canonical projected select-source contract shared by add_fields,
@@ -207,12 +205,10 @@ export const projectedSelectOptionSchema = z
  */
 export const projectedOptionsSourceSchema = z
 	.discriminatedUnion("kind", [
-		z
-			.object({
-				kind: z.literal("inline"),
-				options: z.array(projectedSelectOptionSchema).min(2),
-			})
-			.strict(),
+		z.strictObject({
+			kind: z.literal("inline"),
+			options: z.array(projectedSelectOptionSchema).min(2),
+		}),
 		lookupOptionsSourceSchema,
 	])
 	.describe(FIELD_DOCS.optionsSource);
@@ -296,7 +292,7 @@ function gateCaseWriteMode(
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
-// Each field-mutation tool's input is ONE `.strict()` object whose slots
+// Each field-mutation tool's input is ONE strict object whose slots
 // appear once, `superRefine`d against `fieldKindDeclaresKey`: a property
 // the kind doesn't declare — `calculate` on a `single_select`, `options`
 // on `hidden`, `hint` on `repeat` — rejects at the tool-call boundary
@@ -429,8 +425,10 @@ function gateHiddenValueSources(
  * and rejects any slot the kind doesn't declare.
  */
 function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
+	// Strict, so a key outside the shape is REJECTED at the boundary — the SA
+	// is told and retries, rather than the stray key being silently stripped.
 	return z
-		.object({
+		.strictObject({
 			kind: makeKindEnum(kinds),
 			id: idField(),
 			fieldUuid: fieldUuidField(),
@@ -446,11 +444,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			optionsSource: optionsSourceField().nullable().optional(),
 			caseWrite: caseWriteField(),
 			repeat: repeatConfigDiscriminated().nullable().optional(),
-			// `.strict()` so a key outside the shape is REJECTED at the boundary —
-			// the SA is told and retries, rather than the stray key being
-			// silently stripped.
 		})
-		.strict()
 		.superRefine((item, ctx) => {
 			for (const key of ADD_GATED_KEYS) {
 				if (item[key] != null && !fieldKindDeclaresKey(item.kind, key)) {
@@ -532,8 +526,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
  * (the reducer drops the prior mode's mode-specific field).
  */
 function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
+	// Strict — same boundary rejection as the add item: a key outside the
+	// shape is an error, not a silent strip.
 	return z
-		.object({
+		.strictObject({
 			kind: z
 				.enum(kinds as readonly [FieldKind, ...FieldKind[]])
 				.describe(
@@ -558,10 +554,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			optionsSource: optionsSourceField().optional(),
 			caseWrite: caseWriteField(),
 			repeat: repeatConfigDiscriminated().optional(),
-			// `.strict()` — same boundary rejection as the add item: a key
-			// outside the shape is an error, not a silent strip.
 		})
-		.strict()
 		.superRefine((patch, ctx) => {
 			for (const key of EDIT_GATED_KEYS) {
 				// Any PRESENT value — null included — on a slot the kind

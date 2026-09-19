@@ -26,16 +26,15 @@ const pathSchema = z
 export const evaluateFormInputSchema = formAddressSchema
 	.extend({
 		answers: z
-			.array(
-				z.object({ path: pathSchema, value: z.string().max(10000) }).strict(),
-			)
+			.array(z.strictObject({ path: pathSchema, value: z.string().max(10000) }))
 			.max(500)
 			.describe("Applied in order. Repeat a path to check changing an answer."),
 		repeats: z
 			.array(
-				z
-					.object({ path: pathSchema, count: z.number().int().min(1).max(30) })
-					.strict(),
+				z.strictObject({
+					path: pathSchema,
+					count: z.number().int().min(1).max(30),
+				}),
 			)
 			.max(50)
 			.optional()
@@ -52,7 +51,7 @@ export const evaluateFormInputSchema = formAddressSchema
 			.optional()
 			.describe("Worker to evaluate as. Defaults to the current member."),
 		searchAnswers: z
-			.array(z.object({ name: z.string(), value: z.string() }).strict())
+			.array(z.strictObject({ name: z.string(), value: z.string() }))
 			.max(100)
 			.optional()
 			.describe(

@@ -10,7 +10,7 @@
  *     `planAppDesign`);
  *   - a part's surviving tool has a NARROWER input or output schema, so the
  *     recorded value no longer parses (`generateSchema` dropped `appName`,
- *     `createModule` dropped `case_type_record` — a `.strict()` schema
+ *     `createModule` dropped `case_type_record` — a strict schema
  *     rejects the leftover key).
  *
  * AI SDK 7.0.83 validates typed terminal history as well as in-flight calls.

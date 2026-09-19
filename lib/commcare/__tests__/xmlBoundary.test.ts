@@ -35,14 +35,12 @@ import { parseXml, xmlParseIssue } from "../xmlParse";
 
 const corpus = z
 	.array(
-		z
-			.object({
-				name: z.string(),
-				xml: z.string(),
-				accepted: z.boolean(),
-				policyOnly: z.boolean().optional(),
-			})
-			.strict(),
+		z.strictObject({
+			name: z.string(),
+			xml: z.string(),
+			accepted: z.boolean(),
+			policyOnly: z.boolean().optional(),
+		}),
 	)
 	.parse(
 		JSON.parse(

@@ -30,16 +30,14 @@ import {
 export const addFormLinksInputSchema = linkAddressSchema.extend({
 	links: z
 		.array(
-			z
-				.object({
-					linkUuid: uuidSchema
-						.optional()
-						.describe(
-							"Stable UUID for the new link. Supply it only when you need to address the link before reading it back; otherwise Nova mints it.",
-						),
-					link: formLinkInputSchema.describe("The complete link."),
-				})
-				.strict(),
+			z.strictObject({
+				linkUuid: uuidSchema
+					.optional()
+					.describe(
+						"Stable UUID for the new link. Supply it only when you need to address the link before reading it back; otherwise Nova mints it.",
+					),
+				link: formLinkInputSchema.describe("The complete link."),
+			}),
 		)
 		.min(1)
 		.superRefine((links, ctx) => {

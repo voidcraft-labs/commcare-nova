@@ -242,21 +242,19 @@ const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
  * omitted from this body schema so the tool can compose it once at the outer
  * input boundary.
  */
-export const setCaseSearchAdvancedBodySchema = z
-	.object({
-		excludedOwnerIds: globallyResolvedOwnerExpressionSchema
-			.nullable()
-			.describe(
-				"Expression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
-			),
-		searchFirst: z
-			.literal(true)
-			.nullable()
-			.describe(
-				"`true` makes the module open on its Search screen: the browse list goes away and Results exist only after a completed search (a search with no visible inputs runs on its own). Requires a module whose forms all work on an existing case, or a case list with no forms; refuses a search-button display condition and `previous` after-submit on its case forms. `null` returns the module to browse-then-search.",
-			),
-	})
-	.strict();
+export const setCaseSearchAdvancedBodySchema = z.strictObject({
+	excludedOwnerIds: globallyResolvedOwnerExpressionSchema
+		.nullable()
+		.describe(
+			"Expression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
+		),
+	searchFirst: z
+		.literal(true)
+		.nullable()
+		.describe(
+			"`true` makes the module open on its Search screen: the browse list goes away and Results exist only after a completed search (a search with no visible inputs runs on its own). Requires a module whose forms all work on an existing case, or a case list with no forms; refuses a search-button display condition and `previous` after-submit on its case forms. `null` returns the module to browse-then-search.",
+		),
+});
 
 // ── Input schemas — display cluster ─────────────────────────────────
 
@@ -266,33 +264,31 @@ export const setCaseSearchAdvancedBodySchema = z
  * Required-and-nullable on every slot: the wholesale replace states
  * each one deliberately (null = cleared), never by omission.
  */
-export const setCaseSearchDisplayBodySchema = z
-	.object({
-		searchScreenTitle: z
-			.string()
-			.nullable()
-			.describe(
-				"Plain-text title shown above the search inputs, or `null` to clear. The runtime falls back to a generic title when absent.",
-			),
-		searchScreenSubtitle: z
-			.string()
-			.nullable()
-			.describe(
-				"Subtitle rendered through a markdown formatter, or `null` to clear. Use this for short instructional copy under the title; markdown is supported.",
-			),
-		searchButtonLabel: z
-			.string()
-			.nullable()
-			.describe(
-				"Label on the primary search submit button, or `null` to clear. Defaults to a generic 'Search' label when absent.",
-			),
-		searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
-			.nullable()
-			.describe(
-				"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
-			),
-	})
-	.strict();
+export const setCaseSearchDisplayBodySchema = z.strictObject({
+	searchScreenTitle: z
+		.string()
+		.nullable()
+		.describe(
+			"Plain-text title shown above the search inputs, or `null` to clear. The runtime falls back to a generic title when absent.",
+		),
+	searchScreenSubtitle: z
+		.string()
+		.nullable()
+		.describe(
+			"Subtitle rendered through a markdown formatter, or `null` to clear. Use this for short instructional copy under the title; markdown is supported.",
+		),
+	searchButtonLabel: z
+		.string()
+		.nullable()
+		.describe(
+			"Label on the primary search submit button, or `null` to clear. Defaults to a generic 'Search' label when absent.",
+		),
+	searchButtonDisplayCondition: globallyResolvedDisplayConditionSchema
+		.nullable()
+		.describe(
+			"Condition controlling whether the search button is shown, or `null` to clear. It is evaluated before a case is selected, so it may use fixed values and current-user/session values but cannot read case properties or relationships. When absent, the button is always shown.",
+		),
+});
 
 // ── Snapshot helper ─────────────────────────────────────────────────
 

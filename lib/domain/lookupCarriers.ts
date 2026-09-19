@@ -10,15 +10,13 @@ import { predicateSchema } from "./predicate/types";
  * discriminant is final: a select has either inline options or this lookup
  * source, never both.
  */
-export const lookupOptionsSourceSchema = z
-	.object({
-		kind: z.literal("lookup"),
-		tableId: lookupTableIdSchema,
-		valueColumnId: lookupColumnIdSchema,
-		labelColumnId: lookupColumnIdSchema,
-		filter: predicateSchema.optional(),
-	})
-	.strict();
+export const lookupOptionsSourceSchema = z.strictObject({
+	kind: z.literal("lookup"),
+	tableId: lookupTableIdSchema,
+	valueColumnId: lookupColumnIdSchema,
+	labelColumnId: lookupColumnIdSchema,
+	filter: predicateSchema.optional(),
+});
 
 export type LookupOptionsSource = z.infer<typeof lookupOptionsSourceSchema>;
 

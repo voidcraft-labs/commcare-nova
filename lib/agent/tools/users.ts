@@ -58,14 +58,12 @@ import type {
 
 const valuesInputSchema = z
 	.array(
-		z
-			.object({
-				userPropertyUuid: uuidSchema.describe(
-					"Stable uuid of the worker-information property.",
-				),
-				value: z.string().describe("Value this role or persona carries."),
-			})
-			.strict(),
+		z.strictObject({
+			userPropertyUuid: uuidSchema.describe(
+				"Stable uuid of the worker-information property.",
+			),
+			value: z.string().describe("Value this role or persona carries."),
+		}),
 	)
 	.min(1)
 	.superRefine((entries, ctx) => {
@@ -88,7 +86,7 @@ const valuesInputSchema = z
 type ValuesInput = z.infer<typeof valuesInputSchema>;
 
 const valuePatchInputSchema = z
-	.object({
+	.strictObject({
 		userPropertyUuid: uuidSchema.describe(
 			"Stable uuid of the one worker-information property to change.",
 		),
@@ -97,7 +95,6 @@ const valuePatchInputSchema = z
 			.nullable()
 			.describe("New value, or null to clear this one property."),
 	})
-	.strict()
 	.optional()
 	.describe(
 		"One UUID-addressed value edit. Omit to leave all values unchanged; use a null value to clear only the named property.",
@@ -130,43 +127,39 @@ const acceptedValuesSchema = z
 		}
 	});
 
-const userPropertyCreateSchema = z
-	.object({
-		userPropertyUuid: uuidSchema
-			.optional()
-			.describe(
-				"Optional stable identity for this new worker-information property. Omit it to let Nova mint one.",
-			),
-		slug: z
-			.string()
-			.min(1)
-			.max(USER_PROPERTY_SLUG_MAX_LENGTH)
-			.regex(USER_PROPERTY_SLUG_PATTERN)
-			.describe(
-				"Saved name expressions read. Start with a letter or underscore; then use letters, digits, underscores, or hyphens. The commit gate also checks reserved names.",
-			),
-		label: z
-			.string()
-			.min(1)
-			.max(USER_PROPERTY_LABEL_MAX_LENGTH)
-			.describe("Name authors and administrators see."),
-		required: z.boolean().nullable().optional(),
-		choices: acceptedValuesSchema.nullable().optional(),
-	})
-	.strict();
+const userPropertyCreateSchema = z.strictObject({
+	userPropertyUuid: uuidSchema
+		.optional()
+		.describe(
+			"Optional stable identity for this new worker-information property. Omit it to let Nova mint one.",
+		),
+	slug: z
+		.string()
+		.min(1)
+		.max(USER_PROPERTY_SLUG_MAX_LENGTH)
+		.regex(USER_PROPERTY_SLUG_PATTERN)
+		.describe(
+			"Saved name expressions read. Start with a letter or underscore; then use letters, digits, underscores, or hyphens. The commit gate also checks reserved names.",
+		),
+	label: z
+		.string()
+		.min(1)
+		.max(USER_PROPERTY_LABEL_MAX_LENGTH)
+		.describe("Name authors and administrators see."),
+	required: z.boolean().nullable().optional(),
+	choices: acceptedValuesSchema.nullable().optional(),
+});
 
-const userTypeCreateSchema = z
-	.object({
-		userTypeUuid: uuidSchema
-			.optional()
-			.describe(
-				"Optional stable identity for this new role. Omit it to let Nova mint one.",
-			),
-		name: z.string().min(1),
-		description: z.string().min(1).nullable().optional(),
-		values: valuesInputSchema.nullable().optional(),
-	})
-	.strict();
+const userTypeCreateSchema = z.strictObject({
+	userTypeUuid: uuidSchema
+		.optional()
+		.describe(
+			"Optional stable identity for this new role. Omit it to let Nova mint one.",
+		),
+	name: z.string().min(1),
+	description: z.string().min(1).nullable().optional(),
+	values: valuesInputSchema.nullable().optional(),
+});
 
 const personaLocationUuidsSchema = z
 	.array(uuidSchema)
@@ -181,85 +174,73 @@ const personaLocationUuidsSchema = z
 		}
 	});
 
-const personaCreateSchema = z
-	.object({
-		personaUuid: uuidSchema
-			.optional()
-			.describe(
-				"Optional stable identity for this new Preview persona. Omit it to let Nova mint one.",
-			),
-		name: z.string().min(1),
-		description: z.string().min(1).nullable().optional(),
-		userTypeUuid: uuidSchema.nullable().optional(),
-		values: valuesInputSchema.nullable().optional(),
-		locationUuids: personaLocationUuidsSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Places this persona works, primary first. Use stable location uuids returned by getOrganization.",
-			),
-	})
-	.strict();
+const personaCreateSchema = z.strictObject({
+	personaUuid: uuidSchema
+		.optional()
+		.describe(
+			"Optional stable identity for this new Preview persona. Omit it to let Nova mint one.",
+		),
+	name: z.string().min(1),
+	description: z.string().min(1).nullable().optional(),
+	userTypeUuid: uuidSchema.nullable().optional(),
+	values: valuesInputSchema.nullable().optional(),
+	locationUuids: personaLocationUuidsSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Places this persona works, primary first. Use stable location uuids returned by getOrganization.",
+		),
+});
 
-export const addUserPropertiesInputSchema = z
-	.object({
-		properties: z.array(userPropertyCreateSchema).min(1).max(100),
-	})
-	.strict();
+export const addUserPropertiesInputSchema = z.strictObject({
+	properties: z.array(userPropertyCreateSchema).min(1).max(100),
+});
 
-export const updateUserPropertyInputSchema = z
-	.object({
-		uuid: uuidSchema,
-		slug: userPropertyCreateSchema.shape.slug.optional(),
-		label: userPropertyCreateSchema.shape.label.optional(),
-		required: z.boolean().nullable().optional(),
-		choices: acceptedValuesSchema.nullable().optional(),
-	})
-	.strict();
+export const updateUserPropertyInputSchema = z.strictObject({
+	uuid: uuidSchema,
+	slug: userPropertyCreateSchema.shape.slug.optional(),
+	label: userPropertyCreateSchema.shape.label.optional(),
+	required: z.boolean().nullable().optional(),
+	choices: acceptedValuesSchema.nullable().optional(),
+});
 
-export const removeUserPropertyInputSchema = z
-	.object({ uuid: uuidSchema })
-	.strict();
+export const removeUserPropertyInputSchema = z.strictObject({
+	uuid: uuidSchema,
+});
 
-export const addUserTypesInputSchema = z
-	.object({ userTypes: z.array(userTypeCreateSchema).min(1).max(100) })
-	.strict();
+export const addUserTypesInputSchema = z.strictObject({
+	userTypes: z.array(userTypeCreateSchema).min(1).max(100),
+});
 
-export const updateUserTypeInputSchema = z
-	.object({
-		uuid: uuidSchema,
-		name: z.string().min(1).optional(),
-		description: z.string().min(1).nullable().optional(),
-		valuePatch: valuePatchInputSchema,
-	})
-	.strict();
+export const updateUserTypeInputSchema = z.strictObject({
+	uuid: uuidSchema,
+	name: z.string().min(1).optional(),
+	description: z.string().min(1).nullable().optional(),
+	valuePatch: valuePatchInputSchema,
+});
 
-export const removeUserTypeInputSchema = z
-	.object({ uuid: uuidSchema })
-	.strict();
+export const removeUserTypeInputSchema = z.strictObject({ uuid: uuidSchema });
 
-export const addPersonasInputSchema = z
-	.object({ personas: z.array(personaCreateSchema).min(1).max(100) })
-	.strict();
+export const addPersonasInputSchema = z.strictObject({
+	personas: z.array(personaCreateSchema).min(1).max(100),
+});
 
-export const updatePersonaInputSchema = z
-	.object({
-		uuid: uuidSchema,
-		name: z.string().min(1).optional(),
-		description: z.string().min(1).nullable().optional(),
-		userTypeUuid: uuidSchema.nullable().optional(),
-		valuePatch: valuePatchInputSchema,
-		locationUuids: personaLocationUuidsSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Replace this persona's places, primary first; null clears the assignment.",
-			),
-	})
-	.strict();
+export const updatePersonaInputSchema = z.strictObject({
+	uuid: uuidSchema,
+	name: z.string().min(1).optional(),
+	description: z.string().min(1).nullable().optional(),
+	userTypeUuid: uuidSchema.nullable().optional(),
+	valuePatch: valuePatchInputSchema,
+	locationUuids: personaLocationUuidsSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Replace this persona's places, primary first; null clears the assignment.",
+		),
+});
 
-export const removePersonaInputSchema = z.object({ uuid: uuidSchema }).strict();
-export const getUsersInputSchema = z.object({}).strict();
+export const removePersonaInputSchema = z.strictObject({ uuid: uuidSchema });
+export const getUsersInputSchema = z.strictObject({});
 
 interface UserResultFacts {
 	clearedValues?: { roles: string[]; personas: string[] };

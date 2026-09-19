@@ -31,14 +31,12 @@ import { requireProjectAccess } from "../ownership";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-const listMembersInputSchema = z
-	.object({
-		project_id: z
-			.string()
-			.min(1)
-			.describe("The Project whose members to list, from list_projects."),
-	})
-	.strict();
+const listMembersInputSchema = z.strictObject({
+	project_id: z
+		.string()
+		.min(1)
+		.describe("The Project whose members to list, from list_projects."),
+});
 
 /** One member row on the wire. */
 interface MemberBody {

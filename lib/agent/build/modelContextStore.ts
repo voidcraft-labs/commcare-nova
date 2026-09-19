@@ -114,15 +114,13 @@ export interface DurableModelUsageIdentity {
 	readonly stepKey: string;
 }
 
-const modelStepAdmissionSchema = z
-	.object({
-		actorUserId: z.string(),
-		runId: z.string(),
-		holderDigest: z.string(),
-		projectId: z.string(),
-		billingPeriod: z.string(),
-	})
-	.strict();
+const modelStepAdmissionSchema = z.strictObject({
+	actorUserId: z.string(),
+	runId: z.string(),
+	holderDigest: z.string(),
+	projectId: z.string(),
+	billingPeriod: z.string(),
+});
 
 export type DesignModelStepEvent =
 	| {

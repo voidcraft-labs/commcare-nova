@@ -10,15 +10,13 @@
 import { z } from "zod";
 import { blueprintDocSchema } from "@/lib/domain";
 
-export const appReadSnapshotSchema = z
-	.object({
-		projectId: z.string().min(1),
-		role: z.string().min(1),
-		canEdit: z.boolean(),
-		blueprint: blueprintDocSchema,
-		baseSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
-	})
-	.strict();
+export const appReadSnapshotSchema = z.strictObject({
+	projectId: z.string().min(1),
+	role: z.string().min(1),
+	canEdit: z.boolean(),
+	blueprint: blueprintDocSchema,
+	baseSeq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+});
 
 export type AppReadSnapshot = z.infer<typeof appReadSnapshotSchema>;
 

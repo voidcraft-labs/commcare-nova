@@ -89,57 +89,55 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-const createModuleFormSchema = z
-	.object({
-		formUuid: uuidSchema
-			.optional()
-			.describe(
-				"Stable UUID for this new form. Omit when nothing in the call references it.",
-			),
-		name: z.string().min(1).describe("Form display name"),
-		recordName: xpathExpressionSchema
-			.optional()
-			.describe(
-				"Name of the record this form creates or updates, using an answer or an expression.",
-			),
+const createModuleFormSchema = z.strictObject({
+	formUuid: uuidSchema
+		.optional()
+		.describe(
+			"Stable UUID for this new form. Omit when nothing in the call references it.",
+		),
+	name: z.string().min(1).describe("Form display name"),
+	recordName: xpathExpressionSchema
+		.optional()
+		.describe(
+			"Name of the record this form creates or updates, using an answer or an expression.",
+		),
 
-		type: z
-			.enum(FORM_TYPES)
-			.describe(
-				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
-			),
-		fields: z
-			.array(addFieldsItemSchema)
-			.min(1)
-			.describe(
-				"The form's fields, in order (same per-field shape as addFields). Set recordName for registration.",
-			),
-		purpose: z
-			.string()
-			.min(1)
-			.nullable()
-			.optional()
-			.describe(
-				"Brief description of what this form collects and why. null when there's nothing to add.",
-			),
-		post_submit: z
-			.enum(POST_SUBMIT_DESTINATIONS)
-			.nullable()
-			.optional()
-			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
-			),
-		close_condition: closeConditionInputSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Close the case when this form's answer matches. Close forms only; null makes closing unconditional.",
-			),
-	})
-	.strict();
+	type: z
+		.enum(FORM_TYPES)
+		.describe(
+			'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
+		),
+	fields: z
+		.array(addFieldsItemSchema)
+		.min(1)
+		.describe(
+			"The form's fields, in order (same per-field shape as addFields). Set recordName for registration.",
+		),
+	purpose: z
+		.string()
+		.min(1)
+		.nullable()
+		.optional()
+		.describe(
+			"Brief description of what this form collects and why. null when there's nothing to add.",
+		),
+	post_submit: z
+		.enum(POST_SUBMIT_DESTINATIONS)
+		.nullable()
+		.optional()
+		.describe(
+			'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
+		),
+	close_condition: closeConditionInputSchema
+		.nullable()
+		.optional()
+		.describe(
+			"Close the case when this form's answer matches. Close forms only; null makes closing unconditional.",
+		),
+});
 
 export const createModuleInputSchema = z
-	.object({
+	.strictObject({
 		moduleUuid: uuidSchema
 			.optional()
 			.describe(
@@ -200,7 +198,6 @@ export const createModuleInputSchema = z
 				'How workers choose cases from Results when this module is created. Pass `{ kind: "multiple", maximum: N }` only when the module has a case type and at least one follow-up or close form. N is an integer from 1 through 100. Omit or pass null for one case at a time.',
 			),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		if (
 			input.case_type != null &&

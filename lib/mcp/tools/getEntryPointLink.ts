@@ -19,22 +19,18 @@ export function registerGetEntryPointLink(
 		{
 			description:
 				"Create a deep link after freshly checking the published entry point against the exact released build on CommCare HQ. Supply case IDs from that HQ project space, never Nova Preview case IDs. The public URL follows HQ's build selection when opened; it is not pinned to the checked release and a recipient's latest-build policy can select another build. This operation reads HQ and records its observation in Nova, so it requires HQ write scope and edit access. It never opens the link or executes case claims.",
-			inputSchema: z
-				.object({
-					app_id: shapes.appId,
-					server: shapes.server,
-					domain: shapes.domain,
-					entry_point_uuid: shapes.entryPointUuid,
-					selections: z.array(
-						z
-							.object({
-								module_uuid: selection.moduleUuid,
-								case_ids: selection.caseIds,
-							})
-							.strict(),
-					),
-				})
-				.strict(),
+			inputSchema: z.strictObject({
+				app_id: shapes.appId,
+				server: shapes.server,
+				domain: shapes.domain,
+				entry_point_uuid: shapes.entryPointUuid,
+				selections: z.array(
+					z.strictObject({
+						module_uuid: selection.moduleUuid,
+						case_ids: selection.caseIds,
+					}),
+				),
+			}),
 		},
 		async (args) => {
 			try {

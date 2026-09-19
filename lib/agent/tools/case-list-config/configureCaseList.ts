@@ -61,7 +61,7 @@ import {
 const configureSearchDisplaySchema = setCaseSearchDisplayBodySchema.partial();
 
 export const configureCaseListInputSchema = z
-	.object({
+	.strictObject({
 		...moduleAddressSchema.shape,
 		columns: z
 			.array(columnInputSchema)
@@ -106,7 +106,6 @@ export const configureCaseListInputSchema = z
 				"Complete search-input order after additions, using existing UUIDs and any declared searchInputUuid values from this call.",
 			),
 	})
-	.strict()
 	.superRefine((input, ctx) => {
 		const displaySlots = displaySlotsPresent(input);
 		if (

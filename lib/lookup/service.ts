@@ -201,16 +201,14 @@ export const LOOKUP_AUTHORING_ROW_PAGE_MAX_BYTES = 70_000;
 function jsonBytes(value: unknown): number {
 	return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
-const lookupRowsCursorSchema = z
-	.object({
-		v: z.literal(2),
-		projectId: z.string().min(1),
-		tableId: lookupTableIdSchema,
-		tableRevision: z.string(),
-		requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
-		offset: z.number().int().nonnegative().max(LOOKUP_MAX_ROWS),
-	})
-	.strict();
+const lookupRowsCursorSchema = z.strictObject({
+	v: z.literal(2),
+	projectId: z.string().min(1),
+	tableId: lookupTableIdSchema,
+	tableRevision: z.string(),
+	requestDigest: z.string().regex(/^[a-f0-9]{64}$/),
+	offset: z.number().int().nonnegative().max(LOOKUP_MAX_ROWS),
+});
 
 function lookupRowsRequestDigest(input: {
 	readonly query: string;
@@ -231,7 +229,7 @@ function normalizedPageInput(input: LookupRowsPageInput): {
 	cursor?: string;
 } {
 	const parsed = z
-		.object({
+		.strictObject({
 			tableId: lookupTableIdSchema,
 			query: z.string().trim().max(200).optional(),
 			columnIds: z
@@ -240,7 +238,6 @@ function normalizedPageInput(input: LookupRowsPageInput): {
 				.optional(),
 			cursor: z.string().min(1).max(4096).optional(),
 		})
-		.strict()
 		.safeParse(input);
 	if (!parsed.success) {
 		throw new LookupError(

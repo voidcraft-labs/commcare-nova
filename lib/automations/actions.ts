@@ -52,13 +52,11 @@ export type AutomationPreviewResult =
 			readonly message: string;
 	  };
 
-const inputSchema = z
-	.object({
-		appId: z.string().trim().min(1).max(255),
-		automationUuid: uuidSchema,
-		expectedAutomation: automationSchema,
-	})
-	.strict();
+const inputSchema = z.strictObject({
+	appId: z.string().trim().min(1).max(255),
+	automationUuid: uuidSchema,
+	expectedAutomation: automationSchema,
+});
 
 /**
  * Authoritative Preview projection for one saved automation.

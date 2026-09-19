@@ -6,22 +6,20 @@ import { AUTHORED_CASE_ID_VERSION } from "@/lib/domain";
  * text-wide storage identity family; this request shape has no live consumer
  * yet — the envelope executor's expression-target arms resolve rows
  * server-side and validate the resulting descriptors directly. */
-export const caseOperationTargetRequestSchema = z
-	.object({ caseId: z.string().min(1) })
-	.strict();
+export const caseOperationTargetRequestSchema = z.strictObject({
+	caseId: z.string().min(1),
+});
 
 export type CaseOperationTargetRequest = z.infer<
 	typeof caseOperationTargetRequestSchema
 >;
 
 /** Server-resolved row facts loaded under the app's tenant boundary. */
-export const caseOperationTargetDescriptorSchema = z
-	.object({
-		caseId: z.string().min(1),
-		caseType: z.string().min(1),
-		projectId: z.string().min(1),
-	})
-	.strict();
+export const caseOperationTargetDescriptorSchema = z.strictObject({
+	caseId: z.string().min(1),
+	caseType: z.string().min(1),
+	projectId: z.string().min(1),
+});
 
 export type CaseOperationTargetDescriptor = z.infer<
 	typeof caseOperationTargetDescriptorSchema

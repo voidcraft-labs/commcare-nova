@@ -17,11 +17,9 @@
 import { z } from "zod";
 import { APP_LIFECYCLE_STATUSES } from "@/lib/db/types";
 
-export const appStatusFrameSchema = z
-	.object({
-		status: z.enum(APP_LIFECYCLE_STATUSES),
-	})
-	.strict();
+export const appStatusFrameSchema = z.strictObject({
+	status: z.enum(APP_LIFECYCLE_STATUSES),
+});
 
 export type AppStatusFrame = z.infer<typeof appStatusFrameSchema>;
 

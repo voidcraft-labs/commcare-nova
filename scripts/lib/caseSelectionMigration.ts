@@ -40,28 +40,25 @@ import {
 import { loadAuthoringMigrationApp } from "./repairAuthoringBaselines";
 
 const ACTOR = "system:case-selection-cutover";
-const routeSchema = z
-	.object({ moduleUuid: uuidSchema, parentModuleUuid: uuidSchema })
-	.strict();
-const entrySchema = z
-	.object({
-		appId: z.string().min(1),
-		projectId: z.string().min(1),
-		baseSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-		baseDigest: z.string(),
-		targetDigest: z.string(),
-		mutationDigest: z.string(),
-		routes: z.array(routeSchema),
-		refusals: z.array(z.string()),
-	})
-	.strict();
-const bodySchema = z
-	.object({
-		format: z.literal("explicit-case-selection-1"),
-		sourceRevision: z.string().min(1),
-		entries: z.array(entrySchema),
-	})
-	.strict();
+const routeSchema = z.strictObject({
+	moduleUuid: uuidSchema,
+	parentModuleUuid: uuidSchema,
+});
+const entrySchema = z.strictObject({
+	appId: z.string().min(1),
+	projectId: z.string().min(1),
+	baseSeq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+	baseDigest: z.string(),
+	targetDigest: z.string(),
+	mutationDigest: z.string(),
+	routes: z.array(routeSchema),
+	refusals: z.array(z.string()),
+});
+const bodySchema = z.strictObject({
+	format: z.literal("explicit-case-selection-1"),
+	sourceRevision: z.string().min(1),
+	entries: z.array(entrySchema),
+});
 export const caseSelectionManifestSchema = bodySchema
 	.extend({ digest: z.string() })
 	.strict();

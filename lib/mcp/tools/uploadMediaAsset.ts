@@ -107,35 +107,33 @@ function withUploadPermission<T>(
  * lands in the caller's personal Project (resolved from `ctx.userId` via
  * `ensurePersonalProject`).
  */
-export const uploadMediaAssetInputSchema = z
-	.object({
-		filename: z
-			.string()
-			.min(1)
-			.max(255)
-			.describe(
-				"The file's name including its extension (e.g. `clinic-logo.png`). The extension is pre-screened and must match the file's real format.",
-			),
-		mime_type: z
-			.string()
-			.min(1)
-			.describe(
-				"The file's MIME type (e.g. `image/png`, `audio/mpeg`, `video/mp4`). Checked against the file's real bytes, a mismatch is rejected.",
-			),
-		data_base64: z
-			.string()
-			.min(1)
-			.max(MAX_INLINE_BASE64_CHARS)
-			.describe("The file's full contents, base64-encoded."),
-		project_id: z
-			.string()
-			.min(1)
-			.optional()
-			.describe(
-				"Optional Project whose media library receives the file, from list_projects. Requires an editor or higher role there. Omitted, the file lands in your personal Project's library. Media is Project-scoped, so use the Project of the app that will reference it.",
-			),
-	})
-	.strict();
+export const uploadMediaAssetInputSchema = z.strictObject({
+	filename: z
+		.string()
+		.min(1)
+		.max(255)
+		.describe(
+			"The file's name including its extension (e.g. `clinic-logo.png`). The extension is pre-screened and must match the file's real format.",
+		),
+	mime_type: z
+		.string()
+		.min(1)
+		.describe(
+			"The file's MIME type (e.g. `image/png`, `audio/mpeg`, `video/mp4`). Checked against the file's real bytes, a mismatch is rejected.",
+		),
+	data_base64: z
+		.string()
+		.min(1)
+		.max(MAX_INLINE_BASE64_CHARS)
+		.describe("The file's full contents, base64-encoded."),
+	project_id: z
+		.string()
+		.min(1)
+		.optional()
+		.describe(
+			"Optional Project whose media library receives the file, from list_projects. Requires an editor or higher role there. Omitted, the file lands in your personal Project's library. Media is Project-scoped, so use the Project of the app that will reference it.",
+		),
+});
 
 /**
  * Register the `upload_media_asset` tool on an `McpServer`.

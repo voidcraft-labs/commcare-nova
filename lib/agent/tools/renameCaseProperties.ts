@@ -28,28 +28,24 @@ import type {
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
 
-const renameCasePropertyEntrySchema = z
-	.object({
-		caseType: z.string().min(1).describe("Case type that owns the property."),
-		from: authoredCasePropertyNameSchema.describe(
-			"Current property name. It must exist on this case type.",
-		),
-		to: authoredCasePropertyNameSchema.describe(
-			"Resulting property name. An occupied destination must also move in this same relation.",
-		),
-	})
-	.strict();
+const renameCasePropertyEntrySchema = z.strictObject({
+	caseType: z.string().min(1).describe("Case type that owns the property."),
+	from: authoredCasePropertyNameSchema.describe(
+		"Current property name. It must exist on this case type.",
+	),
+	to: authoredCasePropertyNameSchema.describe(
+		"Resulting property name. An occupied destination must also move in this same relation.",
+	),
+});
 
-export const renameCasePropertiesInputSchema = z
-	.object({
-		renames: z
-			.array(renameCasePropertyEntrySchema)
-			.min(1)
-			.describe(
-				"Complete simultaneous rename relation. Sources and destinations must each be unique per case type. Chains, swaps, and cycles are valid; merges and overwrites are not.",
-			),
-	})
-	.strict();
+export const renameCasePropertiesInputSchema = z.strictObject({
+	renames: z
+		.array(renameCasePropertyEntrySchema)
+		.min(1)
+		.describe(
+			"Complete simultaneous rename relation. Sources and destinations must each be unique per case type. Chains, swaps, and cycles are valid; merges and overwrites are not.",
+		),
+});
 
 export type RenameCasePropertiesInput = z.infer<
 	typeof renameCasePropertiesInputSchema

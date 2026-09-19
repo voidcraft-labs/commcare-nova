@@ -47,21 +47,19 @@ import {
 import { log } from "@/lib/logger";
 import { createSignedUploadUrl } from "@/lib/storage/media";
 
-const requestBodySchema = z
-	.object({
-		/** One form entry: the attachment-attempt scope. Client-minted per
-		 *  `activateForm`, and only ever a selector within the caller's own
-		 *  rows, never authority. */
-		entryKey: z.uuid(),
-		/** The capture question this answers. Its kind is read from the
-		 *  committed blueprint, never taken from the request. */
-		fieldUuid: uuidSchema,
-		/** Concrete engine path, so a replace targets one repeat instance. */
-		instancePath: z.string().min(1).max(1024),
-		filename: z.string().min(1).max(255),
-		sizeBytes: z.number().int().positive(),
-	})
-	.strict();
+const requestBodySchema = z.strictObject({
+	/** One form entry: the attachment-attempt scope. Client-minted per
+	 *  `activateForm`, and only ever a selector within the caller's own
+	 *  rows, never authority. */
+	entryKey: z.uuid(),
+	/** The capture question this answers. Its kind is read from the
+	 *  committed blueprint, never taken from the request. */
+	fieldUuid: uuidSchema,
+	/** Concrete engine path, so a replace targets one repeat instance. */
+	instancePath: z.string().min(1).max(1024),
+	filename: z.string().min(1).max(255),
+	sizeBytes: z.number().int().positive(),
+});
 
 /** Metadata only: two uuids, a path, a filename, a number. 4 KB is
  *  generous and keeps a large body from being buffered and parsed before

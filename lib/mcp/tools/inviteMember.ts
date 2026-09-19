@@ -42,25 +42,23 @@ import type { ToolContext } from "../types";
  * The role enum reuses the manage layer's assignable set, so the schema
  * can't drift from the authority that enforces it.
  */
-const inviteMemberInputSchema = z
-	.object({
-		project_id: z
-			.string()
-			.min(1)
-			.describe("The Project to invite into, from list_projects."),
-		email: z
-			.string()
-			.min(1)
-			.describe(
-				"The invitee's email address. Invitations are limited to Dimagi addresses.",
-			),
-		role: z
-			.enum(ASSIGNABLE_PROJECT_ROLES)
-			.describe(
-				"The role the invitee holds on accepting: viewer (read only), editor (edit apps and data), or admin (also manage members). Owner isn't assignable; the creator stays the one owner.",
-			),
-	})
-	.strict();
+const inviteMemberInputSchema = z.strictObject({
+	project_id: z
+		.string()
+		.min(1)
+		.describe("The Project to invite into, from list_projects."),
+	email: z
+		.string()
+		.min(1)
+		.describe(
+			"The invitee's email address. Invitations are limited to Dimagi addresses.",
+		),
+	role: z
+		.enum(ASSIGNABLE_PROJECT_ROLES)
+		.describe(
+			"The role the invitee holds on accepting: viewer (read only), editor (edit apps and data), or admin (also manage members). Owner isn't assignable; the creator stays the one owner.",
+		),
+});
 
 /**
  * Register the `invite_member` tool on an `McpServer`.

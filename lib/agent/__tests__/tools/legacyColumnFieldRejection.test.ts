@@ -39,7 +39,7 @@ describe("updateModule legacy column field rejection", () => {
 	});
 
 	it("input schema rejects the legacy undiscriminated column shape", () => {
-		// The schema is `.strict()`, so a stale LLM-emitted payload
+		// The schema is strict, so a stale LLM-emitted payload
 		// carrying the legacy field fails to parse rather than stripping
 		// silently. The behavioral guard is now at the parse boundary —
 		// the tool body never sees the legacy shape.

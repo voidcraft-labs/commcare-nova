@@ -19,11 +19,9 @@
 
 import { z } from "zod";
 
-export const previewProjectSpaceFrameSchema = z
-	.object({
-		projectSpace: z.string().min(1).nullable(),
-	})
-	.strict();
+export const previewProjectSpaceFrameSchema = z.strictObject({
+	projectSpace: z.string().min(1).nullable(),
+});
 
 export type PreviewProjectSpaceFrame = z.infer<
 	typeof previewProjectSpaceFrameSchema

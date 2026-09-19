@@ -6,12 +6,10 @@ export const getEntryPointLinkSchema = deploymentTargetSchema
 	.extend({
 		entryPointUuid: uuidSchema,
 		selections: z.array(
-			z
-				.object({
-					moduleUuid: uuidSchema,
-					caseIds: z.array(z.string().min(1)).min(1),
-				})
-				.strict(),
+			z.strictObject({
+				moduleUuid: uuidSchema,
+				caseIds: z.array(z.string().min(1)).min(1),
+			}),
 		),
 	})
 	.strict();

@@ -208,12 +208,10 @@ export async function moveLocationAction(
 	target: unknown,
 	expectedRevision: string,
 ): Promise<OrganizationResult<{ location: StoredLocation; revision: string }>> {
-	const targetSchema = z
-		.object({
-			parentId: uuidSchema.nullable(),
-			afterSiblingId: uuidSchema.nullable().optional(),
-		})
-		.strict();
+	const targetSchema = z.strictObject({
+		parentId: uuidSchema.nullable(),
+		afterSiblingId: uuidSchema.nullable().optional(),
+	});
 	return withScope(appId, async (scope) =>
 		moveLocation(
 			scope,

@@ -620,7 +620,7 @@ function partialOf<
 				: value,
 		]),
 	);
-	return z.object(nullableShape).partial().strict() as unknown as z.ZodObject<{
+	return z.strictObject(nullableShape).partial() as unknown as z.ZodObject<{
 		[K in Exclude<keyof S, "uuid" | "kind">]: z.ZodOptional<
 			undefined extends z.output<S[K]> ? z.ZodNullable<S[K]> : S[K]
 		>;

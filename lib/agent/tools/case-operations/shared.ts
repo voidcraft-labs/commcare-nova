@@ -72,34 +72,26 @@ const linkIdInputSchema = z
 		ctx.addIssue({ code: "custom", message: verdict.userMessage });
 	});
 
-const newTargetInputSchema = z
-	.object({
-		kind: z.literal("new"),
-		idFrom: uuidSchema
-			.optional()
-			.describe(
-				"Optional field UUID whose answer deterministically keys the case",
-			),
-	})
-	.strict();
+const newTargetInputSchema = z.strictObject({
+	kind: z.literal("new"),
+	idFrom: uuidSchema
+		.optional()
+		.describe(
+			"Optional field UUID whose answer deterministically keys the case",
+		),
+});
 
-const operationTargetInputSchema = z
-	.object({
-		kind: z.literal("op"),
-		opUuid: uuidSchema.describe("UUID of an earlier create operation"),
-	})
-	.strict();
+const operationTargetInputSchema = z.strictObject({
+	kind: z.literal("op"),
+	opUuid: uuidSchema.describe("UUID of an earlier create operation"),
+});
 
-const sessionTargetInputSchema = z
-	.object({ kind: z.literal("session") })
-	.strict();
+const sessionTargetInputSchema = z.strictObject({ kind: z.literal("session") });
 
-const expressionTargetInputSchema = z
-	.object({
-		kind: z.literal("expression"),
-		expr: valueExpressionSchema,
-	})
-	.strict();
+const expressionTargetInputSchema = z.strictObject({
+	kind: z.literal("expression"),
+	expr: valueExpressionSchema,
+});
 
 const existingTargetInputSchema = z.discriminatedUnion("kind", [
 	operationTargetInputSchema,
@@ -107,22 +99,18 @@ const existingTargetInputSchema = z.discriminatedUnion("kind", [
 	expressionTargetInputSchema,
 ]);
 
-const writeInputSchema = z
-	.object({
-		property: propertyInputSchema,
-		value: valueExpressionSchema,
-		condition: predicateSchema.optional(),
-	})
-	.strict();
+const writeInputSchema = z.strictObject({
+	property: propertyInputSchema,
+	value: valueExpressionSchema,
+	condition: predicateSchema.optional(),
+});
 
-const linkInputSchema = z
-	.object({
-		identifier: linkIdInputSchema,
-		targetType: caseTypeInputSchema,
-		target: existingTargetInputSchema.nullable(),
-		relationship: z.enum(["child", "extension"]),
-	})
-	.strict();
+const linkInputSchema = z.strictObject({
+	identifier: linkIdInputSchema,
+	targetType: caseTypeInputSchema,
+	target: existingTargetInputSchema.nullable(),
+	relationship: z.enum(["child", "extension"]),
+});
 
 function uniqueMemberNames(
 	items: readonly Record<string, unknown>[] | undefined,
@@ -145,15 +133,14 @@ function uniqueMemberNames(
 }
 
 const createOperationInputSchema = z
-	.object({
+	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("create"),
 		caseType: caseTypeInputSchema,
 		target: newTargetInputSchema,
 		condition: predicateSchema.optional(),
 		forEach: z
-			.object({ repeat: uuidSchema })
-			.strict()
+			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		name: valueExpressionSchema,
@@ -161,22 +148,20 @@ const createOperationInputSchema = z
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
 	})
-	.strict()
 	.superRefine((value, ctx) => {
 		uniqueMemberNames(value.writes, "property", ctx);
 		uniqueMemberNames(value.links, "identifier", ctx);
 	});
 
 const updateOperationInputSchema = z
-	.object({
+	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("update"),
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
 		condition: predicateSchema.optional(),
 		forEach: z
-			.object({ repeat: uuidSchema })
-			.strict()
+			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		owner: valueExpressionSchema.optional(),
@@ -185,27 +170,24 @@ const updateOperationInputSchema = z
 		writes: z.array(writeInputSchema).optional(),
 		links: z.array(linkInputSchema).optional(),
 	})
-	.strict()
 	.superRefine((value, ctx) => {
 		uniqueMemberNames(value.writes, "property", ctx);
 		uniqueMemberNames(value.links, "identifier", ctx);
 	});
 
 const closeOperationInputSchema = z
-	.object({
+	.strictObject({
 		id: operationIdInputSchema,
 		action: z.literal("close"),
 		caseType: caseTypeInputSchema,
 		target: existingTargetInputSchema,
 		condition: predicateSchema.optional(),
 		forEach: z
-			.object({ repeat: uuidSchema })
-			.strict()
+			.strictObject({ repeat: uuidSchema })
 			.optional()
 			.describe("Repeat field UUID; omit to run once per submission"),
 		writes: z.array(writeInputSchema).optional(),
 	})
-	.strict()
 	.superRefine((value, ctx) => {
 		uniqueMemberNames(value.writes, "property", ctx);
 	});

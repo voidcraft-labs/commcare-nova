@@ -8,21 +8,18 @@ const captureSubmissionProjectionSchema = z.object({
 	formUuid: uuidSchema,
 	attachmentRefs: z
 		.array(
-			z
-				.object({
-					attachmentName: z.string().min(1).max(255),
-					fieldUuid: uuidSchema,
-					instancePath: z.string().min(1).max(1024),
-				})
-				.strict(),
+			z.strictObject({
+				attachmentName: z.string().min(1).max(255),
+				fieldUuid: uuidSchema,
+				instancePath: z.string().min(1).max(1024),
+			}),
 		)
 		.max(MAX_SUBMITTED_CAPTURE_COUNT),
 	closeConditionAnswers: z
-		.object({
+		.strictObject({
 			fieldUuid: uuidSchema,
 			values: z.array(z.string()),
 		})
-		.strict()
 		.optional(),
 });
 

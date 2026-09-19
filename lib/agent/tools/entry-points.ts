@@ -27,59 +27,54 @@ import {
 } from "./common";
 import type { MutationSuccess } from "./shared/toolCallSummary";
 
-export const getEntryPointsInputSchema = z.object({}).strict();
-export const addEntryPointInputSchema = z
-	.object({
-		target: entryPointTargetSchema.describe(
-			"The module, case list, or form destination, addressed by its owning UUIDs.",
+export const getEntryPointsInputSchema = z.strictObject({});
+export const addEntryPointInputSchema = z.strictObject({
+	target: entryPointTargetSchema.describe(
+		"The module, case list, or form destination, addressed by its owning UUIDs.",
+	),
+	entryPointUuid: uuidSchema
+		.optional()
+		.describe(
+			"Stable identity to predeclare when another operation needs it; otherwise Nova mints it.",
 		),
-		entryPointUuid: uuidSchema
-			.optional()
-			.describe(
-				"Stable identity to predeclare when another operation needs it; otherwise Nova mints it.",
-			),
-		id: entryPointIdSchema
-			.optional()
-			.describe(
-				"Optional stable external link ID. Omit to generate it from the destination name. Later destination renames never change it.",
-			),
-		ignoreDisplayConditions: z
-			.literal(true)
-			.nullable()
-			.optional()
-			.describe(
-				"Form destinations only: true lets this link open content hidden by display conditions. It never grants access to a Project or case. Omit or null to respect conditions.",
-			),
-	})
-	.strict();
-export const updateEntryPointInputSchema = z
-	.object({
-		entryPointUuid: uuidSchema,
-		patch: z
-			.object({
-				id: entryPointIdSchema
-					.optional()
-					.describe(
-						"Changing this external ID can break distributed links. Keep it unless the user intends that change.",
-					),
-				ignoreDisplayConditions: z
-					.literal(true)
-					.nullable()
-					.optional()
-					.describe(
-						"Form destinations only. True bypasses display conditions on this entry; null restores ordinary condition checks; omission keeps the setting.",
-					),
-			})
-			.strict()
-			.refine(
-				(patch) => Object.keys(patch).length > 0,
-				"Supply at least one change.",
-			),
-	})
-	.strict();
-export const removeEntryPointInputSchema = z
-	.object({ entryPointUuid: uuidSchema })
-	.strict();
+	id: entryPointIdSchema
+		.optional()
+		.describe(
+			"Optional stable external link ID. Omit to generate it from the destination name. Later destination renames never change it.",
+		),
+	ignoreDisplayConditions: z
+		.literal(true)
+		.nullable()
+		.optional()
+		.describe(
+			"Form destinations only: true lets this link open content hidden by display conditions. It never grants access to a Project or case. Omit or null to respect conditions.",
+		),
+});
+export const updateEntryPointInputSchema = z.strictObject({
+	entryPointUuid: uuidSchema,
+	patch: z
+		.strictObject({
+			id: entryPointIdSchema
+				.optional()
+				.describe(
+					"Changing this external ID can break distributed links. Keep it unless the user intends that change.",
+				),
+			ignoreDisplayConditions: z
+				.literal(true)
+				.nullable()
+				.optional()
+				.describe(
+					"Form destinations only. True bypasses display conditions on this entry; null restores ordinary condition checks; omission keeps the setting.",
+				),
+		})
+		.refine(
+			(patch) => Object.keys(patch).length > 0,
+			"Supply at least one change.",
+		),
+});
+export const removeEntryPointInputSchema = z.strictObject({
+	entryPointUuid: uuidSchema,
+});
 
 type EntryPointMutationResult =
 	| (MutationSuccess & { entryPointUuid: Uuid })

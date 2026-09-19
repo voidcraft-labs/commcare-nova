@@ -42,24 +42,22 @@ import {
 	mediaAssetIdSchema,
 } from "@/lib/domain/multimedia";
 
-const querySchema = z
-	.object({
-		// Repeated `?kind=` collects into an array; each must be an accepted kind.
-		// `[]` (no param) means "every kind": passed through as no filter.
-		kinds: z.array(z.enum(ASSET_KINDS)),
-		cursor: z.string().optional(),
-		query: z.string().max(200).optional(),
-		// Repeated `?id=` switches to resolve mode. Capped at the export-asset
-		// ceiling: a doc can't reference more exportable assets than that, so
-		// a larger request is malformed, and the cap bounds the row set loaded
-		// in one query the same way the boundary's pre-load cap does.
-		ids: z.array(mediaAssetIdSchema).max(MAX_MEDIA_EXPORT_ASSETS),
-		// Present when listing within an app context (the builder media pickers):
-		// scopes to the app's Project. Absent for the personal file manager,
-		// which scopes to the caller's active Project.
-		appId: z.string().min(1).optional(),
-	})
-	.strict();
+const querySchema = z.strictObject({
+	// Repeated `?kind=` collects into an array; each must be an accepted kind.
+	// `[]` (no param) means "every kind": passed through as no filter.
+	kinds: z.array(z.enum(ASSET_KINDS)),
+	cursor: z.string().optional(),
+	query: z.string().max(200).optional(),
+	// Repeated `?id=` switches to resolve mode. Capped at the export-asset
+	// ceiling: a doc can't reference more exportable assets than that, so
+	// a larger request is malformed, and the cap bounds the row set loaded
+	// in one query the same way the boundary's pre-load cap does.
+	ids: z.array(mediaAssetIdSchema).max(MAX_MEDIA_EXPORT_ASSETS),
+	// Present when listing within an app context (the builder media pickers):
+	// scopes to the app's Project. Absent for the personal file manager,
+	// which scopes to the caller's active Project.
+	appId: z.string().min(1).optional(),
+});
 
 export async function GET(req: NextRequest) {
 	try {

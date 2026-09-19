@@ -46,17 +46,15 @@ import { locationSchema } from "@/lib/routing/types";
 const sessionIdSchema = z.uuid();
 
 /** The client-supplied half of a presence upsert (`userId` is server-stamped). */
-const presenceBodySchema = z
-	.object({
-		sessionId: sessionIdSchema,
-		name: z.string(),
-		color: z.string(),
-		location: locationSchema,
-	})
-	.strict();
+const presenceBodySchema = z.strictObject({
+	sessionId: sessionIdSchema,
+	name: z.string(),
+	color: z.string(),
+	location: locationSchema,
+});
 
 /** The client-supplied half of a presence delete (`userId` is server-stamped). */
-const presenceDeleteSchema = z.object({ sessionId: sessionIdSchema }).strict();
+const presenceDeleteSchema = z.strictObject({ sessionId: sessionIdSchema });
 
 /** Authoritative all-or-nothing roster refetch used after a malformed current
  * SSE presence frame. It refreshes presence only; no Blueprint cursor or

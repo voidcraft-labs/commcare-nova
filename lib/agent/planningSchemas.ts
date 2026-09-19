@@ -68,17 +68,15 @@ const SELECT_DATA_TYPES: ReadonlySet<string> = new Set([
 	"multi_select",
 ]);
 
-const selectOptionDescribed = z
-	.object({
-		value: selectOptionValueSchema,
-		label: proseTemplateSchema.describe(
-			"Option label shown to the user. Put the wording here, never in `value`.",
-		),
-	})
-	.strict();
+const selectOptionDescribed = z.strictObject({
+	value: selectOptionValueSchema,
+	label: proseTemplateSchema.describe(
+		"Option label shown to the user. Put the wording here, never in `value`.",
+	),
+});
 
 export const casePropertyInputSchema = z
-	.object({
+	.strictObject({
 		name: authoredCasePropertyNameSchema.describe(
 			"Property name in snake_case. " +
 				`Must NOT be a reserved word: ${RESERVED_CASE_PROPERTIES}. ` +
@@ -128,7 +126,6 @@ export const casePropertyInputSchema = z
 				"Options for single_select/multi_select properties. null for every other data_type.",
 			),
 	})
-	.strict()
 	.superRefine((prop, ctx) => {
 		if (prop.validation_msg && !prop.validation) {
 			ctx.addIssue({
@@ -152,7 +149,7 @@ export const casePropertyInputSchema = z
  * the tool commits it onto the app's case-type catalog.
  */
 export const caseTypeRecordSchema = z
-	.object({
+	.strictObject({
 		name: z
 			.string()
 			.min(1)
@@ -178,7 +175,6 @@ export const caseTypeRecordSchema = z
 				'"child" (default) or "extension". Only meaningful alongside parent_type; null on a standalone case type. Use "extension" when the child should prevent the parent from being closed.',
 			),
 	})
-	.strict()
 	.superRefine((record, ctx) => {
 		if (record.relationship && !record.parent_type) {
 			ctx.addIssue({
@@ -248,19 +244,17 @@ export const caseTypesOutputSchema = z.object({
  * for an edit, the doc-plus-batch overlay for a creation, so the
  * condition can name a field landing in the same call).
  */
-export const closeConditionInputSchema = z
-	.object({
-		fieldUuid: uuidSchema.describe("Stable UUID of the field to check."),
-		answer: z.string().describe("Value that triggers closure"),
-		operator: z
-			.enum(["=", "selected"])
-			.nullable()
-			.optional()
-			.describe(
-				'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
-			),
-	})
-	.strict();
+export const closeConditionInputSchema = z.strictObject({
+	fieldUuid: uuidSchema.describe("Stable UUID of the field to check."),
+	answer: z.string().describe("Value that triggers closure"),
+	operator: z
+		.enum(["=", "selected"])
+		.nullable()
+		.optional()
+		.describe(
+			'"=" for exact match (default — null uses it). "selected" for multi-select fields.',
+		),
+});
 
 // ── Per-form Connect block ──────────────────────────────────────────
 
@@ -286,100 +280,94 @@ export const closeConditionInputSchema = z
  * so a partial-null patch is meaningful and only the says-nothing
  * all-omitted patch rejects (`connectFormPatchSchema`).
  */
-const connectFormConfigShape = z
-	.object({
-		learn_module: z
-			.object({
-				id: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe(CONNECT_ID_FIELD_DESCRIPTION),
-				name: z.string().min(1),
-				description: z.string().min(1),
-				// Match the domain's `connectLearnModuleSchema`: time estimate is
-				// in hours and must be a positive integer. The reducer applies
-				// the patch via `Object.assign` without a Zod re-parse, so the
-				// SA-facing schema is the only gate against `0` / negatives /
-				// floats landing on the persisted doc.
-				time_estimate: z
-					.number()
-					.int("time_estimate must be a whole number of hours.")
-					.min(1, "time_estimate must be at least 1 hour.")
-					.describe(
-						"Estimated whole hours to complete the module's content; round up and use at least 1.",
-					),
-			})
-			.strict()
-			.nullable()
-			.optional()
-			.describe(
-				"Set on forms with educational/training content. null on quiz-only forms.",
-			),
-		assessment: z
-			.object({
-				id: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe(CONNECT_ID_FIELD_DESCRIPTION),
-				user_score: xpathExpressionSchema,
-			})
-			.strict()
-			.nullable()
-			.optional()
-			.describe(
-				"Set on forms with a quiz/test; null on content-only forms. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
-			),
-		deliver_unit: z
-			.object({
-				id: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe(CONNECT_ID_FIELD_DESCRIPTION),
-				name: z.string().min(1),
-				entity_id: xpathExpressionSchema
-					.nullable()
-					.optional()
-					.describe(
-						"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
-					),
-				entity_name: xpathExpressionSchema
-					.nullable()
-					.optional()
-					.describe(
-						"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
-					),
-			})
-			.strict()
-			.nullable()
-			.optional()
-			.describe(
-				"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker.",
-			),
-		task: z
-			.object({
-				id: z
-					.string()
-					.min(1)
-					.nullable()
-					.optional()
-					.describe(CONNECT_ID_FIELD_DESCRIPTION),
-				name: z.string().min(1),
-				description: z.string().min(1),
-			})
-			.strict()
-			.nullable()
-			.optional()
-			.describe(
-				"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
-			),
-	})
-	.strict();
+const connectFormConfigShape = z.strictObject({
+	learn_module: z
+		.strictObject({
+			id: z
+				.string()
+				.min(1)
+				.nullable()
+				.optional()
+				.describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string().min(1),
+			description: z.string().min(1),
+			// Match the domain's `connectLearnModuleSchema`: time estimate is
+			// in hours and must be a positive integer. The reducer applies
+			// the patch via `Object.assign` without a Zod re-parse, so the
+			// SA-facing schema is the only gate against `0` / negatives /
+			// floats landing on the persisted doc.
+			time_estimate: z
+				.number()
+				.int("time_estimate must be a whole number of hours.")
+				.min(1, "time_estimate must be at least 1 hour.")
+				.describe(
+					"Estimated whole hours to complete the module's content; round up and use at least 1.",
+				),
+		})
+		.nullable()
+		.optional()
+		.describe(
+			"Set on forms with educational/training content. null on quiz-only forms.",
+		),
+	assessment: z
+		.strictObject({
+			id: z
+				.string()
+				.min(1)
+				.nullable()
+				.optional()
+				.describe(CONNECT_ID_FIELD_DESCRIPTION),
+			user_score: xpathExpressionSchema,
+		})
+		.nullable()
+		.optional()
+		.describe(
+			"Set on forms with a quiz/test; null on content-only forms. `user_score` is an XPath resolving to the user's score, typically `#form/<hidden_score_field>`.",
+		),
+	deliver_unit: z
+		.strictObject({
+			id: z
+				.string()
+				.min(1)
+				.nullable()
+				.optional()
+				.describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string().min(1),
+			entity_id: xpathExpressionSchema
+				.nullable()
+				.optional()
+				.describe(
+					"XPath dedup key grouping submissions into one paid delivery (CompletedWork). Omit for the daily-aggregate default; override per the Connect guidance in your instructions.",
+				),
+			entity_name: xpathExpressionSchema
+				.nullable()
+				.optional()
+				.describe(
+					"XPath for the human-readable delivery label in Connect dashboards. Display-only; omit for the username default.",
+				),
+		})
+		.nullable()
+		.optional()
+		.describe(
+			"Set on a deliver-app form that counts as a payable delivery; `name` shows in Connect's deliver-unit picker.",
+		),
+	task: z
+		.strictObject({
+			id: z
+				.string()
+				.min(1)
+				.nullable()
+				.optional()
+				.describe(CONNECT_ID_FIELD_DESCRIPTION),
+			name: z.string().min(1),
+			description: z.string().min(1),
+		})
+		.nullable()
+		.optional()
+		.describe(
+			"Optional task description rendered in the Connect mobile UI. Independent of `deliver_unit`.",
+		),
+});
 
 /** The exact-target refinement: null ≡ omitted there, so a participant with
  *  no non-null sub-config opts the form into nothing. */

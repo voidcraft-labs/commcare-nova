@@ -28,16 +28,14 @@ import {
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
-const createProjectInputSchema = z
-	.object({
-		name: z
-			.string()
-			.min(1)
-			.describe(
-				"Display name for the new Project (up to 64 characters after trimming). Name it for the program or team, not the run.",
-			),
-	})
-	.strict();
+const createProjectInputSchema = z.strictObject({
+	name: z
+		.string()
+		.min(1)
+		.describe(
+			"Display name for the new Project (up to 64 characters after trimming). Name it for the program or team, not the run.",
+		),
+});
 
 /**
  * Register the `create_project` tool on an `McpServer`.

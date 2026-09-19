@@ -139,12 +139,11 @@ export async function POST(req: NextRequest, context: RouteContext) {
 		const session = await requireSession(req);
 		const rawParams = await context.params;
 		const parsedRequest = z
-			.object({
+			.strictObject({
 				projectId: projectIdSchema,
 				tableId: lookupTableIdSchema,
 				expectedTableRevision: lookupRevisionSchema,
 			})
-			.strict()
 			.safeParse({
 				...rawParams,
 				expectedTableRevision: req.nextUrl.searchParams.get(
