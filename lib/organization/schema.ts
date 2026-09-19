@@ -120,13 +120,13 @@ export const locationValuesSchema = z
 		locationValueTextSchema,
 	)
 	.refine((values) => Object.keys(values).length <= MAX_LOCATION_VALUES, {
-		message: "A place carries more information than Nova stores for one place.",
+		error: "A place carries more information than Nova stores for one place.",
 	});
 
 const locationValuePatchSchema = z
 	.record(uuidSchema, locationValueTextSchema.nullable())
 	.refine((values) => Object.keys(values).length === 1, {
-		message: "Change exactly one place-information value at a time.",
+		error: "Change exactly one place-information value at a time.",
 	});
 
 const locationNameSchema = z
@@ -135,20 +135,20 @@ const locationNameSchema = z
 	.min(1)
 	.max(LOCATION_NAME_MAX_LENGTH)
 	.refine((value) => !value.includes("\u0000"), {
-		message: "A place name cannot contain a NUL character.",
+		error: "A place name cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "A place name cannot contain an unpaired surrogate.",
+		error: "A place name cannot contain an unpaired surrogate.",
 	});
 
 const externalIdSchema = z
 	.string()
 	.max(EXTERNAL_ID_MAX_LENGTH)
 	.refine((value) => !value.includes("\u0000"), {
-		message: "An external ID cannot contain a NUL character.",
+		error: "An external ID cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "An external ID cannot contain an unpaired surrogate.",
+		error: "An external ID cannot contain an unpaired surrogate.",
 	});
 
 const createLocationValueFields = {
@@ -278,10 +278,10 @@ export const updateLocationInputSchema = z
 	.strict()
 	.refine(
 		(input) => input.values === undefined || input.valuePatch === undefined,
-		{ message: "Use either values or valuePatch, not both." },
+		{ error: "Use either values or valuePatch, not both." },
 	)
 	.refine((input) => Object.keys(input).length > 0, {
-		message: "Change at least one place field.",
+		error: "Change at least one place field.",
 	});
 export type UpdateLocationInput = z.infer<typeof updateLocationInputSchema>;
 
@@ -308,7 +308,7 @@ export const organizationRevisionSchema = z
 			!CANONICAL_DECIMAL.test(value) ||
 			value.length < INT64_MAX.length ||
 			(value.length === INT64_MAX.length && value <= INT64_MAX),
-		{ message: "A revision must fit in a signed 64-bit integer." },
+		{ error: "A revision must fit in a signed 64-bit integer." },
 	);
 
 /** Stable payload an archive confirmation binds to. The writer recomputes it

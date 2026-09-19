@@ -42,9 +42,10 @@ reconciles these permanent identities:
   `cloudbuild.yaml`. Disposable private caches have separate bucket/repository
   grants and expire after fourteen days.
 - `nova-migrate` connects as the migration database owner and runs Kysely,
-  Better Auth, Nova auth initialization, privilege convergence, and the full
-  runtime database probe. Historical repairs live in the explicit Docker
-  `maintenance` target, not the serving image. Operators scan first, configure
+  Better Auth, Nova auth initialization, Better Auth's acceptance of the
+  resulting schema, privilege convergence, and the full runtime database probe.
+  Historical repairs live in the explicit Docker `maintenance` target, not the
+  serving image. Operators scan first, configure
   a maintenance Job with its immutable image, and execute it through
   `deploy-cloud-run.py --execute-job --image=REPOSITORY@sha256:...`.
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact

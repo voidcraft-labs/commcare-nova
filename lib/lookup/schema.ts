@@ -185,7 +185,7 @@ export const lookupCellInputSchema = z.union([
 			});
 		}
 	}),
-	z.number().finite(),
+	z.number(),
 ]);
 
 export const lookupRowValuesSchema = z

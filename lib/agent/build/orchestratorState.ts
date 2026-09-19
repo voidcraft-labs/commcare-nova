@@ -48,13 +48,11 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 	z
 		.object({ kind: z.literal("building"), appId: z.string().nullable() })
 		.strict(),
-	z
-		.object({ kind: z.literal("reviewing-plan"), reviewId: z.string().uuid() })
-		.strict(),
+	z.object({ kind: z.literal("reviewing-plan"), reviewId: z.uuid() }).strict(),
 	z
 		.object({
 			kind: z.literal("reviewing-app"),
-			reviewId: z.string().uuid(),
+			reviewId: z.uuid(),
 			appSeq: z.number().int().positive(),
 		})
 		.strict(),
@@ -69,7 +67,7 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("failed"),
-			failureId: z.string().uuid(),
+			failureId: z.uuid(),
 			recoverable: z.boolean(),
 			errorType: z.string().min(1),
 		})

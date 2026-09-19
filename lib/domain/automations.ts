@@ -457,7 +457,7 @@ export const automationUpdateValueSchema = z.discriminatedUnion("kind", [
 		.strict()
 		.refine((value) => isCanonicalHqCasePropertyValue(value.value), {
 			path: ["value"],
-			message:
+			error:
 				"Use the exact nonblank value CommCare HQ stores, without surrounding whitespace or matching outer quotes.",
 		}),
 	z
@@ -482,7 +482,7 @@ const automationHqRecipientIdSchema = z
 	.string()
 	.max(255)
 	.refine((value) => value.trim().length > 0 && value === value.trim(), {
-		message:
+		error:
 			"A CommCare HQ recipient ID must be nonblank and have no surrounding whitespace.",
 	});
 
@@ -490,7 +490,7 @@ const automationRegisteredIdSchema = z
 	.string()
 	.max(126)
 	.refine((value) => value.trim().length > 0 && value === value.trim(), {
-		message:
+		error:
 			"A CommCare HQ registered ID must be nonblank and have no surrounding whitespace.",
 	});
 
@@ -1117,7 +1117,7 @@ export const automationUserDataFilterValueSchema = z.discriminatedUnion(
 					.string()
 					.max(4_096)
 					.refine((candidate) => !isHqUserFilterPropertyReference(candidate), {
-						message:
+						error:
 							"A brace-wrapped HQ filter value is a live case-property lookup. Insert a case-property value instead, or change the literal text.",
 					}),
 			})
@@ -1175,7 +1175,7 @@ const automationSetupOnlyCriterionCommon = {
 		.string()
 		.max(AUTOMATION_SETUP_NOTE_MAX_LENGTH)
 		.refine((value) => value.trim().length > 0 && value === value.trim(), {
-			message:
+			error:
 				"An HQ-only condition must be nonblank and have no surrounding whitespace.",
 		}),
 } as const;
@@ -1205,8 +1205,7 @@ const automationCommon = {
 			`Keep the automation name under ${AUTOMATION_NAME_MAX_LENGTH + 1} characters.`,
 		)
 		.refine((name) => name === name.trim() && name.length > 0, {
-			message:
-				"Enter a nonblank automation name without surrounding whitespace.",
+			error: "Enter a nonblank automation name without surrounding whitespace.",
 		}),
 	caseType: z.string().min(1).max(126),
 	criteriaOperator: z.enum(AUTOMATION_CRITERIA_OPERATORS),
@@ -1418,7 +1417,7 @@ export const automationSchema = z.discriminatedUnion("kind", [
 		.strict()
 		.superRefine(validateHtmlCriteriaShape)
 		.refine((rule) => rule.closeCase || rule.updates.length > 0, {
-			message:
+			error:
 				"A case-update rule must close the case or write at least one property.",
 		}),
 	z
@@ -1434,7 +1433,7 @@ export const automationSchema = z.discriminatedUnion("kind", [
 				.string()
 				.max(126)
 				.refine((value) => value.trim().length > 0 && value === value.trim(), {
-					message:
+					error:
 						"A default language code must be nonblank and have no surrounding whitespace.",
 				})
 				.optional(),

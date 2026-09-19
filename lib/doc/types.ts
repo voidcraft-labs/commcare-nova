@@ -121,9 +121,7 @@ export const FIELD_MEDIA_SLOTS = [
  * whole-entity re-parse, so a required slot must never reach them as `null`.
  * Optionality is detected by whether the slot accepts `undefined`.
  */
-function clearablePartialPatch<
-	S extends { uuid: z.ZodTypeAny } & z.ZodRawShape,
->(
+function clearablePartialPatch<S extends { uuid: z.ZodType } & z.ZodRawShape>(
 	schema: z.ZodObject<S>,
 ): z.ZodObject<{
 	[K in Exclude<keyof S, "uuid">]: z.ZodOptional<z.ZodNullable<S[K]>>;
@@ -135,9 +133,9 @@ function clearablePartialPatch<
 	const omitted = schema.omit({
 		uuid: true,
 	} as unknown as Parameters<typeof schema.omit>[0]);
-	const shape: Record<string, z.ZodTypeAny> = {};
+	const shape: Record<string, z.ZodType> = {};
 	for (const [key, value] of Object.entries(omitted.shape)) {
-		const slot = value as z.ZodTypeAny;
+		const slot = value as z.ZodType;
 		shape[key] = slot.validate(undefined) ? slot.nullable() : slot;
 	}
 	// Required slots stay non-nullable at RUNTIME (a `null` for them is a
@@ -224,7 +222,7 @@ function caseOperationPatchSchemaFor(
 		})
 		.strict()
 		.refine((patch) => Object.keys(patch).length > 0, {
-			message: "A case-operation write patch must change at least one slot.",
+			error: "A case-operation write patch must change at least one slot.",
 		});
 	const linkSchema =
 		operationValueSchema.options[0].shape.links.unwrap().element;
@@ -233,7 +231,7 @@ function caseOperationPatchSchemaFor(
 		.partial()
 		.strict()
 		.refine((patch) => Object.keys(patch).length > 0, {
-			message: "A case-operation link patch must change at least one slot.",
+			error: "A case-operation link patch must change at least one slot.",
 		});
 	return z.discriminatedUnion("operation", [
 		operationUpdateSchema,
@@ -361,12 +359,12 @@ const organizationLevelUpdatePatchSchema = clearablePartialPatch(
 		code: true,
 	})
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one organization-level field.",
+		error: "Change at least one organization-level field.",
 	});
 const locationPropertyUpdatePatchSchema = clearablePartialPatch(
 	locationPropertySchema,
 ).refine((patch) => Object.keys(patch).length > 0, {
-	message: "Change at least one location-property field.",
+	error: "Change at least one location-property field.",
 });
 
 const automationCaseUpdatePatchSchema = z
@@ -382,7 +380,7 @@ const automationCaseUpdatePatchSchema = z
 	.partial()
 	.strict()
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one automation field.",
+		error: "Change at least one automation field.",
 	});
 
 const alertShape = automationSchema.options[1].shape;
@@ -402,7 +400,7 @@ const automationAlertUpdatePatchSchema = z
 	.partial()
 	.strict()
 	.refine((patch) => Object.keys(patch).length > 0, {
-		message: "Change at least one automation field.",
+		error: "Change at least one automation field.",
 	});
 
 function automationItemEditSchemas<
@@ -1300,7 +1298,7 @@ function createMutationSchema({
 				})
 				.strict()
 				.refine((value) => Object.keys(value).length > 0, {
-					message: "Change at least one schedule field.",
+					error: "Change at least one schedule field.",
 				}),
 		}),
 		// ─── Granular case-list collections ──────────────────────────────────

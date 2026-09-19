@@ -3,30 +3,28 @@ import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import { uuidSchema } from "@/lib/domain";
 import { MAX_SUBMITTED_CAPTURE_COUNT } from "@/lib/domain/captureFormats";
 
-const captureSubmissionProjectionSchema = z
-	.object({
-		entryKey: z.string().uuid(),
-		formUuid: uuidSchema,
-		attachmentRefs: z
-			.array(
-				z
-					.object({
-						attachmentName: z.string().min(1).max(255),
-						fieldUuid: uuidSchema,
-						instancePath: z.string().min(1).max(1024),
-					})
-					.strict(),
-			)
-			.max(MAX_SUBMITTED_CAPTURE_COUNT),
-		closeConditionAnswers: z
-			.object({
-				fieldUuid: uuidSchema,
-				values: z.array(z.string()),
-			})
-			.strict()
-			.optional(),
-	})
-	.strip();
+const captureSubmissionProjectionSchema = z.object({
+	entryKey: z.uuid(),
+	formUuid: uuidSchema,
+	attachmentRefs: z
+		.array(
+			z
+				.object({
+					attachmentName: z.string().min(1).max(255),
+					fieldUuid: uuidSchema,
+					instancePath: z.string().min(1).max(1024),
+				})
+				.strict(),
+		)
+		.max(MAX_SUBMITTED_CAPTURE_COUNT),
+	closeConditionAnswers: z
+		.object({
+			fieldUuid: uuidSchema,
+			values: z.array(z.string()),
+		})
+		.strict()
+		.optional(),
+});
 
 export type CaptureSubmissionProjection = z.infer<
 	typeof captureSubmissionProjectionSchema

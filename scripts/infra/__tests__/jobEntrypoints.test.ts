@@ -14,6 +14,7 @@ const migrationOrder = [
 	"indexes",
 	"auth",
 	"auth-app",
+	"auth-acceptance",
 	"privileges",
 	"runtime-probe",
 	"close",
@@ -43,6 +44,7 @@ beforeAll(async () => {
 			"export function authMigrateOptions(value){if(value!==pool)throw Error('wrong pool');return {pool};}",
 			"export async function getMigrations(options){if(options.pool!==pool)throw Error('wrong auth config');return {runMigrations:async()=>event('auth')};}",
 			"export async function runAuthAppMigrations(value){if(value!==db)throw Error('wrong database');event('auth-app');}",
+			"export async function assertBetterAuthAcceptsSchema(value){if(value!==pool)throw Error('wrong pool');event('auth-acceptance');}",
 			"export function readDatabasePrivilegeRoleConfig(){return mode==='local'?null:{runtimeRole:'runtime-fixture'};}",
 			"export async function convergeDatabasePrivileges(value, roles){if(value!==db)throw Error('wrong database');event('privileges',roles);}",
 			"export async function runCanonicalRuntimeDatabaseProbe(value, role){if(value!==db)throw Error('wrong database');event('runtime-probe',role);return {verified:true};}",
@@ -58,6 +60,7 @@ beforeAll(async () => {
 	const aliases = [
 		"better-auth/db/migration",
 		"@/lib/auth/migrate",
+		"@/lib/auth/schemaAcceptance",
 		"@/lib/auth-migrate-options",
 		"@/lib/case-store",
 		"@/lib/case-store/migrate",
@@ -163,6 +166,7 @@ describe("migration process admission", () => {
 			"indexes",
 			"auth",
 			"auth-app",
+			"auth-acceptance",
 			"close",
 		]);
 	});

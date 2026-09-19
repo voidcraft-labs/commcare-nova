@@ -1,32 +1,4 @@
-/**
- * LLM-facing surface of the docs site — the helpers that back the
- * `/llms.txt` index and per-page `/llms.mdx/<slug>` Markdown routes.
- *
- * Both depend on `includeProcessedMarkdown: true` in
- * `source.config.ts`: that flag is what gives `page.data.getText`
- * its `"processed"` arm (JSX stripped to plain Markdown). Without
- * it, both helpers compile but fail at request time.
- */
-
-import { DOCS_BASE_URL, type source } from "./source";
-
-/**
- * The fumadocs page type. `$inferPage` is the canonical way to pull
- * the page shape out of a configured loader without re-stating the
- * generics (which would drift from the actual collection config).
- */
-type DocsPage = (typeof source)["$inferPage"];
-
-/**
- * Render a page as a self-contained Markdown blob for LLM consumption.
- * The canonical URL is embedded in the H1 so the blob stays
- * self-locating once it leaves our origin (a model holding it in
- * context still knows where it came from).
- */
-export async function getLLMText(page: DocsPage): Promise<string> {
-	const processed = await page.data.getText("processed");
-	return `# ${page.data.title} (${page.url})\n\n${processed}`;
-}
+import { DOCS_BASE_URL } from "./source";
 
 /**
  * Resolve the URL of the per-page Markdown route for a given slug.

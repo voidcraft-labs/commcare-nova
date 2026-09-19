@@ -1123,8 +1123,7 @@ export function planLanguageIdentityRepair(
 			attempt.intentText,
 			`design_localization_attempts.intent ${attempt.id}`,
 		);
-		const canonical = designLocalizationIntentSchema.safeParse(parsed);
-		if (canonical.success) {
+		if (designLocalizationIntentSchema.validate(parsed)) {
 			const digest = canonicalJsonDigest(parsed);
 			if (digest !== attempt.intentDigest) {
 				block(

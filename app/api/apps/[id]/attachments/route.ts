@@ -52,7 +52,7 @@ const requestBodySchema = z
 		/** One form entry: the attachment-attempt scope. Client-minted per
 		 *  `activateForm`, and only ever a selector within the caller's own
 		 *  rows, never authority. */
-		entryKey: z.string().uuid(),
+		entryKey: z.uuid(),
 		/** The capture question this answers. Its kind is read from the
 		 *  committed blueprint, never taken from the request. */
 		fieldUuid: uuidSchema,

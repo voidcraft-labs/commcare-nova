@@ -24,7 +24,7 @@ const withPersistableJsonNumber = <Schema extends z.ZodNumber>(
 	schema: Schema,
 ): Schema =>
 	schema.refine(isPersistableJsonNumber, {
-		message: PERSISTABLE_JSON_NUMBER_MESSAGE,
+		error: PERSISTABLE_JSON_NUMBER_MESSAGE,
 	}) as Schema;
 
 export const persistableJsonNumberSchema = withPersistableJsonNumber(

@@ -366,7 +366,7 @@ export const threadDocSchema = threadMetaSchema
 		messages: z.array(threadMessageSchema),
 		/** Transient actor-bound continuation projection. Its dedicated authority
 		 * column is not part of the public thread shape or message history. */
-		holder_nonce: z.string().uuid().optional(),
+		holder_nonce: z.uuid().optional(),
 	});
 export type ThreadDoc = z.infer<typeof threadDocSchema>;
 

@@ -43,7 +43,7 @@ import { locationSchema } from "@/lib/routing/types";
  *  `(app_id, user_id, session_id)` primary key: a freeform string would let a
  *  client mint arbitrary keys, and the UUID shape keeps the roster's per-session
  *  dedup honest. */
-const sessionIdSchema = z.string().uuid();
+const sessionIdSchema = z.uuid();
 
 /** The client-supplied half of a presence upsert (`userId` is server-stamped). */
 const presenceBodySchema = z

@@ -18,7 +18,7 @@ export const generationTargetSchema = z.discriminatedUnion("kind", [
 	z
 		.object({
 			kind: z.literal("design-session"),
-			designSessionId: z.string().uuid(),
+			designSessionId: z.uuid(),
 		})
 		.strict(),
 ]);

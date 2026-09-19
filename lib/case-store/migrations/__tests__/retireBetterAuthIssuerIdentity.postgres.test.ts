@@ -3,6 +3,7 @@ import { getMigrations } from "better-auth/db/migration";
 import { sql } from "kysely";
 import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
+import { assertBetterAuthAcceptsSchema } from "@/lib/auth/schemaAcceptance";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { up as installRollingDeployBridge } from "../20260829000000_better_auth_17_rolling_deploy_bridge";
@@ -65,10 +66,19 @@ describe("a database Better Auth 1.7.2 migrated", () => {
 			/Database schema mismatch[\s\S]*auth_account\.issuer/,
 		);
 
+		// The migrate entrypoint asks the same question before a deploy, and must
+		// stop one that would ship this shape.
+		await expect(assertBetterAuthAcceptsSchema(h.pool)).rejects.toThrow(
+			/auth_account[\s\S]*issuer|issuer[\s\S]*auth_account/,
+		);
+
 		await up(h.db);
 		// The deploy runs Better Auth's own migrator next, against this same shape.
 		const { runMigrations } = await getMigrations(authMigrateOptions(h.pool));
 		await runMigrations();
+		await expect(
+			assertBetterAuthAcceptsSchema(h.pool),
+		).resolves.toBeUndefined();
 
 		await expect(readSessionThroughBetterAuth(h.pool)).resolves.toBeNull();
 		await insertGoogleAccount(h.pool, "after");

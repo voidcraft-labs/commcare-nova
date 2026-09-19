@@ -52,7 +52,7 @@ export const getAutomationsInputSchema = z
 			input.includeSetupGuide !== true || input.automationUuid !== undefined,
 		{
 			path: ["automationUuid"],
-			message: "Choose one automation for its setup guide.",
+			error: "Choose one automation for its setup guide.",
 		},
 	);
 

@@ -549,7 +549,7 @@ const idMappingColumnSchema = columnBase.extend({
 		.refine(
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
-				message:
+				error:
 					"Mapping values are not unique within this column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would produce a cell that concatenates each matching label. Keep one entry per value and merge any duplicate labels into that entry's `label` slot.",
 			},
 		),
@@ -592,7 +592,7 @@ const imageMapColumnSchema = columnBase.extend({
 		.refine(
 			(entries) => new Set(entries.map((e) => e.value)).size === entries.length,
 			{
-				message:
+				error:
 					"Mapping values are not unique within this image-map column. Two or more entries share the same `value`. The wire layer matches one row against every entry with a matching value, so duplicates would concatenate each matching image path into one unrenderable cell. Keep one entry per value.",
 			},
 		),

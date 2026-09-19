@@ -906,6 +906,11 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 			ipAddress: {
 				ipAddressHeaders: ["x-nova-client-ip"],
 			},
+			/* Better Auth compares its tables with this configuration when the
+			 * process starts and refuses every request on a mismatch. Stated rather
+			 * than inherited: the migrate entrypoint asks the same question before a
+			 * deploy (`lib/auth/schemaAcceptance.ts`), and the two must agree. */
+			database: { validateSchema: true },
 		},
 	});
 }

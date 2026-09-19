@@ -30,7 +30,7 @@ const authoringKeySchema = z
 	.min(1)
 	.max(200)
 	.refine((value) => /[A-Za-z0-9]/.test(value), "Use a nonblank request key.");
-const cellValueSchema = z.union([z.string(), z.number().finite()]);
+const cellValueSchema = z.union([z.string(), z.number()]);
 const createCellSchema = z
 	.object({
 		columnKey: authoringKeySchema.describe(

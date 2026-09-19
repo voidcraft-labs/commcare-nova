@@ -219,7 +219,7 @@ export const updateOrganizationLevelInputSchema = z
 	})
 	.strict()
 	.refine((input) => Object.keys(input).length > 1, {
-		message: "Change at least one organization-level setting.",
+		error: "Change at least one organization-level setting.",
 	});
 export const removeOrganizationLevelInputSchema = z
 	.object({ uuid: uuidSchema })
@@ -251,7 +251,7 @@ export const updateLocationPropertyInputSchema = z
 	})
 	.strict()
 	.refine((input) => Object.keys(input).length > 1, {
-		message: "Change at least one place-information setting.",
+		error: "Change at least one place-information setting.",
 	});
 export const removeLocationPropertyInputSchema = z
 	.object({ uuid: uuidSchema })
@@ -269,7 +269,7 @@ export const updateLocationToolInputSchema = updateLocationInputSchema
 			Object.keys(input).some(
 				(key) => key !== "locationUuid" && key !== "expectedRevision",
 			),
-		{ message: "Change at least one place field." },
+		{ error: "Change at least one place field." },
 	);
 export const moveLocationToolInputSchema = z
 	.object({

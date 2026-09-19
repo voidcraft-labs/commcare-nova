@@ -1,4 +1,4 @@
-import { loader } from "fumadocs-core/source";
+import { llms, loader } from "fumadocs-core/source";
 import { docs } from "@/.source/server";
 
 /**
@@ -18,4 +18,18 @@ export const DOCS_BASE_URL =
 export const source = loader({
 	baseUrl: DOCS_BASE_URL,
 	source: docs.toFumadocsSource(),
+});
+
+/**
+ * The LLM-facing renderings of the docs: the `llms.txt` index, each page as
+ * Markdown, and every page in one file. A page's canonical URL sits in its H1 so
+ * the text stays self-locating once it leaves our origin.
+ *
+ * `getText("processed")` (JSX stripped to plain Markdown) exists only because
+ * `source.config.ts` sets `includeProcessedMarkdown: true`; without it this
+ * compiles and fails at request time.
+ */
+export const docsLlms = llms(source, {
+	renderPage: async (page) =>
+		`# ${page.data.title} (${page.url})\n\n${await page.data.getText("processed")}`,
 });

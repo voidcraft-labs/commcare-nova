@@ -44,7 +44,7 @@ const nonemptyUniqueUuidArraySchema = z
 	.array(uuidSchema)
 	.min(1)
 	.refine((values) => new Set(values).size === values.length, {
-		message: "Level identities must not repeat.",
+		error: "Level identities must not repeat.",
 	});
 
 // ── Level codes ──────────────────────────────────────────────────────
@@ -87,10 +87,10 @@ export const locationValueTextSchema = z
 	// Postgres `text` cannot hold a NUL, and an unpaired surrogate is not valid
 	// UTF-8. Keep catalog choices and stored values on one scalar contract.
 	.refine((value) => !value.includes("\u0000"), {
-		message: "A value cannot contain a NUL character.",
+		error: "A value cannot contain a NUL character.",
 	})
 	.refine((value) => !/[\uD800-\uDFFF]/u.test(value), {
-		message: "A value cannot contain an unpaired surrogate.",
+		error: "A value cannot contain an unpaired surrogate.",
 	});
 
 // ── Case flow — which cases a worker receives ────────────────────────
@@ -357,7 +357,7 @@ export const locationPropertySchema = z
 		choices: z
 			.array(
 				locationValueTextSchema.refine((value) => value.length > 0, {
-					message: "An accepted place-information value cannot be empty.",
+					error: "An accepted place-information value cannot be empty.",
 				}),
 			)
 			.min(1, "Accepted place-information values cannot be empty.")
@@ -366,7 +366,7 @@ export const locationPropertySchema = z
 				"Place information has too many accepted values.",
 			)
 			.refine((choices) => new Set(choices).size === choices.length, {
-				message: "Accepted place-information values must be unique.",
+				error: "Accepted place-information values must be unique.",
 			})
 			.optional(),
 		/** Which levels carry this field; absent means every level. Enforced in
