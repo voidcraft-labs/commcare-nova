@@ -25,7 +25,11 @@ export const evaluationScenarioSchema = z
 						parentId: identity.optional(),
 						properties: z
 							.record(
-								z.string().min(1).max(200),
+								z
+									.string()
+									.min(1)
+									.max(200)
+									.describe("Case property name, up to 200 characters."),
 								z.union([
 									z.string().max(10_000),
 									z.number(),

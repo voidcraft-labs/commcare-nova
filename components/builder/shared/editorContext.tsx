@@ -264,11 +264,7 @@ export function PredicateEditProvider({
 			expressionFocusTargets,
 		],
 	);
-	return (
-		<PredicateEditContext.Provider value={value}>
-			{children}
-		</PredicateEditContext.Provider>
-	);
+	return <PredicateEditContext value={value}>{children}</PredicateEditContext>;
 }
 
 /** Register and resolve the primary control for one expression slot. Cleanup
@@ -357,11 +353,7 @@ export function WithCurrentCaseType({
 		() => ({ ...outer, currentCaseType: caseType }),
 		[outer, caseType],
 	);
-	return (
-		<PredicateEditContext.Provider value={value}>
-			{children}
-		</PredicateEditContext.Provider>
-	);
+	return <PredicateEditContext value={value}>{children}</PredicateEditContext>;
 }
 
 export function WithLookupTableScope({
@@ -380,11 +372,7 @@ export function WithLookupTableScope({
 		}),
 		[outer, table],
 	);
-	return (
-		<PredicateEditContext.Provider value={value}>
-			{children}
-		</PredicateEditContext.Provider>
-	);
+	return <PredicateEditContext value={value}>{children}</PredicateEditContext>;
 }
 
 /**

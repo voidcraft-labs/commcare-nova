@@ -1297,9 +1297,5 @@ export function ReconcilerProvider({
 
 	if (!contextValue) return <>{children}</>;
 
-	return (
-		<ReconcilerContext.Provider value={contextValue}>
-			{children}
-		</ReconcilerContext.Provider>
-	);
+	return <ReconcilerContext value={contextValue}>{children}</ReconcilerContext>;
 }

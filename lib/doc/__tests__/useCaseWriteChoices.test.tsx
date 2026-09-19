@@ -89,9 +89,7 @@ function setup() {
 	store.getState().load(toPersistableDoc(doc));
 	store.getState().startTracking();
 	const wrapper = ({ children }: { children: ReactNode }) => (
-		<BlueprintDocContext.Provider value={store}>
-			{children}
-		</BlueprintDocContext.Provider>
+		<BlueprintDocContext value={store}>{children}</BlueprintDocContext>
 	);
 	return { doc: store.getState(), field, store, wrapper };
 }

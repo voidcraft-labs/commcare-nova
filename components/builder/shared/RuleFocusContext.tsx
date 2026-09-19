@@ -35,11 +35,7 @@ export function RuleFocusProvider({
 	readonly children: ReactNode;
 }) {
 	const value = useMemo(() => ({ activePath, open }), [activePath, open]);
-	return (
-		<RuleFocusContext.Provider value={value}>
-			{children}
-		</RuleFocusContext.Provider>
-	);
+	return <RuleFocusContext value={value}>{children}</RuleFocusContext>;
 }
 
 /** Null outside the focus workbench so the standalone AST editors retain

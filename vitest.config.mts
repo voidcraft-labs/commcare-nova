@@ -7,7 +7,9 @@ import {
 // `import.meta.dirname`, not `__dirname`: vite accepts three config
 // loaders (bundle / runner / native) and only the bundle loader shims CJS
 // globals — this file stays strict-ESM-clean so it loads identically under
-// all three, whichever any tool or future default picks.
+// all three, whichever any tool or future default picks. The `.mts` extension
+// is part of that: package.json declares no module type, so the native loader
+// would read a `.ts` config as CommonJS.
 const configDir = import.meta.dirname;
 
 export default defineConfig({

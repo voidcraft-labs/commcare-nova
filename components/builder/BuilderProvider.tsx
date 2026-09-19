@@ -234,9 +234,9 @@ function BuilderProviderInner({
 function BlueprintEditableBridge({ children }: { children: ReactNode }) {
 	const canEdit = useCanEdit();
 	return (
-		<BlueprintEditableContext.Provider value={canEdit}>
+		<BlueprintEditableContext value={canEdit}>
 			{children}
-		</BlueprintEditableContext.Provider>
+		</BlueprintEditableContext>
 	);
 }
 

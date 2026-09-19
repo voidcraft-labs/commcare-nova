@@ -22,10 +22,11 @@ import { afterEach, vi } from "vitest";
 /**
  * Fail any test that lets a React state update land outside `act(...)`.
  *
- * React reports those as a console warning, and vitest's reporter drops
- * console output on a passing test in a non-TTY (CI, or any piped run), so
- * the warnings were invisible to every automated check while the tests they
- * came from silently asserted a pre-update render. They are never cosmetic:
+ * React reports those as a console warning, and a warning never fails a test.
+ * Under a coding agent Vitest also selects its quiet reporter, which drops a
+ * passing test's console output entirely. So the warnings stopped nothing, and
+ * often were not even seen, while the tests they came from silently asserted a
+ * pre-update render. They are never cosmetic:
  * an update outside `act` means the work escaped the test — the assertions
  * ran against DOM that React had not committed yet, and the commit landed
  * during a later test or after teardown.

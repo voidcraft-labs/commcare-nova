@@ -73,9 +73,7 @@ function setup() {
 	const store = createBlueprintDocStore();
 	store.getState().load(toPersistableDoc(doc));
 	const wrapper = ({ children }: { children: ReactNode }) => (
-		<BlueprintDocContext.Provider value={store}>
-			{children}
-		</BlueprintDocContext.Provider>
+		<BlueprintDocContext value={store}>{children}</BlueprintDocContext>
 	);
 	return { store, wrapper };
 }

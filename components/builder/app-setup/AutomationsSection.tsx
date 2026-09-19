@@ -806,11 +806,9 @@ function AutomationEditor({
 	return (
 		<Dialog open onOpenChange={(open) => !open && onClose()}>
 			<DialogContent className="@container sm:max-w-3xl">
-				<AutomationEditorDisabledContext.Provider
-					value={!canEdit || peerConflict}
-				>
-					<AutomationDraftErrorContext.Provider value={reportDraftError}>
-						<AutomationValidationContext.Provider
+				<AutomationEditorDisabledContext value={!canEdit || peerConflict}>
+					<AutomationDraftErrorContext value={reportDraftError}>
+						<AutomationValidationContext
 							value={
 								error === undefined
 									? undefined
@@ -1051,9 +1049,9 @@ function AutomationEditor({
 									)}
 								</div>
 							</DialogFooter>
-						</AutomationValidationContext.Provider>
-					</AutomationDraftErrorContext.Provider>
-				</AutomationEditorDisabledContext.Provider>
+						</AutomationValidationContext>
+					</AutomationDraftErrorContext>
+				</AutomationEditorDisabledContext>
 			</DialogContent>
 		</Dialog>
 	);

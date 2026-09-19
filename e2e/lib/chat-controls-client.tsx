@@ -92,7 +92,7 @@ function Controls() {
 		[streaming, setStreaming] = useState(true),
 		[materialized, setMaterialized] = useState(false);
 	return (
-		<BuilderSessionContext.Provider value={session}>
+		<BuilderSessionContext value={session}>
 			<BlueprintDocProvider initialDoc={doc}>
 				<section aria-label="Progress disclosure">
 					<DesignProgressDetails
@@ -186,7 +186,7 @@ function Controls() {
 					</PersistentChatComposer>
 				</section>
 			</BlueprintDocProvider>
-		</BuilderSessionContext.Provider>
+		</BuilderSessionContext>
 	);
 }
 const element = document.getElementById("root");

@@ -50,9 +50,7 @@ const PresenceRosterBoundary = memo(function PresenceRosterBoundary({
 	readonly children: ReactNode;
 }) {
 	return (
-		<PresenceRosterContext.Provider value={peers}>
-			{children}
-		</PresenceRosterContext.Provider>
+		<PresenceRosterContext value={peers}>{children}</PresenceRosterContext>
 	);
 });
 

@@ -83,11 +83,7 @@ export const FormLayoutProvider = forwardRef<
 		[collapsed, toggleCollapse, isCollapsed],
 	);
 
-	return (
-		<FormLayoutContext.Provider value={value}>
-			{children}
-		</FormLayoutContext.Provider>
-	);
+	return <FormLayoutContext value={value}>{children}</FormLayoutContext>;
 });
 
 export function useFormLayout(): FormLayoutContextValue {

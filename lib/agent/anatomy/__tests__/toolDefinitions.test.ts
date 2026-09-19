@@ -96,6 +96,37 @@ describe("Solutions Architect tool definitions", () => {
 		}
 	});
 
+	it("say what every open-keyed record is keyed by", () => {
+		// The projection removes `propertyNames`, which OpenAI cannot accept, and
+		// states the keys on the record instead. A record whose key schema had no
+		// description would reach the model as an open object with no word on
+		// what to key it by.
+		const unexplained: string[] = [];
+		const visit = (node: unknown, path: string): void => {
+			if (Array.isArray(node)) {
+				node.forEach((child, index) => {
+					visit(child, `${path}[${index}]`);
+				});
+				return;
+			}
+			if (node === null || typeof node !== "object") return;
+			const schema = node as Record<string, unknown>;
+			const openKeyed =
+				schema.additionalProperties !== null &&
+				typeof schema.additionalProperties === "object";
+			if (openKeyed && !String(schema.description ?? "").includes("Keys: "))
+				unexplained.push(path);
+			for (const [key, child] of Object.entries(schema))
+				visit(child, `${path}.${key}`);
+		};
+		for (const entry of SHARED_TOOL_REGISTRY)
+			visit(
+				authoringToolSchema(entry.saName, entry.tool.inputSchema).json,
+				entry.saName,
+			);
+		expect(unexplained).toEqual([]);
+	});
+
 	it("tell the model what a record's keys are on the record itself", () => {
 		const { json } = authoringToolSchema(
 			"updateLocation",

@@ -59,9 +59,7 @@ export function DeploymentTargetProvider({
 		[projectSpace],
 	);
 	return (
-		<DeploymentTargetContext.Provider value={value}>
-			{children}
-		</DeploymentTargetContext.Provider>
+		<DeploymentTargetContext value={value}>{children}</DeploymentTargetContext>
 	);
 }
 

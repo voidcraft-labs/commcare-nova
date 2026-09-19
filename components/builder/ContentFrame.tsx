@@ -150,11 +150,7 @@ export function ModeFlipGlideProvider({
 
 	const seq = seqRef.current;
 	const value = useMemo(() => ({ seq, deltaFor }), [seq, deltaFor]);
-	return (
-		<ModeFlipGlideContext.Provider value={value}>
-			{children}
-		</ModeFlipGlideContext.Provider>
-	);
+	return <ModeFlipGlideContext value={value}>{children}</ModeFlipGlideContext>;
 }
 
 interface ContentFrameProps {

@@ -46,11 +46,7 @@ export function VirtualFormProvider({
 		() => ({ formUuid, toggleCollapse, isCollapsed }),
 		[formUuid, toggleCollapse, isCollapsed],
 	);
-	return (
-		<VirtualFormContext.Provider value={value}>
-			{children}
-		</VirtualFormContext.Provider>
-	);
+	return <VirtualFormContext value={value}>{children}</VirtualFormContext>;
 }
 
 export function useVirtualFormContext(): VirtualFormContextValue {

@@ -11,6 +11,7 @@
  */
 
 import * as Sentry from "@sentry/nextjs";
+import { APIError } from "better-auth/api";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
@@ -237,12 +238,29 @@ export async function requireAdmin(req: Request): Promise<Session> {
 }
 
 /**
+ * Whether Better Auth judged the request and refused it. It answers a missing,
+ * expired or malformed cookie with null or a 4xx `APIError`. Anything else
+ * means the question was never answered: the database was unreachable, Better
+ * Auth failed to start, or it refused its own schema. That is not "signed out",
+ * and reading it that way sends a signed-in person to a sign-in page that
+ * cannot work either.
+ */
+function sessionWasRefused(error: unknown): boolean {
+	return (
+		error instanceof APIError &&
+		error.statusCode >= 400 &&
+		error.statusCode < 500
+	);
+}
+
+/**
  * Safely attempt to retrieve the session from a request.
  *
  * Returns null instead of throwing when auth headers are missing or invalid —
  * AND when the resolved user has been banned or deleted ({@link
  * sessionUserIsActive}), so the universal revocation lock applies to every API
- * route that authenticates through here.
+ * route that authenticates through here. A sign-in check that could not run is
+ * a 503, never a null: nothing was decided about the caller.
  */
 export async function getSessionSafe(req: Request): Promise<Session | null> {
 	try {
@@ -252,8 +270,13 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
 		if (!(await sessionUserIsActive(result))) return null;
 		identifySentryUser(result);
 		return result;
-	} catch {
-		return null;
+	} catch (error) {
+		if (sessionWasRefused(error)) return null;
+		log.error("[auth] the session check could not run", error);
+		throw new ApiError(
+			"Nova couldn't check your sign-in just now, so nothing about your account changed. Please try again in a few seconds.",
+			503,
+		);
 	}
 }
 
@@ -272,7 +295,9 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
  * (e.g. the landing page checking whether to redirect). Also returns null when
  * the resolved user has been banned or deleted ({@link sessionUserIsActive}),
  * so the universal revocation lock applies to every RSC page and Server Action
- * that authenticates through here, not just the costly/mutating ones.
+ * that authenticates through here, not just the costly/mutating ones. A sign-in
+ * check that could not run is rethrown as it is, so the route's error boundary
+ * answers it instead of a redirect to sign-in.
  */
 export const getSession = cache(async (): Promise<Session | null> => {
 	/* Bail out of static prerendering before touching auth or the database.
@@ -289,8 +314,9 @@ export const getSession = cache(async (): Promise<Session | null> => {
 		if (!(await sessionUserIsActive(session))) return null;
 		identifySentryUser(session);
 		return session;
-	} catch {
-		return null;
+	} catch (error) {
+		if (sessionWasRefused(error)) return null;
+		throw error;
 	}
 });
 

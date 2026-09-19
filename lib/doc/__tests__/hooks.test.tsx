@@ -116,9 +116,7 @@ function setup() {
 	const formUuid = store.getState().formOrder[moduleUuid][0];
 	const fieldUuid = store.getState().fieldOrder[formUuid][0];
 	const wrapper = ({ children }: { children: ReactNode }) => (
-		<BlueprintDocContext.Provider value={store}>
-			{children}
-		</BlueprintDocContext.Provider>
+		<BlueprintDocContext value={store}>{children}</BlueprintDocContext>
 	);
 	return {
 		store,

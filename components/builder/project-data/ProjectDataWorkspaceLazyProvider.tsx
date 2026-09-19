@@ -126,9 +126,9 @@ export function ProjectDataWorkspaceProvider({
 	);
 
 	return (
-		<WorkspaceStoreContext.Provider value={workspaceStore}>
+		<WorkspaceStoreContext value={workspaceStore}>
 			{controller}
 			{children}
-		</WorkspaceStoreContext.Provider>
+		</WorkspaceStoreContext>
 	);
 }

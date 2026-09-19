@@ -81,7 +81,7 @@ export const Conversation = ({
 	);
 
 	return (
-		<ConversationContext.Provider value={contextValue}>
+		<ConversationContext value={contextValue}>
 			<div
 				className={cn("relative flex-1 overflow-y-hidden", className)}
 				role="log"
@@ -89,7 +89,7 @@ export const Conversation = ({
 			>
 				{children}
 			</div>
-		</ConversationContext.Provider>
+		</ConversationContext>
 	);
 };
 
