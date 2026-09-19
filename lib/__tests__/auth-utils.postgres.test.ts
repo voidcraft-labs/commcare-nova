@@ -13,7 +13,11 @@ vi.mock("@/lib/auth", async () => ({
 	getAuth: async () => ({ api: { getSession, signOut } }),
 }));
 
-import { requireAdmin, requireSession } from "@/lib/auth-utils";
+import {
+	requireAdmin,
+	requireSession,
+	resolveOpenAIKey,
+} from "@/lib/auth-utils";
 
 const database = setupAppStateTestDb("auth_live_gate_", {
 	authSchema: "migrated",
@@ -151,5 +155,11 @@ it.each([
 			status: 503,
 		});
 		await expect(requireAdmin(request)).rejects.toMatchObject({ status: 503 });
+		// The chat route reads this result instead of catching, so the same
+		// outage has to arrive as a result.
+		await expect(resolveOpenAIKey(request)).resolves.toMatchObject({
+			ok: false,
+			status: 503,
+		});
 	},
 );

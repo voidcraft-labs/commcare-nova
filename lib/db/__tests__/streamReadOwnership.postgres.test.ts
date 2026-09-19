@@ -9,7 +9,7 @@ import {
 	vi,
 } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
-import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import { readSession, requireSession } from "@/lib/auth-utils";
 import { appendStreamChunks } from "../streamChunks";
 import {
 	__setListenerConfigForTests,
@@ -20,7 +20,7 @@ import { setupAppStateTestDb } from "./appStateTestDb";
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: vi.fn(),
-	getSessionSafe: vi.fn(),
+	readSession: vi.fn(),
 }));
 const h = setupAppStateTestDb("stream_owner_", { authSchema: "migrated" });
 const APP = "stream-owned-app",
@@ -67,7 +67,7 @@ beforeEach(async () => {
 		},
 	};
 	vi.mocked(requireSession).mockResolvedValue(session);
-	vi.mocked(getSessionSafe).mockResolvedValue(session);
+	vi.mocked(readSession).mockResolvedValue(session);
 	__setListenerConfigForTests(h.uri());
 	let connected = false;
 	const unsubscribe = subscribeLookupProject(PROJECT, () => {

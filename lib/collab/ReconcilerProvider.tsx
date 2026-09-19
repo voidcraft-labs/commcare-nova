@@ -735,8 +735,7 @@ export function createReconcilerRuntime(
 				 * a long deploy outage. Probe the app GET once. ONLY the IDOR-safe
 				 * 404 is terminal (a deterministic membership denial — the GET maps
 				 * every access denial to it): a 401 is TRANSIENT by the package
-				 * taxonomy (a lapsed/rotated session, or ANY swallowed auth-stack
-				 * fault — `getSessionSafe` nulls them all), so revoking on it would
+				 * taxonomy (a lapsed or rotated session), so revoking on it would
 				 * irreversibly freeze every open tab over a seconds-long auth blip.
 				 * Anything else (200, 401, 5xx, network) keeps the backoff alive.
 				 * The response body (the whole blueprint) is cancelled unread —

@@ -58,7 +58,8 @@
 
 import { UI_MESSAGE_STREAM_HEADERS } from "ai";
 import { ApiError, handleApiError } from "@/lib/apiError";
-import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import type { Session } from "@/lib/auth";
+import { readSession, requireSession } from "@/lib/auth-utils";
 import { PRIVATE_HOLDER_NONCE_CHUNK_TYPE } from "@/lib/chat/privateHolderNonce";
 import { isUserActive } from "@/lib/db/api-keys";
 import { AppAccessError } from "@/lib/db/appAccess";
@@ -389,7 +390,12 @@ function openStream(args: {
 				async run() {
 					if (closed) return;
 
-					const live = await getSessionSafe(req);
+					let live: Session | null;
+					try {
+						live = await readSession(req);
+					} catch {
+						return; // the check could not run: re-check next tick
+					}
 					if (closed) return;
 					if (live && live.user.id !== userId) {
 						teardown();

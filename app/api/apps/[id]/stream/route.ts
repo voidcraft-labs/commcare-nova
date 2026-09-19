@@ -59,7 +59,8 @@
 
 import { sql } from "kysely";
 import { ApiError, handleApiError } from "@/lib/apiError";
-import { getSessionSafe, requireSession } from "@/lib/auth-utils";
+import type { Session } from "@/lib/auth";
+import { readSession, requireSession } from "@/lib/auth-utils";
 import type { AppStatusFrame } from "@/lib/collab/appStatusFrame";
 import { lookupManifestFrameSchema } from "@/lib/collab/lookupManifestFrame";
 import {
@@ -684,28 +685,34 @@ function openStream(args: {
 					/* Continuous revocation: re-run the session + scope check on a cadence and
 					 * close ONLY on a CONFIRMED denial: never on a transient backend blip.
 					 * The confirmed signals are:
-					 *   - `getSessionSafe` returns a session for a DIFFERENT user (the cookie
+					 *   - `readSession` returns a session for a DIFFERENT user (the cookie
 					 *     now belongs to someone else: a real rotation).
 					 *   - `isUserActive(userId) === false`: a definitively banned/deleted
 					 *     user (`isUserActive` THROWS on a DB fault, so a throw is transient,
 					 *     not a ban).
 					 *   - `reauthorizeStreamScope` throws `AppAccessError`: a real non-member /
 					 *     insufficient-role.
-					 * Everything else: a bare `getSessionSafe` null (its own `getSession`
-					 * throw is swallowed to null, so null is ambiguous), an `isUserActive`
-					 * throw, a non-`AppAccessError` reauthorization throw (pool exhaustion,
-					 * a DB blip): SKIPS this tick and leaves the stream open. The next tick
+					 * Everything else: a bare `readSession` null (a lapsed cookie reads the
+					 * same as a signed-out one, so null alone is ambiguous), a session
+					 * check that could not run, an `isUserActive` throw, a
+					 * non-`AppAccessError` reauthorization throw (pool exhaustion, a DB
+					 * blip): SKIPS this tick and leaves the stream open. The next tick
 					 * re-checks; a real loss confirms then. This keeps the cadence at least as
 					 * forgiving as the connect path, which lets EventSource auto-reconnect
 					 * through a transient 500. */
 					cadencePump = createCoalescedStreamPump({
 						async run() {
 							if (closed) return;
-							const live = await getSessionSafe(req);
+							let live: Session | null;
+							try {
+								live = await readSession(req);
+							} catch {
+								return; // the check could not run: re-check next tick
+							}
 							if (closed) return;
 							/* A confirmed identity change: a session that resolves to a
-							 * different user. A bare `null` is NOT confirmed (a swallowed
-							 * transient error looks identical), so it does not revoke here. */
+							 * different user. A bare `null` is NOT confirmed, so it does
+							 * not revoke here. */
 							if (live && live.user.id !== userId) {
 								revokeAndClose("session-revoked");
 								return;

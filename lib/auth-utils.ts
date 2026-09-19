@@ -151,7 +151,15 @@ type OpenAIKeyResult = OpenAIKeyResolved | OpenAIKeyError;
 export async function resolveOpenAIKey(req: Request): Promise<OpenAIKeyResult> {
 	// `getSessionSafe` already applies the live banned/deleted revocation lock,
 	// so a revoked user reads as signed-out here (no paid model call).
-	const session = await getSessionSafe(req);
+	let session: Session | null;
+	try {
+		session = await getSessionSafe(req);
+	} catch (error) {
+		// A sign-in check that could not run is an answer too, and this
+		// function's callers read answers rather than catch them.
+		if (!(error instanceof ApiError)) throw error;
+		return { ok: false, error: error.message, status: error.status };
+	}
 	if (!session) {
 		return {
 			ok: false,
@@ -254,15 +262,18 @@ function sessionWasRefused(error: unknown): boolean {
 }
 
 /**
- * Safely attempt to retrieve the session from a request.
+ * The session as Better Auth and the live revocation lock see it.
  *
- * Returns null instead of throwing when auth headers are missing or invalid —
- * AND when the resolved user has been banned or deleted ({@link
- * sessionUserIsActive}), so the universal revocation lock applies to every API
- * route that authenticates through here. A sign-in check that could not run is
- * a 503, never a null: nothing was decided about the caller.
+ * Null means the caller was judged and is signed out: auth headers are missing
+ * or invalid, or the resolved user has been banned or deleted ({@link
+ * sessionUserIsActive}). A throw means the check could not run and nothing was
+ * decided about the caller.
+ *
+ * Request handlers authenticate through {@link getSessionSafe}, which reports
+ * that throw and answers it as a 503. This is for a caller that asks again on
+ * a timer and reads a check that could not run as "ask again".
  */
-export async function getSessionSafe(req: Request): Promise<Session | null> {
+export async function readSession(req: Request): Promise<Session | null> {
 	try {
 		const auth = await getAuth();
 		const result = await auth.api.getSession({ headers: req.headers });
@@ -272,6 +283,22 @@ export async function getSessionSafe(req: Request): Promise<Session | null> {
 		return result;
 	} catch (error) {
 		if (sessionWasRefused(error)) return null;
+		throw error;
+	}
+}
+
+/**
+ * Safely attempt to retrieve the session from a request.
+ *
+ * Returns null for a signed-out caller ({@link readSession}), so the universal
+ * revocation lock applies to every API route that authenticates through here.
+ * A sign-in check that could not run is a 503, never a null: nothing was
+ * decided about the caller.
+ */
+export async function getSessionSafe(req: Request): Promise<Session | null> {
+	try {
+		return await readSession(req);
+	} catch (error) {
 		log.error("[auth] the session check could not run", error);
 		throw new ApiError(
 			"Nova couldn't check your sign-in just now, so nothing about your account changed. Please try again in a few seconds.",

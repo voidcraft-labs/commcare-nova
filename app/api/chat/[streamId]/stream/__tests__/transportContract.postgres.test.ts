@@ -25,13 +25,13 @@ import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 
-const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
+const { requireSessionMock, readSessionMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
-	getSessionSafeMock: vi.fn(),
+	readSessionMock: vi.fn(),
 }));
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
-	getSessionSafe: getSessionSafeMock,
+	readSession: readSessionMock,
 }));
 
 const { GET } = await import("../route");
@@ -63,8 +63,8 @@ beforeEach(async () => {
 	});
 	requireSessionMock.mockReset();
 	requireSessionMock.mockResolvedValue({ user: { id: USER } });
-	getSessionSafeMock.mockReset();
-	getSessionSafeMock.mockResolvedValue({ user: { id: USER } });
+	readSessionMock.mockReset();
+	readSessionMock.mockResolvedValue({ user: { id: USER } });
 });
 afterEach(async () => {
 	await closeStreamListener();
