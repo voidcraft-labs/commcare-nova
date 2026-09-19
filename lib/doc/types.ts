@@ -138,7 +138,7 @@ function clearablePartialPatch<
 	const shape: Record<string, z.ZodTypeAny> = {};
 	for (const [key, value] of Object.entries(omitted.shape)) {
 		const slot = value as z.ZodTypeAny;
-		shape[key] = slot.safeParse(undefined).success ? slot.nullable() : slot;
+		shape[key] = slot.validate(undefined) ? slot.nullable() : slot;
 	}
 	// Required slots stay non-nullable at RUNTIME (a `null` for them is a
 	// parse error), but the inferred type marks every key nullable-optional —

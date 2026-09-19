@@ -30,7 +30,9 @@ async function terminalEvidenceDigest(): Promise<string> {
 	});
 }
 
-describe.sequential("frozen canonical-identity repair terminal state", () => {
+describe("frozen canonical-identity repair terminal state", {
+	concurrent: false,
+}, () => {
 	test("refuses the exact post-canonical state precisely and writes nothing", async () => {
 		const before = await terminalEvidenceDigest();
 

@@ -151,7 +151,7 @@ export type XPathExpression = z.infer<typeof xpathExpressionSchema>;
  * cannot assume schema-parsed input, so the predicate validates every part and
  * rejects missing, unknown, or extra leaf fields. */
 export function isXPathExpression(value: unknown): value is XPathExpression {
-	return xpathExpressionSchema.safeParse(value).success;
+	return xpathExpressionSchema.validate(value);
 }
 
 /** The empty expression — prints as `""`. */

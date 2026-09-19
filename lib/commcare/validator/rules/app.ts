@@ -699,7 +699,7 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 	const ids = new Set<string>();
 	return entryPointInventory(doc).flatMap(({ target, entryPoint }) => {
-		const reason = !entryPointIdSchema.safeParse(entryPoint.id).success
+		const reason = !entryPointIdSchema.validate(entryPoint.id)
 			? "id-format"
 			: target.kind !== "form" &&
 					entryPoint.ignoreDisplayConditions !== undefined
@@ -707,7 +707,7 @@ function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 				: ids.has(entryPoint.id)
 					? "duplicate-id"
 					: "destination";
-		const issue = !entryPointIdSchema.safeParse(entryPoint.id).success
+		const issue = !entryPointIdSchema.validate(entryPoint.id)
 			? "Entry point IDs use lowercase letters, numbers, underscores, or hyphens."
 			: target.kind !== "form" &&
 					entryPoint.ignoreDisplayConditions !== undefined

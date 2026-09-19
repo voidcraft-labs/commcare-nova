@@ -110,7 +110,7 @@ export async function toolViews(
 			strict: definition.strict,
 			deferred: z
 				.object({ openai: z.object({ deferLoading: z.literal(true) }) })
-				.safeParse(definition.providerOptions).success,
+				.validate(definition.providerOptions),
 			...(definition.type === "provider" && {
 				providerTool: {
 					id: definition.id ?? name,

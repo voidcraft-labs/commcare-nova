@@ -41,7 +41,7 @@ export function planEntryPointAdd(
 	if (
 		!(
 			target.kind === "form" ? formEntryPointSchema : entryPointSchema
-		).safeParse(entryPoint).success
+		).validate(entryPoint)
 	)
 		return refuse(
 			"invalid-entry-point",
@@ -78,7 +78,7 @@ export function planEntryPointUpdate(
 	if (
 		!(
 			item.target.kind === "form" ? formEntryPointSchema : entryPointSchema
-		).safeParse(candidate).success
+		).validate(candidate)
 	)
 		return refuse(
 			"invalid-entry-point",

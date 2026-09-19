@@ -397,7 +397,7 @@ function mechanicalIdentity(
  * reports `needs-explicit`.
  */
 export function mapOldLanguageCode(code: string): OldLanguageCodeMapping {
-	if (languageTagSchema.safeParse(code).success) {
+	if (languageTagSchema.validate(code)) {
 		const identity = parseLanguageTag(code);
 		if (identityIssues(identity).length === 0) {
 			return { kind: "canonical", tag: code };

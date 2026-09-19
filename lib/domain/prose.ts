@@ -166,7 +166,7 @@ export class ProseProjectionError extends Error {
 }
 
 export function isProseTemplate(value: unknown): value is ProseTemplate {
-	return proseTemplateSchema.safeParse(value).success;
+	return proseTemplateSchema.validate(value);
 }
 
 /** Stored reference parts in document order. */

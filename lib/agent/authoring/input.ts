@@ -499,7 +499,7 @@ async function prepareInput<S extends z.ZodType>(args: {
 		toolName,
 		authoringToolSchema(toolName, schema).identitySchema,
 		input,
-	).filter((slot) => !uuidSchema.safeParse(slot.value).success);
+	).filter((slot) => !uuidSchema.validate(slot.value));
 	if (
 		references.some(
 			(slot) =>

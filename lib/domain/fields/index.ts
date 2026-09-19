@@ -615,7 +615,7 @@ function partialOf<
 	const nullableShape = Object.fromEntries(
 		Object.entries(omitted.shape).map(([key, value]) => [
 			key,
-			(value as z.ZodTypeAny).safeParse(undefined).success
+			(value as z.ZodTypeAny).validate(undefined)
 				? (value as z.ZodTypeAny).nullable()
 				: value,
 		]),

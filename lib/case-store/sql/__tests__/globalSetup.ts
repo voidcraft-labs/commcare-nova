@@ -184,8 +184,8 @@ async function prepareDatabases(
 	project.provide("postgresExtensionsTemplate", "nova_extensions");
 	project.provide("postgresMigratedTemplate", "nova_migrated");
 
-	// `project.provide` is the typed channel for cross-process
-	// state in Vitest 4. Env vars would lose the type augmentation
+	// `project.provide` is Vitest's typed channel for cross-process
+	// state. Env vars would lose the type augmentation
 	// on the consumer side.
 	project.provide("postgresTestUrl", connectionString);
 }

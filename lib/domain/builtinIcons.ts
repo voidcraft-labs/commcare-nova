@@ -117,7 +117,7 @@ export function builtinIconRef<Slug extends IconSlug>(
 
 /** Whether a value is one of the exact shipped built-in identities. */
 export function isBuiltinIconRef(id: string): id is BuiltinIconRef {
-	return builtinIconRefSchema.safeParse(id).success;
+	return builtinIconRefSchema.validate(id);
 }
 
 /** The catalog slug a validated built-in ref names, or `null` otherwise. */

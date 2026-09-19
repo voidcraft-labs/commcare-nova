@@ -93,7 +93,7 @@ interface ErrorBody {
 }
 
 beforeEach(() => {
-	// `clearMocks` (vitest.config) wipes call history but leaves implementations.
+	// Vitest's `clearMocks` default wipes call history but leaves implementations.
 	// Re-establish the default admin resolution every test so the 403 test's
 	// one-shot rejection can't bleed into the next test.
 	vi.mocked(requireAdmin).mockResolvedValue(fakeAdminSession);

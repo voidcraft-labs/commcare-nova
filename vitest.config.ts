@@ -20,16 +20,15 @@ export default defineConfig({
 		// Only the Postgres project owns Docker. A selected ordinary test never
 		// imports the migration graph or provisions an unused database. Projects
 		// share the default sequence group and worker pool; no extra concurrency.
+		// Inline projects inherit this root config (setup file, aliases, timeouts).
 		projects: [
 			{
-				extends: true,
 				test: {
 					name: "unit",
 					exclude: ["**/*.postgres.test.{ts,tsx}"],
 				},
 			},
 			{
-				extends: true,
 				test: {
 					name: "postgres",
 					include: ["**/*.postgres.test.{ts,tsx}"],
@@ -62,11 +61,6 @@ export default defineConfig({
 		// applies to test bodies, not to globalSetup itself; raising
 		// `hookTimeout` covers fixtures that touch the container.
 		hookTimeout: 30_000,
-		// Clear mock call history between tests so assertions like
-		// `expect(log.warn).toHaveBeenCalledWith(...)` don't leak across
-		// test boundaries. Implementations set via `.mockImplementation(...)`
-		// inside a test persist (use `.mockRestore()` if that matters).
-		clearMocks: true,
 		// Vitest's `exclude` REPLACES the defaults rather than extending
 		// them, so spread + append: node_modules / .git stay excluded,
 		// plus we drop `.claude/worktrees/**` to stop the main checkout's

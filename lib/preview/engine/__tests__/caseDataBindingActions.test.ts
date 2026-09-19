@@ -193,7 +193,7 @@ vi.mock("@/lib/db/appAccess", async () => {
 beforeEach(async () => {
 	// The action tests queue per-call resolutions on the shared
 	// `getSession` / `withProjectContext` module mocks via
-	// `mockResolvedValueOnce`. The `clearMocks` config runs `mockClear`
+	// `mockResolvedValueOnce`. Vitest's `clearMocks` default runs `mockClear`
 	// (call history only) — it does NOT drain a `*Once` queue, so a test
 	// that short-circuits before consuming its queued value would leak it
 	// to the next test and misattribute that test's failure. Reset every

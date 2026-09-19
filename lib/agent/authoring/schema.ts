@@ -266,8 +266,8 @@ function transformValues(
 			const variants = definition.options;
 			const matching = variants.filter((variant) =>
 				representation === "authored"
-					? authoringSchema(variant).safeParse(input).success
-					: z.safeParse(variant, input).success,
+					? authoringSchema(variant).validate(input)
+					: z.validate(variant, input),
 			);
 			if (matching.length !== 1)
 				throw new AuthoringInputError(

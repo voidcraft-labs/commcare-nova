@@ -82,7 +82,7 @@ export function DeepLinksSection() {
 							disabled={!canWrite}
 							ariaDescribedBy={`${prefix}-id-help`}
 							validate={(value) =>
-								entryPointIdSchema.safeParse(value).success
+								entryPointIdSchema.validate(value)
 									? undefined
 									: "You can use lowercase letters, numbers, underscores, and hyphens"
 							}

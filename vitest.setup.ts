@@ -13,8 +13,9 @@
  *     `expect(log.warn).toHaveBeenCalledWith(...)` directly — the stubs
  *     preserve full call-tracking semantics.
  *
- * `clearMocks: true` in `vitest.config.ts` wipes each stub's call history
- * between tests so one test's assertions can't leak into another's.
+ * Vitest clears every mock's call history before each test (its `clearMocks`
+ * default), so one test's assertions can't leak into another's. Implementations
+ * set via `.mockImplementation(...)` inside a test persist.
  */
 import { afterEach, vi } from "vitest";
 
