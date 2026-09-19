@@ -95,7 +95,6 @@ const req = () =>
 const drainBody = (res: Response): Promise<string> => res.text();
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	userInProjectMock.mockResolvedValue(true);
 	deleteMediaAssetForActorMock.mockResolvedValue({

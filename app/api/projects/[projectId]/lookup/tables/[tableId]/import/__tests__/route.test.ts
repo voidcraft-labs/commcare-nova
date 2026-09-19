@@ -104,7 +104,6 @@ function context(
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	mocks.requireSession.mockResolvedValue({ user: { id: "user-1" } });
 	mocks.resolveProjectAccess.mockResolvedValue({
 		projectId: "project-1",

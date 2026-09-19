@@ -70,7 +70,6 @@ const signingError = new Error("IAM signing unavailable");
 
 describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
 		mocks.requireSession.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.resolveAuthorizedAppSnapshot.mockResolvedValue({
 			projectId: "project-1",

@@ -375,7 +375,9 @@ describe("validateMediaBytes — audio & video (music-metadata)", () => {
 		// duration. The validator MUST accept it with `durationMs` absent —
 		// rejecting on a missing duration would block every video-only
 		// upload. The fixture is a 32×32 single-frame H.264 clip, no audio.
-		const bytes = readFileSync(join(__dirname, "fixtures", "tiny-video.mp4"));
+		const bytes = readFileSync(
+			join(import.meta.dirname, "fixtures", "tiny-video.mp4"),
+		);
 		const result = await validateMediaBytes({
 			bytes,
 			claimedMimeType: "video/mp4",

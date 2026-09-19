@@ -99,7 +99,6 @@ function deploymentView(state: string, resumePhase: string | null = null) {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
 	vi.mocked(resolveAppAccess).mockResolvedValue({
 		app: { blueprint: uploadBlueprint(), mutation_seq: 7 },

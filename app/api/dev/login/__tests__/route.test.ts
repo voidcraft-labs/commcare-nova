@@ -35,7 +35,6 @@ function loginReq(query = ""): Request {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	// The route hard-gates on NODE_ENV (vitest runs as "test").
 	vi.stubEnv("NODE_ENV", "development");
 	vi.stubEnv(

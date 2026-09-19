@@ -1,7 +1,7 @@
 /** Pagination and pre-service receipt budgets over schema-admitted lookup
  * definitions. The service is a controlled boundary; no SQL/tenancy claim. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
@@ -157,8 +157,6 @@ function hugeCatalog(
 }
 
 describe("lookup shared-tool output bounds", () => {
-	beforeEach(() => vi.clearAllMocks());
-
 	it("continues a huge catalog below the model-facing byte budget", async () => {
 		mocks.readCatalog.mockResolvedValue(hugeCatalog("project-1"));
 

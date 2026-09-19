@@ -277,7 +277,8 @@ or UI condition. RTL interactions must commit inside `act`; use `findBy*` or
 `waitFor` for asynchronous UI. The shared setup fails escaped React updates.
 
 Biome's floating/misused-promise rules and Vitest's unhandled-error failures run
-in the ordinary checks. They are guardrails, not a proof that arbitrary async
+in the ordinary checks. Vitest also fails a test that leaves a `.resolves` or
+`.rejects` assertion unawaited. They are guardrails, not a proof that arbitrary async
 work cannot leak; resource-owning code needs explicit lifecycle assertions.
 There is no duplicate async-hooks test run.
 
@@ -326,7 +327,11 @@ Reproduce the slow files locally before running a broad graph. Run one broad
 suite at a time on a 16 GB machine, including across agents/worktrees.
 
 Use `npm test -- path/to/test.ts` for focused work and `npm run test:changed` for
-an import-graph check. Configuration, dependency, and shared database-preparation/migration changes
+an import-graph check. Vitest keeps transformed modules on disk under
+`node_modules/.vitest-cache`, keyed by file content and this configuration, so a
+repeated focused run skips most of the transform cost; `npx vitest --clearCache`
+empties it. To look for an intermittent failure, rerun the same selection with
+`--repeats=<n>` rather than looping a shell command. Configuration, dependency, and shared database-preparation/migration changes
 force a full changed run: those dependencies sit outside the test imports.
 Vitest exposes that trigger only at the root, so use explicit file selection
 for the first local check. CI runs all tests, independent of changed-file selection. Preserve file

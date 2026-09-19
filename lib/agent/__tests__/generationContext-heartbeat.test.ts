@@ -15,7 +15,6 @@ vi.mock("@/lib/db/apps", async (original) => ({
 const INTERVAL = (MAX_RUN_MINUTES / 3) * 60_000;
 afterEach(() => {
 	vi.useRealTimers();
-	vi.clearAllMocks();
 });
 
 describe("run heartbeat ownership", () => {

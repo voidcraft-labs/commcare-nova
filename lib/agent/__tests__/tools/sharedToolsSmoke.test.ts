@@ -2,7 +2,7 @@
  * canonical workspace. Persistence receipts are controlled; native SQL and
  * CommCare compatibility belong to their respective boundary suites. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
@@ -184,10 +184,6 @@ const ADD_FIELDS_INPUT = {
 		},
 	],
 } satisfies AddFieldsInput;
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 // ── Cross-surface shared-tool smoke test ────────────────────────────────
 

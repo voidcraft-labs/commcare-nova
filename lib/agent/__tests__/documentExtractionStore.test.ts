@@ -136,7 +136,6 @@ const stubCondenser: AttachmentCondenser = {
 };
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	publishClaimedAssetExtractMock.mockImplementation(
 		async (args: {
 			extract: Record<string, unknown>;

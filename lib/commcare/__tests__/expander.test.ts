@@ -3731,7 +3731,7 @@ describe("form_links emission", () => {
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code),
 		).toEqual(["FORM_LINK_TARGET_NOT_FOUND"]);
-		expect(() => projectUncheckedDoc(doc)).toThrowError(
+		expect(() => projectUncheckedDoc(doc)).toThrow(
 			/Cannot project a form link: target module .* is missing/,
 		);
 	});

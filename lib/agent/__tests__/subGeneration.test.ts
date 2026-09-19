@@ -2,7 +2,7 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import type { ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeEach, expect, it, vi } from "vitest";
+import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { log } from "@/lib/logger";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
@@ -28,7 +28,6 @@ const args = {
 	providerOptions: reasoningProviderOptions("high"),
 	signal: new AbortController().signal,
 };
-beforeEach(() => vi.clearAllMocks());
 
 it("validates streamed JSON and strict wire options, restores omission, and meters decoded usage", async () => {
 	const received = Promise.withResolvers<unknown>();

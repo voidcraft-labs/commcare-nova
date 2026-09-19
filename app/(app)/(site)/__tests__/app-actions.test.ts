@@ -38,7 +38,6 @@ import {
 
 describe("delete/restore authoritative admission", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
 	});
 
@@ -79,7 +78,6 @@ describe("delete/restore authoritative admission", () => {
 
 describe("moveApp Project policy", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.resolveAppAccess.mockResolvedValue({
 			projectId: "project-source",

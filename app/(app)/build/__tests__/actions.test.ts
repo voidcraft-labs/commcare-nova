@@ -68,7 +68,6 @@ function canonicalReceipt(appId: string) {
 
 describe("createStarterApp Project binding", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
 		mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
 		mocks.resolveProjectAccess.mockResolvedValue({
 			projectId: "project-seeded-by-build-new",

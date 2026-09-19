@@ -438,9 +438,7 @@ describe("normalizeRelationEvaluationScopes — relation identity", () => {
 			prop("household", "case_name", subcasePath("parent", "patient")),
 			prop("household", "case_name", subcasePath("parent", "visit")),
 		);
-		expect(() =>
-			normalizeRelationEvaluationScopes(authored, CONTEXT),
-		).toThrowError(
+		expect(() => normalizeRelationEvaluationScopes(authored, CONTEXT)).toThrow(
 			expect.objectContaining({
 				name: "RelationEvaluationScopeError",
 				reason: "mixed-property-scopes",
@@ -523,9 +521,7 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 			prop("household", "region"),
 			relatedPatient("case_name"),
 		);
-		expect(() =>
-			normalizeRelationEvaluationScopes(authored, CONTEXT),
-		).toThrowError(
+		expect(() => normalizeRelationEvaluationScopes(authored, CONTEXT)).toThrow(
 			expect.objectContaining({
 				name: "RelationEvaluationScopeError",
 				reason: "mixed-property-scopes",

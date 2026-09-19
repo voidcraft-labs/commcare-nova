@@ -37,7 +37,6 @@ vi.mock("@/lib/db/mediaAssets", async () => ({
 }));
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	resetTestAssets();
 });
 

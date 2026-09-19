@@ -84,7 +84,6 @@ function asset(
 const drainBody = (res: Response): Promise<string> => res.text();
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 	resolveActiveProjectIdMock.mockResolvedValue("project-1");
 	listReadyAssetsForProjectMock.mockResolvedValue({
@@ -107,7 +106,6 @@ describe("GET /api/media/library kind filter", () => {
 
 	it("accepts every document kind", async () => {
 		for (const kind of ["text", "docx", "xlsx"] as const) {
-			vi.clearAllMocks();
 			requireSessionMock.mockResolvedValue({ user: { id: "user-1" } });
 			resolveActiveProjectIdMock.mockResolvedValue("project-1");
 			listReadyAssetsForProjectMock.mockResolvedValue({

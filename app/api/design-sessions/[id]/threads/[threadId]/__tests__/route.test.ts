@@ -12,7 +12,6 @@ vi.mock("@/lib/db/generationTargetScope", () => ({
 vi.mock("@/lib/db/threads", () => ({ loadThread: vi.fn() }));
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	vi.mocked(requireSession).mockResolvedValue({
 		user: { id: "user-1" },
 	} as never);

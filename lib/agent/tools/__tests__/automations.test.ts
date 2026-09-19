@@ -1,7 +1,7 @@
 /** Real command, workspace, gate, diff and guide projection. External catalog
  * reads and authoritative receipts are controlled boundaries; these tests do
  * not establish SQL locking, concurrent merges, HQ setup or execution. */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
@@ -119,10 +119,6 @@ function surveyRule(formUuid: Uuid): Automation {
 		useUserCaseForFilter: false,
 	};
 }
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 describe("automation shared tools", () => {
 	it("refuses partial-update survey settings in the input schema and accepts the adjacent supported setting", () => {

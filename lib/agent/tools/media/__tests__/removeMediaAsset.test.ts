@@ -80,7 +80,6 @@ vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
 }));
 
 beforeEach(() => {
-	vi.clearAllMocks();
 	hasOtherAssetForGcsObjectKey.mockResolvedValue(false);
 	listApps.mockResolvedValue({ apps: [] });
 	// The reverse index (`media_asset_refs`) is now a separate query, not a field
