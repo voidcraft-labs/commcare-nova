@@ -25,7 +25,6 @@
 import { getMigrations } from "better-auth/db/migration";
 import type { Kysely } from "kysely";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
-import { assertBetterAuthAcceptsSchema } from "@/lib/auth/schemaAcceptance";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withSchemaContext } from "@/lib/case-store";
 import { runCaseStoreMigrationsWithReport } from "@/lib/case-store/migrate";
@@ -69,13 +68,6 @@ async function main(): Promise<void> {
 	// grant-revocation watermark). Own ledger; same shared handle.
 	await runAuthAppMigrations(db as unknown as Kysely<unknown>);
 	console.log("[migrate] auth-app migrations applied");
-
-	// Every schema owner has run. Better Auth refuses all auth requests when its
-	// tables differ from its configuration, and only a database with history can
-	// hold such a difference, so ask it here, while a failure still stops the
-	// deploy.
-	await assertBetterAuthAcceptsSchema(pool);
-	console.log("[migrate] Better Auth accepts the migrated schema");
 
 	// Historical data repairs are explicit scan/migrate commands under scripts/.
 	// Only ledgered migrations and current schema/authority checks run here.

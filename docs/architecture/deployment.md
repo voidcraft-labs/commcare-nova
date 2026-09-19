@@ -108,10 +108,7 @@ Better Auth checks its own tables when a process starts and refuses every auth
 request while they differ from its configuration. A managed table that holds a
 required column Better Auth does not write is such a difference, even when a
 trigger fills it. A bridge on a Better Auth table therefore uses a nullable
-column or a column default, never `NOT NULL` with a fill trigger. After Better
-Auth's migrator runs, the migrate entrypoint asks Better Auth whether it accepts
-the result (`lib/auth/schemaAcceptance.ts`) and fails the Job if it does not,
-because no test database ever holds a shape left behind by an older release.
+column or a column default, never `NOT NULL` with a fill trigger.
 
 ## Stable infrastructure
 
@@ -167,7 +164,7 @@ The separate media policy identity remains available for explicit maintenance.
 Recurring migration retains ledgered schema migrations, Better Auth schema
 convergence, Nova auth initialization (including the canonical MCP resource),
 case-index convergence, privileges, and the complete rollback-only runtime
-fleet probe. Completed language, status, select-value, and Better Auth data repairs run
+fleet probe. Completed language, status, and select-value data repairs run
 only through their explicit CLIs. The narrower XPath verification remains an
 explicit read-only scan.
 

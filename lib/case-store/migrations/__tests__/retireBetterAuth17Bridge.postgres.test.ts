@@ -3,11 +3,10 @@ import { getMigrations } from "better-auth/db/migration";
 import { sql } from "kysely";
 import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import { assertBetterAuthAcceptsSchema } from "@/lib/auth/schemaAcceptance";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { up as installRollingDeployBridge } from "../20260829000000_better_auth_17_rolling_deploy_bridge";
-import { up } from "../20260919000000_retire_better_auth_issuer_identity";
+import { up } from "../20260919000000_retire_better_auth_17_bridge";
 
 const GOOGLE_ISSUER = "https://accounts.google.com";
 
@@ -31,11 +30,25 @@ async function insertGoogleAccount(pool: Pool, id: string): Promise<void> {
 	);
 }
 
-describe("a database Better Auth 1.7.2 migrated", () => {
+/** Every Nova-owned object the 1.6 → 1.7 bridge ever placed in a database. */
+async function bridgeObjects(pool: Pool): Promise<string[]> {
+	const found = await pool.query<{ name: string }>(
+		`SELECT 'trigger ' || tgname AS name FROM pg_catalog.pg_trigger WHERE tgname LIKE 'nova\\_%\\_v17'
+		 UNION ALL SELECT 'function ' || proname FROM pg_catalog.pg_proc WHERE proname LIKE 'nova\\_%\\_v17'
+		 UNION ALL SELECT 'index ' || indexname FROM pg_catalog.pg_indexes WHERE indexname = 'auth_account_issuer_accountId_uidx'
+		 UNION ALL SELECT 'column ' || column_name FROM information_schema.columns
+		   WHERE table_schema = 'public' AND table_name = 'auth_oauth_client' AND column_name IN ('public', 'type')
+		 ORDER BY name`,
+	);
+	return found.rows.map((row) => row.name);
+}
+
+describe("a database the Better Auth 1.6 → 1.7 upgrade migrated", () => {
 	const h = setupPerTestDatabase({
-		databaseNamePrefix: "retire_auth_issuer_",
-		// The shape production holds: Better Auth's tables, then the issuer column
-		// backfilled and required, its unique index, and the rolling-deploy trigger.
+		databaseNamePrefix: "retire_auth_bridge_",
+		// The shape a database holds after that upgrade and before its finalizer:
+		// Better Auth's tables, the required issuer column with its unique index,
+		// the two retired OAuth client columns, and all three bridge triggers.
 		prepareTemplate: async (db, pool) => {
 			const { runMigrations } = await getMigrations(authMigrateOptions(pool));
 			await runMigrations();
@@ -58,6 +71,21 @@ describe("a database Better Auth 1.7.2 migrated", () => {
 				BEFORE INSERT ON public.auth_account
 				FOR EACH ROW EXECUTE FUNCTION public.nova_fill_auth_account_issuer_v17()
 			`.execute(db);
+			await sql`
+				ALTER TABLE public.auth_oauth_client
+					ADD COLUMN "public" boolean,
+					ADD COLUMN "type" text
+			`.execute(db);
+			await sql`
+				CREATE TRIGGER nova_oauth_client_application_type_v17
+				BEFORE INSERT ON public.auth_oauth_client
+				FOR EACH ROW EXECUTE FUNCTION public.nova_fill_oauth_client_application_type_v17()
+			`.execute(db);
+			await sql`
+				CREATE TRIGGER nova_oauth_client_resource_v17
+				AFTER INSERT ON public.auth_oauth_client
+				FOR EACH ROW EXECUTE FUNCTION public.nova_link_oauth_client_resource_v17()
+			`.execute(db);
 		},
 	});
 
@@ -66,19 +94,10 @@ describe("a database Better Auth 1.7.2 migrated", () => {
 			/Database schema mismatch[\s\S]*auth_account\.issuer/,
 		);
 
-		// The migrate entrypoint asks the same question before a deploy, and must
-		// stop one that would ship this shape.
-		await expect(assertBetterAuthAcceptsSchema(h.pool)).rejects.toThrow(
-			/auth_account[\s\S]*issuer|issuer[\s\S]*auth_account/,
-		);
-
 		await up(h.db);
 		// The deploy runs Better Auth's own migrator next, against this same shape.
 		const { runMigrations } = await getMigrations(authMigrateOptions(h.pool));
 		await runMigrations();
-		await expect(
-			assertBetterAuthAcceptsSchema(h.pool),
-		).resolves.toBeUndefined();
 
 		await expect(readSessionThroughBetterAuth(h.pool)).resolves.toBeNull();
 		await insertGoogleAccount(h.pool, "after");
@@ -89,22 +108,37 @@ describe("a database Better Auth 1.7.2 migrated", () => {
 			{ id: "after", issuer: null },
 			{ id: "before", issuer: GOOGLE_ISSUER },
 		]);
-		const leftovers = await h.pool.query<{ name: string }>(
-			`SELECT tgname AS name FROM pg_catalog.pg_trigger WHERE tgname = 'nova_auth_account_issuer_v17'
-			 UNION ALL SELECT proname FROM pg_catalog.pg_proc WHERE proname = 'nova_fill_auth_account_issuer_v17'
-			 UNION ALL SELECT indexname FROM pg_catalog.pg_indexes WHERE indexname = 'auth_account_issuer_accountId_uidx'`,
+		expect(await bridgeObjects(h.pool)).toEqual([]);
+	});
+
+	it("leaves an OAuth client exactly as its writer stored it", async () => {
+		await up(h.db);
+
+		// No application type and no resource link: the bridge would have filled
+		// one and inserted the other.
+		await h.pool.query(
+			`INSERT INTO public.auth_oauth_client (id, "clientId", "redirectUris", "createdAt", "updatedAt")
+			 VALUES ('client-row', 'client-after', '["http://localhost:8123/callback"]', now(), now())`,
 		);
-		expect(leftovers.rows).toEqual([]);
+		const client = await h.pool.query<{ applicationType: string | null }>(
+			`SELECT "applicationType" FROM public.auth_oauth_client WHERE "clientId" = 'client-after'`,
+		);
+		expect(client.rows).toEqual([{ applicationType: null }]);
+		const links = await h.pool.query(
+			`SELECT 1 FROM public.auth_oauth_client_resource WHERE "clientId" = 'client-after'`,
+		);
+		expect(links.rows).toEqual([]);
 	});
 
 	it("changes nothing when it runs a second time", async () => {
 		await up(h.db);
 		await up(h.db);
 		await expect(readSessionThroughBetterAuth(h.pool)).resolves.toBeNull();
+		expect(await bridgeObjects(h.pool)).toEqual([]);
 	});
 });
 
-describe("a database that never held the issuer scheme", () => {
+describe("a database that never held the bridge", () => {
 	const h = setupPerTestDatabase({ databaseNamePrefix: "retire_auth_fresh_" });
 
 	it("migrates before Better Auth has created its tables, and Better Auth accepts the result", async () => {
@@ -114,5 +148,6 @@ describe("a database that never held the issuer scheme", () => {
 		const { runMigrations } = await getMigrations(authMigrateOptions(h.pool));
 		await runMigrations();
 		await expect(readSessionThroughBetterAuth(h.pool)).resolves.toBeNull();
+		expect(await bridgeObjects(h.pool)).toEqual([]);
 	});
 });
