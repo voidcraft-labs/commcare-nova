@@ -225,8 +225,8 @@ export function sourceAttachmentsMessage(
 				}),
 			},
 			...material.images.map((image) => ({
-				type: "image" as const,
-				image: new URL(image.dataUrl),
+				type: "file" as const,
+				data: new URL(image.dataUrl),
 				mediaType: image.mediaType,
 			})),
 		],
