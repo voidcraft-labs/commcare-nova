@@ -514,7 +514,7 @@ def _effective_execution_args(
     if short_name == "commcare-nova-historical-repair":
         tools = {
             "language-identity-repair.cjs", "case-status-filter-repair.cjs",
-            "better-auth-account-identity.cjs", "better-auth-oauth-clients.cjs",
+            "better-auth-oauth-clients.cjs",
             "select-option-value-repair.cjs",
         }
         if requested[:1] and requested[0] in tools:

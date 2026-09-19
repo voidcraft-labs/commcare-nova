@@ -663,10 +663,6 @@ const EXPECTED_PUBLIC_ROUTINES = [
 		identityArguments: "",
 	},
 	{
-		name: "nova_fill_auth_account_issuer_v17",
-		identityArguments: "",
-	},
-	{
 		name: "nova_fill_oauth_client_application_type_v17",
 		identityArguments: "",
 	},
@@ -681,10 +677,6 @@ const EXPECTED_PUBLIC_ROUTINES = [
 ] as const;
 
 const RUNTIME_ROUTINES = [
-	{
-		name: "nova_fill_auth_account_issuer_v17",
-		identityArguments: "",
-	},
 	{
 		name: "nova_fill_oauth_client_application_type_v17",
 		identityArguments: "",

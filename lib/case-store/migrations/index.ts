@@ -14,6 +14,7 @@ import * as organizationAuthoringReceipts from "./20260914050000_organization_au
 import * as completeFoldSnapshots from "./20260914060000_complete_fold_snapshots";
 import * as authoringFormat from "./20260914070000_authoring_format";
 import * as authoringFoldHorizon from "./20260914080000_authoring_fold_horizon";
+import * as retireBetterAuthIssuerIdentity from "./20260919000000_retire_better_auth_issuer_identity";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -180,6 +181,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260914070000_authoring_format": authoringFormat,
 	"20260914080000_authoring_fold_horizon": authoringFoldHorizon,
 	"20260913010000_design_conformance_reports": designConformanceReports,
+	"20260919000000_retire_better_auth_issuer_identity":
+		retireBetterAuthIssuerIdentity,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

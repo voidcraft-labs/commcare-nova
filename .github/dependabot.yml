@@ -29,18 +29,6 @@ updates:
       # the natural point to re-evaluate.
       - dependency-name: "@ai-sdk/workflow"
         versions: ["2.x"]
-      # Better Auth 1.7.3 reverted the 1.7 issuer-scoped account identity and
-      # turned on a startup schema check that every auth call awaits. Nova's
-      # database carries the 1.7.2 shape (`auth_account.issuer` NOT NULL, the
-      # `(issuer, accountId)` unique index, the rolling-deploy fill trigger), which
-      # that check reports as an unexpected required column and answers by
-      # rejecting every auth request. CI cannot see it: test databases are built
-      # fresh by the new migrator and never hold the column. The bump lands with
-      # the migration that relaxes that shape, and this entry leaves with it.
-      - dependency-name: "better-auth"
-        versions: [">=1.7.3"]
-      - dependency-name: "@better-auth/*"
-        versions: [">=1.7.3"]
       # The React profiling harness exact-pins an audited agent-react-devtools
       # release together with the react-devtools-core peer it was reviewed and
       # tested with; postinstall hash-checks the audited bytes and fails
