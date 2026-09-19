@@ -3,7 +3,7 @@
  *
  * `GenerationContext` and the standalone extraction condenser both extract a
  * document into a structured `{ extract, title, summary }` object via a SINGLE
- * `generateObject` call. The only provider-bound part is resolving the model id
+ * streamed structured call. The only provider-bound part is resolving the model id
  * to a `LanguageModel`; hoisting the call here, parameterized by the resolved
  * model, lets the same path run against ANY provider:
  *
@@ -25,7 +25,6 @@
 import type { FinishReason, FlexibleSchema, LanguageModelUsage } from "ai";
 import {
 	type CallWarning,
-	generateObject,
 	type LanguageModel,
 	NoObjectGeneratedError,
 	Output,
@@ -157,12 +156,12 @@ async function logUnparseableStructuredOutput(
 	}
 }
 
-/** The provider-options shape `generateObject` accepts (e.g. a provider's
+/** The provider-options shape `streamText` accepts (e.g. a provider's
  *  reasoning depth). `ai` declares this internally but doesn't export the
  *  name, so we derive it from the call signature — one source of truth the preview
  *  script reuses to type its per-model reasoning options. */
 export type SubGenerationProviderOptions = NonNullable<
-	Parameters<typeof generateObject>[0]["providerOptions"]
+	Parameters<typeof streamText>[0]["providerOptions"]
 >;
 
 /**
@@ -185,8 +184,7 @@ export interface SubGenerationImage {
 /**
  * The user-message content for a text prompt with attached images: the decoded
  * document text first, then each image in order, preceded by its label part
- * when one is set. Shared by the blocking and streaming calls so the two can
- * never drift on how figures ride the wire.
+ * when one is set.
  */
 function promptWithImagesContent(
 	prompt: string,
@@ -223,115 +221,14 @@ export interface SubGenerationObjectResult<T> {
 }
 
 /**
- * STRUCTURED single generation: the model fills `schema` via the provider's
- * controlled generation (guaranteed-valid JSON, modulo truncation). The document
- * arrives either as decoded text (`prompt`) or as a native file block (`file` +
- * `instruction`). The `{ type: "file", data, mediaType }` content shape is itself
- * provider-agnostic: every active provider detects the media type and emits its
- * own native document block, so a PDF reaches each model intact through identical
- * SDK input.
- *
- * Returns `object: null` (rather than throwing) when the model can't yield a valid
- * object — surfacing usage + `finishReason` so the caller can meter the spent
- * tokens and distinguish truncation from a malformed response. A non-object error
- * (network / auth / server failure) still propagates for the condenser layer to
- * classify + emit.
- */
-export async function generateObjectWith<T>(opts: {
-	model: LanguageModel;
-	system: string;
-	schema: FlexibleSchema<T>;
-	/** Decoded text body (text/docx/xlsx). Mutually exclusive with `file`. */
-	prompt?: string;
-	/** Native document block (PDF) the model reads directly. */
-	file?: { mediaType: string; data: string };
-	/** Instruction that accompanies a `file` input. */
-	instruction?: string;
-	/** Images attached beside a text `prompt` (a docx's embedded figures), in
-	 *  order. Only meaningful with `prompt`: a `file` document carries its own
-	 *  images natively, so `file` takes precedence and `images` is ignored. */
-	images?: SubGenerationImage[];
-	maxOutputTokens?: number;
-	providerOptions?: SubGenerationProviderOptions;
-	/** Cancels the provider call; the AI SDK rejects with its abort error,
-	 *  which propagates like any other non-object failure. */
-	abortSignal?: AbortSignal;
-}): Promise<SubGenerationObjectResult<T>> {
-	try {
-		// A `file` input rides as a native document block in a user message.
-		// Everything else is ONE messages-form call: a bare string prompt is
-		// wire-identical to a single user message with one text part (the SDK's
-		// own conversion), so the no-images case deliberately shares the images
-		// branch rather than keeping a third near-identical option block that
-		// must be edited in lockstep.
-		const result = opts.file
-			? await generateObject({
-					model: opts.model,
-					instructions: opts.system,
-					schema: opts.schema,
-					messages: [
-						{
-							role: "user",
-							content: [
-								{ type: "text", text: opts.instruction ?? "" },
-								{
-									type: "file",
-									data: opts.file.data,
-									mediaType: opts.file.mediaType,
-								},
-							],
-						},
-					],
-					maxOutputTokens: opts.maxOutputTokens,
-					abortSignal: opts.abortSignal,
-					providerOptions: opts.providerOptions,
-				})
-			: await generateObject({
-					model: opts.model,
-					instructions: opts.system,
-					schema: opts.schema,
-					messages: [
-						{
-							role: "user",
-							content: promptWithImagesContent(
-								opts.prompt ?? "",
-								opts.images ?? [],
-							),
-						},
-					],
-					maxOutputTokens: opts.maxOutputTokens,
-					abortSignal: opts.abortSignal,
-					providerOptions: opts.providerOptions,
-				});
-		return {
-			object: result.object,
-			usage: result.usage,
-			warnings: result.warnings,
-			finishReason: result.finishReason,
-		};
-	} catch (err) {
-		// `generateObject` throws `NoObjectGeneratedError` when it can't produce a
-		// valid object — truncation past `maxOutputTokens`, or a malformed response.
-		// Treat that as "no object" (null), surfacing usage + finishReason so the
-		// caller can meter spent tokens and detect truncation. Any other error (a
-		// real network/auth/server failure) propagates.
-		if (NoObjectGeneratedError.isInstance(err)) {
-			await logUnparseableStructuredOutput(err);
-			return {
-				object: null,
-				usage: err.usage,
-				warnings: undefined,
-				finishReason: err.finishReason,
-			};
-		}
-		throw err;
-	}
-}
-
-/**
- * STREAMING structured generation — same contract and result shape as
- * `generateObjectWith`, but streamed so a caller can surface live progress.
- * `onProgress` fires per streamed chunk with its character count.
+ * Structured generation: the model fills `schema` via the provider's controlled
+ * generation (guaranteed-valid JSON, modulo truncation), streamed so a caller can
+ * surface live progress. `onProgress` fires per streamed chunk with its
+ * character count. The document arrives either as decoded text (`prompt`) or as a
+ * native file block (`file` + `instruction`). The `{ type: "file", data,
+ * mediaType }` content shape is itself provider-agnostic: every active provider
+ * detects the media type and emits its own native document block, so a PDF
+ * reaches each model intact through identical SDK input.
  *
  * Built on `streamText` + `Output.object`, NOT `streamObject`, on purpose: the
  * summarizer may spend most of the wall-clock before any output token —
@@ -340,12 +237,13 @@ export async function generateObjectWith<T>(opts: {
  * carries `reasoning-delta` parts too (with OpenAI `reasoningSummary`), so progress
  * tracks the reasoning phase as well — which is where the time actually goes.
  *
- * Correctness is identical to the blocking path: only the FINAL validated `object`
- * (`result.output`) is returned — the partial stream drives progress + generation,
- * never salvaged (a structured extract has no usable partial). Any output failure
- * (truncation past `maxOutputTokens`, malformed/invalid object) resolves to a
- * `null` object with usage + `finishReason` so the caller meters tokens and detects
- * truncation, exactly as `generateObjectWith` does.
+ * Only the FINAL validated `object` (`result.output`) is returned — the partial
+ * stream drives progress + generation, never salvaged (a structured extract has
+ * no usable partial). Any output failure (truncation past `maxOutputTokens`,
+ * malformed/invalid object) resolves to a `null` object with usage +
+ * `finishReason` so the caller meters tokens and detects truncation. A non-object
+ * error (network / auth / server failure) still propagates for the condenser
+ * layer to classify + emit.
  */
 export async function streamObjectWith<T>(opts: {
 	model: LanguageModel;
@@ -379,7 +277,7 @@ export async function streamObjectWith<T>(opts: {
 	// before they're awaited — see below). PromiseLike, so wrap to attach a handler.
 	let pending: PromiseLike<unknown>[] = [];
 	try {
-		// Same two-branch shape as `generateObjectWith`: a native `file` block,
+		// Two branches: a native `file` block,
 		// or ONE messages-form call for text-with-optional-images (a bare string
 		// prompt is wire-identical to a single user message with one text part).
 		const result = opts.file
@@ -471,8 +369,7 @@ export async function streamObjectWith<T>(opts: {
 			finishReasonPromise,
 		]);
 		// Any output failure (truncation / malformed / type-mismatch) → null object:
-		// same "no partial salvage" contract as the blocking path; the caller treats
-		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
+		// no partial is salvaged; the caller treats null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
 		const object = await outputPromise.then(
 			(o) => o as T,
 			async (err: unknown) => {

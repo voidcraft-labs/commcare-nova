@@ -71,7 +71,7 @@ export function productionModelStep(
 		const base = reasoningProviderOptions(reasoningEffort, { promptCacheKey });
 		const result = streamText({
 			model,
-			system,
+			instructions: system,
 			messages: projectModelHistoryFromNewestCompaction(messages),
 			tools,
 			toolChoice: "auto",
@@ -91,7 +91,7 @@ export function productionModelStep(
 		const pending = [
 			result.toolCalls,
 			result.text,
-			result.reasoningText,
+			result.finalStep.then((step) => step.reasoningText),
 			result.usage,
 			result.responseMessages,
 			result.finishReason,

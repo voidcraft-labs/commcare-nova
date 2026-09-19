@@ -41,14 +41,8 @@ export async function sanitizeHistoricalToolParts<M extends UIMessage>(
 	messages: M[],
 	tools: ToolSet,
 ): Promise<M[]> {
-	// `safeValidateUIMessages`' tools slot is a per-name mapped type a plain
-	// `ToolSet` can't satisfy nominally; validation only ever reads each
-	// tool's `inputSchema`, so the widening is behavior-safe.
-	const probeTools = tools as Parameters<
-		typeof safeValidateUIMessages
-	>[0]["tools"];
 	const probe = (message: M) =>
-		safeValidateUIMessages({ messages: [message], tools: probeTools });
+		safeValidateUIMessages({ messages: [message], tools });
 	type MessagePart = M["parts"][number];
 	const applyNativeConversion = (
 		original: MessagePart,

@@ -39,7 +39,6 @@
 
 import type { OpenAIProvider } from "@ai-sdk/openai";
 import type {
-	CallWarning,
 	FinishReason,
 	LanguageModelUsage,
 	StepResultPerformance,
@@ -127,18 +126,6 @@ import type { CanonicalMutationHost } from "./workspace/canonicalHost";
  */
 const LEASE_HEARTBEAT_INTERVAL_MS = (MAX_RUN_MINUTES / 3) * 60_000;
 
-/** Log AI SDK warnings to the console if present. */
-export function logWarnings(
-	label: string,
-	warnings: CallWarning[] | undefined,
-) {
-	if (warnings?.length) {
-		for (const w of warnings) {
-			console.warn(`[${label}] warning:`, w);
-		}
-	}
-}
-
 /**
  * Constructor options. Two orthogonal collaborators: `LogWriter` owns
  * durable event persistence (fire-and-forget); `UsageAccumulator` owns
@@ -224,7 +211,6 @@ export interface AgentStep {
 		toolCallId: string;
 		error: unknown;
 	}>;
-	warnings?: CallWarning[];
 	finishReason?: FinishReason;
 	rawFinishReason?: string;
 	performance?: StepResultPerformance;
@@ -1035,7 +1021,6 @@ export class GenerationContext
 		model: string,
 		phase?: DesignBuildCostPhase,
 	): void {
-		logWarnings(`runAgent:${label}`, step.warnings);
 		// Refresh the run's liveness horizon off SA activity (debounced) — the
 		// cheap early beat; the wall-clock timer covers a long no-step turn.
 		this.beatRunLease();
@@ -1233,7 +1218,6 @@ export class GenerationContext
 				providerOptions: opts.providerOptions,
 				onProgress: opts.onProgress,
 			});
-			logWarnings(`extractDocument:${opts.label}`, result.warnings);
 			if (result.usage) this.trackSubGeneration(result.usage, opts.model);
 			return {
 				object: result.object,

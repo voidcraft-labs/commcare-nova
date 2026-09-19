@@ -312,11 +312,11 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 				const persisted = await loadApp(genesis.appId);
 				await save("result.json", {
 					text: result.text,
-					messages: result.response.messages,
+					messages: result.responseMessages,
 					finishReason: result.finishReason,
 					steps,
 					requests,
-					usage: result.totalUsage,
+					usage: result.usage,
 					blueprint: persisted?.blueprint,
 					estimatedTotalSpentUsd: ledger.estimatedSpentUsd,
 				});

@@ -3,6 +3,7 @@ import {
 	createUIMessageStreamResponse,
 	type InferAgentUIMessage,
 	isTextUIPart,
+	toUIMessageStream,
 	type UIMessage,
 	type UIMessageStreamWriter,
 } from "ai";
@@ -2908,7 +2909,9 @@ export async function POST(req: Request) {
 						 * is exactly what a later resume replays, so this loop runs to the
 						 * stream's end either way (the catch is a last-resort guard). */
 						let contextActivityActive = false;
-						for await (const chunk of result.toUIMessageStream({
+						for await (const chunk of toUIMessageStream({
+							stream: result.stream,
+							tools: sa.tools,
 							originalMessages: validated,
 							/* One identity for the turn's answer: stamps
 							 * `responseMessageId` onto the `start` chunk HERE, upstream

@@ -26,12 +26,6 @@ const tools: ToolSet = {
 	}),
 };
 
-// Same widening the helper itself performs — `validateUIMessages`' tools
-// slot is a per-name mapped type a plain `ToolSet` can't satisfy.
-const validationTools = tools as Parameters<
-	typeof validateUIMessages
->[0]["tools"];
-
 const user = (id: string, text: string): UIMessage =>
 	({ id, role: "user", parts: [{ type: "text", text }] }) as UIMessage;
 
@@ -83,7 +77,7 @@ describe("sanitizeHistoricalToolParts", () => {
 			toolPart({ toolCallId: "call_2", input: CLEAN_INPUT }),
 		]);
 		await expect(
-			validateUIMessages({ messages: out, tools: validationTools }),
+			validateUIMessages({ messages: out, tools }),
 		).resolves.toBeDefined();
 	});
 
@@ -111,7 +105,7 @@ describe("sanitizeHistoricalToolParts", () => {
 		expect((kept as { toolCallId?: string }).toolCallId).toBe("call_2");
 		// The repaired set passes the route's real validation.
 		await expect(
-			validateUIMessages({ messages: out, tools: validationTools }),
+			validateUIMessages({ messages: out, tools }),
 		).resolves.toBeDefined();
 	});
 
@@ -134,7 +128,7 @@ describe("sanitizeHistoricalToolParts", () => {
 			state: "output-available",
 		});
 		await expect(
-			validateUIMessages({ messages: out, tools: validationTools }),
+			validateUIMessages({ messages: out, tools }),
 		).resolves.toBeDefined();
 	});
 
@@ -160,7 +154,7 @@ describe("sanitizeHistoricalToolParts", () => {
 			state: "output-error",
 		});
 		await expect(
-			validateUIMessages({ messages: out, tools: validationTools }),
+			validateUIMessages({ messages: out, tools }),
 		).resolves.toBeDefined();
 	});
 

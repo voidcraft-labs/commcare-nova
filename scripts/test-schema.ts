@@ -33,7 +33,7 @@
  */
 import "dotenv/config";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs, tool } from "ai";
+import { generateText, isStepCount, tool } from "ai";
 import type { z } from "zod";
 import { authoringToolSchema } from "../lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "../lib/agent/sharedToolRegistry";
@@ -482,12 +482,12 @@ console.log(`Testing with ${model}...`);
 						execute: async () => "ok",
 					}),
 				},
-				/* `stepCountIs(2)` lets the model emit a tool call + its
+				/* `isStepCount(2)` lets the model emit a tool call + its
 				 * tool-result response without looping into a second tool
 				 * call; a `tool-calls` finishReason confirms the schema was
 				 * accepted and the model produced valid input. */
-				stopWhen: stepCountIs(2),
-				system:
+				stopWhen: isStepCount(2),
+				instructions:
 					"Use the supplied tool with reasonable arguments to satisfy the prompt.",
 				prompt: test.prompt,
 				maxOutputTokens: 1024,

@@ -6,7 +6,7 @@
 
 import {
 	type FlexibleSchema,
-	stepCountIs,
+	isStepCount,
 	ToolLoopAgent,
 	type ToolSet,
 } from "ai";
@@ -276,7 +276,7 @@ export function createSolutionsArchitect(
 		// blueprint summary rides the per-turn message the route appends
 		// (`buildAppStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(),
-		stopWhen: stepCountIs(SOLUTIONS_ARCHITECT_MAX_STEPS),
+		stopWhen: isStepCount(SOLUTIONS_ARCHITECT_MAX_STEPS),
 		maxRetries: SOLUTIONS_ARCHITECT_MAX_RETRIES,
 		prepareStep: ({ messages }) => {
 			// A tool execution error is a non-fatal AI SDK content part. Stop the
@@ -326,7 +326,6 @@ export function createSolutionsArchitect(
 							? [{ toolCallId: part.toolCallId, error: part.error }]
 							: [],
 					),
-					warnings: step.warnings,
 				},
 				"Solutions Architect",
 				MODEL_ROLES.followUpEditor.modelId,

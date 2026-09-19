@@ -16,7 +16,7 @@ export type { ClassifiedError, ErrorType } from "./errorClassifier";
 export { classifyError, MESSAGES } from "./errorClassifier";
 // generationContext — shared LLM wrapper around the OpenAI provider, SSE
 // writer, event log, and usage accumulator.
-export { GenerationContext, logWarnings } from "./generationContext";
+export { GenerationContext } from "./generationContext";
 export { buildAppStateMessage, markStablePrefixBoundary } from "./prompts";
 // resolveAttachments — server-side resolution of chat attachment refs. The
 // composer sends asset-id refs in message metadata; the chat route calls

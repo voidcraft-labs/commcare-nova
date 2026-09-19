@@ -65,6 +65,35 @@ afterEach(() => {
 	);
 });
 
+/**
+ * Fail any test whose model call draws a provider warning.
+ *
+ * The AI SDK warns when a provider drops or rewrites something Nova sent: a
+ * schema keyword, a setting, a tool option. The request still succeeds, so
+ * nothing else notices that the model received something other than what Nova
+ * authored. Tests that drive the real provider against a loopback peer send
+ * production definitions, which makes this the place such a change surfaces.
+ */
+const providerWarnings: string[] = [];
+globalThis.AI_SDK_LOG_WARNINGS = ({ warnings, provider, model }) => {
+	for (const warning of warnings)
+		providerWarnings.push(
+			`${provider ?? "provider"} / ${model ?? "model"}: ${JSON.stringify(warning)}`,
+		);
+};
+
+afterEach(() => {
+	if (providerWarnings.length === 0) return;
+	const reported = [...new Set(providerWarnings)].join("\n");
+	providerWarnings.length = 0;
+	throw new Error(
+		`The AI SDK reported a provider warning while this test ran:\n\n${reported}\n\n` +
+			"The provider changed or dropped part of the request before sending it, so the " +
+			"model did not receive what Nova authored. Change what Nova sends so the " +
+			"provider passes it through unchanged.",
+	);
+});
+
 vi.mock("@/lib/logger", () => ({
 	log: {
 		info: vi.fn(),
