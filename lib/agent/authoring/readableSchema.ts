@@ -8,7 +8,10 @@ const annotations = new Set(["description", "title", "$comment"]);
 
 /** Visit schema positions only. An enum/default/const may contain ordinary
  * objects whose keys happen to be schema keywords. */
-function children(schema: Json, visit: (schema: Json) => Json): Json {
+export function mapSubschemas(
+	schema: Json,
+	visit: (schema: Json) => Json,
+): Json {
 	const result = { ...schema };
 	for (const key of [
 		"properties",
@@ -62,7 +65,7 @@ export function readableToolSchema(input: Json): Json {
 	const count = (schema: Json): Json => {
 		if (typeof schema.$ref === "string")
 			counts.set(schema.$ref, (counts.get(schema.$ref) ?? 0) + 1);
-		return children(schema, count);
+		return mapSubschemas(schema, count);
 	};
 	count(root);
 
@@ -87,7 +90,7 @@ export function readableToolSchema(input: Json): Json {
 				return { ...simplify(definition, next), ...notes };
 			}
 		}
-		const result = children(schema, (child) => simplify(child, active));
+		const result = mapSubschemas(schema, (child) => simplify(child, active));
 		if (
 			Array.isArray(result.allOf) &&
 			result.allOf.length === 1 &&
@@ -112,7 +115,7 @@ export function readableToolSchema(input: Json): Json {
 			mark((result[key] as Json)[name] as Json);
 		}
 		const { definitions: _definitions, $defs: _defs, ...body } = schema;
-		return children(body, mark);
+		return mapSubschemas(body, mark);
 	};
 	mark(result);
 	for (const key of ["definitions", "$defs"]) {

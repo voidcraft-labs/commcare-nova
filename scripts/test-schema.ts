@@ -15,7 +15,8 @@
  *     default is the production Luna executor (cheap + fast —
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
- *     registered schema. Known names: `addFields`,
+ *     registered schema. Known names: `evaluateForm`, `createLocation`,
+ *     `updateLocation`, `addFields`,
  *     `configureCaseList`, `addCaseListColumns`, `updateCaseListColumn`,
  *     `removeCaseListColumn`, `reorderCaseListColumns`,
  *     `setCaseListFilter`, `setCaseListTile`, `addSearchInputs`, `updateSearchInput`,
@@ -34,6 +35,8 @@ import "dotenv/config";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, stepCountIs, tool } from "ai";
 import type { z } from "zod";
+import { authoringToolSchema } from "../lib/agent/authoring/toolSchema";
+import { SHARED_TOOL_REGISTRY } from "../lib/agent/sharedToolRegistry";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
 import { addCaseListColumnsTool } from "../lib/agent/tools/case-list-config/addCaseListColumns";
 import { addSearchInputsTool } from "../lib/agent/tools/case-list-config/addSearchInputs";
@@ -51,6 +54,7 @@ import { setCaseSearchDisplayTool } from "../lib/agent/tools/case-search-config/
 import { createFormTool } from "../lib/agent/tools/createForm";
 import { createModuleTool } from "../lib/agent/tools/createModule";
 import { editFieldTool } from "../lib/agent/tools/editField";
+import { evaluateFormTool } from "../lib/agent/tools/evaluateForm";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
 import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
 import {
@@ -75,6 +79,10 @@ import { removeMediaAssetTool } from "../lib/agent/tools/media/removeMediaAsset"
 import { setAppLogoTool } from "../lib/agent/tools/media/setAppLogo";
 import { setMenuMediaTool } from "../lib/agent/tools/media/setMenuMedia";
 import { moveFieldTool } from "../lib/agent/tools/moveField";
+import {
+	createLocationTool,
+	updateLocationTool,
+} from "../lib/agent/tools/organization";
 import { renameCasePropertiesTool } from "../lib/agent/tools/renameCaseProperties";
 import { updateAppTool } from "../lib/agent/tools/updateApp";
 import {
@@ -94,11 +102,32 @@ import { MODEL_ROLES, OPENAI_BASE_OPTIONS } from "../lib/models";
 interface SchemaTest {
 	readonly name: string;
 	readonly description: string;
-	readonly schema: z.ZodObject<z.ZodRawShape>;
+	readonly schema: z.ZodType;
 	readonly prompt: string;
 }
 
 const SCHEMA_TESTS: readonly SchemaTest[] = [
+	{
+		name: "evaluateForm",
+		description: evaluateFormTool.description,
+		schema: evaluateFormTool.inputSchema,
+		prompt:
+			'Use evaluateForm on the form "Follow-up visit" in the module "Patients" with a scenario holding one patient record whose properties are case_name "Asha" and status "active".',
+	},
+	{
+		name: "createLocation",
+		description: createLocationTool.description,
+		schema: createLocationTool.inputSchema,
+		prompt:
+			'Use createLocation to add a place named "Riverside Clinic" at the level "Clinic", with the place property "Catchment population" set to 1200.',
+	},
+	{
+		name: "updateLocation",
+		description: updateLocationTool.description,
+		schema: updateLocationTool.inputSchema,
+		prompt:
+			'Use updateLocation on the place "Riverside Clinic" to set the place property "Catchment population" to 1500.',
+	},
 	{
 		name: "addFields",
 		description: addFieldsTool.description,
@@ -422,11 +451,14 @@ console.log(`Testing with ${model}...`);
 (async () => {
 	let exitCode = 0;
 	for (const test of tests) {
-		/* Exercise the exact production projection. Besides the compact AST
-		 * spelling, its input-side emission preserves transformed validators such
-		 * as lookup revisions while the original Zod schema remains the runtime
-		 * parse gate. */
-		const inputSchema = wireToolSchema(test.schema);
+		/* Exercise the exact production projection: a shared tool reaches the
+		 * model through the authoring boundary, anything else through the wire
+		 * projection. */
+		const inputSchema = SHARED_TOOL_REGISTRY.some(
+			(entry) => entry.saName === test.name,
+		)
+			? authoringToolSchema(test.name, test.schema).inputSchema
+			: wireToolSchema(test.schema);
 		const size = JSON.stringify(inputSchema.jsonSchema).length;
 		console.log(`\n${test.name}: ${size} chars`);
 
