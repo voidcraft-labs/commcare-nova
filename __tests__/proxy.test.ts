@@ -289,6 +289,21 @@ describe("proxy: commcare.app (main) routing", () => {
 		expectAuthRedirect(res);
 	});
 
+	it("serves /connection-issue to a signed-out visitor (an authorize request can fail before sign-in)", () => {
+		/* Same page-handling branch as any main-host document, so it carries
+		 * the page CSP rather than the API bypass. */
+		const res = proxy(req("commcare.app", "/connection-issue?reason=x"));
+		expectPassthrough(res);
+		expect(res.headers.get("content-security-policy")).not.toBeNull();
+	});
+
+	it("redirects signed-out /connection-issue/x to / (the exemption is exact-match)", () => {
+		/* The allowlist is segment-anchored, so the subpath clears the
+		 * hostname gate; the auth exemption must not follow it down. */
+		const res = proxy(req("commcare.app", "/connection-issue/x"));
+		expectAuthRedirect(res);
+	});
+
 	it("attaches CSP + x-nonce on allowlisted page requests with a session cookie", () => {
 		/* Authenticated, allowlisted, non-API, non-well-known path —
 		 * exercises the entire CSP construction block. The `x-nonce`

@@ -10,11 +10,12 @@
  */
 import { declaredBodyTooLarge, OAUTH_REVOKE_MAX_BYTES } from "@/lib/apiError";
 import { getAuth } from "@/lib/auth";
-import {
-	cleanupStalePublicOAuthClients,
-	recordOAuthGrantRevocationForToken,
-} from "@/lib/db/oauth-consents";
+import { recordOAuthGrantRevocationForToken } from "@/lib/db/oauth-consents";
 import { log } from "@/lib/logger";
+import {
+	classifyAuthorizeResponse,
+	connectionIssueUrl,
+} from "@/lib/oauth/authorize-errors";
 
 async function readRevokedToken(req: Request): Promise<string | null> {
 	// A revoke body is a single token. Bound this app-owned read so a public
@@ -35,12 +36,37 @@ async function readRevokedToken(req: Request): Promise<string | null> {
 	return token || null;
 }
 
+/**
+ * True when a person's browser is navigating to this URL, as opposed to a
+ * script calling it. Better Auth answers a fetch caller with a JSON
+ * `{ redirect, url }` form of the same outcome, and that caller reads it, so
+ * those responses are never rewritten.
+ */
+function isBrowserNavigation(req: Request): boolean {
+	if ((req.headers.get("accept") ?? "").includes("application/json")) {
+		return false;
+	}
+	const fetchMode = req.headers.get("sec-fetch-mode");
+	return fetchMode === null || fetchMode.toLowerCase() === "navigate";
+}
+
+/** The parsed JSON body of a non-redirect 4xx, read from a clone so the
+ * original response stays returnable. Anything unreadable is no body. */
+async function readErrorBody(response: Response): Promise<unknown> {
+	if (response.status < 400 || response.status >= 500) return undefined;
+	const contentType = response.headers.get("content-type") ?? "";
+	if (!contentType.includes("application/json")) return undefined;
+	return response
+		.clone()
+		.json()
+		.catch(() => undefined);
+}
+
 const handler = async (req: Request) => {
 	const url = new URL(req.url);
 	const isOAuthRevoke =
 		req.method === "POST" && url.pathname.endsWith("/oauth2/revoke");
-	const isOAuthRegister =
-		req.method === "POST" && url.pathname.endsWith("/oauth2/register");
+	const isOAuthAuthorize = url.pathname.endsWith("/oauth2/authorize");
 
 	const authReq = isOAuthRevoke ? req.clone() : req;
 	const revokedToken = isOAuthRevoke ? await readRevokedToken(req) : null;
@@ -66,19 +92,6 @@ const handler = async (req: Request) => {
 		return new Response(null, { status: 500 });
 	}
 
-	if (isOAuthRegister && response.ok) {
-		/* Cleanup is opportunistic housekeeping, not load-bearing for any
-		 * security check, and never load-bearing for the registering
-		 * client. Awaiting it here would couple register-response latency
-		 * to a scan over up to 50 public-client rows (each followed by two
-		 * consent + refresh-token lookups). Fire-and-forget
-		 * keeps the register endpoint fast; the catch surfaces failures to
-		 * Cloud Logging without blocking the response. */
-		void cleanupStalePublicOAuthClients().catch((err) =>
-			log.error("[auth/oauth] stale public-client cleanup failed", err),
-		);
-	}
-
 	if (isOAuthRevoke && response.ok && revokedToken) {
 		try {
 			const wrote = await recordOAuthGrantRevocationForToken(revokedToken);
@@ -97,6 +110,30 @@ const handler = async (req: Request) => {
 		} catch (err) {
 			log.error("[auth/oauth] grant revocation watermark failed", err);
 			return new Response(null, { status: 500 });
+		}
+	}
+
+	/* The one place this handler replaces Better Auth's answer. An authorize
+	 * request Better Auth can't trust (a client id Nova no longer knows, a
+	 * client address it couldn't read) is refused in the BROWSER: a redirect
+	 * to `/?error=…` or a bare JSON 4xx. The MCP client that opened the tab
+	 * never sees either, so it can't recover on its own, and the person is
+	 * left on a page that says nothing useful. Send them to the page that
+	 * explains what happened and how to reconnect. Only the classified reason
+	 * travels: never the provider's code, its description, or the client id. */
+	if (isOAuthAuthorize && isBrowserNavigation(req)) {
+		const reason = classifyAuthorizeResponse({
+			status: response.status,
+			location: response.headers.get("location"),
+			requestUrl: req.url,
+			body: await readErrorBody(response),
+		});
+		if (reason) {
+			await response.body?.cancel();
+			return new Response(null, {
+				status: 302,
+				headers: { location: connectionIssueUrl(reason) },
+			});
 		}
 	}
 

@@ -45,6 +45,15 @@ You only sign in once per client. The connection sticks until you revoke it.
 
 If your client doesn't open the browser tab automatically, check its MCP logs, most clients print the sign-in URL there as a fallback.
 
+### If the tab shows a connection issue
+
+Sometimes Nova can't go through with a connection request, and the browser tab says so instead of asking you to sign in. Your client can't see that page, so the way forward is on your side:
+
+- **This connection needs a fresh start.** Nova doesn't recognize the app that asked to connect, usually because the client saved a connection that has since gone out of date. You can clear the Nova server's sign-in in your client, then connect again. In Claude Code, run `/mcp`, choose `nova`, then pick **Clear authentication**.
+- **Nova couldn't confirm this app.** Nova couldn't reach or confirm the address the app uses to identify itself. Trying again in a little while usually works. If it keeps happening, the app's publisher can help.
+- **Let's give this a minute.** Nova saw a lot of connection attempts at once. Waiting a minute and connecting again should work.
+- **Nova couldn't complete this connection.** Starting the connection again from your client usually fixes it.
+
 ## CommCare HQ uploads
 
 The HQ upload tool needs two things that aren't required for the rest of the surface:

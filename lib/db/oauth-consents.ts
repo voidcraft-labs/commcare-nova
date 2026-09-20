@@ -52,8 +52,6 @@ export interface AuthorizedClient {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 /** The Kysely adapter returns `timestamptz` columns as `Date`. */
 function toISOString(val: Date): string {
 	return val.toISOString();
@@ -304,65 +302,6 @@ export async function hasActiveConsent(
 	 * inequality never fails OPEN — a token from a later second always reads as
 	 * active. */
 	return revokedAtMs < issuedAtMs;
-}
-
-/**
- * Opportunistic cleanup for unauthenticated public DCR clients. Public
- * clients never receive a client secret, so `client_secret_expires_at`
- * cannot bound storage growth; stale clients with no consents or refresh
- * tokens are safe to delete.
- */
-export async function cleanupStalePublicOAuthClients({
-	now = new Date(),
-	olderThanDays = 30,
-	limit = 50,
-}: {
-	now?: Date;
-	olderThanDays?: number;
-	limit?: number;
-} = {}): Promise<number> {
-	const db = await getAuthDb();
-	const cutoff = new Date(now.getTime() - olderThanDays * MS_PER_DAY);
-	const clients = await db
-		.selectFrom("auth_oauth_client")
-		.select(["id", "clientId", "tokenEndpointAuthMethod", "userId"])
-		.where("createdAt", "<", cutoff)
-		.limit(limit)
-		.execute();
-
-	let deleted = 0;
-	for (const client of clients) {
-		if (
-			client.tokenEndpointAuthMethod !== "none" ||
-			client.userId ||
-			!client.clientId
-		) {
-			continue;
-		}
-
-		const [consent, refreshToken] = await Promise.all([
-			db
-				.selectFrom("auth_oauth_consent")
-				.select("id")
-				.where("clientId", "=", client.clientId)
-				.limit(1)
-				.executeTakeFirst(),
-			db
-				.selectFrom("auth_oauth_refresh_token")
-				.select("id")
-				.where("clientId", "=", client.clientId)
-				.limit(1)
-				.executeTakeFirst(),
-		]);
-		if (consent || refreshToken) continue;
-
-		await db
-			.deleteFrom("auth_oauth_client")
-			.where("id", "=", client.id)
-			.execute();
-		deleted += 1;
-	}
-	return deleted;
 }
 
 // ── Internals ───────────────────────────────────────────────────────
