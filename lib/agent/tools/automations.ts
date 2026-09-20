@@ -162,6 +162,12 @@ function allIdentities(
 	return [automation.uuid, ...automationNestedUuids(automation)];
 }
 
+/** One automation as stored, with its optional HQ setup guide beside it. */
+export type GetAutomationsItem = {
+	automation: z.infer<typeof automationSchema>;
+	executesInPreview: false;
+} & Partial<SetupGuideResult>;
+
 export const getAutomationsTool = {
 	description:
 		"Read automation definitions in display order, or one by automationUuid. Request includeSetupGuide for that rule when preparing manual CommCare HQ setup. Preview does not execute automations; matching counts are available in the Builder.",
@@ -169,7 +175,7 @@ export const getAutomationsTool = {
 	async execute(
 		input: z.infer<typeof getAutomationsInputSchema>,
 		ctx: ToolInvocationContext,
-	): Promise<ReadToolResult<unknown>> {
+	): Promise<ReadToolResult<GetAutomationsItem[] | { error: string }>> {
 		try {
 			// The workspace owns the document, so the automations come from the
 			// snapshot this invocation reads. Re-reading the persisted app would

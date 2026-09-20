@@ -3,9 +3,10 @@
  * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
 import { getFormTool } from "../../getForm";
-import { getModuleTool } from "../../getModule";
 import { setAppLogoTool } from "../setAppLogo";
 import {
 	type SetMenuMediaInput,
@@ -20,6 +21,7 @@ import {
 	FORM_A,
 	loadAssetsByIdsMock,
 	MOD_A,
+	makeMediaDoc,
 	makeMediaFixture,
 	resetTestAssets,
 	seedTestAsset,
@@ -286,21 +288,30 @@ describe("menu-media built-in icons", () => {
 	});
 });
 
-describe("getModule menu-media projection (the read side of the single-slot contract)", () => {
-	it("surfaces the stored icon + audio_label on the module and its form summaries", async () => {
-		const h = makeMediaFixture();
-		await h.runTool(setMenuMediaTool, {
-			items: [moduleItem("household", ASSET_AUDIO), formItem("register", null)],
+describe("menu media as a client reads it (the read side of the single-slot contract)", () => {
+	// A client reads through the authoring projection, never the tool body, so
+	// these calls take production's path. Built-in slugs are covered with the
+	// rest of the read contract in `authoring/__tests__/readContract.test.ts`;
+	// this covers the uploaded-media half that needs the asset table.
+	it("reads uploaded icons and audio as their asset ids beside a built-in slug", async () => {
+		const h = makeAuthoringHarness(
+			{ projectId: "project-1" },
+			expectAdmittedDoc(makeMediaDoc()),
+		);
+		await h.call("setMenuMedia", {
+			items: [moduleItem(ASSET_ICON, ASSET_AUDIO), formItem("register", null)],
 		});
-		const read = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
-		if ("error" in read.data) throw new Error(read.data.error);
-		expect(read.data.icon).toBe("household");
-		expect(read.data.audio_label).toBe(ASSET_AUDIO);
-		expect(read.data.forms[0]?.icon).toBe("register");
-		expect(read.data.forms[0]?.audio_label).toBeNull();
+		expect(await h.call("getModule", { moduleUuid: MOD_A })).toMatchObject({
+			icon: ASSET_ICON,
+			audio_label: ASSET_AUDIO,
+			forms: [{ icon: "register", audio_label: null }],
+		});
+		expect(
+			await h.call("getForm", { moduleUuid: MOD_A, formUuid: FORM_A }),
+		).toMatchObject({ form: { icon: "register" } });
 	});
 
-	it("projects a form built-in to its accepted slug on the full-form read", async () => {
+	it("keeps the stored identity in the tool body, which the projection alone prints", async () => {
 		const h = makeMediaFixture();
 		await h.runTool(setMenuMediaTool, {
 			items: [formItem("register", null)],
@@ -310,7 +321,7 @@ describe("getModule menu-media projection (the read side of the single-slot cont
 			formUuid: FORM_A,
 		});
 		if ("error" in read.data) throw new Error(read.data.error);
-		expect(read.data.form.icon).toBe("register");
+		expect(read.data.form.icon).toBe("nova-icon:register");
 	});
 });
 

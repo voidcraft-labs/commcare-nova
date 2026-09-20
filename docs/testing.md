@@ -191,6 +191,18 @@ app authorization and continuation reauthorization in Postgres tests. Keep
 pagination byte limits, Unicode boundaries, and malformed cursors in pure tests;
 compare complete reconstructed results through the same consumer checks.
 
+A shared tool's body and what a client reads from it are two contracts. A tool
+body returns canonical values; the authoring boundary prints them. Calling
+`tool.execute` (the workspace harness's `runTool`) proves the body and never
+runs that boundary, so an assertion about what a client may send or will read
+belongs on `makeAuthoringHarness` (`lib/agent/__tests__/authoringHarness.ts`),
+which runs production's one call body. Asserting an authored value on a tool
+body's raw result restates the bug it should catch. Read coverage follows the
+app, not the tool: `readContract.test.ts` sweeps every registered read over an
+app that uses the features authors reach for, and `readTotality.fuzz.test.ts`
+reads generated admitted apps. A new read tool or a new stored value that a
+read must print extends those, not a test of its own tool in isolation.
+
 For emitted policy languages, evaluate the actual output with an independent
 language implementation. `captureCondition.test.ts` uses CEL and checks its
 Google IAM-specific `extract` extension against Google's published examples.

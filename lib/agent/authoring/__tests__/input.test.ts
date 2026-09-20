@@ -2,16 +2,11 @@ import { v7 as uuidv7 } from "uuid";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
 	echoLookupDefinitions,
 	type MakeToolWorkspaceHarnessOptions,
-	makeCanonicalGenesisDoc,
-	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
-import {
-	SHARED_TOOL_REGISTRY,
-	type SharedToolRegistryEntry,
-} from "@/lib/agent/sharedToolRegistry";
 import { orderedCaseOperations, translationUnitsById } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
@@ -19,41 +14,13 @@ import {
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
-import { prepareAuthoringInput } from "../input";
-import { projectAuthoringRead } from "../output";
-import { authoringToolSchema } from "../toolSchema";
 
 function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
-	const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc(), options);
+	const harness = makeAuthoringHarness(options);
 	async function call(name: string, input: unknown) {
-		const entry: SharedToolRegistryEntry | undefined =
-			SHARED_TOOL_REGISTRY.find((entry) => entry.saName === name);
-		if (!entry) throw new Error(`Unknown tool ${name}.`);
-		const authored = authoringToolSchema(
-			name,
-			entry.tool.inputSchema,
-		).authored.parse(input);
-		return harness.workspace.invoke({
-			toolName: name,
-			async execute(ctx) {
-				const canonical = await prepareAuthoringInput({
-					toolName: name,
-					schema: entry.tool.inputSchema,
-					input: authored,
-					ctx,
-				});
-				const outcome = await entry.tool.execute(canonical, ctx);
-				const result = outcome.kind === "read" ? outcome.data : outcome.result;
-				expect(result, name).not.toHaveProperty("error");
-				return outcome.kind === "read"
-					? projectAuthoringRead({
-							toolName: name,
-							data: result,
-							doc: ctx.snapshot.doc,
-						})
-					: result;
-			},
-		});
+		const result = await harness.call(name, input);
+		expect(result, name).not.toHaveProperty("error");
+		return result;
 	}
 	return { ...harness, call };
 }

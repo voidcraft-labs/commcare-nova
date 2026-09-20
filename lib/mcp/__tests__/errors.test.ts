@@ -1,6 +1,10 @@
 /** Pure exception-to-wire projection. Real access checks belong in the
  * Postgres suites; these vectors protect error taxonomy and information flow. */
 import { expect, it, vi } from "vitest";
+import {
+	AuthoringInputError,
+	ReadProjectionError,
+} from "@/lib/agent/authoring/errors";
 import { AppPaginationError } from "@/lib/db/appPagination";
 import {
 	AppProjectChangedError,
@@ -48,6 +52,23 @@ it.each(["app", "project"] as const)(
 		expect(log.error).not.toHaveBeenCalled();
 	},
 );
+it("reports unreadable stored content as Nova's failure, while correctable input stays the caller's", () => {
+	// A read that cannot be printed and an input that cannot be bound once
+	// shared a class, so a defect in Nova reached callers as their mistake.
+	const unreadable = new ReadProjectionError("getForm", new Error("private"));
+	expect(toMcpErrorResult(unreadable, context)).toEqual(
+		contextual("internal", unreadable.message),
+	);
+	expect(unreadable.message).not.toContain("private");
+	// The read boundary records the cause once; this projection adds nothing.
+	expect(log.error).not.toHaveBeenCalled();
+	expect(log.warn).not.toHaveBeenCalled();
+
+	expect(
+		toMcpErrorResult(new AuthoringInputError("Choose a form."), context),
+	).toEqual(contextual("invalid_input", "Choose a form."));
+	expect(log.warn).toHaveBeenCalledOnce();
+});
 it("collapses a commit-time permission loss without exposing its private reason", () => {
 	expect(
 		toMcpErrorResult(

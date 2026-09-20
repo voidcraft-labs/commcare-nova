@@ -1,48 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-	makeCanonicalGenesisDoc,
-	makeToolWorkspaceHarness,
-} from "@/lib/agent/__tests__/fixtures";
-import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { projectAuthoringRead } from "@/lib/agent/authoring/output";
-import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
-import {
-	SHARED_TOOL_REGISTRY,
-	type SharedToolRegistryEntry,
-} from "@/lib/agent/sharedToolRegistry";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 
-function authoring() {
-	const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
-	async function call(name: string, input: unknown) {
-		const entry: SharedToolRegistryEntry | undefined =
-			SHARED_TOOL_REGISTRY.find((item) => item.saName === name);
-		if (!entry) throw new Error(`Missing tool ${name}`);
-		const authored = authoringToolSchema(
-			name,
-			entry.tool.inputSchema,
-		).authored.parse(input);
-		return h.workspace.invoke({
-			toolName: name,
-			async execute(ctx) {
-				const canonical = await prepareAuthoringInput({
-					toolName: name,
-					schema: entry.tool.inputSchema,
-					input: authored,
-					ctx,
-				});
-				const result = await entry.tool.execute(canonical, ctx);
-				return result.kind === "read"
-					? projectAuthoringRead({
-							toolName: name,
-							data: result.data,
-							doc: ctx.snapshot.doc,
-						})
-					: result.result;
-			},
-		});
-	}
-	return { ...h, call };
-}
+const authoring = () => makeAuthoringHarness();
 
 async function fixture() {
 	const h = authoring();

@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { UIMessage, UIMessageChunk } from "ai";
 import { z } from "zod";
 import { AgentRunContext } from "@/lib/agent/agentRunContext";
-import { AuthoringInputError } from "@/lib/agent/authoring/errors";
+import {
+	AuthoringInputError,
+	ReadProjectionError,
+} from "@/lib/agent/authoring/errors";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
 import { classifyError } from "@/lib/agent/errorClassifier";
@@ -492,6 +495,8 @@ export async function runBuildOrchestration(
 			if (
 				error instanceof PlanConflictError ||
 				error instanceof AuthoringInputError ||
+				// Recorded at the read boundary; the architect hears the true cause.
+				error instanceof ReadProjectionError ||
 				error instanceof SourceMaterialError ||
 				error instanceof ChangeSetStagingRejectedError
 			)

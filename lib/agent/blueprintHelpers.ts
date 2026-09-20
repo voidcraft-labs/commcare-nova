@@ -46,7 +46,6 @@ import type {
 	FieldPatchFor,
 	Form,
 	FormIconRef,
-	FormIconSlug,
 	FormType,
 	Media,
 	MediaAssetId,
@@ -60,10 +59,8 @@ import {
 	asUuid,
 	fieldKinds,
 	formEntersFromMenu,
-	isBuiltinIconRef,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
-	parseBuiltinIconSlug,
 	slugifyId,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
@@ -83,9 +80,7 @@ import {
  *
  * Lives alongside the other `BlueprintDoc`-read derived shapes.
  */
-export type FormSnapshot = Omit<Form, "caseOperations" | "icon"> & {
-	/** Built-ins project to their accepted catalog slug; uploads stay UUIDs. */
-	icon?: FormIconSlug | MediaAssetId;
+export type FormSnapshot = Omit<Form, "caseOperations"> & {
 	fields: FieldWithChildren[];
 	caseOperations?: CaseOperation[];
 };
@@ -93,7 +88,8 @@ export type FormSnapshot = Omit<Form, "caseOperations" | "icon"> & {
 /**
  * Build the canonical `FormSnapshot` for the given form UUID. Returns
  * `undefined` when the form doesn't exist in the doc — callers surface that
- * as a "form not found" error to the SA.
+ * as a "form not found" error to the SA. Every value is the stored one: the
+ * authoring read projection alone turns canonical content into authored form.
  */
 export function formSnapshot(
 	doc: BlueprintDoc,
@@ -101,24 +97,10 @@ export function formSnapshot(
 ): FormSnapshot | undefined {
 	const form = doc.forms[formUuid];
 	if (!form) return undefined;
-	const projected = {
+	return {
 		...form,
 		fields: buildFieldTree(doc, formUuid),
 	};
-	const { icon, ...withoutStoredIcon } = projected;
-	return {
-		...withoutStoredIcon,
-		...(icon !== undefined && {
-			icon: projectFormIconForAuthoring(icon),
-		}),
-	};
-}
-
-function projectFormIconForAuthoring(
-	icon: FormIconRef,
-): FormIconSlug | MediaAssetId {
-	if (!isBuiltinIconRef(icon)) return icon;
-	return parseBuiltinIconSlug(icon) as FormIconSlug;
 }
 
 // ── Mutation builders — modules ─────────────────────────────────────────

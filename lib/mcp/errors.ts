@@ -43,7 +43,10 @@
  * `content[0].text` as a JSON object.
  */
 
-import { AuthoringInputError } from "@/lib/agent/authoring/errors";
+import {
+	AuthoringInputError,
+	ReadProjectionError,
+} from "@/lib/agent/authoring/errors";
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import { AppPaginationError } from "@/lib/db/appPagination";
@@ -313,6 +316,21 @@ export function toMcpErrorResult(
 				{
 					type: "text",
 					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (err instanceof ReadProjectionError) {
+		/* Nova could not print stored content for reading. The read boundary
+		 * already recorded the cause at `error`, so this only reports it, as
+		 * Nova's problem and never as the caller's input. */
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("internal", err.message)),
 				},
 			],
 		};

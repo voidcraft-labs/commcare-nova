@@ -22,9 +22,8 @@ import {
 } from "@/lib/db/commitGuard";
 import type { BlueprintDoc } from "@/lib/domain";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
-import { AuthoringInputError } from "./authoring/errors";
-import { prepareAuthoringInput } from "./authoring/input";
-import { projectAuthoringReadInContext } from "./authoring/output";
+import { AuthoringInputError, ReadProjectionError } from "./authoring/errors";
+import { runSharedToolCall } from "./authoring/sharedToolCall";
 import { authoringToolSchema } from "./authoring/toolSchema";
 import type { GenerationContext } from "./generationContext";
 import { novaOpenAITools } from "./openaiProvider";
@@ -163,7 +162,7 @@ export function createSolutionsArchitect(
 	 * replace a shared tool on only one surface.
 	 */
 	function wrapShared(entry: SharedToolRegistryEntry) {
-		const { saName, tool: t } = entry;
+		const { saName } = entry;
 		const definition = definitions[saName];
 		if (definition === undefined) {
 			throw new Error(
@@ -182,20 +181,14 @@ export function createSolutionsArchitect(
 						execute: async (invocationCtx) => {
 							throwIfTerminalRunError();
 							try {
-								const prepared = await prepareAuthoringInput({
-									toolName: saName,
-									schema: t.inputSchema,
+								const outcome = await runSharedToolCall(
+									entry,
 									input,
-									ctx: invocationCtx,
-								});
-								const outcome = await t.execute(prepared, invocationCtx);
+									invocationCtx,
+								);
 								switch (outcome.kind) {
 									case "read":
-										return projectAuthoringReadInContext(
-											saName,
-											outcome.data,
-											invocationCtx,
-										);
+										return outcome.data;
 									case "mutate":
 										return withSavedDataReview(
 											outcome.result,
@@ -239,7 +232,10 @@ export function createSolutionsArchitect(
 					 * they propagate (latched above) and fail the run. */
 					if (
 						err instanceof BlueprintCommitRejectedError ||
-						err instanceof AuthoringInputError
+						err instanceof AuthoringInputError ||
+						// Already recorded at the read boundary. The SA hears that the
+						// read failed on Nova's side, so it does not retry with new input.
+						err instanceof ReadProjectionError
 					) {
 						return { error: err.message };
 					}

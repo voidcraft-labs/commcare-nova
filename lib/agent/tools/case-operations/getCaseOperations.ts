@@ -1,4 +1,4 @@
-import type { Uuid } from "@/lib/domain";
+import type { CaseOperation, Uuid } from "@/lib/domain";
 import { formAnswerWrites } from "../../formAnswerWrites";
 import type { ToolInvocationContext } from "../../workspace/types";
 import type { ReadToolResult } from "../common";
@@ -21,7 +21,7 @@ export type GetCaseOperationsResult =
 			 *  result carries the human handle rather than making the caller
 			 *  hold a uuid and a name it never asked for. */
 			readonly form: string;
-			readonly operations: readonly Record<string, unknown>[];
+			readonly operations: readonly CaseOperation[];
 			readonly answerWrites: ReturnType<typeof formAnswerWrites>;
 	  }
 	| { readonly error: string };
