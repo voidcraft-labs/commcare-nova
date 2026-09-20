@@ -511,6 +511,17 @@ def _effective_execution_args(
     if requested in exact_overrides.get(short_name, set()):
         return requested
 
+    if short_name == "commcare-nova-prose-reference-repair":
+        if requested == ("prose-reference-repair.cjs",):
+            return requested
+        if requested[:1] == ("prose-reference-repair.cjs",) and len(requested) in (2, 4):
+            if requested[1] in ("--execute", "--rollback"):
+                if len(requested) == 2 or (
+                    requested[2] == "--app"
+                    and APP_ID_RE.fullmatch(requested[3])
+                ):
+                    return requested
+
     if short_name == "commcare-nova-historical-repair":
         tools = {
             "language-identity-repair.cjs", "case-status-filter-repair.cjs",

@@ -66,3 +66,7 @@ mcp-headers
 mcp-body
 
 .next-profiles
+
+# Temporary historical prose-reference repair bundle.
+!scripts/repair-prose-references.ts
+!scripts/lib/proseReferenceRepair.ts
