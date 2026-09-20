@@ -32,6 +32,7 @@ function PopoverContent({
 	sideOffset = 4,
 	collisionAvoidance,
 	collisionPadding,
+	anchor,
 	dir,
 	...props
 }: PopoverPrimitive.Popup.Props &
@@ -43,6 +44,7 @@ function PopoverContent({
 		| "sideOffset"
 		| "collisionAvoidance"
 		| "collisionPadding"
+		| "anchor"
 	>) {
 	const inheritedDirection = usePortaledContentDirection();
 	const positioningDirection =
@@ -67,6 +69,7 @@ function PopoverContent({
 					sideOffset={sideOffset}
 					collisionAvoidance={collisionAvoidance}
 					collisionPadding={collisionPadding}
+					anchor={anchor}
 					className={cn(
 						"isolate",
 						FLOATING_LAYER_CLS,

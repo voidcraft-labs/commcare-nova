@@ -14,7 +14,7 @@ export const referenceSchema = z.string().min(1);
 export const textSchema = z
 	.string()
 	.describe(
-		"Markdown text. {{field_id}} inserts an answer; \\{{ keeps literal braces.",
+		"Markdown text. {{field_id}} inserts an answer; {{#case/property}} inserts a saved value. Bare # references remain literal text; \\{{ keeps literal braces.",
 	);
 export const expressionSchema = z
 	.union([z.string(), z.boolean()])

@@ -18,8 +18,8 @@
  * (dropdown with visual grid picker for selecting dimensions). Portal-mounted
  * to body so overflow-hidden ancestors can't clip it.
  *
- * **Hints**: BubbleMenu with default shouldShow (text selection only).
- * Bold and italic MarkButton only.
+ * **Hints**: A compact always-visible toolbar with bold, italic and reference
+ * insertion. Both variants share the same reference picker.
  *
  * Save: blur, Cmd/Ctrl+Enter. Cancel: Escape reverts to original value.
  * Tab/Shift+Tab: save current, activate next/previous TextEditable in DOM
@@ -29,9 +29,10 @@
 "use client";
 import { type Editor, Extension } from "@tiptap/core";
 import { Tiptap, useEditor } from "@tiptap/react";
-import { BubbleMenu } from "@tiptap/react/menus";
+
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
+import { ProseReferencePicker } from "@/components/builder/ProseReferencePicker";
 import { ToolbarSaveHint } from "@/components/builder/SaveShortcutHint";
 import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
 import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
@@ -58,6 +59,11 @@ import {
 	markdownToProseTemplate,
 	proseTemplateToMarkdown,
 } from "@/lib/tiptap/markdownExtensions";
+import {
+	dismissProseSuggestion,
+	proseEditorId,
+	prosePickerIsOpen,
+} from "@/lib/tiptap/proseReferenceEditing";
 import { FIELD_STYLES, type FieldType } from "./fieldStyles";
 
 interface InlineTextEditorProps {
@@ -93,7 +99,13 @@ interface InlineTextEditorProps {
  */
 function LabelToolbar({
 	anchorRef,
+	editor,
+	compact = false,
+	onLeaveEditor,
 }: {
+	editor: Editor;
+	compact?: boolean;
+	onLeaveEditor: () => void;
 	anchorRef: React.RefObject<HTMLDivElement | null>;
 }) {
 	const portalRef = useRef<HTMLDivElement>(null);
@@ -151,7 +163,7 @@ function LabelToolbar({
 			const hidden = rect.bottom < containerTop || rect.top > containerBottom;
 
 			portal.style.position = "fixed";
-			portal.style.left = `${rect.left}px`;
+			portal.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - portal.offsetWidth - 8))}px`;
 			portal.style.top = `${clampedTop}px`;
 			portal.style.visibility = hidden ? "hidden" : "visible";
 		};
@@ -175,61 +187,51 @@ function LabelToolbar({
 			style={{ visibility: "hidden", zIndex: "var(--z-popover-top)" }}
 			data-no-drag
 			data-inline-toolbar
-			onMouseDown={(e) => e.preventDefault()}
+			data-prose-editor={proseEditorId(editor)}
+			onMouseDown={(e) => {
+				if (e.currentTarget.contains(e.target as Node)) e.preventDefault();
+			}}
 		>
-			<Toolbar variant="floating" className={POPOVER_GLASS}>
+			<Toolbar
+				variant="floating"
+				className={`${POPOVER_GLASS} max-w-[calc(100vw-1rem)] flex-wrap`}
+			>
 				<ToolbarGroup>
 					<MarkButton type="bold" />
 					<MarkButton type="italic" />
 					<MarkButton type="code" />
 				</ToolbarGroup>
-				<ToolbarSeparator />
-				<ToolbarGroup>
-					<HeadingDropdownMenu levels={[1, 2, 3]} modal={false} />
-					<ListDropdownMenu
-						types={["bulletList", "orderedList"]}
-						modal={false}
-					/>
-				</ToolbarGroup>
-				<ToolbarSeparator />
-				<ToolbarGroup>
-					<LinkPopover />
-					<ImagePopover />
-				</ToolbarGroup>
-				<ToolbarSeparator />
-				<ToolbarGroup>
-					<CodeBlockButton />
-					<HorizontalRuleButton />
-					<TableButton />
-				</ToolbarGroup>
-				<ToolbarSeparator />
+				{!compact && (
+					<>
+						<ToolbarSeparator />
+						<ToolbarGroup>
+							<HeadingDropdownMenu levels={[1, 2, 3]} modal={false} />
+							<ListDropdownMenu
+								types={["bulletList", "orderedList"]}
+								modal={false}
+							/>
+						</ToolbarGroup>
+						<ToolbarSeparator />
+						<ToolbarGroup>
+							<LinkPopover />
+							<ImagePopover />
+						</ToolbarGroup>
+						<ToolbarSeparator />
+						<ToolbarGroup>
+							<CodeBlockButton />
+							<HorizontalRuleButton />
+							<TableButton />
+						</ToolbarGroup>
+						<ToolbarSeparator />
+					</>
+				)}
+				<ProseReferencePicker editor={editor} onLeaveEditor={onLeaveEditor} />
 				<ToolbarSaveHint />
 			</Toolbar>
 		</div>,
 		document.body,
 	);
 }
-
-// ── Hint toolbar (minimal formatting) ────────────────────────────────
-
-/**
- * Minimal BubbleMenu for hint fields. Default shouldShow: appears
- * on text selection only. Bold and italic only.
- */
-function CompactToolbar() {
-	return (
-		<BubbleMenu>
-			<Toolbar variant="floating" className={POPOVER_GLASS} data-no-drag>
-				<ToolbarGroup>
-					<MarkButton type="bold" />
-					<MarkButton type="italic" />
-				</ToolbarGroup>
-			</Toolbar>
-		</BubbleMenu>
-	);
-}
-
-// ── Main editor ──────────────────────────────────────────────────────
 
 export function InlineTextEditor({
 	value,
@@ -287,6 +289,7 @@ export function InlineTextEditor({
 		() =>
 			Extension.create({
 				name: "inlineTextEditorKeyboard",
+				priority: 100,
 				addKeyboardShortcuts() {
 					return {
 						Tab: ({ editor }) => {
@@ -304,6 +307,7 @@ export function InlineTextEditor({
 							return true;
 						},
 						Escape: ({ editor }) => {
+							if (dismissProseSuggestion(editor)) return true;
 							cancelRef.current();
 							editor.commands.blur();
 							return true;
@@ -348,6 +352,9 @@ export function InlineTextEditor({
 				 * static LabelContent). ProseMirror's injected white-space/position
 				 * are matched by the preview-markdown rule in globals.css. */
 				class: "outline-none",
+				role: "textbox",
+				"aria-label": fieldType === "label" ? "Label" : "Hint",
+				"aria-multiline": "true",
 				"data-1p-ignore": "",
 				autocomplete: "off",
 			},
@@ -359,7 +366,11 @@ export function InlineTextEditor({
 			 * genuinely left the editing context. The toolbar wrapper and the Radix
 			 * dropdown content are both tagged with [data-inline-toolbar]. */
 			requestAnimationFrame(() => {
-				if (!document.activeElement?.closest("[data-inline-toolbar]")) {
+				if (
+					!e.isDestroyed &&
+					!prosePickerIsOpen(e) &&
+					!document.activeElement?.closest("[data-inline-toolbar]")
+				) {
 					saveRef.current(e);
 				}
 			});
@@ -395,11 +406,12 @@ export function InlineTextEditor({
 	return (
 		<Tiptap editor={editor}>
 			<div ref={anchorRef} className="relative" data-no-drag>
-				{fieldType === "label" ? (
-					<LabelToolbar anchorRef={anchorRef} />
-				) : (
-					<CompactToolbar />
-				)}
+				<LabelToolbar
+					anchorRef={anchorRef}
+					editor={editor}
+					compact={fieldType !== "label"}
+					onLeaveEditor={() => saveRef.current(editor)}
+				/>
 				{/* Text styling + preview-markdown on a single wrapper: matches the
 				 * static LabelContent structure for flipbook parity. */}
 				<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>

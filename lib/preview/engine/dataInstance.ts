@@ -73,10 +73,15 @@ export class DataInstance {
 		this.rootAttributes = { ...rootAttributes };
 	}
 
+	/** Refresh authored topology without resetting live answers or repeat counts. */
+	refreshTemplate(tree: readonly FieldTreeNode[]): void {
+		this.xpathTemplate = xpathTemplateFromFields(tree);
+	}
+
 	/** Initialize from a field tree, creating an entry for each non-structural field. */
 	initFromFields(tree: FieldTreeNode[], prefix = "/data"): void {
 		if (prefix === "/data") {
-			this.xpathTemplate = xpathTemplateFromFields(tree);
+			this.refreshTemplate(tree);
 		}
 		for (const node of tree) {
 			const f = node.field;

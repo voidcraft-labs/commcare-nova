@@ -76,6 +76,7 @@ interface DField {
 	kind: FieldKind;
 	label?: ProseTemplate;
 	hint?: ProseTemplate;
+	help?: ProseTemplate;
 	required?: XPathExpression;
 	relevant?: XPathExpression;
 	calculate?: XPathExpression;
@@ -204,6 +205,83 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 }
 
 describe("FormEngine", () => {
+	it.each(["help", "choice", "validation"] as const)(
+		"updates a reference used only in %s wording through the worker",
+		async (slot) => {
+			const wording = prose(
+				{ kind: "text", text: "For " },
+				{ kind: "field-ref", uuid: testUuid("form.name") },
+			);
+			const choiceUuid = testUuid("reference-choice");
+			const target: DField =
+				slot === "choice"
+					? {
+							id: "target",
+							kind: "single_select",
+							optionsSource: {
+								kind: "inline",
+								options: [
+									{ uuid: choiceUuid, value: "yes", label: wording },
+									{
+										uuid: testUuid("reference-other"),
+										value: "no",
+										label: proseText("No"),
+									},
+								],
+							},
+						}
+					: {
+							id: "target",
+							kind: "text",
+							...(slot === "help"
+								? { help: wording }
+								: { validate: xp("false()"), validate_msg: wording }),
+						};
+			const input = dTree([{ id: "name", kind: "text" }, target]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync } = fixedWorldEvaluator(engine, `only-${slot}`);
+			await engine.initializeAsync(evaluateAsync);
+			await engine.setValueAsync("/data/target", "yes", evaluateAsync);
+			for (const name of ["Asha", "Nia"]) {
+				await engine.setValueAsync("/data/name", name, evaluateAsync);
+				const state = engine.getState("/data/target");
+				expect(
+					slot === "help"
+						? state.resolvedHelp
+						: slot === "choice"
+							? state.resolvedOptionLabels?.[choiceUuid]
+							: state.errorMessage,
+				).toBe(`For ${name}`);
+			}
+			const edited = structuredClone(input);
+			const editedField = edited.fields[testUuid("form.target")];
+			if (editedField.kind === "text") {
+				if (slot === "help") editedField.help = proseText("Plain help");
+				else editedField.validate_msg = proseText("Plain message");
+			} else if (
+				editedField.kind === "single_select" &&
+				editedField.optionsSource.kind === "inline"
+			) {
+				editedField.optionsSource.options[0].label = proseText("Plain choice");
+			}
+			engine.rebuildDag(edited);
+			await engine.settleAsync(evaluateAsync);
+			const literal = engine.getState("/data/target");
+			expect(literal.resolvedHelp).toBeUndefined();
+			expect(literal.resolvedOptionLabels).toBeUndefined();
+			if (slot === "validation")
+				expect(literal.errorMessage).toBe("Plain message");
+		},
+	);
+
 	it("runs an input's async downstream cascade once and in DAG order", async () => {
 		const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 		const normalized = "sleep(0, replace(/data/source, '[^a-z]', ''))";
@@ -4703,6 +4781,69 @@ describe("FormEngine", () => {
 			expect(mutation).toMatchObject({
 				kind: "registration",
 				primary: { properties: { note: "Alice's note" } },
+			});
+		});
+
+		it("renaming a referenced repeat answer refreshes the worker structure without losing values", async () => {
+			const input = dTree([
+				{
+					id: "orders",
+					kind: "repeat",
+					children: [
+						{
+							id: "name",
+							kind: "text",
+							hint: prose({
+								kind: "field-ref",
+								uuid: testUuid("form.orders.name"),
+							}),
+						},
+					],
+				},
+			]);
+			const engine = new FormEngine(input);
+			engine.addRepeat("/data/orders");
+			const { evaluateAsync } = fixedWorldEvaluator(engine, "rename-prose");
+			await engine.setValueAsync(
+				"/data/orders[0]/name",
+				"Hydrangea",
+				evaluateAsync,
+			);
+			await engine.setValueAsync(
+				"/data/orders[1]/name",
+				"Aspirin",
+				evaluateAsync,
+			);
+			expect(engine.getState("/data/orders[0]/name").resolvedHint).toBe(
+				"Hydrangea",
+			);
+			expect(engine.getState("/data/orders[1]/name").resolvedHint).toBe(
+				"Aspirin",
+			);
+			const fieldUuid = testUuid("form.orders.name");
+			const renamed: FormEngineInput = {
+				...input,
+				fields: {
+					...input.fields,
+					[fieldUuid]: { ...input.fields[fieldUuid], id: "medication" },
+				},
+			};
+			engine.renamePaths([
+				{
+					oldPath: "/data/orders[0]/name",
+					newPath: "/data/orders[0]/medication",
+				},
+			]);
+			engine.rebuildDag(renamed);
+			await engine.settleAsync(evaluateAsync);
+			expect(engine.getRepeatCount("/data/orders")).toBe(2);
+			expect(engine.getState("/data/orders[0]/medication")).toMatchObject({
+				value: "Hydrangea",
+				resolvedHint: "Hydrangea",
+			});
+			expect(engine.getState("/data/orders[1]/medication")).toMatchObject({
+				value: "Aspirin",
+				resolvedHint: "Aspirin",
 			});
 		});
 

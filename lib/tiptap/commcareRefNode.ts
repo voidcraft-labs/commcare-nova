@@ -99,49 +99,4 @@ export const CommcareRef = Node.create({
 	addNodeView() {
 		return ReactNodeViewRenderer(CommcareRefView, { as: "span" });
 	},
-
-	addKeyboardShortcuts() {
-		return {
-			Backspace: ({ editor }) => {
-				const { state } = editor;
-				const { $anchor } = state.selection;
-				if (!state.selection.empty || $anchor.pos <= 0) return false;
-				const nodeBefore = state.doc.resolve($anchor.pos).nodeBefore;
-				if (nodeBefore?.type.name !== "commcareRef") return false;
-				const parsed = prosePartSchema.safeParse(nodeBefore.attrs.part);
-				if (!parsed.success || parsed.data.kind === "text") return false;
-				// Backspace turns the chip back into the text it was showing, minus
-				// the character just deleted, so editing continues where the author
-				// was looking. That text is the chip's own projection — `label` —
-				// resolved against the document when the atom was built. It must not
-				// come from a context-free projector, which has no document and so
-				// would type `#form/[reference needs repair]` into authored prose.
-				//
-				// The label is not always there. `serializedProseReferencePart` writes
-				// only the encoded part, so a chip parsed from that carrier — every
-				// chip in the markdown-backed inline editor — has an empty label. This
-				// convenience simply does not apply to those, and claiming otherwise by
-				// running a bespoke delete would make Backspace destroy a reference on
-				// a surface where it cannot offer the replacement text. Falling through
-				// gives them ProseMirror's ordinary atom deletion: visible, undoable,
-				// and identical to every other inline atom.
-				const label =
-					typeof nodeBefore.attrs.label === "string"
-						? nodeBefore.attrs.label
-						: "";
-				if (label.length === 0) return false;
-				const nodeStart = $anchor.pos - nodeBefore.nodeSize;
-				editor
-					.chain()
-					.focus()
-					.command(({ tr }) => {
-						tr.delete(nodeStart, $anchor.pos);
-						tr.insertText(label.slice(0, -1), nodeStart);
-						return true;
-					})
-					.run();
-				return true;
-			},
-		};
-	},
 });

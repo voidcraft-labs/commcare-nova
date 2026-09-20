@@ -78,7 +78,10 @@ the dedicated media tools.
 
 Wording and expressions are authored as text. A label such as `Hello {{name}}`
 inserts the answer to `name`; a condition such as `#form/age >= 18` reads that
-answer. Nova binds names to stable identities when the request runs, so renaming
+answer. In wording, `{{#case/case_name}}` inserts a saved case value and
+`{{#user/region}}` inserts a declared worker property. Bare hashtags such as
+`#form/name` stay literal in wording; braces mark the explicit insertion.
+Nova binds names to stable identities when the request runs, so renaming
 or moving a field preserves its references. Literal opening braces and backslashes
 are escaped with a backslash. Read tools return the same wording and expression
 format accepted by edits.

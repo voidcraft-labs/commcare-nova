@@ -364,6 +364,8 @@ function classifyChange(
 		default_value?: unknown;
 		label?: ProseTemplate;
 		hint?: ProseTemplate;
+		help?: ProseTemplate;
+		validate_msg?: ProseTemplate;
 	};
 	const prev = previous as Field & {
 		calculate?: unknown;
@@ -373,13 +375,16 @@ function classifyChange(
 		default_value?: unknown;
 		label?: ProseTemplate;
 		hint?: ProseTemplate;
+		help?: ProseTemplate;
+		validate_msg?: ProseTemplate;
 	};
 
 	if (
 		cur.calculate !== prev.calculate ||
 		cur.relevant !== prev.relevant ||
 		cur.required !== prev.required ||
-		cur.validate !== prev.validate
+		cur.validate !== prev.validate ||
+		cur.validate_msg !== prev.validate_msg
 	) {
 		return "expression";
 	}
@@ -402,13 +407,21 @@ function classifyChange(
 
 	const labelChanged = cur.label !== prev.label;
 	const hintChanged = cur.hint !== prev.hint;
-	if (labelChanged || hintChanged) {
+	const helpChanged = cur.help !== prev.help;
+	if (labelChanged || hintChanged || helpChanged) {
 		/* A reference is a typed part, not a `#` in the text. Scanning for the
 		 * character both threw — a `ProseTemplate` has no `.includes` — and
 		 * asked the wrong question: a label reading "Ward #3" carries no
 		 * reference, while one carrying a `field-ref` part may contain no `#`
 		 * at all. */
-		const hasRefs = [cur.label, prev.label, cur.hint, prev.hint].some(
+		const hasRefs = [
+			cur.label,
+			prev.label,
+			cur.hint,
+			prev.hint,
+			cur.help,
+			prev.help,
+		].some(
 			(template) =>
 				template?.parts.some((part) => part.kind !== "text") ?? false,
 		);
