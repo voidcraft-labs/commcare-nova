@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { automationMessageTemplateSchema } from "@/lib/domain/automations";
+import {
+	FORM_ICON_SLUGS,
+	formIconRefSchema,
+	MODULE_ICON_SLUGS,
+	moduleIconRefSchema,
+} from "@/lib/domain/builtinIcons";
 import { localizedValueSchema } from "@/lib/domain/localization";
+import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import * as expressions from "@/lib/domain/predicate/types";
 import { proseTemplateSchema } from "@/lib/domain/prose";
 import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
@@ -14,7 +21,9 @@ export type AuthoringValueFamily =
 	| "condition"
 	| "value"
 	| "reference"
-	| "relationship";
+	| "relationship"
+	| "moduleIcon"
+	| "formIcon";
 export type AuthoringPath = readonly (string | number)[];
 export type AuthoringValueDecoders = Record<
 	AuthoringValueFamily,
@@ -35,6 +44,8 @@ const families = new Map<object, AuthoringValueFamily>([
 	[expressions.actingUserSchema._zod.def, "value"],
 	[expressions.unownedSchema._zod.def, "value"],
 	[expressions.relationPathSchema._zod.def, "relationship"],
+	[(moduleIconRefSchema as z.core.$ZodType)._zod.def, "moduleIcon"],
+	[(formIconRefSchema as z.core.$ZodType)._zod.def, "formIcon"],
 	...[
 		expressions.termSchema,
 		expressions.propertyRefSchema,
@@ -99,6 +110,12 @@ const valueSchemas = {
 		.describe(
 			"Record relationship: children('Visit'), ancestor('parent'), or self().",
 		),
+	moduleIcon: z
+		.union([z.enum(MODULE_ICON_SLUGS), mediaAssetIdSchema])
+		.describe("A built-in topic icon name, or an uploaded image's asset id."),
+	formIcon: z
+		.union([z.enum(FORM_ICON_SLUGS), mediaAssetIdSchema])
+		.describe("A built-in action icon name, or an uploaded image's asset id."),
 } satisfies Record<AuthoringValueFamily, z.ZodType>;
 type Json = Record<string, unknown>;
 
@@ -263,11 +280,10 @@ function transformValues(
 					)
 				: input;
 		case "union": {
-			const variants = definition.options;
-			const matching = variants.filter((variant) =>
-				representation === "authored"
-					? authoringSchema(variant).validate(input)
-					: z.validate(variant, input),
+			if (representation === "canonical")
+				return descend(canonicalVariant(definition, input, path), input);
+			const matching = definition.options.filter((variant) =>
+				authoringSchema(variant).validate(input),
 			);
 			if (matching.length !== 1)
 				throw new AuthoringInputError(
@@ -278,4 +294,40 @@ function transformValues(
 		default:
 			return input;
 	}
+}
+
+/** A stored value already belongs to exactly one variant. A tagged union names
+ * it by its discriminator, so reading never re-runs every variant's
+ * refinements; an untagged union is matched by validation. Anything else means
+ * the value handed to the read projection is not canonical, which is a defect
+ * in Nova rather than something the caller can correct. */
+function canonicalVariant(
+	definition: z.core.$ZodUnionDef,
+	input: unknown,
+	path: AuthoringPath,
+): z.core.$ZodType {
+	const discriminator =
+		"discriminator" in definition ? definition.discriminator : undefined;
+	if (
+		typeof discriminator === "string" &&
+		typeof input === "object" &&
+		input !== null &&
+		!Array.isArray(input)
+	) {
+		const tag = (input as Record<string, unknown>)[discriminator];
+		const tagged = definition.options.filter((variant) =>
+			variant._zod.propValues?.[discriminator]?.has(
+				tag as z.core.util.Primitive,
+			),
+		);
+		if (tagged.length === 1) return tagged[0];
+	}
+	const matching = definition.options.filter((variant) =>
+		z.validate(variant, input),
+	);
+	if (matching.length !== 1)
+		throw new Error(
+			`The stored value at ${path.join(".") || "the root"} matches ${matching.length} of ${definition.options.length} canonical variants, so it cannot be read as authored content.`,
+		);
+	return matching[0];
 }

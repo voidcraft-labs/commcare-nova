@@ -16,8 +16,8 @@
  * Both slots are set per item; each is required-and-nullable so the SA
  * states intent explicitly (an asset id or built-in slug sets the slot,
  * `null` clears it). To touch only one slot, read the other's current
- * value — `getModule` surfaces each built-in icon as its accepted catalog slug
- * and uploaded slots as UUIDs — and pass that authoring value back.
+ * value — a `getModule` read carries each built-in icon as its accepted catalog
+ * slug and uploaded slots as UUIDs — and pass that authoring value back.
  *
  * The batch is all-or-nothing (`commitMediaBatch`): every item must
  * resolve (module / form exists) and every set slot must pass the

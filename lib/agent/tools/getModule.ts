@@ -18,10 +18,10 @@
  * every authoring handle without a parallel call.
  *
  * `icon` / `audio_label` (on the module AND each form summary) carry the
- * authoring values accepted by `setMenuMedia`: uploaded-media UUIDs pass
- * through, while a stored built-in ref projects to its catalog slug. Internal
- * `nova-icon:<slug>` identities never leak into the tool protocol. One read
- * covers every tile of the module, matching the batch shape.
+ * stored menu media. This tool returns canonical values; the authoring read
+ * projection prints every built-in icon as the catalog slug `setMenuMedia`
+ * accepts, so internal `nova-icon:<slug>` identities never reach a caller. One
+ * read covers every tile of the module, matching the batch shape.
  *
  * `display_condition` carries the module's typed condition — the read half of
  * the slot `updateModule` writes. Without it the SA would edit a module blind
@@ -35,19 +35,15 @@ import type {
 	CaseListConfig,
 	CaseSearchConfig,
 	FormIconRef,
-	FormIconSlug,
 	FormType,
 	MediaAssetId,
 	ModuleIconRef,
-	ModuleIconSlug,
 	Uuid,
 } from "@/lib/domain";
 import {
 	childModuleUuids,
-	isBuiltinIconRef,
 	moduleDestination,
 	orderedColumns,
-	parseBuiltinIconSlug,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -65,15 +61,14 @@ export type GetModuleInput = z.infer<typeof getModuleInputSchema>;
  * Per-form summary included in the `getModule` result. `fieldCount`
  * counts fields at every nesting depth so the SA gets a real size signal
  * (a form with three groups of five fields reads as 15, not 3).
- * `icon` projects a built-in ref to its authoring slug while uploaded-media
- * UUIDs pass through unchanged. `audio_label` is an uploaded-media UUID.
+ * `icon` is the stored ref; `audio_label` is an uploaded-media UUID.
  */
 export interface GetModuleFormSummary {
 	uuid: Uuid;
 	name: string;
 	type: FormType;
 	fieldCount: number;
-	icon: FormIconSlug | MediaAssetId | null;
+	icon: FormIconRef | null;
 	audio_label: MediaAssetId | null;
 	/**
 	 * How the form is reached. `null` is a menu form; `search-no-matches`
@@ -102,7 +97,7 @@ export type GetModuleResult =
 			parentCaseModuleUuid: Uuid | null;
 			child_module_uuids: Uuid[];
 			case_type: string | null;
-			icon: ModuleIconSlug | MediaAssetId | null;
+			icon: ModuleIconRef | null;
 			audio_label: MediaAssetId | null;
 			display_condition: Predicate | null;
 			case_list_config: CaseListConfig | null;
@@ -154,7 +149,7 @@ export const getModuleTool = {
 				parentCaseModuleUuid: mod.parentCaseModuleUuid ?? null,
 				child_module_uuids: childModuleUuids(doc, moduleUuid),
 				case_type: mod.caseType ?? null,
-				icon: projectModuleIcon(mod.icon),
+				icon: mod.icon ?? null,
 				audio_label: mod.audioLabel ?? null,
 				display_condition: mod.displayCondition ?? null,
 				case_list_config: caseListConfig ?? null,
@@ -172,7 +167,7 @@ export const getModuleTool = {
 						name: f?.name ?? "",
 						type: f?.type ?? "survey",
 						fieldCount: countFieldsUnder(doc, fUuid),
-						icon: projectFormIcon(f?.icon),
+						icon: f?.icon ?? null,
 						audio_label: f?.audioLabel ?? null,
 						entry: f?.entry ?? null,
 					};
@@ -181,19 +176,3 @@ export const getModuleTool = {
 		};
 	},
 };
-
-function projectModuleIcon(
-	icon: ModuleIconRef | undefined,
-): ModuleIconSlug | MediaAssetId | null {
-	if (icon === undefined) return null;
-	if (!isBuiltinIconRef(icon)) return icon;
-	return parseBuiltinIconSlug(icon) as ModuleIconSlug;
-}
-
-function projectFormIcon(
-	icon: FormIconRef | undefined,
-): FormIconSlug | MediaAssetId | null {
-	if (icon === undefined) return null;
-	if (!isBuiltinIconRef(icon)) return icon;
-	return parseBuiltinIconSlug(icon) as FormIconSlug;
-}

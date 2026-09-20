@@ -54,8 +54,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
+import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import type {
 	MutatingToolResult,
@@ -260,25 +259,8 @@ export function registerSharedTool(
 					});
 					const outcome = await workspace.invoke({
 						toolName,
-						execute: async (invocationCtx) => {
-							const prepared = await prepareAuthoringInput({
-								toolName: saName,
-								schema: tool.inputSchema,
-								input: toolInput,
-								ctx: invocationCtx,
-							});
-							const result = await tool.execute(prepared, invocationCtx);
-							return result.kind === "read"
-								? {
-										...result,
-										data: await projectAuthoringReadInContext(
-											saName,
-											result.data,
-											invocationCtx,
-										),
-									}
-								: result;
-						},
+						execute: (invocationCtx) =>
+							runSharedToolCall({ saName, tool }, toolInput, invocationCtx),
 					});
 					const finalPayload = projectResult(
 						outcome,

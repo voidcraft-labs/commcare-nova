@@ -302,10 +302,12 @@ export function makeMcpTestContext(
 export interface ToolWorkspaceHarness {
 	workspace: CanonicalMutationWorkspace;
 	host: CanonicalMutationHost;
-	/** Run one shared tool through the workspace — the same `invoke` path the
-	 * SA wrapper and the MCP adapter use, so the tool receives a live
+	/** Run one tool BODY through the workspace's `invoke`, so it receives a live
 	 * `ToolInvocationContext` bound to the workspace's current snapshot. The
-	 * workspace adopts each commit, so consecutive calls compose. */
+	 * workspace adopts each commit, so consecutive calls compose. Input is
+	 * canonical and a read returns canonical values: this skips the authoring
+	 * boundary every client goes through. What a client may send or will read is
+	 * asserted through `makeAuthoringHarness` instead. */
 	runTool<T>(
 		tool: {
 			inputSchema: { parse(input: unknown): unknown };

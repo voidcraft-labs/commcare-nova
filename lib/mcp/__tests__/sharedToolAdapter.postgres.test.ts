@@ -28,6 +28,7 @@ import { getCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { loadApp } from "@/lib/db/apps";
 import type { BlueprintDoc } from "@/lib/domain";
+import { builtinIconRef } from "@/lib/domain/builtinIcons";
 import { proseText } from "@/lib/domain/prose";
 import { readEvents } from "@/lib/log/reader";
 import {
@@ -74,6 +75,10 @@ const register: Parameters<typeof withMcpClient>[0] = (server) => {
 };
 async function seed() {
 	const doc = promptDoc();
+	// A built-in tile icon is what an ordinary built app carries, so every read
+	// below prints one through the real client path.
+	const seededForm = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+	seededForm.icon = builtinIconRef("register");
 	await h.seedAppWithBlueprint(doc, {
 		id: doc.appId,
 		owner: "creator",
@@ -461,6 +466,7 @@ it("adds fields once, preserves returned identities and drains matching event en
 		);
 		expect(read.moduleUuid).toBe(address.moduleUuid);
 		expect(read.formUuid).toBe(address.formUuid);
+		expect(read.form.icon).toBe("register");
 		expect(read.form.fields.at(-1)).toMatchObject({
 			uuid: fieldUuid,
 			id: "consent",

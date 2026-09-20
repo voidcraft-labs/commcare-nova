@@ -36,6 +36,7 @@ import {
 	authoringFingerprint,
 	translationReviewRevision,
 } from "./fingerprints";
+import { parseAuthoringIcon } from "./icons";
 import { bindNamedIdentity } from "./identityBindings";
 import { namedIdentityInputs } from "./identitySchema";
 import { parseAuthoringMessage } from "./messages";
@@ -546,6 +547,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 		value: scanFamily("value"),
 		reference: scanFamily("reference"),
 		relationship: scanFamily("relationship"),
+		moduleIcon: scanFamily("moduleIcon"),
+		formIcon: scanFamily("formIcon"),
 	};
 	decodeAuthoringValues(schema, input, scan);
 	if (needsTables) await loadTables();
@@ -622,6 +625,8 @@ async function prepareInput<S extends z.ZodType>(args: {
 				? z.string().parse(value)
 				: textAt(value, path);
 		},
+		moduleIcon: parseAuthoringIcon,
+		formIcon: parseAuthoringIcon,
 	};
 	return schema.parse(decodeAuthoringValues(schema, input, decoders));
 }

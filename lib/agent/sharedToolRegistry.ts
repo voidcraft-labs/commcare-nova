@@ -176,12 +176,14 @@ export interface SharedToolRegistryEntry {
 	readonly policy: ToolExecutionPolicy;
 }
 
-/** Shorthand policies for the recurring classifications. */
-const READ_POLICY: ToolExecutionPolicy = {
+/** Shorthand policies for the recurring classifications. `READ_POLICY` keeps
+ * its literal `effect` so the read projection can derive the set of read tools
+ * from this registry's type. */
+const READ_POLICY = {
 	effect: "read-blueprint",
 	staging: "allowed",
 	capabilities: [],
-};
+} as const satisfies ToolExecutionPolicy;
 const BLUEPRINT_WRITE_POLICY: ToolExecutionPolicy = {
 	effect: "mutate-blueprint",
 	staging: "allowed",

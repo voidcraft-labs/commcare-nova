@@ -119,6 +119,26 @@ validation, atomic writes, and concurrency remain with those owners. Do not catc
 prepared operation after a peer edit. The pilot's call deduplication lasts only
 for its process; production must use the durable call ledger.
 
+Tool bodies return canonical values. `output.ts` is the only place a read
+becomes authored content, through one projector per registered read tool: the
+table is exhaustive over the registry's read tools, so a new read must state its
+projection, and each walked value is typed against its canonical schema, so a
+slot that was already authored fails `tsc`. Never print a value inside a tool
+body or a snapshot helper; two owners of one projection is how a valid form
+became unreadable. Menu icons are content families like prose and expressions:
+the document stores `nova-icon:<slug>` or an asset id, authors read and write
+the slug, and the slot's module or form catalog still decides admission.
+
+`sharedToolCall.ts` is the one call body (bind input, execute, project a read)
+that the editor, the architect and MCP all run. Its halves fail differently.
+`AuthoringInputError` means the caller can correct the input. Stored content is
+already admitted, so anything thrown while printing it is Nova's defect:
+`projectAuthoringReadInContext` records it once at `error` and throws
+`ReadProjectionError`, which MCP reports as `internal` and the model-facing
+surfaces report truthfully without inviting a retry. On the canonical side a
+tagged union is read by its discriminator, never by re-running every variant's
+refinements.
+
 Read results use the same authored content shapes accepted by edits.
 `getCaseProperty` reads one exact catalog definition. `updateCaseProperty`
 merges an explicit patch into that definition under the workspace gate; null

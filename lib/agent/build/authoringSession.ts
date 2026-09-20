@@ -1,7 +1,6 @@
 import "server-only";
 import { appOverview } from "@/lib/agent/appOverview";
-import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
+import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { emptyGenesisBase } from "@/lib/agent/change-set/baseLoader";
 import { commitDesignChangeSet } from "@/lib/agent/change-set/commit";
@@ -292,22 +291,14 @@ export class AuthoringSession {
 		// private overlay survives across it, and the next read reloads the app.
 		if (entry.policy.effect === "mixed-transaction")
 			ctx.adoptAuthoritativeSnapshot = () => {};
-		const input = await prepareAuthoringInput({
-			toolName: call.toolName,
-			schema: entry.tool.inputSchema,
-			input: authoringToolSchema(
-				call.toolName,
-				entry.tool.inputSchema,
-			).authored.parse(call.input),
-			ctx,
-		});
-		const result = await entry.tool.execute(
-			entry.tool.inputSchema.parse(input),
+		const result = await runSharedToolCall(
+			entry,
+			authoringToolSchema(call.toolName, entry.tool.inputSchema).authored.parse(
+				call.input,
+			),
 			ctx,
 		);
-		return result.kind === "read"
-			? projectAuthoringReadInContext(call.toolName, result.data, ctx)
-			: sharedToolPayload(result);
+		return result.kind === "read" ? result.data : sharedToolPayload(result);
 	}
 	async write<R>(
 		call: ArchitectToolCall,
