@@ -4,7 +4,9 @@
 // so the esbuild-bundled `scripts/migrate.ts` stays lean. The generated schema
 // depends only on the model `modelName` map + the set of table-defining plugins
 // — NOT on behavioral config — so the scopes / key-length / rate-limit options
-// the runtime `lib/auth.ts` carries are omitted here.
+// the runtime `lib/auth.ts` carries are omitted here. `cimd` is absent for the
+// same reason: it defines no tables. The `clientDiscoveryId` column its
+// clients are marked with belongs to the oauth-provider's own client table.
 //
 // Drift safety: table names come from the shared `AUTH_TABLE_NAMES`, so they
 // can't diverge from the runtime config; the plugin SET must be kept in sync

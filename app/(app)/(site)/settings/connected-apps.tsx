@@ -226,7 +226,8 @@ function Row({
 	onCancelConfirm,
 	onConfirmRevoke,
 }: RowProps) {
-	const { consentId, clientName, authorizedAt, scopes, status } = row;
+	const { consentId, clientName, identityHost, authorizedAt, scopes, status } =
+		row;
 
 	return (
 		<div className="flex items-center gap-4 py-3.5">
@@ -247,6 +248,14 @@ function Row({
 						subjectName={clientName}
 					/>
 				</div>
+				{/* The host an app is identified by, for apps that have one. It
+				 *   wraps rather than truncating: a clipped host can read as a
+				 *   different, shorter one. */}
+				{identityHost ? (
+					<p className="mt-0.5 break-all text-xs text-nova-text-muted">
+						Identified by {identityHost}
+					</p>
+				) : null}
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-nova-text-muted">
 					<span>Authorized {formatAuthorizedAt(authorizedAt)}</span>
 				</div>

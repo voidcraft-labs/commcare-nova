@@ -29,6 +29,11 @@ import { ConsentCard, IconChip } from "./ConsentCard";
 
 interface ConsentFormProps {
 	clientName: string;
+	/** The OAuth `client_id`, and how Nova came to know the client (the row's
+	 * `clientDiscoveryId`). Together they decide whether an identifying host
+	 * is shown; see `lib/oauth/client-display`. */
+	clientId?: string;
+	discovery?: string | null;
 	scopes: readonly string[];
 	redirectMismatch: boolean;
 	redirectUri?: string;
@@ -92,6 +97,8 @@ function friendlyConsentError(err: ConsentClientError): string {
 
 export function ConsentForm({
 	clientName,
+	clientId,
+	discovery,
 	scopes,
 	redirectMismatch,
 	redirectUri,
@@ -141,6 +148,8 @@ export function ConsentForm({
 
 	const disclosure = deriveOAuthClientDisclosure({
 		clientName,
+		clientId,
+		discovery,
 		redirectUri,
 		clientUri,
 		trusted: trustedClient,
@@ -217,6 +226,27 @@ export function ConsentForm({
 									{disclosure.appName}
 								</div>
 							</div>
+							{/* The host a metadata-document app is identified by. The
+							 *   name above is whatever the app's publisher wrote; this
+							 *   is the part Nova checked, so it carries the same weight
+							 *   and sits in the same header band. It wraps at any
+							 *   character and is never clipped: a truncated
+							 *   `claude.ai.evil.example` would read as `claude.ai`.
+							 *   Normal letter spacing, because tight tracking blurs
+							 *   exactly the character pairs a lookalike host relies on. */}
+							{disclosure.identityHost ? (
+								<div className="grid grid-cols-[6.25rem_1fr] items-center gap-3 border-b border-nova-border/60 bg-nova-elevated/20 px-3.5 py-2.5">
+									<div className="text-xs font-medium leading-none text-nova-text-muted">
+										Identified by
+									</div>
+									<div
+										data-testid="consent-identity-host"
+										className="min-w-0 break-all text-[1.05rem] font-semibold leading-tight text-nova-text"
+									>
+										{disclosure.identityHost}
+									</div>
+								</div>
+							) : null}
 							<dl>
 								{disclosure.detailValue ? (
 									<IdentityRow

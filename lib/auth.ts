@@ -24,7 +24,12 @@
  *                          Optional in dev — Better Auth auto-detects from requests.
  */
 import { apiKey } from "@better-auth/api-key";
-import { oauthProvider } from "@better-auth/oauth-provider";
+import { cimd } from "@better-auth/cimd";
+import { fetchClientMetadataResource } from "@better-auth/cimd/node";
+import {
+	type ClientMetadataResourceFetch,
+	oauthProvider,
+} from "@better-auth/oauth-provider";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { admin, jwt, organization } from "better-auth/plugins";
@@ -249,8 +254,16 @@ export const NOVA_ORGANIZATION_HOOKS = {
  * (the exported `Auth` type) captures the full config-specific instance type —
  * needed by the client's `inferAdditionalFields` plugin to pick up plugin-added
  * fields (admin plugin's `role` on user, etc.).
+ *
+ * `options.fetchClientMetadataResource` is the one seam: it replaces the
+ * transport the `cimd` plugin reads client documents through, so a test can
+ * serve a document without the public internet. Production passes nothing and
+ * gets the library's pinned-address Node transport.
  */
-export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
+export function createAuth(
+	pool: Awaited<ReturnType<typeof getCaseStorePool>>,
+	options: { fetchClientMetadataResource?: ClientMetadataResourceFetch } = {},
+) {
 	// Better Auth runs its own Kysely on the case-store's shared `pg.Pool`; one
 	// pool per instance keeps the connection budget intact. Passing a `pg.Pool`
 	// lets Better Auth detect the Postgres dialect itself.
@@ -572,16 +585,23 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 		/**
 		 * Better Auth plugin stack.
 		 *
-		 * Three concerns are layered here:
-		 *   1. `admin` — role + user-management APIs for the Nova admin dashboard.
-		 *   2. `jwt`  — exposes `/api/auth/jwks` so OAuth access tokens (signed
-		 *               by the oauth-provider plugin) can be verified by the
-		 *               MCP handler and any other relying party.
-		 *   3. `oauthProvider` — turns Better Auth into a full OAuth 2.1
-		 *               authorization server for programmatic MCP clients.
+		 * In order:
+		 *   1. `admin`: role + user-management APIs for the Nova admin dashboard.
+		 *   2. `jwt`: exposes `/api/auth/jwks` so OAuth access tokens (signed
+		 *      by the oauth-provider plugin) can be verified by the MCP handler
+		 *      and any other relying party.
+		 *   3. `oauthProvider`: turns Better Auth into a full OAuth 2.1
+		 *      authorization server for programmatic MCP clients.
+		 *   4. `cimd`: lets an OAuth client identify itself by the https URL of
+		 *      its Client ID Metadata Document instead of registering first.
+		 *   5. `apiKey`: long-lived bearer credentials for non-interactive MCP
+		 *      consumers.
+		 *   6. `organization`: Projects, the tenancy and sharing unit.
+		 *   7. `novaMcpPlugin`: mounts the MCP endpoint inside the auth router
+		 *      so it sits behind the same rate limiter.
 		 *
-		 * The session-cookie login flow on commcare.app is unaffected — the
-		 * OAuth plugin only adds NEW endpoints under `/api/auth` and
+		 * The session-cookie login flow on commcare.app is unaffected: the
+		 * OAuth plugins only add NEW endpoints under `/api/auth` and
 		 * `/oauth2`, plus `.well-known` metadata. Nothing about existing
 		 * first-party auth changes.
 		 */
@@ -702,6 +722,48 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
 					},
 				},
+			}),
+
+			/**
+			 * Client ID Metadata Documents (`@better-auth/cimd`).
+			 *
+			 * A client that speaks CIMD sends an https URL as its `client_id`.
+			 * The plugin reads the JSON document at that URL, checks that the
+			 * document names the same URL as its own `client_id`, and keeps an
+			 * ordinary `auth_oauth_client` row for it with `clientDiscoveryId`
+			 * set to `"cimd"`. That row gets the same default scopes and the
+			 * same MCP resource link a dynamic registration gets.
+			 *
+			 * Why: the identity is bound to a domain the client's publisher
+			 * controls, which the consent screen can show, and the row is a
+			 * cache of the document rather than the only copy. A row that goes
+			 * missing is rebuilt from its URL on the next request, so a client
+			 * can't be stranded by a lost registration the way a dynamically
+			 * registered one can.
+			 *
+			 * Policy is open, per the MCP authorization spec's "accept any HTTPS
+			 * client_id (for open servers)": there is no allowlist hook. Every
+			 * option is the library default. `fetchClientMetadataResource` is the
+			 * library's own Node transport (resolves the host once, refuses
+			 * non-public addresses, pins the address it approved, never follows
+			 * a redirect), and `metadataProfile` is the MCP profile the library
+			 * ships. The plugin defines no tables.
+			 *
+			 * Dynamic registration above stays on for clients that don't speak
+			 * CIMD; a client picks whichever it supports from the server
+			 * metadata.
+			 *
+			 * This fails closed. Every lookup of a CIMD client goes through the
+			 * plugin, the token endpoint's included, and the validated document
+			 * is cached in this process for at most 60 minutes. Past that, or
+			 * on an instance that hasn't read the document yet, a document that
+			 * can't be fetched fails the request in hand, a token refresh
+			 * included, until the address answers again.
+			 */
+			cimd({
+				fetchClientMetadataResource:
+					options.fetchClientMetadataResource ?? fetchClientMetadataResource,
+				metadataProfile: "mcp-2026-07-28",
 			}),
 
 			/**
@@ -941,7 +1003,7 @@ let _authInFlight: Promise<Auth> | null = null;
 export async function getAuth(): Promise<Auth> {
 	if (_auth) return _auth;
 	if (_authInFlight === null) {
-		_authInFlight = getCaseStorePool().then(createAuth);
+		_authInFlight = getCaseStorePool().then((pool) => createAuth(pool));
 		try {
 			_auth = await _authInFlight;
 		} finally {
