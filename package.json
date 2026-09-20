@@ -171,6 +171,7 @@
 		"lefthook": "^2.1.12",
 		"pg": "^8.23.0",
 		"react-devtools-core": "6.1.5",
+		"rregex": "^1.13.1",
 		"tailwindcss": "^4",
 		"tsx": "^4.23.13",
 		"typescript": "7.0.2",

@@ -14,6 +14,15 @@ slots reuse this leaf in addition to their own positive/nonnegative/integer
 range, never a bare `z.number()`. Tests execute those schemas and numeric
 round trips; a source import or helper name cannot prove slot admission.
 
+**A `.regex()` here is published, not private.** Every pattern on a schema a
+tool accepts is delivered to MCP clients and forwarded to model providers,
+whose regex engines are not JavaScript's and who refuse the whole tool over one
+pattern they cannot read. Write patterns every engine reads the same way:
+escape `[` and `]` inside a character class (a bare `[` there opens a nested
+class elsewhere, and Biome's useless-escape fix needs a reasoned suppression),
+and use no lookarounds or backreferences. `lib/mcp/__tests__/servedSchemas.test.ts`
+compiles every delivered pattern with the Rust engine.
+
 ## BlueprintDoc — normalized, with derived state stripped at the boundary
 
 An app is UUID-keyed records (`modules` / `forms` / `fields`) plus membership arrays (`moduleOrder` / `formOrder` / `fieldOrder`) — not a nested object tree. A child menu remains an ordinary module record and names its parent by UUID.
