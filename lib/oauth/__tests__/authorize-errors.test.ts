@@ -114,6 +114,18 @@ describe("classifyAuthorizeResponse: redirects it must leave alone", () => {
 		).toBeNull();
 	});
 
+	it("a signed sign-in redirect that carries the requester's own error parameter", () => {
+		expect(
+			classifyAuthorizeResponse({
+				status: 302,
+				location:
+					"/?response_type=code&client_id=abc&error=anything&sig=signed",
+				requestUrl:
+					"https://commcare.app/api/auth/oauth2/authorize?client_id=abc&error=anything",
+			}),
+		).toBeNull();
+	});
+
 	it("a redirect with no Location header", () => {
 		expect(
 			classifyAuthorizeResponse({

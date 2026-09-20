@@ -36,7 +36,11 @@ afterEach(() => {
 	vi.unstubAllEnvs();
 });
 
-function authorizeRequest(clientId: string, accept: string): Request {
+function authorizeRequest(
+	clientId: string,
+	accept: string,
+	extra: Record<string, string> = {},
+): Request {
 	const url = new URL(`${origin}/api/auth/oauth2/authorize`);
 	url.search = new URLSearchParams({
 		response_type: "code",
@@ -45,6 +49,7 @@ function authorizeRequest(clientId: string, accept: string): Request {
 		code_challenge: "a".repeat(43),
 		code_challenge_method: "S256",
 		state: "x",
+		...extra,
 	}).toString();
 	return new Request(url, { headers: { accept } });
 }
@@ -94,8 +99,7 @@ it("leaves the sign-in redirect for a known client alone", async () => {
 	await response.body?.cancel();
 
 	/* Signed out, so Better Auth sends the browser to Nova's sign-in surface at
-	 * `/`: the same pathname the error redirect uses, told apart only by the
-	 * absent `error` parameter. */
+	 * `/`: the same pathname the error redirect uses. */
 	expect(response.status).toBe(302);
 	const location = response.headers.get("location");
 	if (location === null) throw new Error("Expected a Location header");
@@ -103,4 +107,29 @@ it("leaves the sign-in redirect for a known client alone", async () => {
 	expect(destination.pathname).toBe("/");
 	expect(destination.searchParams.has("error")).toBe(false);
 	expect(destination.searchParams.get("client_id")).toBe(client.client_id);
+});
+
+it("still sends a known client to sign-in when the request carries its own error parameter", async () => {
+	const client = await auth.api.registerOAuthClient({
+		body: {
+			client_name: "Known native client",
+			application_type: "native",
+			redirect_uris: [redirectUri],
+			token_endpoint_auth_method: "none",
+		},
+	});
+	const response = await GET(
+		authorizeRequest(client.client_id, "text/html", { error: "anything" }),
+	);
+	await response.body?.cancel();
+
+	/* Better Auth copies every authorize parameter onto its sign-in redirect,
+	 * so this one reaches `/` with an `error` the requester wrote. It is signed,
+	 * which no refusal is, and must not be read as one. */
+	expect(response.status).toBe(302);
+	const location = response.headers.get("location");
+	if (location === null) throw new Error("Expected a Location header");
+	const destination = new URL(location, origin);
+	expect(destination.pathname).toBe("/");
+	expect(destination.searchParams.has("sig")).toBe(true);
 });

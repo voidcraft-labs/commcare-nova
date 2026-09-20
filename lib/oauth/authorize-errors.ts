@@ -119,6 +119,11 @@ export function classifyAuthorizeResponse(
 		if (target.origin !== request.origin || target.pathname !== "/") {
 			return null;
 		}
+		/* The sign-in redirect also goes to `/`, and it copies every authorize
+		 * query param, so a request that arrived carrying its own `error` would
+		 * read as a refusal. Better Auth signs that redirect's query (`sig`) and
+		 * never signs its error redirect, which tells the two apart. */
+		if (target.searchParams.has("sig")) return null;
 		const code = target.searchParams.get("error");
 		return code ? reasonForCode(code, clientId) : null;
 	}
