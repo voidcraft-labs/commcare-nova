@@ -46,6 +46,7 @@ import {
 	normalizeHost,
 	STARTUP_PROBE_PATH,
 } from "@/lib/hostnames";
+import { CONNECTION_ISSUE_PATH } from "@/lib/oauth/authorize-errors";
 
 /**
  * Header name the proxy populates with the trusted client IP. Read by
@@ -447,9 +448,16 @@ export function proxy(request: NextRequest): NextResponse {
 
 	/* Optimistic auth — cookie presence only, server does full validation.
 	 * The root path is exempt so the unauthenticated landing page is
-	 * reachable. `/.well-known/*` requests cannot reach this branch — the
+	 * reachable. So is the connection-issue page: an OAuth authorize request
+	 * can fail before the person has signed in, and that page is their only
+	 * way forward. Both are exact matches, so nothing beneath them rides the
+	 * exemption. `/.well-known/*` requests cannot reach this branch: the
 	 * short-circuit above intercepts them. */
-	if (pathname !== "/" && !getSessionCookie(request)) {
+	if (
+		pathname !== "/" &&
+		pathname !== CONNECTION_ISSUE_PATH &&
+		!getSessionCookie(request)
+	) {
 		return NextResponse.redirect(new URL("/", request.url));
 	}
 

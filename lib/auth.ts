@@ -640,11 +640,10 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 			 *   - Dynamic client registration is enabled AND unauthenticated
 			 *     so Claude Code (which has no pre-shared credentials) can
 			 *     bootstrap itself. Abuse is bounded by the plugin's own
-			 *     per-IP-per-endpoint rate limiter (see `rateLimit` below)
-			 *     and by opportunistic cleanup of stale unauthenticated
-			 *     public clients on successful registration. Public clients
-			 *     do not receive a client secret, so secret expiration
-			 *     cannot bound this storage surface.
+			 *     per-IP-per-endpoint rate limiter (see `rateLimit` below).
+			 *     A registration persists: the client caches its id and an
+			 *     authorize-stage rejection happens in the browser where the
+			 *     client cannot see it, so a removed row strands that client.
 			 *
 			 * Rate limiting: `@better-auth/oauth-provider` ships its own
 			 * per-endpoint limiter (distinct from Better Auth's global

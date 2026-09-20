@@ -142,6 +142,10 @@ export const HOSTNAME_ALLOWLIST = {
 		"/accept-invitation",
 		"/admin",
 		"/build",
+		/* Where a failed OAuth authorize request lands. Segment-anchored like
+		 * every entry, so `/connection-issue/...` clears this gate too; no page
+		 * lives there, and the proxy's signed-out exemption is exact-match. */
+		"/connection-issue",
 		"/consent",
 		"/project",
 		"/settings",
