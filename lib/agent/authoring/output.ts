@@ -52,21 +52,23 @@ const records = z.array(record);
 
 /** The one boundary between a read tool's canonical result and the authored
  * form every client sees. Stored content is already admitted, so anything
- * thrown here is Nova's defect, never the caller's input: it is recorded once
- * and leaves as `ReadProjectionError`, which no surface treats as a bad
- * request. */
+ * thrown while printing it is Nova's defect, never the caller's input: it is
+ * recorded once and leaves as `ReadProjectionError`, which no surface treats as
+ * a bad request. Loading the Project's data tables is a live read that can
+ * fail or race for its own reasons, so it stays outside that claim and keeps
+ * its own error. */
 export async function projectAuthoringReadInContext(
 	toolName: string,
 	data: unknown,
 	ctx: ToolInvocationContext,
 ) {
+	const tables =
+		["getField", "getForm", "getModule", "getCaseOperations"].includes(
+			toolName,
+		) && extractLookupReferenceTargets(ctx.snapshot.doc).tableIds.length > 0
+			? (await ctx.lookupCatalog?.())?.definitions
+			: undefined;
 	try {
-		const tables =
-			["getField", "getForm", "getModule", "getCaseOperations"].includes(
-				toolName,
-			) && extractLookupReferenceTargets(ctx.snapshot.doc).tableIds.length > 0
-				? (await ctx.lookupCatalog?.())?.definitions
-				: undefined;
 		return projectAuthoringRead({
 			toolName,
 			data,

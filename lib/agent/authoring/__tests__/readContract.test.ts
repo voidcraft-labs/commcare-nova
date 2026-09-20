@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import {
+	LOOKUP_SELECT_DOC,
+	lookupSelectDoc,
+} from "@/lib/agent/__tests__/fixtures";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { log } from "@/lib/logger";
 import { AuthoringInputError, ReadProjectionError } from "../errors";
 import { projectAuthoringReadInContext, type ReadToolName } from "../output";
@@ -301,4 +309,33 @@ it("records a value it cannot print as Nova's failure, never as the caller's inp
 		expect.any(Error),
 		expect.objectContaining({ toolName: "getForm" }),
 	);
+});
+
+it("leaves a failed Project data read as its own retryable failure", async () => {
+	// Loading data tables is a live read that races with a co-member's edit.
+	// Calling that an unreadable app would record a false defect and tell the
+	// caller not to try again, when trying again is what works.
+	const raced = new Error("Project data changed while it was loading.");
+	const h = makeAuthoringHarness(
+		{ lookupCatalog: () => Promise.reject(raced) },
+		lookupSelectDoc({
+			kind: "lookup",
+			tableId: lookupTableIdSchema.parse(
+				"0198c0de-0000-7000-8000-0000000000a1",
+			),
+			valueColumnId: lookupColumnIdSchema.parse(
+				"0198c0de-0000-7000-8000-0000000000a2",
+			),
+			labelColumnId: lookupColumnIdSchema.parse(
+				"0198c0de-0000-7000-8000-0000000000a3",
+			),
+		}),
+	);
+	await expect(
+		h.call("getForm", {
+			moduleUuid: LOOKUP_SELECT_DOC.moduleUuid,
+			formUuid: LOOKUP_SELECT_DOC.formUuid,
+		}),
+	).rejects.toBe(raced);
+	expect(log.error).not.toHaveBeenCalled();
 });
