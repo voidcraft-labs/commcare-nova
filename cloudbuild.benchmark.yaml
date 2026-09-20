@@ -2,7 +2,7 @@
 # No application-image push, database execution, or service deployment.
 steps:
   - id: runtime-capabilities
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     entrypoint: node
     args:
       - scripts/rollout/render-build-config.mjs
@@ -12,7 +12,7 @@ steps:
       - --output
       - /workspace/rollout.env
   - id: prepare-builder
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - "-"
     entrypoint: bash
@@ -25,7 +25,7 @@ steps:
           --driver-opt image=moby/buildkit:v0.33.0
         docker buildx inspect --builder "nova-$BUILD_ID" --bootstrap >/dev/null
   - id: prerequisites
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - "-"
     entrypoint: sh
@@ -37,7 +37,7 @@ steps:
         python3 scripts/rollout/deploy-cloud-run.py --read-scaling-prestate \
           --project="$PROJECT_ID" --region=us-central1 --service=commcare-nova
   - id: restore-cache
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - "-"
     entrypoint: sh
@@ -51,7 +51,7 @@ steps:
           *) exit 2 ;;
         esac
   - id: migration-image
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - prepare-builder
       - restore-cache
@@ -66,7 +66,7 @@ steps:
         export NOVA_MIGRATION_IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/nova-build-cache/migration-benchmark:$BUILD_ID"
         bash scripts/rollout/build-migration-image.sh
   - id: build
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - runtime-capabilities
       - prepare-builder
@@ -99,7 +99,7 @@ steps:
          docker cp nova-benchmark-output:/app/.next/static /workspace/.nova-build-cache/artifact/static
          docker rm nova-benchmark-output >/dev/null
   - id: verify-image
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - build
       - migration-image
@@ -112,7 +112,7 @@ steps:
       - /workspace/.nova-build-cache/artifact
       - $BUILD_ID
   - id: export-cache
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - verify-image
     entrypoint: bash
@@ -125,7 +125,7 @@ steps:
         export NOVA_BUILD_ID="$BUILD_ID"
         bash scripts/rollout/export-build-cache.sh
   - id: publish-cache
-    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:d65114187715edb931d183a3aa7a4608f13ddb5316812347612704c27c211f33
     waitFor:
       - export-cache
     entrypoint: python3
