@@ -18,6 +18,7 @@
 import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { AS_ISSUER, AS_ORIGIN, MCP_RESOURCE_URL } from "@/lib/hostnames";
+import { deriveClientIdentityHost } from "@/lib/oauth/client-display";
 import { getAuthDb } from "../auth/db";
 
 /**
@@ -45,6 +46,10 @@ export interface AuthorizedClient {
 	consentId: string;
 	clientId: string;
 	clientName: string;
+	/** The host the client is identified by when it came from a Client ID
+	 * Metadata Document, in the same ASCII form the consent page showed.
+	 * `null` for a registered client, whose name is all Nova knows. */
+	identityHost: string | null;
 	/** ISO string from `auth_oauth_consent.createdAt`. */
 	authorizedAt: string;
 	scopes: string[];
@@ -99,7 +104,7 @@ function decodeScopes(raw: unknown): string[] {
 /**
  * List the user's authorized OAuth clients, newest first. Reads
  * `auth_oauth_consent` rows for the user, then joins on
- * `auth_oauth_client` for display names.
+ * `auth_oauth_client` for display names and identifying hosts.
  */
 export async function listAuthorizedClients(
 	userId: string,
@@ -120,12 +125,13 @@ export async function listAuthorizedClients(
 		new Set(consents.map((c) => c.clientId)),
 	);
 
-	const clientsById = new Map(await fetchClientNames(distinctClientIds));
+	const clientsById = await fetchClientDisplays(distinctClientIds);
 
 	const rows: AuthorizedClient[] = consents.map((c) => ({
 		consentId: c.id,
 		clientId: c.clientId,
-		clientName: clientsById.get(c.clientId) ?? "An application",
+		clientName: clientsById.get(c.clientId)?.name ?? "An application",
+		identityHost: clientsById.get(c.clientId)?.identityHost ?? null,
 		authorizedAt: toISOString(c.createdAt),
 		scopes: decodeScopes(c.scopes),
 	}));
@@ -304,28 +310,53 @@ export async function hasActiveConsent(
 	return revokedAtMs < issuedAtMs;
 }
 
+/**
+ * How Nova came to know a client: the row's `clientDiscoveryId` (`"cimd"` for
+ * a Client ID Metadata Document client), or `null` for a registered client
+ * and for an id with no row. The consent page reads it so the identifying
+ * host is shown on the database's word, never on the shape of the id.
+ */
+export async function getOAuthClientDiscovery(
+	clientId: string,
+): Promise<string | null> {
+	const db = await getAuthDb();
+	const row = await db
+		.selectFrom("auth_oauth_client")
+		.select("clientDiscoveryId")
+		.where("clientId", "=", clientId)
+		.executeTakeFirst();
+	return row?.clientDiscoveryId ?? null;
+}
+
 // ── Internals ───────────────────────────────────────────────────────
 
 /**
- * Fetch display names for a deduped list of client ids. Returns
- * `[clientId, name]` entries; clients with no `name` are skipped and the
- * caller applies the "An application" fallback. Caller dedupes the ids.
+ * Fetch what the settings list shows about each client in a deduped list of
+ * ids, in one query: its name (`null` when unset; the caller applies the
+ * "An application" fallback) and the host that identifies it when it came
+ * from a Client ID Metadata Document. Caller dedupes the ids.
  */
-async function fetchClientNames(
+async function fetchClientDisplays(
 	clientIds: string[],
-): Promise<Array<[string, string]>> {
-	if (clientIds.length === 0) return [];
+): Promise<Map<string, { name: string | null; identityHost: string | null }>> {
+	const displays = new Map<
+		string,
+		{ name: string | null; identityHost: string | null }
+	>();
+	if (clientIds.length === 0) return displays;
 
 	const db = await getAuthDb();
 	const clients = await db
 		.selectFrom("auth_oauth_client")
-		.select(["clientId", "name"])
+		.select(["clientId", "name", "clientDiscoveryId"])
 		.where("clientId", "in", clientIds)
 		.execute();
 
-	const entries: Array<[string, string]> = [];
 	for (const c of clients) {
-		if (c.name) entries.push([c.clientId, c.name]);
+		displays.set(c.clientId, {
+			name: c.name || null,
+			identityHost: deriveClientIdentityHost(c.clientId, c.clientDiscoveryId),
+		});
 	}
-	return entries;
+	return displays;
 }

@@ -48,6 +48,9 @@ interface AuthOAuthClientTable {
 	tokenEndpointAuthMethod: string | null;
 	/** Present only for clients registered by an authenticated user. */
 	userId: string | null;
+	/** `cimd` for a client built from its Client ID Metadata Document; `null`
+	 * for one that registered itself. */
+	clientDiscoveryId: string | null;
 	createdAt: Timestamp | null;
 }
 

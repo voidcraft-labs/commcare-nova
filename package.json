@@ -63,6 +63,7 @@
 		"@atlaskit/pragmatic-drag-and-drop-auto-scroll": "^3.2.0",
 		"@atlaskit/pragmatic-drag-and-drop-hitbox": "^2.2.0",
 		"@better-auth/api-key": "1.7.5",
+		"@better-auth/cimd": "1.7.5",
 		"@better-auth/core": "1.7.5",
 		"@better-auth/mcp": "1.7.5",
 		"@better-auth/oauth-provider": "1.7.5",

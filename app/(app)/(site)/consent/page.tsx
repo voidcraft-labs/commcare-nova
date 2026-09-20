@@ -23,6 +23,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth } from "@/lib/auth";
 import { getSession } from "@/lib/auth-utils";
+import { getOAuthClientDiscovery } from "@/lib/db/oauth-consents";
 import { getCommCareSettings } from "@/lib/db/settings";
 import { ConsentForm } from "./ConsentForm";
 
@@ -144,7 +145,16 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * scope requested" call into "user has no key" UI. On a Postgres
 	 * failure we deliberately return `false` rather than `undefined`:
 	 * showing the dormancy hint is the safer of the two failure modes
-	 * (vs. silently implying the integration is wired up). */
+	 * (vs. silently implying the integration is wired up).
+	 *
+	 * The third read is how Nova came to know the client. It comes from the
+	 * client's own row, never from the shape of `client_id`: only a client
+	 * the database marks as built from a metadata document gets its host
+	 * shown as its identity. A failed read shows no host, which is what a
+	 * registered client shows. It runs AFTER the public-info read rather than
+	 * beside it: that read is what rebuilds a metadata-document client's
+	 * missing row, so a parallel provenance read could see no row and drop the
+	 * host for the one kind of client whose host is the trust signal. */
 	const [clientInfo, hqConfigured] = await Promise.all([
 		requestValid && clientId
 			? fetchClientPublicInfo(auth, clientId, hdrs)
@@ -161,6 +171,16 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 					})
 			: Promise.resolve<boolean | undefined>(undefined),
 	]);
+	const discovery =
+		requestValid && clientId
+			? await getOAuthClientDiscovery(clientId).catch((err) => {
+					console.warn(
+						`[consent] getOAuthClientDiscovery threw for client_id=${clientId}:`,
+						err,
+					);
+					return null;
+				})
+			: null;
 	const clientName = clientInfo?.clientName ?? "An application";
 
 	return (
@@ -182,6 +202,8 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 			<div className="w-full max-w-[28rem]">
 				<ConsentForm
 					clientName={clientName}
+					clientId={clientId}
+					discovery={discovery}
 					scopes={scopes}
 					redirectMismatch={!requestValid}
 					redirectUri={redirectUri}
