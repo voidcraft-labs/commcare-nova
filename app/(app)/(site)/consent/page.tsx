@@ -151,8 +151,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 	 * client's own row, never from the shape of `client_id`: only a client
 	 * the database marks as built from a metadata document gets its host
 	 * shown as its identity. A failed read shows no host, which is what a
-	 * registered client shows. */
-	const [clientInfo, hqConfigured, discovery] = await Promise.all([
+	 * registered client shows. It runs AFTER the public-info read rather than
+	 * beside it: that read is what rebuilds a metadata-document client's
+	 * missing row, so a parallel provenance read could see no row and drop the
+	 * host for the one kind of client whose host is the trust signal. */
+	const [clientInfo, hqConfigured] = await Promise.all([
 		requestValid && clientId
 			? fetchClientPublicInfo(auth, clientId, hdrs)
 			: Promise.resolve(undefined),
@@ -167,16 +170,17 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
 						return false;
 					})
 			: Promise.resolve<boolean | undefined>(undefined),
+	]);
+	const discovery =
 		requestValid && clientId
-			? getOAuthClientDiscovery(clientId).catch((err) => {
+			? await getOAuthClientDiscovery(clientId).catch((err) => {
 					console.warn(
 						`[consent] getOAuthClientDiscovery threw for client_id=${clientId}:`,
 						err,
 					);
 					return null;
 				})
-			: Promise.resolve(null),
-	]);
+			: null;
 	const clientName = clientInfo?.clientName ?? "An application";
 
 	return (
