@@ -110,14 +110,22 @@ it("publishes only patterns that a regex engine other than JavaScript's can read
 	const refused: string[] = [];
 	for (const tool of listed)
 		visitSchemas(tool.inputSchema as Json, "", (schema, pointer) => {
-			if (typeof schema.pattern !== "string") return;
-			try {
-				new RRegex(schema.pattern).free();
-			} catch (error) {
-				refused.push(
-					`${tool.name} at ${pointer}/pattern: JavaScript reads ${schema.pattern}, but the Rust regex engine cannot (${reason(error)}). Model providers check published patterns with engines like it and turn away a client that sends this one. Where the pattern is written, escape what is special inside a character class, such as [ and ], and leave out lookarounds and backreferences.`,
-				);
-			}
+			/* A schema publishes a regex in two places: the `pattern` keyword,
+			 * and each key of `patternProperties`. */
+			const published: [string, string][] = [];
+			if (typeof schema.pattern === "string")
+				published.push([`${pointer}/pattern`, schema.pattern]);
+			if (object(schema.patternProperties))
+				for (const key of Object.keys(schema.patternProperties))
+					published.push([`${pointer}/patternProperties`, key]);
+			for (const [where, pattern] of published)
+				try {
+					new RRegex(pattern).free();
+				} catch (error) {
+					refused.push(
+						`${tool.name} at ${where}: JavaScript reads ${pattern}, but the Rust regex engine cannot (${reason(error)}). Model providers check published patterns with engines like it and turn away a client that sends this one. Where the pattern is written, escape what is special inside a character class, such as [ and ], and leave out lookarounds and backreferences.`,
+					);
+				}
 		});
 	expect(refused).toEqual([]);
 });
