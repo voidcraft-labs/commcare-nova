@@ -146,14 +146,14 @@ export function EditableFieldWrapper({
 
 	/** Keyboard activation: Enter or Space selects this field, matching
 	 *  the click behavior for keyboard-only users (role="button" contract).
-	 *  Skip when the event originates from an active text editor (TipTap
-	 *  contenteditable): otherwise the bubbling keydown swallows spaces
-	 *  and prevents typing. */
+	 *  Only handle keys on the wrapper itself. Child editors and portaled
+	 *  picker inputs own their keys; React portal bubbling must not swallow
+	 *  spaces or activate the field while someone searches. */
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
 			if (e.key === "Enter" || e.key === " ") {
 				const target = e.target as HTMLElement;
-				if (target.closest("[contenteditable]")) return;
+				if (target !== e.currentTarget) return;
 				e.preventDefault();
 				e.stopPropagation();
 				selectField();

@@ -320,6 +320,62 @@ describe("EngineController", () => {
 			expect(ctrl.entryKey).not.toBe(entryKey);
 		});
 
+		it("editing help and validation wording refreshes references in an already open form", () => {
+			const doc = makeDoc();
+			doc.fields[Q2_UUID] = {
+				uuid: Q2_UUID,
+				id: "age",
+				label: proseText("Age"),
+				kind: "int",
+				validate: xp("false()"),
+				validate_msg: proseText("Try again"),
+			};
+			const store = createLoadedStore(doc);
+			const ctrl = ownedController();
+			ctrl.setDocStore(store);
+			ctrl.activateForm(FORM_UUID);
+			ctrl.setValueAt("/data/name", "Asha");
+			ctrl.setValueAt("/data/age", "17");
+			const wording = {
+				parts: [
+					{ kind: "text" as const, text: "For " },
+					{ kind: "field-ref" as const, uuid: Q1_UUID },
+				],
+			};
+			applyControllerEdit(store, [
+				{
+					kind: "updateField",
+					uuid: Q2_UUID,
+					targetKind: "int",
+					patch: { help: wording, validate_msg: wording },
+				},
+			]);
+			expect(ctrl.store.getState()[Q2_UUID]).toMatchObject({
+				resolvedHelp: "For Asha",
+				errorMessage: "For Asha",
+			});
+			ctrl.setValueAt("/data/name", "Nia");
+			expect(ctrl.store.getState()[Q2_UUID]).toMatchObject({
+				resolvedHelp: "For Nia",
+				errorMessage: "For Nia",
+			});
+			applyControllerEdit(store, [
+				{
+					kind: "updateField",
+					uuid: Q2_UUID,
+					targetKind: "int",
+					patch: {
+						help: proseText("Plain help"),
+						validate_msg: proseText("Plain message"),
+					},
+				},
+			]);
+			expect(ctrl.store.getState()[Q2_UUID]).toMatchObject({
+				resolvedHelp: undefined,
+				errorMessage: "Plain message",
+			});
+		});
+
 		it("evaluates localized dynamic prose and preserves the live entry across language changes", () => {
 			const referencedLabel = {
 				parts: [

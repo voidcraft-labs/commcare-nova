@@ -13,7 +13,14 @@
 
 "use client";
 import { Icon } from "@iconify/react/offline";
-import { forwardRef, useImperativeHandle, useRef, useState } from "react";
+import {
+	forwardRef,
+	useEffect,
+	useId,
+	useImperativeHandle,
+	useRef,
+	useState,
+} from "react";
 import { REF_TYPE_CONFIG } from "@/lib/references/config";
 import type { Reference, ReferenceType } from "@/lib/references/types";
 
@@ -47,6 +54,8 @@ interface ReferenceItem {
 type AutocompleteItem = NamespaceDisplayItem | ReferenceItem;
 
 export interface ReferenceAutocompleteProps {
+	listId?: string;
+	onActiveChange?: (id: string | undefined) => void;
 	/** Namespace stage: the namespace prefixes to offer (form/user + case types). */
 	namespaceItems: NamespaceOption[];
 	/** Reference stage: items from `provider.search()`. */
@@ -72,10 +81,21 @@ export const ReferenceAutocomplete = forwardRef<
 	ReferenceAutocompleteHandle,
 	ReferenceAutocompleteProps
 >(function ReferenceAutocomplete(
-	{ namespaceItems, items, showNamespaces, onSelectNamespace, onSelect },
+	{
+		namespaceItems,
+		items,
+		showNamespaces,
+		onSelectNamespace,
+		onSelect,
+		listId: providedListId,
+		onActiveChange,
+	},
 	ref,
 ) {
 	const [selectedIndex, setSelectedIndex] = useState(0);
+	const generatedId = useId();
+	const listId = providedListId ?? generatedId;
+	const listElement = useRef<HTMLDivElement>(null);
 
 	const allItems: AutocompleteItem[] = showNamespaces
 		? namespaceItems.map((option) => ({ kind: "namespace", option }))
@@ -94,8 +114,17 @@ export const ReferenceAutocomplete = forwardRef<
 		setSelectedIndex(0);
 	}
 
+	useEffect(() => {
+		const id = allItems.length ? `${listId}-${selectedIndex}` : undefined;
+		onActiveChange?.(id);
+		listElement.current
+			?.querySelector(`[aria-selected="true"]`)
+			?.scrollIntoView({ block: "nearest" });
+	}, [selectedIndex, listId, allItems.length, onActiveChange]);
+
 	useImperativeHandle(ref, () => ({
 		onKeyDown: (event: KeyboardEvent) => {
+			if (event.isComposing || allItems.length === 0) return false;
 			if (event.key === "ArrowUp") {
 				setSelectedIndex((i) => (i + allItems.length - 1) % allItems.length);
 				return true;
@@ -122,18 +151,29 @@ export const ReferenceAutocomplete = forwardRef<
 		}
 	}
 
-	if (allItems.length === 0) return null;
+	if (allItems.length === 0)
+		return (
+			<p role="status" className="p-2 text-xs text-nova-text-muted">
+				No matching references. You can try another name or keep this as text.
+			</p>
+		);
 
 	return (
 		<div
-			className="rounded-lg border border-nova-violet/20 bg-nova-overlay shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden font-mono text-xs"
-			style={{ minWidth: 200, maxWidth: 320 }}
+			className="rounded-lg border border-nova-violet/20 bg-nova-overlay shadow-[0_4px_20px_rgba(0,0,0,0.5)] overflow-hidden text-sm"
+			style={{ maxWidth: 320 }}
 		>
 			{/* ARIA listbox pattern: generic divs with roles, not ul/li which carry
              conflicting implicit roles. Keyboard nav is imperative (TipTap drives
              ArrowUp/Down/Enter through the useImperativeHandle ref), so per-item
              onKeyDown handles Enter/Space as a fallback for direct focus. */}
-			<div className="max-h-[200px] overflow-y-auto py-1" role="listbox">
+			<div
+				ref={listElement}
+				id={listId}
+				aria-label="References"
+				className="max-h-[240px] overflow-y-auto py-1"
+				role="listbox"
+			>
 				{allItems.map((item, index) => {
 					const isSelected = index === selectedIndex;
 					if (item.kind === "namespace") {
@@ -141,10 +181,12 @@ export const ReferenceAutocomplete = forwardRef<
 						return (
 							<div
 								key={item.option.namespace}
+								id={`${listId}-${index}`}
 								role="option"
+								onMouseDown={(event) => event.preventDefault()}
 								tabIndex={-1}
 								aria-selected={isSelected}
-								className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer ${isSelected ? "bg-nova-violet/15" : ""}`}
+								className={`flex items-center gap-2 px-2 py-2 min-h-11 cursor-pointer ${isSelected ? "bg-nova-violet/15" : ""}`}
 								onClick={() => selectItem(index)}
 								onKeyDown={(e) => {
 									if (e.key === "Enter" || e.key === " ") {
@@ -172,10 +214,12 @@ export const ReferenceAutocomplete = forwardRef<
 					return (
 						<div
 							key={r.raw}
+							id={`${listId}-${index}`}
 							role="option"
+							onMouseDown={(event) => event.preventDefault()}
 							tabIndex={-1}
 							aria-selected={isSelected}
-							className={`flex items-center gap-2 px-2 py-[3px] cursor-pointer ${isSelected ? "bg-nova-violet/15" : ""}`}
+							className={`flex items-center gap-2 px-2 py-2 min-h-11 cursor-pointer ${isSelected ? "bg-nova-violet/15" : ""}`}
 							onClick={() => selectItem(index)}
 							onKeyDown={(e) => {
 								if (e.key === "Enter" || e.key === " ") {
@@ -191,12 +235,12 @@ export const ReferenceAutocomplete = forwardRef<
 								height="14"
 								className={`shrink-0 ${config.textClass}`}
 							/>
-							<span className="text-nova-text truncate">{r.label}</span>
-							{r.label !== r.path && (
-								<span className="ml-auto text-nova-text-muted truncate">
-									{r.path}
+							<span className="min-w-0 flex flex-col">
+								<span className="text-nova-text break-words">{r.label}</span>
+								<span className="font-mono text-xs text-nova-text-muted break-all">
+									{r.raw}
 								</span>
-							)}
+							</span>
 						</div>
 					);
 				})}

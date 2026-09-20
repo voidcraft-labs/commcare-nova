@@ -2257,6 +2257,7 @@ export class FormEngine {
 		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.instance.setRootAttributes(this.formRootAttributes);
 		this.tree = buildFieldTree(input.formUuid, input.fields, input.fieldOrder);
+		this.instance.refreshTemplate(this.tree);
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.dag = new TriggerDag();
@@ -2307,7 +2308,30 @@ export class FormEngine {
 
 	/** Return all paths tracked by the DAG, in topological order. */
 	getAllPaths(): string[] {
-		return this.dag.getAllPaths(this.repeatCounts);
+		const paths = new Set(this.dag.getAllPaths(this.repeatCounts));
+		// A removed final reference leaves no DAG node, but its previous
+		// rendered value still needs one pass to return to literal wording.
+		for (const [path, state] of Object.entries(this.store.getState())) {
+			if (this.hasResolvedProse(state)) paths.add(path);
+		}
+		return [...paths];
+	}
+
+	private hasResolvedProse(state: FieldState): boolean {
+		return (
+			state.resolvedLabel !== undefined ||
+			state.resolvedHint !== undefined ||
+			state.resolvedHelp !== undefined ||
+			state.resolvedOptionLabels !== undefined
+		);
+	}
+
+	private expressionsForEvaluation(path: string, state: FieldState) {
+		const expressions = this.dag.getExpressions(path);
+		return this.hasResolvedProse(state) &&
+			!expressions.some(({ type }) => type === "output")
+			? [...expressions, { type: "output" as const, expr: "" }]
+			: expressions;
 	}
 
 	/** Expand a template/generic path to every live concrete instance
@@ -2919,7 +2943,7 @@ export class FormEngine {
 	): Promise<void> {
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
-		const expressions = this.dag.getExpressions(path);
+		const expressions = this.expressionsForEvaluation(path, current);
 		if (expressions.length === 0) return;
 
 		let changed = false;
@@ -3109,7 +3133,7 @@ export class FormEngine {
 		const current = updates[path] ?? this.store.getState()[path];
 		if (!current) return;
 
-		const expressions = this.dag.getExpressions(path);
+		const expressions = this.expressionsForEvaluation(path, current);
 		if (expressions.length === 0) return;
 
 		const ctx = this.createEvalContext(path, updates);
@@ -3373,7 +3397,12 @@ export class FormEngine {
 		const errorMessage = valid
 			? undefined
 			: ((field
-					? expressionSource(field, "validate_msg", this.printDoc)
+					? ((await resolveLabelAsync(
+							fieldProseTemplate(field, "validate_msg"),
+							this.printDoc,
+							async (source) =>
+								xpathToString(await evaluateAsync(source, path)),
+						)) ?? expressionSource(field, "validate_msg", this.printDoc))
 					: undefined) ?? "Invalid value");
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -3428,7 +3457,11 @@ export class FormEngine {
 		const errorMessage = valid
 			? undefined
 			: ((field
-					? expressionSource(field, "validate_msg", this.printDoc)
+					? (resolveLabel(
+							fieldProseTemplate(field, "validate_msg"),
+							this.printDoc,
+							(source) => xpathToString(evaluate(source, ctx)),
+						) ?? expressionSource(field, "validate_msg", this.printDoc))
 					: undefined) ?? "Invalid value");
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {

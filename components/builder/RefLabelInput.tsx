@@ -29,6 +29,7 @@ import {
 	useState,
 } from "react";
 import { SavedCheck } from "@/components/builder/EditableTitle";
+import { ProseReferencePicker } from "@/components/builder/ProseReferencePicker";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import {
 	type CommitOutcome,
@@ -44,6 +45,11 @@ import {
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
 import { CommcareRef } from "@/lib/tiptap/commcareRefNode";
+import {
+	dismissProseSuggestion,
+	proseEditorOwnsFocus,
+	prosePickerIsOpen,
+} from "@/lib/tiptap/proseReferenceEditing";
 import {
 	proseTemplateToTiptapContent,
 	tiptapContentToProseTemplate,
@@ -79,10 +85,7 @@ function parseValueToContent(
 ): JSONContent {
 	return proseTemplateToTiptapContent(value, (part) => {
 		const resolved = provider?.resolvePart(part, formUuid);
-		// What the CHIP shows, which is `displayId`, not `Reference.label`, the
-		// autocomplete string. The atom's `label` is the text Backspace converts
-		// the chip back into, so the two have to be the same thing or that gesture
-		// replaces a reference with words the author never saw.
+		// Display labels are projections only; the part carries identity.
 		return resolved == null ? "" : displayId(resolved);
 	}) as JSONContent;
 }
@@ -116,6 +119,7 @@ export function RefLabelInput({
 	const [focused, setFocused] = useState(false);
 	const [saved, setSaved] = useState(false);
 	const committedRef = useRef(false);
+	const editingRef = useRef(false);
 	const valueRef = useRef(value);
 	valueRef.current = value;
 	/** Captures the value at focus time: used by cancel to revert to the
@@ -155,6 +159,7 @@ export function RefLabelInput({
 		() =>
 			Extension.create({
 				name: "labelInputKeyboard",
+				priority: 100,
 				addKeyboardShortcuts() {
 					return {
 						"Mod-Enter": () => {
@@ -262,6 +267,7 @@ export function RefLabelInput({
 	const commit = useCallback(() => {
 		if (committedRef.current || !editor) return;
 		committedRef.current = true;
+		clearTimeout(debounceRef.current);
 		const serialized = canonicalProseTemplate(
 			serializeContent(editor.getJSON()).parts,
 			{ trim: true },
@@ -280,6 +286,7 @@ export function RefLabelInput({
 			editor.view.focus();
 			return;
 		}
+		editingRef.current = false;
 		setFocused(false);
 		// Native blur is synchronous. A queued blur could otherwise fire after
 		// the author has already reopened this editor and started a new draft.
@@ -299,6 +306,8 @@ export function RefLabelInput({
 	const cancel = useCallback(() => {
 		if (committedRef.current || !editor) return;
 		committedRef.current = true;
+		clearTimeout(debounceRef.current);
+		editingRef.current = false;
 		setFocused(false);
 		editor.view.dom.blur();
 
@@ -325,13 +334,15 @@ export function RefLabelInput({
 	cancelRef.current = cancel;
 
 	/* Register focus/blur handlers on the editor. Escape is handled here as a
-     DOM keydown listener (rather than via TipTap addKeyboardShortcuts) so we
+     capture-phase DOM keydown listener (before StarterKit selects a parent) so we
      can call stopPropagation: preventing the parent popover dismiss
      handler from closing the field inspector during an edit cancel. */
 	useEffect(() => {
 		if (!editor) return;
 
 		const handleFocus = () => {
+			if (editingRef.current) return;
+			editingRef.current = true;
 			committedRef.current = false;
 			savedValueRef.current = valueRef.current;
 			setFocused(true);
@@ -344,7 +355,12 @@ export function RefLabelInput({
 			}
 		};
 
-		const handleBlur = () => {
+		const handleBlur = ({ event }: { event: FocusEvent }) => {
+			if (
+				prosePickerIsOpen(editor) ||
+				proseEditorOwnsFocus(editor, event.relatedTarget)
+			)
+				return;
 			if (committedRef.current) {
 				committedRef.current = false;
 				return;
@@ -353,10 +369,10 @@ export function RefLabelInput({
 		};
 
 		const handleKeyDown = (e: KeyboardEvent) => {
-			if (e.key === "Escape") {
+			if (e.key === "Escape" && !e.defaultPrevented) {
 				e.preventDefault();
 				e.stopPropagation();
-				cancelRef.current();
+				if (!dismissProseSuggestion(editor)) cancelRef.current();
 			}
 		};
 
@@ -364,12 +380,12 @@ export function RefLabelInput({
 		editor.on("blur", handleBlur);
 
 		const dom = editor.view.dom;
-		dom.addEventListener("keydown", handleKeyDown);
+		dom.addEventListener("keydown", handleKeyDown, true);
 
 		return () => {
 			editor.off("focus", handleFocus);
 			editor.off("blur", handleBlur);
-			dom.removeEventListener("keydown", handleKeyDown);
+			dom.removeEventListener("keydown", handleKeyDown, true);
 		};
 	}, [editor, selectAll]);
 
@@ -382,7 +398,23 @@ export function RefLabelInput({
 	const wrapperCls = focused ? focusedCls : unfocusedCls;
 
 	return (
-		<div>
+		<div
+			onBlurCapture={(event) => {
+				if (
+					!editor ||
+					event.target === editor.view.dom ||
+					prosePickerIsOpen(editor)
+				)
+					return;
+				if (
+					event.relatedTarget instanceof Node &&
+					event.currentTarget.contains(event.relatedTarget)
+				)
+					return;
+				if (!proseEditorOwnsFocus(editor, event.relatedTarget))
+					commitRef.current();
+			}}
+		>
 			<span
 				id={labelId}
 				className="text-xs text-nova-text-muted mb-1 flex items-center gap-1.5"
@@ -399,6 +431,9 @@ export function RefLabelInput({
 			<div className={wrapperCls} data-field-id={dataFieldId}>
 				<EditorContent editor={editor} />
 			</div>
+			{editor && (
+				<ProseReferencePicker editor={editor} onLeaveEditor={commit} />
+			)}
 		</div>
 	);
 }

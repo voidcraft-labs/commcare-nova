@@ -193,3 +193,21 @@ named form with no field selected.
 Deleting a field selects the next visible field, or the previous one when it
 was last. Deleting a group skips the questions removed with it. Undo and Redo
 let you take back or restore those changes.
+
+## Insert an answer or saved value into wording
+
+While editing a label, hint, help text, choice label, or validation message,
+**Insert reference** opens a picker of available answers and properties. You can
+search by name or reference path, then choose a result to insert a chip. Typing
+`#` also opens reference suggestions. The chip shows the value when the form runs
+and preserves its target when you rename or move the referenced question.
+
+Typing or pasting `#household/case_name` alone keeps it as literal text. To use
+it as a value, select the exact reference text, choose **Convert to reference**,
+and select the matching result. If it isn't available in this form, you can
+search for another or leave the text unchanged.
+
+Selecting a chip offers **Replace reference**. Its picker also offers
+**Convert to text**, which keeps the current reference spelling as ordinary
+wording. Deleting a chip removes the reference; undo restores it. Escape closes
+an open picker first, leaving your wording available to edit.

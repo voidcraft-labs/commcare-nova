@@ -182,3 +182,10 @@ Local testing belongs beside authoring and uses Preview's real Project cases.
 External link generation belongs to a selected Publishing target and asks for
 that HQ project space's case IDs. Its evidence reads “Released build checked” with
 a time; it makes no guarantee about the build HQ later chooses for a recipient.
+
+**References in wording.** A visible **Insert reference** action opens a searchable
+list of answers and properties, with names and paths together. Chips mean live
+values; typed or pasted hashtags are literal until explicitly converted. A
+selected chip offers replacement or conversion to text. Pickers belong to the
+current draft, so Escape closes them before it cancels editing. Canvas hints
+keep the insertion action available without requiring a text selection.

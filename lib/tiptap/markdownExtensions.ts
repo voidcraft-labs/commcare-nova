@@ -18,10 +18,8 @@
  *   real. CommcareRef nodes round-trip through the markdown-it pipeline as
  *   `<span data-nova-prose-ref="…">`, carrying the ENCODED typed part rather
  *   than a hashtag, so identity survives the trip and no text is ever parsed
- *   back into a reference. The carrier holds no `data-label`, so a chip parsed
- *   from it has none: the atom's label is a projection of the owning document,
- *   and this boundary has no document. Anything keyed on that label — the
- *   Backspace-to-text conversion — must decline rather than substitute.
+ *   back into a reference. Conversion to text is an explicit editor action
+ *   that resolves the current spelling through the owning document.
  *
  * Contrast with RefLabelInput which uses StarterKit with everything
  * disabled except paragraphs — that editor is text-only with chips.

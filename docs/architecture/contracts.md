@@ -251,9 +251,11 @@ These decisions are closed unless the project owner explicitly reopens them.
   path. It never asks a person to author `#form/<uuid>`.
   Reference-bearing prose is a structural editor projection: reference parts are
   inline identity-bearing atoms, while ordinary typed or pasted characters stay
-  text until the author explicitly converts or inserts a reference. Machine
-  editors read and write the canonical AST/template directly; they never send
-  textual field paths or custom-worker slugs for Nova to resolve. A literal
+  text until the author explicitly converts or inserts a reference. SA and MCP
+  author wording with explicit {{reference}} insertions and expressions as text.
+  Their shared authoring boundary resolves names into canonical identities
+  before the mutation kernel admits the change. Read tools project identities
+  back to the same authoring format. A literal
   hashtag and an object reference therefore remain distinct values through
   edit, storage, and projection.
 - External-contract names may require confirmation or elevated permission, but a

@@ -102,6 +102,16 @@ instances with identical values; that cold arrival must retain open controls,
 focus and browser-local drafts. Changed values or ancestor additions still
 rebuild the same entry, and confirmed scope changes still activate a new entry.
 
+Every displayed prose slot contributes answer dependencies, including help,
+inline choice labels and validation messages. A question displaying its own
+answer refreshes on input without adding a self dependency to the calculation
+graph. Validation messages resolve their typed references when the rule fails.
+
+A document topology edit refreshes the main instance template alongside the DAG.
+Renames move answer keys first, then replace template metadata without reseeding
+answers or repeat counts; worker snapshots must describe the same current paths
+as printed references.
+
 Each controller revision owns one worker evaluation world. Its first request
 copies the main structure plus the engine-lifetime secondary snapshots; later
 expressions reuse that world and carry only changed main-instance scalar

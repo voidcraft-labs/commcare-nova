@@ -1509,3 +1509,20 @@ A stopped pre-app design accepts a new chat message after reload. That new
 logical turn continues saved design work. `Resume build` is reserved for a
 materialized accepted build and resubmits its frozen transcript; the app editor
 stays locked until construction finishes.
+
+### Explicit prose references
+
+`ProseReferencePicker` is shared by inspector prose and the canvas editor's
+label/hint toolbar. Insert reference, selected-hashtag conversion, and selected
+atom replacement all use the live form-scoped provider. A picker holds the
+original ProseMirror selection; a changed document refuses that stale range.
+Choices re-resolve the selected identity, never its old spelling. Typed/pasted
+hashtags stay literal, including unknown names. Convert to text projects the
+current spelling; Backspace/Delete use ordinary undoable atom deletion.
+
+The picker is part of the editor's draft/focus context. Opening it cannot save
+or reset the draft, and Escape dismisses suggestions or the picker before it
+cancels wording. Suggestion keymaps precede editor commit shortcuts, which precede
+StarterKit's block splitting. Both menus show names plus full paths and empty
+results. The suggestion list keeps focus in the editor; the explicit picker
+moves it into a search input and returns it on dismissal.

@@ -339,3 +339,57 @@ it("leaves a failed Project data read as its own retryable failure", async () =>
 	).rejects.toBe(raced);
 	expect(log.error).not.toHaveBeenCalled();
 });
+
+it("keeps literal hashtags distinct from explicit answer, case and worker insertions", async () => {
+	const h = await populatedApp();
+	const wording =
+		"Literal #form/name; answer {{name}}; worker {{#user/commcare_first_name}}; braces \\{{example}}";
+	expect(
+		await h.call("editField", {
+			moduleUuid: "Clients",
+			formUuid: "Register",
+			fieldUuid: "name",
+			updates: { hint: wording },
+		}),
+	).toMatchObject({ ok: true });
+	const source = Object.values(h.currentDoc().fields).find(
+		(field) => field.id === "name",
+	);
+	if (!source || !("hint" in source)) throw new Error("Missing name hint");
+	expect(source.hint?.parts).toEqual([
+		{ kind: "text", text: "Literal #form/name; answer " },
+		{ kind: "field-ref", uuid: source.uuid },
+		{ kind: "text", text: "; worker " },
+		{ kind: "user-ref", property: "commcare_first_name" },
+		{ kind: "text", text: "; braces {{example}}" },
+	]);
+	const before = h.currentDoc();
+	await expect(
+		h.call("editField", {
+			fieldUuid: source.uuid,
+			updates: { hint: "{{missing_answer}}" },
+		}),
+	).rejects.toThrow("Unknown or ambiguous reference");
+	expect(h.currentDoc()).toEqual(before);
+	expect(
+		await h.call("editField", {
+			fieldUuid: source.uuid,
+			updates: { id: "full_name" },
+		}),
+	).toMatchObject({ ok: true });
+	const read = await h.call("getField", { fieldUuid: source.uuid });
+	expect(read).toMatchObject({
+		field: {
+			hint: "Literal #form/name; answer {{full_name}}; worker {{#user/commcare_first_name}}; braces \\{\\{example}}",
+		},
+	});
+	// The populated follow-up was authored with an explicit selected-case insertion.
+	const who = Object.values(h.currentDoc().fields).find(
+		(field) => field.id === "who",
+	);
+	if (!who || !("label" in who) || !who.label)
+		throw new Error("Missing selected-case wording");
+	expect(who.label.parts).toEqual([
+		{ kind: "case-ref", caseType: "client", property: "case_name" },
+	]);
+});

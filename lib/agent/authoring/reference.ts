@@ -31,7 +31,7 @@ Search-first workflows begin with Search. Their registration form is offered aft
 After-submit navigation happens after answers leave form scope. Save a needed answer before using it in a later route. An entry point is a durable external address for a destination; changing that address can break distributed links. Generating an HQ link requires a verified deployment. Opening it can claim cases, so it is not a harmless verification probe.`,
 	fields,
 	forms:
-		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
+		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Worker values use {{#user/property}}. Bare hashtags in wording stay literal; expression slots use #form/name or #case/property without braces. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
 
 Use relevant for visibility, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. In validation, . is the current answer: . >= 0 rejects negative ages. A hidden field calculates a value as answers change; default_value sets a starting value once at form load.
 

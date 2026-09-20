@@ -23,9 +23,15 @@ import {
 	ReferenceAutocomplete,
 	type ReferenceAutocompleteHandle,
 } from "@/components/builder/ReferenceAutocomplete";
+import { Popover, PopoverContent } from "@/components/shadcn/popover";
 import { classifyNamespace } from "@/lib/references/config";
 import type { ReferenceProvider } from "@/lib/references/provider";
 import type { Reference, ReferenceType } from "@/lib/references/types";
+import {
+	dismissProseSuggestion,
+	insertProseReference,
+	proseSuggestionKey,
+} from "./proseReferenceEditing";
 
 /** A namespace option for the namespace stage (before "/" is typed). `namespace`
  *  is the wire token (`form`/`user`/case-type name); `type` is the coarse family
@@ -74,6 +80,7 @@ export function createRefSuggestion(
 ): Omit<SuggestionOptions, "editor"> {
 	return {
 		char: "#",
+		pluginKey: proseSuggestionKey,
 		allowSpaces: false,
 
 		items: ({ query }: { query: string }): SuggestionItem[] => {
@@ -121,45 +128,37 @@ export function createRefSuggestion(
 			 * namespace (a case-type name for case refs), derived through
 			 * `namespaceOf` — never the literal coarse "case". */
 			const ref = props as Reference;
-			editor
-				.chain()
-				.focus()
-				.deleteRange(range)
-				.insertContent({
-					type: "commcareRef",
-					attrs: {
-						part: ref.part,
-						label: ref.label,
-					},
-				})
-				.insertContent(" ")
-				.run();
+			insertProseReference(editor, range, ref, provider, getFormUuid());
 		},
 
 		render: () => {
 			let root: Root | null = null;
 			let container: HTMLDivElement | null = null;
+			let activeEditor: Editor | undefined;
+			let listId = "";
 			const componentRef = createRef<ReferenceAutocompleteHandle>();
 
 			return {
 				onStart: (props: SuggestionProps) => {
 					container = document.createElement("div");
-					container.style.cssText =
-						"position: absolute; z-index: var(--z-popover, 50);";
+					activeEditor = props.editor;
+					listId = `prose-options-${crypto.randomUUID()}`;
+					props.editor.view.dom.setAttribute("aria-controls", listId);
+					props.editor.view.dom.setAttribute("aria-autocomplete", "list");
 					document.body.appendChild(container);
 					root = createRoot(container);
 					updatePopup(props);
-					updatePosition(props);
 				},
 
 				onUpdate: (props: SuggestionProps) => {
 					updatePopup(props);
-					updatePosition(props);
 				},
 
 				onKeyDown: (props: SuggestionKeyDownProps) => {
 					if (props.event.key === "Escape") {
-						destroy();
+						props.event.preventDefault();
+						props.event.stopPropagation();
+						if (activeEditor) dismissProseSuggestion(activeEditor);
 						return true;
 					}
 					return componentRef.current?.onKeyDown(props.event) ?? false;
@@ -184,38 +183,63 @@ export function createRefSuggestion(
 					: (props.items as Reference[]);
 
 				root.render(
-					createElement(ReferenceAutocomplete, {
-						ref: componentRef,
-						namespaceItems,
-						items,
-						showNamespaces,
-						onSelectNamespace: (ns: string) => {
-							props.command({
-								kind: "namespace",
-								namespace: ns,
-								type: classifyNamespace(ns),
-								label: `#${ns}/`,
-							});
+					createElement(
+						Popover,
+						{
+							open: true,
+							onOpenChange: (open: boolean) => {
+								if (!open) dismissProseSuggestion(props.editor);
+							},
 						},
-						onSelect: (ref: Reference) => {
-							props.command(ref);
-						},
-					}),
+						createElement(
+							PopoverContent,
+							{
+								anchor: props.decorationNode as HTMLElement,
+								initialFocus: false,
+								finalFocus: false,
+								align: "start",
+								className: "w-80 p-0",
+								"aria-label": "Reference suggestions",
+							},
+							createElement(ReferenceAutocomplete, {
+								ref: componentRef,
+								listId,
+								onActiveChange: (id: string | undefined) => {
+									if (id)
+										props.editor.view.dom.setAttribute(
+											"aria-activedescendant",
+											id,
+										);
+									else
+										props.editor.view.dom.removeAttribute(
+											"aria-activedescendant",
+										);
+								},
+								namespaceItems,
+								items,
+								showNamespaces,
+								onSelectNamespace: (ns: string) => {
+									props.command({
+										kind: "namespace",
+										namespace: ns,
+										type: classifyNamespace(ns),
+										label: `#${ns}/`,
+									});
+								},
+								onSelect: (ref: Reference) => {
+									props.command(ref);
+								},
+							}),
+						),
+					),
 				);
-			}
-
-			/** Position the dropdown below the trigger decoration node. */
-			function updatePosition(props: SuggestionProps) {
-				if (!container || !props.decorationNode) return;
-				const rect = (
-					props.decorationNode as HTMLElement
-				).getBoundingClientRect();
-				container.style.left = `${rect.left}px`;
-				container.style.top = `${rect.bottom + 4}px`;
 			}
 
 			/** Tear down the React root and remove the container from the DOM. */
 			function destroy() {
+				activeEditor?.view.dom.removeAttribute("aria-controls");
+				activeEditor?.view.dom.removeAttribute("aria-activedescendant");
+				activeEditor?.view.dom.removeAttribute("aria-autocomplete");
 				root?.unmount();
 				root = null;
 				container?.remove();

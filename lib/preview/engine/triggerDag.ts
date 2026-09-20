@@ -214,6 +214,16 @@ export class TriggerDag {
 	): string[] {
 		const visited = new Set<string>();
 		const queue = [...new Set(changedPaths.map(stripIndices))];
+		// A question's wording can display its own answer without making a
+		// calculation cycle. It must refresh when that answer changes even
+		// though addEdge deliberately excludes self dependencies.
+		for (const path of queue) {
+			if (
+				this.nodes.get(path)?.expressions.some(({ type }) => type === "output")
+			) {
+				visited.add(path);
+			}
+		}
 
 		while (queue.length > 0) {
 			const current = queue.shift();
@@ -354,18 +364,26 @@ export class TriggerDag {
 			settleFreeExprs.push(validate);
 		}
 
-		// Project typed label/hint atoms to their dependency expressions.
-		const allLabelRefs = proseReferenceExpressions(
-			fieldProseTemplate(f, "label"),
-			this.doc,
-			this.inspectionMode ? "inspection" : "strict",
-		).concat(
+		// Every displayed wording slot participates, even when it is the only
+		// reference on the question. Validation messages are evaluated by the
+		// validation branch; their answer dependencies still trigger that pass.
+		const templates = (["label", "hint", "help", "validate_msg"] as const).map(
+			(slot) => fieldProseTemplate(f, slot),
+		);
+		if (
+			(f.kind === "single_select" || f.kind === "multi_select") &&
+			f.optionsSource.kind === "inline"
+		) {
+			templates.push(...f.optionsSource.options.map((option) => option.label));
+		}
+		const allLabelRefs = templates.flatMap((template) =>
 			proseReferenceExpressions(
-				fieldProseTemplate(f, "hint"),
+				template,
 				this.doc,
 				this.inspectionMode ? "inspection" : "strict",
 			),
 		);
+
 		if (allLabelRefs.length > 0) {
 			expressions.push({ type: "output", expr: "" });
 			for (const ref of allLabelRefs) settleFreeExprs.push(ref);
