@@ -203,6 +203,17 @@ app that uses the features authors reach for, and `readTotality.fuzz.test.ts`
 reads generated admitted apps. A new read tool or a new stored value that a
 read must print extends those, not a test of its own tool in isolation.
 
+A published input schema is wire, and its consumers are not Nova. Clients hand
+each schema to a model provider, which checks it with its own JSON Schema and
+regex engines and turns the client away before its first tool call when either
+refuses. Ajv shares JavaScript's regex engine, so it agrees with Nova about
+every pattern and cannot stand in for that reader. `servedSchemas.test.ts` lists
+every tool through the real client and hands each schema, as delivered, to a
+validator for its declared dialect and each `pattern` to the Rust regex engine
+(`rregex`). JavaScript's `v` mode is not a substitute: it refuses patterns
+providers accept. Coverage follows the served list, so a new tool or a new
+pattern, including one Zod generates, needs no test of its own.
+
 For emitted policy languages, evaluate the actual output with an independent
 language implementation. `captureCondition.test.ts` uses CEL and checks its
 Google IAM-specific `extract` extension against Google's published examples.

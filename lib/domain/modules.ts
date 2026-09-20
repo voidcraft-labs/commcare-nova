@@ -644,7 +644,8 @@ const linkColumnSchema = columnBase.extend({
 		.string()
 		.min(1, "Give the link something to say")
 		.regex(
-			/^[^[\]]+$/,
+			// biome-ignore lint/complexity/noUselessEscapeInRegex: this pattern is published in tool schemas, where regex engines other than JavaScript's read a bare [ inside a class as the start of a nested class and refuse the schema
+			/^[^\[\]]+$/,
 			"Link text can't contain square brackets. The cell is rendered as markdown, where a bracket ends the link's label early and the row shows the raw text instead of a link.",
 		),
 });
