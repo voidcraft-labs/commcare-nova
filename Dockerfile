@@ -12,12 +12,12 @@
 # supply-chain logic that digest-pins the testcontainers postgis image in
 # `lib/case-store/sql/__tests__/globalSetup.ts`; an exact patch tag suffices
 # here — it freezes Node while still flowing Alpine security patches. Node
-# 24.18.1 is the LTS runtime and is new enough for independently pinned npm 12.
+# 24.21.0 is the LTS runtime and is new enough for independently pinned npm 12.
 #
 # `.nvmrc` is the canonical Node version (CI reads it via `node-version-file`,
 # local nvm/fnm read it directly). Keep this patch in lockstep with it — the
 # `quality` CI job fails if `.nvmrc` and this ARG drift.
-ARG NODE_IMAGE=node:24.18.1-alpine
+ARG NODE_IMAGE=node:24.21.0-alpine
 ARG NPM_VERSION=12.0.2
 
 # Dependency layers are independent of source and per-release identity.
