@@ -7,7 +7,7 @@ import {
 	loadSchemaAdmittedAppSnapshotFromRowInTransaction,
 	lockAppRow,
 } from "../../lib/db/canonicalCommitKernel";
-import { leaseView } from "../../lib/db/leaseView";
+import { LEASE_COLUMNS, leaseView } from "../../lib/db/leaseView";
 import { parsePersistedJsonText } from "../../lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "../../lib/db/pg";
 import { runLeaseState } from "../../lib/db/runLiveness";
@@ -366,7 +366,13 @@ export async function checkProseReferenceRepair(
 		.execute(async (tx) => {
 			const app = await tx
 				.selectFrom("apps")
-				.selectAll()
+				.select([
+					"project_id",
+					"mutation_seq",
+					"deleted_at",
+					"recoverable_until",
+					...LEASE_COLUMNS,
+				])
 				.where("id", "=", entry.appId)
 				.executeTakeFirst();
 			if (!app || app.project_id !== entry.projectId)
