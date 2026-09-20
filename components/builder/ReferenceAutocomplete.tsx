@@ -173,6 +173,7 @@ export const ReferenceAutocomplete = forwardRef<
 				aria-label="References"
 				className="max-h-[240px] overflow-y-auto py-1"
 				role="listbox"
+				tabIndex={-1}
 			>
 				{allItems.map((item, index) => {
 					const isSelected = index === selectedIndex;

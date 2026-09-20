@@ -135,6 +135,29 @@ test("inspector explicitly converts literal references, preserves drafts and sav
 					.blueprint.fields[source].hint,
 		)
 		.toEqual({ parts: [{ kind: "text", text: "#form/about_you/given_name" }] });
+	await page.setViewportSize({ width: 500, height: 713 });
+	await properties
+		.getByRole("button", { name: "Insert reference", exact: true })
+		.click();
+	await expect(search).toBeFocused();
+	const picker = page.getByRole("dialog", {
+		name: "Insert reference",
+		exact: true,
+	});
+	await expect(picker).toBeVisible();
+	await expect
+		.poll(async () => {
+			const bounds = await picker.boundingBox();
+			return bounds ? bounds.y + bounds.height : Number.POSITIVE_INFINITY;
+		})
+		.toBeLessThanOrEqual(713);
+	// The search owns list navigation. Tab leaves the picker instead of
+	// stranding focus in Chrome's automatically focusable scroll container.
+	await search.press("Tab");
+	await expect(picker).toHaveCount(0);
+	await expect(
+		properties.getByRole("button", { name: "Label media", exact: true }),
+	).toBeFocused();
 });
 
 test("canvas reference picker supports keyboard insertion, replacement and literal text", {

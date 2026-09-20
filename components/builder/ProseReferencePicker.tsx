@@ -151,7 +151,7 @@ export function ProseReferencePicker({
 			</PopoverTrigger>
 			<PopoverContent
 				align="start"
-				className="w-80"
+				className="w-80 max-h-[var(--available-height)] overflow-y-auto [&>*]:shrink-0"
 				data-inline-toolbar
 				data-prose-editor={proseEditorId(editor)}
 				finalFocus={() => (editor.isDestroyed ? false : editor.view.dom)}
