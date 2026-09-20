@@ -118,23 +118,6 @@ USER nextjs
 # Safe default: the repair CLI scans unless an operator explicitly executes it.
 CMD ["node", "legacy-preplan-repair.cjs"]
 
-# Temporary explicit historical repair. No application/migration target depends on it.
-FROM sources AS prose-reference-repair-build
-RUN npx esbuild scripts/repair-prose-references.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=prose-reference-repair.cjs
-FROM ${NODE_IMAGE} AS prose-reference-repair
-WORKDIR /app
-ENV NODE_ENV=production
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
-COPY --from=prose-reference-repair-build --chown=nextjs:nodejs /app/prose-reference-repair.cjs ./
-# Supply this private directory as a BuildKit named context, never in the Git tree.
-COPY --from=prose-repair-manifest --chown=nextjs:nodejs /prose-reference-manifest.json /prose-reference-manifest.json.sha256 ./
-USER nextjs
-CMD ["node", "prose-reference-repair.cjs"]
-
 # The registry seed is copied directly inside BuildKit into its writable cache
 # mount. It never passes through the build context or an application layer.
 FROM ${NODE_IMAGE} AS cache-seed
