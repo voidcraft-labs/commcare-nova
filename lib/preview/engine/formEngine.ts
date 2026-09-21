@@ -72,6 +72,7 @@ import {
 	storageTimeValue,
 	type XPathPrintableDoc,
 } from "@/lib/domain";
+import { fieldValueType } from "@/lib/domain/fieldValueType";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -85,7 +86,7 @@ import {
 	unpackXPathRuntimeValue,
 	type XPathInstance,
 } from "../xpath/runtimeValues";
-import type { EvalContext, XPathValue } from "../xpath/types";
+import { type EvalContext, isXPathDate, type XPathValue } from "../xpath/types";
 import {
 	serializeXPathWorkerHashtagValue,
 	serializeXPathWorkerValue,
@@ -1037,6 +1038,20 @@ export class FormEngine {
 		}
 	}
 
+	private computedFieldValue(field: Field, result: XPathValue): string {
+		const value = unpackXPathRuntimeValue(result);
+		// Core wraps a calculated Date using the destination bind. XPath's
+		// generic string(Date) deliberately discards its clock instead.
+		if (
+			fieldValueType(field, this.caseWriteDoc.caseTypes ?? []) === "datetime" &&
+			isXPathDate(value) &&
+			value.time !== null
+		) {
+			return value.time.toISOString();
+		}
+		return xpathToString(result);
+	}
+
 	/** Evaluate a field's `default_value` for one concrete path. Returns
 	 *  the value to apply, or undefined when the slot is absent or the
 	 *  result is empty — the one gate every default-applying
@@ -1051,7 +1066,7 @@ export class FormEngine {
 		);
 		if (!defaultValue) return undefined;
 		const result = evaluate(defaultValue, this.createEvalContext(path));
-		const value = xpathToString(result);
+		const value = this.computedFieldValue(field, result);
 		return value === "" ? undefined : value;
 	}
 
@@ -3005,7 +3020,12 @@ export class FormEngine {
 		for (const { type, expr } of expressions) {
 			switch (type) {
 				case "calculate": {
-					const next = xpathToString(await evaluateAsync(expr, path));
+					const field = this.findField(path);
+					if (field === undefined) break;
+					const next = this.computedFieldValue(
+						field,
+						await evaluateAsync(expr, path),
+					);
 					this.instance.set(path, next);
 					if (next !== value) {
 						value = next;
@@ -3197,7 +3217,9 @@ export class FormEngine {
 			switch (type) {
 				case "calculate": {
 					const result = evaluate(expr, ctx);
-					const v = xpathToString(result);
+					const field = this.findField(path);
+					if (field === undefined) break;
+					const v = this.computedFieldValue(field, result);
 					this.instance.set(path, v);
 					if (v !== value) {
 						value = v;
@@ -3661,7 +3683,10 @@ export class FormEngine {
 	): Promise<string | undefined> {
 		const source = expressionSource(field, "default_value", this.printDoc);
 		if (!source) return undefined;
-		const value = xpathToString(await evaluateAsync(source, path));
+		const value = this.computedFieldValue(
+			field,
+			await evaluateAsync(source, path),
+		);
 		return value === "" ? undefined : value;
 	}
 

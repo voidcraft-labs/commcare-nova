@@ -346,6 +346,20 @@ it.each(operationScenarios)(
 				).toBe(`instance('casedb')/casedb/case[@case_id=${own}]/case_name`);
 			}
 			if (scenario === "sequence") {
+				for (const property of [
+					"calculated_at",
+					"defaulted_at",
+					"visible_at",
+				]) {
+					const questionPath =
+						hq.modules[0].forms[0].actions.update_case.update[property]
+							.question_path;
+					expect(bind(`/data/${property}`).type).toBe("xsd:dateTime");
+					// HQ's ordinary update must read a string carrier that exists in
+					// both source and device forms, not the date-valued question.
+					expect(bind(questionPath).type).toBe("xsd:string");
+					expect(bind(questionPath).calculate).toContain(`/data/${property}`);
+				}
 				for (const [operation, property] of [
 					["create_visit", "occurred_at"],
 					["before_ordinary", "occurred_at"],
@@ -365,7 +379,7 @@ it.each(operationScenarios)(
 					children(child(child(data, "case"), "update")).map(
 						(element) => element.name,
 					),
-				).toEqual(["nickname"]);
+				).toEqual(["calculated_at", "defaulted_at", "visible_at", "nickname"]);
 			}
 		}
 	},

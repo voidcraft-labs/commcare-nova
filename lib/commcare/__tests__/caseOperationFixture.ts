@@ -266,7 +266,13 @@ export function caseOperationFixture(scenario: OperationScenario) {
 							]
 						: []),
 					...(scenario === "sequence"
-						? ["occurred_at", "reference_at"].map((name) => ({
+						? [
+								"occurred_at",
+								"reference_at",
+								"calculated_at",
+								"defaulted_at",
+								"visible_at",
+							].map((name) => ({
 								name,
 								label: proseText(name),
 								data_type: "datetime" as const,
@@ -327,6 +333,34 @@ export function caseOperationFixture(scenario: OperationScenario) {
 								: [field, key]),
 							...(scenario === "sequence"
 								? [
+										f({
+											kind: "hidden",
+											id: "calculated_at",
+											calculate: "now()",
+											caseWrite: {
+												caseType: "patient",
+												property: "calculated_at",
+											},
+										}),
+										f({
+											kind: "hidden",
+											id: "defaulted_at",
+											default_value: "now()",
+											caseWrite: {
+												caseType: "patient",
+												property: "defaulted_at",
+											},
+										}),
+										f({
+											kind: "datetime",
+											id: "visible_at",
+											relevant: "#form/enabled = 'yes'",
+											default_value: "now()",
+											caseWrite: {
+												caseType: "patient",
+												property: "visible_at",
+											},
+										}),
 										f({
 											kind: "text",
 											id: "ordinary_note",

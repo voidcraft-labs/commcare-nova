@@ -79,6 +79,8 @@ export function hiddenFieldCarriesBothValueSources(field: {
 export const hiddenFieldMetadata: FieldKindMetadata<"hidden"> = {
 	kind: "hidden",
 	xformKind: "input",
+	// The emission/runtime boundary derives datetime from an effective case
+	// destination; untyped hidden values keep this default.
 	dataType: "xsd:string",
 	icon: tablerEyeOff,
 	label: "Hidden",

@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#658 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#659 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -111,22 +111,53 @@ commercial Preview journey. This required user prompting, so automatic recovery
 is still unproven. Independent Core testing then exposed lost clock precision in
 datetime operation writes. The correction in #659 passes the synthetic native
 corpus on both export paths and the repaired app’s two principal native
-submission journeys, including the commercial review clock. Release verification must also use the exact shipped revision; native
-submission checks do not establish physical-device or remote-HQ behavior.
+submission journeys, including the commercial review clock. The exact shipped
+compiler was then used to export and independently execute those paths again.
+Native submission checks do not establish physical-device or remote-HQ behavior.
 
 Live Builder inspection also confirmed that the final commercial journey is
 readable after its disposable records are removed. Its worker role and place
 assignment are labeled as test-only. Administrator impersonation was switched
 off after inspection; that observation does not replace ordinary-user coverage.
 
+A subsequent ordinary repair pass covered the remaining operational modules. It
+independently found more creation forms whose worker ownership prevented the next
+role from finding the saved record. Eight form replacements now use shared-place
+ownership. Independent Core checks cover their saved values and the two earlier
+farmer-to-contract paths at the later saved revision. These are submission checks,
+not proof that every operational workflow is coherent.
+
+Both new repair invocations reached the 80-step bound. The unfinished notice was
+visible and persisted in the conversation. The subsequent send stalled during
+production connection timeouts and a failed server-rendered reload, but eventually
+committed and completed without a duplicate send. The final handoff candidly
+retains deployment and native limits. The agent independently identified ordinary
+hidden timestamp writes losing their clock and replaced those app writes through
+normal tools. The underlying Preview and export conversion correction passes 243 focused tests
+and 24 native checks across both export paths; both pre-fix paths fail the clock
+assertion. Seven independent native checks of the final saved app also pass,
+including retained grading history after confirmation. These do not establish
+ordinary entry or deployment setup.
+
+A collection-history concern remains: the store form retains only the latest
+receipt values. Separate retained receipts and their downstream use have not
+been established; determine the required history from the current business scope
+before adding a new ledger. A completed handoff does not establish full acceptance.
+
 Remaining acceptance is substantive:
 
 - Complete and independently check the delivered-app repair, including usable
-  entry/setup guidance and registration, approval and contract handoffs.
+  entry/setup guidance, registration and approval handoffs, and retained collection
+  history where required by the current business scope. Independently verify the
+  final saved revision after delayed ordinary chat recovery.
 - Establish a fresh successful role-gated related-record build within an agreed
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing
   callable capabilities or repeating failed discovery indefinitely.
+- Verify the corrected ordinary Preview hint after case-data loading recovers,
+  and verify the final edit stream/accounting has settled. Its saved change is
+  text-only; a first wording pass missed the visible hint and repeated setup prose.
+  Remove redundant actor writes without losing business history.
 - Finish browser checks of ordinary identity and location experience, separately
   from administrator impersonation and disposable recorded journeys.
 - Retain native form/submission limits: no physical-device, remote-HQ or offline

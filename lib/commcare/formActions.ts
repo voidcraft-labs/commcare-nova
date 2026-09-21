@@ -39,6 +39,8 @@ import {
 	isCaptureField,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { assertAndProjectCaseWriteInventory } from "./caseWriteAdmission";
 import {
 	effectiveAssessmentUserScore,
@@ -52,6 +54,7 @@ import {
 	type AttachmentUrlTarget,
 	captureUrlNodePath,
 } from "./xform/captureUrlNode";
+import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
 
 /** Find one stable field identity inside a specific form tree. */
@@ -108,10 +111,13 @@ function requireFieldPath(
  * submitted file, rather than an address, is the case value.
  */
 function caseUpdateQuestionPath(
+	doc: BlueprintDoc,
 	binding: DerivedCasePropertyBinding,
 	field: Field,
 	attachmentTarget: AttachmentUrlTarget | null,
 ): string | null {
+	if (fieldValueType(field, effectiveCaseTypes(doc)) === "datetime")
+		return datetimeCaseValuePath(binding.path).toXPath();
 	if (!isCaptureField(field)) return binding.path.toXPath();
 	if (field.caseWrite?.mode === "attachment") {
 		return binding.path.toXPath();
@@ -122,7 +128,7 @@ function caseUpdateQuestionPath(
 
 function requireBindingField(
 	doc: BlueprintDoc,
-	binding: DerivedCasePropertyBinding,
+	binding: Pick<DerivedCasePropertyBinding, "fieldUuid">,
 ): Field {
 	const field = doc.fields[binding.fieldUuid];
 	if (field === undefined) {
@@ -144,6 +150,7 @@ function projectPrimaryUpdateMap(
 	for (const binding of bindings) {
 		const field = requireBindingField(doc, binding);
 		const questionPath = caseUpdateQuestionPath(
+			doc,
 			binding,
 			field,
 			attachmentTarget,
@@ -236,7 +243,13 @@ export function buildFormActions(
 	if (usercaseBucket !== undefined) {
 		for (const { writer, path } of usercaseBucket.writers) {
 			base.usercase_update.update[writer.property] = {
-				question_path: path.toXPath(),
+				question_path:
+					fieldValueType(
+						requireBindingField(doc, writer),
+						effectiveCaseTypes(doc),
+					) === "datetime"
+						? datetimeCaseValuePath(path).toXPath()
+						: path.toXPath(),
 				update_mode: "always",
 			};
 		}
@@ -361,6 +374,7 @@ export function buildFormActions(
 			for (const binding of child.caseProperties) {
 				const field = requireBindingField(doc, binding);
 				const questionPath = caseUpdateQuestionPath(
+					doc,
 					binding,
 					field,
 					attachmentTarget,

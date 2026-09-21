@@ -60,6 +60,13 @@ public class CaseOperationRuntimeTest {
                 record.setProperty("nickname", "visit".equals(seed[1]) ? "Visit 1" : "Old nickname");
                 if ("visit".equals(seed[1])) record.setIndex(new CaseIndex("parent", "patient", "patient-1"));
                 record.setProperty("source_id", "Old source");
+                if ("sequence".equals(scenario) && "patient-1".equals(seed[0])) {
+                    // Ordinary followup preloads override defaults, including blank
+                    // properties. Verify the loaded instant rather than claiming a
+                    // default runs on a preloaded writer.
+                    record.setProperty("defaulted_at", "2026-04-17T16:53:41+05:30");
+                    record.setProperty("visible_at", "2026-04-17T16:53:41+05:30");
+                }
                 sandbox.getCaseStorage().write(record);
             }
             if ("relation".equals(scenario) || "query".equals(scenario)) {
@@ -141,6 +148,7 @@ public class CaseOperationRuntimeTest {
     @Test public void sequence() throws Exception {
         long started = System.currentTimeMillis();
         Run run = run("sequence");
+        run.answer("/data/enabled", "yes");
         run.answer("/data/answer", "  Visit one  ");
         run.answer("/data/key", "write");
         run.answer("/data/ordinary_note", "Ordinary last");
@@ -154,8 +162,25 @@ public class CaseOperationRuntimeTest {
             String moment = run.record(caseId).getPropertyString("occurred_at");
             assertTrue("A datetime operation must retain its clock time: " + moment, moment.contains("T"));
             long saved = java.time.OffsetDateTime.parse(moment).toInstant().toEpochMilli();
-            assertTrue(saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
+            assertTrue("Saved instant outside submission: " + moment, saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
         }
+        for (String property : new String[]{"calculated_at", "defaulted_at", "visible_at"}) {
+            String moment = run.record("patient-1").getPropertyString(property);
+            assertTrue("An ordinary datetime field must retain its clock: " + property + "=" + moment, moment.contains("T"));
+            long saved = java.time.OffsetDateTime.parse(moment).toInstant().toEpochMilli();
+            if ("calculated_at".equals(property)) {
+                assertTrue("Saved instant outside submission: " + moment, saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
+            } else {
+                assertEquals(java.time.Instant.parse("2026-04-17T11:23:41Z").toEpochMilli(), saved);
+            }
+        }
+        run.answer("/data/visible_at", "");
+        run.apply();
+        assertEquals("An active blank answer clears its saved datetime", "", run.record("patient-1").getPropertyString("visible_at"));
+        run.answer("/data/visible_at", "2030-01-01T12:34:56Z");
+        run.answer("/data/enabled", "no");
+        run.apply();
+        assertEquals("An excluded answer must not overwrite the saved datetime", "", run.record("patient-1").getPropertyString("visible_at"));
         assertEquals(java.time.Instant.parse("2026-04-17T11:23:41Z"),
             java.time.OffsetDateTime.parse(run.record("patient-1").getPropertyString("reference_at")).toInstant());
     }

@@ -18,6 +18,12 @@ capability tables keep independent runtime evidence, but they do not authorize
 an authorable Preview subset. Adding an authorable capability therefore adds
 its Preview implementation and its CommCare proof in the same change.
 
+Calculated/default datetime answers retain the XPath Date's instant, including
+hidden writers whose effective destination is datetime. Both synchronous and
+worker evaluation use `FormEngine.computedFieldValue`; generic XPath string(Date)
+remains date-only. Ordinary followup preloads still override defaults, including
+when the stored property is blank. This does not change event-history policy.
+
 `regex()` and `replace()` target Formplayer's OpenJDK 17 `Pattern` contract,
 which is the one stable CommCare host runtime. TeaVM compiles the pinned
 OpenJDK sources to static JavaScript under `xpath/vendor/`; this is not native

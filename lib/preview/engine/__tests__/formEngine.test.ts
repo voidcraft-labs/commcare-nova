@@ -205,6 +205,86 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 }
 
 describe("FormEngine", () => {
+	it.each([false, true])(
+		"retains datetime calculations and defaults with staged worker %s",
+		async (stagedAsync) => {
+			const names = ["calculated_at", "defaulted_at", "visible_at"];
+			const input = dTree(
+				[
+					{
+						id: "case_name",
+						kind: "hidden",
+						calculate: xp("'Timestamp record'"),
+						caseWrite: { caseType: "patient", property: "case_name" },
+					},
+					{
+						id: "calculated_at",
+						kind: "hidden",
+						calculate: xp("now()"),
+						caseWrite: { caseType: "patient", property: "calculated_at" },
+					},
+					{
+						id: "defaulted_at",
+						kind: "hidden",
+						default_value: xp("now()"),
+						caseWrite: { caseType: "patient", property: "defaulted_at" },
+					},
+					{
+						id: "visible_at",
+						kind: "datetime",
+						default_value: xp("now()"),
+						caseWrite: { caseType: "patient", property: "visible_at" },
+					},
+					{ id: "plain_hidden", kind: "hidden", calculate: xp("now()") },
+					{ id: "day", kind: "date", default_value: xp("today()") },
+				],
+				"registration",
+				[
+					{
+						name: "patient",
+						properties: names.map((name) => ({
+							name,
+							label: proseText(name),
+							data_type: "datetime" as const,
+						})),
+					},
+				],
+			);
+			const engine = new FormEngine(
+				input,
+				"patient",
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync },
+			);
+			if (stagedAsync) {
+				const { evaluateAsync } = fixedWorldEvaluator(
+					engine,
+					"datetime-values",
+				);
+				await engine.initializeAsync(evaluateAsync);
+			}
+			for (const name of names)
+				expect(engine.getState(`/data/${name}`).value).toBe(
+					"2026-05-06T12:00:00.000Z",
+				);
+			expect(engine.getState("/data/plain_hidden").value).toBe("2026-05-06");
+			expect(engine.getState("/data/day").value).toBe("2026-05-06");
+			const mutation = engine.computeSubmissionMutation({
+				entryKey: ENTRY_KEY,
+			});
+			if (mutation.kind !== "registration")
+				throw new Error("Expected registration");
+			expect(mutation.primary.properties).toEqual(
+				Object.fromEntries(
+					names.map((name) => [name, "2026-05-06T12:00:00.000Z"]),
+				),
+			);
+		},
+	);
+
 	it.each(["help", "choice", "validation"] as const)(
 		"updates a reference used only in %s wording through the worker",
 		async (slot) => {

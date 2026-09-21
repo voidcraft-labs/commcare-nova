@@ -1231,3 +1231,17 @@ manual query may only retain an existing source selection under the same datum.
 at both shared mutation gates. Ordinary list destinations retain manual values.
 
 Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the HQ `parent_select` and shared session-datum projection read that identity; catalog ancestry and structural menu nesting do not infer it. Flat modules may contain child records and unparented records of the same type. Parent selectors follow direct non-extension child indexes. The existing target-specific HQ refusal for a multiple-parent selector remains; Preview and local CCZ retain their supported union semantics.
+
+### Ordinary datetime case writes
+
+Hidden datetime writers derive their `xsd:dateTime` bind from the effective
+case-property catalog. Ordinary datetime writes use a reserved sibling text
+node (`xform/datetimeCaseValue.ts`) as their HQ action question path. HQ creates
+untyped case-update binds, where Core would otherwise wrap a Date as DateData
+and lose its clock. The sibling formats the unpacked typed value; Core's
+`format-date(node-set)` itself rounds typed dates, so `coalesce` unpacks first.
+Blank answers remain blank, and sibling relevance follows the source question.
+The sibling stays inside the same group/repeat and is derived wire, never an
+authored field. Native CCZ and HQ-regenerated submission tests prove saved
+instants, active blank clearing and excluded-answer omission. Generic XPath
+string conversion and ordinary preload precedence are unchanged.
