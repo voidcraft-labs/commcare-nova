@@ -129,3 +129,13 @@ The real Postgres regression fails on the prior code, then proves rejection afte
 workspace reopening, identical retry, successful correction and canonical commit.
 Existing genesis, authority, rebase and effective-edit checks also pass. This
 prevents the demonstrated dead end; it does not rescue or pass the failed trial.
+
+
+Fresh code review found a related reduction mismatch: clearing and restoring an
+optional translated hint kept its translation in the cumulative candidate, but
+reopening reduced each old step separately and pruned that translation between
+steps. Rehydration now reduces the combined batch once, matching staging and
+canonical save. A second real Postgres regression fails on the reviewed revision
+and compares the complete staged, reopened and committed content. The correction
+rechecks pending history on each stage; its cost grows with unsaved work and must
+be measured alongside agent calls, rather than claimed to be free.

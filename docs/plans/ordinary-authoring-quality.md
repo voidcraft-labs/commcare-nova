@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#659 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#660 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -139,10 +139,19 @@ assertion. Seven independent native checks of the final saved app also pass,
 including retained grading history after confirmation. These do not establish
 ordinary entry or deployment setup.
 
-A collection-history concern remains: the store form retains only the latest
-receipt values. Separate retained receipts and their downstream use have not
-been established; determine the required history from the current business scope
-before adding a new ledger. A completed handoff does not establish full acceptance.
+The user delegated the collection-history decision. Each dated grower receipt
+should remain separately available after later collections at the same store,
+with any latest-store summary supplementary. Ordinary production repair is in
+progress within its original allocation; its final history and handoffs still
+need independent verification. A completed handoff does not establish acceptance.
+
+A separately approved $30 fresh role trial stopped without saving an app after
+85 calls and $4.15049 known cost. Private editing had accepted identity reuse
+that the first-save gate later rejected permanently. The agent asked the user
+for an internal workspace reset; no expert rescue was supplied. Both failed
+role attempts remain failed. Cumulative private admission and consistent replay
+now have controlled regressions, but a successful fresh role build is still
+unestablished. Full measurements remain in the evaluation research.
 
 Remaining acceptance is substantive:
 

@@ -90,7 +90,10 @@ intermediate work there; only a complete, valid candidate can be saved. The
 first save atomically creates a meaningful app, including its runtime schema,
 ordered history, lookup edges, session mapping, and exact receipt. Later saves
 commit valid checkpoints through the same canonical kernel used by Builder and
-MCP. Preview and export consume only canonical revisions.
+MCP. Each private edit admits the full pending batch against its original base,
+so removing and recreating an identity cannot poison a later checkpoint. Staging,
+reopening and saving reduce that same batch, including translation cleanup.
+Preview and export consume only canonical revisions.
 
 The current holder and Project edit membership authorize every write. An active
 peer review pauses construction. A checkpoint re-resolves current resources and

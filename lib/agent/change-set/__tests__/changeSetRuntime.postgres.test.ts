@@ -11,8 +11,10 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { claimAndReserveRun, commitGuardedBatch, loadApp } from "@/lib/db/apps";
 import { createEditDesignSession } from "@/lib/db/designSessions";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
+import { collectTranslationUnits } from "@/lib/domain";
 import { commitDesignChangeSet } from "../commit";
 import {
 	ChangeSetRequestIdCollisionError,
@@ -504,4 +506,55 @@ it("rejects reuse of a removed private identity before staging and permits a fre
 	const saved = await loadApp(f.app.appId);
 	expect(saved?.blueprint.modules[replacementUuid]?.name).toBe("Households");
 	expect(saved?.blueprint.modules[moduleUuid]).toBeUndefined();
+});
+
+it("keeps translated content identical across private edits, reopening and checkpoint commit", async () => {
+	const f = await fixture();
+	await f.workspace.stageDispatch(create);
+	const field = statusField(f.workspace);
+	const editHint = (requestId: string, hint: string | null) => ({
+		toolName: "editField",
+		requestId,
+		input: { fieldUuid: field.uuid, updates: { hint } },
+	});
+	await f.workspace.stageDispatch(
+		editHint("initial-hint", "Choose the current status"),
+	);
+	await f.workspace.stageDispatch({
+		toolName: "addLanguage",
+		requestId: "spanish",
+		input: { language: { language: "spa" } },
+	});
+	expect((await f.commit()).kind).toBe("committed");
+	const pending = await f.open();
+	const unit = collectTranslationUnits(
+		pending.workspace.currentSnapshot().doc,
+	).find((unit) => unit.role === "field-hint");
+	if (!unit) throw new Error("Missing translated hint");
+	const original =
+		pending.workspace.currentSnapshot().doc.localization?.translations.spa?.[
+			unit.id
+		];
+	expect(original).toBeDefined();
+	await pending.workspace.stageDispatch(editHint("remove-hint", null));
+	await pending.workspace.stageDispatch(
+		editHint("restore-hint", "Choose the current status"),
+	);
+	const staged = toPersistableDoc(pending.workspace.currentSnapshot().doc);
+	expect(staged.localization?.translations.spa?.[unit.id]).toEqual(original);
+	const reopened = await ChangeSetMutationWorkspace.open(
+		f.host,
+		pending.changeSet.id,
+	);
+	expect(toPersistableDoc(reopened.currentSnapshot().doc)).toEqual(staged);
+	const outcome = await commitDesignChangeSet({
+		changeSetId: pending.changeSet.id,
+		actorUserId: actor,
+		runId,
+		chatRunHolder: f.host.chatRunHolder,
+		kind: "chat",
+		expectedRevision: reopened.current().revision,
+	});
+	expect(outcome.kind).toBe("committed");
+	expect((await loadApp(f.app.appId))?.blueprint).toEqual(staged);
 });

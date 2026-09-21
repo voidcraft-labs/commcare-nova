@@ -54,8 +54,9 @@ text is already current. Do not infer tool outcomes from an empty mutation list.
 A batch-exclusive operation, such as property rename or case-type retirement,
 owns its workspace alone. Admission checks the entire pending batch against its original base before
 appending a stage. An identity removed by an earlier private edit stays reserved
-until that batch commits; a replacement needs a new identity. This matches both
-first-save and later-checkpoint admission and survives reopening the workspace.
+until that batch commits; a replacement needs a new identity. Staging, reopening, and
+checkpoint commits reduce the same combined batch, including translation cleanup.
+This matches both first-save and later-checkpoint admission.
 Admission errors reject before appending a stage;
 validator findings may remain private for repair. A rejected publication leaves
 the candidate available. Concurrent canonical edits are preserved when replay
