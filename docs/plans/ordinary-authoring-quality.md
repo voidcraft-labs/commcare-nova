@@ -62,8 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#657 are merged and deployed. PR #658 is merged
-and deployment is being verified. Plugin 1.34.0
+Nova PRs #646, #647, #649–#658 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -112,8 +111,8 @@ commercial Preview journey. This required user prompting, so automatic recovery
 is still unproven. Independent Core testing then exposed lost clock precision in
 datetime operation writes. The correction in #659 passes the synthetic native
 corpus on both export paths and the repaired app’s two principal native
-submission journeys, including the commercial review clock. Deployment and
-export verification of the shipped revision remain required.
+submission journeys, including the commercial review clock. Release verification must also use the exact shipped revision; native
+submission checks do not establish physical-device or remote-HQ behavior.
 
 Live Builder inspection also confirmed that the final commercial journey is
 readable after its disposable records are removed. Its worker role and place

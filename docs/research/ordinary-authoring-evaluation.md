@@ -482,7 +482,7 @@ including after retyping. All 24 native operation scenarios then pass, preservin
 an explicit offset instant as well as current timestamps. Independent execution
 of the repaired app's two principal paths also passes with the corrected
 compiler, including the commercial registration review clock. This is native
-submission evidence on the saved blueprint, pending release verification; it
+submission evidence on the saved blueprint; release verification is separate. It
 does not establish physical-device navigation or recover earlier lost precision.
 
 Live Builder inspection of the final commercial journey confirmed 29 retained
