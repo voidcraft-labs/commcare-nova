@@ -274,7 +274,13 @@ export class AuthoringSession {
 				}),
 			};
 		}
-		const external = entry.policy.effect !== "read-blueprint";
+		const exercise = entry.policy.effect === "exercise-app";
+		if (exercise && (await this.hasUnsavedWork()))
+			return {
+				error:
+					"Save the current app changes before testing its worker journey.",
+			};
+		const external = entry.policy.effect !== "read-blueprint" && !exercise;
 		if (external) {
 			const workspace = await this.ensureWorkspace();
 			if (!entry.policy.capabilities.includes("lookup-write")) {
@@ -286,7 +292,10 @@ export class AuthoringSession {
 				await this.discardEmptyWorkspace();
 			}
 		}
-		const ctx = await this.context(call, role === "peer" || external);
+		const ctx = await this.context(
+			call,
+			role === "peer" || external || exercise,
+		);
 		// This shared service commits its own app/organization transaction. No
 		// private overlay survives across it, and the next read reloads the app.
 		if (entry.policy.effect === "mixed-transaction")

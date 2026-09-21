@@ -38,3 +38,19 @@ for the user's desired scope. The original incomplete attempt remains evidence;
 a new attempt with the same request will assess this change. Its plan review
 correctly distinguished business status from lifecycle closure, but that did not
 make the app request complete.
+
+## Development trial: app review blocked its own observations
+
+After the architect updated the plan to match the saved app, the peer attempted
+to start an isolated journey. The shared authoring session treated the test as
+an external data mutation and tried to create an edit workspace. That workspace
+requires a reviewed plan, so the observation failed while review was in progress.
+The peer fell back to form checks and reported that submission/navigation remained
+unverified. This was an inaccessible capability caused by the product boundary,
+not failure to choose the provided test tool.
+
+Disposable tests now use the authorized saved snapshot without opening an edit
+workspace. Pending app edits still refuse a test until saved; real data writes
+still use their existing gate. The production-loop regression edits the plan
+during app review, starts a journey at the saved app entry and finishes it, all
+through the ordinary peer tool dispatch and real Postgres.

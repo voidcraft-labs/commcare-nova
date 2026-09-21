@@ -148,6 +148,43 @@ it.each([
 			[{ type: "tool", name: "saveWork", callId: "save", input: {} }],
 			[{ type: "text", text: "The loan registration workflow is built." }],
 			[{ type: "tool", name: "getApp", callId: "peer-app", input: {} }],
+			...(interruption === "uninterrupted"
+				? [
+						[
+							{
+								type: "tool" as const,
+								name: "editPlan",
+								callId: "peer-refinement",
+								input: {
+									oldText: "both required",
+									newText: "both required for a useful loan record",
+								},
+							},
+						],
+						[
+							{
+								type: "tool" as const,
+								name: "startAppTest",
+								callId: "peer-journey",
+								input: {
+									purpose: "Check the saved app entry while reviewing the plan",
+								},
+							},
+						],
+						[
+							{
+								type: "tool" as const,
+								name: "continueAppTest",
+								callId: "peer-finish",
+								input: {
+									testId: "from-receipt",
+									expectedStep: 0,
+									action: { kind: "finish" },
+								},
+							},
+						],
+					]
+				: []),
 			[
 				{
 					type: "tool",
@@ -198,6 +235,21 @@ it.each([
 						requests.push(JSON.parse(Buffer.concat(buffers).toString()));
 						const next = script[index];
 						if (!next) throw new Error(`Unexpected provider call ${index}`);
+						for (const part of next) {
+							if (part.type !== "tool" || part.callId !== "peer-finish")
+								continue;
+							const receipt = requests
+								.at(-1)
+								?.input?.find(
+									(item) =>
+										item.type === "function_call_output" &&
+										item.call_id === "peer-journey",
+								);
+							part.input = {
+								...(part.input as object),
+								testId: JSON.parse(String(receipt?.output)).testId,
+							};
+						}
 						respondWithParts(response, next, index);
 					} catch (error) {
 						failures.push(error);
@@ -369,6 +421,20 @@ it.each([
 					ok: true,
 					moduleUuid: app?.blueprint.moduleOrder[0],
 				});
+				if (interruption === "uninterrupted") {
+					expect(evaluation("peer-journey")).toMatchObject({
+						step: 0,
+						observation: {
+							screen: "home",
+							menus: expect.arrayContaining([
+								expect.objectContaining({ name: "Loans" }),
+							]),
+						},
+					});
+					expect(evaluation("peer-finish")).toMatchObject({
+						observation: { ended: true },
+					});
+				}
 				expect(evaluation("empty-answers")).toMatchObject({
 					mode: "evaluation",
 					valid: false,
