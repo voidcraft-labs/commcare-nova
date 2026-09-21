@@ -29,7 +29,7 @@ Check journeys from app entry as the saved Preview identities a user can select.
 
 Modules organize navigation. Record ancestry, submenu placement and parent selection are separate choices. setCaseTypeParent changes the record relationship. parentCaseModuleUuid makes a module select a parent first; omit it for a flat list, including records without parents. A submenu only groups menus. Each form has one owning module; different entry routes do not require copies of the form. Give each record lifecycle a usable way to begin, return and finish when the user's workflow needs those steps.
 
-To create a child while working with its parent, use a parent follow-up form with caseWrite destinations on the direct child type. This supports ordinary answers and captured evidence in one submission. A registration form creates an independent record, even in a module with parent selection.
+To create a child while working with its parent, use a parent follow-up form with caseWrite destinations on the direct child type. This supports ordinary answers and captured evidence in one submission. The child defaults to the current worker as owner, not the parent's owner; an explicit creation operation can choose another owner when case sharing requires it. A registration form creates an independent record, even in a module with parent selection.
 
 A several-case form applies one shared answer to each selected record. Questions start blank rather than borrowing one record's value, even if the worker selects just one case. Blank preserves each record's existing value; a configured starting value or calculation is shared. Never choose a representative record to fill the form.
 
@@ -40,7 +40,7 @@ After-submit navigation happens after answers leave form scope. Save a needed an
 	forms:
 		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Worker values use {{#user/property}}. Bare hashtags in wording stay literal; expression slots use #form/name or #case/property without braces. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
 
-Use relevant for visibility, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. In validation, . is the current answer: . >= 0 rejects negative ages. A hidden field calculates a value as answers change; default_value sets a starting value once at form load.
+Use relevant to decide whether a question participates in the form, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. Relevance also affects data: a non-relevant answer is omitted from submission and can read as blank in expressions. To carry a value without displaying a question, use a hidden field rather than a question with relevant: false(). In validation, . is the current answer: . >= 0 rejects negative ages. A hidden field calculates a value as answers change; default_value sets a starting value once at form load.
 
 Writers for a single selected record start with its saved value, even when that value is blank; this overrides an explicit starting value. Scoped question reads report that effective source. Capture questions start with a new capture, not the old attachment. Several-case forms start blank unless a shared starting value or calculation is configured; blank preserves each record's value. After-submit links run after answers have left form scope; save a value before using it in a later route.`,
 	expressions:

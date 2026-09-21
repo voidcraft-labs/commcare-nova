@@ -520,3 +520,103 @@ it("continues an entry without rerunning defaults or rematerializing its query r
 	).toBe("Replace");
 	expect(resumed.entry?.entryKey).toBe(opened.entry?.entryKey);
 });
+
+it("uses location-picker coordinates and separates malformed test answers from authored validation", async () => {
+	const doc = await createEvaluationApp({
+		name: "Sites",
+		case_type: "site",
+		forms: [
+			{
+				name: "Register",
+				type: "registration",
+				recordName: "#form/name",
+				fields: [
+					{ kind: "text", id: "name", label: "Name", required: true },
+					{
+						kind: "geopoint",
+						id: "location",
+						label: "Location",
+						required: true,
+						caseWrite: { caseType: "site", property: "location" },
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Register",
+	)?.uuid;
+	const identity = previewAsMe({ id: "member", name: "Member" }, doc);
+	if (!identity || !formUuid)
+		throw new Error("Missing evaluation identity or form");
+	const context = {
+		identity,
+		cases: { rows: [], indices: [] },
+		lookup: {
+			projectRevision: "0",
+			definitions: [],
+			rowsByTable: new Map(),
+		},
+	};
+	const picked = await evaluateForm(
+		doc,
+		{
+			formUuid,
+			answers: [
+				{ path: "name", value: "Site" },
+				{
+					path: "location",
+					value: { latitude: 12.3456789, longitude: -45.1234567 },
+				},
+			],
+		},
+		context,
+	);
+	expect(picked.valid).toBe(true);
+	expect(
+		picked.fields.find((field) => field.path === "location"),
+	).toMatchObject({
+		interaction: "location-picker",
+		value: "12.345679 -45.123457 0 0",
+	});
+	expect(picked.submission).toMatchObject({
+		primary: {
+			properties: {
+				location: "12.345679 -45.123457 0 0",
+			},
+		},
+	});
+	for (const answer of [
+		{ path: "location", value: "12.3 -45.1" },
+		{ path: "location", value: "12  34 0 0" },
+		{ path: "location", value: " 12 34 0 0 " },
+		{ path: "location", value: "0x10 34 0 0" },
+		{ path: "location", value: " " },
+		{ path: "location", value: { latitude: 91, longitude: 0 } },
+		{ path: "name", value: { latitude: 12, longitude: 3 } },
+	]) {
+		await expect(
+			evaluateForm(doc, { formUuid, answers: [answer] }, context),
+		).rejects.toBeInstanceOf(FormEvaluationInputError);
+	}
+	const cleared = await evaluateForm(
+		doc,
+		{
+			formUuid,
+			answers: [
+				{ path: "name", value: "Site" },
+				{ path: "location", value: "" },
+			],
+		},
+		context,
+	);
+	expect(cleared.valid).toBe(false);
+	expect(
+		cleared.fields.find((field) => field.path === "location"),
+	).toMatchObject({
+		visible: true,
+		required: true,
+		valid: false,
+	});
+	expect(cleared).not.toHaveProperty("submission");
+});

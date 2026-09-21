@@ -1,4 +1,4 @@
-// components/preview/form/fields/geopoint/geopointValue.ts
+// Shared location-picker value boundary for Preview UI and form evaluation.
 //
 // Pure conversions between a geopoint field's wire value and a typed
 // coordinate. The wire value is CommCare's space-separated

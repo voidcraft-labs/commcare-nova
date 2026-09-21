@@ -82,8 +82,9 @@ corrected it. Peer journey calls encountered the review-lock defect documented
 in `ordinary-authoring-observations.md`, so that run does not prove the corrected
 peer observation path. Independent browser entry found an ordinary Preview
 empty-population branch hiding the registration action. Its agent-tested journey
-therefore did not establish user-visible reachability. Held-out outcomes and
-usable-app acceptance remain unestablished.
+therefore did not establish user-visible reachability. At that earlier checkpoint, held-out outcomes and
+usable-app acceptance remained unestablished; the bounded results below supersede
+that progress status.
 
 ## Role-gated trial observation
 
@@ -97,7 +98,7 @@ independently derived and begun exercising related-record and role journeys.
 The peer allowance is increased to 80 calls per review so those observations can
 finish within a bounded investigation. Architect and translation limits are
 unchanged. The trial remains development evidence for this adjustment; a later
-continuation is not a fresh held-out pass. The second frozen request remains
+continuation is not a fresh held-out pass. The second frozen request remained
 independent of the implementation. The original traces, cost, repeated reads and
 remaining usability checks stay in the evidence.
 
@@ -116,3 +117,112 @@ all input-bearing fields (including deferred tools), and reserves long-context
 cache-write prices plus 25% input headroom and the full output ceiling. Invalid
 counts fail closed. The approved spend limits and unknown-charge retention are
 unchanged. [Provider token-counting contract](https://developers.openai.com/api/docs/guides/token-counting).
+
+## Bounded results after deployment
+
+Nova's authoring/context/journey changes shipped in #646, #647, #649 and #650;
+plugin 1.34.0 followed compatible Nova deployment. The following are measured
+attempts, not forecasts or model-quality generalizations. Costs use each call's
+production rate card and reported cache usage; budget reservations include an
+additional margin and possible next-call cost.
+
+| Task | Model calls | Tool calls | Input tokens | Output tokens | Cache read / write tokens | Measured cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Development, all attempts | 131 | 129 | 5,552,181 | 34,266 | 5,281,092 / 173,662 | $5.241 |
+| Related-record roles, all attempts | 260 | 296 | 28,342,208 | 70,804 | 27,506,572 / 583,186 | $20.785 |
+| Workshop, initial and recovery | 102 | 99 | 3,394,648 | 18,560 | 3,191,953 / 137,926 | $3.339 |
+
+The development plan grew from 4,405 to 8,174 characters; the role-gated plan
+from 15,473 to 21,635; the workshop plan from 5,929 to 7,354. Maximum serialized
+provider requests were approximately 404k, 1,331k and 552k characters respectively.
+These count retained messages and definitions; they are not token estimates or
+claims that deferred definitions disappeared. Exact same-role/read/arguments
+repeated mostly two or three times in development, two or three times in the
+first role-gated attempt, and twice for one workshop plan read. That narrow
+measure cannot identify semantically redundant reads with different arguments,
+or decide whether a repeated read was justified by a revision.
+
+### Development
+
+The completed lending app passed independent ordinary Preview entry, first-record
+registration, loan creation, return, empty active queue and retained history after
+reload. Its final export parsed in Core and created a borrower with two related
+loans, returned one, preserved the other, and retained open historical records.
+The initial-value correction was autonomous. The empty-population UI correction
+was a product change discovered independently; the original trial did not prove
+that corrected entry path. Hidden fields still leave gaps in screen-reader question
+numbers, and a search answer did not prefill registration in this authored app.
+
+### Related-record roles: failed acceptance
+
+The bounded trial stopped during architect corrections, before a final peer
+verdict, when the next conservative reservation would exceed its $30 allocation.
+Its measured spending was $20.785, not $30. Earlier call-limit, durable review-limit
+and accounting interruptions remain part of this result. This request influenced
+worker-context and review-budget changes and is no longer fresh held-out evidence.
+
+The peer used the new observations to discover wrong parent links, ownership
+that hid child records from supervisors, disconnected selection, missing place
+context, and inappropriate initial values. The architect made consequential
+corrections through ordinary tools. Nevertheless, the final saved export still
+created a request with blank business status: a defaulted question was made
+non-relevant. Core parsed all nine forms and executed the preceding related-record
+creation successfully; the blank status prevented proving approval and delivery.
+The architect also persisted invented deployment places rather than keeping
+examples exclusively in disposable tests. Ordinary Builder showed the unfinished
+build recovery state; this was not bypassed to claim Preview success.
+
+The initial architect read people/place and expression guidance but did not read
+the workflow guide before choosing its child-creation pattern. Available facts,
+focused discovery, interpretation and final judgment all matter: a larger prompt
+containing every incident is not the correction. Focused guidance now explains
+child ownership and the data consequences of relevance using audited runtime
+semantics. No expert repair was supplied to turn this app into a passing trial.
+
+### Workshop: completed review, independent checks
+
+This materially different request did not shape the implementation. It reached
+the harness's 80-call invocation bound, then completed through same-input recovery
+in 22 more calls without expert feedback. Its peer independently exercised
+conditional contact requirements, search, corrections, attendance and anonymous
+feedback. It found that attendance displayed an internal workshop code, then
+verified the architect's correction against the saved revision while retaining
+unaffected earlier evidence. The final response described Preview entry and
+explicitly withheld physical-device and deployment claims.
+
+Independent ordinary Preview confirmed registration, conditional email validation,
+partial-name search, correction with obsolete email removal, friendly attendance
+confirmation, and attendance persistence after reload. Core parsed the four
+forms and suite and executed email-to-phone-to-no-contact corrections, attendance,
+and feedback without a registration identifier or case effects. This is native
+form/submission evidence, not native menu interaction, physical-device or offline
+sync acceptance. Standard staff/device submission metadata remains, as the agent
+explained; participant anonymity does not remove platform audit metadata.
+
+### Delivered-app repair: incomplete
+
+The current app was refreshed after intervening user edits. A new ordinary request
+preserved its current scope and asked for useful naming, role Preview identities,
+honest deployment setup, disposable workflow checks and removal of redundant
+audit collection. Two editor invocations reached their 80-call bounds without a
+completion response; user-level continuation preserved the request. Their measured
+cumulative cost was $0.39325. A third continuation made 38 calls and stopped after a history read failed the
+SDK message contract; cumulative measured cost reached $0.54949. This is a
+product failure, retained separately from the app judgments below.
+
+The editor saved role personas and corrected registration effects. It discovered
+that the reviewing role could not receive records owned by the collecting role
+without a shared place assignment. It then incorrectly claimed isolated place
+assignments were unavailable and fell back to supplied-record single-form checks.
+The journey schema already exposes fictional places and per-test assignments,
+and the workflow guide explains their deployment boundary. This is a failure to
+use an available observation, not proof of an unavailable capability. Single-form
+checks cannot establish that handoff or additional-operation persistence.
+
+Independent browser checks observed the three role-specific menus, registration
+entry and recorded journey steps. A page reload also failed during production
+database connection timeouts; a later reload recovered. The incident is retained
+with unresolved cause, rather than counted as passing or blamed on the blueprint.
+The saved revision's 26 exported forms and suite parsed in Core, with the
+production lookup-aware export boundary. That is parsing evidence only, not a
+native journey or physical-device result.

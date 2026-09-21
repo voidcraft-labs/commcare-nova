@@ -54,3 +54,30 @@ workspace. Pending app edits still refuse a test until saved; real data writes
 still use their existing gate. The production-loop regression edits the plan
 during app review, starts a journey at the saved app entry and finishes it, all
 through the ordinary peer tool dispatch and real Postgres.
+
+## Test input mistaken for a worker interaction
+
+An ordinary repair supplied a two-number location string to a disposable form
+run. Storage rejected it, and the agent added a worker-facing four-number format
+hint. That finding confused a testing adapter with the worker UI: Preview's
+`GeopointPicker` already formats selected coordinates through `formatGeopoint`.
+The location question was not a raw string input requiring that instruction.
+
+Form checks and journeys now accept typed coordinates and share that exact
+production formatter. Their question projection identifies a location picker;
+malformed supplied locations are classified as test-input errors before engine
+mutation. Existing complete string values remain accepted. Authored validation
+and requiredness remain observable; GPS and map-service behavior remain outside
+the evaluator. This corrects the observation boundary instead of teaching the
+agent another incident-specific exception. The original false finding is retained.
+
+### Recorded history must cross the model boundary
+
+A normal repair reopened a saved journey, then stopped before its next model
+call with an invalid-message error. The shared history reader returned Postgres
+`Date` instances for expiry, disposal and step creation. Builder could display
+them, and JSON logging disguised them as strings, but the SDK's model-message
+JSON schema rejected the original objects. A real Postgres journey followed by
+the ordinary shared read and SDK validation reproduced the failure. The shared
+read now emits ISO timestamps explicitly. Browser readability and storage
+correctness had not established agent readability.

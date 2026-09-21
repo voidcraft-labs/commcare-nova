@@ -338,7 +338,14 @@ export async function readAppTestSteps(
 			...test,
 			blueprint_seq: Number(test.blueprint_seq),
 			currentBlueprintSeq: access.baseSeq,
-			steps,
+			// Shared evidence crosses both Server Actions and model tool output.
+			// The latter admits JSON values, not pg's Date instances.
+			expires_at: test.expires_at.toISOString(),
+			disposed_at: test.disposed_at?.toISOString() ?? null,
+			steps: steps.map((step) => ({
+				...step,
+				created_at: step.created_at.toISOString(),
+			})),
 		};
 	});
 }

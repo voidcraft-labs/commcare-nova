@@ -116,3 +116,37 @@ calculated values match the selected worker with a restored usercase and are bla
 without it, despite wrong-user and wrong-type records being present. Reproduction
 is in `scripts/fixtures/javarosa/README.md`; target privilege assignment and sync
 remain separately unverified.
+
+## Form participation and child ownership
+
+Relevance is more than visibility. Core's `TreeElement.isRelevant` includes
+inherited relevance. `XPathPathExpr.getRefValue` reads a non-relevant node as
+null, and `XPathLazyNodeset` excludes non-relevant nodes during expansion.
+`XFormSerializingVisitor` also omits them from the submitted instance. Nova's
+`FormEngine.createEvalContext` supplies effective relevance to the main-instance
+reader, and its submission projection checks inherited relevance for ordinary
+writes. A default on a non-relevant question therefore does not establish a
+usable submitted value. A hidden value field expresses data that needs no
+visible question; making a question non-relevant expresses different semantics.
+The generated tool argument description previously said only to show the field
+when the condition holds. That reduced participation to visibility at the actual
+authoring boundary, even if a focused guide explained more. Both now describe
+the data consequence; this is a shared schema description, not an extra prompt
+inventory.
+
+Independent Core execution of the role-gated trial's final saved export found
+that distinction consequential: a question with a default business status and
+`relevant: false()` read blank and produced a blank created-record status.
+Parsing succeeded, and the preceding native grower/plot creation established
+correct owners and parent indices. The native journey could not establish the
+later review and delivery steps. This is retained failed evidence, not a repaired
+fixture or an autonomous pass.
+
+Ordinary child writes also have a concrete ownership default. Nova's
+`lib/commcare/xform/caseBlocks.ts` binds every ordinary child's owner to the
+submitting worker. HQ's `app_manager/xform.py::autoset_owner_id_for_subcase`
+and its basic-module subcase generation use the same rule. A child relationship
+does not mean ownership is inherited. Explicit creation operations can supply
+the owner required by case sharing. The trial's disposable submission exposed
+this difference, and the architect corrected its child creation through normal
+tools; the native export subsequently preserved the chosen branch owner.

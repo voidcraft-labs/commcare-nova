@@ -76,8 +76,10 @@ Choose **Add a change** and say what it does:
   with a name you can edit, so you never land on a half-built change.
 - **Update the case this form opened**: saves values onto the case someone
   already picked.
-- **Close the case this form opened**: finishes it. A close can still save
-  final values.
+- **Close the case this form opened**: ends its open case lifecycle and normally
+  removes it from the worker's next synced set. Related open cases can retain it
+  as a dependency. A close can still save final values, and server history remains.
+  A business stage such as approved or delivered belongs in a separate property.
 
 The last two are only offered when the module picks a case before opening its
 forms. When it does not, the choice says so rather than disappearing.
@@ -158,7 +160,12 @@ A connection says how the case relates to another one:
 
 - **Belongs to that case**: ordinary parent-and-child.
 - **Uses that case as its host**: a host connection distinct from ordinary
-  parent-and-child. Closing the host does not close this case.
+  parent-and-child. Closing the host does not close this case, but can remove
+  the extension chain from the worker's synced set.
+
+A connection does not copy ownership. When ordinary question answers create a
+child case, it belongs to the current worker by default. An explicit **Create a
+case** change can set the owner required by your case-sharing workflow.
 
 A host connection keeps its relationship in Preview, downloaded apps, and apps
 uploaded to CommCare HQ, including when ordinary question answers create the

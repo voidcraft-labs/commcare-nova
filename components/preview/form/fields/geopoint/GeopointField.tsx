@@ -14,10 +14,13 @@
 import { Icon } from "@iconify/react/offline";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import type { GeopointField as GeopointFieldEntity } from "@/lib/domain";
+import {
+	formatLatLonLabel,
+	parseGeopoint,
+} from "@/lib/preview/engine/geopointValue";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { useEditMode } from "@/lib/session/hooks";
 import { GeopointPicker } from "./GeopointPicker";
-import { formatLatLonLabel, parseGeopoint } from "./geopointValue";
 
 interface GeopointFieldProps {
 	readonly field: GeopointFieldEntity;
