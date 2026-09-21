@@ -2553,11 +2553,12 @@ export async function POST(req: Request) {
 				 * IMMEDIATELY after an edit (with no typing in between) would be the
 				 * one case that could outrun the auto-save and need a flush. */
 				const persistedSessionBlueprint = loadedApp?.blueprint;
-				if (!persistedSessionBlueprint) {
+				if (!loadedApp || !persistedSessionBlueprint) {
 					throw new Error(
 						"Chat session has no authorized app snapshot to edit.",
 					);
 				}
+				const sessionCanonicalSeq = loadedApp.mutation_seq;
 				const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
 					persistedSessionBlueprint as PersistableDoc,
 				);
@@ -2687,7 +2688,11 @@ export async function POST(req: Request) {
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
-					const sa = createSolutionsArchitect(ctx, sessionDoc);
+					const sa = createSolutionsArchitect(
+						ctx,
+						sessionDoc,
+						sessionCanonicalSeq,
+					);
 
 					/* Start the wall-clock run-lease heartbeat now the run is live, an
 					 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`

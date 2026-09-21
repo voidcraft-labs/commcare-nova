@@ -165,3 +165,7 @@ retained earlier messages from new revision context; replaying those messages
 consumes input even though it does not repurchase their earlier calls. Current
 catalog estimates do not reconstruct a historical request or remove the cost of
 deferred definitions once loaded.
+
+An ordinary edit turn initializes its workspace with the document and canonical
+revision from the same authorized snapshot. Disposable tests can start before any
+edit; an incidental app mutation is never a prerequisite for observing saved work.

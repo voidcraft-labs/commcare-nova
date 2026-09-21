@@ -2134,6 +2134,37 @@ describe("barrier persistence", () => {
 		expect(thread.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 	}, 30_000);
 
+	it("starts a saved-app journey before any edit in the turn", async () => {
+		await seedFeedEditApp();
+		const before = await appDb
+			.selectFrom("apps")
+			.select("mutation_seq")
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
+		const model = peer.response();
+		const response = await post(editTurnRequest());
+		expect(response.status).toBe(200);
+		const body = responseText(response);
+		model.tool("startAppTest", { purpose: "Inspect the saved app from entry" });
+		model.finish();
+		const closing = peer.response();
+		closing.text("The saved app opened in an isolated journey.");
+		closing.finish();
+		await body;
+		const journey = await appDb
+			.selectFrom("app_test_sessions")
+			.select(["blueprint_seq", "id"])
+			.where("app_id", "=", FEED_APP)
+			.executeTakeFirst();
+		expect(journey).toMatchObject({ blueprint_seq: before.mutation_seq });
+		const after = await appDb
+			.selectFrom("apps")
+			.select("mutation_seq")
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
+		expect(after).toEqual(before);
+	});
+
 	it("large streamed tool inputs stay out of the log while all three mutations and the final transcript commit", async () => {
 		await seedFeedEditApp();
 		const model = peer.response();
