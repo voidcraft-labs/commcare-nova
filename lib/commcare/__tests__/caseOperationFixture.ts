@@ -3,11 +3,13 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { type CaseOperation, proseText } from "@/lib/domain";
 import {
 	actingUser,
+	datetimeLiteral,
 	eq,
 	exists,
 	formField,
 	idOf,
 	literal,
+	now,
 	prop,
 	subcasePath,
 	term,
@@ -104,6 +106,7 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				caseType: "patient",
 				target,
 				retype: "visit",
+				writes: [{ property: "changed_type_at", value: now() }],
 				condition: eq(formField(ENABLED), literal("yes")),
 			}),
 			op("rename_promoted", {
@@ -218,6 +221,8 @@ export function caseOperationFixture(scenario: OperationScenario) {
 		];
 	}
 	if (scenario === "sequence")
+		create.writes?.push({ property: "occurred_at", value: now() });
+	if (scenario === "sequence")
 		operations.unshift(
 			op("before_ordinary", {
 				action: "update",
@@ -225,6 +230,11 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				target: session,
 				writes: [
 					{ property: "nickname", value: term(literal("Advanced first")) },
+					{ property: "occurred_at", value: now() },
+					{
+						property: "reference_at",
+						value: term(datetimeLiteral("2026-04-17T14:23:41+03:00")),
+					},
 				],
 			}),
 		);
@@ -239,11 +249,30 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				...(name === "visit" && (scenario === "relation" || repeat)
 					? { parent_type: "patient" }
 					: {}),
-				properties: ["nickname", "source_id", "final_note"].map((name) => ({
-					name,
-					label: proseText(name),
-					data_type: "text" as const,
-				})),
+				properties: [
+					...["nickname", "source_id", "final_note"].map((name) => ({
+						name,
+						label: proseText(name),
+						data_type: "text" as const,
+					})),
+					...(name === "visit" &&
+					(scenario === "retype" || scenario === "expression-retype")
+						? [
+								{
+									name: "changed_type_at",
+									label: proseText("Changed type at"),
+									data_type: "datetime" as const,
+								},
+							]
+						: []),
+					...(scenario === "sequence"
+						? ["occurred_at", "reference_at"].map((name) => ({
+								name,
+								label: proseText(name),
+								data_type: "datetime" as const,
+							}))
+						: []),
+				],
 			})),
 			...(scenario === "nested" ? [{ name: "household", properties: [] }] : []),
 		],

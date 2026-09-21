@@ -11,6 +11,11 @@ survey that updates one case per row someone filled in.
 **Case changes** are how a form says what else happens. Each one creates a case,
 updates a case, or closes a case, and they happen in the order you put them in.
 
+For an approval time that must survive later edits, save it in a dedicated
+property that holds a date and time. A date property holds only the calendar
+day. Calculated case changes preserve the clock time when exported to CommCare;
+the record's general last-modified time still changes on later updates.
+
 ## Forms that open an existing case
 
 When a form opens one case someone picked from a list, every question that

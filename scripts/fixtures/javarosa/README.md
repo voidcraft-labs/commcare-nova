@@ -92,7 +92,10 @@ both the CCZ and HQ-regenerated forms. It supplies session data and seeded nativ
 Assertions inspect the stored cases: generated and authored IDs, conditional
 create/retype dependencies, original snapshot reads, final writes and closure,
 link creation/removal, scalar normalization and bounds, nested-menu child
-selection, and repeat-local relation conditions. A two-row query deliberately
+selection, and repeat-local relation conditions. Datetime writes preserve the
+clock from `now()` for creation, updates and a post-retype destination; an explicit
+offset timestamp must retain its instant. Untyped pre-fix CCZ and HQ-regenerated
+forms fail the clock assertion with a date-only value. A two-row query deliberately
 reuses an authored key and confirms the accepted same-type merge. Invalid keys,
 names, owners, external IDs and dynamic link targets must raise native
 `InvalidStructureException`. The accepted counterpart executes in the same
