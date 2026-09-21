@@ -1,3 +1,5 @@
+import type { TermBindings } from "@/lib/case-store";
+import type { PreviewSearchSessionValues } from "./identity";
 // lib/preview/engine/runtimeBindings.ts
 //
 // Runtime-bindings layer for the running-app case list. Translates
@@ -585,4 +587,37 @@ function substituteInputInExpression(
 		expr,
 		substitutionHooks(target, value, resolvePresence),
 	);
+}
+
+/**
+ * Project the authenticated Preview session into the case-store compiler's
+ * runtime binding vocabulary. Search-input expressions read the submitted
+ * value (or CommCare's blank value for an unanswered known prompt); closed
+ * session-context fields read the authenticated worker; absent open-namespace
+ * user-data fields deliberately fall back to blank, matching device XPath.
+ */
+export function previewCaseStoreBindings(
+	session: PreviewSearchSessionValues,
+	searchInputs: readonly SearchInputDef[] = [],
+	inputValues: SearchInputValues = new Map(),
+	viewerTimeZone?: string,
+): TermBindings {
+	const boundInputs = new Map<Uuid, string>();
+	for (const input of searchInputs) {
+		boundInputs.set(input.uuid, inputValues.get(input.name) ?? "");
+	}
+
+	const sessionContext = new Map<string, string>();
+	for (const [field, value] of Object.entries(session.context)) {
+		if (value !== undefined) sessionContext.set(field, value);
+	}
+
+	return {
+		searchInputs: boundInputs,
+		sessionContext,
+		sessionUser: new Map(Object.entries(session.user)),
+		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
+		sessionUserFallback: "",
+		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
+	};
 }

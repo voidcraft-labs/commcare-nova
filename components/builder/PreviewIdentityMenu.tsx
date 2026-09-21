@@ -9,14 +9,16 @@
  *
  * It appears only in Preview. In edit mode there is no session to be in,
  * and offering the choice there would suggest authoring changes with it.
- * With no personas authored the control stays out of the way entirely:
- * there is only one identity, and the app already runs as it.
+ * It also opens recorded test journeys, which do not change this session's
+ * identity or its live records.
  */
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerUserCircle from "@iconify-icons/tabler/user-circle";
+import { useState } from "react";
+import { AppTestHistory } from "@/components/builder/AppTestHistory";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
@@ -30,6 +32,7 @@ import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import { asUuid } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
+	useAppId,
 	usePreviewing,
 	usePreviewPersonaUuid,
 	useSetPreviewPersonaUuid,
@@ -51,6 +54,8 @@ export function PreviewIdentityMenu() {
 }
 
 function PreviewIdentityMenuBody() {
+	const appId = useAppId();
+	const [showTests, setShowTests] = useState(false);
 	const personas = usePersonas();
 	const selected = usePreviewPersonaUuid();
 	const setSelected = useSetPreviewPersonaUuid();
@@ -66,75 +71,89 @@ function PreviewIdentityMenuBody() {
 			: (active?.name ?? "Selected persona unavailable");
 
 	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger
-				aria-label={`Running as ${currentLabel}. Change who Preview runs as.`}
-				render={<Button type="button" variant="ghost" className="max-w-52" />}
-			>
-				<Icon
-					icon={tablerUserCircle}
-					width="17"
-					height="17"
-					aria-hidden="true"
-					className="shrink-0"
-				/>
-				<span className="truncate">{currentLabel}</span>
-				<Icon
-					icon={tablerChevronDown}
-					width="14"
-					height="14"
-					aria-hidden="true"
-					className="shrink-0"
-				/>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent sideOffset={8} preferredMinWidth={240}>
-				<DropdownMenuRadioGroup
-					value={selected ?? ""}
-					onValueChange={(value) =>
-						setSelected(value.length === 0 ? undefined : asUuid(value))
-					}
+		<>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					aria-label={`Running as ${currentLabel}. Change who Preview runs as.`}
+					render={<Button type="button" variant="ghost" className="max-w-52" />}
 				>
-					<DropdownMenuRadioItem value="" closeOnClick>
-						<span className="flex min-w-0 flex-col">
-							<span className="truncate">{AS_ME}</span>
-							<span className="text-xs text-nova-text-muted">
-								Your own account, with no worker information.
-							</span>
-						</span>
-					</DropdownMenuRadioItem>
-					{active === undefined && selected !== undefined && (
-						<DropdownMenuRadioItem value={selected} disabled>
+					<Icon
+						icon={tablerUserCircle}
+						width="17"
+						height="17"
+						aria-hidden="true"
+						className="shrink-0"
+					/>
+					<span className="truncate">{currentLabel}</span>
+					<Icon
+						icon={tablerChevronDown}
+						width="14"
+						height="14"
+						aria-hidden="true"
+						className="shrink-0"
+					/>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent sideOffset={8} preferredMinWidth={240}>
+					<DropdownMenuRadioGroup
+						value={selected ?? ""}
+						onValueChange={(value) =>
+							setSelected(value.length === 0 ? undefined : asUuid(value))
+						}
+					>
+						<DropdownMenuRadioItem value="" closeOnClick>
 							<span className="flex min-w-0 flex-col">
-								<span className="truncate">Selected persona unavailable</span>
+								<span className="truncate">{AS_ME}</span>
 								<span className="text-xs text-nova-text-muted">
-									Choose yourself or another persona to continue.
+									Your own account, with no worker information.
 								</span>
 							</span>
 						</DropdownMenuRadioItem>
+						{active === undefined && selected !== undefined && (
+							<DropdownMenuRadioItem value={selected} disabled>
+								<span className="flex min-w-0 flex-col">
+									<span className="truncate">Selected persona unavailable</span>
+									<span className="text-xs text-nova-text-muted">
+										Choose yourself or another persona to continue.
+									</span>
+								</span>
+							</DropdownMenuRadioItem>
+						)}
+						{personas.map((persona) => (
+							<DropdownMenuRadioItem
+								key={persona.uuid}
+								value={persona.uuid}
+								closeOnClick
+							>
+								<span className="min-w-0 truncate">
+									Preview as {persona.name}
+								</span>
+							</DropdownMenuRadioItem>
+						))}
+					</DropdownMenuRadioGroup>
+					{appId ? (
+						<DropdownMenuItem onClick={() => setShowTests(true)}>
+							Test journeys
+						</DropdownMenuItem>
+					) : null}
+					{personas.length === 0 && (
+						<DropdownMenuItem onClick={() => navigate.openAppSetup("users")}>
+							<span className="flex min-w-0 flex-col">
+								<span className="truncate">Add a persona</span>
+								<span className="text-xs text-nova-text-muted">
+									Name a worker in App setup to preview as them.
+								</span>
+							</span>
+						</DropdownMenuItem>
 					)}
-					{personas.map((persona) => (
-						<DropdownMenuRadioItem
-							key={persona.uuid}
-							value={persona.uuid}
-							closeOnClick
-						>
-							<span className="min-w-0 truncate">
-								Preview as {persona.name}
-							</span>
-						</DropdownMenuRadioItem>
-					))}
-				</DropdownMenuRadioGroup>
-				{personas.length === 0 && (
-					<DropdownMenuItem onClick={() => navigate.openAppSetup("users")}>
-						<span className="flex min-w-0 flex-col">
-							<span className="truncate">Add a persona</span>
-							<span className="text-xs text-nova-text-muted">
-								Name a worker in App setup to preview as them.
-							</span>
-						</span>
-					</DropdownMenuItem>
-				)}
-			</DropdownMenuContent>
-		</DropdownMenu>
+				</DropdownMenuContent>
+			</DropdownMenu>
+			{appId ? (
+				<AppTestHistory
+					appId={appId}
+					open={showTests}
+					onOpenChange={setShowTests}
+				/>
+			) : null}
+		</>
 	);
 }

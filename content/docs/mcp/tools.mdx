@@ -124,6 +124,24 @@ limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction
 need the running app; evaluation does not prove deployment or successful storage.
 
+For a complete observed journey, `start_app_test` opens the saved app at its
+entry screen with disposable records. `continue_app_test` chooses a saved
+Preview identity, navigates visible menus, selects records, answers questions,
+submits into test storage, and observes the next task. It can also sync the
+test worker's record set or finish the test. Each response returns the step
+number required by the next action. `read_app_test` returns retained steps and
+their app revision. Builder's **Test journeys** presents those same observations.
+
+Tests start with explicitly supplied fictional records, never a copy of live
+cases. Optional fictional places and assignments apply only within the test;
+they do not configure deployment. Lookup data and existing place context are
+authorized snapshots. A saved app change requires a new test. Continuation
+expires after 24 hours; finishing discards disposable records and keeps the
+observations. Tests execute Preview's submission transaction and additional
+record operations, but do not upload media, run native devices or synchronize
+with HQ. Only the author who started a test can continue it; current Project
+members with app access can read it.
+
 Validation and repeat settings read back in their editable shapes. Choice lists
 retain option identities; attached option media is reported separately and changed
 through the media tools. Translation source fingerprints are opaque tokens: echo

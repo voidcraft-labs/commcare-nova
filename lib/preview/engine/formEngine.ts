@@ -100,7 +100,7 @@ import type {
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
-import { DataInstance } from "./dataInstance";
+import { DataInstance, type DataInstanceSnapshot } from "./dataInstance";
 import { buildFieldTree, type FieldTreeNode } from "./fieldTree";
 import {
 	previewSessionValues,
@@ -323,6 +323,13 @@ export interface FormEngineRuntimeOptions {
 	 * `search-input:results:inline` instance holds them. Absent (every other
 	 * form, and a no-matches form previewed without a search) reads blank. */
 	readonly searchAnswers?: ReadonlyMap<string, string>;
+}
+
+/** Server-owned checkpoint for continuing one pinned form entry. */
+export interface FormEngineEntryCheckpoint {
+	readonly instance: DataInstanceSnapshot;
+	readonly state: EngineStoreState;
+	readonly repeatKeys: readonly (readonly [string, readonly string[]])[];
 }
 
 export interface FormEngineWorkerWorld {
@@ -680,6 +687,31 @@ export class FormEngine {
 	/** Lookup fixture revision captured by this form entry. */
 	lookupDataSnapshot(): PreviewLookupData | null {
 		return this.lookupData;
+	}
+
+	/** Keep all initialized values and topology. Replaying just answers would
+	 * rerun defaults and query-repeat initialization at the wrong time. */
+	entryCheckpoint(): FormEngineEntryCheckpoint {
+		return structuredClone({
+			instance: this.instance.checkpoint(),
+			state: this.store.getState(),
+			repeatKeys: [...this.repeatInstanceKeys],
+		});
+	}
+
+	/** Only the same immutable blueprint, identity and entry world may resume.
+	 * The server's pinned test session owns that fence; this is not a client
+	 * submission input. Do not initialize again or recalculate untouched values. */
+	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
+		if (!this.asyncRuntime)
+			throw new Error("Entry restoration requires a staged FormEngine.");
+		this.instance.restoreCheckpoint(checkpoint.instance);
+		this.repeatInstanceKeys = new Map(
+			checkpoint.repeatKeys.map(([path, keys]) => [path, [...keys]]),
+		);
+		this.dag = new TriggerDag();
+		this.dag.build(this.tree, this.printDoc);
+		this.store.setState(structuredClone(checkpoint.state), true);
 	}
 
 	/** Complete staged activation in JavaRosa order: bound topology, states,

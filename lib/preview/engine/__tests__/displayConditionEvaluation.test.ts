@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
-import { lookupRowIdSchema } from "@/lib/domain";
+import { asUuid, lookupRowIdSchema } from "@/lib/domain";
 import {
 	and,
 	eq,
@@ -14,6 +14,7 @@ import {
 	matchNone,
 	prop,
 	sessionContext,
+	sessionUserProperty,
 	tableColumn,
 	tableLookup,
 	term,
@@ -27,7 +28,10 @@ import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
 } from "../displayConditionEvaluation";
-import type { PreviewSearchSessionValues } from "../identity";
+import {
+	type PreviewSearchSessionValues,
+	previewSessionValues,
+} from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import type { PreviewLookupStatus } from "../useLookupPreviewData";
 
@@ -66,6 +70,44 @@ const LOOKUP_DATA: PreviewLookupStatus = {
 };
 
 describe("moduleDisplayVisibility", () => {
+	it("waits for identity hydration before deciding a role gate", () => {
+		const property = asUuid("33333333-3333-4333-8333-333333333333");
+		const condition = eq(
+			term(sessionUserProperty(property)),
+			literal("visitor"),
+		);
+		for (const evaluate of [moduleDisplayVisibility, formDisplayVisibility]) {
+			expect(
+				evaluate({
+					condition,
+					session: previewSessionValues(null),
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("pending");
+			expect(
+				evaluate({
+					condition,
+					session: {
+						...SESSION,
+						user: {},
+						userPropertySlugs: { [property]: "role" },
+					},
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("hidden");
+			expect(
+				evaluate({
+					condition,
+					session: {
+						...SESSION,
+						user: { role: "visitor" },
+						userPropertySlugs: { [property]: "role" },
+					},
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("shown");
+		}
+	});
 	it("shows on absent and deeply-always-true conditions", () => {
 		expect(
 			moduleDisplayVisibility({

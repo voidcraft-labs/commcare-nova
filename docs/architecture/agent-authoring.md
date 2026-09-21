@@ -20,7 +20,15 @@ the actual canonical revision. Editing the plan or app makes the relevant old
 review stale. The architect remains responsible for resolving feedback and
 judging completion. Review is not a formal proof that the app meets every human
 requirement. Mechanical correctness belongs to the document gate; functional
-quality needs inspection and representative scenarios through `evaluateForm`.
+quality needs inspection and representative journeys through the running behavior.
+`startAppTest`, `continueAppTest` and `readAppTest` expose app entry, saved worker
+identities, menu eligibility, record selection, answers, submission effects and
+the next task. They use disposable Postgres records and the production Preview
+projections, FormEngine and submission transaction. They do not change live cases
+or assert native-device correctness. Builder's Test journeys shows the same
+retained observations, including the source revision and boundaries.
+
+For a narrower question, `evaluateForm` evaluates one form without a transaction.
 Its optional scenario supplies test records and parent relationships without
 storing them, allowing follow-up forms and record-dependent rules to be exercised
 before an app has real data. Stored records and supplied records never mix;
@@ -28,8 +36,8 @@ Project lookup data remains authorized and real. The result identifies its sourc
 and does not claim a successful submission or additional case-operation execution.
 
 Planning exposes reads and plan edits. It does not expose app or Project data
-writes. The peer can inspect the saved app and evaluate forms without submitting
-real cases. Questions are reserved for decisions the agent cannot reasonably
+writes. The peer can inspect the saved app, evaluate forms and exercise disposable
+test journeys without submitting real cases. Questions are reserved for decisions the agent cannot reasonably
 make. A planning-only request can finish with a reviewed plan and no app.
 
 ## One authoring vocabulary

@@ -9,12 +9,20 @@ import {
 	type FormEvaluationInput,
 	FormEvaluationInputError,
 } from "./formEvaluationTypes";
+import type {
+	evaluatePostSubmissionSnapshot,
+	PostSubmissionEvaluationInput,
+} from "./postSubmissionEvaluation";
+import type {
+	evaluateSearchSnapshot,
+	SearchEvaluationInput,
+} from "./searchEvaluation";
 
 export { FormEvaluationInputError } from "./formEvaluationTypes";
 
 type EvaluationResult = Awaited<ReturnType<typeof evaluateFormSnapshot>>;
-type WorkerResult =
-	| { ok: true; result: EvaluationResult }
+type WorkerResult<T> =
+	| { ok: true; result: T }
 	| {
 			ok: false;
 			inputError: boolean;
@@ -29,10 +37,46 @@ export async function evaluateForm(
 	input: FormEvaluationInput,
 	context: FormEvaluationContext,
 ): Promise<EvaluationResult> {
+	return evaluateInWorker<EvaluationResult>("form", doc, input, context);
+}
+
+export async function evaluateSearch(
+	doc: BlueprintDoc,
+	input: SearchEvaluationInput,
+	context: FormEvaluationContext,
+) {
+	return evaluateInWorker<Awaited<ReturnType<typeof evaluateSearchSnapshot>>>(
+		"search",
+		doc,
+		input,
+		context,
+	);
+}
+
+export async function evaluatePostSubmission(
+	doc: BlueprintDoc,
+	input: PostSubmissionEvaluationInput,
+	context: FormEvaluationContext,
+) {
+	return evaluateInWorker<
+		Awaited<ReturnType<typeof evaluatePostSubmissionSnapshot>>
+	>("after-submit", doc, input, context);
+}
+
+async function evaluateInWorker<T>(
+	kind: "form" | "search" | "after-submit",
+	doc: BlueprintDoc,
+	input:
+		| FormEvaluationInput
+		| SearchEvaluationInput
+		| PostSubmissionEvaluationInput,
+	context: FormEvaluationContext,
+): Promise<T> {
 	const worker = new Worker(
 		resolve(process.cwd(), "public/form-evaluation/worker.mjs"),
 		{
 			workerData: {
+				kind,
 				doc,
 				input,
 				context: {
@@ -49,7 +93,7 @@ export async function evaluateForm(
 	);
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
-		return await new Promise<EvaluationResult>((accept, reject) => {
+		return await new Promise<T>((accept, reject) => {
 			timer = setTimeout(
 				() =>
 					reject(
@@ -67,7 +111,7 @@ export async function evaluateForm(
 					),
 				),
 			);
-			worker.once("message", (message: WorkerResult) => {
+			worker.once("message", (message: WorkerResult<T>) => {
 				if (message.ok) accept(message.result);
 				else
 					reject(

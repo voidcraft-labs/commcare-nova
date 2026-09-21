@@ -8,14 +8,14 @@ import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
+import {
+	type EvaluationScenario,
+	evaluationScenarioCases,
+} from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { ToolInvocationContext } from "../workspace/types";
-import {
-	type EvaluationScenario,
-	evaluationScenarioCases,
-} from "./evaluationScenario";
 
 /** Capture real, authorized data without Preview's usercase or schema writes.
  * An unpublished workspace has no case rows; Project lookup data is still real. */

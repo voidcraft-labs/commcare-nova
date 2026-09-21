@@ -16,17 +16,17 @@ import {
 import type { FormLink } from "@/lib/domain";
 import { moduleLanding } from "@/lib/domain";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
-import type {
-	AfterSubmitChoice,
-	TargetCaseSelection,
-} from "@/lib/preview/engine/formLinkEvaluation";
-import type { PreviewMenuSource } from "@/lib/preview/menuProjection";
 import {
 	afterSubmitRoute,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
-} from "../screens/afterSubmitRouting";
+} from "@/lib/preview/afterSubmitRouting";
+import type {
+	AfterSubmitChoice,
+	TargetCaseSelection,
+} from "@/lib/preview/engine/formLinkEvaluation";
+import type { PreviewMenuSource } from "@/lib/preview/menuProjection";
 import { openModuleLanding } from "../screens/moduleLanding";
 
 const CARE = testUuid("mod-care");

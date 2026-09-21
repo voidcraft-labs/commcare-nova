@@ -1430,7 +1430,7 @@ depends on it). A completed search is a context distinct from not-searched and
 failed (`lib/session/previewSearchState.ts`: `not-searched | running | failed |
 completed {matchCount}` per module); the action is available only for
 `completed` with zero matches, and the form refuses a launch without one
-(`components/preview/screens/noMatchesForm.ts`). After submit the worker lands
+(`lib/preview/noMatchesForm.ts`). After submit the worker lands
 on Results showing only the case they registered (the module's Search when it
 keeps no menu form), mirroring HQ's regenerated frame. The builder authors it
 as **When no cases match** on the Search canvas and **How this form opens** in

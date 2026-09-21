@@ -113,6 +113,48 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Checked answers and proposed record values. No records were submitted; navigation and additional record operations were not checked.",
 	),
 	getForm: read("Inspecting a form", "Inspected a form"),
+	startAppTest: {
+		kind: "activity",
+		doing: "Starting a test journey",
+		done: "Started a test journey",
+		detail: "Uses disposable test records. Live records are unchanged.",
+	},
+	continueAppTest: {
+		kind: "activity",
+		doing: "Checking a worker journey",
+		done: "Checked a journey step",
+		detail:
+			"Effects apply only to test records. This is not a complete workflow or device check.",
+		result: (output: Readonly<Record<string, unknown>>) => {
+			const observation = output.observation;
+			if (typeof observation !== "object" || observation === null)
+				return undefined;
+			if ("error" in observation || "nextTaskError" in observation)
+				return {
+					effect: "blocked" as const,
+					action: "A journey step needs attention",
+					detail:
+						"The saved test observation describes where this step stopped.",
+				};
+			if ("ended" in observation && observation.ended === true)
+				return {
+					effect: "unchanged" as const,
+					action: "Discarded test records",
+					detail: "The journey's observations are still available.",
+				};
+			if ("savedInTest" in observation && observation.savedInTest === true)
+				return {
+					effect: "unchanged" as const,
+					action: "Submitted a test form",
+					detail: "Changes were saved to disposable test records only.",
+				};
+			return undefined;
+		},
+	},
+	readAppTest: read(
+		"Reading journey observations",
+		"Read journey observations",
+	),
 	getModule: read("Inspecting a module", "Inspected a module"),
 	getCaseOperations: read(
 		"Inspecting case operations",

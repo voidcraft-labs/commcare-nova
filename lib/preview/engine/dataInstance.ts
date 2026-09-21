@@ -50,6 +50,15 @@ interface XPathTemplateNode {
  * path's indexed segments so restore/rename flows that write indexed paths
  * directly keep the map consistent.
  */
+export interface DataInstanceSnapshot {
+	readonly values: readonly (readonly [string, string])[];
+	readonly counts: readonly (readonly [string, number])[];
+	readonly attributes: readonly (readonly [
+		string,
+		Readonly<Record<string, string>>,
+	])[];
+}
+
 export class DataInstance {
 	private data = new Map<string, string>();
 	private counts = new Map<string, number>();
@@ -67,6 +76,22 @@ export class DataInstance {
 		rootAttributes: XFormDataRootRuntimeAttributes | undefined = undefined,
 	) {
 		this.rootAttributes = rootAttributes ? { ...rootAttributes } : {};
+	}
+
+	/** Exact live topology, including zero-row repeats and query row identities.
+	 * This is an entry checkpoint, never a projection of final form answers. */
+	checkpoint(): DataInstanceSnapshot {
+		return structuredClone({
+			values: [...this.data],
+			counts: [...this.counts],
+			attributes: [...this.elementAttributes],
+		});
+	}
+
+	restoreCheckpoint(snapshot: DataInstanceSnapshot): void {
+		this.data = new Map(snapshot.values);
+		this.counts = new Map(snapshot.counts);
+		this.elementAttributes = new Map(structuredClone(snapshot.attributes));
 	}
 
 	setRootAttributes(rootAttributes: XFormDataRootRuntimeAttributes): void {

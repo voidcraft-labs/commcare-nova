@@ -37,7 +37,6 @@ export {
 
 import { createHash } from "node:crypto";
 import type { AppCapability } from "@/lib/auth/projectRoles";
-import { getSession } from "@/lib/auth-utils";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
@@ -243,7 +242,7 @@ function caseReadCore(
  * disagree about a population they both measured correctly.
  */
 async function emptyCaseResult(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
 	args: Parameters<typeof readCases>[1],
 	composedQuery: ComposedCaseQuery,
 	/** The read's normalized page, or `undefined` for the unpaged caller.
@@ -311,7 +310,7 @@ async function emptyCaseResult(
  * sort order, and empty-state semantics all see the truthful population.
  */
 export async function readCases(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
 	args: {
 		appId: string;
 		caseType: string;
@@ -459,7 +458,7 @@ export async function readCases(
  * appeared on ungrouped lists only would be a worse lie than no reveal at all.
  */
 async function casesOutsideRestore(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
 	args: Parameters<typeof readCases>[1],
 	composedQuery: ComposedCaseQuery,
 	restricted: number,
@@ -497,7 +496,7 @@ async function casesOutsideRestore(
  * the page, so the pager's denominator and the page can never disagree.
  */
 async function readGroupedCases(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
 	args: Parameters<typeof readCases>[1],
 	composedQuery: ComposedCaseQuery,
 	page: { readonly offset: number; readonly limit: number },
@@ -577,7 +576,7 @@ function normalizeCaseListPage(
  * the worker to clear Search is false because no Search answer can reveal a
  * row until the authored rule changes. */
 async function countAuthoredCasePopulation(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "count" | "queryGrouped">,
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
@@ -1346,6 +1345,8 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly blueprintDigest: string;
 	readonly identity: ResolvedPreviewIdentity;
 	readonly lookupScope: LookupScope;
+	/** An authorized pinned snapshot, used by disposable workflow tests. */
+	readonly lookupTableSchemas?: LookupTableSchemas;
 	readonly mutation: SubmissionMutation;
 	/** Exact unnormalized request used only for durable receipt identity. */
 	readonly receiptMutation?: SubmissionWireMutation;
@@ -1386,6 +1387,7 @@ export async function buildSubmissionOperationProgram(args: {
 		built,
 		app.blueprint,
 		args.lookupScope,
+		args.lookupTableSchemas,
 	);
 
 	const validated = args.projection;
@@ -1456,15 +1458,18 @@ async function withProgramLookupTableSchemas(
 	built: BuiltSubmissionOperations,
 	blueprint: AppDoc["blueprint"],
 	lookupScope: LookupScope,
+	pinnedSchemas?: LookupTableSchemas,
 ): Promise<BuiltSubmissionOperations> {
 	if (built.program === undefined) return built;
-	const lookupTableSchemas = await loadLookupTableSchemas(
-		lookupScope,
-		caseOperationProgramLookupTableIds(
-			asWalkableDoc(blueprint),
-			built.program.operations.map(({ operation }) => operation.uuid),
-		),
-	);
+	const lookupTableSchemas =
+		pinnedSchemas ??
+		(await loadLookupTableSchemas(
+			lookupScope,
+			caseOperationProgramLookupTableIds(
+				asWalkableDoc(blueprint),
+				built.program.operations.map(({ operation }) => operation.uuid),
+			),
+		));
 	if (lookupTableSchemas === undefined) return built;
 	return {
 		...built,
@@ -2207,6 +2212,7 @@ export async function resolvePreviewIdentity(
 	personaUuid?: string,
 	projectSpace?: string | null,
 ): Promise<ResolvedPreviewIdentity | null> {
+	const { getSession } = await import("@/lib/auth-utils");
 	const session = await getSession();
 	if (!session) return null;
 	if (doc === undefined || personaUuid === undefined) {
@@ -2263,6 +2269,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 	 * previewing as the signed-in member. Persona selection implies a load. */
 	readonly loadBlueprint?: boolean;
 }): Promise<AuthorizedPreviewContext> {
+	const { getSession } = await import("@/lib/auth-utils");
 	const session = await getSession();
 	const memberIdentity = previewAsMe(session?.user);
 	if (memberIdentity === null) return { kind: "unauthenticated" };

@@ -61,6 +61,8 @@ import type { SessionContextField } from "@/lib/domain/predicate";
  * the device would read an absent node as blank.
  */
 export interface PreviewSearchSessionValues {
+	/** Client hydration has not resolved a worker. This is not a blank worker. */
+	readonly identityPending?: true;
 	readonly context: Readonly<Partial<Record<SessionContextField, string>>>;
 	readonly user: Readonly<Record<string, string>>;
 	/** Stable custom-property identity → current worker-data wire slug. */
@@ -92,11 +94,11 @@ export interface ResolvedPreviewIdentity {
 
 /**
  * The signed-out projection: device context only, no user values. This is
- * NOT an identity — it exists so client surfaces can evaluate session
- * expressions before hydration resolves the real session, reading every
- * user-backed slice as absent.
+ * NOT an identity. Navigation conditions wait for hydration rather than
+ * interpreting its absent values as the selected worker's permissions.
  */
 const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
+	identityPending: true,
 	context: {
 		deviceid: "nova-preview",
 		appversion: "preview",

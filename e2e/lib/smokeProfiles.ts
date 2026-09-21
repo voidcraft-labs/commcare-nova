@@ -8,6 +8,7 @@ import type {
 export const SMOKE_PROFILES = [
 	"auth",
 	"open",
+	"app-tests",
 	"app-list",
 	"organization",
 	"workspace",

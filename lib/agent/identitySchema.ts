@@ -107,6 +107,8 @@ export function classifyIdentity(
 		discriminators,
 		logicalPointer: pointer,
 	} = occurrence;
+	if (tool === "start_app_test" && pointer === "/places/*/uuid")
+		return "location";
 	if (property === "tableId") return "lookup-table";
 	if (
 		property === "columnId" ||
@@ -121,7 +123,9 @@ export function classifyIdentity(
 	if (property === "rowId" || property === "afterRowId") return "lookup-row";
 	if (
 		(property === "values" || property === "valuePatch") &&
-		(tool === "create_location" || tool === "update_location")
+		(tool === "create_location" ||
+			tool === "update_location" ||
+			tool === "start_app_test")
 	) {
 		return "location-property";
 	}
@@ -154,6 +158,7 @@ export function classifyIdentity(
 			property === "afterSiblingId") &&
 		(tool === "create_location" ||
 			tool === "update_location" ||
+			tool === "start_app_test" ||
 			tool === "move_location")
 	) {
 		return "location";

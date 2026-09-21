@@ -213,6 +213,8 @@ export function bindNamedIdentity(args: {
 				item.name,
 				item.siteCode,
 			]);
+			if (toolName === "startAppTest")
+				candidates.push(...declarations(input.places, "uuid", "name"));
 			break;
 		case "entry-point":
 			candidates = named(

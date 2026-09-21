@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { evaluationScenarioCases } from "@/lib/agent/authoring/evaluationScenario";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
+import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
 import { appOverview } from "../appOverview";
 import { makeAuthoringHarness } from "./authoringHarness";

@@ -261,3 +261,23 @@ function emptyCaseContext(): PreviewMenuCaseContext {
 		requiredParentCase: undefined,
 	};
 }
+
+/** After record selection, prefer the requested form if it is eligible;
+ * otherwise skip the form menu only when exactly one form is known eligible. */
+export function previewAutomaticForm(
+	entries: readonly {
+		readonly form: { readonly uuid: Uuid };
+		readonly visibility: NavigationItemVisibility;
+	}[],
+	requestedFormUuid?: Uuid,
+): Uuid | undefined {
+	const requested = entries.find(
+		(entry) => entry.form.uuid === requestedFormUuid,
+	);
+	if (requested?.visibility === "shown") return requested.form.uuid;
+	const shown = entries.filter((entry) => entry.visibility === "shown");
+	return !entries.some((entry) => entry.visibility === "pending") &&
+		shown.length === 1
+		? shown[0].form.uuid
+		: undefined;
+}

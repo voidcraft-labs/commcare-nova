@@ -12,6 +12,7 @@ import {
 	moduleUuidOfForm,
 	reachableCaseTypes,
 } from "@/lib/domain";
+import { projectProseTemplate } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
@@ -89,7 +90,7 @@ export async function evaluateFormSnapshot(
 	const runtime = new XPathRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),
 	});
-	const entryKey = randomUUID();
+	const entryKey = context.entry?.entryKey ?? randomUUID();
 	const world = engine.createWorkerWorld(entryKey);
 	const signal = AbortSignal.timeout(30_000);
 	const evaluate = (async (
@@ -124,7 +125,7 @@ export async function evaluateFormSnapshot(
 			: { kind: "nodeset-values", values: result.nodesetValues };
 	}) as FormEngineAsyncEvaluator;
 	const fieldsByPath = new Map(
-		Object.values(doc.fields)
+		Object.values(engineInput.fields)
 			.filter((field) => findContainingForm(doc, field.uuid) === input.formUuid)
 			.map((field) => [`/data/${computeFieldPath(doc, field.uuid)}`, field]),
 	);
@@ -133,7 +134,8 @@ export async function evaluateFormSnapshot(
 	const fieldAt = (path: string) =>
 		fieldsByPath.get(path.replace(/\[\d+\]/g, ""));
 	try {
-		await engine.initializeAsync(evaluate);
+		if (context.entry) engine.restoreEntryCheckpoint(context.entry.checkpoint);
+		else await engine.initializeAsync(evaluate);
 		for (const repeat of input.repeats ?? []) {
 			const path = normalizePath(repeat.path);
 			const field = fieldAt(path);
@@ -142,21 +144,23 @@ export async function evaluateFormSnapshot(
 					`Repeat ${repeat.path} is unavailable or its rows are calculated.`,
 				);
 		}
-		await engine.restoreRepeatCountSnapshotAsync(
-			new Map(
-				(input.repeats ?? []).map(({ path, count }) => [
-					normalizePath(path),
-					count,
-				]),
-			),
-			evaluate,
-		);
+		if (input.repeats?.length)
+			await engine.restoreRepeatCountSnapshotAsync(
+				new Map(
+					(input.repeats ?? []).map(({ path, count }) => [
+						normalizePath(path),
+						count,
+					]),
+				),
+				evaluate,
+			);
 		for (const answer of input.answers) {
 			const path = normalizePath(answer.path);
 			const field = fieldAt(path);
 			if (
 				!field ||
 				!Object.hasOwn(engine.store.getState(), path) ||
+				!engine.effectivelyVisiblePaths().has(path) ||
 				isContainer(field) ||
 				field.kind === "hidden" ||
 				field.kind === "label" ||
@@ -172,7 +176,8 @@ export async function evaluateFormSnapshot(
 		const fields = Object.entries(engine.store.getState()).map(
 			([path, state]) => {
 				const relevant = relevantPaths.has(path);
-				const kind = fieldAt(path)?.kind;
+				const field = fieldAt(path);
+				const kind = field?.kind;
 				const {
 					value,
 					required,
@@ -184,6 +189,32 @@ export async function evaluateFormSnapshot(
 					choices,
 					repeatCount,
 				} = state;
+				const text = (
+					slot: "label" | "hint" | "help",
+					resolved: string | undefined,
+				) => {
+					if (resolved !== undefined) return resolved;
+					const prose =
+						field && slot in field
+							? field[slot as keyof typeof field]
+							: undefined;
+					return typeof prose === "object" && prose !== null && "parts" in prose
+						? projectProseTemplate(prose, doc).text
+						: undefined;
+				};
+				const options =
+					choices ??
+					(field &&
+					(field.kind === "single_select" || field.kind === "multi_select") &&
+					field.optionsSource.kind === "inline"
+						? field.optionsSource.options.map((option) => ({
+								key: option.uuid,
+								value: option.value,
+								label:
+									state.resolvedOptionLabels?.[option.uuid] ??
+									projectProseTemplate(option.label, doc).text,
+							}))
+						: undefined);
 				return {
 					path: path.replace(/^\/data\//, ""),
 					kind,
@@ -192,15 +223,18 @@ export async function evaluateFormSnapshot(
 					required: relevant && required,
 					valid: !relevant || valid,
 					...(relevant && errorMessage ? { error: errorMessage } : {}),
-					...(resolvedLabel === undefined ? {} : { label: resolvedLabel }),
-					...(resolvedHint === undefined ? {} : { hint: resolvedHint }),
-					...(resolvedHelp === undefined ? {} : { help: resolvedHelp }),
-					...(choices === undefined ? {} : { choices }),
+					label: text("label", resolvedLabel),
+					hint: text("hint", resolvedHint),
+					help: text("help", resolvedHelp),
+					...(options === undefined ? {} : { choices: options }),
 					...(repeatCount === undefined ? {} : { repeatCount }),
 				};
 			},
 		);
 		return {
+			...(context.captureEntry
+				? { entry: { entryKey, checkpoint: engine.entryCheckpoint() } }
+				: {}),
 			valid,
 			fields,
 			...(valid

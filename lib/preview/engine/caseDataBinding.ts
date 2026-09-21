@@ -29,7 +29,6 @@ import {
 	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
-	type TermBindings,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
@@ -45,8 +44,6 @@ import type {
 	CaseListConfig,
 	CasePropertyDataType,
 	CaseType,
-	SearchInputDef,
-	Uuid,
 } from "@/lib/domain";
 import {
 	caseListConfigSchema,
@@ -113,7 +110,7 @@ import {
 	type ResolvedPreviewIdentity,
 } from "./identity";
 import {
-	type SearchInputValues,
+	previewCaseStoreBindings,
 	type SearchInputValuesWire,
 	searchInputValuesFromWire,
 	withSearchInputExpressionValues,
@@ -147,39 +144,6 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
 	return typeof blueprint === "object" && blueprint !== null
 		? toPersistableDoc(blueprint as BlueprintDoc)
 		: blueprint;
-}
-
-/**
- * Project the authenticated Preview session into the case-store compiler's
- * runtime binding vocabulary. Search-input expressions read the submitted
- * value (or CommCare's blank value for an unanswered known prompt); closed
- * session-context fields read the authenticated worker; absent open-namespace
- * user-data fields deliberately fall back to blank, matching device XPath.
- */
-function previewCaseStoreBindings(
-	session: PreviewSearchSessionValues,
-	searchInputs: readonly SearchInputDef[] = [],
-	inputValues: SearchInputValues = new Map(),
-	viewerTimeZone?: string,
-): TermBindings {
-	const boundInputs = new Map<Uuid, string>();
-	for (const input of searchInputs) {
-		boundInputs.set(input.uuid, inputValues.get(input.name) ?? "");
-	}
-
-	const sessionContext = new Map<string, string>();
-	for (const [field, value] of Object.entries(session.context)) {
-		if (value !== undefined) sessionContext.set(field, value);
-	}
-
-	return {
-		searchInputs: boundInputs,
-		sessionContext,
-		sessionUser: new Map(Object.entries(session.user)),
-		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
-		sessionUserFallback: "",
-		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
-	};
 }
 
 /**

@@ -425,7 +425,7 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	// (Tools that catch their own failures return a friendly `{ error }` string,
 	// handled just below — that path is intentionally preserved.)
 	if (part.state === "output-error")
-		return toolPresentation(toolName(part))?.kind === "read"
+		return toolPresentation(toolName(part))?.kind !== "change"
 			? "This check couldn't be completed."
 			: "This change couldn't be applied.";
 
