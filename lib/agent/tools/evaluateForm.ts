@@ -9,6 +9,7 @@ import {
 	FormEvaluationInputError,
 } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
+import { formAnswerValueSchema } from "@/lib/preview/engine/formAnswerValue";
 import { loadFormEvaluationContext } from "../authoring/evaluationContext";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
@@ -26,7 +27,7 @@ const pathSchema = z
 export const evaluateFormInputSchema = formAddressSchema
 	.extend({
 		answers: z
-			.array(z.strictObject({ path: pathSchema, value: z.string().max(10000) }))
+			.array(z.strictObject({ path: pathSchema, value: formAnswerValueSchema }))
 			.max(500)
 			.describe("Applied in order. Repeat a path to check changing an answer."),
 		repeats: z

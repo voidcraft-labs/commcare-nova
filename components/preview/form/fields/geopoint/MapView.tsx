@@ -22,7 +22,7 @@ import {
 	useImperativeHandle,
 	useRef,
 } from "react";
-import type { GeoPoint } from "./geopointValue";
+import type { GeoPoint } from "@/lib/preview/engine/geopointValue";
 import { googleMapsMapId, loadMaps, loadMarker } from "./googleMaps";
 
 const DEFAULT_CENTER = { lat: 20, lng: 0 };

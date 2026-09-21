@@ -24,7 +24,10 @@ readiness. The narrow store cannot alter schemas or dispatch media effects.
 Navigation shares production menu, selection and routing projections. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
-between calls. Submission uses the production operation planner and atomic
+between calls. Form and journey answers share the same coordinate input and
+location-picker formatter as the real UI. Malformed supplied location values
+are test-input refusals, not observations of worker validation; map services and
+GPS capture remain outside this surface. Submission uses the production operation planner and atomic
 envelope. Its receipt overlays the entry case database, including just-closed
 records, before evaluating the next task. Sync applies the production restore
 closure. A next-task failure preserves an already successful test submission.

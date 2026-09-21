@@ -20,10 +20,6 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
-import { useAccessPhase } from "@/lib/session/hooks";
-import { ValidationError } from "../ValidationError";
-import { AddressSearch, type PlacePick } from "./AddressSearch";
-import { GeolocationError, requestGeolocation } from "./geolocation";
 import {
 	formatGeopoint,
 	formatLatLonLabel,
@@ -31,7 +27,11 @@ import {
 	isValidLat,
 	isValidLon,
 	parseGeopoint,
-} from "./geopointValue";
+} from "@/lib/preview/engine/geopointValue";
+import { useAccessPhase } from "@/lib/session/hooks";
+import { ValidationError } from "../ValidationError";
+import { AddressSearch, type PlacePick } from "./AddressSearch";
+import { GeolocationError, requestGeolocation } from "./geolocation";
 import { googleMapsConfigured, loadGeocoding } from "./googleMaps";
 import { type MapHandle, MapView } from "./MapView";
 import { useInView } from "./useInView";

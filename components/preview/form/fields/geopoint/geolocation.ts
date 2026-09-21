@@ -6,7 +6,7 @@
 // the result into the picker's coordinate shape (altitude/accuracy fall
 // back to 0 when the device doesn't report them).
 
-import type { GeoPoint } from "./geopointValue";
+import type { GeoPoint } from "@/lib/preview/engine/geopointValue";
 
 /** A user-meaningful reason the location request failed, ready to show
  *  in a toast. */

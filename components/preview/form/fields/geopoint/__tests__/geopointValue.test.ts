@@ -7,7 +7,7 @@ import {
 	isValidLat,
 	isValidLon,
 	parseGeopoint,
-} from "../geopointValue";
+} from "@/lib/preview/engine/geopointValue";
 
 // Exercise the actual storage schema rather than a copied regex.
 const acceptsStoredGeopoint = new Ajv().compile(schemaForDataType("geopoint"));

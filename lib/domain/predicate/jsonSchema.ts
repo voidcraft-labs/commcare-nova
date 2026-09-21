@@ -38,7 +38,7 @@ import { unhandledKindMessage } from "./errors";
 // This pattern does not enforce latitude/longitude ranges. It is a storage
 // shape constraint, not a replacement for HQ's complete geopoint parser.
 const DECIMAL = String.raw`-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?`;
-const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
+export const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 
 // The `int` data type compiles to Postgres `integer` (int4) at the
 // case-store boundary (`POSTGRES_CAST_FOR_DATA_TYPE.int` in

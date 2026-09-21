@@ -1034,3 +1034,5 @@ without manufacturing a Next.js request. Submission worker overlays match the
 `commcare-user` row's `hq_user_id`, not its distinct case UUID. Input-free Search
 launch uses `caseListPhase.ts::automaticallyLaunchesSearch` in both the running
 app and journey observations.
+
+Form checks and isolated journey answers share `engine/formAnswerValue.ts`: typed location coordinates use the production picker formatter; malformed supplied values fail as test-input errors before evaluation. Raw location strings must satisfy the same grammar as case storage. Authored defaults and worker validation remain engine observations. This does not exercise the map or device GPS.

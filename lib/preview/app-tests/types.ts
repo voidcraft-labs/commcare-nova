@@ -9,6 +9,7 @@ import type {
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { formAnswerValueSchema } from "../engine/formAnswerValue";
 import type { FormEvaluationEntry } from "../engine/formEvaluationTypes";
 import type { PreviewSessionUser } from "../engine/identity";
 import type { SearchEvaluationInput } from "../engine/searchEvaluation";
@@ -16,7 +17,7 @@ import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
 
 const answer = z.strictObject({
 	path: z.string().min(1).max(1024),
-	value: z.string().max(10_000),
+	value: formAnswerValueSchema,
 });
 const testOwner = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("me") }),

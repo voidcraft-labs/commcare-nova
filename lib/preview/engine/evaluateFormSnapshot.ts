@@ -18,6 +18,7 @@ import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
 import { buildEngineInput } from "./engineInput";
+import { evaluationAnswerValue } from "./formAnswerValue";
 import { FormEngine, type FormEngineAsyncEvaluator } from "./formEngine";
 import type {
 	FormEvaluationContext,
@@ -169,7 +170,11 @@ export async function evaluateFormSnapshot(
 				throw new FormEvaluationInputError(
 					`Answer ${answer.path} is not an editable question in this form. Media capture requires the running app.`,
 				);
-			await engine.setValueAsync(path, answer.value, evaluate);
+			await engine.setValueAsync(
+				path,
+				evaluationAnswerValue(field.kind, answer.path, answer.value),
+				evaluate,
+			);
 		}
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
@@ -228,6 +233,13 @@ export async function evaluateFormSnapshot(
 					help: text("help", resolvedHelp),
 					...(options === undefined ? {} : { choices: options }),
 					...(repeatCount === undefined ? {} : { repeatCount }),
+					...(kind === "geopoint"
+						? {
+								interaction: "location-picker" as const,
+								testInput:
+									"Supply coordinates as {latitude, longitude, altitude?, accuracy?}. This does not exercise GPS capture or map services.",
+							}
+						: {}),
 				};
 			},
 		);

@@ -28,6 +28,11 @@ projections, FormEngine and submission transaction. They do not change live case
 or assert native-device correctness. Builder's Test journeys shows the same
 retained observations, including the source revision and boundaries.
 
+Form and journey answers accept coordinates for location questions and use the
+real Preview picker formatter. Invalid supplied coordinate values are input
+refusals, distinct from the form's authored validation. These checks do not
+exercise a map service or device GPS.
+
 For a narrower question, `evaluateForm` evaluates one form without a transaction.
 Its optional scenario supplies test records and parent relationships without
 storing them, allowing follow-up forms and record-dependent rules to be exercised
