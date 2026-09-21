@@ -191,7 +191,9 @@ it("keeps private edits invisible, retains choice identities, and replays the ex
 	const f = await fixture();
 	const before = await visible(f.app.appId);
 	const first = await f.workspace.stageDispatch(create);
-	expect(first.receipt?.disposition).toBe("staged");
+	expect(first.receipt?.disposition, JSON.stringify(first.result)).toBe(
+		"staged",
+	);
 	const original = statusField(f.workspace);
 	const active =
 		original.optionsSource.kind === "inline"
@@ -461,4 +463,45 @@ it("keeps exclusive property migrations separate from ordinary private edits", a
 		},
 	});
 	expect(await loadChangeSetSteps(exclusive.changeSet.id)).toHaveLength(1);
+});
+
+it("rejects reuse of a removed private identity before staging and permits a fresh replacement", async () => {
+	const f = await fixture();
+	const moduleUuid = crypto.randomUUID();
+	await f.workspace.stageDispatch({
+		...create,
+		input: { ...create.input, moduleUuid },
+	});
+	await f.workspace.stageDispatch({
+		toolName: "removeModule",
+		requestId: "remove-households",
+		input: { moduleUuid },
+	});
+	const workspace = await ChangeSetMutationWorkspace.open(
+		f.host,
+		f.changeSet.id,
+	);
+	const revision = workspace.current().revision;
+	const retry = {
+		...create,
+		requestId: "reuse-households",
+		input: { ...create.input, moduleUuid },
+	};
+	const rejected = await workspace.stageDispatch(retry);
+	expect(rejected.receipt?.disposition).toBe("rejected");
+	expect(workspace.current().revision).toBe(revision);
+	expect(workspace.currentSnapshot().doc.modules[moduleUuid]).toBeUndefined();
+	const replay = await workspace.stageDispatch(retry);
+	expect(replay.replayed).toBe(true);
+	expect(replay.result).toEqual(rejected.result);
+	const replacementUuid = crypto.randomUUID();
+	await workspace.stageDispatch({
+		...create,
+		requestId: "replace-households",
+		input: { ...create.input, moduleUuid: replacementUuid },
+	});
+	expect((await f.commit(workspace.current().revision)).kind).toBe("committed");
+	const saved = await loadApp(f.app.appId);
+	expect(saved?.blueprint.modules[replacementUuid]?.name).toBe("Households");
+	expect(saved?.blueprint.modules[moduleUuid]).toBeUndefined();
 });

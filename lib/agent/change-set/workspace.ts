@@ -19,6 +19,7 @@ import type {
 } from "@/lib/agent/workspace/types";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
+import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
@@ -38,6 +39,7 @@ import {
 	type AdmittedMutationStageSlice,
 	admitMutationBatch,
 	admitMutationStages,
+	encodeAdmittedMutationEnvelope,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -147,6 +149,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	private changeSet: DesignChangeSet;
 	private steps: ChangeSetStep[];
 	private overlayDoc: BlueprintDoc;
+	private baseDoc: BlueprintDoc;
 	private lastSummaryFingerprints: readonly string[] = [];
 	private readonly host: ChangeSetWorkspaceHost;
 
@@ -158,12 +161,14 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		host: ChangeSetWorkspaceHost;
 		changeSet: DesignChangeSet;
 		steps: ChangeSetStep[];
+		baseDoc: BlueprintDoc;
 		overlayDoc: BlueprintDoc;
 	}) {
 		this.host = args.host;
 		this.changeSet = args.changeSet;
 		this.steps = args.steps;
 		this.overlayDoc = args.overlayDoc;
+		this.baseDoc = args.baseDoc;
 	}
 
 	/** Open (or reopen after process death) one change set's workspace by
@@ -181,6 +186,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			host,
 			changeSet,
 			steps: [...rehydrated.steps],
+			baseDoc: rehydrated.baseDoc,
 			overlayDoc: rehydrated.overlay.doc,
 		});
 	}
@@ -610,6 +616,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		this.changeSet = changeSet;
 		this.steps = [...rehydrated.steps];
 		this.overlayDoc = rehydrated.overlay.doc;
+		this.baseDoc = rehydrated.baseDoc;
 		this.lastSummaryFingerprints = [];
 	}
 
@@ -776,11 +783,22 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			};
 		}
 
-		/* Prepare against the private overlay: admission failures reject
-		 * BEFORE the step appends; validator findings do not. */
+		/* A checkpoint commits the whole pending batch. Admit that same batch
+		 * before accepting another step, including identities removed by earlier
+		 * steps. Overlay-only admission could accept an unrecoverable reuse that
+		 * every later save rejects. Validator findings may still remain private. */
 		let prepared: PreparedMutationCandidate;
 		try {
-			prepared = prepareMutationCandidate(this.overlayDoc, args.mutations);
+			prepared = prepareMutationCandidate(
+				this.baseDoc,
+				parsePersistedMutationBatchText(
+					encodeAdmittedMutationEnvelope([
+						...this.steps.flatMap((step) => [...step.mutations]),
+						...args.mutations,
+					]).json,
+					`change set ${this.changeSet.id} pending batch`,
+				),
+			);
 		} catch (error) {
 			return reject(
 				"REDUCER_FAILURE",

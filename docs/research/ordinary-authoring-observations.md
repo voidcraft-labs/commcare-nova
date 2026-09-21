@@ -107,3 +107,25 @@ entry or explain that it cannot replay submissions. The guide now exposes that
 product fact. This observation does not turn the earlier response into a pass.
 The delivered app still needs correction and renewed evidence through ordinary
 intent after the runtime fix is live.
+
+
+## Private edit admission and checkpoint history
+
+A fresh bounded role trial exposed a disagreement between successful private
+edits and the first-save gate. Construction created a module, removed it, then
+created a replacement with the same supplied identity. Each operation admitted
+against the current overlay, where the removed identity no longer appeared.
+Saving concatenated the complete pending mutation history and rejected the reuse.
+Removing the later replacement could not remove the earlier conflicting mutations.
+The architect recognized the integrity failure, but ordinary tools could not
+repair that accepted history. A clean candidate inspection was misleading here.
+
+`ChangeSetMutationWorkspace` now prepares the complete pending batch against its
+original base before accepting another stage, using the canonical admission path.
+Removed identities remain reserved until the checkpoint commits. A failed
+replacement leaves the private revision unchanged, retains a retryable rejection,
+and permits a replacement with a fresh identity. No accepted history is rewritten.
+The real Postgres regression fails on the prior code, then proves rejection after
+workspace reopening, identical retry, successful correction and canonical commit.
+Existing genesis, authority, rebase and effective-edit checks also pass. This
+prevents the demonstrated dead end; it does not rescue or pass the failed trial.
