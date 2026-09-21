@@ -702,7 +702,7 @@ export async function runBuildOrchestration(
 				return {
 					role: "user",
 					content: JSON.stringify({
-						phase: runtime.building ? "building" : "planning",
+						appSaved: runtime.appId !== null,
 						...(plan && {
 							plan: plan.markdown,
 							planRevision: plan.revision,

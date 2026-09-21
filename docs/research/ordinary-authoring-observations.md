@@ -21,3 +21,20 @@ workflow errors. They do not guarantee that it chooses good journeys or interpre
 them well. Follow-up review remains independent and may broaden when a correction
 has wider consequences; no finding-disposition ledger or automatic pass verdict
 has been added.
+
+## Development trial: premature completion
+
+The first bounded trial requested a small tool-lending app. After eight model
+calls, the architect delivered a reviewed plan and paused without building.
+The request asked for an app; no consequential question was pending. Its
+reasoning explicitly treated the injected `phase: planning` user message as a
+restriction, despite the system guidance to continue through construction.
+The available tools included `startBuilding`. This was a misread observation,
+not an unavailable construction capability.
+
+The turn-start snapshot now reports whether an app has been saved, plus the
+actual plan/workspace, rather than supplying a phase label that can be mistaken
+for the user's desired scope. The original incomplete attempt remains evidence;
+a new attempt with the same request will assess this change. Its plan review
+correctly distinguished business status from lifecycle closure, but that did not
+make the app request complete.
