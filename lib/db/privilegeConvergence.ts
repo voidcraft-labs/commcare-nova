@@ -695,6 +695,7 @@ const RUNTIME_ROUTINES = [
 
 interface PublicRelationRow {
 	readonly name: string;
+	readonly owner: string;
 	readonly extension_owned: boolean;
 }
 
@@ -1148,6 +1149,7 @@ async function readSchemaTables(
 	const result = await sql<PublicRelationRow>`
 		SELECT
 			class.relname AS name,
+			pg_catalog.pg_get_userbyid(class.relowner) AS owner,
 			EXISTS (
 				SELECT 1
 				FROM pg_catalog.pg_depend AS dependency
@@ -1172,15 +1174,21 @@ async function readSchemaTables(
 async function convergeRuntimeCaseSchema(
 	tx: Transaction<unknown>,
 	config: DatabasePrivilegeRoleConfig,
-): Promise<readonly PublicTableAudit[]> {
+): Promise<readonly PublicRelationRow[]> {
 	await sql`
 		CREATE SCHEMA IF NOT EXISTS ${sql.id(CASE_RUNTIME_SCHEMA)}
 		AUTHORIZATION ${sql.id(config.migrationRole)}
 	`.execute(tx);
-	await sql`
-		ALTER SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
-		OWNER TO ${sql.id(config.migrationRole)}
+	const schema = await sql<{ owner: string }>`
+		SELECT pg_catalog.pg_get_userbyid(nspowner) AS owner
+		FROM pg_catalog.pg_namespace WHERE nspname = ${CASE_RUNTIME_SCHEMA}
 	`.execute(tx);
+	if (schema.rows[0]?.owner !== config.migrationRole) {
+		await sql`
+			ALTER SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
+			OWNER TO ${sql.id(config.migrationRole)}
+		`.execute(tx);
+	}
 	await sql`
 		REVOKE ALL PRIVILEGES ON SCHEMA ${sql.id(CASE_RUNTIME_SCHEMA)}
 		FROM PUBLIC, ${sql.id(config.runtimeRole)}, ${sql.id(config.cleanupRole)},
@@ -1218,9 +1226,7 @@ async function convergeRuntimeCaseSchema(
 	const tables = (await readSchemaTables(tx, CASE_RUNTIME_SCHEMA)).filter(
 		(table) => !table.extension_owned,
 	);
-	const tableAudit = auditRuntimeCaseTableInventory(
-		tables.map((table) => table.name),
-	);
+	auditRuntimeCaseTableInventory(tables.map((table) => table.name));
 	const unexpectedObjects = await readUnexpectedRuntimeSchemaObjects(tx);
 	if (unexpectedObjects.length > 0) {
 		throw new DatabasePrivilegeConvergenceError(
@@ -1228,7 +1234,7 @@ async function convergeRuntimeCaseSchema(
 			`${CASE_RUNTIME_SCHEMA} contains unexpected objects: ${unexpectedObjects.map((object) => `${object.object_type} ${object.object_identity}`).join(", ")}.`,
 		);
 	}
-	return tableAudit;
+	return tables;
 }
 
 /** `CREATE` cannot be limited to indexes in PostgreSQL. Audit the schema's
@@ -1312,6 +1318,7 @@ async function readPublicRoutines(
 	const result = await sql<PublicRoutineRow>`
 		SELECT
 			procedure.proname AS name,
+			pg_catalog.pg_get_userbyid(procedure.proowner) AS owner,
 			pg_catalog.pg_get_function_identity_arguments(procedure.oid)
 				AS identity_arguments,
 			EXISTS (
@@ -1338,6 +1345,7 @@ async function readPublicSequences(
 	const result = await sql<PublicSequenceRow>`
 		SELECT
 			sequence.relname AS name,
+			pg_catalog.pg_get_userbyid(sequence.relowner) AS owner,
 			(
 				SELECT parent.relname
 				FROM pg_catalog.pg_depend AS dependency
@@ -1401,16 +1409,6 @@ function auditPublicSequences(rows: readonly PublicSequenceRow[]): void {
 	}
 }
 
-async function alterTableOwner(
-	tx: Transaction<unknown>,
-	table: string,
-	role: string,
-): Promise<void> {
-	await sql`ALTER TABLE public.${sql.id(table)} OWNER TO ${sql.id(role)}`.execute(
-		tx,
-	);
-}
-
 async function revokeTableAccess(
 	tx: Transaction<unknown>,
 	table: string,
@@ -1447,6 +1445,10 @@ async function convergePrivilegesInTransaction(
 	tx: Transaction<unknown>,
 	config: DatabasePrivilegeRoleConfig,
 ): Promise<void> {
+	// This runs beside the serving revision. An actual ownership repair may
+	// need exclusive locks, but must fail atomically instead of parking live
+	// requests behind it. Unchanged owners never request those locks.
+	await sql`SET LOCAL lock_timeout = '1s'`.execute(tx);
 	await readAndAssertRolePolicy(tx, config);
 	const database = await sql<{ name: string }>`
 		SELECT pg_catalog.current_database() AS name
@@ -1478,9 +1480,7 @@ async function convergePrivilegesInTransaction(
 	const tables = (await readSchemaTables(tx, "public")).filter(
 		(table) => !table.extension_owned,
 	);
-	const tableAudit = auditPublicTableInventory(
-		tables.map((table) => table.name),
-	);
+	auditPublicTableInventory(tables.map((table) => table.name));
 	const routines = await readPublicRoutines(tx);
 	const sequences = await readPublicSequences(tx);
 	auditPublicRoutines(routines);
@@ -1509,8 +1509,13 @@ async function convergePrivilegesInTransaction(
 		TO ${sql.id(config.auditRole)}
 	`.execute(tx);
 
-	for (const table of tableAudit) {
-		await alterTableOwner(tx, table.name, config.migrationRole);
+	for (const table of tables) {
+		if (table.owner !== config.migrationRole) {
+			await sql`
+				ALTER TABLE public.${sql.id(table.name)}
+				OWNER TO ${sql.id(config.migrationRole)}
+			`.execute(tx);
+		}
 		await revokeTableAccess(tx, table.name, config);
 		const capability = runtimeTableCapability(table.name);
 		if (capability === null)
@@ -1523,10 +1528,12 @@ async function convergePrivilegesInTransaction(
 		);
 	}
 	for (const table of runtimeCaseAudit) {
-		await sql`
-			ALTER TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
-			OWNER TO ${sql.id(config.runtimeRole)}
-		`.execute(tx);
+		if (table.owner !== config.runtimeRole) {
+			await sql`
+				ALTER TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
+				OWNER TO ${sql.id(config.runtimeRole)}
+			`.execute(tx);
+		}
 		await sql`
 			REVOKE ALL PRIVILEGES
 			ON TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.${sql.id(table.name)}
@@ -1543,10 +1550,12 @@ async function convergePrivilegesInTransaction(
 		const parent = sequence.owned_by;
 		if (parent === null)
 			throw new Error("Audited sequence lost its owner table.");
-		await sql`
-			ALTER SEQUENCE public.${sql.id(sequence.name)}
-			OWNER TO ${sql.id(config.migrationRole)}
-		`.execute(tx);
+		if (sequence.owner !== config.migrationRole) {
+			await sql`
+				ALTER SEQUENCE public.${sql.id(sequence.name)}
+				OWNER TO ${sql.id(config.migrationRole)}
+			`.execute(tx);
+		}
 		await sql`
 				REVOKE ALL PRIVILEGES ON SEQUENCE public.${sql.id(sequence.name)}
 				FROM PUBLIC, ${sql.id(config.runtimeRole)},
@@ -1565,12 +1574,14 @@ async function convergePrivilegesInTransaction(
 	}
 
 	for (const routine of routines.filter((row) => !row.extension_owned)) {
-		await sql`
-			ALTER FUNCTION public.${sql.id(routine.name)}(
-				${sql.raw(routine.identity_arguments)}
-			)
-			OWNER TO ${sql.id(config.migrationRole)}
-		`.execute(tx);
+		if (routine.owner !== config.migrationRole) {
+			await sql`
+				ALTER FUNCTION public.${sql.id(routine.name)}(
+					${sql.raw(routine.identity_arguments)}
+				)
+				OWNER TO ${sql.id(config.migrationRole)}
+			`.execute(tx);
+		}
 		await sql`
 				REVOKE ALL PRIVILEGES ON FUNCTION public.${sql.id(routine.name)}(
 					${sql.raw(routine.identity_arguments)}

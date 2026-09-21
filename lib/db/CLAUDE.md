@@ -373,6 +373,13 @@ Migration is a one-way member of runtime solely to maintain runtime-owned
 `nova_case_runtime.cases`; runtime cannot inherit migration. Runtime gets
 `CREATE` only in that isolated case schema for concurrent index DDL.
 
+Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
+An already-correct owner must not request an exclusive table lock: the old
+service is still reading and writing during migration. Real ownership repairs
+and ACL reconciliation remain one audited transaction, with a local one-second
+lock timeout. Contention aborts that transaction and blocks deployment; it does
+not kill readers, skip privileges, or commit partial grants.
+
 `runtimeDatabaseProbe.ts` is the production post-migration proof for this
 boundary. On the migration connection it `SET LOCAL ROLE`s to runtime, strictly
 assembles every app's exact text carriers through the same persisted JSON
