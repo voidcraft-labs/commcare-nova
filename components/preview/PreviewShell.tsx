@@ -485,7 +485,10 @@ export function PreviewShell() {
 						</div>
 						<Button
 							type="button"
-							onClick={() => setPreviewPersonaUuid(undefined)}
+							onClick={() => {
+								setPreviewPersonaUuid(undefined);
+								navigate.replace({ kind: "home" });
+							}}
 							className=""
 						>
 							Preview as me

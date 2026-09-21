@@ -312,3 +312,19 @@ also removed an obsolete fixed role count and renamed the static token label to
 state that it describes initial context. Opaque compaction counting remains
 covered at its production projection boundary; the inspected workshop record
 contained no compaction checkpoint, so it supplies no live compaction example.
+
+Ordinary production Preview also exposed a worker-switching problem: changing
+from a worker inside a registration form left that form open for the next
+worker, although the next worker's menu hid it. The identity action cleared
+record bindings but retained the form URL. The menu and missing-persona recovery
+now replace that URL with app entry. A production-build Playwright journey
+switches away from a gated form, verifies the new worker's menu, and reopens
+with cleared answers; the two neighboring recovery/navigation checks also pass.
+This changes the simulated worker's entry, not the actor's Project authorization.
+
+The delivered app's ordinary entry reaches first-record cluster registration
+and displays its deployment-place guidance. Its recorded handoff instead began
+with a supplied place-owned cluster. The authored registration uses ordinary
+creation, whose ownership defaults to the current worker. That supplied starting
+record therefore did not establish the handoff beginning with the app's first
+task. An empty-business-record journey remains required before claiming success.
