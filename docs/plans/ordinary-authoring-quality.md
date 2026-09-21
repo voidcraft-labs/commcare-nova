@@ -40,20 +40,22 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 
 ## Evidence
 
-- [ ] Controlled production-runtime checks: entry, identity, selection, preloads,
+Checked items record completed observations, not a passing quality verdict.
+
+- [x] Controlled production-runtime checks: entry, identity, selection, preloads,
   repeats, validation, ordinary/additional effects and next-task navigation.
-- [ ] Real Postgres: atomic persistence/rollback, retries, concurrency, revocation,
+- [x] Real Postgres: atomic persistence/rollback, retries, concurrency, revocation,
   expiry and proof that test actions cannot affect live cases/resources.
 - [ ] Playwright: ordinary Preview and persona switching separately from isolated
   tests, missing-location guidance, recorded journeys, ergonomics and truthful chat outcomes.
-- [ ] Independent Core/HQ checks for relevant emitted behavior; explicitly retain
+- [x] Independent Core/HQ checks for relevant emitted behavior; explicitly retain
   physical-device, remote-service and offline-synchronization evidence gaps.
-- [ ] Bounded paid trials through normal design/build/review: $100 total, allocated
+- [x] Bounded paid trials through normal design/build/review: $100 total, allocated
   $20 development, $30 per held-out task and $20 delivered-app repair. Freeze two
   held-out requests before tuning; include role-gated related records and a
   materially different workflow. Retain failures and unknown charges. Expert rescue
   fails autonomous acceptance and does not turn the original attempt into a pass.
-- [ ] Inspect resulting apps, source, reasoning summaries, messages, errors and
+- [x] Inspect resulting apps, source, reasoning summaries, messages, errors and
   corrections independently. Measure calls, repeated reads, context/plan growth,
   input/output/cache usage and cost together with usability and correctness.
 
@@ -83,7 +85,18 @@ The delivered app was refreshed after intervening user edits before a new ordina
 repair conversation. Its current ten-module scope and removal of search/capture
 were included in that user-level intent; historical expert instructions were not
 reused. The read-only data scan found no business records or populated generic
-audit properties. Repair and independent role/location acceptance are in progress.
+audit properties. The ordinary editor renamed the app, added three role identities,
+and exercised disposable registration. Browser checks confirmed role-specific menus
+and registration entry, separately from administrator impersonation. A transient
+production connection-timeout incident interrupted these checks; later entry and
+recorded-journey reads recovered. Its cause is unresolved. Cross-role geographic
+record handoff and completion remain unverified.
+
+Further observations exposed a test-input boundary error: a raw location string
+failed submission, and the agent wrongly added raw-format instructions for workers
+whose real control is a location picker. PR #651 shares the picker conversion with
+form and journey answers and distinguishes malformed test inputs from worker
+validation. This repairs an observation contract, not the original app verdict.
 
 Remaining acceptance is substantive: a fresh role-gated related-record task must
 complete without expert repair, the delivered app must have usable role/location

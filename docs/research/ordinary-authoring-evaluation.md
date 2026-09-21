@@ -198,3 +198,29 @@ and feedback without a registration identifier or case effects. This is native
 form/submission evidence, not native menu interaction, physical-device or offline
 sync acceptance. Standard staff/device submission metadata remains, as the agent
 explained; participant anonymity does not remove platform audit metadata.
+
+### Delivered-app repair: incomplete
+
+The current app was refreshed after intervening user edits. A new ordinary request
+preserved its current scope and asked for useful naming, role Preview identities,
+honest deployment setup, disposable workflow checks and removal of redundant
+audit collection. Two editor invocations reached their 80-call bounds without a
+completion response; user-level continuation preserved the request. Their measured
+cumulative cost was $0.39325. Further continuation remains separate evidence.
+
+The editor saved role personas and corrected registration effects. It discovered
+that the reviewing role could not receive records owned by the collecting role
+without a shared place assignment. It then incorrectly claimed isolated place
+assignments were unavailable and fell back to supplied-record single-form checks.
+The journey schema already exposes fictional places and per-test assignments,
+and the workflow guide explains their deployment boundary. This is a failure to
+use an available observation, not proof of an unavailable capability. Single-form
+checks cannot establish that handoff or additional-operation persistence.
+
+Independent browser checks observed the three role-specific menus, registration
+entry and recorded journey steps. A page reload also failed during production
+database connection timeouts; a later reload recovered. The incident is retained
+with unresolved cause, rather than counted as passing or blamed on the blueprint.
+The saved revision's 26 exported forms and suite parsed in Core, with the
+production lookup-aware export boundary. That is parsing evidence only, not a
+native journey or physical-device result.
