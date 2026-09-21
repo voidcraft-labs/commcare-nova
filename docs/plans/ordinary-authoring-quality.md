@@ -62,12 +62,15 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#660 are merged and deployed. PR #662 is merged
-and serving, but its final deployment verification failed during persistent
-database timeouts. Authentication recovery now awaits the library's async
-initialization before caching it; its real Postgres regression passes. A single
-approved database restart restored measured responsiveness and health after
-initialization settled. The underlying cause and live auth recovery remain open.
+Nova PRs #646, #647, #649–#660 and #662–#663 are merged and deployed.
+PR #662's deployment verification failed during persistent database timeouts;
+#663 subsequently passed deployment verification and live authentication checks.
+Authentication now awaits the library's async initialization before caching it,
+with a real Postgres recovery regression. The single approved database restart
+initially restored measured responsiveness. Connection and query latency, active
+swapping and archive failures later recurred during ordinary repair, although
+health metrics remained up. The underlying cause and durable database recovery
+remain open.
 Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
@@ -151,9 +154,11 @@ with any latest-store summary supplementary. Ordinary production repair saved
 separate dated receipts and exercised their history through disposable role
 journeys. Independent Core submission checks preserve three receipts, parent
 links, shared ownership and the latest-store summary. Registered-grower
-selection remains incomplete. Further app edits are deferred during the database
-investigation; the final history, entry and handoffs still need independent
-verification. A completed handoff does not establish acceptance.
+selection remained incomplete at that checkpoint. Ordinary repair has resumed
+with a request to select registered growers and applicable contracts, preserve
+separate history and distinguish same-name growers. Its final saved behavior
+still needs independent verification. A completed handoff does not establish
+acceptance.
 
 A separately approved $30 fresh role trial stopped without saving an app after
 85 calls and $4.15049 known cost. Private editing had accepted identity reuse
@@ -162,6 +167,16 @@ for an internal workspace reset; no expert rescue was supplied. Both failed
 role attempts remain failed. Cumulative private admission and consistent replay
 now have controlled regressions, but a successful fresh role build is still
 unestablished. Full measurements remain in the evaluation research.
+
+Browser control recovered after a full browser restart. Ordinary Preview role
+switching returned to entry and exposed the expected registration, review and
+management menus for all three saved roles. The corrected ordinary form hint
+was visible. Recorded journey playback labeled its fictional place assignment
+as test-only and showed earlier receipt history. These observations do not
+establish ordinary submission with missing assignments; its guidance remains
+incomplete. A failed editing activity also exposed internal repair diagnostics;
+the presentation correction keeps those details available to the agent while
+using plain failure notices in chat.
 
 Remaining acceptance is substantive:
 
@@ -173,9 +188,9 @@ Remaining acceptance is substantive:
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing
   callable capabilities or repeating failed discovery indefinitely.
-- Verify the corrected ordinary Preview hint after case-data loading recovers,
-  and verify the final edit stream/accounting has settled. Its saved change is
-  text-only; a first wording pass missed the visible hint and repeated setup prose.
+- Verify the final edit stream/accounting has settled. The corrected ordinary
+  Preview hint is now visible; its saved change is text-only, and a first wording
+  pass missed the visible hint and repeated setup prose.
   Remove redundant actor writes without losing business history.
 - Finish browser checks of ordinary identity and location experience, separately
   from administrator impersonation and disposable recorded journeys.
