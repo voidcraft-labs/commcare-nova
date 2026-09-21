@@ -671,3 +671,130 @@ it("opens browse-first Results with its hidden Search values already applied", a
 		},
 	});
 });
+
+it("creates a place-owned record from empty entry using the worker reading advertised to authors", async () => {
+	const author = makeAuthoringHarness();
+	const write = async (name: string, input: unknown) =>
+		expect(await author.call(name, input)).toMatchObject({ ok: true });
+	const readings = z
+		.object({
+			builtInPlaces: z.object({
+				primarySharingGroup: z.object({ recordExpression: z.string() }),
+			}),
+		})
+		.parse(await author.call("getUsers", {}));
+	await write("addPersonas", {
+		personas: [{ name: "Collecting worker" }, { name: "Reviewing worker" }],
+	});
+	await write("addOrganizationLevels", {
+		levels: [
+			{
+				code: "branch",
+				name: "Branch",
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "none" },
+				},
+				addressBook: { reach: "own-branch" },
+			},
+		],
+	});
+	await write("createModule", {
+		name: "Groups",
+		case_type: "group",
+		forms: [
+			{
+				name: "Register group",
+				type: "survey",
+				fields: [
+					{ kind: "text", id: "name", label: "Group name", required: true },
+				],
+			},
+			{
+				name: "Review group",
+				type: "followup",
+				fields: [{ kind: "label", id: "intro", label: "Review this group" }],
+			},
+		],
+	});
+	await write("addCaseOperations", {
+		moduleUuid: "Groups",
+		formUuid: "Register group",
+		operations: [
+			{
+				operation: {
+					id: "create_group",
+					action: "create",
+					caseType: "group",
+					target: { kind: "new" },
+					name: "#form/name",
+					owner: readings.builtInPlaces.primarySharingGroup.recordExpression,
+				},
+			},
+		],
+	});
+	const doc = author.currentDoc();
+	const module = Object.values(doc.modules).find((m) => m.name === "Groups");
+	const register = Object.values(doc.forms).find(
+		(f) => f.name === "Register group",
+	);
+	const review = Object.values(doc.forms).find(
+		(f) => f.name === "Review group",
+	);
+	const collector = Object.values(doc.personas ?? {}).find(
+		(p) => p.name === "Collecting worker",
+	);
+	const reviewer = Object.values(doc.personas ?? {}).find(
+		(p) => p.name === "Reviewing worker",
+	);
+	if (!module || !register || !review || !collector || !reviewer)
+		throw new Error("Authored journey missing");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Register first shared group",
+			scenario: { records: [] },
+			places: [{ name: "Example branch", levelUuid: "Branch" }],
+			assignments: [
+				{ personaUuid: "Collecting worker", locationUuids: ["Example branch"] },
+				{ personaUuid: "Reviewing worker", locationUuids: ["Example branch"] },
+			],
+		}),
+	);
+	const step = async (action: AppTestAction) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				action,
+			}),
+		);
+		return current.observation;
+	};
+	await step({ kind: "identity", personaUuid: collector.uuid });
+	await step({ kind: "menu", moduleUuid: module.uuid });
+	await step({ kind: "form", formUuid: register.uuid });
+	await step({
+		kind: "answer",
+		answers: [{ path: "name", value: "Shared group" }],
+	});
+	expect(await step({ kind: "submit" })).toMatchObject({ savedInTest: true });
+	await step({ kind: "identity", personaUuid: reviewer.uuid });
+	await step({ kind: "menu", moduleUuid: module.uuid });
+	const selection = await step({ kind: "form", formUuid: review.uuid });
+	expect(selection).toMatchObject({
+		screen: "browse",
+		results: {
+			kind: "rows",
+			rows: [expect.objectContaining({ case_name: "Shared group" })],
+		},
+	});
+	await step({ kind: "finish" });
+});

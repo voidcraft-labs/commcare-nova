@@ -25,6 +25,36 @@ export const workerIdentityReadings = {
 	},
 } as const;
 
+/** HQ supplies these on both the worker case and the session. A location
+ * assignment in Preview (including a disposable test) projects the same facts. */
+export const workerPlaceReadings = {
+	primaryPlace: {
+		label: "Primary place",
+		meaning:
+			"The worker's primary assigned place. Empty without an assignment.",
+		formExpression: "#user/commcare_location_id",
+		recordExpression: "external-user('commcare_location_id')",
+	},
+	assignedPlaces: {
+		label: "Assigned places",
+		meaning:
+			"All assigned place IDs, separated by spaces. This list is not a single record owner.",
+		formExpression: "#user/commcare_location_ids",
+		recordExpression: "external-user('commcare_location_ids')",
+	},
+	primarySharingGroup: {
+		label: "Primary case-sharing group",
+		meaning:
+			"The primary place's case-sharing ID. Use this single value when the workflow assigns records to the worker's primary place. Empty without an assignment; address-book visibility alone does not assign a place or deliver records.",
+		formExpression: "#user/commcare_primary_case_sharing_id",
+		recordExpression: "external-user('commcare_primary_case_sharing_id')",
+	},
+} as const;
+
+export function workerPlaceGuidance(): string {
+	return `Assigned places are built-in worker information, not custom properties to add. Forms read the primary place with ${workerPlaceReadings.primaryPlace.formExpression}; record expressions use ${workerPlaceReadings.primaryPlace.recordExpression}. For an operation that assigns ownership to the worker's primary place, use ${workerPlaceReadings.primarySharingGroup.recordExpression}. These values are empty without a worker assignment. Saved persona assignments and disposable test assignments supply them in Preview; real deployment assignments supply them on devices. The worker-information read returns these readings and the all-places list. Form readings have the same worker-record requirement as identity readings.`;
+}
+
 export const workerFormIdentityRequirement =
 	"Form worker readings use the worker's own CommCare record. The HQ project must include user cases and the worker must sync that record; otherwise reads can be blank. Preview supplies it but cannot establish target readiness. Record-scope session identity does not need that record.";
 

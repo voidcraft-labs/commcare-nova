@@ -89,6 +89,11 @@ Forms instead read built-in identity from the worker record through
 `#user/hq_user_id`, `#user/username` and `#user/case_name`. `workerIdentity.ts`
 projects these supported readings through the expressions guide and `getUsers`;
 its runtime check executes the returned expressions in both scopes.
+The same worker-information read exposes primary place, all assigned places and
+the primary case-sharing group in form and record scopes. Preview projects them
+from actual or disposable persona assignments; HQ supplies the corresponding
+worker case and session facts. Missing assignments remain empty. Location IDs
+are not new authored worker properties or a substitute for case-flow settings.
 An unknown property must never silently become an external metadata dependency.
 
 `messages.ts` gives automation messages the same literal escaping as form text.
