@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#658 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#659 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -111,18 +111,37 @@ commercial Preview journey. This required user prompting, so automatic recovery
 is still unproven. Independent Core testing then exposed lost clock precision in
 datetime operation writes. The correction in #659 passes the synthetic native
 corpus on both export paths and the repaired app’s two principal native
-submission journeys, including the commercial review clock. Release verification must also use the exact shipped revision; native
-submission checks do not establish physical-device or remote-HQ behavior.
+submission journeys, including the commercial review clock. The exact shipped
+compiler was then used to export and independently execute those paths again.
+Native submission checks do not establish physical-device or remote-HQ behavior.
 
 Live Builder inspection also confirmed that the final commercial journey is
 readable after its disposable records are removed. Its worker role and place
 assignment are labeled as test-only. Administrator impersonation was switched
 off after inspection; that observation does not replace ordinary-user coverage.
 
+A subsequent ordinary repair pass covered the remaining operational modules. It
+independently found more creation forms whose worker ownership prevented the next
+role from finding the saved record. Eight form replacements now use shared-place
+ownership. Independent Core checks cover their saved values and the two earlier
+farmer-to-contract paths at the later saved revision. These are submission checks,
+not proof that every operational workflow is coherent.
+
+Both new repair invocations reached the 80-step bound. The unfinished notice was
+visible and persisted in the conversation. A subsequent send stalled before a new
+run was committed; production connection timeouts and a failed server-rendered
+reload prevented further browser acceptance. A collection-history concern remains:
+the store form retains only the latest receipt values, so separate retained
+receipts and their downstream use have not been established. The repair has no
+final completed handoff. Preserve this gap rather than accepting supplied test
+records as proof that the app creates all required history.
+
 Remaining acceptance is substantive:
 
 - Complete and independently check the delivered-app repair, including usable
-  entry/setup guidance and registration, approval and contract handoffs.
+  entry/setup guidance, registration and approval handoffs, and retained collection
+  history through delivery and settlement. Recover and verify ordinary chat
+  continuation after the observed service failure.
 - Establish a fresh successful role-gated related-record build within an agreed
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing

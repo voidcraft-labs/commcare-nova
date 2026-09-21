@@ -492,3 +492,57 @@ The administrator's impersonation was switched off afterward. The journey
 viewer remains more technical than an ordinary user needs, including internal
 property names in saved-record detail; visibility of its evidence is not a full
 usability pass.
+
+
+## Remaining operational workflows
+
+After #659 deployed, the exact merged compiler exported the saved app again.
+Independent Core execution passed both principal farmer-to-contract paths,
+including retained clock precision. The later ordinary repair requested the
+remaining modules and signed-contract/post-signature work at the current saved
+revision, preserving scope, collected data and business-event history. This is
+operator-directed coverage using ordinary intent; it is not a fresh autonomous
+build trial.
+
+The agent found that other creation forms also assigned records to the individual
+worker. Its disposable test created a store as one role and could not select it
+as another role assigned to the same test place. It replaced eight creation forms
+using explicit shared-place ownership, kept their visible questions and removed
+the obsolete forms. A comparison by module and form name found that question
+content and constraints were retained; four hidden constants moved into literal
+operation writes. Independent Core checks of the later exported revision passed
+all eight replacement forms and the two earlier principal journeys, observing
+stored values, operational open state and ownership. Two initial private harness
+assertions were corrected for numeric text formatting and the advisory's actual
+property name; no app correction was needed for those failures. These checks do
+not establish full native navigation, restore, offline behavior or remote HQ.
+
+The agent's two additional edit invocations each reached 80 model calls. Both
+showed the unfinished-turn notice, which was also present in the persisted
+thread. At that checkpoint the current repair conversation totaled 450 model
+calls, 488 tools, 66,358,247 input and 100,185 output tokens, 64,891,494 cache-read
+and 1,000,662 cache-write tokens, costing $1.761436. Including the two earlier
+repair conversations, measured repair spend was $3.563642. These are cumulative
+checkpoints, not amounts to add to the earlier totals. During production database
+connection failures, step-event logs were incomplete relative to the final run
+summary; the figures above use that authoritative summary.
+
+The remaining test reached creation and cross-role selection of operational
+records and exercised delivery grading and confirmation. It did not produce a
+final handoff. The agent also recognized that its attempted collection-ledger
+operation lacked the required parent and removed that attempted operation. The
+remaining store form overwrites latest-receipt properties; separate retained
+receipts and their downstream use remain unresolved. Successful testing with a
+supplied contract or receipt cannot prove that the app itself creates that state.
+
+A further ordinary continuation stalled at Sending message. A read-only thread
+check showed no active stream and no committed new user message. Production
+logged database connection timeouts, including authentication reads. Reloading
+then failed with [React error 441](https://react.dev/errors/441), the production
+wrapper for a Server Components render error. Browser automation also timed out during recovery; native fallback
+required unavailable operating-system permissions. These are observed failures,
+not a proved single root cause or an accepted browser result. No duplicate send,
+operator app mutation, infrastructure resize or database restart was used to
+force completion. The final read-only data scan completed after the slowdown: three worker records,
+no business records, no populated generic audit properties and no set-aside
+values. Ordinary continuation and browser acceptance remain open.
