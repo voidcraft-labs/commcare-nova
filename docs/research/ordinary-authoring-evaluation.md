@@ -696,8 +696,8 @@ requests were consumed, so remaining dollars do not authorize another request.
 
 The control discovered and executed a deferred read tool. Forced compaction
 returned an opaque checkpoint. Continuation from Nova's projected history
-rediscovered and executed that read tool, then discovered and executed a second
-validation tool. Continuation with full history directly called the previously
+discovered both tools again and executed the read followed by the validation
+tool. Continuation with full history directly called the previously
 loaded tool and discovered/executed the second. Each continuation was bounded at
 two tool steps; their actual results, rather than a final narrative, establish
 this limited callability observation.
