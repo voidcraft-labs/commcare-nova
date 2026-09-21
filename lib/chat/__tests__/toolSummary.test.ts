@@ -173,7 +173,8 @@ describe("configureConnect transcript row", () => {
 			output: { error: "A non-null mode requires participants." },
 		} as ToolUIPart;
 		expect(toolAction(refused)).toBe("Configuring CommCare Connect");
-		expect(toolDetail(refused)).toBe("A non-null mode requires participants.");
+		expect(toolDetail(refused)).not.toContain("mode");
+		expect(toolStatus(refused)).toBe("failed");
 	});
 });
 
@@ -255,18 +256,6 @@ describe("generateSchema transcript row", () => {
 		expect(toolAction(part)).toBe("Recorded the data model");
 		expect(toolLocation(part)).toBe("patient, visit, referral");
 		expect(toolDetail(part)).toBeNull();
-	});
-
-	it("surfaces a refused schema commit as its error text", () => {
-		const refused = {
-			type: "tool-generateSchema",
-			toolCallId: "call_1",
-			state: "output-available",
-			input: {},
-			output: { error: "Nothing was recorded — …" },
-		} as ToolUIPart;
-		expect(toolAction(refused)).toBe("Recording the data model");
-		expect(toolDetail(refused)).toBe("Nothing was recorded — …");
 	});
 
 	it("keeps planning-era parts out of the change summary — they wrote nothing", () => {
@@ -359,4 +348,33 @@ it("counts only completed changes in mixed inspection, no-op and refused activit
 			} as ToolUIPart,
 		]),
 	).toBe("1 change");
+});
+
+// Diagnostics must remain available to the agent without leaking their internal
+// vocabulary through either of the two tool failure envelopes.
+it.each([
+	["reorderCaseListColumns", "change"],
+	["evaluateForm", "check"],
+	["unregisteredHistoricalTool", "check"],
+])("separates %s diagnostics from its user-facing failure", (name, action) => {
+	const diagnostic =
+		"Found 9 entries; supply every uuid exactly once: internal-id";
+	const outputs = [
+		{ state: "output-error", errorText: diagnostic },
+		{ state: "output-available", output: { error: diagnostic } },
+		{ state: "output-available", output: { ok: false, message: diagnostic } },
+	] as const;
+	for (const envelope of outputs) {
+		const part = {
+			type: `tool-${name}`,
+			toolCallId: "refusal",
+			input: {},
+			...envelope,
+		} as ToolUIPart;
+		const before = JSON.stringify(part);
+		expect(toolStatus(part)).toBe("failed");
+		expect(toolDetail(part)).toContain(action);
+		expect(toolDetail(part)).not.toMatch(/uuid|internal-id|9 entries/);
+		expect(JSON.stringify(part)).toBe(before);
+	}
 });

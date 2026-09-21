@@ -417,24 +417,24 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	if (COMPLETION_TOOLS.has(toolName(part)) && toolStatus(part) === "done") {
 		return "App complete and ready to use.";
 	}
-	// A tool that threw, or whose input the schema rejected, surfaces as
-	// `output-error` with the AI SDK's raw `errorText` (e.g. an
-	// "AI_ToolExecutionError: …"). That text is recorded server-side — the run's
-	// event log plus a warn line, see `generationContext.ts`'s
-	// `handleAgentStep` — but must never face the user, so show a friendly line.
-	// (Tools that catch their own failures return a friendly `{ error }` string,
-	// handled just below — that path is intentionally preserved.)
-	if (part.state === "output-error")
-		return toolPresentation(toolName(part))?.kind !== "change"
-			? "This check couldn't be completed."
-			: "This change couldn't be applied.";
-
-	const out = part.output;
-	if (typeof out === "object" && out !== null && "error" in out) {
-		return String((out as { error: unknown }).error);
-	}
 	const presented = presentedResult(part);
 	if (presented?.detail) return presented.detail;
+	// Both thrown failures and returned errors are model-facing diagnostics.
+	// Only a typed presentation above may explain their cause in the transcript.
+	// Keep the original payload intact for the agent and recorded inspection.
+	const out = part.output;
+	if (
+		part.state === "output-error" ||
+		(typeof out === "object" &&
+			out !== null &&
+			(("error" in out && out.error !== undefined) ||
+				("ok" in out && out.ok === false)))
+	) {
+		return toolPresentation(toolName(part))?.kind === "change"
+			? "This change couldn't be applied."
+			: "This check couldn't be completed.";
+	}
+
 	// Coordination results describe an unapplied change. Presentation belongs
 	// here rather than in the model-facing tool payload.
 	const mutationOutput = outputOf(part);
