@@ -67,4 +67,13 @@ role switching, then exercise state transitions and persistent effects. Isolated
 journey results show the recorded Preview/Postgres behavior only. Use independent
 CommCare consumers for relevant wire claims and record remaining device/offline,
 media and external-service uncertainties. A green review or clean CI is not an
-acceptance verdict. No paid results have been recorded yet.
+acceptance verdict. The initial development attempt stopped after planning. The same-request retry
+entered construction and exercised its lending journey, but the legacy harness
+stopped before peer review because it priced all cached input as uncached. Its
+46 calls reported $1.975 on the production rate card, while the old conservative
+ledger consumed $12.134 before a further reservation could fit. That interrupted
+attempt is retained. Known cache usage is now settled using the production rate
+card with a 25% margin; missing/inconsistent cache details keep the conservative
+price, and unknown calls retain their full reservation. The per-call worst-case
+reservation and total approved budgets remain unchanged. Held-out outcomes and
+completion of the development app are still unestablished.

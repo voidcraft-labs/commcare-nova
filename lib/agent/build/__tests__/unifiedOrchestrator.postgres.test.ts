@@ -447,7 +447,7 @@ it.each([
 					});
 					expect(states).toHaveLength(1);
 					expect(states[0]).toMatchObject({
-						phase: "building",
+						appSaved: interruption !== "staged-work",
 						planRevision: 2,
 						plan: expect.stringContaining("both required"),
 						workspace: {
