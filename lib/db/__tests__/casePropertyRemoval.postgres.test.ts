@@ -14,7 +14,7 @@ const OWNER = "cleanup-owner";
 const PROJECT = "cleanup-project";
 const h = setupAppStateTestDb("property_removal_", { poolMax: 4 });
 
-async function fixture() {
+async function fixture(withWriter = false) {
 	const doc = buildDoc({
 		caseTypes: [
 			{
@@ -38,6 +38,15 @@ async function fixture() {
 						name: "Add item",
 						type: "registration",
 						fields: [
+							...(withWriter
+								? [
+										f({
+											kind: "text",
+											id: "unused_value",
+											caseWrite: { caseType: "item", property: "unused" },
+										}),
+									]
+								: []),
 							f({
 								kind: "text",
 								id: "name",
@@ -117,6 +126,44 @@ describe("unused property removal at the canonical transaction", () => {
 					.executeTakeFirstOrThrow()
 			).properties,
 		).toEqual({ keep: "Collected value" });
+	});
+
+	it("preserves a writer-derived property's schema and saved values when only its catalog annotation is removed", async () => {
+		const x = await fixture(true);
+		await x.insert({
+			unused: "Collected before another author removes its annotation",
+		});
+		const before = await x.db
+			.selectFrom("case_type_schemas")
+			.select("schema")
+			.where("app_id", "=", x.appId)
+			.where("case_type", "=", "item")
+			.executeTakeFirstOrThrow();
+		const result = await x.remove();
+		expect(
+			result.committedDoc.caseTypes
+				?.find((type) => type.name === "item")
+				?.properties.map((property) => property.name),
+		).not.toContain("unused");
+		expect(
+			await x.db
+				.selectFrom("case_type_schemas")
+				.select("schema")
+				.where("app_id", "=", x.appId)
+				.where("case_type", "=", "item")
+				.executeTakeFirstOrThrow(),
+		).toEqual(before);
+		expect(
+			(
+				await x.db
+					.selectFrom("cases")
+					.select("properties")
+					.where("app_id", "=", x.appId)
+					.executeTakeFirstOrThrow()
+			).properties,
+		).toEqual({
+			unused: "Collected before another author removes its annotation",
+		});
 	});
 
 	it("rolls the storage contract back when a later canonical write fails", async () => {

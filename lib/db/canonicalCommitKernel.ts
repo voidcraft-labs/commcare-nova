@@ -43,7 +43,6 @@ import {
 	withSchemaContext,
 } from "@/lib/case-store";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
-import { isStandardCaseListProperty } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -999,9 +998,15 @@ export async function commitCanonicalBatch(
 		for (const mutation of mutations) {
 			if (mutation.kind !== "removeCaseProperty") continue;
 			const effectiveType = removalSchemas?.get(mutation.caseType);
-			// Built-in metadata survives annotation removal. Whole-type
-			// retirement has its own retained storage schema.
-			if (!effectiveType || isStandardCaseListProperty(mutation.property))
+			// Removing a catalog annotation can leave a writer-derived or
+			// built-in property effective. Its storage contract survives; whole-type
+			// retirement also has its own retained schema.
+			if (
+				!effectiveType ||
+				effectiveType.properties.some(
+					(property) => property.name === mutation.property,
+				)
+			)
 				continue;
 			// Inspect the freshly admitted result, so a concurrent writer or read
 			// cannot be erased using a stale tool snapshot.
