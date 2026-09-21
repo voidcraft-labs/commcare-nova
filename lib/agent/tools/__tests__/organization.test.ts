@@ -2,6 +2,7 @@
  * return controlled authorized snapshots/receipts; revision arguments and
  * confirmation forwarding here do not prove SQL locks or token enforcement. */
 
+import type { ToolUIPart } from "ai";
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { describe, expect, it, vi } from "vitest";
@@ -13,6 +14,12 @@ import {
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
+import {
+	toolAction,
+	toolDetail,
+	toolRunLabel,
+	toolStatus,
+} from "@/lib/chat/toolSummary";
 import { CommitReauthError } from "@/lib/db/commitGuard";
 import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import * as organizationService from "@/lib/organization/service";
@@ -491,14 +498,36 @@ describe("organization authoring tools", () => {
 			},
 		});
 		expect(write).not.toHaveBeenCalled();
+		const part = {
+			type: "tool-setLocationArchived",
+			toolCallId: "archive",
+			state: "output-available",
+			input: { expectedRevision: "9" },
+			output: preflight.data,
+		} as ToolUIPart;
+		expect(toolRunLabel([part])).toBe("1 activity");
+		expect(toolAction(part)).not.toContain("Updated");
+		expect(toolDetail(part)).toContain("Nothing has changed");
+		expect(toolDetail(part)).not.toMatch(
+			/confirm=true|expectedRevision|confirmedImpact/,
+		);
+		const blocked = {
+			...part,
+			output: { ...preflight.data, confirmationRequired: false, blocked: true },
+		} as ToolUIPart;
+		expect(toolStatus(blocked)).toBe("failed");
+		expect(toolDetail(blocked)).toContain("Nothing has changed");
 
-		await h.runTool(setLocationArchivedTool, {
+		const saved = await h.runTool(setLocationArchivedTool, {
 			locationUuid,
 			archived: true,
 			expectedRevision: "9",
 			confirm: true,
 			confirmedImpact: impact,
 		});
+		expect(toolRunLabel([{ ...part, output: saved.data } as ToolUIPart])).toBe(
+			"1 change",
+		);
 		expect(write).toHaveBeenCalledWith(
 			expect.anything(),
 			locationUuid,
@@ -523,6 +552,20 @@ describe("organization authoring tools", () => {
 		});
 		expect(result).toMatchObject({ kind: "read", data: { revision: "11" } });
 		expect(result.data).not.toHaveProperty("result");
+		const part = {
+			type: "tool-setLocationArchived",
+			toolCallId: "archive",
+			state: "output-available",
+			input: { expectedRevision: "10" },
+			output: result.data,
+		} as ToolUIPart;
+		expect(toolRunLabel([part])).toBe("1 change");
+		const unchanged = {
+			...part,
+			input: { expectedRevision: "11" },
+		} as ToolUIPart;
+		expect(toolRunLabel([unchanged])).toBe("1 activity");
+		expect(toolAction(unchanged)).toBe("Nothing to change");
 	});
 
 	it("rejects a continuation cursor after the organization revision changes", async () => {

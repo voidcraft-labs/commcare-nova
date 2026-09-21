@@ -2,7 +2,9 @@
  * Real carrier preflight and purge sequencing run; mocked lock callbacks make
  * no concurrency/SQL/GCS durability claim. */
 
+import type { ToolUIPart } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { toolRunLabel } from "@/lib/chat/toolSummary";
 import type { ListAppsResult } from "@/lib/db/apps";
 import { RunHolderLostError } from "@/lib/db/commitGuard";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
@@ -152,6 +154,17 @@ describe("removeMediaAsset", () => {
 			throw new Error(`unexpected error: ${result.data.error}`);
 		}
 		expect(result.data.removed).toBe(true);
+		expect(
+			toolRunLabel([
+				{
+					type: "tool-removeMediaAsset",
+					toolCallId: "delete",
+					state: "output-available",
+					input: removeInput(assetId),
+					output: result.data,
+				} as ToolUIPart,
+			]),
+		).toBe("1 change");
 		expect(hasOtherAssetForGcsObjectKey).toHaveBeenCalledWith(
 			"projects/project-1/authoritative-deleted-row.png",
 			assetId,

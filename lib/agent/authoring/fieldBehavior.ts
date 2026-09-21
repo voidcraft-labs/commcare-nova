@@ -25,7 +25,7 @@ export function effectiveFieldBehavior(doc: BlueprintDoc, field: Field) {
 		return undefined;
 	const write = fieldCaseWrite(field);
 	const preload = writerPreloadsFromLoadedCase(field, module, form);
-	const calculated = field.kind === "hidden";
+	const calculated = field.kind === "hidden" && field.calculate !== undefined;
 	const initialValue = calculated
 		? { source: "calculation" as const }
 		: preload && write

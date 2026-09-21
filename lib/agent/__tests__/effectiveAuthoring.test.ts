@@ -29,6 +29,18 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 							label: "Note",
 							default_value: "'Check the label'",
 						},
+						{ kind: "hidden", id: "once", default_value: "'entry value'" },
+						{
+							kind: "hidden",
+							id: "computed",
+							calculate: "concat(#form/condition, '!')",
+						},
+						{
+							kind: "hidden",
+							id: "saved",
+							default_value: "'fallback'",
+							caseWrite: { caseType: "equipment", property: "saved" },
+						},
 					],
 				},
 			],
@@ -63,13 +75,22 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 					},
 				},
 				{ id: "note", initialValue: { source: "configured-default" } },
+				{ id: "once", initialValue: { source: "configured-default" } },
+				{ id: "computed", initialValue: { source: "calculation" } },
+				{
+					id: "saved",
+					initialValue: { source: "selected-record", property: "saved" },
+				},
 			],
 		},
 		answerWrites: [
 			{
 				caseType: "equipment",
 				action: "update",
-				answers: [{ path: "condition", property: "condition" }],
+				answers: [
+					{ path: "condition", property: "condition" },
+					{ path: "saved", property: "saved" },
+				],
 			},
 		],
 	});
@@ -77,7 +98,10 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 	const form = Object.values(doc.forms).find((f) => f.name === "Inspect");
 	const identity = previewAsMe({ id: "reviewer" }, doc);
 	if (!form || !identity) throw new Error("Incomplete fixture");
-	const examples: Record<string, string>[] = [{ condition: "worn" }, {}];
+	const examples: Record<string, string>[] = [
+		{ condition: "worn", saved: "earlier" },
+		{},
+	];
 	for (const properties of examples) {
 		const result = await evaluateForm(
 			doc,
@@ -101,6 +125,15 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 					value: properties.condition ?? "",
 				}),
 				expect.objectContaining({ path: "note", value: "Check the label" }),
+				expect.objectContaining({ path: "once", value: "entry value" }),
+				expect.objectContaining({
+					path: "computed",
+					value: `${properties.condition ?? ""}!`,
+				}),
+				expect.objectContaining({
+					path: "saved",
+					value: properties.saved ?? "",
+				}),
 			]),
 		);
 	}

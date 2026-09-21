@@ -268,6 +268,20 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 		: null;
 };
 
+/** Read the operation's actual external-service result contract when it has one. */
+const presentedResult = (part: ToolUIPart) => {
+	if (
+		part.state !== "output-available" ||
+		!part.output ||
+		typeof part.output !== "object"
+	)
+		return undefined;
+	return toolPresentation(toolName(part))?.result?.(
+		part.output as Record<string, unknown>,
+		part.input,
+	);
+};
+
 /** Tools whose OUTCOME is `{ success, errors? }` — both retired, both
  *  still present on threads persisted before their retirement. */
 const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp"]);
@@ -306,6 +320,7 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	if (
 		output?.ok === false ||
 		output?.error !== undefined ||
+		presentedResult(part)?.effect === "blocked" ||
 		output?.outcome === "needs_changes"
 	) {
 		return "failed";
@@ -324,6 +339,8 @@ export const toolAction = (part: ToolUIPart): string => {
 		toolStatus(part) === "done" ? "done" : "doing";
 	const output = outputOf(part);
 	const summary = output?.summary;
+	const presented = presentedResult(part);
+	if (presented?.action) return presented.action;
 	// A consent round changed nothing on purpose — "Updated field" would
 	// lie about an edit that's waiting on the user's answer. What the
 	// call DID do (count the conversion's impact) carries the row.
@@ -333,7 +350,12 @@ export const toolAction = (part: ToolUIPart): string => {
 	// A verified no-op changed nothing on purpose: the verb must say so. The
 	// case-selection tool carries that fact in its typed outcome rather than the
 	// generic summary because MCP callers branch on the same result.
-	if (tense === "done" && (summary?.noop || output?.outcome === "unchanged")) {
+	if (
+		tense === "done" &&
+		(summary?.noop ||
+			output?.outcome === "unchanged" ||
+			presented?.effect === "unchanged")
+	) {
 		return "Nothing to change";
 	}
 	if (
@@ -411,6 +433,8 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
 	}
+	const presented = presentedResult(part);
+	if (presented?.detail) return presented.detail;
 	// Coordination results describe an unapplied change. Presentation belongs
 	// here rather than in the model-facing tool payload.
 	const mutationOutput = outputOf(part);
@@ -450,13 +474,16 @@ export const runStatus = (parts: ToolUIPart[]): ToolStatus => {
 export function toolRunLabel(parts: readonly ToolUIPart[]): string {
 	const changes = parts.filter((part) => {
 		const output = outputOf(part);
+		const presented = presentedResult(part);
 		return (
 			toolPresentation(toolName(part))?.kind === "change" &&
 			toolStatus(part) === "done" &&
-			(output?.ok === true || output?.outcome === "applied") &&
-			!output.summary?.noop &&
-			!output.summary?.awaitingConsent &&
-			output.outcome !== "unchanged"
+			(presented
+				? presented.effect === "changed"
+				: output?.ok === true || output?.outcome === "applied") &&
+			!output?.summary?.noop &&
+			!output?.summary?.awaitingConsent &&
+			output?.outcome !== "unchanged"
 		);
 	}).length;
 	const activities = parts.length - changes;

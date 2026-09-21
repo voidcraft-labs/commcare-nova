@@ -6,6 +6,15 @@ export interface ToolPresentation {
 	readonly doing: string;
 	readonly done: string;
 	readonly detail?: string;
+	readonly result?: (
+		output: Readonly<Record<string, unknown>>,
+		input: unknown,
+	) => ToolPresentationResult | undefined;
+}
+export interface ToolPresentationResult {
+	readonly effect: "changed" | "unchanged" | "confirmation" | "blocked";
+	readonly action?: string;
+	readonly detail?: string;
 }
 const read = (doing: string, done: string, detail?: string) => ({
 	kind: "read" as const,
@@ -13,11 +22,48 @@ const read = (doing: string, done: string, detail?: string) => ({
 	done,
 	...(detail && { detail }),
 });
-const change = (doing: string, done: string) => ({
+const change = (
+	doing: string,
+	done: string,
+	result?: ToolPresentation["result"],
+) => ({
 	kind: "change" as const,
 	doing,
 	done,
+	...(result && { result }),
 });
+/** Organization row services return revisions, not blueprint mutation results.
+ * Their revision advances only when the transaction changes the tree. */
+const placeResult: NonNullable<ToolPresentation["result"]> = (
+	output,
+	input,
+) => {
+	if (typeof output.revision !== "string") return undefined;
+	const prior =
+		input && typeof input === "object" && "expectedRevision" in input
+			? input.expectedRevision
+			: undefined;
+	return { effect: output.revision === prior ? "unchanged" : "changed" };
+};
+const archiveResult: NonNullable<ToolPresentation["result"]> = (
+	output,
+	input,
+) => {
+	if (output.blocked === true)
+		return {
+			effect: "blocked",
+			action: "Place availability needs attention",
+			detail:
+				"A record-owner rule or automation still uses this place. Nothing has changed.",
+		};
+	if (output.confirmationRequired === true)
+		return {
+			effect: "confirmation",
+			action: "Checked archive impact",
+			detail: "The archive is awaiting confirmation. Nothing has changed.",
+		};
+	return placeResult(output, input);
+};
 export const SHARED_TOOL_PRESENTATION = {
 	getAuthoringGuide: read(
 		"Reading authoring guidance",
@@ -144,7 +190,9 @@ export const SHARED_TOOL_PRESENTATION = {
 	setMenuMedia: change("Setting menu media", "Set menu media"),
 	setAppLogo: change("Updating app logo", "Updated app logo"),
 	listMediaAssets: read("Reading media", "Read media"),
-	removeMediaAsset: change("Removing media", "Removed media"),
+	removeMediaAsset: change("Removing media", "Removed media", (output) =>
+		output.removed === true ? { effect: "changed" } : undefined,
+	),
 	getUsers: read("Inspecting users", "Inspected users"),
 	getOrganization: read("Reading organization", "Read organization"),
 	addOrganizationLevels: change(
@@ -171,12 +219,13 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Removing place information",
 		"Removed place information",
 	),
-	createLocation: change("Adding place", "Added place"),
-	updateLocation: change("Updating place", "Updated place"),
-	moveLocation: change("Moving place", "Moved place"),
+	createLocation: change("Adding place", "Added place", placeResult),
+	updateLocation: change("Updating place", "Updated place", placeResult),
+	moveLocation: change("Moving place", "Moved place", placeResult),
 	setLocationArchived: change(
 		"Updating place availability",
 		"Updated place availability",
+		archiveResult,
 	),
 	addUserProperties: change(
 		"Adding worker information",
