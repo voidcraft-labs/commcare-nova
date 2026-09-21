@@ -238,7 +238,7 @@ export function HomeScreen() {
 								<div className="font-medium text-nova-text group-hover:text-pv-accent-bright transition-colors">
 									{localizedModuleName}
 								</div>
-								{mod.caseType && (
+								{mode === "edit" && mod.caseType && (
 									<Badge variant="muted" className="mt-1">
 										{mod.caseType}
 									</Badge>

@@ -1054,3 +1054,6 @@ Interactive Preview numbers rendered siblings within each container.
 using the same concrete repeat paths as field controls. Its shallow UUID projection
 does not publish value-only updates. Retained field and repeat-instance keys keep
 input identity stable as conditional siblings appear or disappear.
+
+The running home screen shows authored module names. Internal case-type badges
+belong only to edit mode; they are not worker instructions or record labels.
