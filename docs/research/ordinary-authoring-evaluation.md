@@ -454,5 +454,28 @@ The two silent 80-step stops have a separate deterministic correction in #658:
 a clean edit ending on a tool at its allowance appends an unfinished-turn notice
 before the held finish. A real SDK/loopback-provider/Postgres test reaches the
 actual limit and checks the live stream, durable chunks, final thread, retained
-mutation and released holder. All 24 neighboring lifecycle tests pass. The notice
+mutation and released holder. All 25 lifecycle tests pass, including a complete final answer accompanied by hosted
+discovery on the last allowed step. The notice
 adds no model call and does not label a bounded stop as successful completion.
+
+
+A further ordinary continuation recovered tool access without a product change
+or expert instruction. It removed the obsolete wording, completed commercial
+registration through Head approval, independently noticed a timestamp overwrite,
+removed the duplicate answer write, and reran that journey. The final handoff
+names both recorded journeys and their deployment/native limitations. The fresh
+conversation totals are now 290 model calls, 320 tools, 35,488,157 input and 67,489
+output tokens, 34,510,146 cache-read and 588,093 cache-write tokens, costing
+$0.996197. Total measured delivered-app repair cost is $2.798403. The failed
+discovery response remains a failure of automatic continuation; recovery after a
+user message does not erase it.
+
+A stronger independent datetime check found a remaining export defect despite
+Preview's corrected full timestamp. Core's `Recalculate.wrapData` turns a
+calculated Java Date into `DateData` unless the destination bind requests
+`DATATYPE_DATE_TIME` (or time). Operation update leaves lacked a bind type, so
+`now()` lost clock precision in serialization even when the destination property
+was declared datetime. Earlier native checks asserted presence and retention,
+not precision, and therefore did not establish this requirement. A synthetic
+create/update counterexample and an export correction are being prepared; the
+app's full-time claim is not yet accepted as native behavior.

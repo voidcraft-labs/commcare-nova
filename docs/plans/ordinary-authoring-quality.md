@@ -105,9 +105,11 @@ requested commercial coverage. Two edit invocations stopped at the step bound
 without a final answer; a durable unfinished-turn notice is under review in #658.
 A later response emitted an automatic compaction checkpoint, then repeatedly
 returned empty hosted tool-search results for previously used tools. It ended
-with an incomplete commercial Preview check and remaining obsolete wording. The
-root cause and recovery of that discovery failure need evidence; do not present
-the native checks as a successful agent handoff.
+with an incomplete commercial Preview check and remaining obsolete wording. A
+normal continuation restored tool access, removed that wording and completed the
+commercial Preview journey. This required user prompting, so automatic recovery
+is still unproven. Independent Core testing then exposed lost clock precision in
+datetime operation writes; export correction and native rechecking remain open.
 
 Remaining acceptance is substantive:
 
