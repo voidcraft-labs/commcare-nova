@@ -299,6 +299,32 @@ successful. This is a missed conclusion despite available state evidence, rather
 than the earlier runtime masking defect. The run remains a failed autonomous
 repair outcome.
 
+### Empty-start repair and remaining observation gaps
+
+After safe catalog cleanup became available, an ordinary request removed eight
+unused definitions and exercised first-record creation with no supplied business
+records. The editor discovered that its app-created parent remained worker-owned,
+so another role could not select it. It guessed an undeclared worker location key,
+removed an unsuccessful ownership change and reported that boundary. This is
+better evidence than the earlier supplied parent, but still an incomplete repair.
+The invocation stopped at its 80-call bound during a separate approval checkpoint.
+The durable run totals 299 model calls, 478 tool calls and $1.252716; these include
+the preceding 219 calls. Input/output tokens total 43,562,272 / 114,250, with
+42,416,960 cache-read and 764,287 cache-write tokens. Detailed events cover
+297 calls, retaining the same
+two-call gap. The earlier interrupted repair remains separate.
+
+Source inspection found that the existing worker tool omitted built-in place
+readings already supported by HQ and Preview. The updated projection makes those
+readings discoverable and explains their form/record scopes; an empty-entry
+Postgres journey proves creation with the advertised sharing expression. The
+recorded form observations also exposed retained defaults on excluded questions
+as ordinary values. That ambiguity could encourage a mistaken conclusion about
+saved state, though it does not establish the agent's cause. Observations now
+separate participation from visibility and retained answers from usable values.
+The recorded submission still omitted the required initial business status;
+these product corrections do not make the earlier app or judgment pass.
+
 ### Anatomy browser audit
 
 The local browser showed current prompt/catalog composition separately from
@@ -321,6 +347,11 @@ now replace that URL with app entry. A production-build Playwright journey
 switches away from a gated form, verifies the new worker's menu, and reopens
 with cleared answers; the two neighboring recovery/navigation checks also pass.
 This changes the simulated worker's entry, not the actor's Project authorization.
+Hosted CI also caught an intermittent ResizeObserver notification in the existing
+case-workspace filter interaction. That test passed its automatic retry, but the
+strict browser-error gate correctly kept the job red. The original failure is
+retained separately from the worker-switch checks; its precise layout source is
+not established, and no error assertion was weakened.
 
 The delivered app's ordinary entry reaches first-record cluster registration
 and displays its deployment-place guidance. Its recorded handoff instead began

@@ -33,6 +33,11 @@ real Preview picker formatter. Invalid supplied coordinate values are input
 refusals, distinct from the form's authored validation. These checks do not
 exercise a map service or device GPS.
 
+Question observations distinguish participation from visibility. Included hidden
+calculations have values; excluded questions report only a retained answer,
+which is not a value available to expressions or submission. Saved submission
+effects, rather than retained answers, establish record changes.
+
 For a narrower question, `evaluateForm` evaluates one form without a transaction.
 Its optional scenario supplies test records and parent relationships without
 storing them, allowing follow-up forms and record-dependent rules to be exercised

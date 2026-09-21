@@ -220,10 +220,18 @@ export async function evaluateFormSnapshot(
 									projectProseTemplate(option.label, doc).text,
 							}))
 						: undefined);
+				const observedAnswer: {
+					value?: typeof value;
+					retainedValue?: typeof value;
+				} = relevant ? { value } : { retainedValue: value };
 				return {
 					path: path.replace(/^\/data\//, ""),
 					kind,
-					value,
+					// A retained answer on an excluded question is not a usable
+					// expression/submission value. Hidden calculated fields, unlike
+					// non-relevant questions, still participate in the form.
+					participates: relevant,
+					...observedAnswer,
 					visible: relevant && kind !== "hidden",
 					required: relevant && required,
 					valid: !relevant || valid,

@@ -62,8 +62,8 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#655 are merged; plugin 1.34.0 followed compatible
-Nova deployment. The production privilege migration in #655 passed after a
+Nova PRs #646, #647, #649–#656 are merged and deployed. Plugin 1.34.0
+and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
 
@@ -95,8 +95,13 @@ follow-up with corrected relevance observations fixed the completion instruction
 and contract ownership. It still missed absent business state after registration
 and approval, now visible in both Preview and native execution. That failure
 remains; the next repair must use ordinary business intent rather than expert
-expressions or hidden context. Safe unused catalog cleanup is in review; it
-must preserve collected and set-aside values.
+expressions or hidden context. Safe unused catalog cleanup is deployed. Its canonical transaction refuses
+removal when live or set-aside values exist, including blank values; independent
+Postgres checks cover concurrent writes and rollback. The ordinary repair removed eight definitions. Its empty-start check found
+worker-owned parent creation blocking the next role and stopped during a separate
+approval checkpoint at the normal call bound. Worker-place readings and question
+participation are now exposed more clearly; the saved app still needs correction
+and an independently checked handoff.
 
 Remaining acceptance is substantive:
 
