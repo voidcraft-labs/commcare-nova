@@ -9,6 +9,7 @@ import {
 	persistModelMessage,
 	rehydrateModelMessage,
 } from "@/lib/agent/modelMessagePersistence";
+import { withoutModelCompaction } from "@/lib/chat/compaction";
 import { CommitReauthError, RunHolderLostError } from "@/lib/db/commitGuard";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { getCurrentPeriod } from "@/lib/db/period";
@@ -51,7 +52,7 @@ export interface DesignModelContextState {
 	 * response, for architect recovery. Provider-contract rollovers can
 	 * append reseeds or state without making another provider call; those
 	 * item-only generations must not hide the response that still proves an
-	 * outer pause or correction a killed process did not record. Peer reviews start from current source, plan and app. */
+	 * outer pause or correction a killed process did not record. The peer retains its own earlier investigation across reviews; current source, plan and app revisions arrive as a new review message. */
 	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly appendKeys: ReadonlySet<string>;
 	/** Server protocol provenance retained across immutable generations. */
@@ -202,6 +203,9 @@ async function readLatestPredecessorItems(
 		readonly context_kind: string;
 		readonly context_version: string;
 		readonly generation: number;
+		readonly model_id: string;
+		readonly prompt_version: string;
+		readonly toolset_digest: string;
 	},
 ): Promise<DesignModelContextItem[]> {
 	const predecessor = await tx
@@ -211,7 +215,13 @@ async function readLatestPredecessorItems(
 			"item.context_id",
 			"context.id",
 		)
-		.select("context.id")
+		.select([
+			"context.id",
+			"context.model_id",
+			"context.prompt_version",
+			"context.toolset_digest",
+			"context.context_version",
+		])
 		.where("context.design_session_id", "=", context.design_session_id)
 		.where("context.context_kind", "=", context.context_kind)
 		.$if(context.context_kind === "translator", (q) =>
@@ -221,7 +231,20 @@ async function readLatestPredecessorItems(
 		.orderBy("context.generation", "desc")
 		.limit(1)
 		.executeTakeFirst();
-	return predecessor === undefined ? [] : readItems(tx, predecessor.id);
+	if (predecessor === undefined) return [];
+	const items = await readItems(tx, predecessor.id);
+	const compatible =
+		predecessor.model_id === context.model_id &&
+		predecessor.prompt_version === context.prompt_version &&
+		predecessor.toolset_digest === context.toolset_digest &&
+		(context.context_kind === "peer" ||
+			predecessor.context_version === context.context_version);
+	return compatible
+		? items
+		: items.flatMap((item) => {
+				const message = withoutModelCompaction(item.message);
+				return message === null ? [] : [{ ...item, message }];
+			});
 }
 
 const optionalTokenCount = z.number().int().nonnegative().optional();
@@ -553,7 +576,7 @@ export async function openDesignModelContext(
 				? new Set(appendKeys)
 				: await readAppendKeysThroughGeneration(tx, row);
 		const predecessorItems =
-			spec.kind === "architect" && generation > 0
+			spec.kind !== "translator" && generation > 0
 				? await readLatestPredecessorItems(tx, row)
 				: [];
 		return {

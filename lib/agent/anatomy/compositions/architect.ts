@@ -26,7 +26,7 @@ function composition(role: "architect" | "peer"): RoleComposition {
 	const moments: readonly MomentSpec[] = (
 		role === "architect"
 			? ["planning", "building", "recorded"]
-			: ["review", "recorded"]
+			: ["review", "app-review", "recorded"]
 	).map((id) => ({
 		id,
 		label:
@@ -35,11 +35,13 @@ function composition(role: "architect" | "peer"): RoleComposition {
 				: id === "building"
 					? "Building"
 					: id === "review"
-						? "Independent review"
-						: "Planning",
+						? "Design review"
+						: id === "app-review"
+							? "Saved-app review"
+							: "Planning",
 		why:
 			id === "recorded"
-				? "Actual persisted messages alongside today's prompt and tool catalog. Recorded usage belongs to the original calls."
+				? "Actual persisted messages, including the peer's retained earlier investigation, alongside today's prompt and tool catalog. Recorded usage belongs to the original calls; retained messages are input on later calls."
 				: "The current production prompt and complete tool catalog for this phase. Deferred definitions are counted separately from initially loaded definitions.",
 		needs: id === "recorded" ? ["design-session"] : [],
 		source,
@@ -79,7 +81,11 @@ function composition(role: "architect" | "peer"): RoleComposition {
 						architectToolDefinitions({
 							role,
 							building,
-							hasApp: building || inputs.app !== undefined,
+							hasApp:
+								building ||
+								momentId === "app-review" ||
+								momentId === "recorded" ||
+								inputs.app !== undefined,
 						}),
 					),
 					source: {
@@ -87,8 +93,8 @@ function composition(role: "architect" | "peer"): RoleComposition {
 						symbol: "architectToolDefinitions",
 					},
 					note:
-						momentId === "recorded" && role === "architect"
-							? "Today's full construction catalog, including deferred and post-birth tools. Original loaded definitions may differ; this catalog is not a reconstruction of the recorded request."
+						momentId === "recorded"
+							? "Today's full saved-app catalog for this role, including deferred tools. Original loaded definitions may differ; this catalog is not a reconstruction of the recorded request."
 							: "Complete current catalog for this phase, including deferred definitions.",
 				}),
 			];

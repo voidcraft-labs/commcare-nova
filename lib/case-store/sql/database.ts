@@ -98,14 +98,12 @@ export interface CasesTable {
 	project_id: string;
 
 	/**
-	 * The CommCare case-owner — Nova's reserved axis for future
-	 * location-/group-based access carving, NOT the tenant boundary
-	 * (that is `project_id`). Defaults to the creating user; nothing
-	 * filters on it today (locations unimplemented), but it is a
-	 * first-class field reserved for that access-control axis, never to
-	 * be repurposed or dropped. Nullable — HQ-imported cases
-	 * pre-assignment carry null. Stays a queryable reserved scalar
-	 * column (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`).
+	 * The CommCare case-owner, separate from the Project tenant boundary.
+	 * Worker restore uses this value with worker/location assignments and
+	 * relationship dependencies to derive the device's available records.
+	 * Defaults to the creating worker; ownership is not creator/modifier history.
+	 * Nullable for imported unassigned cases. Remains a queryable reserved
+	 * scalar column (`RESERVED_SCALAR_COLUMN_BY_PROPERTY`).
 	 */
 	owner_id: string | null;
 

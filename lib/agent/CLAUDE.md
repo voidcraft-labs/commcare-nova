@@ -114,7 +114,9 @@ mode. All calls stream; do not restore a blocking response path.
 
 Stable instructions and definitions precede changing app state. Ordinary edit
 turns place a request-local cache boundary before the volatile app snapshot;
-durable architect and peer histories preserve their growing prefix. A compatible
+durable architect and peer histories preserve their growing prefix. Peer review
+retains only its own investigation across corrections, with a fresh revision-bound
+review message and durable focus. It does not inherit private architect reasoning. A compatible
 provider compaction checkpoint replaces only the replay prefix, never the
 human-readable stored history. Prompt, model, toolset, and context versions
 control checkpoint compatibility. Keep completed tool results and reasoning

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
+import { estimateCost } from "@/lib/db/usage";
 import { completedPilotCharge, withPilotLedger } from "../authoringPilotLedger";
 
 it("keeps one owner across path aliases and releases ownership after failure", async () => {
@@ -55,4 +56,30 @@ it("keeps the reservation for absent or invalid provider usage, including partia
 			1,
 		),
 	).toEqual({ status: "completed", estimatedUsd: expect.closeTo(0.0015, 10) });
+});
+
+it("settles complete cache usage but never discounts incomplete or inconsistent usage", () => {
+	const usage = { inputTokens: 50_000, outputTokens: 100 };
+	const allInput = completedPilotCharge("gpt-5.6-sol", usage, 7);
+	const settled = completedPilotCharge(
+		"gpt-5.6-sol",
+		{
+			...usage,
+			inputTokenDetails: { cacheReadTokens: 48_000, cacheWriteTokens: 1000 },
+		},
+		7,
+	);
+	expect(settled.estimatedUsd).toBe(
+		estimateCost("gpt-5.6-sol", 50_000, 100, 48_000, 1000) * 1.25,
+	);
+	expect(settled.estimatedUsd).toBeLessThan(allInput.estimatedUsd);
+	for (const inputTokenDetails of [
+		{ cacheReadTokens: 48_000 },
+		{ cacheReadTokens: 50_000, cacheWriteTokens: 1 },
+		{ cacheReadTokens: -1, cacheWriteTokens: 1000 },
+		{ cacheReadTokens: 48_000, cacheWriteTokens: Number.NaN },
+	])
+		expect(
+			completedPilotCharge("gpt-5.6-sol", { ...usage, inputTokenDetails }, 7),
+		).toEqual(allInput);
 });

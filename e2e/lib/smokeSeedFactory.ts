@@ -916,20 +916,10 @@ export async function createSmokeBuilders(
 				blueprint: searchFirstDoc,
 				syncedSeq: searchFirstGenesisSeq + 1,
 			});
-			const searchFirstPatient = await caseStore.insert({
-				appId: searchFirstAppId,
-				row: {
-					case_type: SEARCH_FIRST_SEED.caseType,
-					case_name: SEARCH_FIRST_SEED.caseName,
-					status: "open",
-					properties: {},
-				},
-			});
 			return {
 				searchFirst: {
 					appId: searchFirstAppId,
 					routes: searchFirstRoutes(searchFirstAppId),
-					caseId: searchFirstPatient.caseId,
 				},
 			};
 		},

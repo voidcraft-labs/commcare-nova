@@ -44,7 +44,11 @@ export async function withPilotLedger<T>(
 
 export function completedPilotCharge(
 	model: string,
-	usage: { inputTokens?: number; outputTokens?: number },
+	usage: {
+		inputTokens?: number;
+		outputTokens?: number;
+		inputTokenDetails?: { cacheReadTokens?: number; cacheWriteTokens?: number };
+	},
 	reservedUsd: number,
 ) {
 	const { inputTokens, outputTokens } = usage;
@@ -57,9 +61,28 @@ export function completedPilotCharge(
 		outputTokens < 0
 	)
 		return { status: "completed-unmetered", estimatedUsd: reservedUsd };
-	// All input is priced uncached; the margin includes cache-write overhead.
+	// Settle known usage using the production rate card. Missing or inconsistent
+	// cache breakdowns retain the conservative all-input price; unknown calls
+	// still retain their full pre-dispatch reservation above.
+	const read = usage.inputTokenDetails?.cacheReadTokens;
+	const write = usage.inputTokenDetails?.cacheWriteTokens;
+	const cacheKnown =
+		typeof read === "number" &&
+		Number.isFinite(read) &&
+		read >= 0 &&
+		typeof write === "number" &&
+		Number.isFinite(write) &&
+		write >= 0 &&
+		read + write <= inputTokens;
 	return {
 		status: "completed",
-		estimatedUsd: estimateCost(model, inputTokens, outputTokens) * 1.25,
+		estimatedUsd:
+			estimateCost(
+				model,
+				inputTokens,
+				outputTokens,
+				cacheKnown ? read : 0,
+				cacheKnown ? write : 0,
+			) * 1.25,
 	};
 }

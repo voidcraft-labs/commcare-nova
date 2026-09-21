@@ -76,6 +76,19 @@ export function projectModelHistoryFromNewestCompaction(
 	];
 }
 
+/** A provider-contract rollover keeps the readable history, not an opaque
+ * checkpoint produced under different instructions or model semantics. */
+export function withoutModelCompaction(
+	message: ModelMessage,
+): ModelMessage | null {
+	if (message.role !== "assistant" || !Array.isArray(message.content))
+		return message;
+	const content = message.content.filter(
+		(part) => !(part.type === "custom" && part.kind === "openai.compaction"),
+	);
+	return content.length ? { ...message, content } : null;
+}
+
 function withoutOpenAICompactionParts<M extends UIMessage>(
 	message: M,
 ): M | null {

@@ -278,8 +278,8 @@ close, populate, and reset use the same fence. Parked-value replace updates the
 case and archives the review entry in one transaction.
 
 `owner_id` is the **CommCare case-owner** — a SEPARATE axis written
-on every insert, reserved for future
-location-/group-based access carving. It is never a tenant filter and
+on every insert. Worker and location assignments use it to seed the device
+restore described below. It is never a tenant filter and
 never to be repurposed/dropped. The two axes are orthogonal:
 `project_id` (tenant / sharing) × `owner_id` (case ownership).
 

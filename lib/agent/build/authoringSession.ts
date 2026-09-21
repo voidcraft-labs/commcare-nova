@@ -274,7 +274,13 @@ export class AuthoringSession {
 				}),
 			};
 		}
-		const external = entry.policy.effect !== "read-blueprint";
+		const exercise = entry.policy.effect === "exercise-app";
+		if (exercise && (await this.hasUnsavedWork()))
+			return {
+				error:
+					"Save the current app changes before testing its worker journey.",
+			};
+		const external = entry.policy.effect !== "read-blueprint" && !exercise;
 		if (external) {
 			const workspace = await this.ensureWorkspace();
 			if (!entry.policy.capabilities.includes("lookup-write")) {
@@ -286,7 +292,10 @@ export class AuthoringSession {
 				await this.discardEmptyWorkspace();
 			}
 		}
-		const ctx = await this.context(call, role === "peer" || external);
+		const ctx = await this.context(
+			call,
+			role === "peer" || external || exercise,
+		);
 		// This shared service commits its own app/organization transaction. No
 		// private overlay survives across it, and the next read reloads the app.
 		if (entry.policy.effect === "mixed-transaction")
@@ -317,6 +326,23 @@ export class AuthoringSession {
 		return { ...(sharedToolPayload(result) as object), saved: false };
 	}
 	async discardEmptyWorkspace() {
+		await this.authorize();
+		if (!this.workspace) {
+			const open = await (await getAppDb())
+				.selectFrom("authoring_workspaces")
+				.select("next_ordinal")
+				.where("design_session_id", "=", this.authority.sessionId)
+				.where("status", "=", "open")
+				.executeTakeFirst();
+			if (
+				!open ||
+				safePersistedSequence(open.next_ordinal, "workspace ordinal") > 0
+			)
+				return;
+			// Cleanup happens after review, when the existing workspace can be
+			// adopted by a replacement run through the normal authority checks.
+			await this.ensureWorkspace();
+		}
 		if (!this.workspace || this.workspace.current().nextOrdinal > 0) return;
 		await abandonChangeSet({
 			changeSetId: this.workspace.current().id,
@@ -328,8 +354,19 @@ export class AuthoringSession {
 	}
 	async hasUnsavedWork() {
 		if (!this.building) return false;
-		await this.snapshot();
-		return this.workspace !== null && this.workspace.current().nextOrdinal > 0;
+		// Inspect durable pending work without reopening a write workspace. A peer
+		// can review a saved app while its plan is locked for that very review.
+		await this.authorize();
+		const open = await (await getAppDb())
+			.selectFrom("authoring_workspaces")
+			.select("next_ordinal")
+			.where("design_session_id", "=", this.authority.sessionId)
+			.where("status", "=", "open")
+			.executeTakeFirst();
+		return (
+			open !== undefined &&
+			safePersistedSequence(open.next_ordinal, "workspace ordinal") > 0
+		);
 	}
 	async saveWork(requestId: string) {
 		await this.authorize();

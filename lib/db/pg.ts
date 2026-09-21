@@ -653,6 +653,7 @@ export interface AuthoringPlanRevisionsTable {
 }
 
 export interface AuthoringReviewsTable {
+	focus: ColumnType<string | null, string | null | undefined, never>;
 	created_at: Timestamp;
 	id: string;
 	session_id: string;

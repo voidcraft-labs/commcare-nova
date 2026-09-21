@@ -15,7 +15,7 @@
  * whose hidden field reads `#search/search_time`.
  *
  * The journey registers a case, so every Playwright attempt gets its own
- * app and seeded row through its native `search-first` profile.
+ * empty app through its native `search-first` profile.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -34,8 +34,6 @@ export const SEARCH_FIRST_SEED = {
 	appName: "Smoke — Search first",
 	moduleName: "Patients",
 	caseType: "patient",
-	/** The one seeded case; searching its first name finds it. */
-	caseName: "Ada Lovelace",
 	moduleUuid: asUuid("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"),
 	columns: {
 		patientName: asUuid("a2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e"),
@@ -64,7 +62,7 @@ export const SEARCH_FIRST_SEED = {
 		nameFieldLabel: "Name",
 		searchTimeFieldUuid: asUuid("a9d0e1f2-a3b4-4c5d-8e7f-8a9b0c1d2e3f"),
 	},
-	/** A name no seeded case carries, so the search finds nothing. */
+	/** The first patient registered through the worker journey. */
 	unmatchedName: "Zzz",
 } as const;
 

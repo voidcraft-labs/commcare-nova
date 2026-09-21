@@ -96,9 +96,15 @@ their independent role and revision checks as well.
 
 ## Conversation and recovery
 
-The architect has one durable conversation per compatible context. A new peer
-review starts independently, with the source, current plan, and app when
-relevant. Completed model response items and their usage commit before any tool
+The architect has one durable conversation per compatible context. Each peer
+review has its own revision-bound completion identity and inherits the peer's
+previous investigation, never the architect's private reasoning. Source messages
+already present are not repeated. A new review message identifies the current
+source, plan and app revisions and the correction focus. Focus is saved before
+the peer starts, so recovery preserves it. Earlier observations remain evidence
+for their recorded revisions; the peer inspects corrections and dependencies
+while retaining still-relevant evidence. It can broaden the investigation when
+its independent judgment calls for that. Completed model response items and their usage commit before any tool
 executes. Tool results preserve created identities, saved values, confirmations,
 and actionable failures without a repeated instruction to continue.
 
@@ -143,3 +149,10 @@ Old private formats are converted once by the operator workflow in
 [design format cutover](design-format-cutover.md). Serving code never interprets
 the retired workflow graph. Canonical apps, collected data, conversations,
 billing, and original historical artifacts remain intact.
+
+The peer anatomy has separate design-review and saved-app-review moments. The
+latter includes disposable journey tools. Recorded conversations distinguish
+retained earlier messages from new revision context; replaying those messages
+consumes input even though it does not repurchase their earlier calls. Current
+catalog estimates do not reconstruct a historical request or remove the cost of
+deferred definitions once loaded.

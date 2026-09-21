@@ -319,7 +319,8 @@ A search-first module can offer a registration form only when a search finds
 no matches. Give a registration form in that module the entry **After a
 search finds no matches** (in Nova's tools, `entry: search-no-matches`), and it
 leaves the menu: Results shows a **Register** action, named after the form,
-only after a search completes with nothing found. The form opens with that
+only after a search completes with nothing found, including when the app has no
+records yet. The form opens with that
 search's answers, so a field can start from what the worker typed: a
 default value of `#search/patient_name` seeds the name from the name search
 field, and a hidden search field's value, such as a search time, can be saved

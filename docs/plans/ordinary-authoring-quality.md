@@ -14,10 +14,10 @@ design graph or substantive reviewed-edit/MCP orchestration project.
 
 ## Delivery
 
-- [ ] PR 1: Effective authoring context and registry-backed activity presentation.
+- [x] PR 1: Effective authoring context and registry-backed activity presentation.
   Derive ordinary writes, initial values and worker readiness from production
   rules; make lifecycle metadata discoverable; improve naming and focused guides.
-- [ ] PR 2: Isolated multi-form tests through production navigation, FormEngine,
+- [x] PR 2: Isolated multi-form tests through production navigation, FormEngine,
   submission and Postgres, exposed by shared `startAppTest`/`continueAppTest`/`readAppTest` tools
   and labeled Builder observations. Keep test state in a separate evaluation namespace,
   reauthorize the real actor on every operation, and never dispatch external effects.
@@ -60,10 +60,21 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 ## Progress
 
 Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
-No paid trials or production changes have run for this plan.
+PRs 1 and 2 are merged and deployed at `5c1e8757`. PR 3 implements
+independent peer continuity and remains under review. Controlled checks cover
+entry, saved role identities, parent selection, form answers, isolated submission,
+closure, sync, transaction isolation and interrupted review recovery. Playwright
+has exercised ordinary identity switching, recorded journeys and affected Builder
+controls. These are prerequisite contracts, not ordinary-agent quality proof.
 
-PR 1 is reviewed with green CI; it is not yet merged. PR 2 is in implementation.
-Controlled checks cover entry, saved role identities, parent selection, form
-answers, isolated submission, closure and sync. These are prerequisite contracts,
-not evidence that a normal agent has delivered a usable app. Review continuity,
-held-out trials, production repair, plugin release and browser acceptance remain.
+The development lending task reached a completed app after a planning-only
+attempt and a conservative accounting interruption. The peer found a real
+initial-value defect and the architect corrected it without expert instructions.
+Peer journey calls exposed a plan-lock defect, now corrected in PR 3. Independent
+browser inspection then found that ordinary Preview hides registration after an
+empty search in an app with no records, although the isolated journey offers it.
+The UI correction is implemented with a first-record browser regression; final
+independent usability acceptance remains in progress. The two held-out requests remain frozen and unrun in
+`docs/research/ordinary-authoring-evaluation.md`. Generated-app inspection,
+production repair, plugin release and remaining browser/native acceptance are
+unfinished. The production app has only been inspected, not repaired.

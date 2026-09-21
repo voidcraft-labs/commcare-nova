@@ -292,7 +292,7 @@ export const LIFECYCLES: readonly Lifecycle[] = [
 			{
 				kind: "role",
 				role: "peer",
-				note: "Inspects and evaluates the saved app; feedback returns to the architect.",
+				note: "Exercises the saved app and retains its own evidence across corrections; feedback returns to the architect.",
 			},
 			{ kind: "server", label: "Complete app and settled usage" },
 		],
