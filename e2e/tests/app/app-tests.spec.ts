@@ -55,6 +55,28 @@ test("opens retained journey observations and switches the ordinary Preview iden
 		await expect(
 			setup.getByRole("button", { name: "Identity setup", exact: true }),
 		).toBeVisible();
+		await expect
+			.poll(async () => {
+				const home = await page
+					.locator('[data-app-header] a[href="/"]')
+					.boundingBox();
+				const edit = await page
+					.getByRole("button", { name: "Back to edit", exact: true })
+					.boundingBox();
+				const worker = await identity.boundingBox();
+				const account = await page
+					.getByRole("button", { name: "Account menu", exact: true })
+					.boundingBox();
+				return (
+					!!home &&
+					!!edit &&
+					!!worker &&
+					!!account &&
+					home.x + home.width <= edit.x &&
+					worker.x + worker.width <= account.x
+				);
+			})
+			.toBe(true);
 		await test.info().attach("unassigned-worker-entry", {
 			body: await page.screenshot(),
 			contentType: "image/png",

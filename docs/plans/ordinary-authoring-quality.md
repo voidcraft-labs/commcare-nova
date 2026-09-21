@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#660 and #662–#664 are merged and deployed.
+Nova PRs #646, #647, #649–#660 and #662–#665 are merged and deployed.
 PR #662's deployment verification failed during persistent database timeouts;
 #663 subsequently passed deployment verification and live authentication checks.
 Authentication now awaits the library's async initialization before caching it,
@@ -162,9 +162,11 @@ completed registered-grower and applicable-contract selection, separate history,
 and same-name disambiguation, then recorded two disposable journeys. Independent
 Core execution of that saved form found two export defects: filtered-answer
 counts used validation's candidate value, and an initially excluded query repeat
-retained zero cardinality after becoming relevant. Candidate compiler corrections
+retained zero cardinality after becoming relevant. The compiler corrections in #665
 pass the repaired receipt submission check and the public native corpus on both
-export paths. Exact deployed-compiler verification remains outstanding. A completed
+export paths. After deployment, the current saved app was refreshed and exported
+with the exact shipped compiler; its independent receipt selection and submission
+check passed again. A completed
 handoff or these bounded checks do not establish autonomous acceptance.
 
 A separately approved $30 fresh role trial stopped without saving an app after
@@ -175,13 +177,17 @@ role attempts remain failed. Cumulative private admission and consistent replay
 now have controlled regressions, but a successful fresh role build is still
 unestablished. Full measurements remain in the evaluation research.
 
-Browser control recovered after a full browser restart. Ordinary Preview role
+Browser control recovered after the conflicting password-manager panel was closed. Ordinary Preview role
 switching returned to entry and exposed the expected registration, review and
 management menus for all three saved roles. The corrected ordinary form hint
 was visible. Recorded journey playback labeled its fictional place assignment
 as test-only and showed earlier receipt history. These observations do not
-establish ordinary submission with missing assignments; its guidance remains
-incomplete. A failed editing activity also exposed internal repair diagnostics;
+establish ordinary submission with missing assignments. A pending Builder change
+shares the effective worker-setup projection with agent tools, explains absent
+role/place context at entry, and links to identity setup and recorded journeys.
+Controlled production-build Playwright checks pass ordinary role switching, draft
+reset, setup navigation, recorded observations and a 320-pixel layout without
+overlapping header controls. Live verification of that change remains open. A failed editing activity also exposed internal repair diagnostics;
 the presentation correction keeps those details available to the agent while
 using plain failure notices in chat.
 
