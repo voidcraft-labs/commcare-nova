@@ -58,5 +58,5 @@ for source in sorted(args.exports.glob('container-*.json')):
         native=etree.tostring(xform.xml)
     output=source.with_suffix('.hq.xml');output.write_bytes(native)
     results.append({'scenario':source.stem,'sourceSha256':hashlib.sha256(source.read_bytes()).hexdigest(),'hqXmlSha256':hashlib.sha256(native).hexdigest()})
-assert len(results)==16,len(results)
+assert len(results)==18,len(results)
 print(json.dumps({'results':results,'hqCommit':subprocess.check_output(['git','-C',str(hq_root),'rev-parse','HEAD'],text=True).strip(),'limits':'Actual native Application.from_source and XForm.add_case_and_meta and native editor-attribute stripping; no whole-app build, native client layout, network or database persistence.'},indent=2))

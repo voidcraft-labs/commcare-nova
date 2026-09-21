@@ -62,15 +62,18 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#660 and #662–#663 are merged and deployed.
+Nova PRs #646, #647, #649–#660 and #662–#664 are merged and deployed.
 PR #662's deployment verification failed during persistent database timeouts;
 #663 subsequently passed deployment verification and live authentication checks.
 Authentication now awaits the library's async initialization before caching it,
 with a real Postgres recovery regression. The single approved database restart
 initially restored measured responsiveness. Connection and query latency, active
 swapping and archive failures later recurred during ordinary repair, although
-health metrics remained up. The underlying cause and durable database recovery
-remain open.
+health metrics remained up. After the repair turn finished, the separately
+approved resize to one dedicated vCPU and 3.75 GiB completed. Fresh connections
+measured about 0.3 seconds and small queries 52–167 ms in two post-resize probes.
+The configured connection limit and workload caps remain unchanged. These are
+short-term observations; the underlying cause and durable recovery remain open.
 Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
@@ -154,11 +157,15 @@ with any latest-store summary supplementary. Ordinary production repair saved
 separate dated receipts and exercised their history through disposable role
 journeys. Independent Core submission checks preserve three receipts, parent
 links, shared ownership and the latest-store summary. Registered-grower
-selection remained incomplete at that checkpoint. Ordinary repair has resumed
-with a request to select registered growers and applicable contracts, preserve
-separate history and distinguish same-name growers. Its final saved behavior
-still needs independent verification. A completed handoff does not establish
-acceptance.
+selection remained incomplete at that checkpoint. A subsequent ordinary repair
+completed registered-grower and applicable-contract selection, separate history,
+and same-name disambiguation, then recorded two disposable journeys. Independent
+Core execution of that saved form found two export defects: filtered-answer
+counts used validation's candidate value, and an initially excluded query repeat
+retained zero cardinality after becoming relevant. Candidate compiler corrections
+pass the repaired receipt submission check and the public native corpus on both
+export paths. Exact deployed-compiler verification remains outstanding. A completed
+handoff or these bounded checks do not establish autonomous acceptance.
 
 A separately approved $30 fresh role trial stopped without saving an app after
 85 calls and $4.15049 known cost. Private editing had accepted identity reuse

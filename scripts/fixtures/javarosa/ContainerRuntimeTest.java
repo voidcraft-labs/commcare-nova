@@ -49,6 +49,40 @@ public class ContainerRuntimeTest {
    if(event==FormEntryController.EVENT_PROMPT_NEW_REPEAT&&user&&!created){controller.newRepeat();created=true;}
   }
  }
+ private static org.javarosa.core.model.instance.TreeReference ref(FormDef form,String path)throws Exception {
+  return ((org.javarosa.xpath.XPathNodeset)org.javarosa.xpath.XPathParseTool.parseXPath(path).eval(form.getMainInstance(),form.getEvaluationContext())).getRefAt(0);
+ }
+ private static void answer(FormDef form,String path,String value)throws Exception {form.setValue(new StringData(value),ref(form,path));}
+ private static int confirm(FormParseInit parsed,String path,String value)throws Exception {
+  FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());int event,steps=0;
+  while((event=controller.stepToNextEvent())!=FormEntryController.EVENT_END_OF_FORM){
+   if(++steps>200)throw new AssertionError("Confirmation question not reached");
+   if(event==FormEntryController.EVENT_QUESTION && controller.getModel().getFormIndex().getReference().equals(ref(parsed.getFormDef(),path)))return controller.answerQuestion(new StringData(value));
+  }
+  throw new AssertionError("Missing confirmation question "+path);
+ }
+ @Test public void conditionalQueriesAndCandidateValidationUseTheActualSelectedRows()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"query-conditional","query-conditional-parent"}){
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();String parent=scenario.endsWith("parent")?"/data/page":"/data",items=parent+"/items/item",check=parent+"/confirm";
+   enter(parsed,false);
+   answer(form,"/data/show","yes");enter(parsed,false);
+   assertEquals(2.0,eval(form,"count("+items+")"));assertEquals("a b",eval(form,"join(' ', "+items+"/item_id)"));
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"yes"));
+   answer(form,items+"[1]/choice","yes");
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"no"));
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,check,"yes"));
+   answer(form,items+"[2]/choice","yes");
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,check,"yes"));
+   answer(form,items+"[2]/choice","no");
+   answer(form,"/data/show","no");enter(parsed,false);answer(form,"/data/show","yes");enter(parsed,false);
+   assertEquals(2.0,eval(form,"count("+items+")"));assertEquals("yes",eval(form,"string("+items+"[1]/choice)"));
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,check,"yes"));
+   // A count of the answer being validated must still see its uncommitted
+   // candidate, rather than a calculated value from the previous answer.
+   assertEquals(FormEntryController.ANSWER_OK,confirm(parsed,"/data/self_check","yes"));
+   assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,"/data/self_check","no"));
+  }
+ }
  @Test public void groupMetadataAndDescendantsSurviveNativeParsing()throws Exception{
   for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"titled","untitled","empty","transparent","labelled","nested","registration"}){
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();

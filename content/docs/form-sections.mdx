@@ -47,6 +47,11 @@ A fixed-count repeat sets its number of entries when the form opens. Inside
 another repeat, it sets that count when the enclosing entry is created.
 Changing an answer later keeps the entries already created.
 
+A case-query repeat keeps the records selected when the form opens, or when its
+enclosing entry is created. If a display condition initially hides that list,
+showing it reveals those records. Hiding and showing it again retains its answers;
+it does not refresh the record selection.
+
 Nothing is permanent: removing the last section returns the form to a single
 page with its questions in place, and you can undo any of it.
 

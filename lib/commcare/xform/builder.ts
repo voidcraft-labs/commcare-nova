@@ -90,6 +90,7 @@ import {
 	collectFieldLocations,
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
+import { planConstraintCollections } from "@/lib/commcare/xform/constraintCollections";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import {
@@ -103,6 +104,7 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type FieldKind,
+	fieldExpressionValue,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
@@ -1144,10 +1146,26 @@ function buildFieldParts(
 	// upstream misconfiguration can't leak a garbage bind. The validator flags
 	// `validate` on non-input kinds as its own error.
 	if (canValidate && validate) {
-		const validateShorthand = shorthand(validate);
+		const expression = fieldExpressionValue(field, "validate");
+		const plan = expression
+			? planConstraintCollections(expression, fieldUuid, doc, nodePath)
+			: { source: validate, calculations: [] };
+		const validateShorthand = shorthand(plan.source);
 		if (validateShorthand !== undefined)
 			bindAttribs["vellum:constraint"] = validateShorthand;
-		bindAttribs.constraint = expand(validate);
+		bindAttribs.constraint = expand(plan.source);
+		for (const calculation of plan.calculations) {
+			dataElements.push(el(calculation.name, {}));
+			const attrs: Record<string, string> = {
+				nodeset: calculation.path,
+				type: "xsd:int",
+				calculate: expand(calculation.source),
+			};
+			const shadow = shorthand(calculation.source);
+			if (shadow !== undefined) attrs["vellum:calculate"] = shadow;
+			if (relevant) attrs.relevant = expand(relevant);
+			binds.push(el("bind", attrs));
+		}
 	}
 
 	// `jr:constraintMsg` MUST be an itext reference — HQ's XForm parser only
@@ -1735,12 +1753,13 @@ function buildContainer(
  *     in a hidden form-root node. Core reads that snapshot during entry traversal.
  *
  *   query_bound: `<repeat nodeset="${nodePath}/item"
- *     jr:count="${nodePath}/@count" jr:noAddRemove="true()">` plus four
+ *     jr:count="${nodePath}/@count" jr:noAddRemove="true()">` plus three
  *     top-level `<setvalue>` elements (Vellum's "model iteration" pattern):
  *       1. on xforms-ready, set ${nodePath}/@ids = join(' ', <ids_query>)
- *       2. on xforms-ready, set ${nodePath}/@count = count-selected(@ids)
- *       3. on jr-insert, set ${nodePath}/item/@index = int(@current_index)
- *       4. on jr-insert, set ${nodePath}/item/@id = selected-at(@ids, ../@index)
+ *     A calculate bind derives @count from the snapshotted @ids, including
+ *     when an initially excluded repeat becomes relevant.
+ *       2. on jr-insert, set ${nodePath}/item/@index = int(@current_index)
+ *       3. on jr-insert, set ${nodePath}/item/@id = selected-at(@ids, ../@index)
  *     The data section wraps children in `<item>` (handled by the caller's
  *     data-element rewrite).
  */
@@ -1825,7 +1844,15 @@ function buildRepeatBody(
 		const idsQuery = readFieldString(field, "ids_query", doc) ?? "";
 		const expandedIdsQuery = expand(idsQuery);
 		const idsValue = `join(' ', ${expandedIdsQuery})`;
-		const countValue = `count-selected(${idsAttrPath})`;
+		// Reading @ids while its container is excluded yields blank in Core.
+		// A one-time count would stay zero after the repeat becomes relevant.
+		binds.push(
+			el("bind", {
+				nodeset: countAttrPath,
+				type: "xsd:int",
+				calculate: "count-selected(../@ids)",
+			}),
+		);
 		const indexValue = `int(${currentIndexAttrPath})`;
 		const idValue = `selected-at(${idsAttrPath}, ../@index)`;
 		// `@current_index` calculate bind: JavaRosa updates the outer container's
@@ -1844,7 +1871,7 @@ function buildRepeatBody(
 		);
 		// Event coercion for nested model-iteration repeats. Mirrors Vellum's
 		// modeliteration.js::getSetValues — when a query-bound repeat lives
-		// INSIDE another repeat, the `@ids` and `@count` setvalues fire on
+		// INSIDE another repeat, the `@ids` setvalue fires on
 		// `jr-insert` instead of `xforms-ready` so each outer iteration re-seeds
 		// its inner ids list. With `xforms-ready`, the inner repeat's @ids
 		// reflects only the FIRST outer iteration's row context. The `@index`
@@ -1855,11 +1882,6 @@ function buildRepeatBody(
 				event: seedEvent,
 				ref: idsAttrPath,
 				value: idsValue,
-			}),
-			el("setvalue", {
-				event: seedEvent,
-				ref: countAttrPath,
-				value: countValue,
 			}),
 			el("setvalue", {
 				event: "jr-insert",
