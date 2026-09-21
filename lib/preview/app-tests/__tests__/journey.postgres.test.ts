@@ -1,3 +1,4 @@
+import { modelMessageSchema } from "ai";
 import { sql } from "kysely";
 import { expect, it } from "vitest";
 import { z } from "zod";
@@ -259,6 +260,22 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	await step({ kind: "finish" });
 	const evidence = await readAppTestSteps({ ...scope, testId });
 	expect(evidence.steps).toHaveLength(current.step + 1);
+	// A recorded journey must be usable by the next real model step, including
+	// database timestamps after disposal. SDK JSON output rejects Date objects.
+	const toolEvidence = await call("readAppTest", { testId });
+	expect(() =>
+		modelMessageSchema.parse({
+			role: "tool",
+			content: [
+				{
+					type: "tool-result",
+					toolName: "readAppTest",
+					toolCallId: "history",
+					output: { type: "json", value: toolEvidence },
+				},
+			],
+		}),
+	).not.toThrow();
 });
 
 it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {

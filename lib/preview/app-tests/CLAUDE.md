@@ -44,3 +44,5 @@ only the observed Preview/Postgres behavior of its recorded revision. It does
 not execute native devices, HQ synchronization, attachment upload, deployment,
 or automations. Keep unavailable observations explicit. Normal-agent discovery
 and independent browser/native acceptance are separate quality evidence.
+
+Recorded evidence returns ISO timestamp strings at the shared read boundary. Server Actions can carry `Date` instances, but model JSON tool results cannot; the real Postgres journey test passes history through the SDK message schema before counting it as readable evidence.

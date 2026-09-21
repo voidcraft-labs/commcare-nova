@@ -96,7 +96,10 @@ Further observations exposed a test-input boundary error: a raw location string
 failed submission, and the agent wrongly added raw-format instructions for workers
 whose real control is a location picker. PR #651 shares the picker conversion with
 form and journey answers and distinguishes malformed test inputs from worker
-validation. This repairs an observation contract, not the original app verdict.
+validation. A later history read also exposed database timestamps that the model-message
+contract could not accept; the shared read now emits ISO timestamps and a real
+Postgres-to-SDK test proves the boundary. These repair observation contracts,
+not the original app verdict.
 
 Remaining acceptance is substantive: a fresh role-gated related-record task must
 complete without expert repair, the delivered app must have usable role/location

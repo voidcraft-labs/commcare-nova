@@ -70,3 +70,14 @@ mutation. Existing complete string values remain accepted. Authored validation
 and requiredness remain observable; GPS and map-service behavior remain outside
 the evaluator. This corrects the observation boundary instead of teaching the
 agent another incident-specific exception. The original false finding is retained.
+
+### Recorded history must cross the model boundary
+
+A normal repair reopened a saved journey, then stopped before its next model
+call with an invalid-message error. The shared history reader returned Postgres
+`Date` instances for expiry, disposal and step creation. Builder could display
+them, and JSON logging disguised them as strings, but the SDK's model-message
+JSON schema rejected the original objects. A real Postgres journey followed by
+the ordinary shared read and SDK validation reproduced the failure. The shared
+read now emits ISO timestamps explicitly. Browser readability and storage
+correctness had not established agent readability.

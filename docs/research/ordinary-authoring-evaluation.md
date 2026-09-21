@@ -206,7 +206,9 @@ preserved its current scope and asked for useful naming, role Preview identities
 honest deployment setup, disposable workflow checks and removal of redundant
 audit collection. Two editor invocations reached their 80-call bounds without a
 completion response; user-level continuation preserved the request. Their measured
-cumulative cost was $0.39325. Further continuation remains separate evidence.
+cumulative cost was $0.39325. A third continuation made 38 calls and stopped after a history read failed the
+SDK message contract; cumulative measured cost reached $0.54949. This is a
+product failure, retained separately from the app judgments below.
 
 The editor saved role personas and corrected registration effects. It discovered
 that the reviewing role could not receive records owned by the collecting role
