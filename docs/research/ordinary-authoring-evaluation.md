@@ -653,3 +653,60 @@ history of supervisor decisions. Those observations are useful but cannot establ
 usable worker behavior: no app was materialized, no app-entry journey ran, and
 there was no saved export to exercise independently. Successful fresh role-gated
 acceptance remains unfinished.
+
+
+## Final repair and browser checkpoint
+
+The delivered-app repair stream settled at 700 model calls and 808 tool calls.
+That conversation cost $3.14020769; cumulative known repair cost was $4.94241383.
+The final receipt workflow selects registered growers and applicable contracts,
+retains separate dated receipts, and records two disposable journeys. Independent
+Core execution with the shipped #665 compiler passed receipt selection and
+submission. The app was refreshed before export; the saved revision had not
+changed. This remains supervised repair, not a fresh autonomous quality pass.
+
+After #666 deployment verification passed, live authorized administrator
+impersonation confirmed missing-role/place guidance at ordinary Preview entry,
+all three saved personas with no-place labels, their role-specific menus, and
+Identity setup navigation to the actual authoring controls. Recorded journey
+playback showed two separate receipts for one grower after later collection,
+with the simulated role/place labeled as test-only. Closing playback preserved
+the selected live persona. Plain failed-edit and failed-check notices were
+visible in chat. Impersonation was switched off afterward. No live business forms
+were submitted and no real places were invented. Production-build Playwright
+separately covers ordinary-user identity switching, draft reset, setup navigation,
+recorded observations and a 320-pixel layout with distinct header controls.
+
+Live inspection also exposed internal case-type identifiers on worker menu cards.
+PR #667 keeps those badges in Builder only and fixes screen-reader positions
+that counted hidden or inapplicable questions. The existing browser repeat test
+now exercises hidden calculations and conditional siblings independently in two
+repeat instances, checking spoken order and preserved input identity. Deployment
+and live verification of #667 remain pending at this checkpoint.
+
+## Bounded synthetic tool-discovery probe
+
+A separately approved $2 experiment used Nova's installed SDK and production
+transport/history projection at `c0644d05`. It had two synthetic deferred tools,
+no app/database access, and an eight-request ceiling. Seven requests succeeded;
+one was rejected because an explicit compaction trigger requires at least
+20,000 maximum output tokens. The forced-compaction request was adjusted within
+the original request and spending bounds. Known cost was $0.002319; all eight
+requests were consumed, so remaining dollars do not authorize another request.
+
+The control discovered and executed a deferred read tool. Forced compaction
+returned an opaque checkpoint. Continuation from Nova's projected history
+discovered both tools again and executed the read followed by the validation
+tool. Continuation with full history directly called the previously
+loaded tool and discovered/executed the second. Each continuation was bounded at
+two tool steps; their actual results, rather than a final narrative, establish
+this limited callability observation.
+
+The four successful phases used 1,149/745/1,959/2,328 input tokens and
+116/294/297/152 output tokens respectively. The full-history phase included
+1,040 cache-write tokens. This short two-tool probe did not reproduce the
+production failure following automatic compaction of a large evolving context.
+In production the first repeated discovery failures occurred inside the same
+provider response as compaction, before Nova could project its next request.
+Neither successful synthetic continuation nor changing local history pruning
+establishes a fix for that failure. No production compaction change was made.

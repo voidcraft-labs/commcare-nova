@@ -1,215 +1,97 @@
 # Ordinary authoring quality
 
-## Objective and acceptance
+## Objective
 
 Nova's normal agents must produce a thoughtful, usable app from ordinary user
-intent, without operator expressions, debug instructions or repairs. Infrastructure,
-validity and a favorable review do not establish that outcome. Keep this plan until
-the quality trials, browser acceptance and delivered-app repair are complete.
+intent, without operator expressions, debugging instructions or repairs. Validity,
+infrastructure and a favorable review do not establish that outcome. Keep this
+plan until the quality evaluation and delivered-app acceptance are complete.
 
-Approved defaults: preserve the delivered app's current scope and collected data;
-save role personas but keep invented places inside isolated test sessions; offer
-Builder access to recorded steps of the journeys agents exercise. No revival of the retired
-design graph or substantive reviewed-edit/MCP orchestration project.
+Preserve the delivered app's current scope and collected data. Save role personas,
+keep invented places inside isolated tests, and distinguish those tests from
+ordinary Preview over real records. Do not revive the retired design graph or
+expand into unrelated reviewed-edit/MCP orchestration.
 
-## Delivery
+## Implemented foundation
 
-- [x] PR 1: Effective authoring context and registry-backed activity presentation.
-  Derive ordinary writes, initial values and worker readiness from production
-  rules; make lifecycle metadata discoverable; improve naming and focused guides.
-- [x] PR 2: Isolated multi-form tests through production navigation, FormEngine,
-  submission and Postgres, exposed by shared `startAppTest`/`continueAppTest`/`readAppTest` tools
-  and labeled Builder observations. Keep test state in a separate evaluation namespace,
-  reauthorize the real actor on every operation, and never dispatch external effects.
-  Pin document/lookup revisions, serialize session actions, preserve retry receipts,
-  refuse continuation after 24 hours and retain authorized recorded evidence.
-  Finish drops the test namespace; starting another test reclaims expired
-  namespaces for that app. App deletion also removes its test namespaces.
-- [x] PR 3: Independent peer continuity across corrections, revision-stamped
-  observations, focused follow-up review, current-design Markdown and honest
-  completion/recovery/anatomy. Preserve exact-revision completion and accounting.
-- [x] Compatible Nova live, then plugin 1.34.0 released.
-- [ ] Repair the delivered app through ordinary product tools after refreshing
-  its revision and inspecting intervening history. Data-shape changes require a
-  read-only scan and separately reviewed one-time migration.
+Shared tools now expose effective writes/defaults, lifecycle metadata and worker
+readiness. Isolated journeys use production navigation, identity, FormEngine,
+submission and Postgres, with real-actor authorization on every action. They pin
+revisions, serialize actions, retain retry receipts and recorded observations,
+remove disposable records on finish, and cannot dispatch external effects.
+The peer retains revision-aware evidence across corrections; chat, recovery and
+`/agents` distinguish initial context, evolving messages, deferred definitions,
+usage and unfinished turns. Plugin 1.35.0 followed compatible Nova deployment.
 
-Use isolated worktrees and native `gh stack` for actual dependencies. Each PR gets
-a fresh code-review subagent, necessary behavioral tests and green CI. Architecture,
-public docs and subtree contracts move with implemented behavior. Private app IDs,
-sources, transcripts and fixtures never belong in this public plan or commits.
+Controlled runtime, Postgres, independent Core/HQ and browser checks cover these
+contracts. PR #666's worker setup guidance is deployed and live-verified. PR #667
+corrects spoken question positions and removes internal identifiers from worker
+menu cards; its controlled browser check passes, with deployment/live verification
+pending. These statements describe evidence, not an autonomous quality verdict.
 
-## Evidence
+The repaired app has a clearer name, three Preview identities, less generic audit
+collection, shared ownership for cross-role work, grower/contract selection and
+separate dated receipts with retained history. The final repair stream settled;
+known cumulative cost is $4.94241383. Independent native checks and recorded
+journeys support the tested behavior. Ordinary Preview now explains missing real
+place assignments and links to setup and recorded tests. No live business records
+were submitted during browser inspection. The repair required external findings
+and continuations, so it does not pass autonomous acceptance.
 
-Checked items record completed observations, not a passing quality verdict.
+The database resize authorized after repair completed. Post-resize probes measured
+about 0.3-second connections and 52–167 ms small queries. Seventy subsequent
+one-minute samples reported zero swap bytes. Connection/workload caps are
+unchanged; this does not establish the underlying cause or lasting resolution.
 
-- [x] Controlled production-runtime checks: entry, identity, selection, preloads,
-  repeats, validation, ordinary/additional effects and next-task navigation.
-- [x] Real Postgres: atomic persistence/rollback, retries, concurrency, revocation,
-  expiry and proof that test actions cannot affect live cases/resources.
-- [ ] Playwright: ordinary Preview and persona switching separately from isolated
-  tests, missing-location guidance, recorded journeys, ergonomics and truthful chat outcomes.
-- [x] Independent Core/HQ checks for relevant emitted behavior; explicitly retain
-  physical-device, remote-service and offline-synchronization evidence gaps.
-- [x] Bounded paid trials through normal design/build/review: $100 total, allocated
-  $20 development, $30 per held-out task and $20 delivered-app repair. Freeze two
-  held-out requests before tuning; include role-gated related records and a
-  materially different workflow. Retain failures and unknown charges. Expert rescue
-  fails autonomous acceptance and does not turn the original attempt into a pass.
-- [x] Inspect resulting apps, source, reasoning summaries, messages, errors and
-  corrections independently. Measure calls, repeated reads, context/plan growth,
-  input/output/cache usage and cost together with usability and correctness.
+## Remaining work and decisions
 
-## Current status
+- [ ] Establish a fresh successful role-gated related-record build through normal
+  design/build/review. Both earlier role trials remain failed. The proposed new
+  nursery request is frozen privately; its separate $30 allocation is pending
+  approval. Do not start it or reuse an earlier trial's remaining allocation.
+- [ ] Resolve tool discovery across automatic compaction. Production responses
+  repeatedly failed to rediscover previously loaded tools within one provider
+  response, before Nova's next history projection. The approved eight-request
+  synthetic probe cost $0.002319 and did not reproduce that failure. Its request
+  bound is exhausted. No production correction is justified by that probe alone.
+- [ ] Finish delivered-app acceptance: verify the final Preview presentation after
+  #667 deploys, inspect remaining consequential workflows and retained event
+  history, and assess the final handoff's technical language. Preserve legitimate
+  business-event fields; check any redundant actor writes before removing them.
+  Real deployment accounts and places have not been supplied. Do not fabricate
+  them or claim location-dependent ordinary submission has been established.
+- [ ] Record #667's exact deployed revision and live browser outcome. Keep ordinary
+  user Playwright evidence separate from administrator impersonation, recorded
+  test playback and live-data submission.
+- [ ] Retain physical-device, remote-HQ and offline-sync limits. Decide whether a
+  specific remaining requirement needs those observations; independent native
+  execution alone cannot establish them.
 
-Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#660 and #662–#665 are merged and deployed.
-PR #662's deployment verification failed during persistent database timeouts;
-#663 subsequently passed deployment verification and live authentication checks.
-Authentication now awaits the library's async initialization before caching it,
-with a real Postgres recovery regression. The single approved database restart
-initially restored measured responsiveness. Connection and query latency, active
-swapping and archive failures later recurred during ordinary repair, although
-health metrics remained up. After the repair turn finished, the separately
-approved resize to one dedicated vCPU and 3.75 GiB completed. Fresh connections
-measured about 0.3 seconds and small queries 52–167 ms in two post-resize probes.
-The configured connection limit and workload caps remain unchanged. These are
-short-term observations; the underlying cause and durable recovery remain open.
-Plugin 1.34.0
-and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
-prior deployment exposed unnecessary exclusive ownership locks. The final
-relevance correction also passed deployment verification and is serving.
+## Evaluation and delivery rules
 
-Implemented observations cover entry, saved identities, related-record
-selection, effective preloads, isolated submission, next-task navigation and
-recorded journeys. Follow-up changes corrected worker identity discovery,
-location-picker test inputs, history serialization, ordinary editor revision
-context, operation writer compatibility and operation relevance. These are
-production contracts, not proof of ordinary-agent quality. Source causes and
-controlled evidence are in `docs/research/ordinary-authoring-observations.md`;
-CommCare semantics are in `docs/research/record-lifecycle-authoring.md`.
+Freeze each new request and acceptance criteria before the run. Use ordinary
+user inputs and the production architect/peer tools; no expert repair prompts,
+manually preselected hidden context or retrospective plan rewriting. Start at
+available app entry, then check roles, related selection, answers, rejection,
+submission effects, next tasks and retained history. Inspect source faithfulness,
+worker ergonomics and completion wording as well as structural correctness.
 
-The bounded development lending task completed and passed principal independent
-Preview and Core checks after a product entry fix. The role-gated related-record
-trial failed acceptance: 260 model calls, $20.785 measured cost, unfinished review,
-a native blank-status defect and invented deployment places. It influenced the
-implementation and cannot count as a fresh held-out success. The independent
-workshop request completed in 102 calls and $3.339; principal Preview and Core
-checks passed. Calls, repeated reads, context growth and limits remain in
-`docs/research/ordinary-authoring-evaluation.md`.
+Use the smallest meaningful boundary: production runtime for evaluation, real
+Postgres for transactions, independent consumers for wire claims and Playwright
+for interaction. Record unavailable observations. Measure calls, repeated reads,
+context/plan growth and input/output/cache cost alongside quality. Keep failed
+trials and unknown charges; infrastructure fixes never turn them into passes.
+The development and materially different workshop tasks passed their principal
+bounded checks, but neither replaces successful fresh role-gated acceptance.
 
-The delivered app was refreshed after intervening user edits. Ordinary repair
-preserved its current ten-module scope, corrected its name, saved three Preview
-identities, and removed redundant audit collection and eight unused definitions
-while retaining business-event history. Safe cleanup refuses live or set-aside
-values in the canonical transaction, including blanks. A read-only scan found no
-business records or populated generic audit properties.
+Implement coherent changes in isolated worktrees, with native `gh stack` for
+actual dependencies, fresh independent review per PR, meaningful tests and green
+CI. Keep architecture, public docs, plugin and `/agents` honest. Private identities,
+source documents, transcripts and fixtures must stay outside public commits.
 
-Subsequent empty-start tests exposed missing business state and worker-owned
-records that the next role could not find. The repaired smallholder route now
-passes disposable entry-to-approval testing and independent Core submission checks.
-A separate commercial branch check found the same ownership problem, which the
-ordinary repair corrected. Both exported farmer-to-contract paths now pass Core
-checks for saved state, ownership, parent links and retained event history.
-
-The repair still has no complete autonomous acceptance result. It needed ordinary
-continuations, repeated broad journeys after small cleanups, and independently
-requested commercial coverage. Two edit invocations stopped at the step bound
-without a final answer; #658 adds a durable unfinished-turn notice.
-A later response emitted an automatic compaction checkpoint, then repeatedly
-returned empty hosted tool-search results for previously used tools. It ended
-with an incomplete commercial Preview check and remaining obsolete wording. A
-normal continuation restored tool access, removed that wording and completed the
-commercial Preview journey. This required user prompting, so automatic recovery
-is still unproven. Independent Core testing then exposed lost clock precision in
-datetime operation writes. The correction in #659 passes the synthetic native
-corpus on both export paths and the repaired app’s two principal native
-submission journeys, including the commercial review clock. The exact shipped
-compiler was then used to export and independently execute those paths again.
-Native submission checks do not establish physical-device or remote-HQ behavior.
-
-Live Builder inspection also confirmed that the final commercial journey is
-readable after its disposable records are removed. Its worker role and place
-assignment are labeled as test-only. Administrator impersonation was switched
-off after inspection; that observation does not replace ordinary-user coverage.
-
-A subsequent ordinary repair pass covered the remaining operational modules. It
-independently found more creation forms whose worker ownership prevented the next
-role from finding the saved record. Eight form replacements now use shared-place
-ownership. Independent Core checks cover their saved values and the two earlier
-farmer-to-contract paths at the later saved revision. These are submission checks,
-not proof that every operational workflow is coherent.
-
-Both new repair invocations reached the 80-step bound. The unfinished notice was
-visible and persisted in the conversation. The subsequent send stalled during
-production connection timeouts and a failed server-rendered reload, but eventually
-committed and completed without a duplicate send. The final handoff candidly
-retains deployment and native limits. The agent independently identified ordinary
-hidden timestamp writes losing their clock and replaced those app writes through
-normal tools. The underlying Preview and export conversion correction passes 243 focused tests
-and 24 native checks across both export paths; both pre-fix paths fail the clock
-assertion. Seven independent native checks of the final saved app also pass,
-including retained grading history after confirmation. These do not establish
-ordinary entry or deployment setup.
-
-The user delegated the collection-history decision. Each dated grower receipt
-should remain separately available after later collections at the same store,
-with any latest-store summary supplementary. Ordinary production repair saved
-separate dated receipts and exercised their history through disposable role
-journeys. Independent Core submission checks preserve three receipts, parent
-links, shared ownership and the latest-store summary. Registered-grower
-selection remained incomplete at that checkpoint. A subsequent ordinary repair
-completed registered-grower and applicable-contract selection, separate history,
-and same-name disambiguation, then recorded two disposable journeys. Independent
-Core execution of that saved form found two export defects: filtered-answer
-counts used validation's candidate value, and an initially excluded query repeat
-retained zero cardinality after becoming relevant. The compiler corrections in #665
-pass the repaired receipt submission check and the public native corpus on both
-export paths. After deployment, the current saved app was refreshed and exported
-with the exact shipped compiler; its independent receipt selection and submission
-check passed again. A completed
-handoff or these bounded checks do not establish autonomous acceptance.
-
-A separately approved $30 fresh role trial stopped without saving an app after
-85 calls and $4.15049 known cost. Private editing had accepted identity reuse
-that the first-save gate later rejected permanently. The agent asked the user
-for an internal workspace reset; no expert rescue was supplied. Both failed
-role attempts remain failed. Cumulative private admission and consistent replay
-now have controlled regressions, but a successful fresh role build is still
-unestablished. Full measurements remain in the evaluation research.
-
-Browser control recovered after the conflicting password-manager panel was closed. Ordinary Preview role
-switching returned to entry and exposed the expected registration, review and
-management menus for all three saved roles. The corrected ordinary form hint
-was visible. Recorded journey playback labeled its fictional place assignment
-as test-only and showed earlier receipt history. These observations do not
-establish ordinary submission with missing assignments. A pending Builder change
-shares the effective worker-setup projection with agent tools, explains absent
-role/place context at entry, and links to identity setup and recorded journeys.
-Controlled production-build Playwright checks pass ordinary role switching, draft
-reset, setup navigation, recorded observations and a 320-pixel layout without
-overlapping header controls. Live verification of that change remains open. A failed editing activity also exposed internal repair diagnostics;
-the presentation correction keeps those details available to the agent while
-using plain failure notices in chat.
-
-Remaining acceptance is substantive:
-
-- Complete and independently check the delivered-app repair, including usable
-  entry/setup guidance, registration and approval handoffs, and retained collection
-  history where required by the current business scope. Independently verify the
-  final saved revision after delayed ordinary chat recovery.
-- Establish a fresh successful role-gated related-record build within an agreed
-  bounded evaluation. Do not resume or silently reclassify the failed trial.
-- Resolve and verify tool discovery across automatic compaction without losing
-  callable capabilities or repeating failed discovery indefinitely.
-- Verify the final edit stream/accounting has settled. The corrected ordinary
-  Preview hint is now visible; its saved change is text-only, and a first wording
-  pass missed the visible hint and repeated setup prose.
-  Remove redundant actor writes without losing business history.
-- Finish browser checks of ordinary identity and location experience, separately
-  from administrator impersonation and disposable recorded journeys.
-- Retain native form/submission limits: no physical-device, remote-HQ or offline
-  synchronization acceptance has been established by these checks.
-- Screen-reader question numbering still counts hidden fields.
-
-Do not remove this objective because its infrastructure shipped. A favorable
-review or parser verdict cannot replace understandable, usable worker behavior.
+Detailed history and measurements belong in
+[`ordinary-authoring-evaluation.md`](../research/ordinary-authoring-evaluation.md),
+source causes in
+[`ordinary-authoring-observations.md`](../research/ordinary-authoring-observations.md),
+and verified domain semantics in
+[`record-lifecycle-authoring.md`](../research/record-lifecycle-authoring.md).
