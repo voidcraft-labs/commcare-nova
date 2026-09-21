@@ -47,7 +47,7 @@ export function TokenBar({
 			<div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs">
 				<Legend
 					swatch="bg-nova-violet"
-					label="Static per call"
+					label="Initial static context"
 					value={staticTokens}
 				/>
 				<Legend

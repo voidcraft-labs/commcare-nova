@@ -226,3 +226,89 @@ with unresolved cause, rather than counted as passing or blamed on the blueprint
 The saved revision's 26 exported forms and suite parsed in Core, with the
 production lookup-aware export boundary. That is parsing evidence only, not a
 native journey or physical-device result.
+
+
+### Fresh repair after observation-contract fixes
+
+A fresh ordinary editor conversation retained the same user-level scope and
+asked for wording appropriate to visible worker controls. It completed after
+142 model calls and 285 tool calls, including a user-level continuation after
+the initial 80-call bound. The durable summary reports 25,448,262 input tokens,
+71,096 output tokens, 24,707,582 cache-read tokens, 430,401 cache-write tokens
+and $0.749123. Detailed step events cover 140 calls; the two missing detailed
+observations are retained as an evidence limitation. The earlier interrupted
+198-call repair remains a separate failed attempt ($0.549490).
+
+This editor used the available disposable place/assignment capability and
+corrected a child-owner handoff through ordinary tools. It also saved business
+confirmation/history values, corrected worker-facing location guidance, and
+retained the user's current scope. Its test showed a newly registered record
+reaching another role's approval task. However, independent native execution
+of that saved export found that its initial business status was blank. All
+forms parsing successfully had not established correct submission effects.
+
+The source cause was shared Preview behavior: additional case operations read
+retained answers from non-relevant questions. Core treated those answers as
+empty. PR #654 corrects the production projection and pairs real Postgres
+persistence with native Core execution over the same public fixture. The
+original Preview verdict remains a failed result; corrected infrastructure
+does not retroactively validate it.
+
+The final agent response also directed the user to a disposable test record
+that had already been removed and was never part of ordinary Preview. The
+browser listed that fresh handoff as an 18-step journey and opened its entry
+observation through the identity menu, with explicit disposable-state limits.
+That check did not inspect all 18 steps. Ordinary case results contained no
+business records. The focused guide now distinguishes these two
+surfaces. User-facing completion remains part of acceptance, independently of
+whether an agent can exercise its own test.
+
+### Deployment interruption during acceptance
+
+A later migration failed with a PostgreSQL deadlock between privilege
+convergence and a live case-restore reader. Convergence unconditionally changed
+already-correct owners, acquiring exclusive locks across fixed relationship
+and runtime case tables. PR #655 reads catalog ownership before changing it
+and bounds genuine repair lock waits within the existing audited transaction.
+Real Postgres proves convergence alongside an open reader, rollback of prior
+grants after a blocked repair, and successful repair after release. The new
+production migration passed privilege convergence and the runtime probe.
+
+This establishes the cause of that deployment failure and its conflicting
+reads. It does not establish that every earlier connection timeout had the
+same cause. Browser reads recovered after the failed migration stopped; the
+original unavailable observations remain in the record.
+
+### Follow-up with corrected relevance observations
+
+A further ordinary request asked for a usable Preview handoff, registration and
+approval state transitions, the contract handoff, and unused audit cleanup.
+It made 77 more model calls and 99 tool calls. The same durable run now totals
+219 calls, 384 tools, 30,832,022 input tokens, 94,321 output tokens,
+29,938,321 cache-read tokens, 545,686 cache-write tokens and $0.917976.
+Detailed events cover 217 calls; the existing two-call observation gap remains.
+These totals include the preceding 142-call repair and must not be added to it.
+
+The agent corrected contract ownership and made the final instructions distinguish
+ordinary Preview from the recorded test-journey viewer. It accurately reported
+unused catalog definitions as an unavailable cleanup operation. Independent Core
+execution still found blank initial business status. The corrected Preview trace
+now also omitted that property after registration and Senior approval; a later
+Head status-edit form supplied it. The agent nevertheless judged the handoff
+successful. This is a missed conclusion despite available state evidence, rather
+than the earlier runtime masking defect. The run remains a failed autonomous
+repair outcome.
+
+### Anatomy browser audit
+
+The local browser showed current prompt/catalog composition separately from
+recorded architect and peer messages, the actual plan payloads, and per-call
+provider usage. In the inspected saved-app composition, 1,257 estimated tool
+tokens were available initially and 65,481 were in the full current catalog;
+the page explicitly says resumed threads may have loaded more and that today's
+catalog does not reconstruct an older request. Planning has a different catalog.
+Deferred definitions have not been removed from later context. This inspection
+also removed an obsolete fixed role count and renamed the static token label to
+state that it describes initial context. Opaque compaction counting remains
+covered at its production projection boundary; the inspected workshop record
+contained no compaction checkpoint, so it supplies no live compaction example.

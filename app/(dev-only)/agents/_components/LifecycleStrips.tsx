@@ -136,7 +136,7 @@ function RoleCard({ summary, note }: { summary: RoleSummary; note?: string }) {
 			<div className="mt-2.5 flex flex-wrap items-center gap-1.5">
 				{summary.staticTokens !== null && summary.staticTokens > 0 && (
 					<Badge variant="violet">
-						{formatTokens(summary.staticTokens)} static tokens
+						{formatTokens(summary.staticTokens)} initial static tokens
 					</Badge>
 				)}
 				{summary.toolCount > 0 && (

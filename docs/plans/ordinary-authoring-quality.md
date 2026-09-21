@@ -59,64 +59,56 @@ Checked items record completed observations, not a passing quality verdict.
   corrections independently. Measure calls, repeated reads, context/plan growth,
   input/output/cache usage and cost together with usability and correctness.
 
-## Progress
+## Current status
 
-Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
-PRs #646, #647, #649, #650 and #651 are merged and deployed.
-Follow-up #652 carries the saved revision into ordinary edit-turn tests; #653
-aligns operation writer inference with existing storage-assignment rules.
-Plugin 1.34.0 followed compatible Nova deployment. Controlled checks cover
-entry, saved role identities, parent selection, form answers, isolated submission,
-closure, sync, transaction isolation and interrupted review recovery. Playwright
-has exercised ordinary identity switching, recorded journeys and affected Builder
-controls. These are prerequisite contracts, not ordinary-agent quality proof.
+Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
+Nova PRs #646, #647, #649–#655 are merged; plugin 1.34.0 followed compatible
+Nova deployment. The production privilege migration in #655 passed after a
+prior deployment exposed unnecessary exclusive ownership locks. The final
+relevance correction also passed deployment verification and is serving.
 
-The development lending task completed with autonomous correction, and independent
-ordinary Preview and native form/submission checks passed after a product entry
-fix. The role-gated related-record trial failed bounded acceptance: 260 model
-calls, $20.785 measured cost, unfinished final review, an exported blank-status
-creation defect, and invented places saved outside disposable tests. It influenced
-implementation and cannot count as fresh held-out success. No expert rescue was
-supplied. The materially different workshop request completed in 102 calls and
-$3.339, including same-input recovery after the harness invocation bound. Its
-peer found and rechecked a visible label defect; independent Preview and Core
-checks confirmed the principal workflow. Detailed limits, context growth and
-usage are in `docs/research/ordinary-authoring-evaluation.md`.
+Implemented observations cover entry, saved identities, related-record
+selection, effective preloads, isolated submission, next-task navigation and
+recorded journeys. Follow-up changes corrected worker identity discovery,
+location-picker test inputs, history serialization, ordinary editor revision
+context, operation writer compatibility and operation relevance. These are
+production contracts, not proof of ordinary-agent quality. Source causes and
+controlled evidence are in `docs/research/ordinary-authoring-observations.md`;
+CommCare semantics are in `docs/research/record-lifecycle-authoring.md`.
 
-The delivered app was refreshed after intervening user edits before a new ordinary
-repair conversation. Its current ten-module scope and removal of search/capture
-were included in that user-level intent; historical expert instructions were not
-reused. The read-only data scan found no business records or populated generic
-audit properties. The ordinary editor renamed the app, added three role identities,
-and exercised disposable registration. Browser checks confirmed role-specific menus
-and registration entry, separately from administrator impersonation. A transient
-production connection-timeout incident interrupted these checks; later entry and
-recorded-journey reads recovered. Its cause is unresolved. A later ordinary continuation demonstrated cross-role handoff in disposable
-Preview records, but independent native execution found a remaining blank-status
-defect that Preview had masked. Completion remains unverified.
+The bounded development lending task completed and passed principal independent
+Preview and Core checks after a product entry fix. The role-gated related-record
+trial failed acceptance: 260 model calls, $20.785 measured cost, unfinished review,
+a native blank-status defect and invented deployment places. It influenced the
+implementation and cannot count as a fresh held-out success. The independent
+workshop request completed in 102 calls and $3.339; principal Preview and Core
+checks passed. Calls, repeated reads, context growth and limits remain in
+`docs/research/ordinary-authoring-evaluation.md`.
 
-Further observations exposed a test-input boundary error: a raw location string
-failed submission, and the agent wrongly added raw-format instructions for workers
-whose real control is a location picker. PR #651 shares the picker conversion with
-form and journey answers and distinguishes malformed test inputs from worker
-validation. A later history read also exposed database timestamps that the model-message
-contract could not accept; the shared read now emits ISO timestamps and a real
-Postgres-to-SDK test proves the boundary. These repair observation contracts,
-not the original app verdict.
+The delivered app was refreshed after intervening user edits. Ordinary repair
+preserved its current scope, corrected its name and worker language, saved three
+Preview identities and removed redundant audit collection while retaining
+business-event history. A read-only scan found no business records or populated
+generic audit properties. A fresh repair exercised disposable cross-role handoff,
+but native execution found blank business state that Preview had masked. A
+follow-up with corrected relevance observations fixed the completion instructions
+and contract ownership. It still missed absent business state after registration
+and approval, now visible in both Preview and native execution. That failure
+remains; the next repair must use ordinary business intent rather than expert
+expressions or hidden context. Safe unused catalog cleanup is in review; it
+must preserve collected and set-aside values.
 
-Remaining acceptance is substantive: a fresh role-gated related-record task must
-complete without expert repair, the delivered app must have usable role/location
-entry and honest setup, and independent checks must distinguish Preview/native
-form evidence from physical-device, remote-service and offline synchronization
-unknowns. Screen-reader question numbering also counts hidden fields. Keep these open;
-do not remove this objective because the observation infrastructure shipped.
+Remaining acceptance is substantive:
 
-The latest repair inspection found a consequential Preview/native discrepancy:
-case-operation bindings ignored question and ancestor relevance. The correction
-and shared Postgres/Core evidence are documented in
-`docs/research/ordinary-authoring-observations.md`. The agent also gave unusable
-instructions pointing to already discarded records in ordinary Preview. Keep
-both failures in the evaluation, and recheck the delivered app after the corrected
-runtime is live. A recent export passing all form parsers does not settle either
-failure. Production connection timeouts continue intermittently; their cause
-and the affected live-browser acceptance remain unresolved.
+- Complete and independently check the delivered-app repair, including usable
+  entry/setup guidance and registration, approval and contract handoffs.
+- Establish a fresh successful role-gated related-record build within an agreed
+  bounded evaluation. Do not resume or silently reclassify the failed trial.
+- Finish browser checks of ordinary identity and location experience, separately
+  from administrator impersonation and disposable recorded journeys.
+- Retain native form/submission limits: no physical-device, remote-HQ or offline
+  synchronization acceptance has been established by these checks.
+- Screen-reader question numbering still counts hidden fields.
+
+Do not remove this objective because its infrastructure shipped. A favorable
+review or parser verdict cannot replace understandable, usable worker behavior.
