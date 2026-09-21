@@ -337,8 +337,19 @@ export class AuthoringSession {
 	}
 	async hasUnsavedWork() {
 		if (!this.building) return false;
-		await this.snapshot();
-		return this.workspace !== null && this.workspace.current().nextOrdinal > 0;
+		// Inspect durable pending work without reopening a write workspace. A peer
+		// can review a saved app while its plan is locked for that very review.
+		await this.authorize();
+		const open = await (await getAppDb())
+			.selectFrom("authoring_workspaces")
+			.select("next_ordinal")
+			.where("design_session_id", "=", this.authority.sessionId)
+			.where("status", "=", "open")
+			.executeTakeFirst();
+		return (
+			open !== undefined &&
+			safePersistedSequence(open.next_ordinal, "workspace ordinal") > 0
+		);
 	}
 	async saveWork(requestId: string) {
 		await this.authorize();

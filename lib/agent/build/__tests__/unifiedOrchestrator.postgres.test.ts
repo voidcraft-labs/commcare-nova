@@ -66,6 +66,10 @@ it.each([
 					sampleGenerator: new HeuristicCaseGenerator(),
 				}),
 		);
+		const recoveredEmptyWorkspace =
+			interruption === "active-peer" && !replaceRun;
+		const exercisePeer =
+			interruption === "uninterrupted" || recoveredEmptyWorkspace;
 		const actorUserId = "architect";
 		const projectId = "unified-project";
 		let runId = "unified-run";
@@ -146,9 +150,21 @@ it.each([
 				},
 			],
 			[{ type: "tool", name: "saveWork", callId: "save", input: {} }],
+			...(recoveredEmptyWorkspace
+				? [
+						[
+							{
+								type: "tool" as const,
+								name: "startBuilding",
+								callId: "empty-workspace",
+								input: {},
+							},
+						],
+					]
+				: []),
 			[{ type: "text", text: "The loan registration workflow is built." }],
 			[{ type: "tool", name: "getApp", callId: "peer-app", input: {} }],
-			...(interruption === "uninterrupted"
+			...(exercisePeer
 				? [
 						[
 							{
@@ -421,7 +437,7 @@ it.each([
 					ok: true,
 					moduleUuid: app?.blueprint.moduleOrder[0],
 				});
-				if (interruption === "uninterrupted") {
+				if (exercisePeer) {
 					expect(evaluation("peer-journey")).toMatchObject({
 						step: 0,
 						observation: {
