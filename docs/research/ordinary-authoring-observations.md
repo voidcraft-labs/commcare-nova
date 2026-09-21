@@ -156,9 +156,12 @@ in Cloud SQL's own local health queries and transaction-log archiving. A lock
 snapshot showed no waiting locks; observed connections were below their limits.
 Active swapping was present, but conflicting memory metrics did not establish
 RAM exhaustion by themselves. No active project-specific service incident was
-reported. One approved database restart restored archiving; fresh connection
-setup remained slow and MCP continued returning unavailable responses. The
-database's underlying performance problem remains unresolved.
+reported. One approved database restart restored archiving. The first fresh
+connection remained slow, but after initialization settled, connection setup
+fell from 19.8 seconds before restart to 0.36 seconds and the same small queries
+fell from 0.31–2.49 seconds to 54–75 ms. Cloud SQL's health metric returned to up.
+MCP continued returning unavailable responses. This establishes observed database
+recovery, not the underlying cause or lasting resolution of resource pressure.
 
 That investigation exposed a separate, reproducible application recovery defect.
 `lib/auth.ts::getAuth` cached the object returned by `betterAuth` immediately.

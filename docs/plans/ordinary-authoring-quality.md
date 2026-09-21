@@ -65,8 +65,9 @@ Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
 Nova PRs #646, #647, #649–#660 are merged and deployed. PR #662 is merged
 and serving, but its final deployment verification failed during persistent
 database timeouts. Authentication recovery now awaits the library's async
-initialization before caching it; its real Postgres regression passes, while
-the underlying database performance problem and live recovery remain open.
+initialization before caching it; its real Postgres regression passes. A single
+approved database restart restored measured responsiveness and health after
+initialization settled. The underlying cause and live auth recovery remain open.
 Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
