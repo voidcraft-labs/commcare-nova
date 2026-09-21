@@ -119,6 +119,16 @@ function Controls() {
 								input: {},
 							},
 							{
+								type: "tool-evaluateForm",
+								toolCallId: "native-evaluate",
+								state: "output-available",
+								input: {},
+								output: {
+									valid: true,
+									proposedValues: { kind: "registration" },
+								},
+							},
+							{
 								type: "tool-completeBuild",
 								toolCallId: "native-historical-completion",
 								state: "output-available",

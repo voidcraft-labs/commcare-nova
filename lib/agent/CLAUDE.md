@@ -133,3 +133,19 @@ Test recovery, cancellation, concurrency, and exact receipts at their owning
 boundaries. Do not pin prose, tool counts, filenames, or exported symbols. Live
 quality trials inspect generated apps and their source, messages, reasoning
 summaries, failures, and corrections; schema acceptance alone proves no quality.
+
+## Effective reads and activity presentation
+
+Scoped question reads include their effective initial-value source. The case
+preload rule remains in `lib/domain/casePreload.ts`; selected-record values can
+supersede explicit defaults, including with blank. `getCaseProperty` reads the
+effective catalog, including standard timestamps and writer-derived properties.
+The overview lists standard metadata once, separately from each type's properties.
+Worker readiness reports configuration gaps and inherited persona values; it is
+not an entry or deployment verdict.
+
+`toolPresentation.ts` is the client-safe activity catalog. Shared registration
+requires a corresponding presentation with a read/change classification that
+agrees with its execution policy; orchestration definitions require a presentation
+too. Retired transcript vocabulary lives separately. Only successful effective
+writes count as changes; checks, pending/refused writes and no-ops are activities.

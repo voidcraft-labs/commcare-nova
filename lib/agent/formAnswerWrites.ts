@@ -19,6 +19,10 @@ export function formAnswerWrites(
 			...(bucket.kind === "child" && { parentCaseType: module.caseType }),
 			...(bucket.kind === "usercase" && { worker: true }),
 			...(bucket.repeatUuid && { repeatFieldUuid: bucket.repeatUuid }),
+			answers: bucket.writers.map((writer) => ({
+				path: writer.path.map((segment) => segment.fieldId).join("/"),
+				property: writer.property,
+			})),
 			preloadedAnswers: bucket.writers.flatMap((writer) => {
 				const field = doc.fields[writer.fieldUuid];
 				return field && writerPreloadsFromLoadedCase(field, module, form)

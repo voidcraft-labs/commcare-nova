@@ -210,3 +210,15 @@ worker information after clearing every app reference to it, it stays on a
 device that has already downloaded it until that device does a full resync.
 Nova does not simulate that in preview, it is a property of the platform, not
 of your app.
+
+## Make each role available in Preview
+
+A role supplies worker information; a persona lets you run Preview with that
+information. A representative name such as **Field worker** is enough. It does
+not claim that a real worker account has been created in CommCare HQ.
+
+When Nova inspects your app, it can see roles without personas and personas
+missing required worker information or place assignments. If a role-gated menu
+is empty when running as yourself, choose a persona with that role. Location
+rules still need appropriate places and assignments; a role alone does not
+establish that a workflow is ready for deployment.
