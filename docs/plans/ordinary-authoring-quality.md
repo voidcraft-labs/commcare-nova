@@ -154,8 +154,10 @@ Remaining acceptance is substantive:
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing
   callable capabilities or repeating failed discovery indefinitely.
-- Correct ordinary Preview wording that falsely implies a disposable place
-  assignment; remove redundant actor writes without losing business history.
+- Verify the corrected ordinary Preview hint after case-data loading recovers,
+  and verify the final edit stream/accounting has settled. Its saved change is
+  text-only; a first wording pass missed the visible hint and repeated setup prose.
+  Remove redundant actor writes without losing business history.
 - Finish browser checks of ordinary identity and location experience, separately
   from administrator impersonation and disposable recorded journeys.
 - Retain native form/submission limits: no physical-device, remote-HQ or offline

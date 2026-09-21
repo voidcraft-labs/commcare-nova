@@ -589,3 +589,22 @@ remained separate from those worker selections. Registration still says the
 Preview uses a fictional place even in ordinary Preview, which has no assigned
 place. That wording conflates disposable test context with ordinary live-data
 Preview and remains a usability defect, not a passing setup experience.
+
+
+A focused ordinary wording request produced a clearer handoff using visible
+journey names, but initially changed ten form descriptions and missed the hint
+actually visible to the worker. It also repeated the same setup paragraph across
+those descriptions. A second user-level correction identified the visible text;
+the editor then shortened the descriptions and changed the hint. The final saved
+comparison contains only those eleven text changes, so the prior behavior checks
+remain relevant. No journeys were rerun. This is operator-directed usability
+repair, not independent discovery or a passing autonomous quality evaluation.
+
+The first wording invocation used 19 further model calls and 20 tools, bringing
+its conversation to 529 calls, 596 tools and $2.184269. After the second saved
+correction, the next independent browser check remained at Preparing case data;
+production again logged database connection timeouts in authentication reads.
+The final conversation text was visible, but its durable active stream and
+accounting had not yet settled when inspected. Do not infer complete delivery
+or final cost from the visible answer alone. The underlying service cause and
+ordinary Preview acceptance remain open.
