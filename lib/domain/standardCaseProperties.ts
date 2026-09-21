@@ -63,6 +63,24 @@ export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
 	status: "Case status (open or closed)",
 } as const satisfies Readonly<Record<string, string>>;
 
+/** Meaning of existing runtime values, shared by author-facing projections.
+ * These are lifecycle facts, not a substitute for a durable business event. */
+export const STANDARD_CASE_PROPERTY_DESCRIPTIONS = {
+	case_name: "The record's display name.",
+	date_opened:
+		"When the record was opened. Ordinary later edits preserve this timestamp.",
+	last_modified:
+		"The latest case modification timestamp, not the time it reached the server. Later edits replace it; an approval or other business event that must survive edits needs its own saved value.",
+	owner_id:
+		"The worker or case-sharing group that owns the record; a place can supply that group. Ownership and record relationships determine which workers sync the record. This is not its creator or latest editor, nor permission to access a Nova Project.",
+	external_id: "An external identifier for the record, when one is assigned.",
+	status:
+		"The CommCare case lifecycle: open or closed. Closing normally removes a record from the worker's synced set at the next sync, but related open records can retain it as a dependency. Closure does not delete server history. Use a separate property such as current_status for business stages; close only when the worker no longer needs ordinary follow-up.",
+} as const satisfies Record<
+	keyof typeof STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+	string
+>;
+
 export function standardCasePropertyDisplayLabel(name: string): string {
 	return Object.hasOwn(CANONICAL_STANDARD_CASE_PROPERTY_LABELS, name)
 		? CANONICAL_STANDARD_CASE_PROPERTY_LABELS[

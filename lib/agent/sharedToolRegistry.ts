@@ -121,6 +121,7 @@ import {
 } from "@/lib/agent/tools/users";
 import type { AppCapability } from "@/lib/auth/projectRoles";
 import type { SharedToolModule } from "@/lib/mcp/adapters/sharedToolAdapter";
+import type { SHARED_TOOL_PRESENTATION } from "./toolPresentation";
 
 /**
  * Runtime capabilities a tool's execution requires. The policy test keeps
@@ -168,13 +169,24 @@ export interface ToolExecutionPolicy {
 	readonly capabilities: readonly ToolRuntimeCapability[];
 }
 
-export interface SharedToolRegistryEntry {
-	readonly saName: string;
+interface SharedToolRegistration {
 	readonly mcpName: string;
 	readonly tool: SharedToolModule;
 	readonly requires: AppCapability;
-	readonly policy: ToolExecutionPolicy;
 }
+
+/** Adding an executable operation also requires a client-safe presentation.
+ * Its read/change meaning must agree with the execution policy. */
+export type SharedToolRegistryEntry = {
+	[Name in keyof typeof SHARED_TOOL_PRESENTATION]: SharedToolRegistration & {
+		readonly saName: Name;
+		readonly policy: ToolExecutionPolicy & {
+			readonly effect: (typeof SHARED_TOOL_PRESENTATION)[Name]["kind"] extends "read"
+				? "read-blueprint"
+				: Exclude<ToolExecutionPolicy["effect"], "read-blueprint">;
+		};
+	};
+}[keyof typeof SHARED_TOOL_PRESENTATION];
 
 /** Shorthand policies for the recurring classifications. `READ_POLICY` keeps
  * its literal `effect` so the read projection can derive the set of read tools
@@ -184,39 +196,39 @@ const READ_POLICY = {
 	staging: "allowed",
 	capabilities: [],
 } as const satisfies ToolExecutionPolicy;
-const BLUEPRINT_WRITE_POLICY: ToolExecutionPolicy = {
+const BLUEPRINT_WRITE_POLICY = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
 	capabilities: ["canonical-blueprint-write"],
-};
+} as const satisfies ToolExecutionPolicy;
 /** Blueprint writers whose batch may compose the case-store saga (row
  * migration/parking/retirement) — a module removal or retype retiring a case
  * type, a field edit converting a property's stored rows. */
-const BLUEPRINT_WRITE_WITH_MIGRATION_POLICY: ToolExecutionPolicy = {
+const BLUEPRINT_WRITE_WITH_MIGRATION_POLICY = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
 	capabilities: ["canonical-blueprint-write", "case-store-migration"],
-};
-const MEDIA_ATTACH_POLICY: ToolExecutionPolicy = {
+} as const satisfies ToolExecutionPolicy;
+const MEDIA_ATTACH_POLICY = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
 	capabilities: ["canonical-blueprint-write", "media-read"],
-};
-const AUTOMATION_WRITE_POLICY: ToolExecutionPolicy = {
+} as const satisfies ToolExecutionPolicy;
+const AUTOMATION_WRITE_POLICY = {
 	effect: "mutate-blueprint",
 	staging: "allowed",
 	capabilities: ["canonical-blueprint-write", "organization-read"],
-};
-const PLACE_ROW_WRITE_POLICY: ToolExecutionPolicy = {
+} as const satisfies ToolExecutionPolicy;
+const PLACE_ROW_WRITE_POLICY = {
 	effect: "mutate-external",
 	staging: "forbidden",
 	capabilities: ["organization-write"],
-};
-const LOOKUP_WRITE_POLICY: ToolExecutionPolicy = {
+} as const satisfies ToolExecutionPolicy;
+const LOOKUP_WRITE_POLICY = {
 	effect: "mutate-external",
 	staging: "forbidden",
 	capabilities: ["lookup-write"],
-};
+} as const satisfies ToolExecutionPolicy;
 
 export const SHARED_TOOL_REGISTRY = [
 	{

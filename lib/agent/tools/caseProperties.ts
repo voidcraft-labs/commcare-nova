@@ -3,6 +3,9 @@ import { deepEqual } from "@/lib/doc/deepEqual";
 import {
 	authoredCasePropertyNameSchema,
 	casePropertySchema,
+	effectiveCaseTypes,
+	isStandardCaseListProperty,
+	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
 import { casePropertyInputSchema } from "../planningSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -59,13 +62,22 @@ export const getCasePropertyTool = {
 		input: z.infer<typeof getCasePropertyInputSchema>,
 		ctx: ToolInvocationContext,
 	) {
-		const property = findProperty(ctx, input);
+		const property = effectiveCaseTypes(ctx.snapshot.doc)
+			.find((type) => type.name === input.caseType)
+			?.properties.find((property) => property.name === input.property);
 		return {
 			kind: "read" as const,
 			data:
 				property === undefined
 					? missing(input)
-					: { caseType: input.caseType, property },
+					: {
+							caseType: input.caseType,
+							property,
+							...(isStandardCaseListProperty(input.property) && {
+								builtIn: true,
+								meaning: STANDARD_CASE_PROPERTY_DESCRIPTIONS[input.property],
+							}),
+						},
 		};
 	},
 };

@@ -43,6 +43,7 @@ import {
 	userTypesOf,
 	uuidSchema,
 } from "@/lib/domain";
+import { workerReadiness } from "../workerReadiness";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,
@@ -734,6 +735,7 @@ export const getUsersTool = {
 	): Promise<
 		ReadToolResult<{
 			workerInformation: UserProperty[];
+			previewReadiness: ReturnType<typeof workerReadiness>;
 			roles: Array<
 				Omit<UserType, "values"> & {
 					values: ReturnType<typeof valuesOutput>;
@@ -757,6 +759,7 @@ export const getUsersTool = {
 			kind: "read",
 			data: {
 				workerInformation,
+				previewReadiness: workerReadiness(doc),
 				roles: orderedUserTypes(doc).map(({ values, ...role }) => ({
 					...role,
 					values: valuesOutput(values, propertyOrder),

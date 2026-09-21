@@ -2,6 +2,8 @@ import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	effectiveAppLocalization,
+	effectiveCaseTypes,
+	isStandardCaseListProperty,
 	orderedAutomations,
 	orderedLocationProperties,
 	orderedOrganizationLevels,
@@ -9,23 +11,43 @@ import {
 	orderedUserProperties,
 	orderedUserTypes,
 	parseLanguageTag,
+	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
+
+import { workerReadiness } from "./workerReadiness";
 
 /** A map for choosing what to inspect. Field content, expressions, translations
  * and configuration detail belong to scoped reads, not every turn's context. */
 export function appOverview(doc: BlueprintDoc) {
 	const localization = effectiveAppLocalization(doc.localization);
+	const readiness = workerReadiness(doc);
 	return {
 		appId: doc.appId,
 		name: doc.appName,
 		...(doc.connectType && { connect: doc.connectType }),
-		caseTypes: (doc.caseTypes ?? []).map((type) => ({
+		standardRecordProperties: Object.entries(
+			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
+		).map(([name, type]) => ({
+			name,
+			type,
+			meaning:
+				STANDARD_CASE_PROPERTY_DESCRIPTIONS[
+					name as keyof typeof STANDARD_CASE_PROPERTY_DESCRIPTIONS
+				],
+		})),
+		caseTypes: effectiveCaseTypes(doc).map((type) => ({
 			name: type.name,
-			...(type.parent_type && { parent: type.parent_type }),
-			properties: type.properties.map((property) => ({
-				name: property.name,
-				...(property.data_type && { type: property.data_type }),
-			})),
+			...(type.parent_type && {
+				parent: type.parent_type,
+				relationship: type.relationship ?? "child",
+			}),
+			properties: type.properties
+				.filter((property) => !isStandardCaseListProperty(property.name))
+				.map((property) => ({
+					name: property.name,
+					...(property.data_type && { type: property.data_type }),
+				})),
 		})),
 		modules: doc.moduleOrder.map((uuid) => {
 			const module = doc.modules[uuid];
@@ -62,10 +84,33 @@ export function appOverview(doc: BlueprintDoc) {
 			};
 		}),
 		workerInformation: orderedUserProperties(doc).map(
-			({ uuid, slug, label }) => ({ uuid, name: slug, label }),
+			({ uuid, slug, label, required }) => ({
+				uuid,
+				name: slug,
+				label,
+				...(required && { required }),
+			}),
 		),
 		roles: orderedUserTypes(doc).map(({ uuid, name }) => ({ uuid, name })),
 		personas: orderedPersonas(doc).map(({ uuid, name }) => ({ uuid, name })),
+		previewReadiness: {
+			basis: readiness.basis,
+			asMember: readiness.asMember,
+			rolesWithoutPersonas: readiness.rolesWithoutPersonas,
+			assignmentLevels: readiness.assignmentLevels,
+			personasNeedingContext: readiness.personas
+				.filter(
+					(p) =>
+						p.missingRequiredInformation.length ||
+						p.locationContext === "no-assigned-place",
+				)
+				.map(({ uuid, name, missingRequiredInformation, locationContext }) => ({
+					uuid,
+					name,
+					missingRequiredInformation,
+					locationContext,
+				})),
+		},
 		organization: {
 			levels: orderedOrganizationLevels(doc).map(
 				({ uuid, name, parentLevelUuid }) => ({

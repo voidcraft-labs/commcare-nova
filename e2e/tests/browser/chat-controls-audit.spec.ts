@@ -162,11 +162,18 @@ test("Chat native keyboard answers once, selects field identity, and leaves read
 			),
 		).toBeVisible();
 		const tools = page.getByRole("region", { name: "Tool changes" });
-		const batch = tools.getByRole("button", { name: "2 changes" });
+		const batch = tools.getByRole("button", { name: "3 activities" });
 		await expect(tools.getByText("Adding fields")).toBeHidden();
 		await batch.focus();
 		await page.keyboard.press("Enter");
 		await expect(tools.getByText("Adding fields")).toBeVisible();
+		await expect(
+			tools.getByText("Checked form behavior", { exact: true }),
+		).toBeVisible();
+		await expect(tools.getByText(/No records were submitted/)).toBeVisible();
+		await expect(tools.getByText("evaluateForm", { exact: true })).toHaveCount(
+			0,
+		);
 		const findings = tools.getByRole("button", { name: "2 issues found" });
 		await expect(tools.getByText("A field needs a label.")).toBeHidden();
 		await findings.focus();

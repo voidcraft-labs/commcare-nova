@@ -11,7 +11,7 @@ const PURPOSE: PromptSegment = {
 
 Nova has its own visual builder and authoring model. It produces CommCare apps for frontline data collection and ongoing case management. Forms collect information; cases keep records across visits; modules organize the work. The conversation and visual builder edit the same app.
 
-A good app makes the worker's next step clear. Organize forms around tasks, use the right answer types, and show questions when their answers matter. Write labels and guidance a worker can understand without training in the app's internals. Use sections and groups where they make a long form easier to follow. Set requiredness and validation from the meaning of the information, with helpful messages for mistakes. Avoid collecting the same fact again when the workflow already has it.
+A good app makes the worker's next step clear. Organize forms around tasks, use the right answer types, and show questions when their answers matter. Write labels and guidance a worker can understand without training in the app's internals. Give the app a useful name for its work; version and scope notes belong in the plan unless the user explicitly includes them in the name. Use sections and groups where they make a long form easier to follow. Set requiredness and validation from the meaning of the information, with helpful messages for mistakes. Avoid collecting the same fact again when the workflow already has it.
 
 Keep the relationships between records, the people responsible for them, and the changes made at each visit coherent. Account for creation, return visits, and completion when the workflow needs them. Make choices that serve the user's actual setting, including language, connectivity, and the device they use.`,
 };

@@ -7,6 +7,7 @@ import {
 	toolAction,
 	toolDetail,
 	toolLocation,
+	toolRunLabel,
 	toolStatus,
 } from "../toolSummary";
 
@@ -85,8 +86,8 @@ describe("action tense follows the call's status", () => {
 		).toBe("Nothing to change");
 	});
 
-	it("falls back to the raw tool name in either tense for an unmapped tool", () => {
-		expect(toolAction(pendingPart("someFutureTool"))).toBe("someFutureTool");
+	it("keeps an unknown historical tool name out of user-facing activity", () => {
+		expect(toolAction(pendingPart("someFutureTool"))).toBe("App activity");
 	});
 });
 
@@ -294,4 +295,38 @@ describe("users and personas transcript rows", () => {
 			'Removed persona "Asha"',
 		);
 	});
+});
+
+it("counts only completed changes in mixed inspection, no-op and refused activity", () => {
+	const inspection = {
+		...donePart("evaluateForm", {}),
+		output: { valid: true, proposedValues: { kind: "registration" } },
+	} as ToolUIPart;
+	const changed = donePart("setCaseTypeParent", { subject: "visit" });
+	const unchanged = donePart("setCaseTypeParent", { noop: true });
+	const refused = {
+		...changed,
+		output: { error: "The record type is missing." },
+	} as ToolUIPart;
+	expect(
+		toolRunLabel([
+			inspection,
+			changed,
+			unchanged,
+			refused,
+			pendingPart("createForm"),
+		]),
+	).toBe("1 change · 4 activities");
+	expect(toolDetail(inspection)).toContain("No records were submitted");
+	expect(toolStatus(refused)).toBe("failed");
+	expect(toolAction(refused)).not.toEqual(toolAction(changed));
+	expect(toolAction(unchanged)).toBe("Nothing to change");
+	expect(
+		toolRunLabel([
+			{
+				...donePart("configureCaseSelection", {}),
+				output: { outcome: "applied" },
+			} as ToolUIPart,
+		]),
+	).toBe("1 change");
 });

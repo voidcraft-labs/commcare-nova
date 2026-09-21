@@ -37,6 +37,7 @@ import {
 import { log } from "@/lib/logger";
 import { type AuthoringScopeOptions, authoringValueScope } from "./bindings";
 import { ReadProjectionError } from "./errors";
+import { effectiveFieldBehavior } from "./fieldBehavior";
 import {
 	authoringFingerprint,
 	translationReviewRevision,
@@ -418,6 +419,7 @@ export function projectAuthoringRead(args: {
 		}
 		return {
 			...result,
+			...effectiveFieldBehavior(doc, content),
 			...(children !== undefined && {
 				children: children.map(field),
 			}),

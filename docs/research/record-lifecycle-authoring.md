@@ -1,0 +1,75 @@
+# Record lifecycle guidance for authors
+
+Source audit, 2026-09-20. Nova baseline `090a493a`, CommCare Core
+`8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305`, CommCare HQ
+`5ca85b758d40dd22372f5889efd776d1f593de72`. This is a source audit, not a
+physical-device or live-HQ acceptance result.
+
+## Lifecycle versus business stage
+
+Core's `cases/instance/CaseChildElement.java::buildAndCacheInternalTree`
+projects `@status` from `Case.isClosed()`: `open` or `closed`.
+`xml/CaseXmlParser.java::closeCase` sets that flag. A business-property update
+is not that operation. HQ's
+`casexml/apps/phone/data_providers/case/livequery.py::do_livequery` seeds restore
+with owned cases where `closed=False`, then computes related live cases.
+Closure normally removes a case from a worker's next synced set; it does not
+delete the server record or its history. An open child can keep a closed parent
+as a dependency. Closing an extension host can remove its extension chain.
+Ownership alone therefore neither guarantees availability nor describes the
+entire synced set.
+
+Nova implements those restore relationships in
+`lib/case-store/sql/compileRestoreScope.ts`. The existing Postgres harness
+compares all 45 upstream relationship fixtures; its header documents a known
+upstream ordering ambiguity rather than claiming universal native parity.
+Ordinary Preview's post-submit device patch can retain a just-closed case until
+sync. Do not describe closure as immediate deletion or an ordinary workflow
+label, and do not promise every closed dependency disappears.
+
+Core's `cases/model/Case.java::getState` reads `state`, falling back to
+`current_status` only when `state` is absent. `CaseChildElement` exposes this as
+`@state`; ordinary `current_status` remains a separate child. Core's
+`cases/test/CaseXPathQueryTest.java::caseIndexAliasTest` explicitly demonstrates
+that their query results can differ. These values describe an application's
+stage, independently of the closed flag.
+
+Nova admits ordinary `current_status` writes and reads. It reserves `state`
+against ordinary writes and does not provide a supported `@state` authoring
+alias. `lib/commcare/casePropertyWire.ts` emits `status` as `@status` and
+`current_status` as `current_status`. Authors can use a business-specific
+property or `current_status`; introducing another representation is unnecessary.
+A close form or close operation expresses lifecycle closure.
+
+## Timestamps and actor identity
+
+Core's parser takes `last_modified` from the case block's `date_modified`,
+including close/index changes. `Case.getLastModified` falls back to opening time
+for older data. HQ's `SqlCaseUpdateStrategy._apply_case_update` advances
+`modified_on` using the case update's date, while `server_modified_on` is a
+separate server-processing concept. These timestamps are not interchangeable
+with receipt time or a permanent business-event timestamp.
+
+Nova's `PostgresCaseStore` initializes `opened_on` and `modified_on`, preserves
+opening time on ordinary updates, and stamps modification time on updates and
+closure. `caseRowDisplaySourceValue` projects them as `date_opened` and
+`last_modified`. Local Nova writes use server time; this is not a promise of
+identical clock provenance on a disconnected device. An approval timestamp
+that must survive later edits requires a dedicated event value.
+
+HQ's `CommCareCase` separately stores `opened_by`, `modified_by`, and `owner_id`;
+its `user_id` property aliases `modified_by`. The SQL update strategy gets the
+modifier from the submitted case update. Core's misleadingly named
+`Case.getUserId()` instead backs the case's `@owner_id`: creation chooses an
+explicit owner or defaults to the submitting user, and later owner changes
+replace it. The parser does not expose each update's actor as that owner.
+Neither this owner nor a session's current worker establishes who last edited
+a loaded case.
+
+Nova exposes owner identity and the current simulated worker, but no portable
+built-in creator/modifier property across its storage, preview and export
+consumers. Do not invent a `#case/user_id` read or duplicate generic dates to
+compensate. Store actor history only where the user's requirement needs it,
+such as an approver retained after later edits. Project membership remains the
+authorization boundary; simulated worker ownership controls restore context
+inside that authorized app.

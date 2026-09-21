@@ -39,7 +39,19 @@ semantic operations. Tools accept names, Markdown, and expressions; the
 `authoring` boundary resolves identities and typed content inside an authorized
 workspace invocation. The document and mutation kernel retain their canonical
 contracts. Tool schemas describe inputs and effects, while a focused reference
-guide is available on request. Prompts do not duplicate either the inventory or
+guide is available on request. Scoped reads expose effective initial values,
+ordinary answer destinations and
+built-in lifecycle metadata. Worker readiness distinguishes a role definition
+from an available Preview identity and reports missing information or place
+assignments. Those are configuration observations, not proof of entry or workflow
+completion.
+
+Lifecycle guidance describes operational effects, including closure's effect on
+sync and dependent records, and distinguishes business stage, ownership and actor
+history. [The primary-source audit](../research/record-lifecycle-authoring.md)
+records Nova, Core and HQ read semantics and the limits of that evidence.
+
+Prompts do not duplicate either the inventory or
 the underlying storage grammar.
 
 Hosted tool search defers shared definitions for Nova's model calls. This lowers

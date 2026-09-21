@@ -2,7 +2,7 @@
 //
 // The Solutions Architect emits many fine-grained tool calls per turn
 // (addFields, addCaseListColumns, …). `ChatMessage` groups each consecutive RUN
-// of edit-tool calls into a collapsed "N changes" summary; this module is the
+// of tool calls into a collapsed activity summary; this module is the
 // vocabulary that summary speaks.
 //
 // Each mutating tool returns a prose `message` (the contract the SA + MCP
@@ -13,6 +13,10 @@
 // wired) falls back to its prose so it still reads sensibly.
 
 import type { ToolUIPart } from "ai";
+import {
+	SHARED_TOOL_PRESENTATION,
+	toolPresentation,
+} from "@/lib/agent/toolPresentation";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
 import { isDesignProtocolToolPartType } from "@/lib/chat/internalToolParts";
 
@@ -30,177 +34,31 @@ interface ActionPhrases {
  *  as the bare verb+noun ("Added column" → `Added column "Age"`) — and since a
  *  summary only exists once the call returns, the `doing` form always stands
  *  alone. */
-const TOOL_ACTIONS: Record<string, ActionPhrases> = {
-	addEntryPoint: { doing: "Adding deep link", done: "Added deep link" },
-	updateEntryPoint: { doing: "Updating deep link", done: "Updated deep link" },
-	removeEntryPoint: { doing: "Removing deep link", done: "Removed deep link" },
-	getEntryPoints: { doing: "Reading deep links", done: "Read deep links" },
-	addFields: { doing: "Adding fields", done: "Added fields" },
-	editField: { doing: "Updating field", done: "Updated field" },
-	removeField: { doing: "Removing field", done: "Removed field" },
-	createForm: { doing: "Creating form", done: "Created form" },
-	updateForm: { doing: "Updating form", done: "Updated form" },
-	removeForm: { doing: "Removing form", done: "Removed form" },
-	createModule: { doing: "Creating module", done: "Created module" },
-	updateModule: { doing: "Renaming module", done: "Renamed module" },
-	removeModule: { doing: "Removing module", done: "Removed module" },
-	moveModule: { doing: "Moving module", done: "Moved module" },
-	renameCaseProperties: {
-		doing: "Renaming case properties",
-		done: "Renamed case properties",
+const HISTORICAL_TOOL_ACTIONS: Record<string, ActionPhrases> = {
+	setDesignRoot: {
+		doing: "Setting app direction",
+		done: "Set app direction",
 	},
-	getCaseProperty: {
-		doing: "Reading case property",
-		done: "Read case property",
+	updateActors: {
+		doing: "Designing roles",
+		done: "Designed roles",
 	},
-	updateCaseProperty: {
-		doing: "Updating case property",
-		done: "Updated case property",
+	updateRecords: {
+		doing: "Designing records",
+		done: "Designed records",
 	},
-	addCaseListColumns: { doing: "Adding columns", done: "Added columns" },
-	configureCaseList: {
-		doing: "Configuring the case list",
-		done: "Configured the case list",
-	},
-	configureCaseSelection: {
-		doing: "Updating case selection",
-		done: "Updated case selection",
-	},
-	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
-	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
-	reorderCaseListColumns: {
-		doing: "Reordering columns",
-		done: "Reordered columns",
-	},
-	addSearchInputs: {
-		doing: "Adding search fields",
-		done: "Added search fields",
-	},
-	updateSearchInput: {
-		doing: "Updating search field",
-		done: "Updated search field",
-	},
-	removeSearchInput: {
-		doing: "Removing search field",
-		done: "Removed search field",
-	},
-	reorderSearchInputs: {
-		doing: "Reordering search fields",
-		done: "Reordered search fields",
-	},
-	setCaseListFilter: {
-		doing: "Updating available cases",
-		done: "Updated available cases",
-	},
-	setCaseSearchAdvanced: {
-		doing: "Updating advanced search",
-		done: "Updated advanced search",
-	},
-	setCaseSearchDisplay: {
-		doing: "Updating the search screen",
-		done: "Updated the search screen",
-	},
-	addCaseOperations: {
-		doing: "Adding case operations",
-		done: "Added case operations",
-	},
-	updateCaseOperation: {
-		doing: "Updating case operation",
-		done: "Updated case operation",
-	},
-	removeCaseOperation: {
-		doing: "Removing case operation",
-		done: "Removed case operation",
-	},
-	moveCaseOperation: {
-		doing: "Moving case operation",
-		done: "Moved case operation",
-	},
-	addFormLinks: {
-		doing: "Adding after-submit links",
-		done: "Added after-submit links",
-	},
-	setFormSections: {
-		doing: "Arranging sections",
-		done: "Arranged sections",
-	},
-	updateFormLink: {
-		doing: "Updating after-submit link",
-		done: "Updated after-submit link",
-	},
-	removeFormLink: {
-		doing: "Removing after-submit link",
-		done: "Removed after-submit link",
-	},
-	moveFormLink: {
-		doing: "Moving after-submit link",
-		done: "Moved after-submit link",
-	},
-	getCaseOperations: {
-		doing: "Inspecting case operations",
-		done: "Inspected case operations",
-	},
-	attachFieldMedia: { doing: "Setting field media", done: "Set field media" },
-	attachOptionMedia: {
-		doing: "Setting option media",
-		done: "Set option media",
-	},
-	setMenuMedia: { doing: "Setting menu media", done: "Set menu media" },
-	addUserProperties: {
-		doing: "Adding worker information",
-		done: "Added worker information",
-	},
-	updateUserProperty: {
-		doing: "Updating worker information",
-		done: "Updated worker information",
-	},
-	removeUserProperty: {
-		doing: "Removing worker information",
-		done: "Removed worker information",
-	},
-	addUserTypes: { doing: "Adding roles", done: "Added roles" },
-	updateUserType: { doing: "Updating role", done: "Updated role" },
-	removeUserType: { doing: "Removing role", done: "Removed role" },
-	addPersonas: { doing: "Adding personas", done: "Added personas" },
-	updatePersona: { doing: "Updating persona", done: "Updated persona" },
-	removePersona: { doing: "Removing persona", done: "Removed persona" },
-	getUsers: { doing: "Inspecting users", done: "Inspected users" },
-	getAutomations: {
-		doing: "Inspecting automations",
-		done: "Inspected automations",
-	},
-	addAutomations: { doing: "Adding automations", done: "Added automations" },
-	updateAutomation: {
-		doing: "Updating automation",
-		done: "Updated automation",
-	},
-	removeAutomation: {
-		doing: "Removing automation",
-		done: "Removed automation",
-	},
-	updateApp: { doing: "Updating app settings", done: "Updated app settings" },
-	configureConnect: {
-		doing: "Configuring CommCare Connect",
-		done: "Configured CommCare Connect",
-	},
-	generateSchema: {
-		doing: "Recording the data model",
-		done: "Recorded the data model",
-	},
-	// The design protocol. The phrases speak for the whole call; the raw
-	// payloads (model-facing teaching prose, rejection diagnostics, workspace
-	// views) are suppressed in `toolDetail`, so these rows never leak protocol
-	// vocabulary. A failed row here is Nova's own validation refusing a draft
-	// part, which Nova then reworks: honest, and explained by Nova's prose.
-	setDesignRoot: { doing: "Setting app direction", done: "Set app direction" },
-	updateActors: { doing: "Designing roles", done: "Designed roles" },
-	updateRecords: { doing: "Designing records", done: "Designed records" },
 	updateWorkflows: {
 		doing: "Designing workflows",
 		done: "Designed workflows",
 	},
-	updateLists: { doing: "Designing worklists", done: "Designed worklists" },
-	updateAccess: { doing: "Designing access", done: "Designed access" },
+	updateLists: {
+		doing: "Designing worklists",
+		done: "Designed worklists",
+	},
+	updateAccess: {
+		doing: "Designing access",
+		done: "Designed access",
+	},
 	updateNavigation: {
 		doing: "Designing navigation",
 		done: "Designed navigation",
@@ -245,16 +103,22 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Checking the design draft",
 		done: "Checked the design draft",
 	},
-	// Historical threads only — these tools are retired, but runs
-	// persisted before their retirement still carry these parts.
-	completeBuild: { doing: "Finishing the app", done: "Finished the app" },
-	validateApp: { doing: "Validating the app", done: "Validated the app" },
-	setModuleMedia: { doing: "Setting module media", done: "Set module media" },
-	setFormMedia: { doing: "Setting form media", done: "Set form media" },
-	searchBlueprint: { doing: "Searching the app", done: "Searched the app" },
-	getModule: { doing: "Inspecting a module", done: "Inspected a module" },
-	getForm: { doing: "Inspecting a form", done: "Inspected a form" },
-	getField: { doing: "Inspecting a field", done: "Inspected a field" },
+	completeBuild: {
+		doing: "Finishing the app",
+		done: "Finished the app",
+	},
+	validateApp: {
+		doing: "Validating the app",
+		done: "Validated the app",
+	},
+	setModuleMedia: {
+		doing: "Setting module media",
+		done: "Set module media",
+	},
+	setFormMedia: {
+		doing: "Setting form media",
+		done: "Set form media",
+	},
 };
 
 /** Verb phrases for the app-level Connect target, keyed by the resulting state
@@ -276,23 +140,23 @@ const updateAppAction = (
 	summary: ToolCallSummary | undefined,
 	tense: keyof ActionPhrases,
 ): string => {
-	if (summary?.nameChange) {
+	if (tense === "done" && summary?.nameChange) {
 		return summary.nameChange === "named" ? "Named the app" : "Renamed the app";
 	}
-	return TOOL_ACTIONS.updateApp[tense];
+	return SHARED_TOOL_PRESENTATION.updateApp[tense];
 };
 
 const configureConnectAction = (
 	summary: ToolCallSummary | undefined,
 	tense: keyof ActionPhrases,
 ): string =>
-	summary?.connect
+	tense === "done" && summary?.connect
 		? CONNECT_ACTIONS[summary.connect]
-		: TOOL_ACTIONS.configureConnect[tense];
+		: SHARED_TOOL_PRESENTATION.configureConnect[tense];
 
 /** Tools whose single call performs a MULTI-ITEM action — the friendly action
  *  folds in `summary.count` ("Added 3 fields", "Reordered 5 columns"), each
- *  pluralizing its own noun. Falls back to the static `TOOL_ACTIONS` phrase when
+ *  pluralizing its own noun. Falls back to the catalog phrase when
  *  the count is absent (e.g. a read tool, or a call not carrying a summary). */
 const COUNTABLE_ACTIONS: Record<string, (n: number) => string> = {
 	addFields: (n) => `Added ${n} ${n === 1 ? "field" : "fields"}`,
@@ -387,6 +251,7 @@ export const isEditToolPart = (part: {
  *  outcome, a read tool carries its own payload, and an in-flight call carries
  *  nothing yet. */
 interface MutationOutput {
+	ok?: boolean;
 	message?: string;
 	summary?: ToolCallSummary;
 	error?: string;
@@ -401,6 +266,20 @@ const outputOf = (part: ToolUIPart): MutationOutput | null => {
 	return typeof out === "object" && out !== null
 		? (out as MutationOutput)
 		: null;
+};
+
+/** Read the operation's actual external-service result contract when it has one. */
+const presentedResult = (part: ToolUIPart) => {
+	if (
+		part.state !== "output-available" ||
+		!part.output ||
+		typeof part.output !== "object"
+	)
+		return undefined;
+	return toolPresentation(toolName(part))?.result?.(
+		part.output as Record<string, unknown>,
+		part.input,
+	);
 };
 
 /** Tools whose OUTCOME is `{ success, errors? }` — both retired, both
@@ -438,7 +317,12 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	}
 	if (part.state === "output-error" || completionErrors(part)) return "failed";
 	const output = outputOf(part);
-	if (output?.error !== undefined || output?.outcome === "needs_changes") {
+	if (
+		output?.ok === false ||
+		output?.error !== undefined ||
+		presentedResult(part)?.effect === "blocked" ||
+		output?.outcome === "needs_changes"
+	) {
 		return "failed";
 	}
 	return "done";
@@ -448,24 +332,30 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
  *  call's status earns — "Adding fields" while the spinner runs, "Added
  *  fields" once it lands, and back to the gerund for a failure (the change
  *  never happened, so "Added" would lie). The call's subject is appended in
- *  quotes when the tool reported one. Falls back to the raw tool name so a
- *  newly-added tool still reads before it's mapped here. */
+ *  quotes when the tool reported one. Unknown historical tools use a neutral activity label. */
 export const toolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
 	const tense: keyof ActionPhrases =
 		toolStatus(part) === "done" ? "done" : "doing";
 	const output = outputOf(part);
 	const summary = output?.summary;
+	const presented = presentedResult(part);
+	if (presented?.action) return presented.action;
 	// A consent round changed nothing on purpose — "Updated field" would
 	// lie about an edit that's waiting on the user's answer. What the
 	// call DID do (count the conversion's impact) carries the row.
-	if (summary?.awaitingConsent) {
+	if (tense === "done" && summary?.awaitingConsent) {
 		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
 	}
 	// A verified no-op changed nothing on purpose: the verb must say so. The
 	// case-selection tool carries that fact in its typed outcome rather than the
 	// generic summary because MCP callers branch on the same result.
-	if (summary?.noop || output?.outcome === "unchanged") {
+	if (
+		tense === "done" &&
+		(summary?.noop ||
+			output?.outcome === "unchanged" ||
+			presented?.effect === "unchanged")
+	) {
 		return "Nothing to change";
 	}
 	if (
@@ -481,11 +371,17 @@ export const toolAction = (part: ToolUIPart): string => {
 	// Multi-item actions fold the count into the verb+noun ("Added 3 fields").
 	// Count lives on the summary, which only a completed call carries — so the
 	// past tense these phrases speak is always earned.
-	const countable = COUNTABLE_ACTIONS[name];
-	if (countable && typeof summary?.count === "number") {
+	const countable = Object.hasOwn(COUNTABLE_ACTIONS, name)
+		? COUNTABLE_ACTIONS[name]
+		: undefined;
+	if (tense === "done" && countable && typeof summary?.count === "number") {
 		return countable(summary.count);
 	}
-	const action = TOOL_ACTIONS[name]?.[tense] ?? name;
+	const action =
+		toolPresentation(name)?.[tense] ??
+		(Object.hasOwn(HISTORICAL_TOOL_ACTIONS, name)
+			? HISTORICAL_TOOL_ACTIONS[name][tense]
+			: "App activity");
 	return summary?.subject && !SUBJECT_ON_LOCATION_LINE.has(name)
 		? `${action} "${summary.subject}"`
 		: action;
@@ -528,12 +424,17 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	// `handleAgentStep` — but must never face the user, so show a friendly line.
 	// (Tools that catch their own failures return a friendly `{ error }` string,
 	// handled just below — that path is intentionally preserved.)
-	if (part.state === "output-error") return "This change couldn't be applied.";
+	if (part.state === "output-error")
+		return toolPresentation(toolName(part))?.kind === "read"
+			? "This check couldn't be completed."
+			: "This change couldn't be applied.";
 
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
 	}
+	const presented = presentedResult(part);
+	if (presented?.detail) return presented.detail;
 	// Coordination results describe an unapplied change. Presentation belongs
 	// here rather than in the model-facing tool payload.
 	const mutationOutput = outputOf(part);
@@ -551,6 +452,8 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	// needed. Only fall back to the prose `message` (or a bare-string result)
 	// when there's no summary to render from.
 	if (outputOf(part)?.summary) return null;
+	const scope = toolPresentation(toolName(part))?.detail;
+	if (scope && toolStatus(part) === "done") return scope;
 	if (typeof out === "string") return out;
 	if (typeof out === "object" && out !== null && "message" in out) {
 		return String((out as { message: unknown }).message);
@@ -565,3 +468,29 @@ export const runStatus = (parts: ToolUIPart[]): ToolStatus => {
 	if (parts.some((p) => toolStatus(p) === "pending")) return "pending";
 	return "done";
 };
+
+/** Only completed, effective writes count as changes. Reads, pending work,
+ * refusals and verified no-ops remain activities in a mixed transcript run. */
+export function toolRunLabel(parts: readonly ToolUIPart[]): string {
+	const changes = parts.filter((part) => {
+		const output = outputOf(part);
+		const presented = presentedResult(part);
+		return (
+			toolPresentation(toolName(part))?.kind === "change" &&
+			toolStatus(part) === "done" &&
+			(presented
+				? presented.effect === "changed"
+				: output?.ok === true || output?.outcome === "applied") &&
+			!output?.summary?.noop &&
+			!output?.summary?.awaitingConsent &&
+			output?.outcome !== "unchanged"
+		);
+	}).length;
+	const activities = parts.length - changes;
+	return [
+		...(changes ? [`${changes} ${changes === 1 ? "change" : "changes"}`] : []),
+		...(activities
+			? [`${activities} ${activities === 1 ? "activity" : "activities"}`]
+			: []),
+	].join(" · ");
+}

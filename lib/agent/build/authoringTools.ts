@@ -9,6 +9,12 @@ import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitec
 import { readSourceInputSchema } from "@/lib/agent/sources";
 import { languageIdentityInputSchema } from "@/lib/agent/tools/localization";
 
+import type { AUTHORING_TOOL_PRESENTATION } from "../toolPresentation";
+
+type PresentedTools = Partial<
+	Record<keyof typeof AUTHORING_TOOL_PRESENTATION, ToolSet[string]>
+>;
+
 const empty = z.strictObject({});
 export const writePlanInputSchema = z.strictObject({
 	markdown: planMarkdownSchema,
@@ -24,7 +30,7 @@ export const translateLanguageInputSchema = z.strictObject({
 	language: languageIdentityInputSchema,
 });
 
-export const PLANNING_TOOL_DEFINITIONS: ToolSet = {
+export const PLANNING_TOOL_DEFINITIONS = {
 	readPlan: {
 		description: "Read the shared Markdown plan.",
 		inputSchema: empty,
@@ -51,8 +57,8 @@ export const PLANNING_TOOL_DEFINITIONS: ToolSet = {
 		inputSchema: empty,
 		strict: false,
 	},
-};
-const LEAD_TOOL_DEFINITIONS: ToolSet = {
+} satisfies PresentedTools;
+const LEAD_TOOL_DEFINITIONS = {
 	translateLanguage: {
 		description:
 			"Translate missing, outdated or unreviewed copied text into a target language, adding it if needed. Preserves current translations; new translations need review.",
@@ -83,7 +89,7 @@ const LEAD_TOOL_DEFINITIONS: ToolSet = {
 		inputSchema: reviewInputSchema,
 		strict: false,
 	},
-};
+} satisfies PresentedTools;
 
 export interface AuthoringToolPhase {
 	readonly role: "architect" | "peer";
