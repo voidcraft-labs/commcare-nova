@@ -56,6 +56,9 @@ function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
 /** Steps per turn: the tool loop stops here whatever the model wants next. */
 export const SOLUTIONS_ARCHITECT_MAX_STEPS = 80;
 
+export const EDIT_TURN_LIMIT_MESSAGE =
+	"This editing turn reached its limit before I could finish. Completed changes are saved. I can continue from here.";
+
 /** Provider 5xx / 429 at request establishment retries with the SDK's
  * exponential backoff — 5 attempts (~30s of patience) instead of the
  * default 3, so a brief provider outage rides through rather than failing +
