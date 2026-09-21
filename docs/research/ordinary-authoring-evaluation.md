@@ -569,3 +569,23 @@ the final app; the agent's final verdict alone is insufficient. Collection
 history remains an explicitly reported limitation. Whether a separate receipt
 ledger is required must be grounded in the current business scope, not inferred
 from a historical case-type name.
+
+
+Independent Core execution of the final saved export passed seven checks covering
+the two farmer-to-contract routes, eight replacement creation forms, and delivery
+grading followed by confirmation. The last check verifies full timestamp instants,
+the authored worker usernames, and retention of the grading event after later
+confirmation. Its first assertion incorrectly expected a worker ID where the
+ordinary answer write stores the username; the fixture was corrected to the
+actual authored reading, with no app edit. The app still writes that actor twice
+through the operation and ordinary answer, an unnecessary representation that
+this successful value assertion does not excuse.
+
+A live browser check of that revision selected all three saved identities,
+entered cluster registration through the Field worker's menu, and switched to
+Senior while the form was open. It returned to Home with the old form gone. No
+live business record was submitted. The administrator's impersonation banner
+remained separate from those worker selections. Registration still says the
+Preview uses a fictional place even in ordinary Preview, which has no assigned
+place. That wording conflates disposable test context with ordinary live-data
+Preview and remains a usability defect, not a passing setup experience.

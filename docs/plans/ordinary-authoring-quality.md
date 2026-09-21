@@ -133,8 +133,11 @@ production connection timeouts and a failed server-rendered reload, but eventual
 committed and completed without a duplicate send. The final handoff candidly
 retains deployment and native limits. The agent independently identified ordinary
 hidden timestamp writes losing their clock and replaced those app writes through
-normal tools. The underlying Preview and export conversion defect is being fixed
-and independently checked in this follow-up.
+normal tools. The underlying Preview and export conversion correction passes 243 focused tests
+and 24 native scenarios on both export paths; both pre-fix paths fail the clock
+assertion. Seven independent native checks of the final saved app also pass,
+including retained grading history after confirmation. These do not establish
+ordinary entry or deployment setup.
 
 A collection-history concern remains: the store form retains only the latest
 receipt values. Separate retained receipts and their downstream use have not
@@ -151,6 +154,8 @@ Remaining acceptance is substantive:
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing
   callable capabilities or repeating failed discovery indefinitely.
+- Correct ordinary Preview wording that falsely implies a disposable place
+  assignment; remove redundant actor writes without losing business history.
 - Finish browser checks of ordinary identity and location experience, separately
   from administrator impersonation and disposable recorded journeys.
 - Retain native form/submission limits: no physical-device, remote-HQ or offline
