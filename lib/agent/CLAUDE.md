@@ -78,7 +78,9 @@ complete call scope; unresolved or ambiguous references refuse before mutation.
 
 One list-taking operation handles both one and several additions. Do not add a
 singular twin. Preserve nested identities and attached media during read/edit
-cycles. Type conversions, property renames, and retirement use their dedicated
+cycles. Unused custom property removal uses the reference index and the canonical
+transaction checks both live and parked values before changing the storage schema.
+Populated properties require a reviewed migration. Type conversions, property renames, and retirement use their dedicated
 planners because they may affect existing data.
 
 Shared tool results report `ok`, created identities, relevant changed values,

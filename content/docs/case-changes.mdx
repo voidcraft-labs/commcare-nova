@@ -215,3 +215,12 @@ into a decimal property, without adding a helper question. Choice labels and
 options belong to the question; saved values can also come from an operation.
 Nova still checks every possible result of an expression against the destination
 type, so a fractional value cannot be assigned to an integer property.
+
+## Remove unused property definitions
+
+You can ask Nova to remove custom property definitions that the app no longer
+uses. Nova checks that no question, case change or rule reads or writes them.
+It also checks saved records and values set aside by earlier conversions in
+the same transaction as the change. If any values remain, Nova keeps the
+definition and explains that a reviewed data migration is needed. This cleanup
+never deletes collected data or built-in record metadata.

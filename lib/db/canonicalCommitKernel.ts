@@ -37,6 +37,13 @@
 
 import { type Selectable, sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import {
+	buildCaseTypeMap,
+	CasePropertyHasSavedValuesError,
+	withSchemaContext,
+} from "@/lib/case-store";
+import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
+import { isStandardCaseListProperty } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -983,6 +990,60 @@ export async function commitCanonicalBatch(
 			previousDoc: freshDoc,
 			candidateDoc: verdict.nextDoc,
 		});
+		const removedProperties = new Map<string, Set<string>>();
+		const removalSchemas = mutations.some(
+			(mutation) => mutation.kind === "removeCaseProperty",
+		)
+			? buildCaseTypeMap(verdict.nextDoc)
+			: undefined;
+		for (const mutation of mutations) {
+			if (mutation.kind !== "removeCaseProperty") continue;
+			const effectiveType = removalSchemas?.get(mutation.caseType);
+			// Built-in metadata survives annotation removal. Whole-type
+			// retirement has its own retained storage schema.
+			if (!effectiveType || isStandardCaseListProperty(mutation.property))
+				continue;
+			// Inspect the freshly admitted result, so a concurrent writer or read
+			// cannot be erased using a stale tool snapshot.
+			const error = unusedCasePropertyError(
+				verdict.nextDoc,
+				mutation.caseType,
+				mutation.property,
+			);
+			if (error) throw new BlueprintCommitRejectedError(error);
+			const properties =
+				removedProperties.get(mutation.caseType) ?? new Set<string>();
+			properties.add(mutation.property);
+			removedProperties.set(mutation.caseType, properties);
+		}
+		if (removedProperties.size > 0) {
+			const store = await withSchemaContext();
+			const schemas = removalSchemas ?? buildCaseTypeMap(verdict.nextDoc);
+			for (const [caseType, properties] of [...removedProperties].sort(
+				([a], [b]) => a.localeCompare(b),
+			)) {
+				try {
+					await store.applySchemaChangePhaseA(
+						tx as unknown as Parameters<
+							typeof store.applySchemaChangePhaseA
+						>[0],
+						{
+							appId,
+							caseType,
+							caseTypeSchemas: schemas,
+							syncedSeq: seq,
+							removedProperties: [...properties],
+						},
+					);
+				} catch (error) {
+					if (error instanceof CasePropertyHasSavedValuesError)
+						throw new BlueprintCommitRejectedError(error.message);
+					throw error;
+				}
+			}
+			// Phase A records durable pending index work; ordinary post-commit
+			// convergence or point-of-use healing drains it without holding locks.
+		}
 		await internalOptions.beforeWrite?.({
 			tx,
 			freshDoc,

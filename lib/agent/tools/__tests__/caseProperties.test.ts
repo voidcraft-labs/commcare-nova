@@ -57,6 +57,36 @@ async function fixture() {
 }
 
 describe("record property authoring", () => {
+	it("removes unused definitions together but refuses an app writer or built-in metadata without a partial edit", async () => {
+		const h = await fixture();
+		const before = structuredClone(h.currentDoc());
+		expect(
+			await h.call("removeCaseProperties", {
+				properties: [
+					{ caseType: "garden", property: "beds" },
+					{ caseType: "plot", property: "beds" },
+				],
+			}),
+		).toHaveProperty("error");
+		expect(h.currentDoc()).toEqual(before);
+		expect(
+			await h.call("removeCaseProperties", {
+				properties: [{ caseType: "plot", property: "case_name" }],
+			}),
+		).toHaveProperty("error");
+		expect(
+			await h.call("removeCaseProperties", {
+				properties: [{ caseType: "garden", property: "beds" }],
+			}),
+		).toMatchObject({ ok: true });
+		expect(
+			h
+				.currentDoc()
+				.caseTypes?.find((type) => type.name === "garden")
+				?.properties.some((property) => property.name === "beds"),
+		).toBe(false);
+	});
+
 	it("edits record ancestry without inventing a selection route, then resolves an explicit module by name", async () => {
 		const h = await fixture();
 		expect(
