@@ -181,3 +181,39 @@ failure. Recovery then proves normal OAuth resource initialization, a shared
 successful instance and an actual auth endpoint response. The existing native
 OAuth and organization contracts still pass. This repairs failure recovery;
 it does not explain or establish resolution of the database timeouts.
+
+
+## Native selection validation and initially excluded queries
+
+Independent execution of an ordinary repair's saved form exposed two failures
+that isolated Preview journeys had not observed. No technical app-repair prompt
+was supplied for these findings; the correction belongs to production export.
+
+At Core `8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305`,
+`FormDef.evaluateConstraint` sets `isConstraint` and `candidateValue`;
+`EvaluationContext` copies them when changing context; and
+`XPathPathExpr.getRefValue` returns that candidate when the reference equals the
+current context. Inside a filtered collection, `.` can therefore read the
+confirmation candidate instead of the stored selected-row answer. A count outside
+validation returned one while the native controller rejected the confirmation.
+A reserved sibling calculation removes only an independent filtered count from
+that candidate context. Current-answer references, context-dependent paths or
+functions, and nested predicate contexts are deliberately left unchanged.
+
+A separate initially excluded query repeat captured its membership IDs but set
+its count to zero at initialization. Reading those IDs while excluded yielded an
+empty value; changing relevance did not rerun the one-time count. Deriving count
+from the retained IDs through a relative calculate bind restores rows when shown
+without rerunning the membership query. Relative paths also preserve each parent
+iteration's cardinality.
+
+The public `ContainerRuntimeTest` uses actual Nova CCZ and native HQ-regenerated
+forms. It enters both direct and ancestor-gated query lists, changes relevance,
+checks row identities, submits zero/one/multiple-selection confirmations through
+`FormEntryController.answerQuestion`, and checks retained answers after hide/show.
+It also proves candidate-dependent self-validation still sees the proposed answer.
+The existing nested-query corpus runs alongside these cases. Pure planner checks
+cover the transformation's conservative scope. Private saved-app checks cover
+separate receipt effects and retained grower/contract associations. These do not
+establish Android layout, remote submission, offline sync, or ordinary-agent
+quality; the failed role trials remain failed.

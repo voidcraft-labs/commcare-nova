@@ -290,7 +290,7 @@ selected regression counterexamples.
 | Form links | `FormLinkRuntimeTest` | Native ordered stack frames, conditions and selection values from complete local/HQ suites. |
 | Media | `MediaRuntimeTest` | Native media manifest installation paths and localized prompt references; no remote download or Android rendering. |
 | Lookup data | `LookupRuntimeTest` | Actual fixture storage/install and replacement, current row/filter/label evaluation, dynamic choices, answer serialization and case processing. |
-| Groups/repeats | `ContainerRuntimeTest` | Native group relevance, repeat entry, per-row values and serialized case effects for local/HQ forms. |
+| Groups/repeats | `ContainerRuntimeTest` | Native group relevance, repeat entry, per-row values and serialized case effects for local/HQ forms; initially excluded query lists recover rows when shown, retain answers across hide/show, and admit confirmation only for one selected row through the real controller. Candidate-dependent self-validation remains in the constraint. |
 | Localization | `LocalizationRuntimeTest` | Native locale reader, language switching, prompts, user-facing text and serialized values; no text layout claim. |
 | Worker property identities | `WorkerIdentityRuntimeTest` | Real session-data references through form and suite expressions on both paths. |
 | Search endpoints | `EndpointRuntimeTest` | Native remote-request URLs and parameters; the HTTP request is not sent. |

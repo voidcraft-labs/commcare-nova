@@ -81,7 +81,7 @@ export type { Database } from "../sql/database.js";
 //
 // `enforceConnectionBudget` (below) fails loudly if any constant drifts.
 
-/** Cloud SQL `db-f1-micro` `max_connections`. */
+/** Configured production Cloud SQL `max_connections`, independent of machine tier. */
 export const CLOUD_SQL_MAX_CONNECTIONS = 25;
 
 /** Cloud SQL/PostgreSQL settings audited before every database Job. */

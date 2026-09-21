@@ -31,6 +31,9 @@ export const containerScenarios = [
 	"nested-query",
 	"path-late",
 	"nested-count",
+	"query-conditional",
+	"query-conditional-parent",
+	"query-conditional-relative",
 ] as const;
 export type ContainerScenario = (typeof containerScenarios)[number];
 const text = (id: string) => f({ kind: "text", id, label: proseText(id) });
@@ -217,6 +220,63 @@ export function containerWireFixture(scenario: ContainerScenario) {
 			];
 			break;
 
+		case "query-conditional":
+		case "query-conditional-relative":
+		case "query-conditional-parent": {
+			const parent = scenario === "query-conditional-parent";
+			const prefix = parent ? "page/" : "";
+			const active = "#form/show = 'yes'";
+			const rows: FieldSpec[] = [
+				f({
+					kind: "repeat",
+					id: "items",
+					label: proseText("Choices"),
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "'a b'" },
+					...(!parent && { relevant: active }),
+					children: [
+						f({ kind: "hidden", id: "item_id", calculate: "current()/../@id" }),
+						text("choice"),
+					],
+				}),
+				f({
+					kind: "text",
+					id: "confirm",
+					label: proseText("Confirm one choice"),
+					...(!parent && { relevant: active }),
+					...(scenario === "query-conditional-relative" && {
+						relevant: "../show = 'yes'",
+					}),
+					validate: `. = 'yes' and count(#form/${prefix}items/choice[. = 'yes']) = 1`,
+				}),
+			];
+			fields = [
+				f({
+					kind: "text",
+					id: "show",
+					label: proseText("Show choices"),
+					default_value: "'no'",
+				}),
+				...(parent
+					? [
+							f({
+								kind: "group",
+								id: "page",
+								label: proseText("Choices"),
+								relevant: active,
+								children: rows,
+							}),
+						]
+					: rows),
+				f({
+					kind: "text",
+					id: "self_check",
+					label: proseText("Check this answer"),
+					validate: "count(#form/self_check[. = 'yes']) = 1",
+				}),
+			];
+			break;
+		}
 		case "query":
 			fields = [
 				f({

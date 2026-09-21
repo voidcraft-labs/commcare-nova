@@ -181,6 +181,20 @@ after every projection.
 
 Query-repeat insertion bookkeeping counts `../item` from its wrapper attribute. An absolute count can include another parent's rows during dependency recalculation when an outside expression reads nested iterations. Native Core tests cover these consumers in both local CCZ and HQ-regenerated forms.
 
+### Validation counts keep their evaluation context
+
+Core substitutes a question's proposed answer while evaluating its constraint,
+including at a filtered collection's current node. `constraintCollections.ts`
+lifts independent `count(otherQuestion[predicate])` expressions into reserved
+sibling calculations, then keeps the candidate comparison in the constraint.
+Only typed scalar references and context-independent predicates qualify; counts
+that reference the validated answer, use relative paths/functions, or occur
+inside another predicate remain unchanged. The executable and Vellum shadow
+expressions share the lowered result. `ContainerRuntimeTest` exercises actual
+controller answer admission, zero/one/multiple selections, and direct candidate
+validation through local and HQ-regenerated forms. This is a bounded correction,
+not general native parity for every possible predicate.
+
 ### Hidden fields carry one value source
 
 `validator/rules/field.ts::hiddenValueBothSources` (`HIDDEN_VALUE_BOTH_SOURCES`,
@@ -452,7 +466,7 @@ Three modes via `repeat_mode` discriminator, each emits different wire shape:
 
 - **`user_controlled`** — bare `<repeat nodeset="...">`. Runtime adds/removes instances.
 - **`count_bound`** — `<repeat nodeset="..." jr:count="<snapshot-path>" jr:noAddRemove="true()">`. Nova promises an initial fixed count. Core rereads `jr:count` during entry traversal, so every authored count is snapshotted into a reserved `__nova_count_<fieldId>` node; a raw expression never goes directly into `jr:count`, which Core requires to be a location path. Path-valued counts use a string snapshot to retain strict `IntegerData.cast` lexical conversion; other expressions use an integer snapshot and Core's numeric narrowing. Root counts initialize on `xforms-ready`, after ordinary defaults. Counts inside a repeat snapshot within each parent row on `jr-insert`, after that row's defaults and query identity initialize. They do not later track answer changes. No authored-expression `vellum:jr__count` shadow is emitted: resaving must retain the snapshot reference.
-- **`query_bound`** — Vellum's model-iteration pattern. Data nests `<item>` below a container carrying `@ids`, `@count`, and calculated `@current_index`; the repeat targets that item path. Setvalues initialize ids/count at form load or parent-row insertion, then each row's index/id on insertion. Parent identity initialization precedes descendant setvalues, so a nested query sees the correct parent. The membership list is an initial snapshot.
+- **`query_bound`** — Vellum's model-iteration pattern. Data nests `<item>` below a container carrying `@ids`, `@count`, and calculated `@current_index`; the repeat targets that item path. Setvalues initialize ids at form load or parent-row insertion, then each row's index/id on insertion. A calculate bind derives `@count` from `../@ids`, so an initially excluded repeat can recover its cardinality when shown; this does not refresh the snapshotted membership query. Parent identity initialization precedes descendant setvalues, so a nested query sees the correct parent. The membership list is an initial snapshot.
 
 Canonical authored field references never contain the synthetic `/item` segment. `buildXForm` maps canonical paths to the actual `FormPath` locations and uses the same mapping for executable XPath and Vellum editor shadows. This applies to binds, defaults, repeat queries/counts and prose outputs. Native `ContainerRuntimeTest` executes the admitted local and HQ-regenerated corpus, including distinct nested-query identities, nested counts, later-authored defaults, frozen cardinalities, and paired strict-lexical count conversions.
 
