@@ -1067,6 +1067,13 @@ generic dependency inventory and rejects every persistent object except
 types. Local development skips role convergence, keeps `cases` in `public`, and
 the same search path still resolves it.
 
+Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
+An already-correct owner must not request an exclusive table lock: the old
+service is still reading and writing during migration. Real ownership repairs
+and ACL reconciliation remain one audited transaction, with a local one-second
+lock timeout. Contention aborts that transaction and blocks deployment; it does
+not kill readers, skip privileges, or commit partial grants.
+
 ### Migration modules are immutable once applied
 
 Kysely's ledger records migration NAMES, not content hashes. So **never
