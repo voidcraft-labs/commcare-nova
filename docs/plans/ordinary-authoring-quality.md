@@ -134,7 +134,7 @@ committed and completed without a duplicate send. The final handoff candidly
 retains deployment and native limits. The agent independently identified ordinary
 hidden timestamp writes losing their clock and replaced those app writes through
 normal tools. The underlying Preview and export conversion correction passes 243 focused tests
-and 24 native scenarios on both export paths; both pre-fix paths fail the clock
+and 24 native checks across both export paths; both pre-fix paths fail the clock
 assertion. Seven independent native checks of the final saved app also pass,
 including retained grading history after confirmation. These do not establish
 ordinary entry or deployment setup.
