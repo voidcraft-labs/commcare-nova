@@ -102,6 +102,7 @@ export function sharedToolAvailable(
 	phase: AuthoringToolPhase,
 ): boolean {
 	if (entry.policy.effect === "read-blueprint") return true;
+	if (entry.policy.effect === "exercise-app") return phase.hasApp;
 	if (phase.role === "peer" || !phase.building) return false;
 	return (
 		entry.policy.staging !== "forbidden" ||

@@ -1,4 +1,5 @@
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
@@ -39,7 +40,6 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseType,
-	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	defaultPostSubmit,
 	effectivePostSubmit,
@@ -54,15 +54,20 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
-	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
+import {
+	afterSubmitRoute,
+	automaticLinkedCaseCollection,
+	carriedChildCasesFromReceipt,
+	previewMenuSelectionsAfterTargetCases,
+	previewTargetHasSelectedCase,
+} from "@/lib/preview/afterSubmitRouting";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import {
 	blueprintRevisionDigest,
 	caseDatabaseToFormPreloads,
 	caseRowsToFormPreloads,
-	caseRowToFormPreload,
 	pickBlueprintDoc,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
@@ -70,9 +75,12 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import {
+	overlayCaseDatabasePatch,
+	submissionWorkerValues,
+} from "@/lib/preview/engine/caseDatabasePatch";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
-	type AfterSubmitChoice,
 	type CarriedSubmission,
 	carriedCaseFromSelections,
 	createFormLinkWorkerWorld,
@@ -97,6 +105,11 @@ import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
+import {
+	noMatchesFormAdmission,
+	noMatchesPostSubmit,
+	noMatchesRefusalCopy,
+} from "@/lib/preview/noMatchesForm";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -138,18 +151,10 @@ import { SectionPage } from "../form/sections/SectionPage";
 import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useSectionPaging } from "../form/sections/useSectionPaging";
 import {
-	afterSubmitRoute,
-	carriedChildCasesFromReceipt,
-	type PreviewTargetCaseCollection,
-	previewMenuSelectionsAfterTargetCases,
-	previewTargetHasSelectedCase,
-} from "./afterSubmitRouting";
-import {
 	FORM_PRIMARY_ACTION_CLS,
 	FORM_QUIET_ACTION_CLS,
 } from "./formActionButtonStyles";
 import { openModuleLanding } from "./moduleLanding";
-import { noMatchesFormAdmission, noMatchesRefusalCopy } from "./noMatchesForm";
 
 /**
  * Failure arms of `SubmissionResult`: the complement of the success
@@ -354,87 +359,6 @@ function stringArrayValuesEqual(
 			left.length === right.length &&
 			left.every((value, index) => value === right[index]))
 	);
-}
-
-/** Preserve the selected-entities collection across an automatic compatible
- * several-case link. The ordinary frame projector is scalar by design; using
- * its first value here would lose order and every case after the first. The
- * exact post-submit device snapshot supplies even a case the submission just
- * closed and a fresh restore would omit. */
-function automaticLinkedCaseCollection(args: {
-	readonly choice: AfterSubmitChoice;
-	readonly doc: BlueprintDoc;
-	readonly sourceModuleUuid: Uuid | undefined;
-	readonly sourceFormType: FormType | undefined;
-	readonly submittedCases: readonly PreviewCaseChoice[] | undefined;
-	readonly resultCaseIds: readonly string[];
-	readonly caseDatabase: CaseDatabaseSnapshot;
-}): PreviewTargetCaseCollection | undefined {
-	if (
-		args.choice.kind !== "link" ||
-		/* HQ's flat module frame contains only the module command. It does not
-		 * carry a case-selection datum, so entering that module must begin its
-		 * ordinary Results journey instead of inheriting Preview's collection. */
-		args.choice.link.target.type !== "form" ||
-		args.choice.link.datums !== undefined ||
-		args.sourceModuleUuid === undefined ||
-		args.sourceFormType === undefined ||
-		!CASE_LOADING_FORM_TYPES.has(args.sourceFormType)
-	) {
-		return undefined;
-	}
-	const sourceModule = args.doc.modules[args.sourceModuleUuid];
-	const targetModule = args.doc.modules[args.choice.link.target.moduleUuid];
-	if (
-		sourceModule?.caseListConfig?.selection?.kind !== "multiple" ||
-		targetModule?.caseListConfig?.selection?.kind !== "multiple" ||
-		sourceModule.caseType === undefined ||
-		!caseSelectionCanFlowBetweenModules(sourceModule, targetModule)
-	) {
-		return undefined;
-	}
-	if (
-		!CASE_LOADING_FORM_TYPES.has(
-			args.doc.forms[args.choice.link.target.formUuid]?.type ?? "survey",
-		)
-	) {
-		return undefined;
-	}
-	if (
-		args.resultCaseIds.length === 0 ||
-		args.resultCaseIds.length > targetModule.caseListConfig.selection.maximum
-	) {
-		throw new Error(
-			"A compatible several-case link received a selection outside its target limit.",
-		);
-	}
-	const submittedById = new Map(
-		(args.submittedCases ?? []).map(
-			(choice) => [choice.caseId, choice] as const,
-		),
-	);
-	const rowById = new Map(
-		args.caseDatabase.rows.map((row) => [row.case_id, row] as const),
-	);
-	const cases = args.resultCaseIds.map((caseId) => {
-		const row = rowById.get(caseId);
-		if (row === undefined || row.case_type !== sourceModule.caseType) {
-			throw new Error(
-				"A selected case was missing from the carried post-submit device snapshot.",
-			);
-		}
-		const previous = submittedById.get(caseId);
-		return {
-			caseId,
-			caseName: row.case_name || previous?.caseName || "Case",
-			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
-		};
-	});
-	return {
-		moduleUuid: args.choice.link.target.moduleUuid,
-		caseType: sourceModule.caseType,
-		cases,
-	};
 }
 
 /**
@@ -1127,7 +1051,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			// An explicitly authored App home destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
-			if (submittedForm?.postSubmit === "app_home") {
+			if (submittedForm && noMatchesPostSubmit(submittedForm) === "app_home") {
 				announceWrite();
 				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
 				setPreviewSelectedCase(undefined);
@@ -1189,55 +1113,15 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			);
 			return;
 		}
-		const affectedCaseIds = new Set(
-			caseDatabasePatch.rows.map((row) => row.case_id),
+		const refreshedCaseDatabase = overlayCaseDatabasePatch(
+			submitted.caseDatabase,
+			caseDatabasePatch,
 		);
-		const patchedRowsByCaseId = new Map(
-			caseDatabasePatch.rows.map((row) => [row.case_id, row] as const),
+		const postSubmissionUsercase = submissionWorkerValues(
+			caseDatabasePatch,
+			previewIdentity?.ownerId,
+			previewIdentity?.usercase ?? {},
 		);
-		const existingCaseIds = new Set(
-			submitted.caseDatabase.rows.map((row) => row.case_id),
-		);
-		const hasPropertyTypes =
-			submitted.caseDatabase.propertyTypes !== undefined ||
-			caseDatabasePatch.propertyTypes !== undefined;
-		const refreshedCaseDatabase: CaseDatabaseSnapshot = {
-			rows: [
-				...submitted.caseDatabase.rows.map(
-					(row) => patchedRowsByCaseId.get(row.case_id) ?? row,
-				),
-				...caseDatabasePatch.rows.filter(
-					(row) => !existingCaseIds.has(row.case_id),
-				),
-			],
-			indices: [
-				...submitted.caseDatabase.indices.filter(
-					(index) => !affectedCaseIds.has(index.case_id),
-				),
-				...caseDatabasePatch.indices,
-			],
-			...(hasPropertyTypes
-				? {
-						propertyTypes: {
-							...(submitted.caseDatabase.propertyTypes ?? {}),
-							...(caseDatabasePatch.propertyTypes ?? {}),
-						},
-					}
-				: {}),
-		};
-		const committedUsercase = caseDatabasePatch.rows.find(
-			(row) =>
-				row.case_type === USERCASE_CASE_TYPE &&
-				(previewIdentity?.ownerId === undefined ||
-					row.case_id === previewIdentity.ownerId),
-		);
-		const postSubmissionUsercase =
-			committedUsercase === undefined
-				? (previewIdentity?.usercase ?? {})
-				: {
-						...(previewIdentity?.usercase ?? {}),
-						...Object.fromEntries(caseRowToFormPreload(committedUsercase)),
-					};
 
 		let caseData: PostSubmissionCaseData = new Map();
 		let boundCaseName: string | undefined;

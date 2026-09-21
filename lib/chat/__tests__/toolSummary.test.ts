@@ -31,6 +31,36 @@ const pendingPart = (tool: string): ToolUIPart =>
 	}) as ToolUIPart;
 
 describe("action tense follows the call's status", () => {
+	it("keeps disposable submissions and failed journey observations out of app-change counts", () => {
+		const part = (observation: Record<string, unknown>) =>
+			({
+				...pendingPart("continueAppTest"),
+				state: "output-available",
+				output: { testId: "test", step: 4, observation },
+			}) as ToolUIPart;
+		const saved = part({
+			savedInTest: true,
+			effects: { primaryCaseIds: ["example"] },
+		});
+		const stopped = part({
+			savedInTest: true,
+			nextTaskError: "No eligible next task",
+		});
+		expect(toolStatus(saved)).toBe("done");
+		expect(toolStatus(stopped)).toBe("failed");
+		expect(toolRunLabel([saved, stopped, part({ ended: true })])).toBe(
+			"3 activities",
+		);
+		expect(toolDetail(saved)).toContain("test records");
+		expect(toolAction(stopped)).not.toBe(toolAction(saved));
+		const crashed = {
+			...pendingPart("continueAppTest"),
+			state: "output-error",
+			errorText: "Internal database error",
+		} as ToolUIPart;
+		expect(toolDetail(crashed)).not.toContain("Internal database");
+		expect(toolDetail(crashed)).not.toContain("change");
+	});
 	it("reads as in-progress while the call is in flight", () => {
 		expect(toolAction(pendingPart("addFields"))).toBe("Adding fields");
 		expect(toolAction(pendingPart("createModule"))).toBe("Creating module");

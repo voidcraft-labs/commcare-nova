@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { caseListStep, resultsConstraintContext } from "../caseListPhase";
+import {
+	caseListStep,
+	resultsConstraintContext,
+} from "@/lib/preview/caseListPhase";
 
 describe("caseListStep", () => {
 	it("keeps a browse-then-search module on the ordinary composition", () => {

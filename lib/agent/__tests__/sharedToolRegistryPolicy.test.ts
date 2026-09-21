@@ -79,7 +79,10 @@ describe("shared tool registry — execution policy coherence", () => {
 			expect(new Set(names).size, key).toBe(names.length);
 		}
 		for (const entry of SHARED_TOOL_REGISTRY) {
-			if (entry.policy.effect !== "read-blueprint") {
+			if (
+				entry.policy.effect !== "read-blueprint" &&
+				entry.policy.effect !== "exercise-app"
+			) {
 				expect(entry.requires, entry.saName).not.toBe("view");
 			}
 		}

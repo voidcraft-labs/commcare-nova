@@ -15,6 +15,7 @@ import * as completeFoldSnapshots from "./20260914060000_complete_fold_snapshots
 import * as authoringFormat from "./20260914070000_authoring_format";
 import * as authoringFoldHorizon from "./20260914080000_authoring_fold_horizon";
 import * as retireBetterAuth17Bridge from "./20260919000000_retire_better_auth_17_bridge";
+import * as appTestSessions from "./20260920000000_app_test_sessions";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -97,6 +98,7 @@ export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
+	"20260920000000_app_test_sessions": appTestSessions,
 	"20260914010000_authoring_workspaces": authoringWorkspaces,
 	"20260914030000_authoring_events": authoringEvents,
 	"20260914020000_lookup_authoring_receipts": lookupAuthoringReceipts,

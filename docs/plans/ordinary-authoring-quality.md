@@ -9,7 +9,7 @@ the quality trials, browser acceptance and delivered-app repair are complete.
 
 Approved defaults: preserve the delivered app's current scope and collected data;
 save role personas but keep invented places inside isolated test sessions; offer
-Builder replay of the same journeys agents exercise. No revival of the retired
+Builder access to recorded steps of the journeys agents exercise. No revival of the retired
 design graph or substantive reviewed-edit/MCP orchestration project.
 
 ## Delivery
@@ -18,11 +18,13 @@ design graph or substantive reviewed-edit/MCP orchestration project.
   Derive ordinary writes, initial values and worker readiness from production
   rules; make lifecycle metadata discoverable; improve naming and focused guides.
 - [ ] PR 2: Isolated multi-form tests through production navigation, FormEngine,
-  submission and Postgres, exposed by shared `startAppTest`/`continueAppTest` tools
-  and labeled Builder replay. Keep test state in a separate evaluation namespace,
+  submission and Postgres, exposed by shared `startAppTest`/`continueAppTest`/`readAppTest` tools
+  and labeled Builder observations. Keep test state in a separate evaluation namespace,
   reauthorize the real actor on every operation, and never dispatch external effects.
   Pin document/lookup revisions, serialize session actions, preserve retry receipts,
-  expire disposable state after 24 hours and retain authorized replay evidence.
+  refuse continuation after 24 hours and retain authorized recorded evidence.
+  Finish drops the test namespace; starting another test reclaims expired
+  namespaces for that app. App deletion also removes its test namespaces.
 - [ ] PR 3: Independent peer continuity across corrections, revision-stamped
   observations, focused follow-up review, current-design Markdown and honest
   completion/recovery/anatomy. Preserve exact-revision completion and accounting.
@@ -43,7 +45,7 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 - [ ] Real Postgres: atomic persistence/rollback, retries, concurrency, revocation,
   expiry and proof that test actions cannot affect live cases/resources.
 - [ ] Playwright: ordinary Preview and persona switching separately from isolated
-  tests, missing-location guidance, replay, ergonomics and truthful chat outcomes.
+  tests, missing-location guidance, recorded journeys, ergonomics and truthful chat outcomes.
 - [ ] Independent Core/HQ checks for relevant emitted behavior; explicitly retain
   physical-device, remote-service and offline-synchronization evidence gaps.
 - [ ] Bounded paid trials through normal design/build/review: $100 total, allocated
@@ -59,3 +61,9 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 
 Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
 No paid trials or production changes have run for this plan.
+
+PR 1 is reviewed with green CI; it is not yet merged. PR 2 is in implementation.
+Controlled checks cover entry, saved role identities, parent selection, form
+answers, isolated submission, closure and sync. These are prerequisite contracts,
+not evidence that a normal agent has delivered a usable app. Review continuity,
+held-out trials, production repair, plugin release and browser acceptance remain.

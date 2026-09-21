@@ -11,7 +11,6 @@ const { authorize, readDevice, recheck, telemetry } = vi.hoisted(() => ({
 	telemetry: vi.fn(),
 }));
 vi.mock("../engine/caseDataBindingHelpers", () => ({
-	resolveAuthorizedPreviewContext: authorize,
 	readCaseDatabaseSnapshot: readDevice,
 }));
 vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
@@ -167,3 +166,7 @@ describe("entry point launch server boundary", () => {
 		expect(recheck).not.toHaveBeenCalled();
 	});
 });
+
+vi.mock("../engine/previewAuthorization", () => ({
+	resolveAuthorizedPreviewContext: authorize,
+}));

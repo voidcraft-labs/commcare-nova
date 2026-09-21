@@ -85,6 +85,7 @@ function conditionVisibility(
 	// or vacuous condition is simply shown, matching the absent wire attr.
 	const effective = effectiveDisplayConditionForEmission(args.condition);
 	if (effective === undefined) return "shown";
+	if (args.session.identityPending) return "pending";
 
 	/* A carrier-bearing condition is decidable only over a snapshot that
 	 * COVERS its identities — a bare "data exists" test is not enough,

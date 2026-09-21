@@ -1,3 +1,11 @@
+import {
+	CASE_LOADING_FORM_TYPES,
+	caseSelectionCanFlowBetweenModules,
+	type FormType,
+} from "@/lib/domain";
+import type { PreviewCaseChoice } from "@/lib/session/types";
+import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
+import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
 /**
  * The form screen's after-submit routing decision, as a pure function.
  *
@@ -280,4 +288,85 @@ export function carriedChildCasesFromReceipt(args: {
 			...(child.caseName !== undefined && { caseName: child.caseName }),
 		};
 	});
+}
+
+/** Preserve the selected-entities collection across an automatic compatible
+ * several-case link. The ordinary frame projector is scalar by design; using
+ * its first value here would lose order and every case after the first. The
+ * exact post-submit device snapshot supplies even a case the submission just
+ * closed and a fresh restore would omit. */
+export function automaticLinkedCaseCollection(args: {
+	readonly choice: AfterSubmitChoice;
+	readonly doc: BlueprintDoc;
+	readonly sourceModuleUuid: Uuid | undefined;
+	readonly sourceFormType: FormType | undefined;
+	readonly submittedCases: readonly PreviewCaseChoice[] | undefined;
+	readonly resultCaseIds: readonly string[];
+	readonly caseDatabase: CaseDatabaseSnapshot;
+}): PreviewTargetCaseCollection | undefined {
+	if (
+		args.choice.kind !== "link" ||
+		/* HQ's flat module frame contains only the module command. It does not
+		 * carry a case-selection datum, so entering that module must begin its
+		 * ordinary Results journey instead of inheriting Preview's collection. */
+		args.choice.link.target.type !== "form" ||
+		args.choice.link.datums !== undefined ||
+		args.sourceModuleUuid === undefined ||
+		args.sourceFormType === undefined ||
+		!CASE_LOADING_FORM_TYPES.has(args.sourceFormType)
+	) {
+		return undefined;
+	}
+	const sourceModule = args.doc.modules[args.sourceModuleUuid];
+	const targetModule = args.doc.modules[args.choice.link.target.moduleUuid];
+	if (
+		sourceModule?.caseListConfig?.selection?.kind !== "multiple" ||
+		targetModule?.caseListConfig?.selection?.kind !== "multiple" ||
+		sourceModule.caseType === undefined ||
+		!caseSelectionCanFlowBetweenModules(sourceModule, targetModule)
+	) {
+		return undefined;
+	}
+	if (
+		!CASE_LOADING_FORM_TYPES.has(
+			args.doc.forms[args.choice.link.target.formUuid]?.type ?? "survey",
+		)
+	) {
+		return undefined;
+	}
+	if (
+		args.resultCaseIds.length === 0 ||
+		args.resultCaseIds.length > targetModule.caseListConfig.selection.maximum
+	) {
+		throw new Error(
+			"A compatible several-case link received a selection outside its target limit.",
+		);
+	}
+	const submittedById = new Map(
+		(args.submittedCases ?? []).map(
+			(choice) => [choice.caseId, choice] as const,
+		),
+	);
+	const rowById = new Map(
+		args.caseDatabase.rows.map((row) => [row.case_id, row] as const),
+	);
+	const cases = args.resultCaseIds.map((caseId) => {
+		const row = rowById.get(caseId);
+		if (row === undefined || row.case_type !== sourceModule.caseType) {
+			throw new Error(
+				"A selected case was missing from the carried post-submit device snapshot.",
+			);
+		}
+		const previous = submittedById.get(caseId);
+		return {
+			caseId,
+			caseName: row.case_name || previous?.caseName || "Case",
+			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+		};
+	});
+	return {
+		moduleUuid: args.choice.link.target.moduleUuid,
+		caseType: sourceModule.caseType,
+		cases,
+	};
 }

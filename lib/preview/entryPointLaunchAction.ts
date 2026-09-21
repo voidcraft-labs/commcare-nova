@@ -9,10 +9,7 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { uuidSchema } from "@/lib/domain";
 import { getLookupFixtureData } from "@/lib/lookup/service";
-import {
-	readCaseDatabaseSnapshot,
-	resolveAuthorizedPreviewContext,
-} from "./engine/caseDataBindingHelpers";
+import { readCaseDatabaseSnapshot } from "./engine/caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./engine/caseDataBindingTelemetry";
 import { previewLookupData } from "./engine/lookupEvaluation";
 import { prepareEntryPointLaunch } from "./entryPointLaunch";
@@ -117,3 +114,5 @@ export async function launchEntryPointAction(input: {
 		};
 	}
 }
+
+import { resolveAuthorizedPreviewContext } from "./engine/previewAuthorization";

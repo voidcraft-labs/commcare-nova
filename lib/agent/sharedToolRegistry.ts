@@ -9,6 +9,11 @@
 
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
 import {
+	continueAppTestTool,
+	readAppTestTool,
+	startAppTestTool,
+} from "@/lib/agent/tools/appTests";
+import {
 	addAutomationsTool,
 	getAutomationsTool,
 	removeAutomationTool,
@@ -149,7 +154,8 @@ export type ToolRuntimeCapability =
  * - `effect` — what the tool changes: nothing (`read-blueprint`), the
  *   Blueprint through the guarded commit (`mutate-blueprint`), external
  *   Project/app rows or object storage (`mutate-external`), or both stores in
- *   one service transaction (`mixed-transaction`).
+ *   one service transaction (`mixed-transaction`). `exercise-app` writes only
+ *   disposable test state and observations, never app or Project data.
  * - `staging` — the stageability classification: `allowed` for ordinary
  *   Blueprint work, `exclusive` for the tool whose every batch IS the
  *   batch-exclusive case-store saga, `forbidden` for anything with an
@@ -162,6 +168,7 @@ export type ToolRuntimeCapability =
 export interface ToolExecutionPolicy {
 	readonly effect:
 		| "read-blueprint"
+		| "exercise-app"
 		| "mutate-blueprint"
 		| "mutate-external"
 		| "mixed-transaction";
@@ -183,7 +190,12 @@ export type SharedToolRegistryEntry = {
 		readonly policy: ToolExecutionPolicy & {
 			readonly effect: (typeof SHARED_TOOL_PRESENTATION)[Name]["kind"] extends "read"
 				? "read-blueprint"
-				: Exclude<ToolExecutionPolicy["effect"], "read-blueprint">;
+				: (typeof SHARED_TOOL_PRESENTATION)[Name]["kind"] extends "activity"
+					? "exercise-app"
+					: Exclude<
+							ToolExecutionPolicy["effect"],
+							"read-blueprint" | "exercise-app"
+						>;
 		};
 	};
 }[keyof typeof SHARED_TOOL_PRESENTATION];
@@ -467,6 +479,35 @@ export const SHARED_TOOL_REGISTRY = [
 			staging: "allowed",
 			capabilities: ["case-read", "lookup-read", "organization-read"],
 		},
+	},
+	{
+		saName: "startAppTest",
+		mcpName: "start_app_test",
+		tool: startAppTestTool,
+		requires: "view",
+		policy: {
+			effect: "exercise-app",
+			staging: "forbidden",
+			capabilities: ["case-read", "lookup-read", "organization-read"],
+		},
+	},
+	{
+		saName: "continueAppTest",
+		mcpName: "continue_app_test",
+		tool: continueAppTestTool,
+		requires: "view",
+		policy: {
+			effect: "exercise-app",
+			staging: "forbidden",
+			capabilities: ["case-read"],
+		},
+	},
+	{
+		saName: "readAppTest",
+		mcpName: "read_app_test",
+		tool: readAppTestTool,
+		requires: "view",
+		policy: READ_POLICY,
 	},
 	{
 		saName: "getForm",

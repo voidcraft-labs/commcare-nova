@@ -1,9 +1,17 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { evaluateFormSnapshot } from "./evaluateFormSnapshot";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
+import { evaluatePostSubmissionSnapshot } from "./postSubmissionEvaluation";
+import { evaluateSearchSnapshot } from "./searchEvaluation";
 
 try {
-	const result = await evaluateFormSnapshot(
+	const evaluate =
+		workerData.kind === "search"
+			? evaluateSearchSnapshot
+			: workerData.kind === "after-submit"
+				? evaluatePostSubmissionSnapshot
+				: evaluateFormSnapshot;
+	const result = await evaluate(
 		workerData.doc,
 		workerData.input,
 		workerData.context,

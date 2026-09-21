@@ -47,7 +47,7 @@ function usercaseIdFor(appId: string, worker: UsercaseWorker): string {
  * must not replace or reopen them. A duplicate is an invariant failure, never
  * an arbitrary first-row choice. */
 export async function findUsercaseRow(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "insert" | "update">,
 	args: {
 		readonly appId: string;
 		readonly workerId: string;
@@ -140,7 +140,7 @@ export interface SyncUsercaseRowArgs {
  * one belongs in `caseWrite` admission where an author can be told why.
  */
 export async function syncUsercaseRow(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "insert" | "update">,
 	args: SyncUsercaseRowArgs,
 ): Promise<{
 	readonly created: boolean;

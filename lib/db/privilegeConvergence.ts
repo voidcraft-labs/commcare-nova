@@ -141,6 +141,7 @@ export interface PublicTablePolicy {
 }
 
 const RUNTIME_READ_WRITE_TABLES = [
+	"app_test_sessions",
 	"case_indices",
 	"case_type_schemas",
 	"parked_case_values",
@@ -190,6 +191,7 @@ const RUNTIME_READ_WRITE_TABLES = [
  * may row-lock or update a request, step, stage, change-set handle, or
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
+	"app_test_steps",
 	"app_changes",
 	"design_change_set_requests",
 	"design_change_set_steps",
@@ -620,7 +622,14 @@ interface PublicRoutineIdentity {
 	readonly identityArguments: string;
 }
 
+const APP_TEST_RUNTIME_ROUTINES = [
+	{ name: "nova_create_app_test_namespace", identityArguments: "test_id uuid" },
+	{ name: "nova_drop_app_test_namespace", identityArguments: "test_id uuid" },
+] as const;
+
 const EXPECTED_PUBLIC_ROUTINES = [
+	...APP_TEST_RUNTIME_ROUTINES,
+	{ name: "nova_dispose_deleted_app_test", identityArguments: "" },
 	{ name: "rotate_deployment_push_token", identityArguments: "" },
 	{
 		name: "nova_admit_app_change_fold_baseline_insert",
@@ -669,6 +678,7 @@ const EXPECTED_PUBLIC_ROUTINES = [
 ] as const;
 
 const RUNTIME_ROUTINES = [
+	...APP_TEST_RUNTIME_ROUTINES,
 	{
 		name: "nova_insert_app_change_genesis_fold_baseline",
 		identityArguments: "text",

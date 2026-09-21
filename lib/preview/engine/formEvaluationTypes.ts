@@ -27,7 +27,15 @@ export interface FormEvaluationInput {
 	readonly language?: LanguageTag;
 }
 
+export interface FormEvaluationEntry {
+	readonly entryKey: string;
+	readonly checkpoint: import("./formEngine").FormEngineEntryCheckpoint;
+}
+
 export interface FormEvaluationContext {
+	/** Internal app-test continuation. Ordinary form checks omit both. */
+	entry?: FormEvaluationEntry;
+	captureEntry?: boolean;
 	identity: ResolvedPreviewIdentity;
 	cases: CaseDatabaseSnapshot;
 	lookup: Pick<

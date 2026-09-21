@@ -183,6 +183,7 @@ const readProjectors: {
 	getLookupTables: passthrough,
 	getLookupTableRows: passthrough,
 	evaluateForm: passthrough,
+	readAppTest: passthrough,
 	getEntryPoints: passthrough,
 	listMediaAssets: passthrough,
 	getUsers: passthrough,

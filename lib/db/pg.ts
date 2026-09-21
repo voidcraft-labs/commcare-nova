@@ -1326,7 +1326,42 @@ export interface FormAttachmentRateLimitsTable {
 	attempt_count: number;
 }
 
+/** Disposable runtime state, pinned to a saved app and a real authorized actor. */
+export interface AppTestSessionsTable {
+	id: string;
+	app_id: string;
+	project_id: string;
+	created_by: string;
+	request_id: string;
+	request_digest: string;
+	blueprint_seq: BigIntColumn;
+	blueprint_digest: string;
+	runtime_version: number;
+	snapshot: JSONColumnType<Record<string, unknown>>;
+	state: JSONColumnType<Record<string, unknown>>;
+	step: DefaultedNumberColumn;
+	created_at: Timestamp;
+	expires_at: Timestamp;
+	disposed_at: ColumnType<
+		Date | null,
+		Date | string | null | undefined,
+		Date | string | null
+	>;
+}
+
+export interface AppTestStepsTable {
+	test_id: string;
+	step: number;
+	request_id: string;
+	request_digest: string;
+	action: JSONColumnType<Record<string, unknown>>;
+	observation: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
 export interface AppDatabase {
+	app_test_sessions: AppTestSessionsTable;
+	app_test_steps: AppTestStepsTable;
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
 	app_changes: AppChangesTable;

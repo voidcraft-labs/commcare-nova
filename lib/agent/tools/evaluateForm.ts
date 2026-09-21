@@ -8,8 +8,8 @@ import {
 	evaluateForm,
 	FormEvaluationInputError,
 } from "@/lib/preview/engine/evaluateForm";
+import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
 import { loadFormEvaluationContext } from "../authoring/evaluationContext";
-import { evaluationScenarioSchema } from "../authoring/evaluationScenario";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	formAddressSchema,

@@ -24,8 +24,8 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { resolvePreviewIdentity } from "./caseDataBindingHelpers";
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
+import { resolvePreviewIdentity } from "./previewAuthorization";
 
 export interface LookupFixtureDataWire {
 	readonly projectRevision: string;

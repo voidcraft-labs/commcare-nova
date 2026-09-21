@@ -1,3 +1,4 @@
+import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
 import { parseAuthoredXPath } from "@/lib/doc/expressionText";
@@ -196,6 +197,23 @@ async function prepareInput<S extends z.ZodType>(args: {
 		existingField.optionsSource.kind === "inline"
 			? existingField.optionsSource.options
 			: [];
+	// Disposable places are an external effect, without a staged mutation
+	// receipt. Keep their allocated identities stable if this call is replayed
+	// after its committed result was lost, including references by place name.
+	if (toolName === "startAppTest" && input.places !== undefined) {
+		const places = records.parse(input.places);
+		input.places = places;
+		for (const [index, place] of places.entries())
+			place.uuid ??= uuidv5(
+				JSON.stringify([
+					ctx.appId,
+					ctx.userId,
+					ctx.invocation.requestId,
+					index,
+				]),
+				uuidv5.URL,
+			);
+	}
 	allocateCreationIdentities(toolName, input, (spec, item) => {
 		if (spec.entityKind !== "option" || typeof item.value !== "string")
 			return undefined;

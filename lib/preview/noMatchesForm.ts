@@ -19,6 +19,18 @@ import type {
 	PreviewSearchState,
 } from "@/lib/session/types";
 
+/** A no-matches registration's native return takes precedence over ordinary
+ * after-submit routing. Explicit App home is the only alternative. */
+export function noMatchesPostSubmit(
+	form: Pick<Form, "entry" | "postSubmit">,
+): "app_home" | "results" | undefined {
+	return isNoMatchesForm(form)
+		? form.postSubmit === "app_home"
+			? "app_home"
+			: "results"
+		: undefined;
+}
+
 export type NoMatchesFormAdmission =
 	/** Not a no-matches form: nothing to admit. */
 	| { readonly kind: "not-applicable" }

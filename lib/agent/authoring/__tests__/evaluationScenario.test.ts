@@ -2,12 +2,12 @@ import { expect, it } from "vitest";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import { proseText, reachableCaseTypes } from "@/lib/domain";
 import { caseDatabaseToFormPreloads } from "@/lib/preview/engine/caseDataBindingClient";
-import { caseDatabaseXPathInstance } from "@/lib/preview/engine/xpathInstances";
-import { evaluate } from "@/lib/preview/xpath/evaluator";
 import {
 	type EvaluationScenario,
 	evaluationScenarioCases,
-} from "../evaluationScenario";
+} from "@/lib/preview/engine/evaluationScenario";
+import { caseDatabaseXPathInstance } from "@/lib/preview/engine/xpathInstances";
+import { evaluate } from "@/lib/preview/xpath/evaluator";
 
 it("makes linked test records available to real XPath and preloads, refusing unrepresentable rows", () => {
 	const doc = structuredClone(makeCanonicalGenesisDoc());

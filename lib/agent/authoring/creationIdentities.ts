@@ -13,6 +13,7 @@ export type CreationEntityKind =
 	| "persona"
 	| "organization_level"
 	| "location_property"
+	| "location"
 	| "automation"
 	| "automation_criterion"
 	| "automation_setup_criterion"
@@ -83,6 +84,7 @@ const FIELD_SPECS = (
 export const CREATION_IDENTITY_SPECS: Readonly<
 	Record<string, readonly CreationIdentitySpec[]>
 > = {
+	startAppTest: [spec(["places", "*", "uuid"], "location")],
 	/* Shared structural creation tools. */
 	addEntryPoint: [spec(["entryPointUuid"], "entry_point")],
 	createModule: [

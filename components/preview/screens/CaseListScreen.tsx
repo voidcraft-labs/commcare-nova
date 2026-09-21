@@ -119,6 +119,11 @@ import {
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
 import {
+	automaticallyLaunchesSearch,
+	caseListStep,
+	resultsConstraintContext,
+} from "@/lib/preview/caseListPhase";
+import {
 	type GroupedTileProjection,
 	splitTileGridByGroupHeader,
 } from "@/lib/preview/caseTileGrouping";
@@ -159,6 +164,7 @@ import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunSta
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
 	moduleHasChildren,
+	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
@@ -194,7 +200,6 @@ import {
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
-import { caseListStep, resultsConstraintContext } from "./caseListPhase";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -1222,9 +1227,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* CommCare auto-launches an input-free Search when its Results filter
 	 * narrows the population; a search-first module runs its input-free
 	 * search on its own regardless (`default_search`). */
-	const automaticallyLaunchesZeroInputSearch =
-		zeroInputSearchActionIsRelevant &&
-		(hasEffectiveSearchFilter || searchFirst);
+	const automaticallyLaunchesZeroInputSearch = automaticallyLaunchesSearch({
+		relevant: searchActionIsRelevant,
+		hasVisibleInputs: hasSearchInputs,
+		hasEffectiveFilter: hasEffectiveSearchFilter,
+		searchFirst,
+	});
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
 	 * launches again rather than leaving the previous values in the query. */
@@ -1464,23 +1472,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideCaseLoadingForms(row);
-		const seeded =
-			seededFormUuid === undefined
-				? undefined
-				: decided.find((entry) => entry.form.uuid === seededFormUuid);
-		if (seeded?.visibility === "shown") {
-			openFormWithCase(seeded.form.uuid, row);
-			return;
-		}
-		/* A seeded target whose condition is false for THIS case falls
-		 * through to the ordinary decision rather than opening a form the
-		 * running app would not offer. */
-		const shown = decided.filter((entry) => entry.visibility === "shown");
-		const undecided = decided.some((entry) => entry.visibility === "pending");
-		if (!undecided && shown.length === 1) {
-			/* The single-form skip applies to the CONDITION-ELIGIBLE set:
-			 * a false condition suppresses the auto-continue too. */
-			openFormWithCase(shown[0].form.uuid, row);
+		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		if (automaticForm !== undefined) {
+			openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
 			/* Several eligible forms, still-loading conditions, or none
 			 * eligible at all land on the menu: it renders placeholders and
@@ -1555,18 +1549,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 		const decided = decideMultiCaseLoadingForms();
-		const seeded =
-			seededFormUuid === undefined
-				? undefined
-				: decided.find((entry) => entry.form.uuid === seededFormUuid);
-		if (seeded?.visibility === "shown") {
-			openFormWithCases(seeded.form.uuid, choices);
-			return;
-		}
-		const shown = decided.filter((entry) => entry.visibility === "shown");
-		const undecided = decided.some((entry) => entry.visibility === "pending");
-		if (!undecided && shown.length === 1 && shown[0] !== undefined) {
-			openFormWithCases(shown[0].form.uuid, choices);
+		const automaticForm = previewAutomaticForm(decided, seededFormUuid);
+		if (automaticForm !== undefined) {
+			openFormWithCases(automaticForm, choices);
 			return;
 		}
 		if (decided.length > 0) {

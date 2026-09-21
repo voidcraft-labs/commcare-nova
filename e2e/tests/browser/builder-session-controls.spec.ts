@@ -10,6 +10,9 @@ test.beforeAll(async () => {
 		"e2e/lib/builder-session-controls-client.tsx",
 		[],
 		{
+			"@/lib/preview/app-tests/actions": resolve(
+				"e2e/lib/builder-session-controls-boundary.ts",
+			),
 			"@/lib/preview/engine/caseDataBinding": resolve(
 				"e2e/lib/builder-session-controls-boundary.ts",
 			),

@@ -50,7 +50,10 @@ accepts them, cast text into an AST, or regex-parse XPath.
 `sharedToolRegistry.ts` declares every operation's effect, required context,
 staging eligibility, and external capabilities. Availability comes from those
 declarations and the current role and phase, not a prompt prohibition. Planning
-and peer review cannot mutate app or Project data. External operations recheck
+and peer review cannot mutate app or Project data. The `exercise-app` effect
+permits disposable journey tests of a saved app, including during app review;
+it is forbidden in staging and never counts as an app change. Each action
+reauthorizes the real actor independently of the simulated worker. External operations recheck
 membership and their own revision at the transaction boundary.
 
 The architect and editor use hosted tool search with deferred shared definitions.

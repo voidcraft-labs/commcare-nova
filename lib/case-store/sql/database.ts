@@ -11,14 +11,14 @@
 //
 // Tenant isolation is the column pair `(app_id, project_id)` — case
 // data is shared at Project scope, so every member of a Project sees
-// its rows. That is the ONLY structural filter today.
+// its rows through authoring data views. Running-worker restore adds its
+// ownership and relationship closure beneath that tenant boundary.
 //
 // `owner_id` is the SECOND axis: the CommCare case-owner, Nova's
-// reserved axis for future location-/group-based access carving. It is
-// a first-class column (defaulted to the creating user), NOT a tenant
-// boundary and NOT disposable — nothing filters on it yet because
-// locations are unimplemented, but when they land, location-based
-// access control filters on it BENEATH the Project tenant filter.
+// owner axis for worker- and location-based restore. It is a first-class
+// column (defaulted to the current worker), not a tenant boundary or the
+// modifying actor. Open owned seeds and relationship closure determine the
+// worker's delivered records, including retained closed dependencies.
 //
 // No row-level security, no per-tenant schema, no per-tenant database.
 // The application funnels reads/writes through a `CaseStore` bound to
@@ -132,7 +132,8 @@ export interface CasesTable {
 		Date | string | null
 	>;
 
-	/** Null while open. Standard "list open cases" query is `WHERE closed_on IS NULL`. */
+	/** Closing timestamp, separate from the operational status column that
+	 * drives restore. Imported historical rows may lack this timestamp. */
 	closed_on: ColumnType<
 		Date | null,
 		Date | string | null,

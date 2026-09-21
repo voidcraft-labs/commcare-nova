@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
 
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -23,8 +23,11 @@ import {
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { asUuid } from "@/lib/domain";
+import { eq, literal, sessionUserProperty, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
+import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
 import {
 	buildCaseChangesBlueprint,
@@ -613,6 +616,101 @@ export async function createSmokeBuilders(
 			return {};
 		},
 		open: seedOpen,
+		"app-tests": async () => {
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: "Worker visits", status: "complete" },
+			);
+			const property = asUuid(randomUUID()),
+				role = asUuid(randomUUID()),
+				worker = asUuid(randomUUID());
+			const doc = buildDoc({
+				appId,
+				appName: "Worker visits",
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Record visit",
+								type: "survey",
+								fields: [
+									f({
+										id: "note",
+										kind: "text",
+										label: "Visit note",
+										required: xp("true()"),
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			doc.userProperties = {
+				[property]: {
+					uuid: property,
+					slug: "role_code",
+					label: "Role",
+					required: true,
+				},
+			};
+			doc.userPropertyOrder = [property];
+			doc.userTypes = {
+				[role]: {
+					uuid: role,
+					name: "Visitor",
+					values: { [property]: "visitor" },
+				},
+			};
+			doc.userTypeOrder = [role];
+			doc.personas = {
+				[worker]: { uuid: worker, name: "Visit worker", userTypeUuid: role },
+			};
+			doc.personaOrder = [worker];
+			const moduleUuid = doc.moduleOrder[0];
+			doc.modules[moduleUuid].displayCondition = eq(
+				term(sessionUserProperty(property)),
+				literal("visitor"),
+			);
+			await appendSyntheticBatch({
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: toPersistableDoc(doc),
+				authority: { kind: "user", actorUserId: SEED.userId },
+			});
+			const scope = {
+				appId,
+				projectId: seedProjectId,
+				actorUserId: SEED.userId,
+			};
+			let test = await startAppTest(scope, {
+				requestId: randomUUID(),
+				expectedBlueprintSeq: baseSeq + 1,
+				input: { purpose: "Reach visit collection as the saved worker." },
+			});
+			test = await continueAppTest(scope, {
+				testId: test.testId,
+				requestId: randomUUID(),
+				expectedStep: test.step,
+				action: { kind: "identity", personaUuid: worker },
+			});
+			test = await continueAppTest(scope, {
+				testId: test.testId,
+				requestId: randomUUID(),
+				expectedStep: test.step,
+				action: { kind: "menu", moduleUuid },
+			});
+			await continueAppTest(scope, {
+				testId: test.testId,
+				requestId: randomUUID(),
+				expectedStep: test.step,
+				action: { kind: "finish" },
+			});
+			return { appId };
+		},
 		"app-list": async () => ({
 			...(await seedOpen()),
 			moveDestinationProjectId: await seedMoveDestinationProject(),

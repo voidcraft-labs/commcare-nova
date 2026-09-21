@@ -522,6 +522,22 @@ export class PostgresCaseStore implements CaseStore {
 		this.authorizeSchemaMutationCallback = args.authorizeSchemaMutation;
 	}
 
+	/** App tests hold authorization, effects and the step receipt in one outer
+	 * transaction. Only data operations join it; schema operations still own
+	 * their transactions and cannot be used through the test-store surface. */
+	private async dataTransaction<T>(
+		body: (tx: Transaction<Database>) => Promise<T>,
+		repeatableRead = false,
+	): Promise<T> {
+		if (this.db.isTransaction) return body(this.db as Transaction<Database>);
+		const transaction = this.db.transaction();
+		return (
+			repeatableRead
+				? transaction.setIsolationLevel("repeatable read")
+				: transaction
+		).execute(body);
+	}
+
 	/** Hold the live app's placement stable for one actor-free schema write. */
 	private async authorizeSchemaMutation(
 		trx: Transaction<Database>,
@@ -968,84 +984,79 @@ export class PostgresCaseStore implements CaseStore {
 		readonly restoreScope: RestoreScope;
 	}): Promise<DeviceCaseDatabase> {
 		const projectId = this.requireProjectId();
-		return this.db
-			.transaction()
-			.setIsolationLevel("repeatable read")
-			.execute(async (trx): Promise<DeviceCaseDatabase> => {
-				const rowRestore = buildRestoreScope(trx, {
-					appId: args.appId,
-					projectId,
-					ownerIds: args.restoreScope.ownerIds,
-				});
-				let rowQuery = rowRestore.creator
-					.selectFrom("cases as c")
-					.selectAll("c")
-					.where("c.app_id", "=", args.appId)
-					.where("c.project_id", "=", projectId)
-					.where(({ not, exists, selectFrom }) =>
-						not(
-							exists(
-								selectFrom("parked_case_values as held")
-									.select("held.id")
-									.whereRef("held.case_id", "=", "c.case_id")
-									.where("held.dismissed_at", "is", null),
-							),
-						),
-					);
-				rowQuery = rowRestore.restrict(rowQuery, "c");
-				const storedRows = await rowQuery
-					.orderBy("c.opened_on", "asc")
-					.orderBy("c.case_id", "asc")
-					.execute();
-				const rows = storedRows.map(
-					({ project_id: _projectId, ...row }) => row,
-				);
-
-				const indexRestore = buildRestoreScope(trx, {
-					appId: args.appId,
-					projectId,
-					ownerIds: args.restoreScope.ownerIds,
-				});
-				let indexQuery = indexRestore.creator
-					.selectFrom("case_indices as ci")
-					.innerJoin("cases as source", "source.case_id", "ci.case_id")
-					.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
-					.select([
-						"ci.case_id",
-						"ci.ancestor_id",
-						"ci.identifier",
-						"ci.relationship",
-						"ci.depth",
-						"ci.target_case_type",
-					])
-					.where("ci.depth", "=", 1)
-					.where("source.app_id", "=", args.appId)
-					.where("source.project_id", "=", projectId)
-					.where("ancestor.app_id", "=", args.appId)
-					.where("ancestor.project_id", "=", projectId)
-					.where(({ not, exists, selectFrom }) =>
-						not(
-							exists(
-								selectFrom("parked_case_values as held")
-									.select("held.id")
-									.whereRef("held.case_id", "=", "source.case_id")
-									.where("held.dismissed_at", "is", null),
-							),
-						),
-					);
-				indexQuery = indexRestore.restrict(indexQuery, "source");
-				const indices = await indexQuery
-					.orderBy("ci.case_id", "asc")
-					.orderBy("ci.identifier", "asc")
-					.orderBy("ci.ancestor_id", "asc")
-					.execute();
-				const propertyTypes = await this.readCaseDatabasePropertyTypes(
-					trx,
-					args.appId,
-					rows.map((row) => row.case_type),
-				);
-				return { rows, indices, propertyTypes };
+		return this.dataTransaction(async (trx): Promise<DeviceCaseDatabase> => {
+			const rowRestore = buildRestoreScope(trx, {
+				appId: args.appId,
+				projectId,
+				ownerIds: args.restoreScope.ownerIds,
 			});
+			let rowQuery = rowRestore.creator
+				.selectFrom("cases as c")
+				.selectAll("c")
+				.where("c.app_id", "=", args.appId)
+				.where("c.project_id", "=", projectId)
+				.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as held")
+								.select("held.id")
+								.whereRef("held.case_id", "=", "c.case_id")
+								.where("held.dismissed_at", "is", null),
+						),
+					),
+				);
+			rowQuery = rowRestore.restrict(rowQuery, "c");
+			const storedRows = await rowQuery
+				.orderBy("c.opened_on", "asc")
+				.orderBy("c.case_id", "asc")
+				.execute();
+			const rows = storedRows.map(({ project_id: _projectId, ...row }) => row);
+
+			const indexRestore = buildRestoreScope(trx, {
+				appId: args.appId,
+				projectId,
+				ownerIds: args.restoreScope.ownerIds,
+			});
+			let indexQuery = indexRestore.creator
+				.selectFrom("case_indices as ci")
+				.innerJoin("cases as source", "source.case_id", "ci.case_id")
+				.innerJoin("cases as ancestor", "ancestor.case_id", "ci.ancestor_id")
+				.select([
+					"ci.case_id",
+					"ci.ancestor_id",
+					"ci.identifier",
+					"ci.relationship",
+					"ci.depth",
+					"ci.target_case_type",
+				])
+				.where("ci.depth", "=", 1)
+				.where("source.app_id", "=", args.appId)
+				.where("source.project_id", "=", projectId)
+				.where("ancestor.app_id", "=", args.appId)
+				.where("ancestor.project_id", "=", projectId)
+				.where(({ not, exists, selectFrom }) =>
+					not(
+						exists(
+							selectFrom("parked_case_values as held")
+								.select("held.id")
+								.whereRef("held.case_id", "=", "source.case_id")
+								.where("held.dismissed_at", "is", null),
+						),
+					),
+				);
+			indexQuery = indexRestore.restrict(indexQuery, "source");
+			const indices = await indexQuery
+				.orderBy("ci.case_id", "asc")
+				.orderBy("ci.identifier", "asc")
+				.orderBy("ci.ancestor_id", "asc")
+				.execute();
+			const propertyTypes = await this.readCaseDatabasePropertyTypes(
+				trx,
+				args.appId,
+				rows.map((row) => row.case_type),
+			);
+			return { rows, indices, propertyTypes };
+		}, true);
 	}
 
 	async readCaseDatabasePatch(args: {
@@ -1671,7 +1682,7 @@ export class PostgresCaseStore implements CaseStore {
 		// until the row commits (the write-vs-sync contract on
 		// `getValidator`) — and AFTER the advisory block, keeping the
 		// uniform advisory → schema → rows lock order.
-		return await this.db.transaction().execute(async (trx) => {
+		return await this.dataTransaction(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
 			const caseId = await this.insertRowInTransaction(trx, {
@@ -1802,7 +1813,7 @@ export class PostgresCaseStore implements CaseStore {
 		// submission names up front (a followup/close bound case's type
 		// is discovered inside the update core, which acquires its own
 		// schema lock — the same pattern `update` uses).
-		return await this.db.transaction().execute(async (trx) => {
+		return await this.dataTransaction(async (trx) => {
 			const authorization = await this.authorizeMutation(trx, args.appId);
 			const replay = await prepareSubmissionReceipt(trx, {
 				appId: args.appId,
@@ -2183,7 +2194,7 @@ export class PostgresCaseStore implements CaseStore {
 				"A non-null parent_case_id update requires parentRelationship.",
 			);
 		}
-		await this.db.transaction().execute(async (trx) => {
+		await this.dataTransaction(async (trx) => {
 			await this.authorizeMutation(trx, args.appId);
 			await this.lockRelationshipWrites(trx, args.appId);
 			await this.updateInTransaction(trx, args);

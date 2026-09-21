@@ -1,7 +1,6 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { evaluationScenarioCases } from "@/lib/agent/authoring/evaluationScenario";
 import {
 	evaluatePreparedMutationCandidate,
 	prepareMutationCandidate,
@@ -9,6 +8,7 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { simpleSearchInputDef } from "@/lib/domain";
+import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { evaluateForm, FormEvaluationInputError } from "../evaluateForm";
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
@@ -418,4 +418,105 @@ it("uses the running Search's date-range values in a no-matches registration", a
 			value: "__range__2025-01-02__2025-03-04",
 		}),
 	);
+});
+
+it("continues an entry without rerunning defaults or rematerializing its query rows", async () => {
+	const doc = await createEvaluationApp({
+		name: "Equipment",
+		case_type: "equipment",
+		forms: [
+			{
+				name: "Inspect",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "ids",
+						label: "Parts",
+						caseWrite: { caseType: "equipment", property: "ids" },
+					},
+					{
+						kind: "text",
+						id: "token",
+						label: "Inspection token",
+						default_value: "uuid()",
+					},
+					{
+						kind: "repeat",
+						id: "parts",
+						label: "Parts",
+						repeat: { mode: "query_bound", ids_query: "string(#form/ids)" },
+					},
+					{
+						kind: "hidden",
+						id: "part_id",
+						parentUuid: "parts",
+						calculate: "current()/../@id",
+					},
+					{
+						kind: "text",
+						id: "condition",
+						parentUuid: "parts",
+						label: "Condition",
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.values(doc.forms).find(
+		(form) => form.name === "Inspect",
+	)?.uuid;
+	const identity = previewAsMe({ id: "member" }, doc);
+	if (!formUuid || !identity)
+		throw new Error("Evaluation fixture is incomplete.");
+	const context = {
+		identity,
+		cases: evaluationScenarioCases(doc, identity.ownerId, {
+			records: [
+				{
+					id: "pump",
+					caseType: "equipment",
+					properties: { ids: "rotor seal" },
+				},
+			],
+		}),
+		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
+		captureEntry: true,
+	};
+	const opened = await evaluateForm(
+		doc,
+		{ formUuid, caseIds: ["pump"], answers: [] },
+		context,
+	);
+	expect(
+		opened.fields
+			.filter((field) => field.path.endsWith("/part_id"))
+			.map((field) => field.value),
+	).toEqual(["rotor", "seal"]);
+	const changed = await evaluateForm(
+		doc,
+		{ formUuid, caseIds: ["pump"], answers: [{ path: "ids", value: "rotor" }] },
+		{ ...context, entry: opened.entry },
+	);
+	const resumed = await evaluateForm(
+		doc,
+		{
+			formUuid,
+			caseIds: ["pump"],
+			answers: [{ path: "parts[1]/condition", value: "Replace" }],
+		},
+		{ ...context, entry: changed.entry },
+	);
+	expect(resumed.fields.find((field) => field.path === "token")?.value).toBe(
+		opened.fields.find((field) => field.path === "token")?.value,
+	);
+	expect(
+		resumed.fields
+			.filter((field) => field.path.endsWith("/part_id"))
+			.map((field) => field.value),
+	).toEqual(["rotor", "seal"]);
+	expect(
+		resumed.fields.find((field) => field.path === "parts[1]/condition")?.value,
+	).toBe("Replace");
+	expect(resumed.entry?.entryKey).toBe(opened.entry?.entryKey);
 });

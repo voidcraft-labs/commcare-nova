@@ -882,6 +882,33 @@ describe("database privilege convergence", () => {
 				},
 			});
 
+			const appTestId = crypto.randomUUID();
+			await asRole(h.db, config.runtimeRole, async (tx) => {
+				const testId = appTestId;
+				const created = await sql<{
+					namespace: string;
+				}>`SELECT public.nova_create_app_test_namespace(${testId}::uuid) AS namespace`.execute(
+					tx,
+				);
+				const namespace = created.rows[0].namespace;
+				await sql`INSERT INTO ${sql.id(namespace, "apps")} (id, owner, project_id, app_name, app_name_lower)
+					VALUES ('test-app', 'author', 'test-project', 'Test app', 'test app')`.execute(
+					tx,
+				);
+				await sql`INSERT INTO ${sql.id(namespace, "cases")} (case_id, app_id, project_id, case_type, case_name, owner_id, status, properties)
+					VALUES ('test-record', 'test-app', 'test-project', 'equipment', 'Pump', 'worker', 'open', '{}')`.execute(
+					tx,
+				);
+				const isolated = await sql<{
+					case_name: string;
+				}>`SELECT case_name FROM ${sql.id(namespace, "cases")}`.execute(tx);
+				expect(isolated.rows).toEqual([{ case_name: "Pump" }]);
+			});
+			await asRole(h.db, config.runtimeRole, async (tx) => {
+				await sql`SELECT public.nova_drop_app_test_namespace(${appTestId}::uuid)`.execute(
+					tx,
+				);
+			});
 			await asRole(h.db, config.runtimeRole, async (tx) => {
 				const grants = await sql<{
 					can_select_auth: boolean;
