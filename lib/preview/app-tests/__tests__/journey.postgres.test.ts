@@ -266,7 +266,10 @@ it("requires a saved role and parent selection, then executes additional operati
 	const write = async (name: string, input: unknown) =>
 		expect(await author.call(name, input)).toMatchObject({ ok: true });
 	await write("addUserProperties", {
-		properties: [{ slug: "role_code", label: "Role", required: true }],
+		properties: [
+			{ slug: "role_code", label: "Role", required: true },
+			{ slug: "last_inspection", label: "Last inspection" },
+		],
 	});
 	await write("addUserTypes", {
 		userTypes: [
@@ -308,6 +311,15 @@ it("requires a saved role and parent selection, then executes additional operati
 						caseWrite: { caseType: "equipment", property: "condition" },
 					},
 					{ kind: "text", id: "note", label: "Temporary note" },
+					{
+						kind: "text",
+						id: "worker_note",
+						label: "Worker note",
+						caseWrite: {
+							caseType: "commcare-user",
+							property: "last_inspection",
+						},
+					},
 				],
 			},
 		],
@@ -336,6 +348,12 @@ it("requires a saved role and parent selection, then executes additional operati
 				id: "inspection_count",
 				calculate:
 					"count(instance('casedb')/casedb/case[@case_type = 'inspection'])",
+			},
+			{
+				kind: "text",
+				id: "saved_worker_note",
+				label: "Saved worker note",
+				default_value: "#user/last_inspection",
 			},
 		],
 	});
@@ -369,7 +387,8 @@ it("requires a saved role and parent selection, then executes additional operati
 		links: [
 			{
 				link: {
-					condition: "#case/condition = 'Working'",
+					condition:
+						"#case/condition = 'Working' and #user/last_inspection = 'Checked'",
 					target: {
 						type: "form",
 						moduleUuid: "Equipment",
@@ -514,6 +533,7 @@ it("requires a saved role and parent selection, then executes additional operati
 		answers: [
 			{ path: "condition", value: "Working" },
 			{ path: "note", value: "Unsaved note" },
+			{ path: "worker_note", value: "Checked" },
 		],
 	});
 	expect(await step({ kind: "submit" })).toMatchObject({
@@ -522,6 +542,7 @@ it("requires a saved role and parent selection, then executes additional operati
 		name: "Receipt",
 		questions: expect.arrayContaining([
 			expect.objectContaining({ path: "inspection_count", value: "1" }),
+			expect.objectContaining({ path: "saved_worker_note", value: "Checked" }),
 		]),
 		effects: {
 			caseDatabasePatch: {
@@ -545,5 +566,91 @@ it("requires a saved role and parent selection, then executes additional operati
 			expect.objectContaining({ path: "condition", value: "Working" }),
 			expect.objectContaining({ path: "note", value: "" }),
 		]),
+	});
+});
+
+it("opens browse-first Results with its hidden Search values already applied", async () => {
+	const author = makeAuthoringHarness();
+	expect(
+		await author.call("createModule", {
+			name: "People",
+			case_type: "person",
+			forms: [
+				{
+					name: "Visit",
+					type: "followup",
+					fields: [
+						{
+							kind: "text",
+							id: "region",
+							label: "Region",
+							caseWrite: { caseType: "person", property: "region" },
+						},
+					],
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addSearchInputs", {
+			moduleUuid: "People",
+			searchInputs: [
+				{ kind: "hidden", name: "region", label: "Region", value: "'north'" },
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("setCaseListFilter", {
+			moduleUuid: "People",
+			filter: "when-provided(#search/region, #case/region = #search/region)",
+		}),
+	).toMatchObject({ ok: true });
+	const doc = author.currentDoc();
+	const people = Object.values(doc.modules).find(
+		(module) => module.name === "People",
+	);
+	if (!people) throw new Error("Missing people menu");
+
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const begun = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Browse only the assigned region",
+			scenario: {
+				records: [
+					{
+						id: "north-person",
+						caseType: "person",
+						name: "North person",
+						properties: { region: "north" },
+					},
+					{
+						id: "south-person",
+						caseType: "person",
+						name: "South person",
+						properties: { region: "south" },
+					},
+				],
+			},
+		},
+	});
+	const result = await continueAppTest(scope, {
+		testId: begun.testId,
+		expectedStep: 0,
+		requestId: "open",
+		action: { kind: "menu", moduleUuid: people.uuid },
+	});
+	expect(result.observation).toMatchObject({
+		screen: "browse",
+		results: {
+			kind: "rows",
+			rows: [expect.objectContaining({ case_id: "north-person" })],
+		},
 	});
 });

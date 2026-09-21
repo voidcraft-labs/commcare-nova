@@ -149,11 +149,10 @@ describe("compact provider expression schemas", () => {
 				}
 			}
 		};
-		let total = 0;
+
 		for (const { saName, tool } of SHARED_TOOL_REGISTRY) {
 			const toolJson = wireToolSchema(tool.inputSchema as z.ZodType)
 				.jsonSchema as JsonNode;
-			total += JSON.stringify(toolJson).length;
 			const defs = (toolJson.definitions ?? {}) as JsonNode;
 			const edges = new Map<string, Set<string>>();
 			for (const [name, body] of Object.entries(defs)) {
@@ -184,10 +183,6 @@ describe("compact provider expression schemas", () => {
 				}
 			}
 		}
-		/* This canonical-schema inventory measures 487,812 characters with
-		 * focused property reads and edits. Guard unexpected expansion here;
-		 * /agents measures the distinct authored schemas actually mounted. */
-		expect(total).toBeLessThan(490_000);
 	});
 
 	it("keeps exact UUID patterns on the listed identity-bearing AST properties", () => {

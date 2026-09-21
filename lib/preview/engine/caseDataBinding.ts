@@ -72,14 +72,11 @@ import {
 	gatedCaseStoreWithScope,
 	loadExpressionLookupData,
 	loadLookupTableSchemas,
-	PERSONA_UNAVAILABLE_MESSAGE,
 	readCaseData,
 	readCaseDatabaseSnapshot,
 	readCases,
 	readFilterPreview,
 	resetSampleCases,
-	resolveAuthorizedPreviewContext,
-	resolvePreviewIdentity,
 	seedSampleCases,
 	submissionEnvelopeArgs,
 } from "./caseDataBindingHelpers";
@@ -1435,3 +1432,9 @@ function submissionResultFromEnvelope(
 		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 	};
 }
+
+import {
+	PERSONA_UNAVAILABLE_MESSAGE,
+	resolveAuthorizedPreviewContext,
+	resolvePreviewIdentity,
+} from "./previewAuthorization";

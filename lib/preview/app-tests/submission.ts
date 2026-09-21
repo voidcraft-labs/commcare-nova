@@ -1,12 +1,13 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
-import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import {
 	buildSubmissionOperationProgram,
 	submissionEnvelopeArgs,
 } from "../engine/caseDataBindingHelpers";
-import { overlayCaseDatabasePatch } from "../engine/caseDatabasePatch";
+import {
+	overlayCaseDatabasePatch,
+	submissionWorkerValues,
+} from "../engine/caseDatabasePatch";
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
@@ -82,20 +83,14 @@ export async function submitAppTest(
 		screen.entryCases,
 		result.caseDatabasePatch,
 	);
-	const usercase = result.caseDatabasePatch.rows.find(
-		(row) =>
-			row.case_type === USERCASE_CASE_TYPE &&
-			row.case_id === context.identity.ownerId,
-	);
-	const identity = usercase
-		? {
-				...context.identity,
-				usercase: {
-					...context.identity.usercase,
-					...Object.fromEntries(caseRowToFormPreload(usercase)),
-				},
-			}
-		: context.identity;
+	const identity = {
+		...context.identity,
+		usercase: submissionWorkerValues(
+			result.caseDatabasePatch,
+			context.identity.ownerId,
+			context.identity.usercase,
+		),
+	};
 	try {
 		const registrationReturn =
 			mutation.kind === "registration"

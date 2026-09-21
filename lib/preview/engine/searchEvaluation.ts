@@ -5,6 +5,8 @@ import {
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/predicate";
+import { automaticallyLaunchesSearch } from "../caseListPhase";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -154,11 +156,15 @@ export async function evaluateSearchSnapshot(
 		}
 		run = changeSearchRunDraft(run, run, values, errors.size === 0);
 	}
-	// A search-first screen without prompts runs its search on entry.
+	// Use the same input-free launch decision as the running app.
 	if (
-		relevant &&
-		search?.searchFirst &&
-		run.allowedKeys.size === 0 &&
+		automaticallyLaunchesSearch({
+			relevant,
+			searchFirst: search?.searchFirst === true,
+			hasVisibleInputs: run.allowedKeys.size > 0,
+			hasEffectiveFilter:
+				effectiveFilterForEmission(mod.caseListConfig?.filter) !== undefined,
+		}) &&
 		!run.hasSubmitted
 	)
 		run = changeSearchRunDraft(run, run, new Map(), true);

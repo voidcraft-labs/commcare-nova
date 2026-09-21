@@ -1,3 +1,5 @@
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { caseRowToFormPreload } from "./caseDataBindingClient";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /** A submission changes the local device database before the next sync.
@@ -22,4 +24,24 @@ export function overlayCaseDatabasePatch(
 			? { propertyTypes: { ...entry.propertyTypes, ...patch.propertyTypes } }
 			: {}),
 	};
+}
+
+/** Case UUID and worker UUID are different identities. Match the same semantic
+ * key used to materialize the worker record, never an arbitrary usercase. */
+export function submissionWorkerValues(
+	patch: CaseDatabaseSnapshot,
+	workerId: string | undefined,
+	previous: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+	const row =
+		workerId === undefined
+			? undefined
+			: patch.rows.find(
+					(row) =>
+						row.case_type === USERCASE_CASE_TYPE &&
+						row.properties.hq_user_id === workerId,
+				);
+	return row
+		? { ...previous, ...Object.fromEntries(caseRowToFormPreload(row)) }
+		: previous;
 }

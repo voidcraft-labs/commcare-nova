@@ -3,6 +3,7 @@ import { AppAccessError } from "../appAccess";
 import {
 	advanceAppTestSession,
 	createAppTestSession,
+	listAppTests,
 	readAppTestSteps,
 } from "../appTests";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -141,6 +142,9 @@ describe("app test session authority and evidence", () => {
 			}),
 		});
 		const evidence = await readAppTestSteps({ ...scope, testId: begun.testId });
+		expect(evidence.blueprint_seq).toBe(evidence.currentBlueprintSeq);
+		const listed = await listAppTests(scope);
+		expect(listed.tests[0].blueprint_seq).toBe(listed.currentBlueprintSeq);
 		expect(evidence.disposed_at).toBeInstanceOf(Date);
 		expect(evidence.steps.map((step) => step.observation)).toEqual([
 			{ screen: "home" },

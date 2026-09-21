@@ -119,6 +119,7 @@ import {
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
 import {
+	automaticallyLaunchesSearch,
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
@@ -1226,9 +1227,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	/* CommCare auto-launches an input-free Search when its Results filter
 	 * narrows the population; a search-first module runs its input-free
 	 * search on its own regardless (`default_search`). */
-	const automaticallyLaunchesZeroInputSearch =
-		zeroInputSearchActionIsRelevant &&
-		(hasEffectiveSearchFilter || searchFirst);
+	const automaticallyLaunchesZeroInputSearch = automaticallyLaunchesSearch({
+		relevant: searchActionIsRelevant,
+		hasVisibleInputs: hasSearchInputs,
+		hasEffectiveFilter: hasEffectiveSearchFilter,
+		searchFirst,
+	});
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
 	 * launches again rather than leaving the previous values in the query. */

@@ -334,7 +334,12 @@ export async function readAppTestSteps(
 			.where("test_id", "=", test.id)
 			.orderBy("step")
 			.execute();
-		return { ...test, currentBlueprintSeq: access.baseSeq, steps };
+		return {
+			...test,
+			blueprint_seq: Number(test.blueprint_seq),
+			currentBlueprintSeq: access.baseSeq,
+			steps,
+		};
 	});
 }
 
@@ -357,6 +362,12 @@ export async function listAppTests(scope: AppTestScope) {
 			.orderBy("created_at", "desc")
 			.limit(30)
 			.execute();
-		return { currentBlueprintSeq: access.baseSeq, tests };
+		return {
+			currentBlueprintSeq: access.baseSeq,
+			tests: tests.map((test) => ({
+				...test,
+				blueprint_seq: Number(test.blueprint_seq),
+			})),
+		};
 	});
 }

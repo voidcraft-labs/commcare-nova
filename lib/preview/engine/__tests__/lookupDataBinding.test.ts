@@ -14,7 +14,7 @@ const {
 	getLookupFixtureDataMock: vi.fn(),
 }));
 
-vi.mock("../caseDataBindingHelpers", () => ({
+vi.mock("../previewAuthorization", () => ({
 	resolvePreviewIdentity: resolvePreviewIdentityMock,
 }));
 vi.mock("@/lib/db/appAccess", async (importOriginal) => ({

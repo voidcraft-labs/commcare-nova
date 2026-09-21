@@ -1,4 +1,4 @@
-// components/preview/screens/caseListPhase.ts
+// lib/preview/caseListPhase.ts
 //
 // Which screen a module's case list is on. A browse-then-search module
 // shows Results at once, with the Search pane beside it when the Search
@@ -47,4 +47,18 @@ export function resultsConstraintContext(
 ): CaseQueryConstraintSource {
 	if (step === "results" && source === "unconstrained") return "worker-search";
 	return source;
+}
+
+/** Input-free Search launches for a Results filter or search-first entry. */
+export function automaticallyLaunchesSearch(args: {
+	readonly relevant: boolean;
+	readonly hasVisibleInputs: boolean;
+	readonly searchFirst: boolean;
+	readonly hasEffectiveFilter: boolean;
+}): boolean {
+	return (
+		args.relevant &&
+		!args.hasVisibleInputs &&
+		(args.searchFirst || args.hasEffectiveFilter)
+	);
 }

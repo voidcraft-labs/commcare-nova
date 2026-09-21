@@ -1025,3 +1025,12 @@ change the running app's real-data model or validate a storage transaction.
 The build script emits its server asset beside the separately bundled browser
 XPath worker; neither server execution nor form-engine code enters the browser
 XPath asset.
+
+Request authentication and Preview worker resolution live in
+`engine/previewAuthorization.ts`. The production I/O and submission helpers in
+`engine/caseDataBindingHelpers.ts` accept authorized stores and do not import
+request authentication; disposable tests and background callers can use them
+without manufacturing a Next.js request. Submission worker overlays match the
+`commcare-user` row's `hq_user_id`, not its distinct case UUID. Input-free Search
+launch uses `caseListPhase.ts::automaticallyLaunchesSearch` in both the running
+app and journey observations.

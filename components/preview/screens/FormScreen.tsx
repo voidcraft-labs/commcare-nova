@@ -54,7 +54,6 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
-	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
 import {
@@ -69,7 +68,6 @@ import {
 	blueprintRevisionDigest,
 	caseDatabaseToFormPreloads,
 	caseRowsToFormPreloads,
-	caseRowToFormPreload,
 	pickBlueprintDoc,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
@@ -77,7 +75,10 @@ import type {
 	SubmissionMutation,
 	SubmissionResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
-import { overlayCaseDatabasePatch } from "@/lib/preview/engine/caseDatabasePatch";
+import {
+	overlayCaseDatabasePatch,
+	submissionWorkerValues,
+} from "@/lib/preview/engine/caseDatabasePatch";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
@@ -1116,19 +1117,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			submitted.caseDatabase,
 			caseDatabasePatch,
 		);
-		const committedUsercase = caseDatabasePatch.rows.find(
-			(row) =>
-				row.case_type === USERCASE_CASE_TYPE &&
-				(previewIdentity?.ownerId === undefined ||
-					row.case_id === previewIdentity.ownerId),
+		const postSubmissionUsercase = submissionWorkerValues(
+			caseDatabasePatch,
+			previewIdentity?.ownerId,
+			previewIdentity?.usercase ?? {},
 		);
-		const postSubmissionUsercase =
-			committedUsercase === undefined
-				? (previewIdentity?.usercase ?? {})
-				: {
-						...(previewIdentity?.usercase ?? {}),
-						...Object.fromEntries(caseRowToFormPreload(committedUsercase)),
-					};
 
 		let caseData: PostSubmissionCaseData = new Map();
 		let boundCaseName: string | undefined;
