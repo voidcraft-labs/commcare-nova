@@ -193,6 +193,39 @@ export class ModelResponse {
 		});
 	}
 
+	hostedSearch(): void {
+		const call = {
+			type: "tool_search_call",
+			id: `search_${this.ordinal}`,
+			execution: "server",
+			call_id: null,
+			status: "completed",
+			arguments: { paths: ["getLanguages"] },
+		};
+		this.event({
+			type: "response.output_item.added",
+			output_index: this.outputIndex,
+			item: call,
+		});
+		this.event({
+			type: "response.output_item.done",
+			output_index: this.outputIndex++,
+			item: call,
+		});
+		this.event({
+			type: "response.output_item.done",
+			output_index: this.outputIndex++,
+			item: {
+				type: "tool_search_output",
+				id: `search_output_${this.ordinal}`,
+				execution: "server",
+				call_id: null,
+				status: "completed",
+				tools: [],
+			},
+		});
+	}
+
 	finish(): void {
 		if (this.ended) return;
 		this.endText();

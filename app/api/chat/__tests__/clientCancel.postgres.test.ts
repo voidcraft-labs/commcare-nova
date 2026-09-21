@@ -2192,6 +2192,33 @@ describe("barrier persistence", () => {
 		});
 	}, 30_000);
 
+	it("does not call a final answer unfinished when hosted discovery occurs on the last allowed step", async () => {
+		await seedFeedEditApp();
+		const model = peer.response();
+		const response = await post(editTurnRequest());
+		const body = responseText(response);
+		for (let step = 0; step < SOLUTIONS_ARCHITECT_MAX_STEPS; step++) {
+			const reply = step === 0 ? model : peer.response();
+			if (step === SOLUTIONS_ARCHITECT_MAX_STEPS - 1) {
+				reply.hostedSearch();
+				reply.text("The requested checks are complete.");
+			} else {
+				reply.tool("getLanguages", {}, { callId: `completed-${step}` });
+			}
+			reply.finish();
+		}
+		expect(await body).not.toContain(EDIT_TURN_LIMIT_MESSAGE);
+		const thread = await threadRow(THREAD);
+		expect(thread.active_stream_id).toBeNull();
+		expect(
+			thread.messages
+				.filter((message) => message.role === "assistant")
+				.flatMap((message) => message.parts)
+				.filter((part) => part.type === "text")
+				.map((part) => part.text),
+		).toEqual(["The requested checks are complete."]);
+	}, 30_000);
+
 	it("starts a saved-app journey before any edit in the turn", async () => {
 		await seedFeedEditApp();
 		const before = await appDb

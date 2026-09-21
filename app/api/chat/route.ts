@@ -3012,9 +3012,13 @@ export async function POST(req: Request) {
 							!ctx.pausedOnInput()
 						) {
 							const steps = await result.steps;
+							// Hosted discovery can accompany a complete final answer. Only
+							// client-executed calls require another step to consume results.
 							if (
 								steps.length >= SOLUTIONS_ARCHITECT_MAX_STEPS &&
-								(steps.at(-1)?.toolCalls.length ?? 0) > 0
+								steps
+									.at(-1)
+									?.toolCalls.some((call) => call.providerExecuted !== true)
 							) {
 								const id = `${responseMessageId}:turn-limit`;
 								writer.write({ type: "text-start", id });
