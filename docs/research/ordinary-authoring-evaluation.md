@@ -476,6 +476,19 @@ calculated Java Date into `DateData` unless the destination bind requests
 `DATATYPE_DATE_TIME` (or time). Operation update leaves lacked a bind type, so
 `now()` lost clock precision in serialization even when the destination property
 was declared datetime. Earlier native checks asserted presence and retention,
-not precision, and therefore did not establish this requirement. A synthetic
-create/update counterexample and an export correction are being prepared; the
-app's full-time claim is not yet accepted as native behavior.
+not precision, and therefore did not establish this requirement. Both frozen pre-fix export paths fail the synthetic clock assertion. The #659
+correction derives a datetime bind from the effective destination property,
+including after retyping. All 24 native operation scenarios then pass, preserving
+an explicit offset instant as well as current timestamps. Independent execution
+of the repaired app's two principal paths also passes with the corrected
+compiler, including the commercial registration review clock. This is native
+submission evidence on the saved blueprint, pending release verification; it
+does not establish physical-device navigation or recover earlier lost precision.
+
+Live Builder inspection of the final commercial journey confirmed 29 retained
+steps, a visible role, and a place explicitly labeled as assigned for the test
+only. The unconfigured member's restricted modules were unavailable at entry.
+The administrator's impersonation was switched off afterward. The journey
+viewer remains more technical than an ordinary user needs, including internal
+property names in saved-record detail; visibility of its evidence is not a full
+usability pass.
