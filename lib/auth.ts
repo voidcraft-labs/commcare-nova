@@ -998,12 +998,19 @@ let _authInFlight: Promise<Auth> | null = null;
  * initialization is deferred so `next build` can import this module without
  * opening a database connection or hitting missing-secret warnings. Mirrors the
  * case-store's `getCaseStoreDatabase` lazy-async-singleton shape: the in-flight
- * slot is cleared on failure so a transient init error doesn't latch.
+ * slot is cleared on failure so a transient init error doesn't latch. Better
+ * Auth's factory returns before its plugins finish initializing. Await its
+ * context before caching: OAuth resource seeding reads the database, and a
+ * failed context stays rejected for that auth object's entire lifetime.
  */
 export async function getAuth(): Promise<Auth> {
 	if (_auth) return _auth;
 	if (_authInFlight === null) {
-		_authInFlight = getCaseStorePool().then((pool) => createAuth(pool));
+		_authInFlight = getCaseStorePool().then(async (pool) => {
+			const auth = createAuth(pool);
+			await auth.$context;
+			return auth;
+		});
 		try {
 			_auth = await _authInFlight;
 		} finally {
