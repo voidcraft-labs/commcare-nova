@@ -524,6 +524,15 @@ export function buildCaseOperations(
 				const attributes: Record<string, string> = {
 					nodeset: writePath.toXPath(),
 				};
+				const destination = expressionTypes.caseTypes
+					.find(
+						(type) => type.name === (operation.retype ?? operation.caseType),
+					)
+					?.properties.find((property) => property.name === write.property);
+				// Core converts a calculated Date to DateData unless this target
+				// explicitly requests DateTimeData, dropping the clock otherwise.
+				if (destination?.data_type === "datetime")
+					attributes.type = "xsd:dateTime";
 				if (write.condition !== undefined) {
 					attributes.relevant = emitPredicate(write.condition, writePath);
 				}

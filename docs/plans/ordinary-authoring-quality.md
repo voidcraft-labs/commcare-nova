@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#657 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#658 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -102,14 +102,22 @@ checks for saved state, ownership, parent links and retained event history.
 The repair still has no complete autonomous acceptance result. It needed ordinary
 continuations, repeated broad journeys after small cleanups, and independently
 requested commercial coverage. Two edit invocations stopped at the step bound
-without a final answer; a durable unfinished-turn notice is under review in #658.
+without a final answer; #658 adds a durable unfinished-turn notice.
 A later response emitted an automatic compaction checkpoint, then repeatedly
 returned empty hosted tool-search results for previously used tools. It ended
 with an incomplete commercial Preview check and remaining obsolete wording. A
 normal continuation restored tool access, removed that wording and completed the
 commercial Preview journey. This required user prompting, so automatic recovery
 is still unproven. Independent Core testing then exposed lost clock precision in
-datetime operation writes; export correction and native rechecking remain open.
+datetime operation writes. The correction in #659 passes the synthetic native
+corpus on both export paths and the repaired app’s two principal native
+submission journeys, including the commercial review clock. Release verification must also use the exact shipped revision; native
+submission checks do not establish physical-device or remote-HQ behavior.
+
+Live Builder inspection also confirmed that the final commercial journey is
+readable after its disposable records are removed. Its worker role and place
+assignment are labeled as test-only. Administrator impersonation was switched
+off after inspection; that observation does not replace ordinary-user coverage.
 
 Remaining acceptance is substantive:
 

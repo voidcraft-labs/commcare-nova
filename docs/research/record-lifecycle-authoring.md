@@ -57,6 +57,19 @@ closure. `caseRowDisplaySourceValue` projects them as `date_opened` and
 identical clock provenance on a disconnected device. An approval timestamp
 that must survive later edits requires a dedicated event value.
 
+A later independent submission check exposed a precision gap in operation
+emission. Core's `Recalculate.wrapData` wraps a calculated Date as `DateData`
+unless the target bind selects datetime or time. Untyped operation update leaves
+therefore lost the clock from `now()` even with a declared datetime destination.
+Nova now derives the datetime bind from the effective destination property,
+including the post-retype type. The synthetic operation corpus creates and
+updates records using `now()` and saves an explicit offset instant. Before the
+fix, both CCZ and HQ-regenerated submissions failed the clock assertion with a
+date-only value. After it, Core preserves the clock and the expected instant.
+This does not reconstruct time already lost in collected data or change generic
+lifecycle metadata. Earlier checks of nonempty audit dates did not establish
+clock precision and should not be read as that evidence.
+
 HQ's `CommCareCase` separately stores `opened_by`, `modified_by`, and `owner_id`;
 its `user_id` property aliases `modified_by`. The SQL update strategy gets the
 modifier from the submitted case update. Core's misleadingly named

@@ -139,6 +139,7 @@ public class CaseOperationRuntimeTest {
         assertTrue(visit.getIndices().isEmpty());
     }
     @Test public void sequence() throws Exception {
+        long started = System.currentTimeMillis();
         Run run = run("sequence");
         run.answer("/data/answer", "  Visit one  ");
         run.answer("/data/key", "write");
@@ -149,6 +150,14 @@ public class CaseOperationRuntimeTest {
         assertVisit(run, id, "Visit one", true);
         assertEquals("Ordinary last", run.record("patient-1").getPropertyString("nickname"));
         assertEquals(4, run.sandbox.getCaseStorage().getNumRecords());
+        for (String caseId : new String[]{"patient-1", id}) {
+            String moment = run.record(caseId).getPropertyString("occurred_at");
+            assertTrue("A datetime operation must retain its clock time: " + moment, moment.contains("T"));
+            long saved = java.time.OffsetDateTime.parse(moment).toInstant().toEpochMilli();
+            assertTrue(saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
+        }
+        assertEquals(java.time.Instant.parse("2026-04-17T11:23:41Z"),
+            java.time.OffsetDateTime.parse(run.record("patient-1").getPropertyString("reference_at")).toInstant());
     }
     @Test public void conditionalDependencyAndWrite() throws Exception {
         Run run = run("conditional");
@@ -170,12 +179,15 @@ public class CaseOperationRuntimeTest {
         assertEquals("patient", run.record("patient-1").getTypeId());
         assertEquals("Original name", run.record("patient-1").getName());
         assertFalse(run.record("patient-1").isClosed());
+        assertNull(run.record("patient-1").getProperty("changed_type_at"));
         run.answer("/data/enabled", "yes");
         run.apply();
         Case record = run.record("patient-1");
         assertEquals("visit", record.getTypeId());
         assertEquals("Promoted name", record.getName());
         assertEquals("Old source", record.getPropertyString("source_id"));
+        assertTrue(record.getPropertyString("changed_type_at").contains("T"));
+        java.time.OffsetDateTime.parse(record.getPropertyString("changed_type_at"));
         assertTrue(record.isClosed());
     }
     @Test public void sessionRetype() throws Exception { retype("retype"); }

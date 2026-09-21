@@ -148,7 +148,11 @@ it.each(operationScenarios)(
 					children(child(caseBlock("create_visit"), "update")).map(
 						(element) => element.name,
 					),
-				).toEqual(["source_id"]);
+				).toEqual(
+					scenario === "sequence"
+						? ["source_id", "occurred_at"]
+						: ["source_id"],
+				);
 				expect(
 					child(child(caseBlock("create_visit"), "index"), "parent").attribs,
 				).toEqual({ case_type: "patient", relationship: "child" });
@@ -241,6 +245,9 @@ it.each(operationScenarios)(
 						: "instance('casedb')/casedb/case[@case_id=(/data/destination) and @case_type='patient']/@case_id";
 				for (const name of transitions)
 					expect(bind(`${base}/${name}/case/@case_id`).calculate).toBe(target);
+				expect(bind(`${base}/promote/case/update/changed_type_at`).type).toBe(
+					"xsd:dateTime",
+				);
 				expect(bind(`${base}/promote/case/update/case_type`).calculate).toBe(
 					"'visit'",
 				);
@@ -337,6 +344,17 @@ it.each(operationScenarios)(
 				expect(
 					bind(`${base}/update_child/case/update/nickname`).calculate,
 				).toBe(`instance('casedb')/casedb/case[@case_id=${own}]/case_name`);
+			}
+			if (scenario === "sequence") {
+				for (const [operation, property] of [
+					["create_visit", "occurred_at"],
+					["before_ordinary", "occurred_at"],
+					["before_ordinary", "reference_at"],
+				]) {
+					expect(
+						bind(`${base}/${operation}/case/update/${property}`).type,
+					).toBe("xsd:dateTime");
+				}
 			}
 			if (scenario === "sequence" && mode === "device") {
 				const names = children(data).map((element) => element.name);
