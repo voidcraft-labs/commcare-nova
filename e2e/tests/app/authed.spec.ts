@@ -3069,7 +3069,7 @@ test.describe("authenticated builder", () => {
 					`Search-first fixture missing for Playwright attempt ${testInfo.retry}`,
 				);
 			}
-			const { prompt, register, caseName, unmatchedName } = SEARCH_FIRST_SEED;
+			const { prompt, register, unmatchedName } = SEARCH_FIRST_SEED;
 			const main = page.locator("main");
 			const searchScreen = main.getByRole("search", { name: "Search" });
 			const nameInput = searchScreen.getByRole("textbox", {
@@ -3157,21 +3157,7 @@ test.describe("authenticated builder", () => {
 				await expect(resultsTitle).toHaveCount(0);
 			});
 
-			await test.step("a search that finds a case shows it, with no register action", async () => {
-				await search("Ada");
-				await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
-				await expect(resultRows).toHaveCount(1);
-				await expect(resultRows.first()).toContainText(caseName);
-				await expect(registerAction).toHaveCount(0);
-			});
-
-			await test.step("Search again returns to the Search screen", async () => {
-				await main.getByRole("button", { name: "Search again" }).click();
-				await expect(searchScreen).toBeVisible();
-				await expect(resultsTitle).toHaveCount(0);
-			});
-
-			await test.step("an empty search offers the registration form", async () => {
+			await test.step("the first empty search offers registration even with no records", async () => {
 				await search(unmatchedName);
 				await expect(
 					main.getByRole("heading", {
@@ -3197,7 +3183,17 @@ test.describe("authenticated builder", () => {
 				await expect(resultRows.first()).toContainText(
 					`Patient ${unmatchedName}`,
 				);
-				await expect(resultRows.first()).not.toContainText(caseName);
+				await expect(registerAction).toHaveCount(0);
+			});
+
+			await test.step("a fresh search finds the created record and hides registration", async () => {
+				await main.getByRole("button", { name: "Search again" }).click();
+				await expect(searchScreen).toBeVisible();
+				await search(unmatchedName);
+				await expect(resultRows).toHaveCount(1);
+				await expect(resultRows.first()).toContainText(
+					`Patient ${unmatchedName}`,
+				);
 				await expect(registerAction).toHaveCount(0);
 			});
 

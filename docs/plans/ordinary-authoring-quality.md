@@ -73,8 +73,8 @@ initial-value defect and the architect corrected it without expert instructions.
 Peer journey calls exposed a plan-lock defect, now corrected in PR 3. Independent
 browser inspection then found that ordinary Preview hides registration after an
 empty search in an app with no records, although the isolated journey offers it.
-That product discrepancy remains acceptance work; the development result is not
-a usability pass. The two held-out requests remain frozen and unrun in
+The UI correction is implemented with a first-record browser regression; final
+independent usability acceptance remains in progress. The two held-out requests remain frozen and unrun in
 `docs/research/ordinary-authoring-evaluation.md`. Generated-app inspection,
 production repair, plugin release and remaining browser/native acceptance are
 unfinished. The production app has only been inspected, not repaired.

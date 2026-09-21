@@ -2449,6 +2449,12 @@ function ResultsBody({
 		if (fetching) {
 			return <CasesLoading />;
 		}
+		// An authored registration action is admitted by the settled worker
+		// search, including the first record and an empty restored population.
+		// Population diagnostics must not hide that available next task.
+		if (noMatchesAction !== undefined) {
+			return <NoMatchNotice action={noMatchesAction} />;
+		}
 		// The RESTORE first, because every cause below it is read off a
 		// TENANT-wide count and would misattribute. Left later in the chain,
 		// an empty restore over a populated project reports "no case data" or
