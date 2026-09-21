@@ -820,7 +820,55 @@ describe("database privilege convergence", () => {
 					${sql.id(CASE_RUNTIME_SCHEMA)}.cases
 				TO ${sql.id(config.cleanupRole)}
 			`.execute(h.db);
-			await convergeDatabasePrivileges(migration.db, config);
+			// Hold the same relation locks as a live restore query on another
+			// connection. Already-correct ownership must not queue exclusive DDL
+			// behind this reader, even while excess grants need correction.
+			const migrationDb = migration.db;
+			await sql`SET statement_timeout = '1500ms'`.execute(migrationDb);
+			try {
+				await runtime.db.transaction().execute(async (reader) => {
+					await sql`
+						SELECT cases.case_id FROM cases
+						LEFT JOIN public.case_indices ON false LIMIT 1
+					`.execute(reader);
+					await convergeDatabasePrivileges(migrationDb, config);
+				});
+			} finally {
+				await sql`RESET statement_timeout`.execute(migrationDb);
+			}
+
+			// A real ownership change still runs. If a live reader prevents it,
+			// the bounded failure rolls back earlier ACL changes as well.
+			await sql`
+				ALTER TABLE ${sql.id(CASE_RUNTIME_SCHEMA)}.cases
+				OWNER TO ${sql.id(config.migrationRole)}
+			`.execute(h.db);
+			await sql`
+				GRANT SELECT ON public.apps TO ${sql.id(config.cleanupRole)}
+			`.execute(h.db);
+			await h.db.transaction().execute(async (reader) => {
+				await sql`SELECT case_id FROM ${sql.id(CASE_RUNTIME_SCHEMA)}.cases LIMIT 1`.execute(
+					reader,
+				);
+				await expect(
+					convergeDatabasePrivileges(migrationDb, config),
+				).rejects.toMatchObject({ code: "55P03" });
+				const unchanged = await sql<{ owner: string; cleanup_read: boolean }>`
+					SELECT pg_catalog.pg_get_userbyid(relowner) AS owner,
+						pg_catalog.has_table_privilege(
+							${config.cleanupRole}, 'public.apps', 'SELECT'
+						) AS cleanup_read
+					FROM pg_catalog.pg_class
+					WHERE oid = ${`${CASE_RUNTIME_SCHEMA}.cases`}::regclass
+				`.execute(reader);
+				expect(unchanged.rows).toEqual([
+					{
+						owner: config.migrationRole,
+						cleanup_read: true,
+					},
+				]);
+			});
+			await convergeDatabasePrivileges(migrationDb, config);
 
 			const identity = await sql<{ current_user: string }>`
 				SELECT current_user
@@ -1155,5 +1203,6 @@ describe("database privilege convergence", () => {
 			await migration?.db.destroy();
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}
-	});
+		// Full bootstrap/probes plus an intentional one-second lock timeout.
+	}, 10_000);
 });

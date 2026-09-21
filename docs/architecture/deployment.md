@@ -104,6 +104,13 @@ The migration runs while the previous revision is still serving, so every
 schema change must be one that revision can live with: relax or add first, and
 remove what it still reads in a later deploy.
 
+Privilege convergence reads catalog ownership before issuing `ALTER OWNER`.
+An already-correct owner must not request an exclusive table lock: the old
+service is still reading and writing during migration. Real ownership repairs
+and ACL reconciliation remain one audited transaction, with a local one-second
+lock timeout. Contention aborts that transaction and blocks deployment; it does
+not kill readers, skip privileges, or commit partial grants.
+
 Better Auth checks its own tables when a process starts and refuses every auth
 request while they differ from its configuration. A managed table that holds a
 required column Better Auth does not write is such a difference, even when a
