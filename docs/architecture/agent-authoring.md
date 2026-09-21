@@ -175,6 +175,12 @@ An ordinary edit turn initializes its workspace with the document and canonical
 revision from the same authorized snapshot. Disposable tests can start before any
 edit; an incidental app mutation is never a prerequisite for observing saved work.
 
+When an ordinary edit reaches its step limit after a tool, the route appends an
+unfinished-turn notice before finishing the stream. Completed changes remain
+saved. The same notice survives reconnect and thread replay without another model
+call. Errors, lost authorization and questions awaiting an answer retain their
+own terminal behavior; a bounded stop is not a successful completion claim.
+
 Unused custom record-property definitions can be removed through the shared
 `removeCaseProperties` / `remove_case_properties` operation. Reference checks
 include form writers and all indexed reads. The canonical transaction refuses

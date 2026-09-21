@@ -19,6 +19,8 @@ changes are valid. CommCare wire details belong in `lib/commcare`.
   checkpoints through the same kernel. Read `change-set/CLAUDE.md` for authority,
   receipts, rebase, and atomic publication.
 - `solutionsArchitect.ts` runs ordinary edit turns against an existing app.
+  The chat route persists an unfinished-turn notice when its step limit stops
+  after a tool, preserving completed changes without claiming completion.
   `workspace/` serializes the shared operations for this editor, private builds,
   and MCP. Builder actions reach the same canonical mutation kernel.
 - `translation/translateLanguage.ts` translates the current authored text on

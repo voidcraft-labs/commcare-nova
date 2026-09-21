@@ -114,7 +114,8 @@ export const ROLE_FACTS: Readonly<Record<AnatomyRoleId, RoleFacts>> = {
 			{
 				label: "Steps per turn",
 				value: String(SOLUTIONS_ARCHITECT_MAX_STEPS),
-				detail: "stopWhen: isStepCount in createSolutionsArchitect.",
+				detail:
+					"stopWhen: isStepCount in createSolutionsArchitect. A clean stop after a tool persists an unfinished-turn notice without another model call.",
 			},
 			{
 				label: "Establishment retries",

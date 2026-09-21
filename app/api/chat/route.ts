@@ -30,6 +30,10 @@ import {
 	completeBuildOrchestration,
 	readOrchestrationHead,
 } from "@/lib/agent/build/orchestratorState";
+import {
+	EDIT_TURN_LIMIT_MESSAGE,
+	SOLUTIONS_ARCHITECT_MAX_STEPS,
+} from "@/lib/agent/solutionsArchitect";
 import { CHAT_REQUEST_MAX_BYTES, declaredBodyTooLarge } from "@/lib/apiError";
 import { resolveOpenAIKey } from "@/lib/auth-utils";
 import { withSchemaContext } from "@/lib/case-store";
@@ -2995,6 +2999,41 @@ export async function POST(req: Request) {
 						/* Block on the drain so finalization runs on the run's TRUE terminal
 						 * state even if forwarding broke off early when the client left. */
 						await drained;
+
+						// A clean SDK drain can still be a bounded stop after a tool,
+						// with no final answer. Persist the notice before the held finish
+						// so live, reconnect and thread replay all explain the same stop.
+						if (
+							!sawFatalError &&
+							!ctx.holderLostError() &&
+							!ctx.reauthError() &&
+							!ctx.projectChangedError() &&
+							!ctx.batchIdCollisionError() &&
+							!ctx.pausedOnInput()
+						) {
+							const steps = await result.steps;
+							// Hosted discovery can accompany a complete final answer. Only
+							// client-executed calls require another step to consume results.
+							if (
+								steps.length >= SOLUTIONS_ARCHITECT_MAX_STEPS &&
+								steps
+									.at(-1)
+									?.toolCalls.some((call) => call.providerExecuted !== true)
+							) {
+								const id = `${responseMessageId}:turn-limit`;
+								writer.write({ type: "text-start", id });
+								writer.write({
+									type: "text-delta",
+									id,
+									delta: EDIT_TURN_LIMIT_MESSAGE,
+								});
+								writer.write({ type: "text-end", id });
+								ctx.emitConversation({
+									type: "assistant-text",
+									text: EDIT_TURN_LIMIT_MESSAGE,
+								});
+							}
+						}
 
 						/* Clean, paused, or deauthorized: the post-loop arms own all three.
 						 * A deauthorized run must never re-drive (the retry would run more

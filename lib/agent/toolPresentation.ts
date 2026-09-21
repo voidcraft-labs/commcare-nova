@@ -330,7 +330,7 @@ export const AUTHORING_TOOL_PRESENTATION = {
 		done: "Reviewed the app",
 	},
 	translateLanguage: change("Translating the app", "Translated the app"),
-	toolSearch: read("Finding authoring tools", "Found authoring tools"),
+	toolSearch: read("Checking available actions", "Checked available actions"),
 	askQuestions: {
 		kind: "activity",
 		doing: "Considering your choices",

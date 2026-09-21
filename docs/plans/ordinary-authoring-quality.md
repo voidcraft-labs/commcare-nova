@@ -62,7 +62,7 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#656 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#657 are merged and deployed. Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -86,22 +86,30 @@ checks passed. Calls, repeated reads, context growth and limits remain in
 `docs/research/ordinary-authoring-evaluation.md`.
 
 The delivered app was refreshed after intervening user edits. Ordinary repair
-preserved its current scope, corrected its name and worker language, saved three
-Preview identities and removed redundant audit collection while retaining
-business-event history. A read-only scan found no business records or populated
-generic audit properties. A fresh repair exercised disposable cross-role handoff,
-but native execution found blank business state that Preview had masked. A
-follow-up with corrected relevance observations fixed the completion instructions
-and contract ownership. It still missed absent business state after registration
-and approval, now visible in both Preview and native execution. That failure
-remains; the next repair must use ordinary business intent rather than expert
-expressions or hidden context. Safe unused catalog cleanup is deployed. Its canonical transaction refuses
-removal when live or set-aside values exist, including blank values; independent
-Postgres checks cover concurrent writes and rollback. The ordinary repair removed eight definitions. Its empty-start check found
-worker-owned parent creation blocking the next role and stopped during a separate
-approval checkpoint at the normal call bound. Worker-place readings and question
-participation are now exposed more clearly; the saved app still needs correction
-and an independently checked handoff.
+preserved its current ten-module scope, corrected its name, saved three Preview
+identities, and removed redundant audit collection and eight unused definitions
+while retaining business-event history. Safe cleanup refuses live or set-aside
+values in the canonical transaction, including blanks. A read-only scan found no
+business records or populated generic audit properties.
+
+Subsequent empty-start tests exposed missing business state and worker-owned
+records that the next role could not find. The repaired smallholder route now
+passes disposable entry-to-approval testing and independent Core submission checks.
+A separate commercial branch check found the same ownership problem, which the
+ordinary repair corrected. Both exported farmer-to-contract paths now pass Core
+checks for saved state, ownership, parent links and retained event history.
+
+The repair still has no complete autonomous acceptance result. It needed ordinary
+continuations, repeated broad journeys after small cleanups, and independently
+requested commercial coverage. Two edit invocations stopped at the step bound
+without a final answer; a durable unfinished-turn notice is under review in #658.
+A later response emitted an automatic compaction checkpoint, then repeatedly
+returned empty hosted tool-search results for previously used tools. It ended
+with an incomplete commercial Preview check and remaining obsolete wording. A
+normal continuation restored tool access, removed that wording and completed the
+commercial Preview journey. This required user prompting, so automatic recovery
+is still unproven. Independent Core testing then exposed lost clock precision in
+datetime operation writes; export correction and native rechecking remain open.
 
 Remaining acceptance is substantive:
 
@@ -109,6 +117,8 @@ Remaining acceptance is substantive:
   entry/setup guidance and registration, approval and contract handoffs.
 - Establish a fresh successful role-gated related-record build within an agreed
   bounded evaluation. Do not resume or silently reclassify the failed trial.
+- Resolve and verify tool discovery across automatic compaction without losing
+  callable capabilities or repeating failed discovery indefinitely.
 - Finish browser checks of ordinary identity and location experience, separately
   from administrator impersonation and disposable recorded journeys.
 - Retain native form/submission limits: no physical-device, remote-HQ or offline

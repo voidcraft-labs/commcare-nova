@@ -39,6 +39,10 @@ import type { Insertable, Kysely } from "kysely";
 import { beforeEach, describe, expect, it as test, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { withResponsesPeer } from "@/lib/agent/__tests__/responsesPeer";
+import {
+	EDIT_TURN_LIMIT_MESSAGE,
+	SOLUTIONS_ARCHITECT_MAX_STEPS,
+} from "@/lib/agent/solutionsArchitect";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 
 import {
@@ -2132,6 +2136,87 @@ describe("barrier persistence", () => {
 		const thread = await threadRow(THREAD);
 		expect(thread.active_stream_id).toBe(streamId);
 		expect(thread.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+	}, 30_000);
+
+	it("keeps completed edits and explains a tool-step limit in live and durable chat", async () => {
+		await seedFeedEditApp();
+		const model = peer.response();
+		const response = await post(editTurnRequest());
+		const streamId = response.headers.get("x-workflow-run-id");
+		if (!streamId) throw new Error("no stream id");
+		const body = responseText(response);
+		for (let step = 0; step < SOLUTIONS_ARCHITECT_MAX_STEPS; step++) {
+			const reply = step === 0 ? model : peer.response();
+			reply.tool(
+				step === 0 ? "updateApp" : "getLanguages",
+				step === 0 ? { name: "Saved before turn limit" } : {},
+				{ callId: `limit-${step}` },
+			);
+			reply.finish();
+		}
+		const wire = await body;
+		expect(wire).toContain(EDIT_TURN_LIMIT_MESSAGE);
+		const logged = (await chunkRows(streamId)).flatMap(
+			(row) => row.chunks as UIMessageChunk[],
+		);
+		const noticeIndex = logged.findIndex(
+			(chunk) =>
+				chunk.type === "text-delta" && chunk.delta === EDIT_TURN_LIMIT_MESSAGE,
+		);
+		expect(noticeIndex).toBeGreaterThan(-1);
+		expect(logged.filter((chunk) => chunk.type === "finish")).toHaveLength(1);
+		expect(
+			logged.findIndex((chunk) => chunk.type === "finish"),
+		).toBeGreaterThan(noticeIndex);
+		expect(logged.some((chunk) => chunk.type === "error")).toBe(false);
+		const thread = await threadRow(THREAD);
+		expect(thread.active_stream_id).toBeNull();
+		const assistants = thread.messages.filter(
+			(message) => message.role === "assistant",
+		);
+		expect(assistants).toHaveLength(1);
+		expect(
+			assistants[0].parts
+				.filter((part) => part.type === "text")
+				.map((part) => part.text),
+		).toEqual([EDIT_TURN_LIMIT_MESSAGE]);
+		const app = await appDb
+			.selectFrom("apps")
+			.select(["app_name", "lock_run_id", "status"])
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
+		expect(app).toEqual({
+			app_name: "Saved before turn limit",
+			lock_run_id: null,
+			status: "complete",
+		});
+	}, 30_000);
+
+	it("does not call a final answer unfinished when hosted discovery occurs on the last allowed step", async () => {
+		await seedFeedEditApp();
+		const model = peer.response();
+		const response = await post(editTurnRequest());
+		const body = responseText(response);
+		for (let step = 0; step < SOLUTIONS_ARCHITECT_MAX_STEPS; step++) {
+			const reply = step === 0 ? model : peer.response();
+			if (step === SOLUTIONS_ARCHITECT_MAX_STEPS - 1) {
+				reply.hostedSearch();
+				reply.text("The requested checks are complete.");
+			} else {
+				reply.tool("getLanguages", {}, { callId: `completed-${step}` });
+			}
+			reply.finish();
+		}
+		expect(await body).not.toContain(EDIT_TURN_LIMIT_MESSAGE);
+		const thread = await threadRow(THREAD);
+		expect(thread.active_stream_id).toBeNull();
+		expect(
+			thread.messages
+				.filter((message) => message.role === "assistant")
+				.flatMap((message) => message.parts)
+				.filter((part) => part.type === "text")
+				.map((part) => part.text),
+		).toEqual(["The requested checks are complete."]);
 	}, 30_000);
 
 	it("starts a saved-app journey before any edit in the turn", async () => {
