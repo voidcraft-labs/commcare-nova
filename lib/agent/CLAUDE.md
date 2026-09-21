@@ -158,3 +158,9 @@ requires a corresponding presentation with a read/change classification that
 agrees with its execution policy; orchestration definitions require a presentation
 too. Retired transcript vocabulary lives separately. Only successful effective
 writes count as changes; checks, pending/refused writes and no-ops are activities.
+
+Returned error payloads and thrown error text are diagnostics for the agent and
+recorded inspection, not chat copy. Transcript failures use the catalog's activity
+kind and an honest failure notice. Specific consequences belong in a typed result
+presenter, including unchanged, blocked and confirmation outcomes; do not display
+raw tool errors or ask the user to interpret internal identifiers.
