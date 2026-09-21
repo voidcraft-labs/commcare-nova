@@ -72,6 +72,7 @@ import {
 	ANY_TYPE,
 	type CheckError,
 	checkExpression,
+	isValueStorageAssignable,
 } from "./predicate/typeChecker";
 import { proseText } from "./prose";
 import {
@@ -469,9 +470,22 @@ function inferOperationWriteType(
 		errors,
 		[],
 	);
-	return errors.length === 0 && resolved !== undefined && resolved !== ANY_TYPE
-		? resolved
-		: undefined;
+	if (errors.length > 0 || resolved === undefined || resolved === ANY_TYPE)
+		return undefined;
+	// An operation supplies a value to the destination's storage representation;
+	// it does not redefine the destination's authoring type. For example a text
+	// literal can initialize a single-choice property, and an integer can enter
+	// a decimal property. Per-branch assignment validation still checks every
+	// possible output, even when the expression's aggregate type is compatible.
+	const destination = caseTypes
+		.find((caseType) => caseType.name === write.caseType)
+		?.properties.find(
+			(property) => property.name === write.property,
+		)?.data_type;
+	return destination !== undefined &&
+		isValueStorageAssignable(resolved, destination)
+		? destination
+		: resolved;
 }
 
 function addOperationWriters(

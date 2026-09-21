@@ -12,6 +12,7 @@ import {
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	type CaseOperation,
 	deriveCaseWriteInventory,
+	effectiveCaseTypes,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 	plainColumn,
@@ -1432,6 +1433,102 @@ describe("case-operation target and dependency safety", () => {
 		expectCode("CASE_OPERATION_EXPRESSION_TYPE", [
 			update({ owner: term(formField(REPEAT_A)) }),
 		]);
+	});
+
+	it.each([true, false])(
+		"assigns a literal status alongside a choice writer (declared type: %s)",
+		(declared) => {
+			const built = fixture();
+			const caseType = built.doc.caseTypes?.find(
+				(type) => type.name === "patient",
+			);
+			if (!caseType) throw new Error("Missing patient fixture");
+			caseType.properties.push({
+				name: "stage",
+				label: proseText("Stage"),
+				...(declared ? { data_type: "single_select" as const } : {}),
+			});
+			built.doc.fields[TEXT] = {
+				uuid: TEXT,
+				id: "stage",
+				kind: "single_select",
+				label: proseText("Stage"),
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{
+							uuid: testUuid("pending-option"),
+							value: "pending",
+							label: proseText("Pending"),
+						},
+						{
+							uuid: testUuid("approved-option"),
+							value: "approved",
+							label: proseText("Approved"),
+						},
+					],
+				},
+				caseWrite: { caseType: "patient", property: "stage" },
+			};
+			built.doc.forms[built.formUuid].caseOperations = [
+				update({
+					writes: [{ property: "stage", value: term(literal("pending")) }],
+				}),
+			];
+			expect(validateCandidate(built.doc)).toEqual([]);
+			expect(
+				effectiveCaseTypes({ ...built.doc })
+					.find((type) => type.name === "patient")
+					?.properties.find((property) => property.name === "stage")?.data_type,
+			).toBe("single_select");
+		},
+	);
+
+	it("uses destination storage types without hiding incompatible value branches", () => {
+		const built = fixture();
+		built.doc.forms[built.formUuid].caseOperations = [
+			update({ writes: [{ property: "weight", value: term(literal(7)) }] }),
+			update({
+				uuid: THIRD,
+				id: "weigh_again",
+				writes: [{ property: "weight", value: term(literal(7.5)) }],
+			}),
+		];
+		expect(validateCandidate(built.doc)).toEqual([]);
+		built.doc.forms[built.formUuid].caseOperations = [
+			update({
+				writes: [
+					{
+						property: "score",
+						value: ifExpr(
+							eq(formField(TEXT), literal("yes")),
+							term(literal(7)),
+							term(literal(7.5)),
+						),
+					},
+				],
+			}),
+		];
+		expect(validateCandidate(built.doc).map((error) => error.code)).toContain(
+			"CASE_OPERATION_EXPRESSION_TYPE",
+		);
+		built.doc.forms[built.formUuid].caseOperations = [
+			update({
+				writes: [
+					{
+						property: "nickname",
+						value: ifExpr(
+							eq(formField(TEXT), literal("yes")),
+							term(literal("pending")),
+							term(formField(MULTI)),
+						),
+					},
+				],
+			}),
+		];
+		expect(validateCandidate(built.doc).map((error) => error.code)).toContain(
+			"CASE_OPERATION_EXPRESSION_TYPE",
+		);
 	});
 
 	it("rejects disagreement between operation writers before schema materialization", () => {
