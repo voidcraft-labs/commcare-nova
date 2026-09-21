@@ -114,9 +114,16 @@ import {
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { fieldValueType } from "@/lib/domain/fieldValueType";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 import { xpathPrintContext } from "@/lib/domain/xpath/print";
+import {
+	datetimeCaseValueCalculate,
+	datetimeCaseValueName,
+	datetimeCaseValuePath,
+} from "./datetimeCaseValue";
 
 /**
  * Build the ordered itext-value node list for one typed prose template, letting
@@ -1109,7 +1116,10 @@ function buildFieldParts(
 		"vellum:nodeset": vellumPathStr,
 		nodeset: nodePathStr,
 	};
-	const bindType = getBindType(field.kind);
+	const bindType =
+		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
+			? "xsd:dateTime"
+			: getBindType(field.kind);
 	if (bindType) bindAttribs.type = bindType;
 	if (required) {
 		// The editor's attribute for a required CONDITION is
@@ -1214,6 +1224,22 @@ function buildFieldParts(
 				calculate: captureUrlCalculate(nodePath, attachmentTarget),
 				// Core excludes irrelevant answers from nodesets. The address must
 				// disappear with its capture so its case write preserves old data.
+				relevant: `count(${nodePath.toXPath()}) > 0`,
+			}),
+		);
+	}
+
+	if (
+		"caseWrite" in field &&
+		field.caseWrite !== undefined &&
+		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
+	) {
+		dataElements.push(el(datetimeCaseValueName(field.id), {}));
+		binds.push(
+			el("bind", {
+				nodeset: datetimeCaseValuePath(nodePath).toXPath(),
+				type: "xsd:string",
+				calculate: datetimeCaseValueCalculate(nodePath),
 				relevant: `count(${nodePath.toXPath()}) > 0`,
 			}),
 		);

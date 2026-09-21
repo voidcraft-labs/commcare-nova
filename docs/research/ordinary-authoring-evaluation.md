@@ -528,15 +528,15 @@ connection failures, step-event logs were incomplete relative to the final run
 summary; the figures above use that authoritative summary.
 
 The remaining test reached creation and cross-role selection of operational
-records and exercised delivery grading and confirmation. It did not produce a
-final handoff. The agent also recognized that its attempted collection-ledger
+records and exercised delivery grading and confirmation. At that checkpoint it
+had not produced a final handoff. The agent also recognized that its attempted collection-ledger
 operation lacked the required parent and removed that attempted operation. The
 remaining store form overwrites latest-receipt properties; separate retained
 receipts and their downstream use remain unresolved. Successful testing with a
 supplied contract or receipt cannot prove that the app itself creates that state.
 
 A further ordinary continuation stalled at Sending message. A read-only thread
-check showed no active stream and no committed new user message. Production
+check at that instant showed no active stream and no committed new user message. Production
 logged database connection timeouts, including authentication reads. Reloading
 then failed with [React error 441](https://react.dev/errors/441), the production
 wrapper for a Server Components render error. Browser automation also timed out during recovery; native fallback
@@ -545,4 +545,27 @@ not a proved single root cause or an accepted browser result. No duplicate send,
 operator app mutation, infrastructure resize or database restart was used to
 force completion. The final read-only data scan completed after the slowdown: three worker records,
 no business records, no populated generic audit properties and no set-aside
-values. Ordinary continuation and browser acceptance remain open.
+values.
+
+The delayed send subsequently committed and completed, without a duplicate
+request. Ordinary sign-in and administrator impersonation restored browser access
+to the saved app and final handoff. The conversation's authoritative summary then
+reported 510 model calls, 576 tools, 79,065,661 input and 115,571 output tokens,
+77,224,761 cache-read and 1,103,103 cache-write tokens, costing $2.106516. Total
+measured repair spending across the three conversations was $3.908722. These
+replace the preceding cumulative checkpoint; they are not additional charges.
+The connection failures and interrupted browser observations remain failures even
+though continuation eventually recovered.
+
+During that continuation, the agent independently noticed that ordinary hidden
+question writes had saved date-only values into two business-event datetime
+properties. It removed those answer writes, used explicit timestamp operations
+and recorded a new grading/confirmation journey. No operator expression or
+technical repair instruction supplied that correction. Independent investigation
+also found the underlying Preview and native conversion defect. The timestamp
+fix in #659 covered additional operations, not ordinary question writes. The
+follow-up must prove those ordinary writes separately and independently check
+the final app; the agent's final verdict alone is insufficient. Collection
+history remains an explicitly reported limitation. Whether a separate receipt
+ledger is required must be grounded in the current business scope, not inferred
+from a historical case-type name.

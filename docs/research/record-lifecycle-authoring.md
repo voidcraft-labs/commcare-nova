@@ -70,6 +70,20 @@ This does not reconstruct time already lost in collected data or change generic
 lifecycle metadata. Earlier checks of nonempty audit dates did not establish
 clock precision and should not be read as that evidence.
 
+Ordinary question writes had a separate precision failure: Preview converted all
+calculated/default values through generic XPath string conversion, and hidden
+wire binds were untyped strings. The effective destination now supplies a hidden
+datetime bind and Preview preserves that calculated instant. HQ-generated ordinary
+case-update binds remain untyped, so the export projects a derived sibling text
+value that preserves the instant. Core's `XPathFormatDateFunc` passes a node-set
+through `FunctionUtils.toDate`, which rounds a typed Date; `XPathCoalesceFunc`
+unpacks the value before formatting to avoid that additional loss. The native
+checks cover calculated clocks, preloaded offset instants, active blank clearing
+and excluded answers on both export paths. Followup preloads still replace
+defaults even when the saved property is blank; the tests do not claim those
+defaults run. Separate Preview registration checks exercise calculated and
+initial values through both synchronous and worker execution.
+
 HQ's `CommCareCase` separately stores `opened_by`, `modified_by`, and `owner_id`;
 its `user_id` property aliases `modified_by`. The SQL update strategy gets the
 modifier from the submitted case update. Core's misleadingly named

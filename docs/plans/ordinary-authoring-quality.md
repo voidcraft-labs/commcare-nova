@@ -128,20 +128,25 @@ farmer-to-contract paths at the later saved revision. These are submission check
 not proof that every operational workflow is coherent.
 
 Both new repair invocations reached the 80-step bound. The unfinished notice was
-visible and persisted in the conversation. A subsequent send stalled before a new
-run was committed; production connection timeouts and a failed server-rendered
-reload prevented further browser acceptance. A collection-history concern remains:
-the store form retains only the latest receipt values, so separate retained
-receipts and their downstream use have not been established. The repair has no
-final completed handoff. Preserve this gap rather than accepting supplied test
-records as proof that the app creates all required history.
+visible and persisted in the conversation. The subsequent send stalled during
+production connection timeouts and a failed server-rendered reload, but eventually
+committed and completed without a duplicate send. The final handoff candidly
+retains deployment and native limits. The agent independently identified ordinary
+hidden timestamp writes losing their clock and replaced those app writes through
+normal tools. The underlying Preview and export conversion defect is being fixed
+and independently checked in this follow-up.
+
+A collection-history concern remains: the store form retains only the latest
+receipt values. Separate retained receipts and their downstream use have not
+been established; determine the required history from the current business scope
+before adding a new ledger. A completed handoff does not establish full acceptance.
 
 Remaining acceptance is substantive:
 
 - Complete and independently check the delivered-app repair, including usable
   entry/setup guidance, registration and approval handoffs, and retained collection
-  history through delivery and settlement. Recover and verify ordinary chat
-  continuation after the observed service failure.
+  history where required by the current business scope. Independently verify the
+  final saved revision after delayed ordinary chat recovery.
 - Establish a fresh successful role-gated related-record build within an agreed
   bounded evaluation. Do not resume or silently reclassify the failed trial.
 - Resolve and verify tool discovery across automatic compaction without losing

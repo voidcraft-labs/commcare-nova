@@ -95,7 +95,11 @@ link creation/removal, scalar normalization and bounds, nested-menu child
 selection, and repeat-local relation conditions. Datetime writes preserve the
 clock from `now()` for creation, updates and a post-retype destination; an explicit
 offset timestamp must retain its instant. Untyped pre-fix CCZ and HQ-regenerated
-forms fail the clock assertion with a date-only value. A two-row query deliberately
+forms fail the clock assertion with a date-only value. Ordinary hidden calculated
+writers and preloaded datetime questions also preserve instants; active blank
+answers clear a saved value, while excluded answers leave it unchanged. Their
+followup preloads intentionally override defaults, so default evaluation is
+covered separately by Preview registration tests. A two-row query deliberately
 reuses an authored key and confirms the accepted same-type merge. Invalid keys,
 names, owners, external IDs and dynamic link targets must raise native
 `InvalidStructureException`. The accepted counterpart executes in the same
