@@ -71,7 +71,7 @@ function makeSa(
 	doc: BlueprintDoc,
 ): ReturnType<typeof createSolutionsArchitect> {
 	seedServerDoc(doc);
-	const sa = createSolutionsArchitect(ctx, doc);
+	const sa = createSolutionsArchitect(ctx, doc, 0);
 	const handles = contexts.get(ctx);
 	if (!handles) throw new Error("Missing context handles");
 	projections.set(sa, { writer: handles.writer, doc, seen: 0 });

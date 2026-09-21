@@ -193,7 +193,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 			},
 			async (_provider, transport) => {
 				ctx = makeTestContext({ transport }).ctx;
-				const sa = createSolutionsArchitect(ctx, doc);
+				const sa = createSolutionsArchitect(ctx, doc, 0);
 				const work = sa.generate({
 					prompt: "Add date of birth and phone, then read the form.",
 				});
@@ -331,7 +331,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 			organization: { revision: "3", locations: [] },
 		});
 		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc);
+		const sa = createSolutionsArchitect(ctx, doc, 0);
 
 		const updateResult = await runTool(sa, "updateAutomation", {
 			automation,

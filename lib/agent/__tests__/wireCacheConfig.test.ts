@@ -96,7 +96,7 @@ async function captureEditTurns(): Promise<CapturedBody[]> {
 				if (!appState) throw new Error("Admitted app has no state message");
 				const { ctx, usage } = makeTestContext({ appId: "a-probe", transport });
 				try {
-					const agent = createSolutionsArchitect(ctx, doc);
+					const agent = createSolutionsArchitect(ctx, doc, 0);
 					const result = await agent.generate({
 						messages: [...markStablePrefixBoundary(history), appState],
 					});
