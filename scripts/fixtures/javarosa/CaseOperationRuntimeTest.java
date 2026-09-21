@@ -46,7 +46,7 @@ public class CaseOperationRuntimeTest {
         if (value != null) node.setValue(new StringData(value));
         return node;
     }
-    private static class Run {
+    static final class Run {
         final MockUserDataSandbox sandbox = MockDataUtils.getStaticStorage();
         final FormParseInit parsed;
         final FormDef form;

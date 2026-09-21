@@ -79,7 +79,8 @@ precision across evaluators. See `native-core-arithmetic.json` for provenance.
 
 ## Case-operation execution
 
-The same producer also emits 12 accepted operation documents. Run
+The same producer also emits 12 accepted operation documents and one relevance
+regression document. Run
 `nova.compatibility.CaseOperationRuntimeTest` with the command above, or add a
 second `--tests` selector to run it with the capture proof. Its 24 cases open
 both the CCZ and HQ-regenerated forms. It supplies session data and seeded native
@@ -97,6 +98,14 @@ names, owners, external IDs and dynamic link targets must raise native
 `InvalidStructureException`. The accepted counterpart executes in the same
 harness. A negative control replacing the dynamic-link guard with the selected
 case ID fails because a missing target becomes an accepted unlink.
+
+`nova.compatibility.OperationRelevanceRuntimeTest` consumes the additional local
+CCZ form, without requiring HQ regeneration. It verifies that an operation reads
+an excluded question as blank, retains a hidden calculated value, and creates no
+records from an excluded repeat. The same admitted document runs through
+FormEngine, the submission program builder and real Postgres, with both excluded
+and participating controls. This is native form/submission evidence, not device
+navigation or offline synchronization.
 
 This proof does not establish rollback: Core's in-memory test storage applies
 records as the parser visits them. It also does not run Android or HQ's server

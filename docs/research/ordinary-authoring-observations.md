@@ -81,3 +81,29 @@ JSON schema rejected the original objects. A real Postgres journey followed by
 the ordinary shared read and SDK validation reproduced the failure. The shared
 read now emits ISO timestamps explicitly. Browser readability and storage
 correctness had not established agent readability.
+
+## Operation relevance and user handoff
+
+The ordinary delivered-app repair independently found and corrected a child
+ownership defect. Its disposable journey then showed creation, cross-role review
+and saved status changes. Independent execution of that saved export in Core
+confirmed owner and parent, but found the business status blank: the operation
+read a defaulted question whose relevance was false. All forms parsed. The
+Preview result therefore overstated native behavior.
+
+The production FormEngine's normal expression reader already projected effective
+relevance, but `computeOperationAnswers` copied raw instance values and expanded
+all retained repeats. The storage executor correctly consumed that incorrect
+projection. The correction applies the existing effective-relevance view to
+operation bindings, preserves blank bindings for scalar references, and supplies
+empty scopes for excluded repeats and their descendants. Retained answers remain
+available if a worker makes the controls relevant again. The public shared
+fixture is consumed by real Postgres and Core; it contains no customer material.
+
+The repair's completion response also told the user to select a disposable record
+in ordinary Preview after ending its test. The test output stated the isolation
+boundary, but the focused guide did not identify the user's recorded-journey
+entry or explain that it cannot replay submissions. The guide now exposes that
+product fact. This observation does not turn the earlier response into a pass.
+The delivered app still needs correction and renewed evidence through ordinary
+intent after the runtime fix is live.

@@ -21,6 +21,8 @@ import { toPersistableDoc } from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
 
+import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
+
 const output = process.argv[2];
 if (!output)
 	throw new Error(
@@ -28,6 +30,7 @@ if (!output)
 	);
 mkdirSync(output, { recursive: true });
 for (const [scenario, doc, moduleIndex = 0] of [
+	["operation-relevance", operationRelevanceDoc().doc] as const,
 	...[...caseCaptureScenarios, "multiple" as const].map(
 		(scenario) =>
 			[`capture-${scenario}`, caseCaptureFixture(scenario)] as const,

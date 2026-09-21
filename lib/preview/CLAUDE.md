@@ -5,7 +5,11 @@ XForm parsing. The non-writing authoring evaluator uses this same engine in a
 bounded Node thread; it has no database or submission writer. Its observations
 use the engine’s effective relevance through groups and repeats: an irrelevant
 question is neither visible nor required and its old validation error does not
-block the form. Computed hidden values remain inspectable with their field kind. Three subsystems own it: the XPath
+block the form. Computed hidden values remain inspectable with their field kind. Case-operation
+answer bindings also apply effective relevance: excluded scalar reads are blank,
+and excluded repeats have zero operation iterations. Retained input values are
+not erased; they become available again when the question participates. Empty
+nested scopes remain explicit so submission can distinguish them from stale input. Three subsystems own it: the XPath
 evaluator, form engine, and preview UI. **Preview is part of valid by
 construction.** Every XPath function, signature, path initializer, and instance
 namespace Nova admits for a surface must execute faithfully in that surface's
