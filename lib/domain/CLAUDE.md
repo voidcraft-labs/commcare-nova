@@ -371,3 +371,9 @@ ID. Runtime selection requirements and wire eligibility are projections, never
 stored beside the destination.
 
 `Module.parentCaseModuleUuid` names an explicit parent-record selector. Absence means a flat list, even for a child record type. It is independent of structural `parentModuleUuid`; changing catalog ancestry never chooses a navigation route. The selector must use the direct parent type and form an acyclic route. Extension indexes are not child-selection edges.
+
+Operation writer inference preserves a known destination type when the value is
+storage-assignable to it, using `isValueStorageAssignable`: text and single-choice
+values share string storage, and integers fit decimal storage. This does not relax
+field-kind agreement or per-branch operation validation. Unknown destinations
+still derive from writer evidence; incompatible opinions remain a rejection.

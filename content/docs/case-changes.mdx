@@ -209,3 +209,9 @@ A request that adds several changes can connect them in one atomic call, for
 example, create a referral and then update that new referral. If any change is
 invalid or the order cannot be preserved on submission, none of the call is
 saved and the response says what to adjust.
+
+An operation can save a text value into a single-choice property, or an integer
+into a decimal property, without adding a helper question. Choice labels and
+options belong to the question; saved values can also come from an operation.
+Nova still checks every possible result of an expression against the destination
+type, so a fractional value cannot be assigned to an integer property.
