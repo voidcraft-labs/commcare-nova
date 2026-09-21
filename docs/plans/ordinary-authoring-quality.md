@@ -60,24 +60,34 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 ## Progress
 
 Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
-PRs 1 through 3 are merged and deployed at `f3b2747a`. Plugin 1.34.0 followed
-the compatible Nova deployment. A further correction exposes built-in worker
-identity in the existing authoring reads and guides. Controlled checks cover
+PRs #646, #647, #649 and #650 are merged and deployed at `d6e486f7`.
+Plugin 1.34.0 followed compatible Nova deployment. Controlled checks cover
 entry, saved role identities, parent selection, form answers, isolated submission,
 closure, sync, transaction isolation and interrupted review recovery. Playwright
 has exercised ordinary identity switching, recorded journeys and affected Builder
 controls. These are prerequisite contracts, not ordinary-agent quality proof.
 
-The development lending task reached a completed app after a planning-only
-attempt and a conservative accounting interruption. The peer found a real
-initial-value defect and the architect corrected it without expert instructions.
-Peer journey calls exposed a plan-lock defect, now corrected in PR 3. Independent
-browser inspection then found that ordinary Preview hides registration after an
-empty search in an app with no records, although the isolated journey offers it.
-The UI correction is implemented with a first-record browser regression; final
-independent usability acceptance remains in progress. The held-out role-gated request reached its call bound before peer app review
-and is continuing through ordinary recovery without expert feedback. Its original
-failed attempt remains evidence. The materially different request is still unrun;
-both were frozen in `docs/research/ordinary-authoring-evaluation.md`. Generated-app inspection,
-production repair and remaining browser/native acceptance are
-unfinished. The production app has only been inspected, not repaired.
+The development lending task completed with autonomous correction, and independent
+ordinary Preview and native form/submission checks passed after a product entry
+fix. The role-gated related-record trial failed bounded acceptance: 260 model
+calls, $20.785 measured cost, unfinished final review, an exported blank-status
+creation defect, and invented places saved outside disposable tests. It influenced
+implementation and cannot count as fresh held-out success. No expert rescue was
+supplied. The materially different workshop request completed in 102 calls and
+$3.339, including same-input recovery after the harness invocation bound. Its
+peer found and rechecked a visible label defect; independent Preview and Core
+checks confirmed the principal workflow. Detailed limits, context growth and
+usage are in `docs/research/ordinary-authoring-evaluation.md`.
+
+The delivered app was refreshed after intervening user edits before a new ordinary
+repair conversation. Its current ten-module scope and removal of search/capture
+were included in that user-level intent; historical expert instructions were not
+reused. The read-only data scan found no business records or populated generic
+audit properties. Repair and independent role/location acceptance are in progress.
+
+Remaining acceptance is substantive: a fresh role-gated related-record task must
+complete without expert repair, the delivered app must have usable role/location
+entry and honest setup, and independent checks must distinguish Preview/native
+form evidence from physical-device, remote-service and offline synchronization
+unknowns. Screen-reader question numbering also counts hidden fields. Keep these open;
+do not remove this objective because the observation infrastructure shipped.

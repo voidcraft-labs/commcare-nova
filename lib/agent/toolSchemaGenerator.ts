@@ -101,7 +101,8 @@ const FIELD_DOCS = {
 	required: "Require an answer when this condition holds.",
 	validate: "Answer validation; . refers to this question's value.",
 	validate_msg: "Explanation shown when validation fails.",
-	relevant: "Show this field when the condition holds.",
+	relevant:
+		"Include this field when the condition holds. Non-relevant answers are omitted from submission and can read as blank. Use a hidden field for a value that needs no visible question.",
 	calculate: "A hidden value that updates as its dependencies change.",
 	default_value:
 		"Starting value evaluated when the form opens. Use calculate for a value that should keep updating.",
