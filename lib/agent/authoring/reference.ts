@@ -4,7 +4,7 @@ import {
 	functionArgumentCount,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
-import { workerIdentityGuidance } from "./workerIdentity";
+import { workerIdentityGuidance, workerPlaceGuidance } from "./workerIdentity";
 
 const fields = () =>
 	fieldKinds
@@ -29,7 +29,7 @@ Check journeys from app entry as the saved Preview identities a user can select.
 
 Modules organize navigation. Record ancestry, submenu placement and parent selection are separate choices. setCaseTypeParent changes the record relationship. parentCaseModuleUuid makes a module select a parent first; omit it for a flat list, including records without parents. A submenu only groups menus. Each form has one owning module; different entry routes do not require copies of the form. Give each record lifecycle a usable way to begin, return and finish when the user's workflow needs those steps.
 
-To create a child while working with its parent, use a parent follow-up form with caseWrite destinations on the direct child type. This supports ordinary answers and captured evidence in one submission. The child defaults to the current worker as owner, not the parent's owner; an explicit creation operation can choose another owner when case sharing requires it. A registration form creates an independent record, even in a module with parent selection.
+To create a child while working with its parent, use a parent follow-up form with caseWrite destinations on the direct child type. This supports ordinary answers and captured evidence in one submission. The child defaults to the current worker as owner, not the parent's owner; an explicit creation operation can choose another owner when case sharing requires it. A registration form creates an independent record, even in a module with parent selection. For an independent record that needs an explicit owner, a survey form can create it through an operation. Use that operation instead of also creating a primary registration record.
 
 A several-case form applies one shared answer to each selected record. Questions start blank rather than borrowing one record's value, even if the worker selects just one case. Blank preserves each record's existing value; a configured starting value or calculation is shared. Never choose a representative record to fill the form.
 
@@ -71,6 +71,8 @@ Automatic translation availability is reported for each exact language direction
 Built-in identity supplies the current worker without custom audit-identity properties. The worker-information read returns expressions for each supported scope.
 
 Organization levels describe a hierarchy; places are its concrete locations. Case flow decides which places own records, where workers are assigned, and how far below their assigned place their cases reach. The address book independently decides which places workers can see and name in the app. Showing a place in the address book does not deliver its cases.
+
+${workerPlaceGuidance()}
 
 Choose these scopes from the user's responsibilities and geography. Read existing definitions before changing them; case flow and address-book settings are complete replacements. A persona's first assigned place is its main place. Archiving a place does not reassign its records; review the impact returned by the tool before confirming.
 

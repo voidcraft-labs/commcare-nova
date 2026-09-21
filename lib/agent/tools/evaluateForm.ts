@@ -64,7 +64,7 @@ export const evaluateFormInputSchema = formAddressSchema
 
 export const evaluateFormTool = {
 	description:
-		"Run a form using Preview's engine. Supply test records in scenario to check a new app or a specific failure; otherwise use the worker's actual records. Lookup data remains real. Returns validation, question state and proposed case values. Saves nothing; capture, case operations and submission checks require the running app.",
+		"Run a form using Preview's engine. Supply test records in scenario to check a new app or a specific failure; otherwise use the worker's actual records. Lookup data remains real. Returns validation, question participation and proposed case values. Excluded questions may retain an answer, but that is not a submitted value. Saves nothing; capture, case operations and submission checks require the running app.",
 	inputSchema: evaluateFormInputSchema,
 	async execute(
 		input: z.infer<typeof evaluateFormInputSchema>,

@@ -12,6 +12,7 @@ import { z } from "zod";
 import {
 	workerFormIdentityRequirement,
 	workerIdentityReadings,
+	workerPlaceReadings,
 } from "@/lib/agent/authoring/workerIdentity";
 import { setPersonaLocationsMutations } from "@/lib/doc/organizationMutations";
 import type { Mutation } from "@/lib/doc/types";
@@ -732,7 +733,7 @@ function valuesOutput(
 
 export const getUsersTool = {
 	description:
-		"Read built-in worker identity expressions, custom worker details, roles and Preview personas.",
+		"Read built-in worker identity and assigned-place expressions, custom worker details, roles and Preview personas.",
 	inputSchema: getUsersInputSchema,
 	async execute(
 		_input: z.infer<typeof getUsersInputSchema>,
@@ -740,6 +741,7 @@ export const getUsersTool = {
 	): Promise<
 		ReadToolResult<{
 			builtInIdentity: typeof workerIdentityReadings;
+			builtInPlaces: typeof workerPlaceReadings;
 			formIdentityRequirement: string;
 			workerInformation: UserProperty[];
 			previewReadiness: ReturnType<typeof workerReadiness>;
@@ -766,6 +768,7 @@ export const getUsersTool = {
 			kind: "read",
 			data: {
 				builtInIdentity: workerIdentityReadings,
+				builtInPlaces: workerPlaceReadings,
 				formIdentityRequirement: workerFormIdentityRequirement,
 				workerInformation,
 				previewReadiness: workerReadiness(doc),

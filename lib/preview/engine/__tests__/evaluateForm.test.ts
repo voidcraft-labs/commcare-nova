@@ -258,14 +258,22 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 	for (const path of ["visits", "visits[0]/rating", "visits[1]/rating"]) {
 		const field = hidden.fields.find((f) => f.path === path);
 		expect(field).toMatchObject({
+			participates: false,
 			visible: false,
 			required: false,
 			valid: true,
 		});
 		expect(field).not.toHaveProperty("error");
+		expect(field).not.toHaveProperty("value");
 	}
+	expect(
+		hidden.fields.find((f) => f.path === "visits[0]/rating"),
+	).toMatchObject({
+		retainedValue: "0",
+	});
 	expect(hidden.fields.find((f) => f.path === "total")).toMatchObject({
 		kind: "hidden",
+		participates: true,
 		visible: false,
 		value: "0",
 	});

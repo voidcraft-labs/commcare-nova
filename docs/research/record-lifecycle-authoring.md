@@ -119,6 +119,28 @@ remain separately unverified.
 
 ## Form participation and child ownership
 
+Worker place information has the same two read scopes. HQ's
+`corehq/apps/users/models.py::CouchUser.get_user_session_data` supplies
+`commcare_location_id`, `commcare_location_ids` and
+`commcare_primary_case_sharing_id` from the worker's assignments. The primary
+case-sharing ID equals the primary location ID in this source. The usercase
+writer `_get_user_case_fields` supplies the same keys, explicitly empty without
+an assignment. Nova's `usercaseBuiltInValues` and `previewAsPersona` project
+these facts to the worker record and session, including disposable test places.
+Form reads use `#user/<key>`; record and operation expressions use
+`external-user('<key>')`. The latter spelling reads session data and does not
+mean the value is missing from Preview or requires a custom worker property.
+
+The delivered-app repair guessed `location_id`, then treated its blank value
+as a Preview limitation. The tool exposed built-in identity readings but omitted
+place readings, and the focused organization guide described assignments without
+showing how expressions read them. `getUsers` now exposes the three readings,
+their scopes and missing-assignment behavior. The runtime test consumes those
+actual returned expressions for both assigned and unassigned workers. A separate
+Postgres journey starts empty, creates one record with the advertised sharing
+expression, and checks that another assigned worker can select it. These checks
+do not establish actual HQ assignments or device restore behavior.
+
 Relevance is more than visibility. Core's `TreeElement.isRelevant` includes
 inherited relevance. `XPathPathExpr.getRefValue` reads a non-relevant node as
 null, and `XPathLazyNodeset` excludes non-relevant nodes during expansion.

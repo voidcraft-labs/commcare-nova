@@ -24,9 +24,9 @@ export default async function AgentsMapPage() {
 					How Nova's agents are composed
 				</h1>
 				<p className="text-nova-text-secondary text-[15px] leading-relaxed">
-					Four lifecycles, seven model roles, and the boot prompt an external
-					client runs. Each role page shows what its model receives at every
-					moment, piece by piece, with the weight of each piece.
+					Explore each role's context, how it changes, and the weight of its
+					parts. Role pages distinguish initially loaded tools from the full
+					catalog and recorded messages from current code.
 				</p>
 			</div>
 			<LifecycleStrips lifecycles={LIFECYCLES} summaries={summaries} />

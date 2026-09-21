@@ -271,3 +271,8 @@ A same-named replacement account cannot inherit a confirmed password: the held
 fold checks the remote account ID and retains the displaced password as an
 unconfirmed candidate. A lost browser response may follow a completed create;
 the panel invites checking HQ and explains that undelivered passwords need reset.
+
+Preview's identity menu and missing-persona recovery return the URL to app entry
+when choosing a different worker. The session action clears prior record and
+Search bindings; the UI navigation replaces the prior form route. Choosing a
+worker never changes the member who authorizes access to Project data.

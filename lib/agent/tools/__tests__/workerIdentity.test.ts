@@ -19,7 +19,7 @@ import { getUsersTool } from "../users";
 it("the worker readings returned to authors execute in their stated scopes and follow the simulated worker", async () => {
 	const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
 	const { data } = await harness.runTool(getUsersTool, {});
-	const readings = data.builtInIdentity;
+	const readings = { ...data.builtInIdentity, ...data.builtInPlaces };
 	const doc = await createEvaluationApp({
 		name: "Approvals",
 		case_type: "approval",
@@ -45,10 +45,13 @@ it("the worker readings returned to authors execute in their stated scopes and f
 		name: "Amina Diallo",
 		email: "amina@example.org",
 	};
+	const primaryPlace = testUuid("worker-primary-place");
+	const anotherPlace = testUuid("worker-another-place");
 	const persona = {
 		uuid: testUuid("review-worker"),
 		name: "Preview supervisor",
 		description: "Fictional Preview identity",
+		locations: { primaryUuid: primaryPlace, additionalUuids: [anotherPlace] },
 	};
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Approve",
@@ -58,7 +61,14 @@ it("the worker readings returned to authors execute in their stated scopes and f
 	for (const [identity, expected] of [
 		[
 			previewAsMe(actor, doc),
-			{ workerId: actor.id, loginName: actor.email, displayName: actor.name },
+			{
+				workerId: actor.id,
+				loginName: actor.email,
+				displayName: actor.name,
+				primaryPlace: "",
+				assignedPlaces: "",
+				primarySharingGroup: "",
+			},
 		],
 		[
 			previewAsPersona(actor, persona, doc),
@@ -66,6 +76,9 @@ it("the worker readings returned to authors execute in their stated scopes and f
 				workerId: persona.uuid,
 				loginName: persona.name,
 				displayName: persona.name,
+				primaryPlace,
+				assignedPlaces: `${primaryPlace} ${anotherPlace}`,
+				primarySharingGroup: primaryPlace,
 			},
 		],
 	] as const) {
@@ -84,11 +97,26 @@ it("the worker readings returned to authors execute in their stated scopes and f
 			},
 		);
 		expect(result.valid).toBe(true);
+		for (const [key, value] of Object.entries(expected)) {
+			expect(result.fields.find((field) => field.path === key)?.value).toBe(
+				value,
+			);
+		}
 		expect(result.submission).toMatchObject({
 			kind: "registration",
-			primary: { properties: expected },
+			primary: {
+				properties: Object.fromEntries(
+					Object.entries(expected).filter(([, value]) => value !== ""),
+				),
+			},
 		});
-		for (const key of ["workerId", "loginName"] as const) {
+		for (const key of [
+			"workerId",
+			"loginName",
+			"primaryPlace",
+			"assignedPlaces",
+			"primarySharingGroup",
+		] as const) {
 			const expression = parseQueryValue(readings[key].recordExpression, scope);
 			expect(
 				evaluatePreviewSearchExpression(

@@ -96,9 +96,12 @@ function PreviewIdentityMenuBody() {
 				<DropdownMenuContent sideOffset={8} preferredMinWidth={240}>
 					<DropdownMenuRadioGroup
 						value={selected ?? ""}
-						onValueChange={(value) =>
-							setSelected(value.length === 0 ? undefined : asUuid(value))
-						}
+						onValueChange={(value) => {
+							if (value === (selected ?? "")) return;
+							setSelected(value.length === 0 ? undefined : asUuid(value));
+							// A prior worker's open form is not the new worker's entry.
+							navigate.replace({ kind: "home" });
+						}}
 					>
 						<DropdownMenuRadioItem value="" closeOnClick>
 							<span className="flex min-w-0 flex-col">

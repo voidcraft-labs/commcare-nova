@@ -53,4 +53,20 @@ test("opens retained journey observations and switches the ordinary Preview iden
 		body: await page.screenshot(),
 		contentType: "image/png",
 	});
+	// Changing workers starts at entry, not inside a form their menu hides.
+	await identity.click();
+	await page.getByRole("menuitemradio", { name: /^Preview as me/ }).click();
+	await expect(page).toHaveURL(`/build/${appId}`);
+	await expect(main.getByLabel("Visit note")).toHaveCount(0);
+	await expect(main.getByRole("button", { name: /^Visits\b/ })).toBeHidden();
+	await identity.click();
+	await page
+		.getByRole("menuitemradio", {
+			name: "Preview as Visit worker",
+			exact: true,
+		})
+		.click();
+	await main.getByRole("button", { name: /^Visits\b/ }).click();
+	await main.getByRole("button", { name: /^Record visit\b/ }).click();
+	await expect(main.getByLabel("Visit note")).toHaveValue("");
 });

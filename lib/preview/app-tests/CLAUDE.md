@@ -24,8 +24,12 @@ readiness. The narrow store cannot alter schemas or dispatch media effects.
 Navigation shares production menu, selection and routing projections. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
-between calls. Form and journey answers share the same coordinate input and
-location-picker formatter as the real UI. Malformed supplied location values
+between calls. Form and journey observations share the question participation
+projection. A non-relevant question reports its retained
+answer separately and has no participating value; an included hidden calculation
+has a value despite not being visible. This prevents display visibility from
+standing in for expression or submission behavior. Answers share the coordinate
+input and location-picker formatter with the real UI. Malformed supplied location values
 are test-input refusals, not observations of worker validation; map services and
 GPS capture remain outside this surface. Submission uses the production operation planner and atomic
 envelope. Its receipt overlays the entry case database, including just-closed
