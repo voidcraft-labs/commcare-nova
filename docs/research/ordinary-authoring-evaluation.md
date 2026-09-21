@@ -347,6 +347,10 @@ now replace that URL with app entry. A production-build Playwright journey
 switches away from a gated form, verifies the new worker's menu, and reopens
 with cleared answers; the two neighboring recovery/navigation checks also pass.
 This changes the simulated worker's entry, not the actor's Project authorization.
+After #657 deployed, an independent live browser check entered the Field worker's
+registration form through the home menu, switched to the Senior identity, and
+observed app entry with the old form gone. The administrator impersonation banner
+remained on the same account throughout. No business record was submitted.
 Hosted CI also caught an intermittent ResizeObserver notification in the existing
 case-workspace filter interaction. That test passed its automatic retry, but the
 strict browser-error gate correctly kept the job red. The original failure is
@@ -359,3 +363,96 @@ with a supplied place-owned cluster. The authored registration uses ordinary
 creation, whose ownership defaults to the current worker. That supplied starting
 record therefore did not establish the handoff beginning with the app's first
 task. An empty-business-record journey remains required before claiming success.
+
+
+### Fresh repair after the observation corrections
+
+A fresh ordinary edit conversation used the deployed #657 interface and asked
+for the empty-start registration, approval and contract handoff in business
+terms. It independently observed the missing pending state and inaccessible
+worker-owned parent, read the focused guidance, corrected the status writes and
+created a cluster entry with explicit shared-place ownership. Its test places
+and assignments remained disposable; no real deployment assignments were invented.
+The first invocation used 80 model calls and 83 tools, 5,290,548 input and 17,786
+output tokens, 5,161,006 cache-read and 91,602 cache-write tokens, costing $0.155052.
+It reached the normal call bound after the main handoff and before a final answer.
+A continuation requested completion and removal of unnecessary authoring leftovers,
+without supplying expressions or technical repair instructions.
+
+An independent Core check of that saved candidate now passes app-created cluster,
+pending farmer, Senior activation, contract creation, Senior review and Head
+approval. It checks shared ownership, parent links, open lifecycle and retained
+registration/contract approval actors and dates. The fixture begins with worker
+records and explicit fictional assignments, with no business records. Core parses
+and executes the emitted forms and case transactions. Its in-memory storage
+adapter resolves case indices from the cases Core actually stored; it does not
+supply expected workflow answers. The initial fixture lacked that index adapter
+and stopped before approval; that harness failure is distinct from the earlier
+blank-status app failures. This is form/submission evidence, not native menu,
+physical-device, target provisioning or offline-sync acceptance.
+
+The repair also retained an obsolete form behind an invented legacy role after
+a constant-false gate was refused. That is unnecessary authoring complexity,
+not a requirement to preserve case history. The shared form-update tool cannot
+change a form's type, although Builder exposes a type change subject to the
+canonical gate. Merely adding that input would not establish safe conversion:
+ordinary writers and references must still fit the resulting type. The existing
+replacement/removal tools remain available. The continuation removed the obsolete form through the normal tool, then removed
+two unused status questions while retaining the stored property and history. It
+repeated the full journey after each cleanup rather than restricting observation
+to the affected behavior. The successful principal journey does not erase this
+judgment failure or establish a fresh role-gated build result.
+
+The live recorded-journey viewer exposes the saved submission values, simulated
+role, test-only location, and earlier-revision warning. A visual inspection found
+that saved-property labels and actor values remain technical identifiers; the
+viewer makes evidence available but is not yet a polished explanation for an
+ordinary user. Independent Core execution of the commercial-registration branch
+also found that its new farmer still belongs to the submitting worker rather
+than the shared review population. That branch needs correction and separate
+acceptance; the passing smallholder handoff does not establish it.
+
+
+The third continuation explicitly requested the commercial farmer route after
+independent inspection found its sharing defect. This is ordinary business intent,
+but operator-directed coverage, not independent agent discovery of the missing
+branch. The agent then reproduced the visibility failure using its own disposable
+journey and replaced the registration path with explicit shared ownership.
+Independent Core checks of the resulting export pass both farmer routes through
+contract approval, retaining ownership, parent links and approval history. The
+commercial fixture also supplies the supported worker username reading; omitting
+that worker-record property initially produced an empty audit identity in the
+fixture. That harness omission is distinct from the earlier authored ownership
+failure. Dates are checked for presence and retention, not timestamp precision.
+
+Through that continuation, the fresh conversation used 214 model calls and 240
+tool calls, 30,063,361 input and 55,189 output tokens, 29,246,554 cache-read and
+465,619 cache-write tokens, costing $0.837800. These are cumulative conversation
+figures, not additional to its earlier 80- and 160-call checkpoints. Together with
+the two earlier repair conversations, measured repair spend was $2.640006 at this
+checkpoint. The principal source app still contained no real business records.
+
+The last provider response emitted a compaction checkpoint and made 22 hosted
+search calls. Twenty-one returned no tools, including requests for previously
+used journey and editing tools; one discovered an unused automation group. The
+agent consequently supplied an incomplete handoff instead of finishing the
+commercial journey or its remaining wording cleanup. The persisted UI transcript
+contains the checkpoint before those searches. This occurred within one provider
+response, before Nova's next-step projection could run, so it does not establish
+that local projection caused the initial failure. The local projection also
+removes earlier discovery results; preserving callable tools during continuation
+needs separate investigation and a real provider check. An ordinary continuation
+was requested; its outcome must be recorded separately.
+
+The installed SDK preserves hosted search output as provider-executed results.
+OpenAI's [tool-search documentation](https://developers.openai.com/api/docs/guides/tools-tool-search)
+describes loaded definitions as callable in later turns and includes an explicit
+additional-tools input mechanism. That documents available mechanisms, not proof
+that Nova's current SDK projection or opaque compaction preserves them.
+
+The two silent 80-step stops have a separate deterministic correction in #658:
+a clean edit ending on a tool at its allowance appends an unfinished-turn notice
+before the held finish. A real SDK/loopback-provider/Postgres test reaches the
+actual limit and checks the live stream, durable chunks, final thread, retained
+mutation and released holder. All 24 neighboring lifecycle tests pass. The notice
+adds no model call and does not label a bounded stop as successful completion.
