@@ -21,6 +21,7 @@ async function fixture(withWriter = false) {
 				name: "item",
 				properties: [
 					{ name: "case_name", label: "Name", data_type: "text" },
+					{ name: "date_opened", label: "Opened", data_type: "datetime" },
 					{ name: "unused", label: "Unused", data_type: "text" },
 					{ name: "keep", label: "Keep", data_type: "text" },
 				],
@@ -164,6 +165,37 @@ describe("unused property removal at the canonical transaction", () => {
 		).toEqual({
 			unused: "Collected before another author removes its annotation",
 		});
+	});
+
+	it("allows removing a built-in catalog annotation while retaining lifecycle metadata", async () => {
+		const x = await fixture();
+		await x.insert({ keep: "Collected value" });
+		const before = await x.db
+			.selectFrom("cases")
+			.selectAll()
+			.where("app_id", "=", x.appId)
+			.execute();
+		await commitGuardedBatchProposal({
+			appId: x.appId,
+			expectedProjectId: PROJECT,
+			actorUserId: OWNER,
+			batchId: crypto.randomUUID(),
+			kind: "autosave",
+			mutations: [
+				{
+					kind: "removeCaseProperty",
+					caseType: "item",
+					property: "date_opened",
+				},
+			],
+		});
+		expect(
+			await x.db
+				.selectFrom("cases")
+				.selectAll()
+				.where("app_id", "=", x.appId)
+				.execute(),
+		).toEqual(before);
 	});
 
 	it("rolls the storage contract back when a later canonical write fails", async () => {

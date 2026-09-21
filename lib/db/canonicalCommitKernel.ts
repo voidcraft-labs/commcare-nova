@@ -43,6 +43,7 @@ import {
 	withSchemaContext,
 } from "@/lib/case-store";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
+import { isStandardCaseListProperty } from "@/lib/domain";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
 import { applyOrganizationCommitIntegrity } from "@/lib/organization/commitIntegrity";
@@ -1003,6 +1004,7 @@ export async function commitCanonicalBatch(
 			// retirement also has its own retained schema.
 			if (
 				!effectiveType ||
+				isStandardCaseListProperty(mutation.property) ||
 				effectiveType.properties.some(
 					(property) => property.name === mutation.property,
 				)
