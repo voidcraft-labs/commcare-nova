@@ -2514,15 +2514,6 @@ function ResultsBody({
 							? "Try different Search information or review Cases available in Results"
 							: "Try different Search information or ask an app editor to review Cases available"
 					}
-					{...(noMatchesAction === undefined
-						? {}
-						: {
-								action: {
-									label: noMatchesAction.label,
-									onClick: noMatchesAction.onClick,
-									icon: tablerPlus,
-								},
-							})}
 				/>
 			);
 		}
