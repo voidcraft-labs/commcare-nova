@@ -104,10 +104,13 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
  *
  * @param initialDoc - The workspace's starting `BlueprintDoc`: the app's
  *   current state loaded from Postgres.
+ * @param initialCanonicalSeq - Revision from the same authorized snapshot.
+ *   Read-only journey tests must work before the editor makes any change.
  */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
 	initialDoc: BlueprintDoc,
+	initialCanonicalSeq: number,
 ) {
 	/* The workspace owns the current document and the invocation order.
 	 *
@@ -131,6 +134,7 @@ export function createSolutionsArchitect(
 	const workspace = new CanonicalMutationWorkspace({
 		host: ctx,
 		initialDoc,
+		baseSeq: initialCanonicalSeq,
 	});
 
 	/**
