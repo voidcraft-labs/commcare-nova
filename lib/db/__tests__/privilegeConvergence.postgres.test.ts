@@ -1203,5 +1203,6 @@ describe("database privilege convergence", () => {
 			await migration?.db.destroy();
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}
-	});
+		// Full bootstrap/probes plus an intentional one-second lock timeout.
+	}, 10_000);
 });
