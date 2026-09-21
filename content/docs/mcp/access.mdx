@@ -34,3 +34,7 @@ If your client has the connection but is missing a permission you need (typicall
 When Nova adds a new permission, how a client picks it up depends on how the client identifies itself. An app that identifies itself by a web address (the consent screen shows it as **Identified by**) picks up newly added permissions on its own, the next time Nova re-reads the app's details. Signing out and back in is all you need.
 
 An app that registered with Nova the older way asked for the permission set that existed when it registered, so signing out and back in offers the same old set, and requesting a newer permission fails with `invalid_scope`. For those apps only, you can remove the Nova server from the client and add it again. The fresh registration picks up the full current set.
+
+## Temporary service interruptions
+
+If Nova says it could not finish checking a request, your client can retry the existing connection when the service recovers. This response means Nova could not check access; it does not mean your credentials were rejected. A temporary startup failure also recovers on a later request.

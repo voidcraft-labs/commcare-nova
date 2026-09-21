@@ -147,3 +147,37 @@ admission/reduction time was 1.42 ms for the prior overlay-only operation and
 These measurements include cumulative envelope preparation but exclude resource
 reads, validation, persistence, tools and model latency. They quantify this
 bounded candidate only; long unsaved histories still need proportionate checkpoints.
+
+## Authentication recovery during database failures
+
+Persistent production database timeouts affected authoring, Preview and release
+verification. Read-only investigation found slow fresh connections and failures
+in Cloud SQL's own local health queries and transaction-log archiving. A lock
+snapshot showed no waiting locks; observed connections were below their limits.
+Active swapping was present, but conflicting memory metrics did not establish
+RAM exhaustion by themselves. No active project-specific service incident was
+reported. One approved database restart restored archiving. The first fresh
+connection remained slow, but after initialization settled, connection setup
+fell from 19.8 seconds before restart to 0.36 seconds and the same small queries
+fell from 0.31–2.49 seconds to 54–75 ms. Cloud SQL's health metric returned to up.
+MCP continued returning unavailable responses. This establishes observed database
+recovery, not the underlying cause or lasting resolution of resource pressure.
+
+That investigation exposed a separate, reproducible application recovery defect.
+`lib/auth.ts::getAuth` cached the object returned by `betterAuth` immediately.
+In the installed Better Auth implementation, `createBetterAuth` starts an async
+context initializer, and the OAuth provider's initializer awaits `seedResources`,
+which reads the database. The object's handler and API methods retain that
+context promise. A transient connection failure therefore permanently rejected
+the cached object's context, even though Nova's own loader promise had succeeded.
+Production MCP logs continued reporting that connection error on requests that
+returned much faster than the configured connection deadline.
+
+The loader now awaits the object's context before caching it. Concurrent callers
+share initialization; a failure clears the in-flight promise, allowing a later
+request to create a new object. A controlled first connection failure against
+the real library and migrated Postgres schema reproduces the former persistent
+failure. Recovery then proves normal OAuth resource initialization, a shared
+successful instance and an actual auth endpoint response. The existing native
+OAuth and organization contracts still pass. This repairs failure recovery;
+it does not explain or establish resolution of the database timeouts.

@@ -62,7 +62,13 @@ Checked items record completed observations, not a passing quality verdict.
 ## Current status
 
 Implementation began at Nova `090a493a` and plugin `137db53` (1.33.0).
-Nova PRs #646, #647, #649–#660 are merged and deployed. Plugin 1.34.0
+Nova PRs #646, #647, #649–#660 are merged and deployed. PR #662 is merged
+and serving, but its final deployment verification failed during persistent
+database timeouts. Authentication recovery now awaits the library's async
+initialization before caching it; its real Postgres regression passes. A single
+approved database restart restored measured responsiveness and health after
+initialization settled. The underlying cause and live auth recovery remain open.
+Plugin 1.34.0
 and the safe-cleanup update in 1.35.0 each followed compatible Nova deployment. The production privilege migration in #655 passed after a
 prior deployment exposed unnecessary exclusive ownership locks. The final
 relevance correction also passed deployment verification and is serving.
@@ -141,9 +147,13 @@ ordinary entry or deployment setup.
 
 The user delegated the collection-history decision. Each dated grower receipt
 should remain separately available after later collections at the same store,
-with any latest-store summary supplementary. Ordinary production repair is in
-progress within its original allocation; its final history and handoffs still
-need independent verification. A completed handoff does not establish acceptance.
+with any latest-store summary supplementary. Ordinary production repair saved
+separate dated receipts and exercised their history through disposable role
+journeys. Independent Core submission checks preserve three receipts, parent
+links, shared ownership and the latest-store summary. Registered-grower
+selection remains incomplete. Further app edits are deferred during the database
+investigation; the final history, entry and handoffs still need independent
+verification. A completed handoff does not establish acceptance.
 
 A separately approved $30 fresh role trial stopped without saving an app after
 85 calls and $4.15049 known cost. Private editing had accepted identity reuse

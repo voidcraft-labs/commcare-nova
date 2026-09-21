@@ -24,6 +24,43 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+it("retries a failed OAuth resource initialization and shares the recovered auth instance", async () => {
+	vi.resetModules();
+	const connection = await import("@/lib/case-store/postgres/connection");
+	const poolGetter = vi
+		.spyOn(connection, "getCaseStorePool")
+		.mockResolvedValue(database.pool);
+	const outage = new Error("Controlled database connection failure");
+	const connect = vi.spyOn(database.pool, "connect");
+	connect.mockRejectedValueOnce(outage);
+	try {
+		const { getAuth } = await import("@/lib/auth");
+		// Observe the library's real async initialization as well as Nova's
+		// loader so the pre-fix rejected context is always consumed.
+		await expect(
+			getAuth().then(async (auth) => await auth.$context),
+		).rejects.toBe(outage);
+		connect.mockRestore();
+
+		const [auth, concurrent] = await Promise.all([getAuth(), getAuth()]);
+		const context = await auth.$context;
+		await context.checkSchema?.();
+		expect(concurrent).toBe(auth);
+		expect(await getAuth()).toBe(auth);
+		expect(poolGetter).toHaveBeenCalledTimes(2);
+		const resources = await database.pool.query(
+			"SELECT identifier FROM auth_oauth_resource",
+		);
+		expect(resources.rows).toHaveLength(1);
+		const response = await auth.handler(new Request(`${origin}/api/auth/ok`));
+		await response.body?.cancel();
+		expect(response.status).toBe(200);
+	} finally {
+		connect.mockRestore();
+		poolGetter.mockRestore();
+	}
+});
+
 it("actual OAuth registration records allowed capabilities without granting user authorization", async () => {
 	const auth = createAuth(database.pool);
 	const common = {
