@@ -62,8 +62,13 @@ sources, transcripts and fixtures never belong in this public plan or commits.
 Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
 No paid trials or production changes have run for this plan.
 
-PR 1 is reviewed with green CI; it is not yet merged. PR 2 is in implementation.
-Controlled checks cover entry, saved role identities, parent selection, form
-answers, isolated submission, closure and sync. These are prerequisite contracts,
-not evidence that a normal agent has delivered a usable app. Review continuity,
-held-out trials, production repair, plugin release and browser acceptance remain.
+PR 1 is reviewed with green CI; it is not yet merged. PR 2 is implemented and
+reviewed, with CI running after corrections. PR 3 implements independent peer
+continuity and is under review. Controlled checks cover entry, saved role
+identities, parent selection, form answers, isolated submission, closure and
+sync. Playwright has exercised ordinary identity switching, recorded journeys
+and the affected Builder controls. These are prerequisite contracts, not evidence
+that a normal agent has delivered a usable app. The two held-out requests are
+frozen in `docs/research/ordinary-authoring-evaluation.md`. Paid quality trials,
+independent inspection of generated apps, production repair, plugin release and
+remaining browser/native acceptance are unfinished.

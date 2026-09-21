@@ -602,3 +602,110 @@ it("carries the peer's own evidence into a corrected revision without replaying 
 	expect(requests).toHaveLength(count);
 	expect(effects).toBe(1);
 });
+
+it.each(["unchanged", "model", "prompt", "tools"] as const)(
+	"carries peer compaction only across compatible provider contracts: %s",
+	async (changed) => {
+		const { spec } = await fixture();
+		const requests: ProviderRequest[] = [];
+		await withResponsesPeer(
+			(request, response) => {
+				const chunks: Buffer[] = [];
+				request.on("data", (chunk: Buffer) => chunks.push(chunk));
+				request.on("end", () => {
+					requests.push(JSON.parse(Buffer.concat(chunks).toString()));
+					respondWithParts(
+						response,
+						requests.length === 1
+							? [
+									{
+										type: "text",
+										text: "Observed the worker's registration journey.",
+									},
+									{
+										type: "compaction",
+										id: "cmp_peer",
+										encryptedContent: "opaque-peer-checkpoint",
+									},
+								]
+							: [{ type: "text", text: "Observed the corrected journey." }],
+						requests.length,
+					);
+				});
+			},
+			async (provider) => {
+				const args: ArchitectLoopArgs = {
+					spec: { ...spec, kind: "peer", contextVersion: "review-one" },
+					system: "Review the worker journey.",
+					turnId: "review-one",
+					maxSteps: 1,
+					signal: new AbortController().signal,
+					tools: () => ({}),
+					modelStep: productionModelStep(
+						provider(spec.modelId),
+						"medium",
+						"continuity-test",
+					),
+					additions: [
+						{
+							key: "source",
+							message: {
+								role: "user",
+								content: "Workers register households before recording visits.",
+							},
+						},
+					],
+					dispatch: async () => {
+						throw new Error("Unexpected tool call");
+					},
+					onStep: async () => {},
+					onRecoveredUsage: () => {},
+					onFinish: async () => ({ kind: "complete" }),
+				};
+				await runArchitectLoop(args);
+				const nextSpec = {
+					...args.spec,
+					contextVersion: "review-two",
+					...(changed === "model" ? { modelId: "gpt-5.6-sol" } : {}),
+					...(changed === "prompt" ? { promptVersion: "test-v2" } : {}),
+					...(changed === "tools" ? { toolsetDigest: "1".repeat(64) } : {}),
+				};
+				await runArchitectLoop({
+					...args,
+					spec: nextSpec,
+					turnId: "review-two",
+					modelStep: productionModelStep(
+						provider(nextSpec.modelId),
+						"medium",
+						"continuity-test",
+					),
+					additions: [
+						...args.additions,
+						{
+							key: "review-context:two",
+							message: {
+								role: "user",
+								content: "Recheck the corrected visit form at revision 2.",
+							},
+						},
+					],
+				});
+			},
+		);
+		expect(requests).toHaveLength(2);
+		const sent = JSON.stringify(requests[1]?.input);
+		expect(sent).toContain("Recheck the corrected visit form at revision 2.");
+		if (changed === "unchanged") {
+			expect(sent).toContain("opaque-peer-checkpoint");
+			expect(sent).not.toContain(
+				"Workers register households before recording visits.",
+			);
+		} else {
+			expect(sent).not.toContain("opaque-peer-checkpoint");
+			expect(sent).toContain(
+				"Workers register households before recording visits.",
+			);
+			expect(sent).toContain("Observed the worker's registration journey.");
+		}
+	},
+);
