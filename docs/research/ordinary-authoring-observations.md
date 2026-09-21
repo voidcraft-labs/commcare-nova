@@ -139,3 +139,11 @@ canonical save. A second real Postgres regression fails on the reviewed revision
 and compares the complete staged, reopened and committed content. The correction
 rechecks pending history on each stage; its cost grows with unsaved work and must
 be measured alongside agent calls, rather than claimed to be free.
+
+A local comparison used the retained trial's last admissible prefix: 21 pending
+steps and 120 mutations. Across ten measured iterations after warm-up, median
+admission/reduction time was 1.32 ms for the prior overlay-only operation and
+6.29 ms for cumulative preparation (ranges 1.22–1.56 ms and 5.91–7.11 ms).
+These measurements include cumulative envelope preparation but exclude resource
+reads, validation, persistence, tools and model latency. They quantify this
+bounded candidate only; long unsaved histories still need proportionate checkpoints.
