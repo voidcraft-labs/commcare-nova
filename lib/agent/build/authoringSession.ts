@@ -326,6 +326,23 @@ export class AuthoringSession {
 		return { ...(sharedToolPayload(result) as object), saved: false };
 	}
 	async discardEmptyWorkspace() {
+		await this.authorize();
+		if (!this.workspace) {
+			const open = await (await getAppDb())
+				.selectFrom("authoring_workspaces")
+				.select("next_ordinal")
+				.where("design_session_id", "=", this.authority.sessionId)
+				.where("status", "=", "open")
+				.executeTakeFirst();
+			if (
+				!open ||
+				safePersistedSequence(open.next_ordinal, "workspace ordinal") > 0
+			)
+				return;
+			// Cleanup happens after review, when the existing workspace can be
+			// adopted by a replacement run through the normal authority checks.
+			await this.ensureWorkspace();
+		}
 		if (!this.workspace || this.workspace.current().nextOrdinal > 0) return;
 		await abandonChangeSet({
 			changeSetId: this.workspace.current().id,

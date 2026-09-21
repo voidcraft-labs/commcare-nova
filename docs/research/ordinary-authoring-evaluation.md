@@ -75,5 +75,12 @@ ledger consumed $12.134 before a further reservation could fit. That interrupted
 attempt is retained. Known cache usage is now settled using the production rate
 card with a 25% margin; missing/inconsistent cache details keep the conservative
 price, and unknown calls retain their full reservation. The per-call worst-case
-reservation and total approved budgets remain unchanged. Held-out outcomes and
-completion of the development app are still unestablished.
+reservation and total approved budgets remain unchanged. The resumed development run completed in 77 additional calls for $2.855 on the
+production rate card. It retained the original request and received no expert
+repair feedback. The peer found a real initial-value defect; the architect
+corrected it. Peer journey calls encountered the review-lock defect documented
+in `ordinary-authoring-observations.md`, so that run does not prove the corrected
+peer observation path. Independent browser entry found an ordinary Preview
+empty-population branch hiding the registration action. Its agent-tested journey
+therefore did not establish user-visible reachability. Held-out outcomes and
+usable-app acceptance remain unestablished.

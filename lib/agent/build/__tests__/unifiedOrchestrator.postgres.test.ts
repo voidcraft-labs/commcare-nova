@@ -66,8 +66,7 @@ it.each([
 					sampleGenerator: new HeuristicCaseGenerator(),
 				}),
 		);
-		const recoveredEmptyWorkspace =
-			interruption === "active-peer" && !replaceRun;
+		const recoveredEmptyWorkspace = interruption === "active-peer";
 		const exercisePeer =
 			interruption === "uninterrupted" || recoveredEmptyWorkspace;
 		const actorUserId = "architect";
@@ -472,6 +471,14 @@ it.each([
 						.select("request_id")
 						.execute(),
 				).toEqual([{ request_id: "save" }]);
+				expect(
+					await h
+						.db()
+						.selectFrom("authoring_workspaces")
+						.select("id")
+						.where("status", "=", "open")
+						.execute(),
+				).toEqual([]);
 				const contexts = await h
 					.db()
 					.selectFrom("design_model_contexts")
@@ -530,7 +537,7 @@ it.each([
 					expect(states).toHaveLength(1);
 					expect(states[0]).toMatchObject({
 						appSaved: interruption !== "staged-work",
-						planRevision: 2,
+						planRevision: exercisePeer ? 3 : 2,
 						plan: expect.stringContaining("both required"),
 						workspace: {
 							app: {
