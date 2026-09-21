@@ -1163,7 +1163,9 @@ function buildFieldParts(
 			};
 			const shadow = shorthand(calculation.source);
 			if (shadow !== undefined) attrs["vellum:calculate"] = shadow;
-			if (relevant) attrs.relevant = expand(relevant);
+			// Preserve the question's effective relevance in its own context.
+			// The condition belongs to that question, not this generated node.
+			attrs.relevant = `count(${nodePath.toXPath()}) > 0`;
 			binds.push(el("bind", attrs));
 		}
 	}

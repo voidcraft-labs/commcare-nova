@@ -62,7 +62,7 @@ public class ContainerRuntimeTest {
   throw new AssertionError("Missing confirmation question "+path);
  }
  @Test public void conditionalQueriesAndCandidateValidationUseTheActualSelectedRows()throws Exception {
-  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"query-conditional","query-conditional-parent"}){
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"query-conditional","query-conditional-parent","query-conditional-relative"}){
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();String parent=scenario.endsWith("parent")?"/data/page":"/data",items=parent+"/items/item",check=parent+"/confirm";
    enter(parsed,false);
    answer(form,"/data/show","yes");enter(parsed,false);

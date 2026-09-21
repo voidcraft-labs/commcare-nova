@@ -33,6 +33,7 @@ export const containerScenarios = [
 	"nested-count",
 	"query-conditional",
 	"query-conditional-parent",
+	"query-conditional-relative",
 ] as const;
 export type ContainerScenario = (typeof containerScenarios)[number];
 const text = (id: string) => f({ kind: "text", id, label: proseText(id) });
@@ -220,6 +221,7 @@ export function containerWireFixture(scenario: ContainerScenario) {
 			break;
 
 		case "query-conditional":
+		case "query-conditional-relative":
 		case "query-conditional-parent": {
 			const parent = scenario === "query-conditional-parent";
 			const prefix = parent ? "page/" : "";
@@ -242,6 +244,9 @@ export function containerWireFixture(scenario: ContainerScenario) {
 					id: "confirm",
 					label: proseText("Confirm one choice"),
 					...(!parent && { relevant: active }),
+					...(scenario === "query-conditional-relative" && {
+						relevant: "../show = 'yes'",
+					}),
 					validate: `. = 'yes' and count(#form/${prefix}items/choice[. = 'yes']) = 1`,
 				}),
 			];
