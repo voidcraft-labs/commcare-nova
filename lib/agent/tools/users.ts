@@ -48,7 +48,7 @@ import {
 	userTypesOf,
 	uuidSchema,
 } from "@/lib/domain";
-import { workerReadiness } from "../workerReadiness";
+import { workerReadiness } from "@/lib/domain/workerReadiness";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	applyToDoc,

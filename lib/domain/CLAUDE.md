@@ -2,6 +2,11 @@
 
 The shape every surface speaks. The agent (`lib/agent`), the doc store (`lib/doc`), the builder (`components/builder`), the wire emitter (`lib/commcare`), the case store (`lib/case-store`), and the preview engine (`lib/preview`) all bind against the Zod schemas here and cross to each other only as these domain shapes. This package is a leaf — it imports none of them.
 
+`workerReadiness.ts` projects saved roles, effective persona values and assignment
+gaps for both ordinary authoring tools and Preview setup guidance. It accepts only
+worker and organization collections. These are configuration facts; persisted
+worker answers and actual navigation determine runtime eligibility.
+
 **The schemas ARE the reference.** `blueprint.ts`, `fields/*`, `forms.ts`, `modules.ts`, `xpath/`, and `predicate/` (its own `CLAUDE.md`) are the authoritative shape; this doc holds only the few truths the schemas can't state.
 
 **Persisted numbers use one injective JavaScript/JSON contract.**

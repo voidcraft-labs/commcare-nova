@@ -23,7 +23,7 @@ import {
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { asUuid } from "@/lib/domain";
+import { asUuid, organizationLevelSchema } from "@/lib/domain";
 import { eq, literal, sessionUserProperty, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
@@ -670,6 +670,23 @@ export async function createSmokeBuilders(
 				[worker]: { uuid: worker, name: "Visit worker", userTypeUuid: role },
 			};
 			doc.personaOrder = [worker];
+			// Authored assignment structure without invented deployment places.
+			// The worker can enter its role menu, while Preview explains the gap.
+			const level = asUuid(randomUUID());
+			doc.organizationLevels = {
+				[level]: organizationLevelSchema.parse({
+					uuid: level,
+					code: "clinic",
+					name: "Clinic",
+					caseFlow: {
+						workers: "assigned",
+						ownsCases: true,
+						descendantCases: { kind: "none" },
+					},
+					addressBook: { reach: "own-branch" },
+				}),
+			};
+			doc.organizationLevelOrder = [level];
 			const moduleUuid = doc.moduleOrder[0];
 			doc.modules[moduleUuid].displayCondition = eq(
 				term(sessionUserProperty(property)),

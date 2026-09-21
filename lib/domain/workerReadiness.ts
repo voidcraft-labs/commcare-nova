@@ -1,16 +1,21 @@
 import {
 	assignedLocationUuids,
-	type BlueprintDoc,
+	type OrganizationCollections,
 	orderedOrganizationLevels,
+} from "./organization";
+import type { UserCollections } from "./users";
+import {
 	orderedPersonas,
 	orderedUserProperties,
 	orderedUserTypes,
 	personaUserData,
-} from "@/lib/domain";
+} from "./users";
 
 /** Configuration facts only. Entry eligibility is observed in the running app;
  * a role or complete property set alone is not proof of a usable journey. */
-export function workerReadiness(doc: BlueprintDoc) {
+export function workerReadiness(
+	doc: UserCollections & OrganizationCollections,
+) {
 	const properties = orderedUserProperties(doc);
 	const roles = orderedUserTypes(doc);
 	const personas = orderedPersonas(doc);

@@ -15,7 +15,7 @@ import {
 	STANDARD_CASE_PROPERTY_DESCRIPTIONS,
 } from "@/lib/domain";
 
-import { workerReadiness } from "./workerReadiness";
+import { workerReadiness } from "@/lib/domain/workerReadiness";
 
 /** A map for choosing what to inspect. Field content, expressions, translations
  * and configuration detail belong to scoped reads, not every turn's context. */

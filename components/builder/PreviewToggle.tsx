@@ -38,6 +38,7 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 		>
 			<Button
 				type="button"
+				className="max-sm:w-11 max-sm:px-0"
 				variant={previewing ? "default" : "outline"}
 				glow={previewing}
 				onClick={() => transitionPreview(!previewing)}
@@ -49,7 +50,9 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 					width="17"
 					height="17"
 				/>
-				{previewing ? "Back to edit" : "Preview"}
+				<span className="max-sm:sr-only">
+					{previewing ? "Back to edit" : "Preview"}
+				</span>
 			</Button>
 		</SimpleTooltip>
 	);

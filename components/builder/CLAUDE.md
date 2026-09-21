@@ -395,6 +395,19 @@ deletion or reassignment. Preview identity and expression-source menus expose
 ordinary mutually exclusive choices as checked radio-menu items; color is only
 a secondary cue, not the selected-state contract.
 
+`PreviewIdentityMenu` and `PreviewSetupNotice` read the shared domain
+`workerReadiness` projection through a narrow doc subscription. The entry notice
+explains the member/worker distinction and missing saved place assignments;
+it links to identity setup and recorded disposable journeys. This is authored
+configuration guidance, not a new access gate or deployment-readiness verdict.
+Role conditions, real records and saved assignments remain the runtime's inputs.
+The notice is a labeled region, not a blocking alert, and its actions wrap on
+compact screens. Opening identity setup leaves Preview before navigation, so the
+authoring controls are visible. Under 640px, the Preview and worker-language
+controls retain their accessible names and 44px targets while showing icons; the
+identity control keeps a truncated worker name. This fits the shared header
+between its home and account controls at 320px. A recorded journey never changes the live Preview identity.
+
 ## App setup — Organization
 
 `app-setup/OrganizationSection.tsx` presents one authoring concept over two
