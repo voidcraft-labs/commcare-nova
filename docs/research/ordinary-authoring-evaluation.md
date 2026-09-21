@@ -106,3 +106,13 @@ first recovery. The evaluation logged terminated idle connections and continued;
 its eventual stop was the durable review allowance. This environmental interference
 is retained separately and must not be attributed to agent judgment. Future local
 browser stack starts are serialized with paid runs.
+
+The byte-based reservation subsequently stopped the architect after the peer
+returned findings, although measured spending remained below the trial allocation.
+A non-generating provider count for a retained 980,415-byte request was 149,067
+input tokens, exactly matching its reported generation usage. The harness now
+requests that count only when the byte reservation would refuse a call, retains
+all input-bearing fields (including deferred tools), and reserves long-context
+cache-write prices plus 25% input headroom and the full output ceiling. Invalid
+counts fail closed. The approved spend limits and unknown-charge retention are
+unchanged. [Provider token-counting contract](https://developers.openai.com/api/docs/guides/token-counting).
