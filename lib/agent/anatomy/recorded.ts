@@ -40,7 +40,11 @@ export function classifyAppendKey(key: string): RecordedItemKind {
 		key.startsWith("completion-feedback:")
 	)
 		return "feedback";
-	if (key === "review-context" || key.startsWith("current-state:"))
+	if (
+		key === "review-context" ||
+		key.startsWith("review-context:") ||
+		key.startsWith("current-state:")
+	)
 		return "plan";
 	if (key === "source") return "source";
 	if (key.startsWith("translation-repair:")) return "feedback";

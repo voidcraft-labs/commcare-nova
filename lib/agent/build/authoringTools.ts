@@ -37,7 +37,8 @@ export const PLANNING_TOOL_DEFINITIONS = {
 		strict: false,
 	},
 	writePlan: {
-		description: "Write or replace the shared Markdown plan.",
+		description:
+			"Write or replace the current design in the shared Markdown plan. Revisions retain history; omit review logs and superseded decisions.",
 		inputSchema: writePlanInputSchema,
 		strict: false,
 	},
@@ -85,7 +86,7 @@ const LEAD_TOOL_DEFINITIONS = {
 	},
 	reviewApp: {
 		description:
-			"Ask a colleague to inspect the saved app against the user's request and plan. Returns their assessment and any plan improvements.",
+			"Ask a colleague to inspect the saved app against the user's request and plan. The colleague retains earlier review evidence. Describe corrections or uncertainties to focus the next inspection. Returns their assessment and any plan improvements.",
 		inputSchema: reviewInputSchema,
 		strict: false,
 	},

@@ -238,7 +238,11 @@ export async function writeAppPlan(args: {
 export async function beginPlanReview(
 	authority: PlanningAuthority,
 	requestId: string,
-	snapshot: { sourceDigest: string; appSeq: number | null } | null = null,
+	snapshot: {
+		sourceDigest: string;
+		appSeq: number | null;
+		focus?: string;
+	} | null = null,
 ) {
 	return withAppTx(async (tx) => {
 		const head = await lockPlan(tx, authority);
@@ -291,6 +295,7 @@ export async function beginPlanReview(
 				plan_revision: plan.revision,
 				source_digest: snapshot?.sourceDigest ?? null,
 				app_seq: snapshot?.appSeq ?? null,
+				focus: snapshot?.focus ?? null,
 			})
 			.returningAll()
 			.executeTakeFirstOrThrow();

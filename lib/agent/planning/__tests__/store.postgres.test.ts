@@ -47,7 +47,14 @@ it("preserves one editable plan across peer review, exact retries and a replaced
 		},
 	};
 	const first = await writeAppPlan(initial);
-	const review = await beginPlanReview(auth, "review-call");
+	const review = await beginPlanReview(auth, "review-call", {
+		sourceDigest: "source",
+		appSeq: null,
+		focus: "Recheck the corrected return task",
+	});
+	expect((await beginPlanReview(auth, "review-call")).review.focus).toBe(
+		"Recheck the corrected return task",
+	);
 	expect(review.complete).toBe(false);
 	await expect(
 		writeAppPlan({

@@ -51,7 +51,7 @@ export interface DesignModelContextState {
 	 * response, for architect recovery. Provider-contract rollovers can
 	 * append reseeds or state without making another provider call; those
 	 * item-only generations must not hide the response that still proves an
-	 * outer pause or correction a killed process did not record. Peer reviews start from current source, plan and app. */
+	 * outer pause or correction a killed process did not record. The peer retains its own earlier investigation across reviews; current source, plan and app revisions arrive as a new review message. */
 	readonly predecessorItems: readonly DesignModelContextItem[];
 	readonly appendKeys: ReadonlySet<string>;
 	/** Server protocol provenance retained across immutable generations. */
@@ -553,7 +553,7 @@ export async function openDesignModelContext(
 				? new Set(appendKeys)
 				: await readAppendKeysThroughGeneration(tx, row);
 		const predecessorItems =
-			spec.kind === "architect" && generation > 0
+			spec.kind !== "translator" && generation > 0
 				? await readLatestPredecessorItems(tx, row)
 				: [];
 		return {

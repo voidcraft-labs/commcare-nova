@@ -521,6 +521,7 @@ export async function runBuildOrchestration(
 			const review = await beginPlanReview(authority, requestId, {
 				sourceDigest: source.digest,
 				appSeq: app ? current.canonicalSeq : null,
+				focus,
 			});
 			if (review.complete)
 				return {
@@ -546,13 +547,17 @@ export async function runBuildOrchestration(
 				additions: [
 					...sourceMessages,
 					{
-						key: "review-context",
+						key: `review-context:${review.reviewId}`,
 						message: {
 							role: "user",
 							content: JSON.stringify({
+								reviewId: review.reviewId,
+								planRevision: review.plan.revision,
+								appRevision: current.canonicalSeq,
+								sourceDigest: source.digest,
 								plan: review.plan.markdown,
 								app: await runtime.overview(true),
-								focus: focus ?? null,
+								focus: review.review.focus,
 							}),
 						},
 					},

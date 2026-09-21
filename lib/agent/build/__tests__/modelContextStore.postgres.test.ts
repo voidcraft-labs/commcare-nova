@@ -777,7 +777,7 @@ describe("durable model context", () => {
 		]);
 	});
 
-	it("resumes one peer review and opens an independent conversation for the next review", async () => {
+	it("resumes one peer review and preserves its investigation for the next review", async () => {
 		const spec = {
 			designSessionId,
 			kind: "peer" as const,
@@ -811,7 +811,12 @@ describe("durable model context", () => {
 		expect(next.generation).toBe(first.generation + 1);
 		expect(next.supersedesContextId).toBe(first.id);
 		expect(next.messages).toEqual([]);
-		expect(next.predecessorItems).toEqual([]);
+		expect(next.predecessorItems).toEqual([
+			{
+				appendKey: "attempt-a-opening",
+				message: { role: "user", content: "attempt A" },
+			},
+		]);
 		expect(next.lineageAppendKeys).toEqual(new Set(["attempt-a-opening"]));
 		await expect(
 			appendDesignModelContext({

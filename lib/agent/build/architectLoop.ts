@@ -178,7 +178,8 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 		keys.add(appendKey);
 	};
 	// A provider-contract change preserves the lead's previous conversation,
-	// including unacknowledged effects. A new peer review starts independently.
+	// including unacknowledged effects. The peer carries only its own prior
+	// investigation; a new review adds the current revisions and correction focus.
 	if (!messages.length && opened.predecessorItems.length) {
 		await append(
 			"previous-conversation",
@@ -215,7 +216,7 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 		return { contextId: opened.id, kind: "awaiting-input", text: "" };
 	for (const addition of args.additions) {
 		if (
-			!(args.spec.kind === "architect" ? opened.lineageAppendKeys : keys).has(
+			!(args.spec.kind !== "translator" ? opened.lineageAppendKeys : keys).has(
 				addition.key,
 			)
 		)
