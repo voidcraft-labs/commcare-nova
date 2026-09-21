@@ -19,6 +19,7 @@ import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerUserCircle from "@iconify-icons/tabler/user-circle";
 import { useState } from "react";
 import { AppTestHistory } from "@/components/builder/AppTestHistory";
+import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
 import {
 	DropdownMenu,
@@ -28,13 +29,14 @@ import {
 	DropdownMenuRadioItem,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
-import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
+import { useWorkerReadiness } from "@/lib/doc/hooks/useWorkerReadiness";
 import { asUuid } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useAppId,
 	usePreviewing,
 	usePreviewPersonaUuid,
+	useSetPreviewing,
 	useSetPreviewPersonaUuid,
 } from "@/lib/session/hooks";
 
@@ -56,10 +58,13 @@ export function PreviewIdentityMenu() {
 function PreviewIdentityMenuBody() {
 	const appId = useAppId();
 	const [showTests, setShowTests] = useState(false);
-	const personas = usePersonas();
+	const readiness = useWorkerReadiness();
+	const personas = readiness.personas;
 	const selected = usePreviewPersonaUuid();
 	const setSelected = useSetPreviewPersonaUuid();
 	const navigate = useNavigate();
+	const setPreviewing = useSetPreviewing();
+	const changePreview = usePreviewModeTransition(setPreviewing);
 
 	const active =
 		selected === undefined
@@ -75,7 +80,13 @@ function PreviewIdentityMenuBody() {
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					aria-label={`Running as ${currentLabel}. Change who Preview runs as.`}
-					render={<Button type="button" variant="ghost" className="max-w-52" />}
+					render={
+						<Button
+							type="button"
+							variant="ghost"
+							className="max-w-52 max-sm:max-w-28 max-sm:gap-1 max-sm:px-2"
+						/>
+					}
 				>
 					<Icon
 						icon={tablerUserCircle}
@@ -127,8 +138,13 @@ function PreviewIdentityMenuBody() {
 								value={persona.uuid}
 								closeOnClick
 							>
-								<span className="min-w-0 truncate">
-									Preview as {persona.name}
+								<span className="flex min-w-0 flex-col">
+									<span className="truncate">Preview as {persona.name}</span>
+									{persona.locationContext === "no-assigned-place" && (
+										<span className="text-xs text-nova-text-muted">
+											No place assigned
+										</span>
+									)}
 								</span>
 							</DropdownMenuRadioItem>
 						))}
@@ -139,7 +155,12 @@ function PreviewIdentityMenuBody() {
 						</DropdownMenuItem>
 					) : null}
 					{personas.length === 0 && (
-						<DropdownMenuItem onClick={() => navigate.openAppSetup("users")}>
+						<DropdownMenuItem
+							onClick={() => {
+								changePreview(false);
+								navigate.openAppSetup("users");
+							}}
+						>
 							<span className="flex min-w-0 flex-col">
 								<span className="truncate">Add a persona</span>
 								<span className="text-xs text-nova-text-muted">

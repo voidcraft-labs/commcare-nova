@@ -12,6 +12,7 @@ import {
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
+import { PreviewSetupNotice } from "@/components/builder/PreviewSetupNotice";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
@@ -153,6 +154,7 @@ export function HomeScreen() {
 					/>
 				)}
 			</div>
+			{mode !== "edit" && <PreviewSetupNotice />}
 			<div className="grid gap-3">
 				{modules.map((mod, mIdx) => {
 					const localizedModuleName =

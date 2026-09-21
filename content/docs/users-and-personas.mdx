@@ -169,7 +169,8 @@ This is the whole point of describing them. Previewing as Asha means:
 
 - conditions on worker information see *her* values, not yours;
 - a case list that shows "only my cases" shows *hers*;
-- any case the form creates is owned by *her*.
+- new cases use the form's configured owner, defaulting to *her* when the form
+  does not choose another owner, such as a shared place.
 
 Preview always says whose session you are looking at, so the two never blur
 together. Returning to edit mode also returns the next Preview to **Preview as
@@ -241,3 +242,10 @@ missing required worker information or place assignments. If a role-gated menu
 is empty when running as yourself, choose a persona with that role. Location
 rules still need appropriate places and assignments; a role alone does not
 establish that a workflow is ready for deployment.
+
+Preview's entry screen explains the difference between your own account and a
+saved worker identity. When the app has levels that accept worker assignments,
+the identity menu and entry screen show which identities have no place assigned.
+**Identity setup** opens their configuration. **Test journeys** opens recorded
+disposable examples; viewing those examples does not assign places or change
+the identity running in live Preview.

@@ -48,7 +48,7 @@ export function LanguageSelector() {
 			<SimpleTooltip content={selected?.englishName} side="bottom">
 				<DropdownMenuTrigger
 					aria-label={`Worker language: ${selectedAccessibleName}`}
-					className="nova-focusable flex h-11 max-w-48 items-center gap-2 rounded-xl px-3 text-sm text-nova-text outline-none transition-colors hover:bg-white/5"
+					className="nova-focusable flex h-11 max-w-48 items-center gap-2 rounded-xl px-3 text-sm text-nova-text outline-none transition-colors hover:bg-white/5 max-sm:w-11 max-sm:shrink-0 max-sm:justify-center max-sm:px-0"
 				>
 					<Icon
 						icon={tablerLanguage}
@@ -57,14 +57,17 @@ export function LanguageSelector() {
 						aria-hidden="true"
 					/>
 					{selected?.label === undefined ? (
-						<Skeleton className="h-4 w-16" />
+						<Skeleton className="h-4 w-16 max-sm:hidden" />
 					) : (
-						<bdi dir={selected.direction} className="max-w-28 truncate">
+						<bdi
+							dir={selected.direction}
+							className="max-w-28 truncate max-sm:hidden"
+						>
 							{selected.label}
 						</bdi>
 					)}
 					{selected?.qualifier !== undefined && (
-						<span className="max-w-24 truncate text-xs text-nova-text-muted">
+						<span className="max-w-24 truncate text-xs text-nova-text-muted max-sm:hidden">
 							· {selected.qualifier}
 						</span>
 					)}
