@@ -40,6 +40,7 @@ import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import {
 	getCasePropertyTool,
+	removeCasePropertiesTool,
 	updateCasePropertyTool,
 } from "@/lib/agent/tools/caseProperties";
 import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
@@ -454,6 +455,13 @@ export const SHARED_TOOL_REGISTRY = [
 		tool: setCaseTypeParentTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "removeCaseProperties",
+		mcpName: "remove_case_properties",
+		tool: removeCasePropertiesTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_WITH_MIGRATION_POLICY,
 	},
 	{
 		saName: "updateCaseProperty",

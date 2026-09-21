@@ -42,6 +42,7 @@ export {
 	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	CasePropertyHasSavedValuesError,
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
 	SchemaChangePhaseBError,

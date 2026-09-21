@@ -105,6 +105,10 @@ export const SHARED_TOOL_PRESENTATION = {
 		"Updating record relationship",
 		"Updated record relationship",
 	),
+	removeCaseProperties: change(
+		"Removing unused case properties",
+		"Removed unused case properties",
+	),
 	updateCaseProperty: change("Updating case property", "Updated case property"),
 	getField: read("Inspecting a field", "Inspected a field"),
 	evaluateForm: read(

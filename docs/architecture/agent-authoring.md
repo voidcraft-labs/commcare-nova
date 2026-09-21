@@ -169,3 +169,10 @@ deferred definitions once loaded.
 An ordinary edit turn initializes its workspace with the document and canonical
 revision from the same authorized snapshot. Disposable tests can start before any
 edit; an incidental app mutation is never a prerequisite for observing saved work.
+
+Unused custom record-property definitions can be removed through the shared
+`removeCaseProperties` / `remove_case_properties` operation. Reference checks
+include form writers and all indexed reads. The canonical transaction refuses
+live or parked values before changing the storage schema, so cleanup cannot
+silently discard collected data in a later record edit. Populated retirement
+remains a reviewed one-time migration.

@@ -651,6 +651,8 @@ export interface ApplySchemaChangeArgs {
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
 	property?: string;
 	change?: SchemaChangeKind;
+	/** Canonical removal admission: refuse any live or parked value under these keys. */
+	removedProperties?: readonly string[];
 	syncedSeq?: number;
 }
 
