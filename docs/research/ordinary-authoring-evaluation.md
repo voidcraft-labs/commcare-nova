@@ -84,3 +84,25 @@ peer observation path. Independent browser entry found an ordinary Preview
 empty-population branch hiding the registration action. Its agent-tested journey
 therefore did not establish user-visible reachability. Held-out outcomes and
 usable-app acceptance remain unestablished.
+
+## Role-gated trial observation
+
+The first attempt stopped at the evaluation harness's 80-call bound. Ordinary
+recovery then reached the production peer's 40-call allowance during its first
+app review: 18 scoped reads and 22 journey-tool calls. A second recovery with the
+same input correctly refused further calls because that allowance is durable.
+Neither interruption is a completed review or a passing app. The peer had
+independently derived and begun exercising related-record and role journeys.
+
+The peer allowance is increased to 80 calls per review so those observations can
+finish within a bounded investigation. Architect and translation limits are
+unchanged. The trial remains development evidence for this adjustment; a later
+continuation is not a fresh held-out pass. The second frozen request remains
+independent of the implementation. The original traces, cost, repeated reads and
+remaining usability checks stay in the evidence.
+
+Local browser-test startup restarted the shared Postgres container during the
+first recovery. The evaluation logged terminated idle connections and continued;
+its eventual stop was the durable review allowance. This environmental interference
+is retained separately and must not be attributed to agent judgment. Future local
+browser stack starts are serialized with paid runs.

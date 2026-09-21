@@ -301,3 +301,16 @@ case selection in three grouped form-entry variants and verifies the computed
 parent IDs. A retained pre-fix suite must throw for the missing session instance;
 the current suites resolve their declared instances. This executes session
 selection, independently of tile rendering.
+
+## Built-in worker identity and missing records
+
+Generate current worker forms with
+`npx tsx scripts/fixtures/hq/emit-worker-evidence.ts /tmp/nova-worker-evidence`.
+With the same init script and Core checkout above, run
+`--tests nova.compatibility.WorkerIdentityRuntimeTest.builtInFormIdentityRequiresTheMatchingWorkerRecord`
+and `-PnovaProofResources=/tmp/nova-worker-evidence`.
+The native form calculations read worker ID, login and display name from the
+matching worker record, ignore a different worker and wrong case type, and are
+blank when that matching record is absent. This local CCZ proof does not test HQ
+privilege assignment, restore or physical-device sync. The existing menu/form
+custom-property method additionally requires the HQ-regenerated artifacts.

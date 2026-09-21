@@ -87,6 +87,12 @@ name, and `#user/case_name` the display name, falling back to the login name.
 Record expressions use `session('userid')` and `session('username')` for ID and
 login name; `session()` is not a form function.
 
+Form readings need the worker's own CommCare record. Your HQ project must include
+user cases, and the worker must sync that record; otherwise readings can be blank.
+Preview supplies it, but cannot establish that the device has it. Publishing setup
+identifies forms with this dependency. Record-scope session identity does not need
+the worker record.
+
 These values follow the selected Preview persona. Your Nova account still
 authorizes access to the app. The current worker is also distinct from a case's
 owner or its last editor. Save an actor value when a business event needs lasting

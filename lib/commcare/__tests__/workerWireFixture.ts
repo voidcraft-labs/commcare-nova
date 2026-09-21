@@ -31,6 +31,21 @@ export function workerWireFixture(
 						type: "survey",
 						fields: [
 							f({
+								kind: "hidden",
+								id: "current_worker_id",
+								calculate: "#user/hq_user_id",
+							}),
+							f({
+								kind: "hidden",
+								id: "current_worker_login",
+								calculate: "#user/username",
+							}),
+							f({
+								kind: "hidden",
+								id: "current_worker_name",
+								calculate: "#user/case_name",
+							}),
+							f({
 								kind: "text",
 								id: "supervisor_note",
 								label: "Supervisor note",
@@ -51,7 +66,10 @@ export function workerWireFixture(
 	doc.userPropertyOrder = [WORKER_PROPERTY];
 	const moduleUuid = doc.moduleOrder[0],
 		formUuid = doc.formOrder[moduleUuid][0],
-		fieldUuid = doc.fieldOrder[formUuid][0];
+		fieldUuid = doc.fieldOrder[formUuid].find(
+			(uuid) => doc.fields[uuid].id === "supervisor_note",
+		);
+	if (!fieldUuid) throw new Error("Expected supervisor question");
 	const field = doc.fields[fieldUuid];
 	if (field.kind !== "text") throw new Error("Expected text question");
 	field.relevant = parseXPathForForm(doc, formUuid, `#user/${slug} = 'n'`);

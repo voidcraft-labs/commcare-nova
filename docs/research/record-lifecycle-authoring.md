@@ -99,3 +99,20 @@ both the real member and a persona. It separately evaluates the returned record
 expressions. This proves the exposed Nova runtime contract; it does not establish
 provisioning, sync or physical-device behavior. No creator or last-modifier
 reading is inferred from current worker identity.
+
+Independent review identified a prerequisite the first draft omitted. HQ's
+`sync_usercase.py::_iter_sync_usercase_helpers` creates the `commcare-user` case
+only with the `USERCASE` privilege; `app_manager/util.py::domain_has_usercase_access`
+uses that same privilege. Form reads need that case restored on the device.
+Missing records can yield blank reads. The existing suite assertion protects
+worker-record writers, not read-only forms. The shared setup/preflight projection
+now identifies both read and write dependencies, and authoring guidance states
+what Preview cannot establish. Record-scope session identity does not have this
+worker-record dependency.
+
+Core's `WorkerIdentityRuntimeTest.builtInFormIdentityRequiresTheMatchingWorkerRecord`
+passed against the current generated CCZ form at the audited Core SHA. Its three
+calculated values match the selected worker with a restored usercase and are blank
+without it, despite wrong-user and wrong-type records being present. Reproduction
+is in `scripts/fixtures/javarosa/README.md`; target privilege assignment and sync
+remain separately unverified.

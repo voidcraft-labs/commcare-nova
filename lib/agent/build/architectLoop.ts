@@ -19,7 +19,11 @@ import {
 } from "./modelContextStore";
 
 export const ARCHITECT_MAX_STEPS = 120;
-export const PEER_MAX_STEPS = 40;
+// Entry-to-next-task checks need several observations per journey. The first
+// role-gated trial used 18 scoped reads and 22 journey calls before completing
+// its first review. Retain a durable bound, with room to finish the evidence.
+export const PEER_MAX_STEPS = 80;
+export const TRANSLATOR_MAX_STEPS = 40;
 
 export interface ArchitectToolCall {
 	readonly toolCallId: string;

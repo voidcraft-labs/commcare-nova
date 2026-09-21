@@ -25,6 +25,9 @@ export const workerIdentityReadings = {
 	},
 } as const;
 
+export const workerFormIdentityRequirement =
+	"Form worker readings use the worker's own CommCare record. The HQ project must include user cases and the worker must sync that record; otherwise reads can be blank. Preview supplies it but cannot establish target readiness. Record-scope session identity does not need that record.";
+
 export function workerIdentityGuidance(): string {
-	return `Worker identity is already available without adding custom worker information. In form expressions, ${workerIdentityReadings.workerId.formExpression} reads the current worker's ID, ${workerIdentityReadings.loginName.formExpression} their login name, and ${workerIdentityReadings.displayName.formExpression} their display name. In record expressions, use ${workerIdentityReadings.workerId.recordExpression} and ${workerIdentityReadings.loginName.recordExpression} for ID and login name; session() is not a form function. These are the worker running the app, including a selected Preview persona, not the Nova member authorizing Preview or a case's owner. Save them only when a business event needs lasting actor history, such as who approved a request.`;
+	return `Worker identity is already available without adding custom worker information. In form expressions, ${workerIdentityReadings.workerId.formExpression} reads the current worker's ID, ${workerIdentityReadings.loginName.formExpression} their login name, and ${workerIdentityReadings.displayName.formExpression} their display name. In record expressions, use ${workerIdentityReadings.workerId.recordExpression} and ${workerIdentityReadings.loginName.recordExpression} for ID and login name; session() is not a form function. These are the worker running the app, including a selected Preview persona, not the Nova member authorizing Preview or a case's owner. Save them only when a business event needs lasting actor history, such as who approved a request. ${workerFormIdentityRequirement}`;
 }

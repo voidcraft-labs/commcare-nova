@@ -2,7 +2,8 @@
  * it does not claim that following these instructions executed anything on HQ. */
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { workerWireFixture } from "@/lib/commcare/__tests__/workerWireFixture";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -29,6 +30,7 @@ import type {
 	DeploymentRecord,
 	DeploymentState,
 } from "../types";
+import { workerRecordRequirements } from "../workerRecordRequirements";
 
 const STATE = testUuid("setup-state"),
 	DISTRICT = testUuid("setup-district"),
@@ -715,4 +717,70 @@ it("names only unambiguous uploaded targets and projects absence as an absent se
 	expect(previewProjectSpace(ambiguous)).toBeNull();
 	expect(previewProjectSpace({ kind: "none" })).toBeNull();
 	expect(previewProjectSpace({ kind: "known", domain: "acme" })).toBe("acme");
+});
+
+it("identifies read-only worker forms in setup, without confusing menu session data with worker-record access", () => {
+	const { doc, formUuid, fieldUuid } = workerWireFixture();
+	expect(workerRecordRequirements(doc)).toEqual([
+		{ formUuid, name: "Check", reads: true, writes: false },
+	]);
+	expect(
+		section(artifact({ doc }), "worker-record").steps.map((s) => s.id),
+	).toEqual([formUuid]);
+	// Keep the module's worker-data condition but remove every form read.
+	const field = doc.fields[fieldUuid];
+	if (field.kind !== "text") throw new Error("Expected text question");
+	delete field.relevant;
+	for (const uuid of doc.fieldOrder[formUuid])
+		if (uuid !== fieldUuid) delete doc.fields[uuid];
+	doc.fieldOrder[formUuid] = [fieldUuid];
+	expect(workerRecordRequirements(doc)).toEqual([]);
+	expect(artifact({ doc }).sections.some((s) => s.id === "worker-record")).toBe(
+		false,
+	);
+	// A visible worker name has the same prerequisite.
+	field.label = { parts: [{ kind: "user-ref", property: "case_name" }] };
+	expect(workerRecordRequirements(doc)[0]).toMatchObject({
+		reads: true,
+		writes: false,
+	});
+	expect(section(artifact({ doc }), "worker-record").steps).toHaveLength(1);
+});
+
+it("includes worker-record writes even when the form reads no worker information", () => {
+	const propertyUuid = testUuid("worker-record-write");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Worker notes",
+				forms: [
+					{
+						name: "Save my note",
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "note",
+								label: "Note",
+								caseWrite: { caseType: "commcare-user", property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	doc.userProperties = {
+		[propertyUuid]: { uuid: propertyUuid, slug: "note", label: "Note" },
+	};
+	doc.userPropertyOrder = [propertyUuid];
+	expect(workerRecordRequirements(doc)).toEqual([
+		{
+			formUuid: doc.formOrder[doc.moduleOrder[0]][0],
+			name: "Save my note",
+			reads: false,
+			writes: true,
+		},
+	]);
+	expect(section(artifact({ doc }), "worker-record").steps).toHaveLength(1);
 });

@@ -9,7 +9,10 @@
  */
 
 import { z } from "zod";
-import { workerIdentityReadings } from "@/lib/agent/authoring/workerIdentity";
+import {
+	workerFormIdentityRequirement,
+	workerIdentityReadings,
+} from "@/lib/agent/authoring/workerIdentity";
 import { setPersonaLocationsMutations } from "@/lib/doc/organizationMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -737,6 +740,7 @@ export const getUsersTool = {
 	): Promise<
 		ReadToolResult<{
 			builtInIdentity: typeof workerIdentityReadings;
+			formIdentityRequirement: string;
 			workerInformation: UserProperty[];
 			previewReadiness: ReturnType<typeof workerReadiness>;
 			roles: Array<
@@ -762,6 +766,7 @@ export const getUsersTool = {
 			kind: "read",
 			data: {
 				builtInIdentity: workerIdentityReadings,
+				formIdentityRequirement: workerFormIdentityRequirement,
 				workerInformation,
 				previewReadiness: workerReadiness(doc),
 				roles: orderedUserTypes(doc).map(({ values, ...role }) => ({
