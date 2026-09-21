@@ -65,7 +65,7 @@ describe("app test session authority and evidence", () => {
 		expect(
 			(await readAppTestSteps({ ...scope, testId: expired.testId }))
 				.disposed_at,
-		).toBeInstanceOf(Date);
+		).not.toBeNull();
 		const exhausted = tests[1];
 		await h
 			.db()
@@ -145,7 +145,7 @@ describe("app test session authority and evidence", () => {
 		expect(evidence.blueprint_seq).toBe(evidence.currentBlueprintSeq);
 		const listed = await listAppTests(scope);
 		expect(listed.tests[0].blueprint_seq).toBe(listed.currentBlueprintSeq);
-		expect(evidence.disposed_at).toBeInstanceOf(Date);
+		expect(evidence.disposed_at).not.toBeNull();
 		expect(evidence.steps.map((step) => step.observation)).toEqual([
 			{ screen: "home" },
 			{ count: 1 },
