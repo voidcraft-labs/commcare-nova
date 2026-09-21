@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { deepEqual } from "@/lib/doc/deepEqual";
+import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
 import {
 	authoredCasePropertyNameSchema,
 	casePropertySchema,
@@ -132,6 +133,61 @@ export const updateCasePropertyTool = {
 					ok: true as const,
 					summary: { subject: `${input.caseType}.${input.property}` },
 				},
+			};
+		} catch (error) {
+			return toToolErrorResult(error);
+		}
+	},
+};
+
+const removeCasePropertiesInputSchema = z.strictObject({
+	properties: z.array(z.strictObject(address)).min(1),
+});
+export const removeCasePropertiesTool = {
+	description:
+		"Remove unused record-property definitions together. Refuses built-in metadata, properties still read or written by the app, and any property with saved or set-aside values. Collected data is never deleted. Removing populated properties requires a reviewed data migration.",
+	inputSchema: removeCasePropertiesInputSchema,
+	async execute(
+		input: z.infer<typeof removeCasePropertiesInputSchema>,
+		ctx: ToolInvocationContext,
+	): Promise<MutatingToolResult<MutationSuccess | { error: string }>> {
+		try {
+			const properties = [
+				...new Map(
+					input.properties.map((entry) => [
+						`${entry.caseType}\0${entry.property}`,
+						entry,
+					]),
+				).values(),
+			];
+			for (const entry of properties) {
+				const error = unusedCasePropertyError(
+					ctx.snapshot.doc,
+					entry.caseType,
+					entry.property,
+				);
+				if (error) return { kind: "mutate", mutations: [], result: { error } };
+				if (!findProperty(ctx, entry))
+					return { kind: "mutate", mutations: [], result: missing(entry) };
+			}
+			const commit = await guardedMutate(
+				ctx,
+				properties.map((entry) => ({
+					kind: "removeCaseProperty" as const,
+					...entry,
+				})),
+				"case-properties:remove",
+			);
+			if (!commit.ok)
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: commit.error },
+				};
+			return {
+				kind: "mutate",
+				mutations: commit.mutations,
+				result: { ok: true, summary: { count: properties.length } },
 			};
 		} catch (error) {
 			return toToolErrorResult(error);

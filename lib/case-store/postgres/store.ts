@@ -86,6 +86,7 @@ import {
 	AutomationHostAmbiguityError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	CasePropertyHasSavedValuesError,
 	CaseTypeNotInBlueprintError,
 	ParkedValueNotFoundError,
 	SchemaChangePhaseBError,
@@ -3062,6 +3063,28 @@ export class PostgresCaseStore implements CaseStore {
 			.where("case_type", "=", args.caseType)
 			.forUpdate()
 			.executeTakeFirst();
+		// The schema lock excludes every record writer. Keep the check and the
+		// new schema in the Blueprint transaction: a separate preflight races.
+		for (const property of args.removedProperties ?? []) {
+			const live = await tx
+				.selectFrom("cases")
+				.select("case_id")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.where(sql<boolean>`properties ? ${property}`)
+				.limit(1)
+				.executeTakeFirst();
+			const parked = await tx
+				.selectFrom("parked_case_values")
+				.select("id")
+				.where("app_id", "=", args.appId)
+				.where("case_type", "=", args.caseType)
+				.where("property", "=", property)
+				.limit(1)
+				.executeTakeFirst();
+			if (live || parked)
+				throw new CasePropertyHasSavedValuesError(args.caseType, property);
+		}
 		if (
 			incomingSeq === undefined &&
 			priorRow !== undefined &&

@@ -477,3 +477,12 @@ export class SchemaNotSyncedError extends Error {
 		this.caseType = caseType;
 	}
 }
+
+export class CasePropertyHasSavedValuesError extends Error {
+	readonly name = "CasePropertyHasSavedValuesError";
+	constructor(caseType: string, property: string) {
+		super(
+			`${caseType}.${property} has saved or set-aside values. Its definition was kept. Removing it requires a reviewed data migration.`,
+		);
+	}
+}

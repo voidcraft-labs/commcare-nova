@@ -768,7 +768,15 @@ additive sync.
 
 The auto-save and MCP write boundaries route through
 `lib/db/applyBlueprintChange.ts`; chat batches containing `retireCaseType` do
-the same. Explicit case-property rename and case-type retirement Phase A share
+the same. Unused property removal is admitted by the canonical kernel for every editor.
+It locks the storage schema and refuses any live key (including blank values)
+or parked value, including dismissed entries, before applying the new schema
+in the Blueprint transaction. A concurrent writer finishes first or sees the
+new schema; there is no separate count-then-remove window. No collected values
+are deleted. Its pending index work uses ordinary convergence. Removing a catalog
+annotation for a property that remains effective does not retire its storage.
+
+Explicit case-property rename and case-type retirement Phase A share
 the guarded Blueprint transaction; ordinary additive changes ride a post-commit sweep of
 the committed doc at the committed seq (`syncedSeq`), which
 converges concurrent edits via the same monotone gate.
