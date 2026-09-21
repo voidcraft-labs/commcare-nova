@@ -40,11 +40,11 @@ import { memo, useId } from "react";
 import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaDisplay } from "@/components/builder/media/MediaDisplay";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
-import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
+import { useVisibleFieldOrder } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useAppId } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
@@ -86,9 +86,9 @@ interface InteractiveFormRendererProps {
 // ── Component ─────────────────────────────────────────────────────────
 
 /**
- * Subscribes to the ordered UUID list at this nesting level only. Per-
- * field data and engine state are read inside `InteractiveField`
- * so unrelated fields don't cause siblings to re-render.
+ * Numbers the rendered siblings at this nesting level. Hidden calculations
+ * and irrelevant fields do not occupy a spoken question/section position.
+ * Value-only engine updates leave the visible UUID sequence unchanged.
  */
 export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	parentEntityId,
@@ -99,7 +99,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 	instanceScopeKey = "",
 	accessibleContext = "",
 }: InteractiveFormRendererProps) {
-	const fieldUuids = useOrderedFields(asUuid(parentEntityId));
+	const fieldUuids = useVisibleFieldOrder(asUuid(parentEntityId), prefix);
 
 	// `flow-root` creates a new block formatting context so the last child's
 	// `mb-6` stays contained inside this renderer's box instead of collapsing
@@ -178,9 +178,9 @@ const InteractiveField = memo(function InteractiveField({
 	const helpId = useId();
 	const transparentSectionId = useId();
 
-	// Visibility gating lives here so the subscription cost of reading
-	// the field + engine state is paid per-field. Siblings whose
-	// visibility toggles independently don't affect this row.
+	// Keep the per-field guard during blueprint/runtime transitions. The parent
+	// projects the same visibility for spoken positions; values and validation
+	// still subscribe here rather than rerendering every sibling.
 	if (!field) return null;
 	// `hidden` fields are authoring-time only: they never render in
 	// interactive mode. The edit view keeps a compact card so authors

@@ -101,6 +101,32 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 				page.getByRole("group", { name: new RegExp(label) }),
 				label,
 			);
+		// Hidden calculations never consume a position. Conditional siblings use
+		// the concrete repeat instance, not another instance's visibility.
+		await expect(text.nth(0)).toHaveAccessibleName(
+			/Question 1\. Related patient/,
+		);
+		await expect(text.nth(1)).toHaveAccessibleName(
+			/Question 1\. Related patient/,
+		);
+		const size = page.getByRole("textbox", { name: /Household size/ });
+		await size.nth(0).fill("2");
+		await expect(
+			page.getByRole("textbox", { name: /Extra detail/ }),
+		).toHaveCount(1);
+		await expect(text.nth(0)).toHaveAccessibleName(
+			/Question 2\. Related patient/,
+		);
+		await expect(text.nth(1)).toHaveAccessibleName(
+			/Question 1\. Related patient/,
+		);
+		await size.nth(0).fill("1");
+		await expect(
+			page.getByRole("textbox", { name: /Extra detail/ }),
+		).toHaveCount(0);
+		await expect(text.nth(0)).toHaveAccessibleName(
+			/Question 1\. Related patient/,
+		);
 		await text.nth(0).fill("removed patient");
 		await text.nth(1).fill("retained patient");
 		const retained = await text.nth(1).elementHandle();

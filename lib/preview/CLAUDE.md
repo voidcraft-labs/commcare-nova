@@ -1046,3 +1046,11 @@ launch uses `caseListPhase.ts::automaticallyLaunchesSearch` in both the running
 app and journey observations.
 
 Form checks and isolated journey answers share `engine/formAnswerValue.ts`: typed location coordinates use the production picker formatter; malformed supplied values fail as test-input errors before evaluation. Raw location strings must satisfy the same grammar as case storage. Authored defaults and worker validation remain engine observations. This does not exercise the map or device GPS.
+
+## Spoken field positions
+
+Interactive Preview numbers rendered siblings within each container.
+`useVisibleFieldOrder` excludes hidden kinds and reads effective runtime visibility
+using the same concrete repeat paths as field controls. Its shallow UUID projection
+does not publish value-only updates. Retained field and repeat-instance keys keep
+input identity stable as conditional siblings appear or disappear.

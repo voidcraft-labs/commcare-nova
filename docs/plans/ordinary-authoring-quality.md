@@ -182,8 +182,7 @@ switching returned to entry and exposed the expected registration, review and
 management menus for all three saved roles. The corrected ordinary form hint
 was visible. Recorded journey playback labeled its fictional place assignment
 as test-only and showed earlier receipt history. These observations do not
-establish ordinary submission with missing assignments. A pending Builder change
-shares the effective worker-setup projection with agent tools, explains absent
+establish ordinary submission with missing assignments. PR #666 shares the effective worker-setup projection with agent tools, explains absent
 role/place context at entry, and links to identity setup and recorded journeys.
 Controlled production-build Playwright checks pass ordinary role switching, draft
 reset, setup navigation, recorded observations and a 320-pixel layout without
@@ -209,7 +208,9 @@ Remaining acceptance is substantive:
   from administrator impersonation and disposable recorded journeys.
 - Retain native form/submission limits: no physical-device, remote-HQ or offline
   synchronization acceptance has been established by these checks.
-- Screen-reader question numbering still counts hidden fields.
+- The screen-reader numbering correction passes a browser check of hidden
+  calculations, per-instance conditional siblings and retained input identity.
+  Review, deployment and live verification remain open.
 
 Do not remove this objective because its infrastructure shipped. A favorable
 review or parser verdict cannot replace understandable, usable worker behavior.
