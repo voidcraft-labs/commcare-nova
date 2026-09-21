@@ -45,6 +45,7 @@ import {
 	acceptanceDoc,
 	conditionalCloseDoc,
 	engineFor,
+	operationRelevanceDoc,
 	ordinaryAuthorityDoc,
 	ordinaryAuthorityMutation,
 } from "./fixtures/submissionProgram";
@@ -185,6 +186,28 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it.each([false, true])(
+		"operation reads and repeated effects inherit relevance: %s",
+		async (participates) => {
+			const { doc, formUuid } = operationRelevanceDoc();
+			const store = makeStore();
+			await seedSessionCase(store, doc);
+			const engine = engineFor(doc, formUuid);
+			engine.setValue("/data/external_code", participates ? "yes" : "no");
+			const result = await submit(doc, engine, store);
+			expect((await loadCase(store, SESSION_CASE))?.properties).toEqual({
+				visit_note: "kept",
+				...(participates ? { op_status: "pending" } : {}),
+			});
+			expect(result.operations.filter((op) => op.executed)).toHaveLength(
+				participates ? 2 : 1,
+			);
+			expect(
+				await store.query({ appId: APP_ID, caseType: "patient" }),
+			).toHaveLength(participates ? 2 : 1);
+		},
+	);
+
 	it.each([
 		["10", "3", 3, 1],
 		["-10", "3", -3, -1],

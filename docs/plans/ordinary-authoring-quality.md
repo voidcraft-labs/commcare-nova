@@ -62,7 +62,9 @@ Checked items record completed observations, not a passing quality verdict.
 ## Progress
 
 Implementation started from Nova `090a493a`; plugin baseline `137db53` (1.33.0).
-PRs #646, #647, #649 and #650 are merged and deployed at `d6e486f7`.
+PRs #646, #647, #649, #650 and #651 are merged and deployed.
+Follow-up #652 carries the saved revision into ordinary edit-turn tests; #653
+aligns operation writer inference with existing storage-assignment rules.
 Plugin 1.34.0 followed compatible Nova deployment. Controlled checks cover
 entry, saved role identities, parent selection, form answers, isolated submission,
 closure, sync, transaction isolation and interrupted review recovery. Playwright
@@ -89,8 +91,9 @@ audit properties. The ordinary editor renamed the app, added three role identiti
 and exercised disposable registration. Browser checks confirmed role-specific menus
 and registration entry, separately from administrator impersonation. A transient
 production connection-timeout incident interrupted these checks; later entry and
-recorded-journey reads recovered. Its cause is unresolved. Cross-role geographic
-record handoff and completion remain unverified.
+recorded-journey reads recovered. Its cause is unresolved. A later ordinary continuation demonstrated cross-role handoff in disposable
+Preview records, but independent native execution found a remaining blank-status
+defect that Preview had masked. Completion remains unverified.
 
 Further observations exposed a test-input boundary error: a raw location string
 failed submission, and the agent wrongly added raw-format instructions for workers
@@ -107,3 +110,13 @@ entry and honest setup, and independent checks must distinguish Preview/native
 form evidence from physical-device, remote-service and offline synchronization
 unknowns. Screen-reader question numbering also counts hidden fields. Keep these open;
 do not remove this objective because the observation infrastructure shipped.
+
+The latest repair inspection found a consequential Preview/native discrepancy:
+case-operation bindings ignored question and ancestor relevance. The correction
+and shared Postgres/Core evidence are documented in
+`docs/research/ordinary-authoring-observations.md`. The agent also gave unusable
+instructions pointing to already discarded records in ordinary Preview. Keep
+both failures in the evaluation, and recheck the delivered app after the corrected
+runtime is live. A recent export passing all form parsers does not settle either
+failure. Production connection timeouts continue intermittently; their cause
+and the affected live-browser acceptance remain unresolved.

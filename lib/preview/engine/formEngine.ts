@@ -1555,14 +1555,11 @@ export class FormEngine {
 	 * repeat-instance-key)`. Repeat regions fan out one bucket per instance
 	 * per destination case type.
 	 *
-	 * Empty values (`undefined` from an absent path or `""` from a
-	 * cleared leaf) are excluded from the JSONB document — `state.visible`
-	 * is intentionally NOT consulted, so a hidden field with a non-empty
-	 * value lands in the mutation. This matches the "two-state JSONB
-	 * collapse" rule: absent is the only shape that passes AJV strict-mode
-	 * validation against `format: date` / `time` / `datetime` / geopoint
-	 * patterns and aligns with Postgres-strict null semantics.
+	 * Ordinary writes respect effective relevance through containers. Hidden
+	 * calculated fields participate; a non-relevant question does not. Blank
+	 * values use the storage boundary's absent-key representation, not JSON null.
 	 *
+
 	 * Throws when `formType` is `followup` or `close` and no `caseId`
 	 * is supplied — both arms operate on a bound case row.
 	 */
@@ -1625,7 +1622,9 @@ export class FormEngine {
 	 * repeat's answers for that concrete instance, and the iteration's
 	 * own answers), flattened parent-major in live instance order —
 	 * exactly the completeness the storage executor binds each
-	 * expression with. Values are raw instance strings; multi-select
+	 * expression with. Non-relevant answers read blank, including inherited
+	 * group relevance; non-relevant repeats contribute no iterations. Hidden
+	 * calculated fields still participate. Values are instance strings; multi-select
 	 * answers carry the real token array (the one namespace the SQL
 	 * term compiler admits arrays in). Nested repeats form their OWN
 	 * scopes, so an iteration's list excludes deeper repeats' answers —
@@ -1639,6 +1638,7 @@ export class FormEngine {
 			return undefined;
 		}
 
+		const relevant = this.effectivelyVisiblePaths();
 		const repeatScopes = new Map<string, SubmissionAnswerEntry[][]>();
 		const scopeFor = (repeatUuid: string): SubmissionAnswerEntry[][] => {
 			const existing = repeatScopes.get(repeatUuid);
@@ -1648,11 +1648,24 @@ export class FormEngine {
 			return created;
 		};
 
+		// Register nested scopes even when their parent has no participating
+		// iterations. Absence means a stale client to the submission verifier;
+		// an empty scope means the current form has no effects there.
+		const registerScopes = (nodes: ReadonlyArray<FieldTreeNode>): void => {
+			for (const node of nodes) {
+				if (node.field.kind === "repeat") scopeFor(node.field.uuid);
+				if (node.children) registerScopes(node.children);
+			}
+		};
+		registerScopes(this.tree);
+
 		const entryFor = (
 			field: Field,
 			concretePath: string,
 		): SubmissionAnswerEntry => {
-			const raw = this.instance.get(concretePath) ?? "";
+			const raw = relevant.has(concretePath)
+				? (this.instance.get(concretePath) ?? "")
+				: "";
 			return {
 				fieldUuid: field.uuid as string,
 				value:
@@ -1700,7 +1713,7 @@ export class FormEngine {
 
 			for (const { node, path } of deferredRepeats) {
 				const iterations = scopeFor(node.field.uuid as string);
-				if (!node.children) continue;
+				if (!node.children || !relevant.has(path)) continue;
 				const instanceCount = this.instance.getRepeatCount(path);
 				for (let i = 0; i < instanceCount; i++) {
 					const enclosing = [...inherited, ...level];

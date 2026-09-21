@@ -1,4 +1,6 @@
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { parseXPathExpression } from "@/lib/commcare/xpath";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type {
 	BlueprintDoc,
@@ -7,6 +9,8 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
+import { fieldSchema } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
@@ -318,4 +322,56 @@ export function engineFor(doc: BlueprintDoc, formUuid: Uuid): FormEngine {
 		caseTypes: doc.caseTypes ?? [],
 	};
 	return new FormEngine(input, "patient", undefined, null);
+}
+
+/** The same accepted document is exercised by Postgres and native Core. */
+export function operationRelevanceDoc() {
+	const result = acceptanceDoc((ids) => [
+		{
+			uuid: testUuid("relevance-root"),
+			id: "read_answers",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "session" },
+			writes: [
+				{ property: "op_status", value: term(formField(ids.note)) },
+				{ property: "visit_note", value: term(formField(ids.extra)) },
+			],
+		},
+		{
+			uuid: testUuid("relevance-repeat"),
+			id: "create_visit",
+			action: "create",
+			caseType: "patient",
+			target: { kind: "new" },
+			forEach: { repeat: ids.visits },
+			name: term(formField(ids.visitNote)),
+		},
+	]);
+	const { doc, uuids } = result;
+	const relevant = parseXPathExpression(
+		"#form/external_code = 'yes'",
+		() => uuids.externalCode,
+		() => undefined,
+	);
+	doc.fields[uuids.note] = fieldSchema.parse({
+		...doc.fields[uuids.note],
+		default_value: xp("'pending'"),
+		relevant,
+	});
+	doc.fields[uuids.extra] = fieldSchema.parse({
+		uuid: uuids.extra,
+		id: "extra",
+		kind: "hidden",
+		calculate: xp("'kept'"),
+	});
+	doc.fields[uuids.visits] = fieldSchema.parse({
+		...doc.fields[uuids.visits],
+		relevant,
+	});
+	doc.fields[uuids.visitNote] = fieldSchema.parse({
+		...doc.fields[uuids.visitNote],
+		default_value: xp("'New visit'"),
+	});
+	return result;
 }

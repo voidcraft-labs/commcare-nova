@@ -7,6 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { xp } from "@/lib/__tests__/docHelpers";
+import { parseXPathExpression } from "@/lib/commcare/xpath";
 import type {
 	CaseOperation,
 	Field,
@@ -16,6 +18,7 @@ import type {
 	ProseTemplate,
 	SelectOptionsSource,
 	Uuid,
+	XPathExpression,
 } from "@/lib/domain";
 import { fieldSchema, formSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -30,6 +33,8 @@ interface DField {
 	label?: ProseTemplate;
 	optionsSource?: SelectOptionsSource;
 	children?: DField[];
+	relevant?: XPathExpression;
+	calculate?: XPathExpression;
 }
 
 function dTree(
@@ -83,6 +88,85 @@ function valuesOf(
 }
 
 describe("computeOperationAnswers", () => {
+	it("blanks excluded answers and suppresses nested repeat effects without losing retained inputs", () => {
+		const relevant = parseXPathExpression(
+			"#form/enabled = 'yes'",
+			() => testUuid("form.enabled"),
+			() => undefined,
+		);
+		const engine = new FormEngine(
+			dTree(
+				[
+					{ id: "enabled", kind: "text", label: proseText("Answer") },
+					{ id: "kept", kind: "hidden", calculate: xp("'calculated'") },
+					{
+						id: "absent",
+						kind: "text",
+						label: proseText("Answer"),
+						relevant: xp("false()"),
+					},
+					{
+						id: "details",
+						kind: "group",
+						relevant,
+						children: [
+							{ id: "note", kind: "text", label: proseText("Answer") },
+						],
+					},
+					{
+						id: "visits",
+						kind: "repeat",
+						relevant,
+						children: [
+							{ id: "note", kind: "text", label: proseText("Answer") },
+							{
+								id: "meds",
+								kind: "repeat",
+								children: [
+									{ id: "name", kind: "text", label: proseText("Answer") },
+								],
+							},
+						],
+					},
+				],
+				[OPERATION],
+			),
+		);
+		engine.setValue("/data/absent", "stale");
+		engine.setValue("/data/details/note", "retained");
+		engine.setValue("/data/visits[0]/note", "visit");
+		engine.setValue("/data/visits[0]/meds[0]/name", "medicine");
+		const hidden = engine.computeOperationAnswers();
+		expect(valuesOf(hidden?.root ?? [])).toMatchObject({
+			[testUuid("form.kept")]: "calculated",
+			[testUuid("form.absent")]: "",
+			[testUuid("form.details.note")]: "",
+		});
+		expect(hidden?.repeats).toEqual([
+			{ repeat: testUuid("form.visits"), iterations: [] },
+			{ repeat: testUuid("form.visits.meds"), iterations: [] },
+		]);
+		engine.setValue("/data/enabled", "yes");
+		const shown = engine.computeOperationAnswers();
+		expect(valuesOf(shown?.root ?? [])[testUuid("form.details.note")]).toBe(
+			"retained",
+		);
+		expect(shown?.repeats.map((scope) => scope.iterations.length)).toEqual([
+			1, 1,
+		]);
+		expect(
+			valuesOf(shown?.repeats[1]?.iterations[0] ?? [])[
+				testUuid("form.visits.meds.name")
+			],
+		).toBe("medicine");
+		engine.setValue("/data/enabled", "no");
+		expect(
+			engine
+				.computeOperationAnswers()
+				?.repeats.map((scope) => scope.iterations),
+		).toEqual([[], []]);
+	});
+
 	it("returns undefined for an operation-free form", () => {
 		const engine = new FormEngine(
 			dTree([{ id: "name", kind: "text", label: proseText("Name") }]),
