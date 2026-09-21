@@ -73,3 +73,46 @@ compensate. Store actor history only where the user's requirement needs it,
 such as an approver retained after later edits. Project membership remains the
 authorization boundary; simulated worker ownership controls restore context
 inside that authorized app.
+
+## Current worker readings
+
+The role-gated trial exposed a discovery gap: the expressions guide described
+record-scope `session(...)`, but neither that guide nor `getUsers` named the
+existing built-in form readings. The architect tried the record function in
+forms, received a refusal, then added custom audit identity properties. That
+was not evidence that the platform lacked worker identity. The correction
+exposes each supported reading in the guide and the existing worker read.
+
+HQ's `corehq/apps/callcenter/sync_usercase.py::_get_user_case_fields` writes
+`hq_user_id` and `username` (`raw_username`). It sets `name` to the display name
+or login name; `_UserCaseHelper.create_usercase` and `update_user_case` consume
+that key into the case's own name, not a custom `name` property. Core's
+`CaseChildElement` projects that as `case_name`. Consequently form expressions
+read `#user/hq_user_id`, `#user/username` and `#user/case_name`. Nova's
+`lib/domain/usercase.ts` and `lib/commcare/hashtags.ts` implement the same worker
+record and join. Record expressions instead use `session('userid')` and
+`session('username')`; `session()` is not a form function.
+
+The authoring test consumes the actual `getUsers` output, admits a complete form
+using those expressions, and runs it through the production Preview engine as
+both the real member and a persona. It separately evaluates the returned record
+expressions. This proves the exposed Nova runtime contract; it does not establish
+provisioning, sync or physical-device behavior. No creator or last-modifier
+reading is inferred from current worker identity.
+
+Independent review identified a prerequisite the first draft omitted. HQ's
+`sync_usercase.py::_iter_sync_usercase_helpers` creates the `commcare-user` case
+only with the `USERCASE` privilege; `app_manager/util.py::domain_has_usercase_access`
+uses that same privilege. Form reads need that case restored on the device.
+Missing records can yield blank reads. The existing suite assertion protects
+worker-record writers, not read-only forms. The shared setup/preflight projection
+now identifies both read and write dependencies, and authoring guidance states
+what Preview cannot establish. Record-scope session identity does not have this
+worker-record dependency.
+
+Core's `WorkerIdentityRuntimeTest.builtInFormIdentityRequiresTheMatchingWorkerRecord`
+passed against the current generated CCZ form at the audited Core SHA. Its three
+calculated values match the selected worker with a restored usercase and are blank
+without it, despite wrong-user and wrong-type records being present. Reproduction
+is in `scripts/fixtures/javarosa/README.md`; target privilege assignment and sync
+remain separately unverified.

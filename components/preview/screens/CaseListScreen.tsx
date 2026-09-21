@@ -2505,7 +2505,7 @@ function ResultsBody({
 		}
 		if (emptyResultContext === "worker-search") {
 			return authoredMatchingCount === 0 ? (
-				<AvailabilityConditionsEmptyNotice canEdit={canEdit} />
+				<AvailabilityConditionsEmptyNotice />
 			) : (
 				<CaseListEmptyNotice
 					title="No cases are available for this search"
@@ -2518,7 +2518,7 @@ function ResultsBody({
 			);
 		}
 		if (emptyResultContext === "authored-rules") {
-			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
+			return <AvailabilityConditionsEmptyNotice />;
 		}
 		return <NoCaseDataNotice canEdit={canEdit} parentScoped={parentScoped} />;
 	}
@@ -2544,7 +2544,7 @@ function ResultsBody({
 			return <NoMatchNotice action={noMatchesAction} />;
 		}
 		if (emptyResultContext === "authored-rules") {
-			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
+			return <AvailabilityConditionsEmptyNotice />;
 		}
 		return (
 			<CaseListEmptyNotice
@@ -2822,23 +2822,11 @@ function NoMatchNotice({
 
 /** Existing cases are present, but the authored availability conditions
  * exclude all of them from this module. */
-function AvailabilityConditionsEmptyNotice({
-	canEdit,
-}: {
-	readonly canEdit: boolean;
-}) {
+function AvailabilityConditionsEmptyNotice() {
 	return (
 		<CaseListEmptyNotice
-			title={
-				canEdit
-					? "Your availability settings hide every case"
-					: "No cases match this app's availability settings"
-			}
-			description={
-				canEdit
-					? "To show cases, update Cases available in Results or create a matching case"
-					: "Ask an app editor to review Cases available or create a matching case"
-			}
+			title="No cases available for this task"
+			description="Existing cases do not meet this task's conditions. They may become available as work progresses."
 		/>
 	);
 }

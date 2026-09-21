@@ -715,3 +715,10 @@ A same-named replacement account cannot inherit a confirmed password: the held
 fold checks the remote account ID and retains the displaced password as an
 unconfirmed candidate. A lost browser response may follow a completed create;
 the panel invites checking HQ and explains that undelivered passwords need reset.
+
+`workerRecordRequirements.ts` projects form XPath/prose reads and admitted writes
+of the worker's own record for both preflight and setup. HQ requires the USERCASE
+privilege and a restored record. Read-only forms can silently get blank values;
+writers have a native entry assertion. Record-scope session expressions are not
+worker-record reads. Nova cannot verify the target privilege or device restore,
+so this is an explicit setup requirement, never a claimed successful probe.

@@ -210,3 +210,7 @@ Read `docs/testing.md` before adding or substantially changing tests. Test obser
 behavior at the smallest boundary that can catch the defect. Own and await async
 work through teardown, including failure paths; never copy sleeps or blanket
 cleanup from an existing test.
+
+Task lists can legitimately be empty after work is complete. Describe the
+availability condition neutrally; do not tell a worker to change app settings
+merely because existing records no longer qualify for that task.

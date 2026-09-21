@@ -43,10 +43,15 @@ import {
 	ownRecordValue,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import {
+	workerRecordRequirements,
+	workerRecordSetup,
+} from "./workerRecordRequirements";
 
 type SetupArtifactSectionId =
 	| "lookup-tables"
 	| "worker-data"
+	| "worker-record"
 	| "organization"
 	| "place-data"
 	| "places"
@@ -633,6 +638,29 @@ function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
 	};
 }
 
+function workerRecordSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	const forms = workerRecordRequirements(input.doc);
+	if (forms.length === 0) return null;
+	return {
+		id: "worker-record",
+		title: workerRecordSetup.title,
+		summary: workerRecordSetup.detail,
+		url: null,
+		steps: forms.map((form) =>
+			step(form.formUuid, form.name, [
+				form.reads && form.writes
+					? "Reads and saves worker information"
+					: form.reads
+						? "Reads worker information"
+						: "Saves worker information",
+			]),
+		),
+		caveats: [workerRecordSetup.consequences],
+	};
+}
+
 /** "1 place" / "12 places". */
 function countOf(count: number, noun: string): string {
 	return count === 1
@@ -655,6 +683,7 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 	const sections = [
 		lookupTablesSection(input),
 		workerDataSection(input),
+		workerRecordSection(input),
 		organizationSection(input),
 		placeDataSection(input),
 		placesSection(input),

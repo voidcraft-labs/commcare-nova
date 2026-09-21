@@ -25,11 +25,13 @@ public class WorkerIdentityRuntimeTest {
  private static TreeElement node(String name,String value){TreeElement n=new TreeElement(name,0);if(value!=null)n.setValue(new StringData(value));return n;}
  private static final class Runtime extends CommCareInstanceInitializer {
   final MockUserDataSandbox sandbox;final String slug,menuValue;
-  Runtime(String slug,String menuValue,String caseValue)throws Exception{this(MockDataUtils.getStaticStorage(),slug,menuValue,caseValue);}
-  private Runtime(MockUserDataSandbox sandbox,String slug,String menuValue,String caseValue)throws Exception{
+  Runtime(String slug,String menuValue,String caseValue)throws Exception{this(slug,menuValue,caseValue,true);}
+  Runtime(String slug,String menuValue,String caseValue,boolean hasWorkerRecord)throws Exception{this(MockDataUtils.getStaticStorage(),slug,menuValue,caseValue,hasWorkerRecord);}
+  private Runtime(MockUserDataSandbox sandbox,String slug,String menuValue,String caseValue,boolean hasWorkerRecord)throws Exception{
    super(sandbox);this.sandbox=sandbox;this.slug=slug;this.menuValue=menuValue;
    for(String id:new String[]{"correct","other-user","wrong-type"}){
-    Case record=new Case(id,id.equals("wrong-type")?"patient":"commcare-user");record.setCaseId(id);record.setProperty("hq_user_id",id.equals("other-user")?"other-worker":"worker");record.setProperty(slug,id.equals("correct")?caseValue:"n");sandbox.getCaseStorage().write(record);
+    if(id.equals("correct") && !hasWorkerRecord)continue;
+    Case record=new Case(id.equals("correct") ? "Amina Diallo" : id,id.equals("wrong-type")?"patient":"commcare-user");record.setCaseId(id);record.setProperty("username",id.equals("correct")?"amina":"wrong");record.setProperty("hq_user_id",id.equals("other-user")?"other-worker":"worker");record.setProperty(slug,id.equals("correct")?caseValue:"n");sandbox.getCaseStorage().write(record);
    }
   }
   @Override protected InstanceRoot setupSessionData(ExternalDataInstance instance){
@@ -39,6 +41,17 @@ public class WorkerIdentityRuntimeTest {
   }
  }
  private static final class Parser extends SuiteParser{Parser(InputStream input,Runtime runtime)throws IOException{super(input,null,"worker-wire",runtime.sandbox.getAppFixtureStorage(),true,false,false);}}
+ @Test public void builtInFormIdentityRequiresTheMatchingWorkerRecord()throws Exception{
+  for(boolean present:new boolean[]{true,false}){
+   Runtime runtime=new Runtime("is_supervisor","n","n",present);
+   org.javarosa.core.model.FormDef form=new FormParseInit("/worker-is_supervisor.xml").getFormDef();
+   form.initialize(true,runtime);
+   for(String[] expectation:new String[][]{{"current_worker_id","worker"},{"current_worker_login","amina"},{"current_worker_name","Amina Diallo"}}){
+    Object value=org.javarosa.test_utils.ExprEvalUtils.xpathEval(form.getEvaluationContext(),"string(/data/"+expectation[0]+")");
+    assertEquals(expectation[0]+" worker record="+present,present?expectation[1]:"",value);
+   }
+  }
+ }
  @Test public void menuAndFormResolveTheNamedPropertyInTheirNativeContext()throws Exception{
   for(String slug:new String[]{"is_supervisor","district-code","supervision_status"})for(boolean hq:new boolean[]{false,true})for(String menuValue:new String[]{"n","y"})for(String caseValue:new String[]{"n","y"}){
    Runtime runtime=new Runtime(slug,menuValue,caseValue);Suite suite;

@@ -1917,13 +1917,13 @@ test.describe("authenticated builder", () => {
 				page.getByRole("button", { name: "Back to edit", exact: true }),
 			).toBeVisible();
 			const authoredEmptyTitle = page.getByRole("heading", {
-				name: "Your availability settings hide every case",
+				name: "No cases available for this task",
 				level: 2,
 			});
 			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
 			const authoredEmpty = authoredEmptyTitle.locator("..");
 			const authoredEmptyDescription = authoredEmpty.getByText(
-				"To show cases, update Cases available in Results or create a matching case",
+				"Existing cases do not meet this task's conditions. They may become available as work progresses.",
 			);
 			await expect(authoredEmptyDescription).toBeVisible();
 			await expect(page.getByText("No cases yet", { exact: true })).toHaveCount(

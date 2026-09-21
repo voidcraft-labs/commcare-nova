@@ -32,6 +32,10 @@ import { UsageAccumulator } from "@/lib/db/usage";
 import { MODEL_ROLES } from "@/lib/models";
 import { createProject } from "@/lib/projects/manage";
 import {
+	countAuthoringInput,
+	countedInputReservation,
+} from "./lib/authoringInputCount";
+import {
 	completedPilotCharge,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
@@ -291,23 +295,35 @@ async function main() {
 					// Every UTF-8 byte is a conservative token allowance for this text-only
 					// request, including deferred schemas. Price at the long-context Sol
 					// cache-write rate, plus the enforced output ceiling, before dispatch.
-					const reservedUsd =
+					let reservedUsd =
 						(Buffer.byteLength(request.body) * 12.5 + MAX_OUTPUT_TOKENS * 45) /
 						1_000_000;
-					if (
-						ledger.estimatedSpentUsd + reservedUsd >
-						Math.min(
-							ledger.ceilingUsd,
-							ledger.targetUsd,
-							startingSpend + TRIAL_CEILING_USD,
-						)
-					)
+					const limit = Math.min(
+						ledger.ceilingUsd,
+						ledger.targetUsd,
+						startingSpend + TRIAL_CEILING_USD,
+					);
+					let inputTokenCount: number | undefined;
+					if (ledger.estimatedSpentUsd + reservedUsd > limit) {
+						inputTokenCount = await countAuthoringInput({
+							body: request.body,
+							apiKey: process.env.OPENAI_API_KEY ?? "",
+							signal: abort.signal,
+						});
+						reservedUsd = countedInputReservation(
+							inputTokenCount,
+							MAX_OUTPUT_TOKENS,
+						);
+					}
+					if (ledger.estimatedSpentUsd + reservedUsd > limit)
 						throw new Error("Trial spend limit reached.");
+
 					requests += 1;
 					currentCall = {
 						runId,
 						request: requests,
 						reservedUsd,
+						...(inputTokenCount === undefined ? {} : { inputTokenCount }),
 						status: "pending",
 						sha256: request.sha256,
 					};

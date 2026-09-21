@@ -61,6 +61,7 @@ import {
 	describeModelTools,
 	PEER_MAX_STEPS,
 	runArchitectLoop,
+	TRANSLATOR_MAX_STEPS,
 } from "./architectLoop";
 import { AuthoringSession } from "./authoringSession";
 import {
@@ -346,7 +347,12 @@ export async function runBuildOrchestration(
 		const commonLoop = (role: "architect" | "peer" | "translator") => ({
 			signal: args.signal,
 			modelStep: modelSteps[role],
-			maxSteps: role === "architect" ? ARCHITECT_MAX_STEPS : PEER_MAX_STEPS,
+			maxSteps:
+				role === "architect"
+					? ARCHITECT_MAX_STEPS
+					: role === "peer"
+						? PEER_MAX_STEPS
+						: TRANSLATOR_MAX_STEPS,
 			onReasoning: (
 				part: Parameters<
 					NonNullable<Parameters<AgentModelStepFn>[0]["onReasoning"]>

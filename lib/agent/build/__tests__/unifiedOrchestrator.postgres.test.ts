@@ -556,4 +556,7 @@ it.each([
 		expect(failures).toEqual([]);
 		expect(requests).toHaveLength(script.length);
 	},
+	// Complete SDK/HTTP, durable recovery and Preview-worker journeys take
+	// 3–6 seconds on shared CI runners. This is not a latency contract.
+	10_000,
 );
