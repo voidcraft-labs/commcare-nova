@@ -608,3 +608,48 @@ The final conversation text was visible, but its durable active stream and
 accounting had not yet settled when inspected. Do not infer complete delivery
 or final cost from the visible answer alone. The underlying service cause and
 ordinary Preview acceptance remain open.
+
+
+## Fresh role trial after the datetime correction
+
+A separately approved $30 trial used a previously frozen request about community
+water-point maintenance: district-scoped technicians, supervisor authorization,
+related faults, repeated repair attempts and retained history. No real workers or
+districts were supplied; both roles had to be available to try in Preview. The
+original failed role trial remains failed. This attempt ran the normal production
+architect, peer, prompts and shared tools at `97364e91`, with no expert feedback.
+The private outer harness allowed 400 transport calls and 30 minutes, with
+reserve-before-dispatch accounting and the unchanged production role limits.
+
+This new attempt also failed autonomous acceptance. It stopped for user input
+after 85 model calls: 66 architect and 19 peer calls across two design reviews.
+There was no saved app or saved-app review. The run recorded 100 tool calls;
+provider responses requested 101, including the final question. Known model cost
+was $4.15049; the conservative ledger settled $5.18811 including its margin, with
+no unresolved requests. Neither the budget nor the time limit caused the stop.
+
+Private tools accepted deletion and recreation of a module with the same supplied
+identity. The first-save gate rejected the accumulated history, although the
+current candidate reported no findings. Four save attempts could not publish the
+app. The architect eventually recognized that it could not repair that history
+through its tools and asked the user to authorize discarding and rebuilding the
+workspace. This is an internal product failure, not a domain question an ordinary
+user can reasonably resolve. Its cause and the controlled correction are recorded
+in `ordinary-authoring-observations.md`; that correction does not rescue this run.
+
+The plan grew from 12,095 to 20,525 characters across 17 revisions. There were
+15 plan edits, 12 module-creation calls, nine module updates, seven focused-guide
+reads, four app reads, three schema reads and three form evaluations. The largest
+serialized provider request was 733,512 characters. Total input was 4,189,081
+tokens, output 40,131, cache reads 4,026,728 and cache writes 97,143. Deferred tools
+remained part of the evolving payload; character counts are not tokenizer counts.
+
+The reasoning did distinguish case closure from workflow state and kept accepted
+history open. It corrected its initial fictional-place proposal to saved role
+personas with disposable test context. It also acknowledged that ordinary Preview
+still needed a location assignment. The later peer review exposed limits in the
+latest-repair design and clarified that retained notes did not constitute a full
+history of supervisor decisions. Those observations are useful but cannot establish
+usable worker behavior: no app was materialized, no app-entry journey ran, and
+there was no saved export to exercise independently. Successful fresh role-gated
+acceptance remains unfinished.

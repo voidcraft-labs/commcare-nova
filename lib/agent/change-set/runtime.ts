@@ -15,8 +15,10 @@
  */
 
 import { produce } from "immer";
+import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
 import { getAppDb } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
 import {
@@ -39,19 +41,25 @@ export function replayStepsOverBase(
 	base: BlueprintDoc,
 	steps: readonly ChangeSetStep[],
 ): RehydratedOverlay {
-	let doc = base;
-	for (const step of steps) {
-		try {
-			doc = produce(doc, (draft) => {
-				applyMutations(draft, step.mutations);
-			});
-		} catch (error) {
-			throw new ChangeSetIntegrityError(
-				`Step ${step.ordinal} (${step.toolName}) no longer replays over its base: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
-		}
+	// Staging and checkpoint commits reduce one complete batch. In particular,
+	// reducer cleanup (such as pruning translations) must run at that same
+	// boundary, not once per historical tool invocation.
+	const batch = parsePersistedMutationBatchText(
+		encodeAdmittedMutationEnvelope(steps.flatMap((step) => [...step.mutations]))
+			.json,
+		"private authoring replay batch",
+	);
+	let doc: BlueprintDoc;
+	try {
+		doc = produce(base, (draft) => {
+			applyMutations(draft, batch);
+		});
+	} catch (error) {
+		throw new ChangeSetIntegrityError(
+			`The pending authoring batch no longer replays over its base: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		);
 	}
 	const snapshot = toPersistableDoc(doc);
 	return { doc, snapshot, candidateDigest: canonicalJsonDigest(snapshot) };
