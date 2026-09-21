@@ -79,6 +79,19 @@ real device.
 Three of them actually change how CommCare behaves; the rest are simply
 carried along for your app to read. The screen says which is which.
 
+## Reading the current worker
+
+Built-in identity is available without adding custom worker information. In form
+expressions, `#user/hq_user_id` reads the worker ID, `#user/username` the login
+name, and `#user/case_name` the display name, falling back to the login name.
+Record expressions use `session('userid')` and `session('username')` for ID and
+login name; `session()` is not a form function.
+
+These values follow the selected Preview persona. Your Nova account still
+authorizes access to the app. The current worker is also distinct from a case's
+owner or its last editor. Save an actor value when a business event needs lasting
+history, such as who approved a request.
+
 ## Saving an answer about the worker
 
 Worker information usually flows one way: you fill it in here, and forms read it.

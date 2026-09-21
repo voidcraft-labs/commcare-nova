@@ -4,6 +4,7 @@ import {
 	functionArgumentCount,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
+import { workerIdentityGuidance } from "./workerIdentity";
 
 const fields = () =>
 	fieldKinds
@@ -45,7 +46,9 @@ Writers for a single selected record start with its saved value, even when that 
 	expressions:
 		() => `Expressions use XPath syntax: quoted text, numbers, true()/false(), =, !=, <, <=, >, >=, and, or, not(), +, -, *, div, mod. div produces a decimal. Record expressions also offer quotient(a,b) for integer division.
 
-References depend on the current scope. #form/name reads a form answer; nested fields accept a unique short name or full path. #case/property reads the selected record. Registration and survey forms have no selected record. #user/property reads worker information. In record expressions, that property must be declared in the app; session('userid') and session('username') read built-in identity, and external-user('key') reads custom data supplied outside the app. #search/name reads a Search answer in Search rules or that module's no-matches registration. Names bind to stable identities; ambiguous names need an exact path or ID.
+References depend on the current scope. #form/name reads a form answer; nested fields accept a unique short name or full path. #case/property reads the selected record. Registration and survey forms have no selected record. #user/property reads worker information. In record expressions, that property must be declared in the app; external-user('key') reads custom data supplied outside the app. #search/name reads a Search answer in Search rules or that module's no-matches registration. Names bind to stable identities; ambiguous names need an exact path or ID.
+
+${workerIdentityGuidance()}
 
 Forms and record expressions share concat(...), coalesce(...), if(condition,yes,no), number(value), date(value), format-date(value,format), and is-blank(value). Blank means missing or empty; zero, false and whitespace are values. coalesce returns the first nonblank value, or its last argument if all are blank. Other functions depend on the expression's scope; request this guide with functionName for a function's availability and argument count.
 
@@ -64,6 +67,8 @@ Translation entries include their location, current source, explicit value and s
 Automatic translation availability is reported for each exact language direction. MCP has no automatic translation action; general model fluency is not permission to bulk-translate through manual edits. Save translations the user supplies or explicitly requests, and report remaining translation and review work.`,
 	peopleAndPlaces:
 		() => `Worker information describes the people using the app. Roles provide reusable values; a Preview persona inherits its role's values and can override individual ones. A persona is a Preview identity, not a provisioned CommCare HQ worker account. Give each authored role a representative persona so a person can enter its workflows. Role names such as Field worker are sufficient; this does not assert that a real worker account exists. Read Preview readiness to find missing worker information and unassigned location context. Do not invent real places or deployment assignments to hide missing setup. App worker roles are separate from the Nova Project roles that govern editing and sharing.
+
+Built-in identity supplies the current worker without custom audit-identity properties. The worker-information read returns expressions for each supported scope.
 
 Organization levels describe a hierarchy; places are its concrete locations. Case flow decides which places own records, where workers are assigned, and how far below their assigned place their cases reach. The address book independently decides which places workers can see and name in the app. Showing a place in the address book does not deliver its cases.
 

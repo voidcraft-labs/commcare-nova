@@ -85,6 +85,10 @@ when a predicate may legally contain both names. Canonical prose admission
 already rejects that collision for prose references.
 In record expressions, `user(...)` and `#user/...` require a declared worker property. Built-in identity
 uses `session(...)`; undeclared custom metadata requires `external-user(...)`.
+Forms instead read built-in identity from the worker record through
+`#user/hq_user_id`, `#user/username` and `#user/case_name`. `workerIdentity.ts`
+projects these supported readings through the expressions guide and `getUsers`;
+its runtime check executes the returned expressions in both scopes.
 An unknown property must never silently become an external metadata dependency.
 
 `messages.ts` gives automation messages the same literal escaping as form text.

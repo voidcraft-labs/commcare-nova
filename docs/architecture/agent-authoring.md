@@ -47,7 +47,11 @@ semantic operations. Tools accept names, Markdown, and expressions; the
 `authoring` boundary resolves identities and typed content inside an authorized
 workspace invocation. The document and mutation kernel retain their canonical
 contracts. Tool schemas describe inputs and effects, while a focused reference
-guide is available on request. Scoped reads expose effective initial values,
+guide is available on request. Worker reads expose built-in identity expressions
+in their supported form and record scopes, separately from custom worker
+information. They describe the simulated worker, independently of the actor
+that authorizes access and the owner that controls case sharing.
+Scoped reads expose effective initial values,
 ordinary answer destinations and
 built-in lifecycle metadata. Worker readiness distinguishes a role definition
 from an available Preview identity and reports missing information or place
