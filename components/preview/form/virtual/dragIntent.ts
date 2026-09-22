@@ -1,5 +1,5 @@
 /** The live document owns both the visible drag landing and its eventual move. */
-import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
+import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/types";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { type DropTargetData, targetContainerUuidFor } from "./dragData";

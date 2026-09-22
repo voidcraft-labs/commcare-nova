@@ -14,7 +14,7 @@
  * type we expose to our own call sites.
  */
 
-import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/closest-edge";
+import type { Edge } from "@atlaskit/pragmatic-drag-and-drop-hitbox/types";
 import type { Uuid } from "@/lib/doc/types";
 
 /** Intersection helpers that satisfy pragmatic DnD's return-type

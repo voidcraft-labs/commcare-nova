@@ -186,7 +186,7 @@ export const MapView = forwardRef<MapHandle, MapViewProps>(function MapView(
 					gmpDraggable: true,
 					content: createPinElement(),
 				});
-				m.addListener("dragend", () => {
+				m.addEventListener("gmp-dragend", () => {
 					const ll = readPosition(m.position);
 					if (!ll) return;
 					onPickRef.current(ll.lat, ll.lng);

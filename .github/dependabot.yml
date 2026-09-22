@@ -26,7 +26,10 @@ updates:
       # Postgres with no workflow runtime (app/api/chat/[streamId]/stream);
       # that class is byte-identical on the 1.x and 2.x lines, so the major
       # buys nothing and costs an unused runtime. A 3.x still gets a PR, as
-      # the natural point to re-evaluate.
+      # the natural point to re-evaluate. The frozen 1.x line exact-pins an
+      # old `ai`, so package.json `overrides` resolves it to Nova's own: the
+      # transport then validates chunks with the schema the server emits, and
+      # its UIMessage types stay the ones `useChat` speaks.
       - dependency-name: "@ai-sdk/workflow"
         versions: ["2.x"]
       # The React profiling harness exact-pins an audited agent-react-devtools
