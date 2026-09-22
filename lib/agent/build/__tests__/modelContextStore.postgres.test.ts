@@ -996,10 +996,7 @@ describe("durable model context", () => {
 			});
 		expect(requests[1]).toMatchObject({
 			input: expect.arrayContaining([
-				expect.objectContaining({
-					role: "assistant",
-					content: [{ type: "output_text", text: "Image received" }],
-				}),
+				{ role: "assistant", content: "Image received" },
 			]),
 		});
 	});
