@@ -941,112 +941,169 @@ it("reports its local clock and uses the same day in list calculations and forms
 	await step({ kind: "finish" });
 });
 
-it("observes Details, refuses skipped answers, and refreshes the saved record on return", async () => {
-	const doc = await createEvaluationApp({
-		name: "Repairs",
-		case_type: "repair",
-		case_list_columns: [
-			{ kind: "plain", field: "case_name", header: "Equipment" },
-			{ kind: "plain", field: "condition", header: "Condition" },
-		],
-		forms: [
-			{
-				name: "Update condition",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "condition",
-						label: "Condition",
-						caseWrite: { caseType: "repair", property: "condition" },
-					},
-				],
-			},
-		],
-	});
-	const module = Object.values(doc.modules).find(
-		(item) => item.name === "Repairs",
-	);
-	if (!module) throw new Error("Missing repair menu");
-	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
-	await h.seedAppWithBlueprint(doc, {
-		id: scope.appId,
-		owner: scope.actorUserId,
-		projectId: scope.projectId,
-	});
-	const call = sharedJourneyCalls(doc);
-	let current = stepSchema.parse(
-		await call("startAppTest", {
-			purpose:
-				"Confirm a record, change it, inspect the return screen, and start the next task.",
-			scenario: {
-				records: [
-					{
-						id: "repair-a",
-						caseType: "repair",
-						name: "Pump",
-						properties: { condition: "Broken" },
-					},
-				],
-			},
-		}),
-	);
-	const step = async (action: AppTestAction) => {
-		current = stepSchema.parse(
-			await call("continueAppTest", {
-				testId: current.testId,
-				expectedStep: current.step,
-				action,
+it.each([
+	{ chooser: false, destination: "previous" },
+	{ chooser: true, destination: "previous" },
+	{ chooser: false, destination: "module" },
+	{ chooser: true, destination: "module" },
+] as const)(
+	"keeps leaf selection local (chooser $chooser, return $destination)",
+	async ({ chooser, destination }) => {
+		const doc = await createEvaluationApp({
+			name: "Repairs",
+			case_type: "repair",
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Equipment" },
+				{ kind: "plain", field: "condition", header: "Condition" },
+			],
+			forms: [
+				{
+					name: "Update condition",
+					type: "followup",
+					post_submit: destination,
+					fields: [
+						{
+							kind: "text",
+							id: "condition",
+							label: "Condition",
+							caseWrite: { caseType: "repair", property: "condition" },
+						},
+					],
+				},
+				...(chooser
+					? [
+							{
+								name: "Inspect",
+								type: "followup",
+								fields: [
+									{
+										kind: "label",
+										id: "info",
+										label: "Inspect this equipment.",
+									},
+								],
+							},
+						]
+					: []),
+			],
+		});
+		const form = Object.values(doc.forms).find(
+			(item) => item.name === "Update condition",
+		);
+		if (!form) throw new Error("Missing repair form");
+		const module = Object.values(doc.modules).find(
+			(item) => item.name === "Repairs",
+		);
+		if (!module) throw new Error("Missing repair menu");
+		await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+		await h.seedAppWithBlueprint(doc, {
+			id: scope.appId,
+			owner: scope.actorUserId,
+			projectId: scope.projectId,
+		});
+		const call = sharedJourneyCalls(doc);
+		let current = stepSchema.parse(
+			await call("startAppTest", {
+				purpose:
+					"Confirm a record, change it, inspect the return screen, and start the next task.",
+				scenario: {
+					records: [
+						{
+							id: "repair-a",
+							caseType: "repair",
+							name: "Pump",
+							properties: { condition: "Broken" },
+						},
+					],
+				},
 			}),
 		);
-		return current.observation;
-	};
-	await step({ kind: "menu", moduleUuid: module.uuid });
-	expect(await step({ kind: "select", caseIds: ["repair-a"] })).toMatchObject({
-		screen: "details",
-		canContinue: true,
-		fields: expect.arrayContaining([
+		const step = async (action: AppTestAction) => {
+			current = stepSchema.parse(
+				await call("continueAppTest", {
+					testId: current.testId,
+					expectedStep: current.step,
+					action,
+				}),
+			);
+			return current.observation;
+		};
+		await step({ kind: "menu", moduleUuid: module.uuid });
+		expect(await step({ kind: "select", caseIds: ["repair-a"] })).toMatchObject(
 			{
-				uuid: expect.any(String),
-				label: "Condition",
-				kind: "value",
-				text: "Broken",
+				screen: "details",
+				canContinue: true,
+				fields: expect.arrayContaining([
+					{
+						uuid: expect.any(String),
+						label: "Condition",
+						kind: "value",
+						text: "Broken",
+					},
+				]),
 			},
-		]),
-	});
-	expect(
+		);
+		expect(
+			await step({
+				kind: "answer",
+				answers: [{ path: "condition", value: "Fixed" }],
+			}),
+		).toMatchObject({ completed: false });
+		const openTask = async () => {
+			const continued = await step({ kind: "continue" });
+			if (chooser) {
+				expect(continued).toMatchObject({
+					screen: "menu",
+					selected: [expect.objectContaining({ caseId: "repair-a" })],
+				});
+				return step({ kind: "form", formUuid: form.uuid });
+			}
+			return continued;
+		};
+		expect(await openTask()).toMatchObject({
+			screen: "form",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ value: "Broken" }),
+			]),
+		});
 		await step({
 			kind: "answer",
 			answers: [{ path: "condition", value: "Fixed" }],
-		}),
-	).toMatchObject({ completed: false });
-	expect(await step({ kind: "continue" })).toMatchObject({
-		screen: "form",
-		questions: expect.arrayContaining([
-			expect.objectContaining({ value: "Broken" }),
-		]),
-	});
-	await step({
-		kind: "answer",
-		answers: [{ path: "condition", value: "Fixed" }],
-	});
-	expect(await step({ kind: "submit" })).toMatchObject({
-		screen: "details",
-		savedInTest: true,
-		fields: expect.arrayContaining([
-			expect.objectContaining({ label: "Condition", text: "Fixed" }),
-		]),
-	});
-	expect(await step({ kind: "continue" })).toMatchObject({
-		screen: "form",
-		questions: expect.arrayContaining([
-			expect.objectContaining({ value: "Fixed" }),
-		]),
-	});
-	expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
-	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
-	await step({ kind: "finish" });
-});
+		});
+		const submitted = await step({ kind: "submit" });
+		expect(submitted.savedInTest).toBe(true);
+		if (destination === "module") {
+			expect(submitted).toMatchObject({
+				screen: "browse",
+				results: {
+					rows: [
+						expect.objectContaining({
+							case_id: "repair-a",
+							properties: expect.objectContaining({ condition: "Fixed" }),
+						}),
+					],
+				},
+			});
+			await step({ kind: "select", caseIds: ["repair-a"] });
+		} else {
+			expect(submitted).toMatchObject({
+				screen: "details",
+				fields: expect.arrayContaining([
+					expect.objectContaining({ label: "Condition", text: "Fixed" }),
+				]),
+			});
+		}
+		expect(await openTask()).toMatchObject({
+			screen: "form",
+			questions: expect.arrayContaining([
+				expect.objectContaining({ value: "Fixed" }),
+			]),
+		});
+		expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
+		expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+		await step({ kind: "finish" });
+	},
+);
 
 it("reads informational Details without inventing a form or Continue action", async () => {
 	const doc = await createEvaluationApp({

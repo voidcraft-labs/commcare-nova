@@ -221,3 +221,10 @@ include form writers and all indexed reads. The canonical transaction refuses
 live or parked values before changing the storage schema, so cleanup cannot
 silently discard collected data in a later record edit. Populated retirement
 remains a reviewed one-time migration.
+
+App-test navigation distinguishes a leaf form's transient selected record from
+a persistent parent-menu selection, matching Preview's CaseListScreen and menu
+context. Returning to a case-first module after a leaf form reopens Results.
+Explicit link-carried selections and parent chains retain their own production
+lifetime. Older retained journeys remain evidence at their original runtime;
+they require a new test to execute after a navigation contract change.
