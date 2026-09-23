@@ -21,20 +21,40 @@ direct child calculation. A repeated absolute form reference inside that predica
 can select several rows. Groups change the relative path. This is query-row
 context, not a new selected-record context.
 
-Timing also matters. Nova's bound-repeat snapshot initializes with its enclosing
-instance: at form initialization for a top-level repeat, or when a new enclosing
-repeat row is created. Later answer changes and page entry do not recompute
-membership. This is Nova's authored snapshot contract, not a claim that all
-JavaRosa repeats have fixed counts. A question's starting-value calculation must
-not be assumed to precede that snapshot; membership needs values available at its
-actual initialization point.
+Timing remains an implementation gap, so this guidance change is not ready for
+release. Exact Nova-exported XML with an earlier default feeding a top-level
+query produces rows in Core, while Preview captures the query before defaults and
+produces none. Native diagnostic variants distinguish earlier and later defaults:
+only an earlier default, including calculations triggered by that default, is
+visible to the query snapshot. A standalone calculation has not yet run. Moving
+all defaults and calculations before every repeat would therefore be incorrect.
+
+Core also separates snapshot actions from row creation. A diagnostic form with a
+bound outer repeat was initialized, an earlier question was answered through
+`FormEntryController`, and only then was the outer repeat entered. Its nested
+query captured the new answer. Preview currently creates the outer rows eagerly;
+its `addRepeat` paths also omit nested bound initialization. Immediate full native
+traversal hides this distinction. The nested diagnostic is a controlled XML
+variant, not yet an exact Nova export or an end-to-end app acceptance result.
+
+Relevant production boundaries are `FormEngine` initialization, insertion, reset
+and schema rebuild; `DataInstance` template cardinality; `TriggerDag` dependencies;
+and the controller's page/entry lifecycle. Core's `FormDef.initialize`,
+`SetValueAction`, `FormDef.createNewRepeat` and
+`FormEntryModel.createModelIfNecessary` establish the consumer behavior.
+`extractPathRefs` currently omits relative `current()/../@id` dependencies, so
+merely cascading an identity write cannot initialize a named hidden row ID before
+a nested query reads it. Default actions must execute before late primary
+preloads even when the preload wins the final value: intermediate snapshots can
+observe those defaults. None of these gaps should become an instruction asking
+the agent or user to debug initialization order.
 
 The shared authoring test creates a query repeat through ordinary tools and runs
 the production form worker with two matching records and one excluded record. It
 observes distinct retained IDs and names, answers the second row, changes the
 query's answer dependency, and verifies membership and values remain intact.
-The existing engine tests cover nested initialization, counts and async row
-attributes. An independent local Core check loaded this authored form's exported
+Existing engine tests cover counts and async row attributes, but did not prove
+new outer-row initialization or entry timing. An independent local Core check loaded this authored form's exported
 XML, traversed its real form controller, and observed the same IDs, names and
 retention after the answer changed. It establishes this native expression and
 snapshot behavior, not Android UI or a complete submitted business journey.
