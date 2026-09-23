@@ -225,7 +225,10 @@ export async function advanceAppTestSession(
 			.where("created_by", "=", args.actorUserId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (!test) throw new AppAccessError("not_found");
+		if (!test)
+			throw new AppTestUnavailableError(
+				"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
+			);
 		const prior = await tx
 			.selectFrom("app_test_steps")
 			.selectAll()
@@ -327,7 +330,10 @@ export async function readAppTestSteps(
 			.where("app_id", "=", args.appId)
 			.where("project_id", "=", args.projectId)
 			.executeTakeFirst();
-		if (!test) throw new AppAccessError("not_found");
+		if (!test)
+			throw new AppTestUnavailableError(
+				"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
+			);
 		const steps = await tx
 			.selectFrom("app_test_steps")
 			.select(["step", "action", "observation", "created_at"])
@@ -374,6 +380,9 @@ export async function listAppTests(scope: AppTestScope) {
 			tests: tests.map((test) => ({
 				...test,
 				blueprint_seq: Number(test.blueprint_seq),
+				created_at: test.created_at.toISOString(),
+				expires_at: test.expires_at.toISOString(),
+				disposed_at: test.disposed_at?.toISOString() ?? null,
 			})),
 		};
 	});

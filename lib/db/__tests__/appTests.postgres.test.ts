@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { AppAccessError } from "../appAccess";
 import {
+	AppTestUnavailableError,
 	advanceAppTestSession,
 	createAppTestSession,
 	listAppTests,
@@ -38,6 +39,68 @@ function start(requestId = "start") {
 }
 
 describe("app test session authority and evidence", () => {
+	it("distinguishes unavailable test identities from lost app authority without exposing another app's test", async () => {
+		await setup();
+		const begun = await start();
+		const other = { ...scope, appId: "another-app" };
+		await h.seedApp({
+			id: other.appId,
+			owner: scope.actorUserId,
+			project_id: scope.projectId,
+		});
+		expect((await listAppTests(other)).tests).toEqual([]);
+		for (const testId of [
+			begun.testId,
+			"70000000-0000-4000-8000-000000000001",
+		]) {
+			await expect(
+				readAppTestSteps({ ...other, testId }),
+			).rejects.toBeInstanceOf(AppTestUnavailableError);
+			await expect(
+				advanceAppTestSession({
+					...other,
+					testId,
+					requestId: "missing",
+					requestDigest: "missing",
+					expectedStep: 0,
+					action: { kind: "home" },
+					advance: async () => {
+						throw new Error("Unavailable test must not execute");
+					},
+				}),
+			).rejects.toBeInstanceOf(AppTestUnavailableError);
+		}
+		expect(
+			(await readAppTestSteps({ ...scope, testId: begun.testId })).steps,
+		).toHaveLength(1);
+		await h.seedProjectMember("colleague", scope.projectId, "viewer");
+		const colleague = { ...scope, actorUserId: "colleague" };
+		expect(
+			(await readAppTestSteps({ ...colleague, testId: begun.testId })).steps,
+		).toHaveLength(1);
+		await expect(
+			advanceAppTestSession({
+				...colleague,
+				testId: begun.testId,
+				requestId: "foreign-creator",
+				requestDigest: "foreign-creator",
+				expectedStep: 0,
+				action: { kind: "home" },
+				advance: async () => {
+					throw new Error("Another actor must not continue the test");
+				},
+			}),
+		).rejects.toBeInstanceOf(AppTestUnavailableError);
+		await h
+			.pool()
+			.query('DELETE FROM auth_member WHERE "userId" = $1', [
+				scope.actorUserId,
+			]);
+		await expect(
+			readAppTestSteps({ ...scope, testId: begun.testId }),
+		).rejects.toBeInstanceOf(AppAccessError);
+	});
+
 	it("bounds active tests and permits disposal after expiry, step exhaustion or a changed source", async () => {
 		await setup();
 		const tests = [];

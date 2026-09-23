@@ -155,10 +155,7 @@ export const SHARED_TOOL_PRESENTATION = {
 			return undefined;
 		},
 	},
-	readAppTest: read(
-		"Reading journey observations",
-		"Read journey observations",
-	),
+	readAppTest: read("Reading saved test history", "Read saved test history"),
 	getModule: read("Inspecting a module", "Inspected a module"),
 	getCaseOperations: read(
 		"Inspecting case operations",

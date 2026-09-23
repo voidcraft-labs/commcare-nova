@@ -208,6 +208,22 @@ it.each([
 						[
 							{
 								type: "tool" as const,
+								name: "readAppTest",
+								callId: "peer-wrong-test",
+								input: { testId: "70000000-0000-4000-8000-000000000001" },
+							},
+						],
+						[
+							{
+								type: "tool" as const,
+								name: "readAppTest",
+								callId: "peer-find-test",
+								input: {},
+							},
+						],
+						[
+							{
+								type: "tool" as const,
 								name: "continueAppTest",
 								callId: "peer-finish",
 								input: {
@@ -277,11 +293,11 @@ it.each([
 								?.input?.find(
 									(item) =>
 										item.type === "function_call_output" &&
-										item.call_id === "peer-journey",
+										item.call_id === "peer-find-test",
 								);
 							part.input = {
 								...(part.input as object),
-								testId: JSON.parse(String(receipt?.output)).testId,
+								testId: JSON.parse(String(receipt?.output)).tests[0].id,
 							};
 						}
 						respondWithParts(response, next, index);
@@ -491,6 +507,9 @@ it.each([
 					moduleUuid: app?.blueprint.moduleOrder[0],
 				});
 				if (exercisePeer) {
+					expect(evaluation("peer-wrong-test")).toMatchObject({
+						error: expect.any(String),
+					});
 					expect(evaluation("peer-journey")).toMatchObject({
 						step: 0,
 						observation: {

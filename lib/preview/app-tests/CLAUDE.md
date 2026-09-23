@@ -13,6 +13,15 @@ versions, and commits state, observations and idempotency receipts together.
 Only the creating actor can continue a test; current app members can read its
 observations. Simulated worker identity never grants Project authority.
 
+After app authorization succeeds, an unavailable test identity is an
+`AppTestUnavailableError`, including a test belonging to another app or a
+continuation belonging to another actor. It reveals no foreign evidence. The
+architect and peer receive expected test refusals as tool results and can correct
+their call. Lost app membership or run authority remains terminal.
+`readAppTest` without an identity returns the same bounded recent-test list as
+Builder, so a reviewer can discover evidence created by another authoring role.
+List and detail timestamps are ISO strings usable in model JSON results.
+
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach
 must resolve there, with the current production column contract. No live case
