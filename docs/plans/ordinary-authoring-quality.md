@@ -165,7 +165,11 @@ its release from cost alone.
   calculation dependencies and late preloads. Cover sync/worker/reset/rebuild and
   browser Add; prove earlier/later defaults, triggered/standalone calculations and
   parent row identities against independent Core execution. Do not substitute an
-  all-defaults-first pass or whole-form reinitialization.
+  all-defaults-first pass or whole-form reinitialization. Scoped action ordering,
+  new-subtree initialization and explicit worker context are implemented in the
+  current PR. Three public exact-export Core checks, focused engine/controller
+  checks and browser Add pass. Intermediate relevance is included following
+  independent review. Frozen review, CI and deployment remain release gates.
 - [ ] Resolve the separate section-entry timing boundary. Unsectioned Preview
   and Core have different screen grouping, but authored root sections are shared
   page boundaries. Compare two authored sections using Core field-list prompt

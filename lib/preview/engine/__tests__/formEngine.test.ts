@@ -3843,18 +3843,24 @@ describe("FormEngine", () => {
 			);
 		});
 
-		it.each(["2.0", "2.5"])(
-			"rejects direct repeat-count path value %s through IntegerData lexical casting",
-			(lexical) => {
+		it.each([
+			{ starting: "2.0", loaded: "3", expected: "invalid" },
+			{ starting: "2.5", loaded: "3", expected: "invalid" },
+			{ starting: "٣", loaded: "5", expected: 3 },
+			{ starting: "1", loaded: "3", expected: 1 },
+			{ starting: undefined, loaded: "3", expected: 0 },
+		])(
+			"captures count $starting before late preload $loaded",
+			async ({ starting, loaded, expected }) => {
 				const input = dTree(
 					[
 						{
 							id: "desired_count",
 							kind: "text",
-							caseWrite: {
-								caseType: "patient",
-								property: "desired_count",
-							},
+							...(starting === undefined
+								? {}
+								: { default_value: xp(`'${starting}'`) }),
+							caseWrite: { caseType: "patient", property: "desired_count" },
 						},
 						{
 							id: "members",
@@ -3869,137 +3875,49 @@ describe("FormEngine", () => {
 						{
 							name: "patient",
 							properties: [
-								{
-									name: "desired_count",
-									label: proseText("Desired count"),
-								},
+								{ name: "desired_count", label: proseText("Desired count") },
 							],
 						},
 					],
 				);
-
-				expect(
-					() =>
-						new FormEngine(
-							input,
-							"patient",
-							caseDataFor("patient", [["desired_count", lexical]]),
-						),
-				).toThrow(/exact base-10 integer/);
+				const caseData = caseDataFor("patient", [["desired_count", loaded]]);
+				if (expected === "invalid") {
+					expect(() => new FormEngine(input, "patient", caseData)).toThrow(
+						/exact base-10 integer/,
+					);
+				} else {
+					const engine = new FormEngine(input, "patient", caseData);
+					expect(engine.getRepeatCount("/data/members")).toBe(expected);
+					expect(engine.getState("/data/desired_count").value).toBe(loaded);
+				}
+				const engine = new FormEngine(
+					input,
+					"patient",
+					caseData,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync: true },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"count-action-order",
+				);
+				try {
+					if (expected === "invalid") {
+						await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
+							/exact base-10 integer/,
+						);
+					} else {
+						await engine.initializeAsync(evaluateAsync);
+						expect(engine.getRepeatCount("/data/members")).toBe(expected);
+						expect(engine.getState("/data/desired_count").value).toBe(loaded);
+					}
+				} finally {
+					runtime.dispose();
+				}
 			},
 		);
-
-		it("accepts Java BMP decimal digits in a direct repeat count", async () => {
-			const input = dTree(
-				[
-					{
-						id: "desired_count",
-						kind: "text",
-						caseWrite: {
-							caseType: "patient",
-							property: "desired_count",
-						},
-					},
-					{
-						id: "members",
-						kind: "repeat",
-						repeat_mode: "count_bound",
-						repeat_count: formXp("#form/desired_count"),
-						children: [],
-					},
-				],
-				"followup",
-				[
-					{
-						name: "patient",
-						properties: [
-							{
-								name: "desired_count",
-								label: proseText("Desired count"),
-							},
-						],
-					},
-				],
-			);
-			const caseData = caseDataFor("patient", [["desired_count", "٣"]]);
-			const syncEngine = new FormEngine(input, "patient", caseData);
-			expect(syncEngine.getRepeatCount("/data/members")).toBe(3);
-
-			const asyncEngine = new FormEngine(
-				input,
-				"patient",
-				caseData,
-				undefined,
-				undefined,
-				undefined,
-				{ stagedAsync: true },
-			);
-			const { evaluateAsync, runtime } = fixedWorldEvaluator(
-				asyncEngine,
-				"unicode-direct-repeat-count",
-			);
-			try {
-				await asyncEngine.initializeAsync(evaluateAsync);
-				expect(asyncEngine.getRepeatCount("/data/members")).toBe(3);
-			} finally {
-				runtime.dispose();
-			}
-		});
-
-		it("applies the same direct repeat-count lexical cast across the worker boundary", async () => {
-			const input = dTree(
-				[
-					{
-						id: "desired_count",
-						kind: "text",
-						caseWrite: {
-							caseType: "patient",
-							property: "desired_count",
-						},
-					},
-					{
-						id: "members",
-						kind: "repeat",
-						repeat_mode: "count_bound",
-						repeat_count: formXp("#form/desired_count"),
-						children: [],
-					},
-				],
-				"followup",
-				[
-					{
-						name: "patient",
-						properties: [
-							{
-								name: "desired_count",
-								label: proseText("Desired count"),
-							},
-						],
-					},
-				],
-			);
-			const engine = new FormEngine(
-				input,
-				"patient",
-				caseDataFor("patient", [["desired_count", "2.5"]]),
-				undefined,
-				undefined,
-				undefined,
-				{ stagedAsync: true },
-			);
-			const { evaluateAsync, runtime } = fixedWorldEvaluator(
-				engine,
-				"direct-repeat-count-cast",
-			);
-
-			try {
-				await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
-					/exact base-10 integer/,
-				);
-			} finally {
-				runtime.dispose();
-			}
-		});
 
 		it("retains xsd:int coercion for a hoisted non-path repeat count", async () => {
 			const input = dTree([
@@ -4111,6 +4029,331 @@ describe("FormEngine", () => {
 				runtime.dispose();
 			}
 		});
+
+		it.each(["earlier", "later", "standalone", "triggered"] as const)(
+			"captures query membership at its action, with %s initialization",
+			async (ordering) => {
+				const zone: DField = {
+					id: "zone",
+					kind:
+						ordering === "standalone" || ordering === "triggered"
+							? "hidden"
+							: "text",
+					...(ordering === "standalone"
+						? { calculate: xp("'north'") }
+						: ordering === "triggered"
+							? { calculate: formXp("#form/seed") }
+							: { default_value: xp("'north'") }),
+				};
+				const rows: DField = {
+					id: "assets",
+					kind: "repeat",
+					repeat_mode: "query_bound",
+					data_source: {
+						ids_query: formXp("if(#form/zone = 'north', 'pump tap', '')"),
+					},
+					children: [
+						{ id: "row_id", kind: "hidden", calculate: xp("current()/../@id") },
+					],
+				};
+				const input = dTree(
+					ordering === "later"
+						? [rows, zone]
+						: ordering === "triggered"
+							? [
+									{ id: "seed", kind: "text", default_value: xp("'north'") },
+									zone,
+									rows,
+								]
+							: [zone, rows],
+				);
+				const count =
+					ordering === "earlier" || ordering === "triggered" ? 2 : 0;
+				for (const stagedAsync of [false, true]) {
+					const engine = new FormEngine(
+						input,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						{ stagedAsync },
+					);
+					const { evaluateAsync, runtime } = fixedWorldEvaluator(
+						engine,
+						`query-actions-${ordering}-${stagedAsync}`,
+					);
+					try {
+						if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+						expect(engine.getRepeatCount("/data/assets")).toBe(count);
+						expect(engine.getState("/data/zone").value).toBe("north");
+						if (count > 0)
+							expect(engine.getState("/data/assets[1]/row_id").value).toBe(
+								"tap",
+							);
+						if (ordering === "earlier" && !stagedAsync) {
+							engine.setValue("/data/zone", "south");
+							expect(engine.getRepeatCount("/data/assets")).toBe(2);
+							engine.reset();
+							expect(engine.getState("/data/zone").value).toBe("north");
+							expect(engine.getRepeatCount("/data/assets")).toBe(2);
+							engine.updateSchema(input);
+							expect(engine.getState("/data/assets[1]/row_id").value).toBe(
+								"tap",
+							);
+						}
+					} finally {
+						runtime.dispose();
+					}
+				}
+			},
+		);
+
+		it.each([false, true])(
+			"applies relevance cascades before initial and inserted snapshots (worker: %s)",
+			async (stagedAsync) => {
+				const input = dTree([
+					{ id: "enabled", kind: "text", default_value: xp("'no'") },
+					{
+						id: "visits",
+						kind: "repeat",
+						children: [
+							{
+								id: "details",
+								kind: "group",
+								relevant: formXp("#form/visits/gate = 'yes'"),
+								children: [
+									{ id: "zone", kind: "text", default_value: xp("'north'") },
+								],
+							},
+							{
+								id: "derived",
+								kind: "hidden",
+								calculate: formXp("string(#form/visits/details/zone)"),
+							},
+							{
+								id: "gate",
+								kind: "hidden",
+								default_value: formXp("#form/enabled"),
+							},
+							{
+								id: "assets",
+								kind: "repeat",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query: formXp(
+										"if(#form/visits/derived = 'north', 'pump tap', '')",
+									),
+								},
+								children: [{ id: "note", kind: "text" }],
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					`initialization-relevance-${stagedAsync}`,
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(0);
+					if (stagedAsync) {
+						await engine.setValueAsync("/data/enabled", "yes", evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else {
+						engine.setValue("/data/enabled", "yes");
+						engine.addRepeat("/data/visits");
+					}
+					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(0);
+					expect(engine.getRepeatCount("/data/visits[1]/assets")).toBe(2);
+					expect(engine.getState("/data/visits[0]/derived").value).toBe("");
+					expect(engine.getState("/data/visits[1]/derived").value).toBe(
+						"north",
+					);
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
+		it.each([false, true])(
+			"initializes only the new outer row and its bound descendants (worker: %s)",
+			async (stagedAsync) => {
+				const input = dTree([
+					{ id: "zone", kind: "text", default_value: xp("'north'") },
+					{
+						id: "visits",
+						kind: "repeat",
+						children: [
+							{ id: "zone", kind: "text", default_value: formXp("#form/zone") },
+							{
+								id: "assets",
+								kind: "repeat",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query: formXp(
+										"if(#form/visits/zone = 'north', 'pump tap', 'tank')",
+									),
+								},
+								children: [
+									{
+										id: "row_id",
+										kind: "hidden",
+										calculate: xp("current()/../@id"),
+									},
+									{ id: "note", kind: "text" },
+								],
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					`insert-bound-${stagedAsync}`,
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(2);
+					if (stagedAsync) {
+						await engine.setValueAsync(
+							"/data/visits[0]/assets[1]/note",
+							"Retain this answer",
+							evaluateAsync,
+						);
+						await engine.setValueAsync("/data/zone", "south", evaluateAsync);
+						await engine.addRepeatAsync("/data/visits", evaluateAsync);
+					} else {
+						engine.setValue(
+							"/data/visits[0]/assets[1]/note",
+							"Retain this answer",
+						);
+						engine.setValue("/data/zone", "south");
+						engine.addRepeat("/data/visits");
+					}
+					expect(engine.getRepeatCount("/data/visits[0]/assets")).toBe(2);
+					expect(
+						engine.getState("/data/visits[0]/assets[1]/row_id").value,
+					).toBe("tap");
+					expect(engine.getState("/data/visits[0]/assets[1]/note").value).toBe(
+						"Retain this answer",
+					);
+					expect(engine.getRepeatCount("/data/visits[1]/assets")).toBe(1);
+					expect(
+						engine.getState("/data/visits[1]/assets[0]/row_id").value,
+					).toBe("tank");
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
+		it.each(
+			[false, true].flatMap((stagedAsync) =>
+				[false, true].map((raw) => ({ stagedAsync, raw })),
+			),
+		)(
+			"initializes nested snapshots with their outer identity (worker: $stagedAsync, raw: $raw)",
+			async ({ stagedAsync, raw }) => {
+				const input = dTree([
+					{
+						id: "assets",
+						kind: "repeat",
+						repeat_mode: "query_bound",
+						data_source: { ids_query: xp("'pump tap'") },
+						children: [
+							{
+								id: "row_id",
+								kind: "hidden",
+								calculate: xp("current()/../@id"),
+							},
+							{
+								id: "tasks",
+								kind: "repeat",
+								repeat_mode: "query_bound",
+								data_source: {
+									ids_query: raw
+										? xp(
+												"if(current()/../../@id = 'pump', concat(current()/../../@id, '_task'), '')",
+											)
+										: formXp(
+												"if(#form/assets/row_id = 'pump', concat(#form/assets/row_id, '_task'), '')",
+											),
+								},
+								children: [
+									{
+										id: "task_id",
+										kind: "hidden",
+										calculate: xp("current()/../@id"),
+									},
+								],
+							},
+							{
+								id: "details",
+								kind: "group",
+								children: [
+									{
+										id: "checks",
+										kind: "repeat",
+										repeat_mode: "count_bound",
+										repeat_count: raw
+											? xp("if(current()/../../@id = 'pump', 2, 0)")
+											: formXp("if(#form/assets/row_id = 'pump', 2, 0)"),
+										children: [{ id: "note", kind: "text" }],
+									},
+								],
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					`nested-identity-${stagedAsync}`,
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(
+						engine.getState("/data/assets[0]/tasks[0]/task_id").value,
+					).toBe("pump_task");
+					expect(engine.getRepeatCount("/data/assets[1]/tasks")).toBe(0);
+					expect(engine.getRepeatCount("/data/assets[0]/details/checks")).toBe(
+						2,
+					);
+					expect(engine.getRepeatCount("/data/assets[1]/details/checks")).toBe(
+						0,
+					);
+					expect(engine.getState("/data/assets[1]/row_id").value).toBe("tap");
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
 
 		it("uses DataUtil space splitting for scalar query-bound repeat ids", async () => {
 			const input = dTree([

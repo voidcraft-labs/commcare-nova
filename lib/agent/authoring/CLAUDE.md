@@ -187,10 +187,11 @@ does not combine test records with stored rows or save them. Lookup data stays
 authorized and real. Results identify scenario evaluation and project ordinary
 case values; they do not prove storage, additional case operations or device behavior.
 
-The fields guide explains bound-repeat timing and row identity. Top-level
-counts and queries initialize at form load; a nested repeat initializes when
-its enclosing repeat row is created. Opening a page or changing relevance does
-not defer this initialization. A direct child hidden field can read its
+The fields guide explains bound-repeat timing and row identity. Preview initializes initial rows at form load and
+new subtrees when a worker adds an enclosing row. Device traversal can create
+nested rows later; the guide explicitly avoids promising that page-entry timing
+matches Preview. Opening a page or changing relevance does not recapture a
+snapshot. A direct child hidden field can read its
 query-bound row identity with `current()/../@id` and expose a named form
 reference for operations. A property lookup inside a predicate uses
 `current()` to retain the originating row context; `#case` retains its selected-record

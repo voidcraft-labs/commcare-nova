@@ -331,3 +331,23 @@ matching worker record, ignore a different worker and wrong case type, and are
 blank when that matching record is absent. This local CCZ proof does not test HQ
 privilege assignment, restore or physical-device sync. The existing menu/form
 custom-property method additionally requires the HQ-regenerated artifacts.
+
+
+## Scoped repeat initialization
+
+Run `emit-container-evidence.ts OUTPUT_DIRECTORY` from `../hq/` using the same
+Node conditions as the other producers, then use that directory as
+`novaProofResources`. These three selectors require only the exact local CCZ forms:
+
+- `nova.compatibility.ContainerRuntimeTest.initializationActionsApplyRelevanceBeforeSnapshots`
+- `nova.compatibility.ContainerRuntimeTest.initializationSnapshotsRetainTheirEnclosingRow`
+- `nova.compatibility.ContainerRuntimeTest.addingAnOuterRowKeepsOldSnapshotsAndAnswers`
+
+The relevance check covers intermediate visibility and a hidden group's effect
+on calculations before a query snapshots its rows, at initialization and Add.
+The identity check compares named form references with raw `current()` ancestry in two
+query rows, including an empty inner query and a count snapshot inside a group.
+The insertion check uses the real entry controller to add rows before and after changing
+a question; it checks earlier membership and answers remain intact. These checks
+passed on the pinned Core revision above. They do not establish delayed entry
+across separate pages, HQ regeneration, or a submitted business workflow.

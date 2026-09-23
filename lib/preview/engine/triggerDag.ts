@@ -19,6 +19,11 @@ type ExpressionType =
 	| "output"
 	| "choices";
 
+export interface InitializationExpression {
+	readonly path: string;
+	readonly type: "calculate" | "relevant";
+}
+
 interface DagNode {
 	path: string;
 	expressions: { type: ExpressionType; expr: string }[];
@@ -111,6 +116,10 @@ export class TriggerDag {
 	 *  `registerExpressions` during a runtime build and added to the graph
 	 *  only where they close no loop (`addSettleFreeEdges`). */
 	private settleFreeEdges: Array<[dependency: string, dependent: string]> = [];
+	private initializationDependencies = new Map<
+		string,
+		{ type: "calculate" | "relevant"; dependencies: readonly string[] }[]
+	>();
 
 	/** Build the DAG from a field tree. `doc` is the surface the
 	 *  tree's fields live on (the engine's input slice / the
@@ -134,6 +143,61 @@ export class TriggerDag {
 		this.detectAndBreakCycles();
 		this.addSettleFreeEdges();
 		this.sortedPaths = this.topologicalSort();
+		this.initializationDependencies.clear();
+		for (const [path, node] of this.nodes) {
+			const expressions = node.expressions.flatMap(({ type, expr }) =>
+				type === "calculate" || type === "relevant"
+					? [
+							{
+								type,
+								dependencies: extractPathRefs(expr, path).filter(
+									(dependency) => dependency !== path,
+								),
+							},
+						]
+					: [],
+			);
+			this.initializationDependencies.set(path, expressions);
+		}
+	}
+
+	initializationExpressions(path: string): InitializationExpression[] {
+		return (this.initializationDependencies.get(stripIndices(path)) ?? []).map(
+			({ type }) => ({ path, type }),
+		);
+	}
+
+	/** Initialization actions trigger only the dependent calculations and
+	 * relevance bindings. A label or required rule must not trigger an unrelated
+	 * calculation attached to the same question. A relevance change also changes
+	 * reads of its descendants, matching the ordinary cascade topology. */
+	getAffectedInitialization(
+		changedPaths: readonly string[],
+		repeatCount: RepeatCountResolver,
+	): InitializationExpression[] {
+		const changed = new Set(changedPaths.map(stripIndices));
+		const result: InitializationExpression[] = [];
+		for (const path of this.sortedPaths) {
+			for (const { type, dependencies } of this.initializationDependencies.get(
+				path,
+			) ?? []) {
+				if (!dependencies.some((dependency) => changed.has(dependency)))
+					continue;
+				result.push(
+					...this.materialize(path, repeatCount).map((concrete) => ({
+						path: concrete,
+						type,
+					})),
+				);
+				changed.add(path);
+				if (type === "relevant") {
+					for (const descendant of this.fieldPaths.values()) {
+						if (descendant.startsWith(`${path}/`)) changed.add(descendant);
+					}
+				}
+			}
+		}
+		return result;
 	}
 
 	/** Record that `dependent` re-evaluates when `dependency` changes. A
@@ -414,11 +478,11 @@ export class TriggerDag {
 		this.nodes.set(path, { path, expressions });
 
 		for (const expr of triggerExprs) {
-			for (const ref of extractPathRefs(expr)) this.addEdge(ref, path);
+			for (const ref of extractPathRefs(expr, path)) this.addEdge(ref, path);
 		}
 		if (this.cycleProof) return;
 		for (const expr of settleFreeExprs) {
-			for (const ref of extractPathRefs(expr)) {
+			for (const ref of extractPathRefs(expr, path)) {
 				if (ref !== path) this.settleFreeEdges.push([ref, path]);
 			}
 		}

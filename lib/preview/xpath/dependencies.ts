@@ -29,7 +29,7 @@ const T = (() => {
  * - Translates #form/question_id → /data/question_id
  * - Ignores typed case refs, #user/, and #search/ refs (external during form entry)
  */
-export function extractPathRefs(expr: string): string[] {
+export function extractPathRefs(expr: string, originPath?: string): string[] {
 	if (!expr) return [];
 
 	const tree = parser.parse(expr);
@@ -52,6 +52,14 @@ export function extractPathRefs(expr: string): string[] {
 	// Collect absolute paths by walking for path patterns starting with /
 	// We look for Child or RootPath nodes that build /data/... paths
 	function walkPaths(node: SyntaxNode) {
+		// current() retains the evaluating question's context inside predicates.
+		// Query-row attributes are real dependencies, even though they are not
+		// authored questions. Resolve the parsed path, never its printed text.
+		const currentPath =
+			originPath === undefined
+				? undefined
+				: resolveCurrentPath(node, expr, originPath);
+		if (currentPath?.startsWith("/data/")) refs.add(currentPath);
 		// Try to build a full path from this node
 		const path = tryBuildPath(node, expr);
 		if (path?.startsWith("/data/")) {
@@ -68,6 +76,34 @@ export function extractPathRefs(expr: string): string[] {
 
 	walkPaths(tree.topNode);
 	return Array.from(refs);
+}
+
+function resolveCurrentPath(
+	node: SyntaxNode,
+	source: string,
+	origin: string,
+): string | undefined {
+	if (node.name === "Invoke") {
+		const name = node.getChild("FunctionName");
+		return name && source.slice(name.from, name.to) === "current"
+			? origin
+			: undefined;
+	}
+	if (!T.Children.has(node.type)) return undefined;
+	const left = node.firstChild;
+	const right = node.lastChild;
+	if (!left || !right || left === right) return undefined;
+	const base = resolveCurrentPath(left, source, origin);
+	if (base === undefined) return undefined;
+	if (right.name === "ParentStep") return base.slice(0, base.lastIndexOf("/"));
+	if (right.name === "SelfStep") return base;
+	if (right.type === T.NameTest)
+		return `${base}/${source.slice(right.from, right.to)}`;
+	if (right.name === "AttrSpecified") {
+		const name = right.getChild("NameTest");
+		if (name) return `${base}/@${source.slice(name.from, name.to)}`;
+	}
+	return undefined;
 }
 
 /** Try to build a path string from a node that represents a path expression. */

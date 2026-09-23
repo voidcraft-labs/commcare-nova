@@ -21,92 +21,157 @@ import {
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
+const initialization = new URLSearchParams(window.location.search).has(
+	"initialization",
+);
 const doc = admittedControllerDoc(
-	buildDoc({
-		appId: "native-repeats",
-		modules: [
-			{
-				name: "Patients",
-				forms: [
+	initialization
+		? buildDoc({
+				appId: "native-repeat-initialization",
+				modules: [
 					{
-						name: "Visit",
-						type: "survey",
-						fields: [
-							f({ kind: "hidden", id: "audit", calculate: xp("1") }),
-							...["first", "second"].map((id) =>
-								f({
-									kind: "group",
-									id,
-									label: proseText("Visit"),
-									children: [
-										f({
-											kind: "image",
-											id: "photo",
-											label: proseText("Photo"),
-										}),
-									],
-								}),
-							),
-							f({
-								kind: "repeat",
-								id: "visits",
-								repeat_mode: "user_controlled",
-								label: proseText("Visits"),
-								children: [
-									f({ kind: "hidden", id: "computed", calculate: xp("1") }),
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
 									f({
 										kind: "text",
-										id: "extra",
-										label: proseText("Extra detail"),
-										relevant: xp("/data/visits/size > 1"),
+										id: "zone",
+										label: proseText("New visit zone"),
+										default_value: "'north'",
 									}),
 									f({
-										kind: "text",
-										id: "patient",
-										label: proseText("Related patient case id"),
-									}),
-									f({
-										kind: "int",
-										id: "size",
-										label: proseText("Household size"),
-									}),
-									f({
-										kind: "date",
-										id: "date",
-										label: proseText("Visit date"),
-									}),
-									...(["single_select", "multi_select"] as const).map(
-										(kind, index) =>
+										kind: "repeat",
+										id: "visits",
+										label: proseText("Visits"),
+										repeat_mode: "user_controlled",
+										children: [
 											f({
-												kind,
-												id: `choice_${index}`,
-												label: proseText(
-													index === 0 ? "Visit outcome" : "Symptoms observed",
-												),
-												optionsSource: {
-													kind: "inline",
-													options: ["First", "Second"].map((label, option) => ({
-														uuid: testUuid(`repeat-${kind}-${option}`),
-														value: label.toLowerCase(),
-														label: proseText(label),
-													})),
-												},
+												kind: "hidden",
+												id: "zone",
+												default_value: "#form/zone",
 											}),
-									),
-									f({
-										kind: "geopoint",
-										id: "location",
-										label: proseText("Visit location"),
+											f({
+												kind: "repeat",
+												id: "assets",
+												label: proseText("Assets"),
+												repeat_mode: "query_bound",
+												data_source: {
+													ids_query:
+														"if(#form/visits/zone = 'north', 'pump tap', 'tank')",
+												},
+												children: [
+													f({
+														kind: "text",
+														id: "note",
+														label: proseText("Asset note"),
+														default_value: "current()/../@id",
+													}),
+												],
+											}),
+										],
 									}),
-									f({ kind: "image", id: "photo", label: proseText("Photo") }),
 								],
-							}),
+							},
 						],
 					},
 				],
-			},
-		],
-	}),
+			})
+		: buildDoc({
+				appId: "native-repeats",
+				modules: [
+					{
+						name: "Patients",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({ kind: "hidden", id: "audit", calculate: xp("1") }),
+									...["first", "second"].map((id) =>
+										f({
+											kind: "group",
+											id,
+											label: proseText("Visit"),
+											children: [
+												f({
+													kind: "image",
+													id: "photo",
+													label: proseText("Photo"),
+												}),
+											],
+										}),
+									),
+									f({
+										kind: "repeat",
+										id: "visits",
+										repeat_mode: "user_controlled",
+										label: proseText("Visits"),
+										children: [
+											f({ kind: "hidden", id: "computed", calculate: xp("1") }),
+											f({
+												kind: "text",
+												id: "extra",
+												label: proseText("Extra detail"),
+												relevant: xp("/data/visits/size > 1"),
+											}),
+											f({
+												kind: "text",
+												id: "patient",
+												label: proseText("Related patient case id"),
+											}),
+											f({
+												kind: "int",
+												id: "size",
+												label: proseText("Household size"),
+											}),
+											f({
+												kind: "date",
+												id: "date",
+												label: proseText("Visit date"),
+											}),
+											...(["single_select", "multi_select"] as const).map(
+												(kind, index) =>
+													f({
+														kind,
+														id: `choice_${index}`,
+														label: proseText(
+															index === 0
+																? "Visit outcome"
+																: "Symptoms observed",
+														),
+														optionsSource: {
+															kind: "inline",
+															options: ["First", "Second"].map(
+																(label, option) => ({
+																	uuid: testUuid(`repeat-${kind}-${option}`),
+																	value: label.toLowerCase(),
+																	label: proseText(label),
+																}),
+															),
+														},
+													}),
+											),
+											f({
+												kind: "geopoint",
+												id: "location",
+												label: proseText("Visit location"),
+											}),
+											f({
+												kind: "image",
+												id: "photo",
+												label: proseText("Photo"),
+											}),
+										],
+									}),
+								],
+							},
+						],
+					},
+				],
+			}),
 );
 const moduleUuid = doc.moduleOrder[0];
 const formUuid = doc.formOrder[moduleUuid][0];

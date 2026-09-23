@@ -83,6 +83,37 @@ public class ContainerRuntimeTest {
    assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,confirm(parsed,"/data/self_check","no"));
   }
  }
+ @Test public void initializationActionsApplyRelevanceBeforeSnapshots()throws Exception {
+  FormParseInit parsed=load("init-relevance",false);FormDef form=parsed.getFormDef();enter(parsed,false);
+  assertEquals(0.0,eval(form,"count(/data/assets/item)"));
+  parsed=load("init-relevance-add",false);form=parsed.getFormDef();enter(parsed,true);
+  assertEquals(0.0,eval(form,"count(/data/visits[1]/assets/item)"));
+  answer(form,"/data/enabled","yes");enter(parsed,true);
+  assertEquals(0.0,eval(form,"count(/data/visits[1]/assets/item)"));
+  assertEquals(2.0,eval(form,"count(/data/visits[2]/assets/item)"));
+  assertEquals("",eval(form,"string(/data/visits[1]/derived)"));
+  assertEquals("north",eval(form,"string(/data/visits[2]/derived)"));
+ }
+ @Test public void initializationSnapshotsRetainTheirEnclosingRow()throws Exception {
+  for(String scenario:new String[]{"init-named","init-raw"}) {
+   FormParseInit parsed=load(scenario,false);FormDef form=parsed.getFormDef();enter(parsed,false);
+   assertEquals("pump tap",eval(form,"join(' ', /data/assets/item/row_id)"));
+   assertEquals("pump_task",eval(form,"string(/data/assets/item[1]/tasks/item/task_id)"));
+   assertEquals(0.0,eval(form,"count(/data/assets/item[2]/tasks/item)"));
+   assertEquals(2.0,eval(form,"count(/data/assets/item[1]/details/checks)"));
+   assertEquals(0.0,eval(form,"count(/data/assets/item[2]/details/checks)"));
+  }
+ }
+ @Test public void addingAnOuterRowKeepsOldSnapshotsAndAnswers()throws Exception {
+  FormParseInit parsed=load("init-add",false);FormDef form=parsed.getFormDef();enter(parsed,true);
+  assertEquals("pump tap",eval(form,"join(' ', /data/visits[1]/assets/item/row_id)"));
+  answer(form,"/data/visits[1]/assets/item[2]/note","Retain this answer");
+  answer(form,"/data/zone","south");enter(parsed,true);
+  assertEquals(2.0,eval(form,"count(/data/visits)"));
+  assertEquals("pump tap",eval(form,"join(' ', /data/visits[1]/assets/item/row_id)"));
+  assertEquals("Retain this answer",eval(form,"string(/data/visits[1]/assets/item[2]/note)"));
+  assertEquals("tank",eval(form,"string(/data/visits[2]/assets/item/row_id)"));
+ }
  @Test public void groupMetadataAndDescendantsSurviveNativeParsing()throws Exception{
   for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"titled","untitled","empty","transparent","labelled","nested","registration"}){
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();

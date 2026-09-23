@@ -1,3 +1,4 @@
+import { repeatCountSnapshotName } from "./repeatCountSnapshot";
 /**
  * XForm XML emitter.
  *
@@ -1809,11 +1810,10 @@ function buildRepeatBody(
 		const snapshotData = insideRepeat ? scopeDataElements : topDataElements;
 		const snapshotBinds = insideRepeat ? binds : topBinds;
 		const snapshotParent = insideRepeat ? nodePath.parent() : FormPath.root();
-		const countNodeBase = `${RESERVED_XFORM_NODE_PREFIX}count_${field.id}`;
-		let countNodeName = countNodeBase;
-		for (let n = 1; snapshotData.some((e) => e.name === countNodeName); n++) {
-			countNodeName = `${countNodeBase}_${n}`;
-		}
+		const countNodeName = repeatCountSnapshotName(
+			field.id,
+			new Set(snapshotData.map((e) => e.name)),
+		);
 		const countNodeXPath = snapshotParent.child(countNodeName).toXPath();
 		snapshotData.push(el(countNodeName, {}));
 		snapshotBinds.push(
