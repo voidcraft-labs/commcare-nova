@@ -58,7 +58,7 @@ unchanged; this does not establish the underlying cause or lasting resolution.
 
 ## Initial design trials already run
 
-Four requests entered the normal initial architect/peer process. The lengthy
+The following requests entered the normal initial architect/peer process. The lengthy
 delivered-app repair was separate edit work; it must not obscure these outcomes.
 
 | Request | Result and evidence limit |
@@ -237,10 +237,14 @@ its release from cost alone.
   controlled browser/controller checks, including the queued-rebuild race found
   during review. The unchanged generated app now allows the coordinator to
   choose a different participant from Home and inspect retained history.
-- [ ] Establish broader first-delivery quality beyond the bounded successes.
-  Required workflows were still omitted in completed trials, and review missed
-  consequential first-use and requirement gaps. Continue within the authorized
-  $150 combined ceiling; preserve each interrupted or failed result.
+- [x] Extend first-delivery evidence with a request that did not shape the fixes.
+  The fresh role-gated related-record trial completed without expert repair
+  prompts or app edits. Ordinary entry, cross-role retries, retained history,
+  stopping future work without closing records, Postgres effects and the exact
+  native export passed the requested principal journey. The document-led pair
+  supplies the materially different request. This completes the bounded
+  evaluation requirement, not a claim of universal first-delivery reliability.
+  Earlier omitted workflows and first-use failures remain failed results.
 - [x] Correct standard metadata reads in forms (PR #680). Shared form admission
   omitted implicit values and form consumers misread attribute metadata. Exact
   native export and Preview checks cover selected and parent records. Independent
@@ -256,10 +260,13 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Release the reviewed all-role model change. Runtime dependencies #686
+- [x] Release the reviewed all-role model change. Runtime dependencies #686
   and #688 are deployed. The
   completed comparison supports proceeding with GPT-6 Sol and Luna at existing
-  efforts; final rebase, review, CI and live verification remain. All callers,
+  efforts. Final rebase and independent review are complete; required CI passed
+  after an unchanged database shard rerun. PR #671 is merged as c512a838;
+  Cloud Build 781e3fe8 succeeded and its exact image is verified at production
+  revision 00567-jvx serving all traffic. All callers,
   including extraction, translation and offline scripts, move together. The
   research report retains concrete benefits, regressions, costs and boundaries.
   Sparse trials do not rank general intelligence.
@@ -279,6 +286,23 @@ its release from cost alone.
   not reproduce discovery loss. No production fix is claimed from that probe.
 - [x] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
   limits. Native execution and local HQ regeneration do not establish them.
+
+## Quality risks retained after the bounded evaluation
+
+The fresh output still had a misleading hint about which workers could see prior
+notes, a long history label and raw outcome words in record names. Its requested
+coordinator history and principal worker tasks worked. Do not relabel these as
+fully polished output, fix the evaluated app after the fact, or turn them into an
+app-specific prompt checklist. Further improvements should compare authored
+wording with the worker journeys agents can already inspect.
+
+Review still sometimes discovers closely related edge cases in successive
+passes. Retained independent evidence is implemented and used; optimal review
+cost and consistent success on unfamiliar complex requests are not established.
+The bounded comparison supports a release decision, not a certification of all
+future generated apps. Keep these risks visible when planning subsequent quality
+work. Physical-device, offline-sync and remote deployment limits remain stated
+in the research report; unavailable real deployment assignments remain setup.
 
 ## Evaluation and delivery rules
 
