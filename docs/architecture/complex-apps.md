@@ -2602,7 +2602,7 @@ at both shared mutation gates. Ordinary list destinations retain manual values.
 Preview record expressions evaluate `today()` in the browser-supplied, validated
 IANA timezone, using UTC only when no valid viewer zone is available. PostgreSQL's
 connection timezone cannot choose the worker's calendar day. Form evaluation and
-CommCare Core's `XPathTodayFunc::evalRaw` / `DateUtils::roundDate` use the local
+CommCare Core's `XPathTodayFunc::evalBody` / `DateUtils::roundDate` use the local
 calendar. Isolated app journeys run their form workers, record queries and
 submission expressions in the evaluator's process timezone and include that
 clock in observations. This is not a geographic timezone inferred from a place.
