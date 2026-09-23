@@ -24,7 +24,15 @@ reading, not the browser upload interaction. Artifacts retain the original,
 extract, requests, responses, reasoning summaries, plan revisions, final app,
 question answers, and usage. They are private and must not be committed.
 
-The runner allows 400 transport requests and 30 minutes per invocation, with a
+`scripts/evaluate-editor.ts` separately exercises the production ordinary editor
+factory and its history projection against a fresh app prepared by shared tools.
+It retains the production step bound, run lease, usage settlement and model
+callbacks. A dry run verifies fixture setup without spending. Paid edits share
+the same ledger, with a $5 per-edit ceiling and a $1 reservation per bounded Luna
+request. This is an edit-role comparison, not evidence of initial delivery or
+browser chat transport behavior.
+
+The build runner allows 400 transport requests and 30 minutes per invocation, with a
 $30 trial ceiling carried across clarification resumes. A shared locked ledger
 enforces the separately authorized combined ceiling before dispatch, including
 retries and uncertain charges. Explicit production output ceilings pass through;
