@@ -4,65 +4,83 @@ import { expect, test } from "../../lib/fixtures";
 import { selectedRow } from "../../lib/preview-selected-entry-boundary";
 import type {} from "../../lib/preview-selected-entry-client";
 
-test("Selected record arrives before one-time query rows are initialized", async ({
-	page,
-}) => {
-	const peer = await selectedEntryPeer();
-	let release: () => void = () => {};
-	let selected = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	let replies = 0;
-	await page.route(`${peer.origin}/selected-record`, async (route) => {
-		await selected;
-		await route.fulfill({
-			json: { kind: "row", row: selectedRow, ancestors: [] },
-		});
-		replies++;
-	});
-	try {
-		await Promise.all([
-			page.waitForRequest(`${peer.origin}/selected-record`),
-			page.goto(peer.origin),
-		]);
-		await expect(
-			page.getByRole("button", { name: "Submit", exact: true }),
-		).toBeDisabled();
-		release();
-		const note = page.getByRole("textbox", { name: /Inspection note/ });
-		await expect(note).toHaveCount(1);
-		await expect(note).toHaveValue("selected-room");
-		await expect(page.getByRole("textbox", { name: /Room name/ })).toHaveValue(
-			"Store room",
-		);
-		await note.fill("Checked the shelves");
-		await expect(note).toHaveValue("Checked the shelves");
-		selected = new Promise<void>((resolve) => {
+for (const mode of ["preview", "edit"]) {
+	test(`Selected record arrives before one-time query rows are initialized from ${mode}`, async ({
+		page,
+	}) => {
+		page.setDefaultTimeout(15_000);
+		const peer = await selectedEntryPeer();
+		let release: () => void = () => {};
+		let selected = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		await Promise.all([
-			page.waitForRequest(`${peer.origin}/selected-record`),
-			page.getByRole("button", { name: "Refresh record", exact: true }).click(),
-		]);
-		await expect(note).toHaveValue("Checked the shelves");
-		release();
-		await expect.poll(() => replies).toBe(2);
-		await expect(note).toHaveValue("Checked the shelves");
-
-		await expect(
-			page.getByRole("button", { name: "Submit", exact: true }),
-		).toBeEnabled();
-	} finally {
-		release();
+		let replies = 0;
+		await page.route(`${peer.origin}/selected-record`, async (route) => {
+			await selected;
+			await route.fulfill({
+				json: { kind: "row", row: selectedRow, ancestors: [] },
+			});
+			replies++;
+		});
 		try {
-			if (!page.isClosed())
-				await page.evaluate(() => window.selectedEntryAudit?.dispose());
+			await Promise.all([
+				page.waitForRequest(`${peer.origin}/selected-record`),
+				page.goto(`${peer.origin}/?entry=${mode}`),
+			]);
+			if (mode === "edit")
+				await page
+					.getByRole("button", { name: "Start Preview", exact: true })
+					.click();
+			await expect(
+				page.getByRole("button", { name: "Submit", exact: true }),
+			).toBeDisabled();
+			release();
+			const note = page.getByRole("textbox", { name: /Inspection note/ });
+			await expect(note).toHaveCount(1);
+			await expect(note).toHaveValue("selected-room");
+			await expect(
+				page.getByRole("textbox", { name: /Room name/ }),
+			).toHaveValue("Store room");
+			await note.fill("Checked the shelves");
+			await expect(note).toHaveValue("Checked the shelves");
+			selected = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			await Promise.all([
+				page.waitForRequest(`${peer.origin}/selected-record`),
+				page
+					.getByRole("button", { name: "Refresh record", exact: true })
+					.click(),
+			]);
+			await expect(note).toHaveValue("Checked the shelves");
+			release();
+			await expect.poll(() => replies).toBe(2);
+			await expect(note).toHaveValue("Checked the shelves");
+
+			await expect(
+				page.getByRole("button", { name: "Submit", exact: true }),
+			).toBeEnabled();
+			if (mode === "edit") {
+				await page
+					.getByRole("button", { name: "Edit form", exact: true })
+					.click();
+				await page
+					.getByRole("button", { name: "Start Preview", exact: true })
+					.click();
+				await expect(note).toHaveValue("Checked the shelves");
+			}
 		} finally {
-			await page.close();
-			await peer.close();
+			release();
+			try {
+				if (!page.isClosed())
+					await page.evaluate(() => window.selectedEntryAudit?.dispose());
+			} finally {
+				await page.close();
+				await peer.close();
+			}
 		}
-	}
-});
+	});
+}
 
 async function selectedEntryPeer() {
 	const boundary = resolve("e2e/lib/preview-selected-entry-boundary.ts");
@@ -79,6 +97,7 @@ for (const entry of ["blank", "empty"]) {
 	test(`No pending form initialization for ${entry} record selection`, async ({
 		page,
 	}) => {
+		page.setDefaultTimeout(15_000);
 		const peer = await selectedEntryPeer();
 		try {
 			await page.goto(`${peer.origin}/?entry=${entry}`);

@@ -1118,3 +1118,9 @@ atomic topology barrier. Later input cannot interrupt a partially created row.
 matching form export. The casedb projection includes external ID as both its
 attribute and copied child, as Core does. Its opening/modification DateData values
 remain calendar dates in expressions, even though Postgres stores timestamps.
+
+A case-loading form opened in Edit also defers its first engine activation until
+the selected record and ancestors are ready. The authoring canvas remains
+available without a running entry; entering Preview supplies its selected record
+before one-time defaults or query membership run. Returning to Edit from an
+already initialized Preview retains that entry and its answers.

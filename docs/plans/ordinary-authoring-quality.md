@@ -121,6 +121,14 @@ disposable in its handoff. These are bounded results, not unqualified acceptance
 
 ## Current evaluation and remaining work
 
+Final model-release CI exposed another entry path: opening a case-loading form
+in Edit could initialize its query rows before Preview supplied the selected
+record. A controlled browser check reproduces the empty roster after the read
+arrives. The correction defers that first activation in either mode and preserves
+an already initialized entry through later Edit/Preview flips. Review, production
+browser evidence and release remain pending; no paid rerun or generated-app
+repair was used to bypass this runtime defect.
+
 The final development comparison exposed another browser boundary: an
 unsectioned query roster initialized before its selected record loaded, then
 retained an empty snapshot. Ordinary Preview submitted a session without the
