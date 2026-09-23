@@ -3449,7 +3449,7 @@ describe("form_links emission", () => {
 		expect(intake.form_links).toEqual([
 			{
 				xpath: lowerXPathForJavaRosa(
-					"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status) = 'open'",
+					"normalize-space(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status) = 'open'",
 				),
 				form_id: followup.unique_id,
 				form_module_id: module.unique_id,

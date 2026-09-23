@@ -367,10 +367,9 @@ describe("multi-select absolute validation", () => {
 				},
 			],
 		});
-		expect(codes(doc)).toEqual([
-			"MULTI_SELECT_SHARED_CASE_EXPRESSION",
-			"INVALID_CASE_REF",
-		]);
+		// Case name exists implicitly; shared expressions still cannot choose
+		// one record from a multi-selection.
+		expect(codes(doc)).toEqual(["MULTI_SELECT_SHARED_CASE_EXPRESSION"]);
 		const field = Object.values(doc.fields)[0];
 		if (field.kind !== "text") throw new Error("Fixture requires a text field");
 		delete field.default_value;
