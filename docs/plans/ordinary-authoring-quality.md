@@ -162,11 +162,17 @@ its release from cost alone.
   `docs/research/query-repeat-authoring-context.md`, keeping this work separate
   from any claim of autonomous success. Implement initialization actions in their
   actual scope/order, preserve existing snapshots during insertion, account for
-  calculation dependencies and late preloads, and connect row materialization to
-  production entry behavior. Cover sync/worker/reset/rebuild and browser entry;
-  prove earlier/later defaults, triggered/standalone calculations, parent row
-  identities and answer-before-nested-entry against independent Core execution.
-  Do not substitute an all-defaults-first pass or whole-form reinitialization.
+  calculation dependencies and late preloads. Cover sync/worker/reset/rebuild and
+  browser Add; prove earlier/later defaults, triggered/standalone calculations and
+  parent row identities against independent Core execution. Do not substitute an
+  all-defaults-first pass or whole-form reinitialization.
+- [ ] Resolve the separate section-entry timing boundary. Unsectioned Preview
+  and Core have different screen grouping, but authored root sections are shared
+  page boundaries. Compare two authored sections using Core field-list prompt
+  collection and actual Preview Next: an answer on the first page must precede
+  creation of a nested bound row on the second. Decide the correction from that
+  observation; do not assume a wholesale navigation rewrite or claim universal
+  nested-entry parity from initial full-form traversal.
 - [ ] Investigate why the architect abandoned an available uniqueness check and
   whether useful form-record query knowledge is missing from focused guidance.
   Improve the general authoring interface, then use a bounded fresh task to
