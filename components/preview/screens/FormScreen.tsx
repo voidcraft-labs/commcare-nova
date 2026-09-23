@@ -1002,6 +1002,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, mutation, isCurrent, settleAttempt } = args;
+		/* Forget page memory only when this completed entry actually leaves.
+		 * The next engine resolves its first visible page from fresh answers;
+		 * choosing a page now would use the submitted entry's conditionality. */
+		const forgetCompletedPages = (destinationFormUuid?: Uuid): void => {
+			if (submitted.formUuid !== undefined) {
+				session.getState().forgetActiveSection(submitted.formUuid);
+			}
+			if (destinationFormUuid !== undefined) {
+				session.getState().forgetActiveSection(destinationFormUuid);
+			}
+		};
 		let announced = false;
 		const announceWrite = (): void => {
 			if (announced) return;
@@ -1034,6 +1045,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			setPreviewSelectedCase(undefined);
 			setPreviewCaseTarget(undefined);
 			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
 			navigate.openCaseList(moduleUuid);
 		};
 		const submittedForm =
@@ -1058,6 +1070,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				setPreviewCaseTarget(undefined);
 				session.getState().setPreviewParentCaseRequest(undefined);
 				settleAttempt({ kind: "idle" });
+				forgetCompletedPages();
 				dispatchPostSubmit("app_home", noMatchesRegistration.moduleUuid);
 				return;
 			}
@@ -1075,6 +1088,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		) {
 			announceWrite();
 			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
 			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 			return;
 		}
@@ -1384,14 +1398,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			switch (route.kind) {
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
 					dispatchPostSubmit(route.destination, submitted.moduleUuid);
 					return;
 				case "module":
 					applyCaseSelections();
 					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
 					openModuleLanding(navigate, route.moduleUuid, route.landing);
 					return;
 				case "form":
+					forgetCompletedPages(route.formUuid);
 					applyCaseSelections();
 					/* The target's case binding is rewritten BEFORE the push, so
 					 * the form mounts already bound (or already bound to nothing)

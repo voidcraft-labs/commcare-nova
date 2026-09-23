@@ -692,6 +692,8 @@ export interface BuilderSessionState {
 
 	/** Remember which page a sectioned form is open on. */
 	setActiveSection: (formUuid: string, sectionUuid: string) => void;
+	/** A completed entry must not choose the page of the next entry. */
+	forgetActiveSection: (formUuid: string) => void;
 
 	/** Imperative reader for the remembered page (no subscription), for the
 	 *  edit canvas's one-time `initialOffset` computation. The preview
@@ -1593,6 +1595,15 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								[formUuid]: sectionUuid,
 							},
 						};
+					});
+				},
+
+				forgetActiveSection(formUuid: string) {
+					set((s) => {
+						if (!(formUuid in s.activeSectionByForm)) return s;
+						const activeSectionByForm = { ...s.activeSectionByForm };
+						delete activeSectionByForm[formUuid];
+						return { activeSectionByForm };
 					});
 				},
 

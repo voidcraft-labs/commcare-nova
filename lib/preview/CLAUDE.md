@@ -1057,3 +1057,8 @@ input identity stable as conditional siblings appear or disappear.
 
 The running home screen shows authored module names. Internal case-type badges
 belong only to edit mode; they are not worker instructions or record labels.
+
+Successful post-submit navigation forgets section memory for the completed form
+and an immediately linked destination form. The fresh entry chooses its first
+visible section from fresh answers; failed submissions and edit/Preview flips
+keep their page.

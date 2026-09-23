@@ -3052,6 +3052,25 @@ test.describe("authenticated builder", () => {
 				const trail = page.getByRole("navigation", { name: "Page navigation" });
 				await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 				await expect(trail).toContainText(followUp.formName);
+				await main.getByRole("button", { name: "Next", exact: true }).click();
+				await expect(
+					main.getByRole("heading", { name: "Follow-up review", exact: true }),
+				).toBeVisible();
+				// Visit the source again without reloading the Builder session. The
+				// linked destination has remembered its last page from this visit.
+				await trail
+					.getByRole("button", { name: "Go back", exact: true })
+					.click();
+				await main
+					.getByRole("textbox", { name: visit.noteFieldLabel })
+					.fill(FORM_LINKS_SEED.linkingNote);
+				await main.getByRole("button", { name: "Submit", exact: true }).click();
+				await expect(
+					main.getByRole("textbox", { name: followUp.noteFieldLabel }),
+				).toBeVisible();
+				await expect(
+					main.getByRole("heading", { name: "Follow-up details", exact: true }),
+				).toBeVisible();
 			});
 		},
 	);
@@ -3316,6 +3335,32 @@ test.describe("authenticated builder", () => {
 			await expect(
 				main.getByText("Section 1 of 2", { exact: true }),
 			).toBeVisible({ timeout: 20_000 });
+		});
+		await test.step("a completed entry restarts at the first page using fresh answers", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await next.click();
+			const note = main.getByRole("textbox", { name: yourVisit.noteLabel });
+			await note.fill("invalid");
+			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await expect(note).toBeFocused();
+			await expect(step("Section 2 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			// The submitted answers hide page one. Resetting to the old entry's
+			// first visible page would incorrectly remember page two again.
+			await note.fill("skip intro");
+			await expect(stepper.getByRole("button")).toHaveCount(1);
+			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await main
+				.getByRole("button", { name: FORM_SECTIONS_SEED.formName, exact: true })
+				.click();
+			await expect(step("Section 1 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			await expect(nameField).toHaveValue("");
+			await expect(next).toBeVisible();
 		});
 	});
 
