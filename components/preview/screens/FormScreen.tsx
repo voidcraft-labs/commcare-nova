@@ -647,12 +647,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		return undefined;
 	}, [severalCaseForm, carriedCaseData, settledCase, autoRow, reachableChain]);
 
-	const needsBoundCase =
-		mode === "preview" &&
-		form !== undefined &&
-		CASE_LOADING_FORM_TYPES.has(form.type);
+	const requiresCaseBinding =
+		form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
+	const needsBoundCase = mode === "preview" && requiresCaseBinding;
+	// Edit uses this same engine. It must not capture one-time defaults or query
+	// membership before Preview selects a record; the canvas can render without
+	// an active entry. Returning to Edit retains an already initialized entry.
 	const caseBindingReady =
-		!needsBoundCase ||
+		!requiresCaseBinding ||
 		(severalCaseForm &&
 			(effectiveCaseIds?.length ?? 0) > 0 &&
 			!caseBindingReplaced) ||

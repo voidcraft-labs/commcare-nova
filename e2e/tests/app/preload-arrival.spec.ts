@@ -1,6 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 
-test("a selected-record form waits for its raw preload before showing defaults", {
+test("Preview opened from Edit waits for its raw preload before showing defaults", {
 	tag: "@seed:workspace",
 }, async ({ page, scenario }) => {
 	page.setDefaultTimeout(15_000);

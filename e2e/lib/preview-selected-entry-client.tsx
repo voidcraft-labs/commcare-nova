@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
+import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { __resetAttachmentCoordinatorForTests } from "@/components/preview/form/fields/attachment/attachmentClient";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
@@ -82,7 +84,7 @@ const session = createBuilderSessionStore({
 	role: "editor",
 	canEdit: true,
 });
-session.getState().setPreviewing(true);
+session.getState().setPreviewing(entryMode !== "edit");
 let controller: EngineController | undefined;
 function Capture() {
 	const c = useBuilderFormEngine();
@@ -102,36 +104,59 @@ pushBuilderHistory(`/build/${doc.appId}/${moduleUuid}/${formUuid}`);
 root.render(
 	<BuilderSessionContext value={session}>
 		<BlueprintDocContext value={store}>
-			<BuilderLocalizationProvider>
-				<BuilderFormEngineProvider>
-					<PreviewCaseDatabaseProvider>
-						<Capture />
-						<button
-							type="button"
-							onClick={async () => {
-								await controller?.awaitSettled();
-								invalidateCaseData(doc.appId, "room");
-							}}
-						>
-							Refresh record
-						</button>
-						<FormScreen
-							screen={{
-								type: "form",
-								moduleUuid,
-								formUuid,
-								cases:
-									entryMode === "blank"
-										? []
-										: entryMode === "empty"
-											? undefined
-											: [{ caseId: "selected-room" }],
-							}}
-							onBack={() => {}}
-						/>
-					</PreviewCaseDatabaseProvider>
-				</BuilderFormEngineProvider>
-			</BuilderLocalizationProvider>
+			<ScrollRegistryProvider>
+				<EditGuardProvider>
+					<BuilderLocalizationProvider>
+						<BuilderFormEngineProvider>
+							<PreviewCaseDatabaseProvider>
+								<Capture />
+								{entryMode === "edit" ? (
+									<>
+										<button
+											type="button"
+											onClick={() => session.getState().setPreviewing(false)}
+										>
+											Edit form
+										</button>
+										<button
+											type="button"
+											onClick={async () => {
+												await controller?.awaitSettled();
+												session.getState().setPreviewing(true);
+											}}
+										>
+											Start Preview
+										</button>
+									</>
+								) : null}
+								<button
+									type="button"
+									onClick={async () => {
+										await controller?.awaitSettled();
+										invalidateCaseData(doc.appId, "room");
+									}}
+								>
+									Refresh record
+								</button>
+								<FormScreen
+									screen={{
+										type: "form",
+										moduleUuid,
+										formUuid,
+										cases:
+											entryMode === "blank"
+												? []
+												: entryMode === "empty"
+													? undefined
+													: [{ caseId: "selected-room" }],
+									}}
+									onBack={() => {}}
+								/>
+							</PreviewCaseDatabaseProvider>
+						</BuilderFormEngineProvider>
+					</BuilderLocalizationProvider>
+				</EditGuardProvider>
+			</ScrollRegistryProvider>
 		</BlueprintDocContext>
 	</BuilderSessionContext>,
 );
