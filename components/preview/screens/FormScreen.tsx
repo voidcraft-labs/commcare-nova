@@ -2102,6 +2102,39 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		);
 	}
 
+	if (
+		needsBoundCase &&
+		!severalCaseForm &&
+		effectiveCaseId !== undefined &&
+		carriedCaseData === undefined &&
+		caseDataState.kind === "missing"
+	) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
+				<div role="status" className="max-w-xs space-y-2 text-center">
+					<h3 className="text-sm font-medium text-nova-text">
+						This record is no longer available
+					</h3>
+					<p className="text-sm text-nova-text-muted">
+						The record may have changed or moved out of this worker's access.
+						Another record can be selected to continue.
+					</p>
+				</div>
+				<button
+					type="button"
+					className={FORM_PRIMARY_ACTION_CLS}
+					onClick={() => {
+						setPreviewSelectedCase(undefined);
+						setPreviewCaseTarget({ formUuid });
+						navigate.replace({ kind: "cases", moduleUuid });
+					}}
+				>
+					Choose another record
+				</button>
+			</div>
+		);
+	}
+
 	/** A NAV-bound singular case-loading form hitting an auth or transport
 	 * failure must surface it. Multi-case forms deliberately have no scalar
 	 * preload, so only the one-case arm participates in this read guard. */
@@ -2434,9 +2467,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
 								? "A fresh form entry is ready."
-								: repeatTopologySettling
-									? "Answers are paused while this repeat updates."
-									: "Answers are locked while this submission finishes."}
+								: selectedCaseLoading
+									? "The selected record is loading. Answers will be available shortly."
+									: repeatTopologySettling
+										? "Answers are paused while this repeat updates."
+										: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

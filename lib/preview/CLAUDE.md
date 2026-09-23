@@ -114,6 +114,8 @@ rebuild the same entry, and confirmed scope changes still activate a new entry.
 A selected record must finish loading before a fresh entry accepts answers. The
 form remains visible, but its controls are inert until the binding and engine are
 ready; returning from a linked form must not expose a temporary blank preload.
+A missing selected record is a terminal unavailable state with a route back to
+record selection, never an indefinite loading or submission status.
 
 Every displayed prose slot contributes answer dependencies, including help,
 inline choice labels and validation messages. A question displaying its own

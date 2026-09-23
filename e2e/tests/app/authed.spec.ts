@@ -3115,6 +3115,51 @@ test.describe("authenticated builder", () => {
 					main.getByRole("heading", { name: "Follow-up details", exact: true }),
 				).toBeVisible();
 			});
+			await test.step("an unavailable selected record offers another selection", async () => {
+				// Obtain the missing-record response from the real authorized server
+				// read, using an absent ID at the network boundary. No fixture row
+				// or live data is deleted to exercise this terminal read result.
+				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
+					const request = route.request();
+					const body = request.postData();
+					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
+					if (
+						request.method() === "POST" &&
+						request.headers()["next-action"] &&
+						Array.isArray(args) &&
+						args[0] === fixture.appId &&
+						args[1] === FORM_LINKS_SEED.caseType &&
+						typeof args[2] === "string" &&
+						args[3] === 0
+					) {
+						args[2] = "missing-selected-record";
+						await route.fulfill({
+							response: await route.fetch({ postData: JSON.stringify(args) }),
+						});
+						return;
+					}
+					await route.continue();
+				});
+				try {
+					await page
+						.getByRole("navigation", { name: "Page navigation" })
+						.getByRole("button", { name: "Go back", exact: true })
+						.click();
+					await expect(
+						main.getByRole("heading", {
+							name: "This record is no longer available",
+						}),
+					).toBeVisible();
+				} finally {
+					await page.unrouteAll({ behavior: "wait" });
+				}
+				await main
+					.getByRole("button", { name: "Choose another record", exact: true })
+					.click();
+				await expect(
+					main.getByRole("list", { name: "Cases", exact: true }),
+				).toBeVisible();
+			});
 		},
 	);
 
