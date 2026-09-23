@@ -126,9 +126,26 @@ in Edit could initialize its query rows before Preview supplied the selected
 record. A controlled browser check reproduces the empty roster after the read
 arrives. The correction defers that first activation in either mode and preserves
 an already initialized entry through later Edit/Preview flips. The production
-browser/Postgres check and fresh independent review pass; CI and deployment
-remain pending; no paid rerun or generated-app
-repair was used to bypass this runtime defect.
+browser/Postgres check, fresh independent review and all 24 CI checks pass.
+PR #686 is deployed, with its exact artifact verified at revision 00565-8p7
+serving all traffic. No paid rerun or generated-app repair was used to bypass
+this runtime defect.
+
+A fresh role-gated related-record first-delivery trial completed on the reviewed
+model candidate in 198 calls for $2.8700952, without corrective prompts. Its
+request and criteria were frozen before calls and did not shape these fixes.
+Independent browser entry, failed-attempt retry across workers, coordinator
+coverage, stopped-recipient planning exclusion and retained history pass;
+Postgres and exact-export Core checks confirm the tested effects. The peer
+independently found a history dead end and list ergonomics problems, then reused
+earlier evidence while checking corrections. Minor language and driver-history
+limitations remain recorded. Browser inspection also found overlapping Builder
+header controls at 680px. PR #688 corrects the shared layout using rendered
+content widths and preserves control owners during resizing. Six production
+browser checks, an intrinsic-content browser check and manual Chrome pointer
+checks at 320/680px pass locally; the header returns to one row at 1440px. Fresh
+independent review found no actionable issues. CI and live deployment remain
+gates before closing cross-surface acceptance or releasing the model change.
 
 The final development comparison exposed another browser boundary: an
 unsectioned query roster initialized before its selected record loaded, then
@@ -238,7 +255,8 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Release the reviewed all-role model change after PR #686 is live. The
+- [ ] Release the reviewed all-role model change after PR #688 is live. PR #686
+  is already deployed. The
   completed comparison supports proceeding with GPT-6 Sol and Luna at existing
   efforts; final rebase, review, CI and live verification remain. All callers,
   including extraction, translation and offline scripts, move together. The
@@ -247,8 +265,8 @@ its release from cost alone.
 - [x] Correct trial accounting and enforce $150 TOTAL including prior trials,
   retries, extraction, translation and editing. PR #682 is reviewed, CI green
   and live verified. The original ledger and hash-checked conversion are retained.
-  Known usage after the final development pair is $82.76438324 plus the entire
-  unresolved $12.0060125 reservation, totaling $94.77039574. The previous
+  Known usage after the additional held-out trial is $85.63447844 plus the entire
+  unresolved $12.0060125 reservation, totaling $97.64049094. The previous
   blanket surcharge and premature budget stop remain documented mistakes.
 - [x] Complete the delivered-app acceptance report at its current revision.
   A final read-only refresh found no newer edits. Its repair was externally

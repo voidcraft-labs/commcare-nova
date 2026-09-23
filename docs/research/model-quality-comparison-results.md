@@ -293,9 +293,9 @@ selected record arrived and retain it in Preview. PR #686 requires that context
 for first initialization in either mode. The regression fails on the prior code
 and passes after correction, alongside the production-build/Postgres preload
 check and retained-answer checks through later Edit/Preview flips. Independent
-review found no actionable issues. Model release waits for this dependency's
-green CI and verified deployment; no generated app was edited or paid trial
-rerun to bypass it.
+review found no actionable issues. All 24 CI checks passed; the exact artifact
+is verified at production revision 00565-8p7 serving all traffic. No generated
+app was edited or paid trial rerun to bypass this runtime defect.
 
 | Full-roster metric | GPT-5.6 | GPT-6 |
 | --- | ---: | ---: |
@@ -317,6 +317,54 @@ date error. Credit that scrutiny separately from the architect's unresolved or
 removed requirements. Useful diagnosis can improve while first-delivery quality
 still falls short; neither unclear tooling nor candid disclosure makes a missing
 requested workflow pass.
+
+## Fresh held-out first delivery
+
+An additional role-gated related-record request was frozen before any calls and
+did not shape the implementation. GPT-6 completed the ordinary architect/peer
+process in 198 calls (89 architect, 109 peer), costing $2.8700952. No clarification
+was requested, no expert correction was supplied, and the delivered app was not
+edited for acceptance. This is an unpaired held-out check, not a replacement
+result for an earlier failed comparison.
+
+Independent ordinary browser entry began with no business records and used the
+three saved worker identities. Registration, per-recipient daily planning,
+required-answer and duplicate rejection, a failed attempt followed by another
+worker's successful retry, coordinator coverage, stopping new service and later
+history all passed. Actual Postgres rows retained separate attempts, original
+notes and worker identities, correct parent relationships and shared ownership.
+Stopped and completed business states did not close the cases. The exact export
+also passed independent Core constraints, preloads and case transactions, with
+explicit native session inputs confined to that separate consumer boundary.
+
+The peer independently found missing history navigation, crowded list columns,
+ambiguous dietary information and ownership requirements. After corrections, it
+reused earlier observations and checked changed behavior. One design review and
+three saved-app reviews were still required; the last checked wording. Five
+returned tool errors included first-save and unsaved-test prerequisites, a
+case-context display condition, an unsupported nested menu and an invented
+scenario key. The agents recovered through ordinary tool results without operator
+instructions. These are specific observations, not a hallucination-rate estimate.
+
+The current plan finished at 8,898 characters after peaking at 9,334. The run used
+10,527,492 input tokens including cache, 26,365 output tokens, 10,307,136 cache-read
+tokens and 208,612 cache-write tokens. The largest call input was 92,772 tokens.
+This retained context supported focused follow-up; it did not eliminate repeated
+review or establish optimal cost.
+
+The principal requested workflow is usable, with recorded limits: a long history
+label, raw outcome words in record names, and a note hint suggesting later-driver
+access that the authored driver menus do not establish. Coordinator history is
+available as requested. Browser inspection also found a shared Builder header
+overlap at 680px; keyboard selection worked, but pointer access did not. PR #688 corrects that
+shared layout. Controlled production-browser checks and manual pointer checks
+at 320/680px pass locally, with one-row layout restored at 1440px; independent
+review found no actionable issues. CI and deployment remain release gates. Physical
+device UI, offline concurrency and real worker provisioning remain unproved.
+
+After this trial, total reported usage is $85.63447844, with the original unresolved
+reservation of $12.0060125 retained. Accounting totals $97.64049094 against the
+$150 authorization, leaving $52.35950906. No further paid run is currently needed.
 
 ## Context and cost
 
@@ -393,7 +441,8 @@ does not establish universal reliability or a general model ranking.
 
 Proceed with GPT-6 Sol for architect, peer, document extraction and translation,
 and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, after
-PR #686 is live and the final model PR passes review and CI. Offline extraction
+the header pointer-access correction is verified and deployed and the final model
+PR passes review and CI. PR #686 is already live. Offline extraction
 and knowledge callers move to the corresponding GPT-6 models as well. This is a bounded product
 decision: the later comparisons cover usable ordinary entry and retained history,
 the document-led comparison covers source fidelity and language behavior, and
