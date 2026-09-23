@@ -35,7 +35,14 @@
  */
 "use client";
 import dynamic from "next/dynamic";
-import { Activity, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import {
+	Activity,
+	useDeferredValue,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+} from "react";
 import type { CaseListWorkspaceTab } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import type { DisplayConditionTarget } from "@/components/builder/conditions/useDisplayConditionCarrier";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -52,6 +59,7 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { previewCaseTargetBindsLocation } from "@/lib/routing/previewBreadcrumbs";
 import type { AppSetupSection } from "@/lib/routing/types";
 import {
+	useClearPreviewNavigation,
 	useEditMode,
 	usePreviewCaseTarget,
 	usePreviewParentCaseRequest,
@@ -192,6 +200,11 @@ export function PreviewShell() {
 			loc.moduleUuid === previewParentCaseRequest.selectingModuleUuid;
 		if (!atActiveSelector) setPreviewParentCaseRequest(undefined);
 	}, [loc, previewParentCaseRequest, setPreviewParentCaseRequest]);
+
+	const clearPreviewNavigation = useClearPreviewNavigation();
+	useLayoutEffect(() => {
+		if (mode === "preview" && loc.kind === "home") clearPreviewNavigation();
+	}, [mode, loc.kind, clearPreviewNavigation]);
 
 	const handleBack = navigate.back;
 

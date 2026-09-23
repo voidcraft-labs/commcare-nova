@@ -1998,6 +1998,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		clearRunning ||
 		engineInitializing ||
 		selectedCaseLoading ||
+		caseDatabaseWait !== undefined ||
 		repeatTopologySettling;
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
@@ -2077,7 +2078,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		);
 	}
 
-	if (mode === "preview" && caseDatabaseWait !== undefined) {
+	if (mode === "preview" && caseDatabaseWait !== undefined && !engineReady) {
 		const loadFailed = caseDatabaseWait.status === "error";
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
@@ -2497,11 +2498,15 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
 								? "A fresh form entry is ready."
-								: selectedCaseLoading
-									? "The selected record is loading. Answers will be available shortly."
-									: repeatTopologySettling
-										? "Answers are paused while this repeat updates."
-										: "Answers are locked while this submission finishes."}
+								: caseDatabaseWait !== undefined
+									? caseDatabaseWait.status === "error"
+										? "Case data could not refresh. Your answers are still here. Return to Edit to try Preview again."
+										: "Case data is refreshing. Your answers are still here."
+									: selectedCaseLoading
+										? "The selected record is loading. Answers will be available shortly."
+										: repeatTopologySettling
+											? "Answers are paused while this repeat updates."
+											: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

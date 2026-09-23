@@ -633,6 +633,9 @@ export interface BuilderSessionState {
 	 *  shallow-equal. */
 	setPreviewSelectedCase: (selected: PreviewSelectedCase | undefined) => void;
 
+	/** Home ends the running task, retaining worker identity and authorization. */
+	clearPreviewNavigation: () => void;
+
 	/** Set or clear one module menu's selected case. */
 	setPreviewMenuCaseSelection: (
 		moduleUuid: string,
@@ -1314,6 +1317,25 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						return;
 					}
 					set({ previewSelectedCase: selected });
+				},
+
+				clearPreviewNavigation() {
+					const current = get();
+					if (
+						current.previewCaseTarget === undefined &&
+						current.previewSelectedCase === undefined &&
+						current.previewParentCaseRequest === undefined &&
+						Object.keys(current.previewMenuCaseSelections).length === 0 &&
+						Object.keys(current.previewSearchStates).length === 0
+					)
+						return;
+					set({
+						previewCaseTarget: undefined,
+						previewSelectedCase: undefined,
+						previewParentCaseRequest: undefined,
+						previewMenuCaseSelections: {},
+						previewSearchStates: {},
+					});
 				},
 
 				setPreviewMenuCaseSelection(
