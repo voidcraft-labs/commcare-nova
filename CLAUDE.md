@@ -45,7 +45,7 @@ The two centers of gravity are the **domain vocabulary** and the **doc that inst
 
 ## Stack & commands
 
-Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 with `@ai-sdk/openai` direct to OpenAI's Responses API (`OPENAI_API_KEY`; GPT-5.6 Sol at `medium` effort for the build architect, peer, translation, and document extraction; Luna at `xhigh` for ordinary edit turns; model ids in `lib/models.ts`; every call stateless via `store: false`). Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand for builder state. Biome + Lefthook · Vitest.
+Next.js 16 (App Router, Turbopack) · TypeScript strict · Tailwind v4. Vercel AI SDK v7 with `@ai-sdk/openai` direct to OpenAI's Responses API (`OPENAI_API_KEY`; GPT-6 Sol at `medium` effort for the build architect, peer, translation, and document extraction; Luna at `xhigh` for ordinary edit turns; model ids in `lib/models.ts`; every call stateless via `store: false`). Better Auth. ONE Cloud SQL Postgres via Kysely (app state + case data + auth; Kysely's `Migrator` owns migrations; realtime fan-out via LISTEN/NOTIFY) · Cloud KMS · GCS (media). Zustand for builder state. Biome + Lefthook · Vitest.
 
 The browser does not run the `react` in `package.json`: Next's App Router aliases `react` and `react-dom` to the build it vendors under `node_modules/next/dist/compiled`, so production's React moves with `next`. Vitest and the Playwright component peers run the installed package. "Does production have this React feature?" is answered by reading the vendored build.
 

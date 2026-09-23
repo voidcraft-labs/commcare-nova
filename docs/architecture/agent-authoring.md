@@ -242,3 +242,18 @@ unvisited page or submit from an earlier one. Returning preserves existing rows.
 A one-shot form check follows supplied answer order and visits remaining pages;
 it is not a navigation acceptance result. Native checks remain necessary for
 question-by-question timing outside authored sections.
+## Model generation and saved context
+
+All production roles use GPT-6: Sol at medium effort for the architect, peer,
+document extraction and translation; Luna at xhigh for ordinary edits. The
+role map in `lib/models.ts` owns these choices. Extraction version 6 gives new
+requests a distinct cache key; previous extracts remain readable at their stored
+version. Usage retains the producing model and its recorded cost.
+
+Ordinary edit history uses Nova's conservative continuation policy: completed
+historical turns lose reasoning, while same-model trailing question continuations
+retain it. A model change converts that answered question round to dialogue.
+Durable build and peer histories retain reasoning and discard incompatible
+compaction checkpoints. This is local compatibility policy, not a claim that the
+provider rejects all reasoning across models. No model upgrade alone establishes
+first-delivery quality; the active evaluation plan records that evidence.

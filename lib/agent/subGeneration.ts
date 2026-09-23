@@ -7,8 +7,8 @@
  * to a `LanguageModel`; hoisting the call here, parameterized by the resolved
  * model, lets the same path run against ANY provider:
  *
- *   - production hands it the summarizer (GPT-5.6 Luna, via `GenerationContext`);
- *   - `scripts/preview-attachment-condense.ts` hands it Luna or Gemini, to
+ *   - production selects the documentExtractor role from `lib/models.ts`;
+ *   - `scripts/preview-attachment-condense.ts` can supply an explicitly selected model to
  *     compare condenser quality + cost on a real document WITHOUT paying for the
  *     Solutions Architect's tool loop.
  *

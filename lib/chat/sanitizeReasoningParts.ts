@@ -16,12 +16,13 @@
  *     items that preceded it ("'function_call' was provided without its
  *     required 'reasoning' item").
  *
- * Both rules bind the CURRENT tool loop — the items since the last user
- * message. Deeper history is exempt: OpenAI documents that prior-turn
- * reasoning items are "smartly ignored", so replaying them buys nothing,
- * bills their tokens as input every turn, and carries a third hazard —
- * encrypted reasoning is MODEL-BOUND ("The encrypted content could not be
- * verified"), so one model change would 400 every old thread forever.
+ * Nova conservatively preserves reasoning only for a same-model trailing
+ * continuation. This is a local replay policy, not a claim that current models
+ * always ignore prior-turn reasoning or reject every model change. OpenAI's
+ * current guide documents persisted reasoning across turns, reuse within a
+ * model family, and omission of incompatible reasoning across families:
+ * https://developers.openai.com/api/docs/guides/reasoning#preserve-reasoning-across-calls
+ * Durable build/peer histories preserve their own reasoning separately.
  *
  * The repair, applied AFTER `sanitizeHistoricalToolParts` (which may drop
  * tool parts and thereby change what pairing survives):
@@ -36,9 +37,8 @@
  *      matches the model running this turn (the route stamps the producing
  *      model on every assistant message via `messageMetadata`).
  *   3. A trailing pause whose model does NOT match (a deploy switched the SA
- *      model while a question round sat open, or the stamp is missing) is
- *      unreplayable both ways — its encrypted reasoning won't verify, and its
- *      function_call can't ride without that reasoning. The round is
+ *      model while a question round sat open, or the stamp is missing) uses
+ *      Nova's conservative cross-model fallback. The round is
  *      converted to TEXT: each answered `askQuestions` part renders as the
  *      questions-and-answers dialogue, every other tool part drops (the SA
  *      re-reads doc state through its read tools), reasoning drops. The SA

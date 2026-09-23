@@ -1,9 +1,6 @@
-// Unit tests for the chat route's reasoning-part wire contract. The class
-// under test: replayed reasoning items are model-bound encrypted blobs with
-// strict pairing rules, so a resumed thread's history must send them ONLY
-// where the wire requires them (a trailing answered-askQuestions round on
-// the same model) and never anywhere they could 400 the turn — including
-// after a deploy switches the SA model while a question round sits open.
+// Tests Nova's conservative editor replay policy: preserve same-model
+// continuations and render cross-model answered questions as dialogue. These
+// fixtures establish local projection behavior, not provider-family limits.
 
 import { convertToModelMessages, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
