@@ -334,6 +334,12 @@ interface InitializationRead {
 }
 
 export interface FormEngineRuntimeOptions {
+	/** A same-entry context/presentation rebuild, retaining row identity. */
+	readonly restoredEntry?: {
+		readonly checkpoint: FormEngineEntryCheckpoint;
+		readonly preserveAllValues: boolean;
+	};
+
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
@@ -544,6 +550,7 @@ export class FormEngine {
 	/** Render-only identities that survive positional compaction. */
 	private repeatInstanceKeys = new Map<string, string[]>();
 	private readonly asyncRuntime: boolean;
+	private restoredEntry: FormEngineRuntimeOptions["restoredEntry"];
 	private pendingSectionRepeats = new Map<
 		string,
 		RepeatInitializationSnapshot
@@ -590,6 +597,7 @@ export class FormEngine {
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.asyncRuntime = runtimeOptions.stagedAsync === true;
+		this.restoredEntry = runtimeOptions.restoredEntry;
 		this.presentationLanguage = input.language;
 
 		this.instance = new DataInstance(this.formRootAttributes);
@@ -598,6 +606,14 @@ export class FormEngine {
 
 		this.dag.build(this.tree, this.printDoc);
 		if (this.asyncRuntime) return;
+		const restored = this.restoredEntry;
+		this.restoredEntry = undefined;
+		if (restored) {
+			this.restoreEntryCheckpoint(restored.checkpoint);
+			if (!restored.preserveAllValues) this.healEntryContext();
+			else this.evaluateAllInto();
+			return;
+		}
 		this.initializeModel(this.tree);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
@@ -730,12 +746,10 @@ export class FormEngine {
 		});
 	}
 
-	/** Only the same immutable blueprint, identity and entry world may resume.
-	 * The server's pinned test session owns that fence; this is not a client
-	 * submission input. Do not initialize again or recalculate untouched values. */
+	/** Restore the entry before any evaluation. Test journeys require the same
+	 * pinned blueprint and identity. Controller-owned context rebuilds explicitly
+	 * heal untouched defaults afterward; this is never a client submission input. */
 	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
-		if (!this.asyncRuntime)
-			throw new Error("Entry restoration requires a staged FormEngine.");
 		this.instance.restoreCheckpoint(checkpoint.instance);
 		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
 		this.activeSectionUuid = checkpoint.activeSectionUuid;
@@ -753,6 +767,15 @@ export class FormEngine {
 	): Promise<void> {
 		if (!this.asyncRuntime) {
 			throw new Error("Async initialization requires a staged FormEngine.");
+		}
+		const restored = this.restoredEntry;
+		this.restoredEntry = undefined;
+		if (restored) {
+			this.restoreEntryCheckpoint(restored.checkpoint);
+			if (!restored.preserveAllValues)
+				await this.healEntryContextAsync(evaluateAsync);
+			else await this.settleAsync(evaluateAsync);
+			return;
 		}
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
@@ -3741,6 +3764,7 @@ export class FormEngine {
 		prefix = "/data",
 		insertedPath?: string,
 		identity?: Readonly<Record<string, string>>,
+		healing = false,
 	): Generator<InitializationRead, void, InitializationValue> {
 		const fields: Array<{ node: FieldTreeNode; path: string }> = [];
 		const collect = (nodes: readonly FieldTreeNode[], parent: string): void => {
@@ -3752,11 +3776,19 @@ export class FormEngine {
 						...DEFAULT_ENGINE_STATE,
 						visible: true,
 					};
-				if (node.field.kind === "repeat") this.instance.setRepeatCount(path, 0);
-				else if (node.children) collect(node.children, path);
+				if (node.field.kind === "repeat") {
+					if (!healing) this.instance.setRepeatCount(path, 0);
+				} else if (node.children) collect(node.children, path);
 			}
 		};
 		collect(tree, prefix);
+		if (healing) {
+			for (const { node, path } of fields) {
+				const previous = this.store.getState()[path];
+				if (!isContainer(node.field) && !previous?.edited && !previous?.touched)
+					this.instance.set(path, "");
+			}
+		}
 		const calculated = new Set<string>();
 		if (identity) {
 			this.instance.setElementAttributes(prefix, identity);
@@ -3772,7 +3804,11 @@ export class FormEngine {
 		for (const { node, path } of fields) {
 			const field = node.field;
 			const source = expressionSource(field, "default_value", this.printDoc);
-			if (source !== undefined) {
+			const previous = this.store.getState()[path];
+			if (
+				source !== undefined &&
+				!(healing && (previous?.edited || previous?.touched))
+			) {
 				const value = yield { source, path };
 				if (isAsyncNodesetValues(value))
 					throw new Error("Expected a scalar default.");
@@ -3782,7 +3818,11 @@ export class FormEngine {
 					calculated,
 				);
 			}
-			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				(!healing || this.pendingSectionRepeats.has(path))
+			) {
 				const result = yield {
 					source: expressionSource(field, "ids_query", this.printDoc) ?? "",
 					path,
@@ -3804,7 +3844,8 @@ export class FormEngine {
 		for (const { node, path } of fields) {
 			if (
 				node.field.kind !== "repeat" ||
-				node.field.repeat_mode !== "count_bound"
+				node.field.repeat_mode !== "count_bound" ||
+				(healing && !this.pendingSectionRepeats.has(path))
 			)
 				continue;
 			const source =
@@ -3831,6 +3872,8 @@ export class FormEngine {
 			for (const { node, path } of fields) {
 				const writer = seeded?.get(node.field.uuid);
 				if (!writer) continue;
+				const previous = this.store.getState()[path];
+				if (healing && (previous?.edited || previous?.touched)) continue;
 				this.instance.set(path, own?.get(writer.property) ?? "");
 				yield* this.initializeExpressions(
 					this.dag.getAffectedInitialization([path], this.repeatCounts),
@@ -3857,6 +3900,22 @@ export class FormEngine {
 		);
 		for (const { node, path } of fields) {
 			if (node.field.kind !== "repeat") continue;
+			if (healing && !this.pendingSectionRepeats.has(path)) {
+				for (
+					let index = 0;
+					index < this.instance.getRepeatCount(path);
+					index++
+				) {
+					yield* this.initializeScope(
+						node.children ?? [],
+						`${path}[${index}]`,
+						undefined,
+						undefined,
+						true,
+					);
+				}
+				continue;
+			}
 			const snapshot = snapshots.get(path) ?? { count: 1 };
 			if (
 				prefix === "/data" &&
@@ -3923,7 +3982,7 @@ export class FormEngine {
 			if (previous[path])
 				states[path] =
 					state.repeatCount === undefined
-						? previous[path]
+						? { ...previous[path], value: state.value }
 						: { ...previous[path], repeatCount: state.repeatCount };
 		}
 		this.store.setState(states, true);
@@ -3984,6 +4043,33 @@ export class FormEngine {
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
+	}
+
+	/** Nova context recovery re-evaluates untouched defaults with retained row
+	 * identities already installed. Only unvisited section snapshots recapture
+	 * the newly available context; consumed membership, including zero, stays. */
+	private healEntryContext(): void {
+		this.runInitialization(
+			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+		);
+		this.publishInitializedSections();
+		this.evaluateAllInto();
+		if (this.activeSectionUuid) this.enterSection(this.activeSectionUuid);
+		else this.enterFirstSection();
+	}
+
+	private async healEntryContextAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		await this.runInitializationAsync(
+			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+			evaluateAsync,
+		);
+		this.publishInitializedSections();
+		await this.settleAsync(evaluateAsync);
+		if (this.activeSectionUuid)
+			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
+		else await this.enterFirstSectionAsync(evaluateAsync);
 	}
 
 	private enterFirstSection(): void {

@@ -873,6 +873,39 @@ export class EngineController {
 			changedPaths,
 			this.evaluatorFor(engine, entryKey, revision, generation, signal),
 		);
+		await this.initializePendingSectionRows(
+			engine,
+			entryKey,
+			revision,
+			generation,
+			signal,
+		);
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			generation !== this.lifecycleGeneration ||
+			revision !== this.runtimeRevision
+		) {
+			throw new Error("The XPath evaluation revision was retired.");
+		}
+		for (const path of changedPaths) this.pendingValuePaths.delete(path);
+		this.syncAllPathsSelectively();
+	}
+
+	private async initializePendingSectionRows(
+		engine: FormEngine,
+		entryKey: string,
+		revision: number,
+		generation: number,
+		signal: AbortSignal,
+	): Promise<void> {
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			generation !== this.lifecycleGeneration ||
+			revision !== this.runtimeRevision
+		)
+			return;
 		const sectionUuid = engine.currentSectionUuid();
 		if (sectionUuid && engine.hasPendingSectionInitialization()) {
 			// Input changes may reveal a not-yet-created repeat on this page.
@@ -889,16 +922,6 @@ export class EngineController {
 				this.publishEntryState();
 			}
 		}
-		if (
-			engine !== this.engine ||
-			entryKey !== this.currentEntryKey ||
-			generation !== this.lifecycleGeneration ||
-			revision !== this.runtimeRevision
-		) {
-			throw new Error("The XPath evaluation revision was retired.");
-		}
-		for (const path of changedPaths) this.pendingValuePaths.delete(path);
-		this.syncAllPathsSelectively();
 	}
 
 	private executeAsyncRevision<T>(
@@ -1322,25 +1345,24 @@ export class EngineController {
 			this.rebuildActiveForm(formUuid, caseData, preserveAllValues);
 			return this.engine !== undefined;
 		}
+		const previousEngine = this.engine;
+		const previousEntryKey = this.currentEntryKey;
+		await this.pendingWork;
+		if (
+			previousEngine !== this.engine ||
+			previousEntryKey !== this.currentEntryKey
+		)
+			return false;
+		const checkpoint = this.engine?.entryCheckpoint();
 		const entryKey =
 			this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 				? this.currentEntryKey
 				: crypto.randomUUID();
-		const values = this.engine?.getValueSnapshot({
-			includeAllValues: preserveAllValues,
-		});
-		const repeatCounts = this.engine?.getRepeatCountSnapshot();
-		const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
 		return this.mountFormAsync(
 			formUuid,
 			caseData,
 			entryKey,
-			{
-				values,
-				repeatCounts,
-				repeatInstanceKeys,
-				preserveAllValues,
-			},
+			checkpoint ? { checkpoint, preserveAllValues } : undefined,
 			this.caseDatabaseOverrideFor(formUuid),
 		);
 	}
@@ -1350,9 +1372,7 @@ export class EngineController {
 		caseData: CaseDataByType | undefined,
 		entryKey: string,
 		restore?: {
-			readonly values?: ReturnType<FormEngine["getValueSnapshot"]>;
-			readonly repeatCounts?: ReadonlyMap<string, number>;
-			readonly repeatInstanceKeys?: ReadonlyMap<string, readonly string[]>;
+			readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
 			readonly preserveAllValues: boolean;
 		},
 		caseDatabaseOverride?: CaseDatabaseSnapshot,
@@ -1411,6 +1431,7 @@ export class EngineController {
 			caseDatabase,
 			{
 				stagedAsync: true,
+				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
 			},
 		);
@@ -1430,21 +1451,6 @@ export class EngineController {
 						signal,
 					);
 					await engine.initializeAsync(evaluator);
-					if (restore?.repeatCounts !== undefined) {
-						await engine.restoreRepeatCountSnapshotAsync(
-							restore.repeatCounts,
-							evaluator,
-						);
-					}
-					if (restore?.repeatInstanceKeys !== undefined) {
-						engine.restoreRepeatInstanceKeySnapshot(restore.repeatInstanceKeys);
-					}
-					if (restore?.values !== undefined) {
-						engine.restoreValues(restore.values, {
-							restoreAllValues: restore.preserveAllValues,
-						});
-						await engine.settleAsync(evaluator);
-					}
 					if (entryKey !== this.currentEntryKey || engine !== this.engine)
 						return false;
 					const maps = buildPathMaps(engine.getFieldTree());
@@ -1510,29 +1516,14 @@ export class EngineController {
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 					? this.currentEntryKey
 					: crypto.randomUUID();
-			const values = this.engine?.getValueSnapshot({
-				includeAllValues: preserveAllValues,
-			});
-			const repeatCounts = this.engine?.getRepeatCountSnapshot();
-			const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
+			const checkpoint = this.engine?.entryCheckpoint();
 			this.mountForm(
 				formUuid,
 				caseData,
 				entryKey,
 				this.caseDatabaseOverrideFor(formUuid),
+				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 			);
-			if (repeatCounts !== undefined) {
-				this.engine?.restoreRepeatCountSnapshot(repeatCounts);
-			}
-			if (repeatInstanceKeys !== undefined) {
-				this.engine?.restoreRepeatInstanceKeySnapshot(repeatInstanceKeys);
-			}
-			if (values !== undefined && this.engine !== undefined) {
-				this.engine.restoreValues(values, {
-					restoreAllValues: preserveAllValues,
-				});
-				this.syncAllToStore();
-			}
 		});
 	}
 
@@ -1541,6 +1532,10 @@ export class EngineController {
 		caseData: CaseDataByType | undefined,
 		entryKey: string,
 		caseDatabaseOverride?: CaseDatabaseSnapshot,
+		restoredEntry?: {
+			readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
+			readonly preserveAllValues: boolean;
+		},
 	): void {
 		this.clearActiveForm();
 		if (this.previewIdentityBlocked || !this.docStore) {
@@ -1590,7 +1585,10 @@ export class EngineController {
 			this.previewIdentity,
 			this.lookupData,
 			caseDatabase,
-			searchAnswers === undefined ? {} : { searchAnswers },
+			{
+				restoredEntry,
+				...(searchAnswers === undefined ? {} : { searchAnswers }),
+			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
 
@@ -1948,11 +1946,17 @@ export class EngineController {
 
 	/** Materialize this page through the same engine operation used by test journeys. */
 	async enterSectionAsync(sectionUuid: Uuid): Promise<boolean> {
-		await this.pendingWork;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
 		if (!engine || !formUuid || !entryKey) return false;
+		await this.pendingWork;
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			formUuid !== this.activeFormUuid
+		)
+			return false;
 		if (this.xpathRuntime === undefined)
 			return this.contain("repeat-change", formUuid, false, () => {
 				engine.enterSection(sectionUuid);
@@ -2881,6 +2885,13 @@ export class EngineController {
 						}
 					}
 					await engine.settleAsync(evaluator);
+					await this.initializePendingSectionRows(
+						engine,
+						entryKey,
+						revision,
+						generation,
+						signal,
+					);
 					if (
 						engine !== this.engine ||
 						entryKey !== this.currentEntryKey ||

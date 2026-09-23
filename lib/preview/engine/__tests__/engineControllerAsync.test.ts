@@ -18,7 +18,7 @@ import type { XPathWorkerFactory } from "../../xpath/workerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
 import { EngineController } from "../engineController";
-import type { ResolvedPreviewIdentity } from "../identity";
+import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import {
 	admittedControllerDoc,
@@ -1251,3 +1251,186 @@ it("keeps pending page snapshots reachable after an authored section rename", as
 	).toBe("tank");
 	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });
+
+it.each([false, true])(
+	"preserves entered query rows while same-entry context heals (worker=%s)",
+	async (worker) => {
+		const doc = sectionEntryDoc();
+		const form = doc.formOrder[doc.moduleOrder[0]][0];
+		const second = Object.values(doc.fields).find(
+			(field) => field.id === "second",
+		);
+		const assets = Object.values(doc.fields).find(
+			(field) => field.id === "assets",
+		);
+		if (!second || !assets) throw new Error("Missing fixture fields");
+		const selected = testUuid("retained-selected-record");
+		const who = testUuid("retained-row-worker");
+		doc.fields[selected] = {
+			uuid: selected,
+			id: "selected",
+			kind: "hidden",
+			calculate: xp("current()/../@id"),
+		};
+		doc.fields[who] = {
+			uuid: who,
+			id: "who",
+			kind: "text",
+			label: proseText("Worker"),
+			default_value: xp("#user/username"),
+		};
+		doc.fieldOrder[assets.uuid].push(selected, who);
+		const store = createBlueprintDocStore();
+		store.getState().load(admittedControllerDoc(doc));
+		const ctrl = ownedController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		ctrl.setDocStore(store);
+		await ctrl.activateFormAsync(form);
+		await ctrl.setValueAtAsync("/data/first/zone", "south");
+		await ctrl.enterSectionAsync(second.uuid);
+		const row = "/data/second/rounds[0]/assets[0]";
+		const entry = ctrl.entryKey;
+		await ctrl.setValueAtAsync(`${row}/note`, "");
+		await expect(
+			ctrl.rebuildActiveFormAsync(form, undefined, true),
+		).resolves.toBe(true);
+		expect(ctrl.store.getState()[`${row}/selected`]?.value).toBe("tank");
+		expect(ctrl.store.getState()[`${row}/note`]).toMatchObject({
+			value: "",
+			edited: true,
+		});
+		ctrl.setPreviewIdentity(
+			previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
+		);
+		await ctrl.awaitSettled();
+		expect(ctrl.entryKey).toBe(entry);
+		expect(ctrl.store.getState()[`${row}/selected`]?.value).toBe("tank");
+		expect(ctrl.store.getState()[`${row}/who`]?.value).toBe(
+			"inspector@example.org",
+		);
+		expect(ctrl.store.getState()[`${row}/note`]).toMatchObject({
+			value: "",
+			edited: true,
+		});
+		expect(
+			ctrl.store.getState()["/data/second/rounds[0]/assets"]?.repeatCount,
+		).toBe(1);
+		expect(await ctrl.validateAllAsync()).toBe(false);
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+	},
+);
+
+it("creates newly relevant page rows after a live document edit before validation", async () => {
+	const doc = sectionEntryDoc();
+	const form = doc.formOrder[doc.moduleOrder[0]][0];
+	const fields = Object.values(doc.fields);
+	const first = fields.find((field) => field.id === "first");
+	const second = fields.find((field) => field.id === "second");
+	const rounds = fields.find((field) => field.id === "rounds");
+	const note = fields.find((field) => field.id === "note");
+	if (!first || !second || rounds?.kind !== "repeat" || note?.kind !== "text")
+		throw new Error("Missing fixture fields");
+	doc.fieldOrder[first.uuid].push(rounds.uuid);
+	doc.fieldOrder[form] = [first.uuid];
+	delete doc.fields[second.uuid];
+	delete doc.fieldOrder[second.uuid];
+	rounds.relevant = xp("false()");
+	delete note.default_value;
+	const store = createBlueprintDocStore();
+	store.getState().load(admittedControllerDoc(doc));
+	store.getState().startTracking();
+	const ctrl = ownedController(
+		new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
+	);
+	ctrl.setDocStore(store);
+	await ctrl.activateFormAsync(form);
+	expect(ctrl.store.getState()[rounds.uuid]?.repeatCount).toBe(0);
+	applyControllerEdit(store, [
+		{
+			kind: "updateField",
+			uuid: rounds.uuid,
+			targetKind: "repeat",
+			patch: { relevant: xp("true()") },
+		},
+	]);
+	await ctrl.awaitSettled();
+	expect(ctrl.store.getState()[rounds.uuid]?.repeatCount).toBe(1);
+	expect(
+		ctrl.store.getState()["/data/first/rounds[0]/assets[0]/note"]?.value,
+	).toBe("");
+	expect(await ctrl.validateAllAsync()).toBe(false);
+	expect(ctrl.entryStore.getState().fault).toBeUndefined();
+});
+
+it("discards queued page navigation when another form replaces its entry", async () => {
+	const doc = sectionEntryDoc();
+	const form = doc.formOrder[doc.moduleOrder[0]][0];
+	const second = Object.values(doc.fields).find(
+		(field) => field.id === "second",
+	);
+	if (!second) throw new Error("Missing second section");
+	doc.forms[OTHER_FORM_UUID] = {
+		uuid: OTHER_FORM_UUID,
+		id: "other",
+		name: "Other",
+		type: "survey",
+	};
+	doc.fields[SECOND_FIELD_UUID] = {
+		uuid: SECOND_FIELD_UUID,
+		id: "answer",
+		kind: "text",
+		label: proseText("Answer"),
+	};
+	doc.formOrder[doc.moduleOrder[0]].push(OTHER_FORM_UUID);
+	doc.fieldOrder[OTHER_FORM_UUID] = [SECOND_FIELD_UUID];
+	const ctrl = controllerForDoc(doc);
+	await ctrl.activateFormAsync(form);
+	const navigation = ctrl.enterSectionAsync(second.uuid);
+	const activation = ctrl.activateFormAsync(OTHER_FORM_UUID);
+	await expect(Promise.all([navigation, activation])).resolves.toEqual([
+		false,
+		true,
+	]);
+	expect(ctrl.formUuid).toBe(OTHER_FORM_UUID);
+	expect(ctrl.store.getState()[SECOND_FIELD_UUID]?.value).toBe("");
+	expect(ctrl.entryStore.getState().fault).toBeUndefined();
+});
+
+it.each([false, true])(
+	"cold context refreshes only unvisited query membership (visited=%s)",
+	async (visited) => {
+		const doc = sectionEntryDoc();
+		const form = doc.formOrder[doc.moduleOrder[0]][0];
+		const second = Object.values(doc.fields).find(
+			(field) => field.id === "second",
+		);
+		const rounds = Object.values(doc.fields).find(
+			(field) => field.id === "rounds",
+		);
+		if (!second || !rounds) throw new Error("Missing fixture fields");
+		doc.fields[rounds.uuid] = {
+			uuid: rounds.uuid,
+			id: "rounds",
+			kind: "repeat",
+			repeat_mode: "query_bound",
+			data_source: { ids_query: xp("if(#user/username = '', '', 'round')") },
+		};
+		const ctrl = controllerForDoc(doc);
+		await ctrl.activateFormAsync(form);
+		if (visited) await ctrl.enterSectionAsync(second.uuid);
+		ctrl.setPreviewIdentity(
+			previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
+		);
+		await ctrl.awaitSettled();
+		await ctrl.enterSectionAsync(second.uuid);
+		expect(ctrl.store.getState()[rounds.uuid]?.repeatCount).toBe(
+			visited ? 0 : 1,
+		);
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+	},
+);

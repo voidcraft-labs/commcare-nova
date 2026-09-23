@@ -21,6 +21,14 @@ browser controller use the same engine operation. Checkpoints retain pending
 snapshots and the active section, so a journey continuation cannot rerun form
 initialization. Existing rows survive Back/Next and relevance changes.
 
+Independent review also caught same-entry rebuilds attaching retained answers
+to newly selected query IDs, live relevance edits failing to insert newly
+required rows, and queued page navigation faulting a replacement form. Rebuilds
+now restore the full entry before healing context; untouched defaults may
+refresh, but consumed membership and query IDs stay attached to their answers.
+Document reconciliation uses the same atomic page-entry operation as input
+changes, and queued navigation retains its original entry fence.
+
 Disposable app tests expose section navigation and current-page questions.
 They reject off-page answers and require reaching the final available page
 before submission. A standalone form check traverses the supplied answer order

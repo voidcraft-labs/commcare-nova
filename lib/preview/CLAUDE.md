@@ -100,7 +100,13 @@ the old capability can be removed.
 Value changes record `edited` synchronously, separately from blur's `touched`
 validation state. Rebuilds preserve edited answers, including empty in-focus
 values, without exposing validation before blur. Fields the person has left
-alone still pick up new defaults. Blur records touched state synchronously
+alone still pick up new defaults. Same-entry rebuilds restore the full answer
+world before reevaluation: existing repeat membership, query row attributes,
+render identities, and the active section survive. Context recovery reruns
+untouched defaults against those retained rows. Only pending section snapshots
+recapture newly available context; consumed zero-row membership stays empty.
+A language change retains all defaults as well as edited answers. This is
+Nova context recovery, not a native repeat-insertion event. Blur records touched state synchronously
 before queuing worker validation. A
 same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared

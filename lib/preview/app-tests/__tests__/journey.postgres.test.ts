@@ -1249,7 +1249,11 @@ it("limits a mixed module's inline chooser to case forms and goes back to Result
 	await step({ kind: "finish" });
 });
 
-it("visits form pages using retained entry state before allowing submission", async () => {
+// Each action persists a checkpoint in Postgres and uses the production worker.
+// Fourteen sequential actions exceeded 5 seconds on the hosted runner.
+it("visits form pages using retained entry state before allowing submission", {
+	timeout: 15_000,
+}, async () => {
 	const doc = sectionEntryDoc();
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
