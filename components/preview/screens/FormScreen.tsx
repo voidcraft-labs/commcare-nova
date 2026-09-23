@@ -2198,12 +2198,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		}
 	}
 
-	/* The form ALWAYS renders: flipping to preview keeps it in place and the
-	 * case data loads IN; it is never swapped for a loading/empty interstitial
-	 * (that multi-stage flash is the antithesis of the flipbook). A selected
-	 * record still loading keeps the visible controls inert. With no record
-	 * selected, `caseMissing` drives the submit row rather than hiding the
-	 * form: the author can inspect it without claiming a writable target. */
+	/* A cold case-loading entry cannot initialize against an absent target.
+	 * Distinguish a settled empty selection from a selected row still loading. */
 	const caseMissing =
 		needsBoundCase &&
 		(effectiveCaseIds === undefined || effectiveCaseIds.length === 0);
@@ -2213,6 +2209,33 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * place of the submit row (nothing loads, and Submit has no case to
 	 * write). */
 	const caseCarriedBlank = needsBoundCase && explicitCases?.length === 0;
+
+	if (
+		engineInitializing &&
+		(caseCarriedBlank || noSampleCases || (caseMissing && !autoSelectCase))
+	) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
+				<div role="status" className="max-w-xs space-y-2 text-center">
+					<h3 className="text-sm font-medium text-nova-text">
+						No record selected
+					</h3>
+					<p className="text-sm text-nova-text-muted">
+						{caseCarriedBlank
+							? "The link that opened this form carried no record. Another record can be selected from Results."
+							: "This form needs an existing record. Results shows the records available to this worker."}
+					</p>
+				</div>
+				<button
+					type="button"
+					className={FORM_PRIMARY_ACTION_CLS}
+					onClick={() => navigate.openCaseList(moduleUuid)}
+				>
+					Go to Results
+				</button>
+			</div>
+		);
+	}
 
 	const canEdit = mode === "edit" && editable;
 

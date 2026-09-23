@@ -1,7 +1,6 @@
 export {
 	launchEntryPointAction,
 	loadCaseCountAction,
-	loadCasesAction,
 	loadFilterPreviewAction,
 	loadLookupFixtureDataAction,
 	loadMissingConnectionCountAction,
@@ -20,6 +19,11 @@ export {
 
 import type * as Actions from "@/lib/preview/engine/caseDataBinding";
 import type { CaseRow } from "@/lib/preview/engine/caseDataBindingTypes";
+
+let emptyDatabase = false;
+export function configureEmptyDatabase() {
+	emptyDatabase = true;
+}
 
 export const selectedRow: CaseRow = {
 	case_id: "selected-room",
@@ -43,5 +47,10 @@ export const loadCaseDataAction: typeof Actions.loadCaseDataAction =
 export const loadCaseDatabaseSnapshotAction: typeof Actions.loadCaseDatabaseSnapshotAction =
 	async () => ({
 		kind: "data",
-		snapshot: { rows: [selectedRow], indices: [] },
+		snapshot: { rows: emptyDatabase ? [] : [selectedRow], indices: [] },
 	});
+
+export const loadCasesAction: typeof Actions.loadCasesAction = async () => ({
+	kind: "empty",
+	constraintSource: "unconstrained",
+});

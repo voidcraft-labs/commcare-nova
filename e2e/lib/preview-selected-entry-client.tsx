@@ -17,6 +17,10 @@ import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
+import { configureEmptyDatabase } from "./preview-selected-entry-boundary";
+
+const entryMode = new URLSearchParams(window.location.search).get("entry");
+if (entryMode === "empty") configureEmptyDatabase();
 const doc = admittedControllerDoc(
 	buildDoc({
 		appId: "selected-entry",
@@ -106,7 +110,12 @@ root.render(
 								type: "form",
 								moduleUuid,
 								formUuid,
-								cases: [{ caseId: "selected-room" }],
+								cases:
+									entryMode === "blank"
+										? []
+										: entryMode === "empty"
+											? undefined
+											: [{ caseId: "selected-room" }],
 							}}
 							onBack={() => {}}
 						/>
