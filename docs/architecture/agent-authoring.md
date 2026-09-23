@@ -22,7 +22,7 @@ judging completion. Review is not a formal proof that the app meets every human
 requirement. Mechanical correctness belongs to the document gate; functional
 quality needs inspection and representative journeys through the running behavior.
 `startAppTest`, `continueAppTest` and `readAppTest` expose app entry, saved worker
-identities, menu eligibility, record selection, answers, submission effects and
+identities, menu eligibility, record selection and Details, answers, submission effects and
 the next task. They use disposable Postgres records and the production Preview
 projections, FormEngine and submission transaction. They do not change live cases
 or assert native-device correctness. Builder's Test journeys shows the same

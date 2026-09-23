@@ -25,10 +25,6 @@ import {
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
 import {
-	propertyDisplayLabel,
-	propertyDisplayLabelForName,
-} from "@/components/builder/shared/primitives/propertyDisplay";
-import {
 	ReorderableRow,
 	useReorderableList,
 } from "@/components/builder/shared/useReorderableList";
@@ -60,6 +56,10 @@ import type {
 import { type CaseListConfig, orderedColumns } from "@/lib/domain";
 import { effectiveDataType } from "@/lib/domain/casePropertyTypes";
 import { checkExpression } from "@/lib/domain/predicate";
+import {
+	propertyDisplayLabel,
+	propertyDisplayLabelForName,
+} from "@/lib/domain/propertyDisplay";
 import { useCanEdit } from "@/lib/session/hooks";
 import { AuthoredDragPreviewLabel } from "./canvas/canvasChrome";
 import { seedColumnForProperty } from "./seeds";

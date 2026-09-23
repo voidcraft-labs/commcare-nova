@@ -201,3 +201,18 @@ export function selectAppTestRecords(
 				: enterAppTestForm(context, next, screen.moduleUuid, automatic),
 	};
 }
+
+export function appTestCanContinue(
+	context: AppTestContext,
+	screen: Extract<AppTestScreen, { kind: "records" }>,
+): boolean {
+	return (
+		!!screen.returnModules?.length ||
+		(screen.formUuid === undefined &&
+			moduleHasChildren(context.doc, screen.moduleUuid)) ||
+		screen.formUuid !== undefined ||
+		menuFormUuidsOf(context.doc, screen.moduleUuid).some((uuid) =>
+			CASE_LOADING_FORM_TYPES.has(context.doc.forms[uuid].type),
+		)
+	);
+}

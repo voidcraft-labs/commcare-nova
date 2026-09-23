@@ -1,10 +1,10 @@
-import type { CaseProperty } from "@/lib/domain";
+import type { CaseProperty } from "./blueprint";
+import { effectiveDataType } from "./casePropertyTypes";
+import { humanizeId } from "./idSlug";
 import {
-	effectiveDataType,
 	isStandardCaseListProperty,
 	standardCasePropertyDisplayLabel,
-} from "@/lib/domain";
-import { humanizeId } from "@/lib/domain/idSlug";
+} from "./standardCaseProperties";
 
 /**
  * A catalog label is a `ProseTemplate`, so its current spelling only exists

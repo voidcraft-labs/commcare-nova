@@ -1,10 +1,17 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { assignedLocationUuids } from "@/lib/domain";
+import {
+	assignedLocationUuids,
+	caseSelectionCardinality,
+	orderedColumns,
+} from "@/lib/domain";
 import { caseListStep } from "../caseListPhase";
+import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import type { AppTestContext } from "./context";
+import { appTestDetails } from "./details";
 import {
+	appTestCanContinue,
 	appTestForms,
 	appTestMenus,
 	enterAppTestForm,
@@ -130,6 +137,28 @@ export async function observeAppTest(
 				},
 			};
 		}
+		case "details": {
+			const read = await appTestDetails(context, scope, state);
+			return {
+				state,
+				observation: {
+					screen: "details",
+					worker,
+					name: context.doc.modules[screen.moduleUuid].name,
+					record: read.result.kind === "row" ? read.result.row : undefined,
+					unavailable: read.result.kind !== "row",
+					fields: read.fields,
+					canContinue:
+						read.result.kind === "row" &&
+						appTestCanContinue(context, screen.source),
+					actions:
+						read.result.kind === "row" &&
+						appTestCanContinue(context, screen.source)
+							? ["continue", "back", "home"]
+							: ["back", "home"],
+				},
+			};
+		}
 		case "form": {
 			const evaluated = await evaluateForm(
 				context.doc,
@@ -175,6 +204,36 @@ export async function advanceAppTest(
 	switch (action.kind) {
 		case "observe":
 			break;
+		case "back": {
+			const prior = state.history.at(-1);
+			if (!prior) throw new Error("There is no previous screen.");
+			next = {
+				...state,
+				screen:
+					prior.kind === "form"
+						? { ...prior, entry: undefined, entryCases: state.deviceCases }
+						: prior,
+				history: state.history.slice(0, -1),
+			};
+			break;
+		}
+		case "continue": {
+			if (
+				screen.kind !== "details" ||
+				!appTestCanContinue(context, screen.source)
+			)
+				throw new Error("The current screen has no Continue action.");
+			const read = await appTestDetails(context, scope, state);
+			if (read.result.kind !== "row")
+				throw new Error("This record is no longer available.");
+			next = selectAppTestRecords(
+				context,
+				{ ...state, screen: screen.source },
+				[read.result.row],
+			);
+			next = { ...next, history: [...state.history, screen] };
+			break;
+		}
 		case "home":
 			next = {
 				...state,
@@ -287,7 +346,32 @@ export async function advanceAppTest(
 					throw new Error("A selected record is not on this page of results.");
 				return row;
 			});
-			next = selectAppTestRecords(context, read.state, selected);
+			const recordsScreen = read.state.screen;
+			const mod = context.doc.modules[recordsScreen.moduleUuid];
+			const multiple = caseSelectionCardinality(mod) !== "single";
+			const rowAction = caseSelectionRowAction({
+				hasDetails:
+					!!mod.caseListConfig &&
+					orderedColumns(mod.caseListConfig, "detail").some(
+						(column) => column.visibleInDetail !== false,
+					),
+				multiple,
+				canContinue: appTestCanContinue(context, recordsScreen),
+			});
+			if (!multiple && selected.length !== 1)
+				throw new Error("Choose one record on this screen.");
+			next =
+				!multiple && rowAction === "detail"
+					? {
+							...read.state,
+							screen: {
+								kind: "details",
+								moduleUuid: recordsScreen.moduleUuid,
+								caseId: selected[0].case_id,
+								source: recordsScreen,
+							},
+						}
+					: selectAppTestRecords(context, read.state, selected);
 			next = { ...next, history: [...state.history, read.state.screen] };
 			extra = {
 				selected: selected.map((row) => ({

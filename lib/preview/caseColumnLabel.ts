@@ -7,8 +7,11 @@
 // user learns which property a cell holds; letting a surface invent its
 // own fallback would mean two surfaces naming one column differently.
 
-import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
-import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
+import type { ProseTemplate } from "@/lib/domain";
+import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
+
+type ProseProjector = (template: ProseTemplate) => string;
+
 import type { CaseListConfig, CaseProperty } from "@/lib/domain";
 
 export function caseColumnLabel(

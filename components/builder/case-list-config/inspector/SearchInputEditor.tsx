@@ -61,13 +61,6 @@ import type { PredicateEditContext } from "@/components/builder/shared/editorSch
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import {
-	friendlyPropertyDisambiguator,
-	propertyDisplayLabel,
-	propertyDisplayLabelForName,
-	propertyFallbackDisplayLabel,
-	propertyTypeLabel,
-} from "@/components/builder/shared/primitives/propertyDisplay";
-import {
 	AlertDialog,
 	AlertDialogAction,
 	AlertDialogCancel,
@@ -128,6 +121,13 @@ import {
 	relationStep,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import {
+	friendlyPropertyDisambiguator,
+	propertyDisplayLabel,
+	propertyDisplayLabelForName,
+	propertyFallbackDisplayLabel,
+	propertyTypeLabel,
+} from "@/lib/domain/propertyDisplay";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import {
 	type PredicateSummaryContext,

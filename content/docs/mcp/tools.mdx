@@ -133,7 +133,10 @@ need the running app; evaluation does not prove deployment or successful storage
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `continue_app_test` chooses a saved
 Preview identity, navigates visible menus, selects records, answers questions,
-submits into test storage, and observes the next task. It can also sync the
+submits into test storage, and observes the next task. A selected record opens
+Details when configured; `continue` follows its Continue action and `back`
+returns to the previous screen. Details include the displayed values, not just
+stored properties. It can also sync the
 test worker's record set or finish the test. Each response returns the step
 number required by the next action. Omit `testId` from `read_app_test` to find recent
 tests by purpose and source revision. Supply a returned identity to read retained steps and

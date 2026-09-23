@@ -1068,3 +1068,9 @@ Successful post-submit navigation forgets section memory for the completed form
 and an immediately linked destination form. The fresh entry chooses its first
 visible section from fresh answers; failed submissions and edit/Preview flips
 keep their page.
+
+Case-list values share `columnDisplay.ts` across the browser renderer, Quick
+Filter and disposable Details observations. It owns typed formatting and value
+fallbacks without React. `caseColumnLabel.ts` shares the property-label projection
+from `lib/domain/propertyDisplay.ts`; neither test observations nor UI invent a
+second fallback label.

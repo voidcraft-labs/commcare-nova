@@ -38,7 +38,7 @@ import { literal, now, term } from "@/lib/domain/predicate";
 import {
 	propertyDisplayLabel,
 	propertyFallbackDisplayLabel,
-} from "../shared/primitives/propertyDisplay";
+} from "@/lib/domain/propertyDisplay";
 import { newUuid } from "./uuid";
 import type { CaseDisplaySurface } from "./workspaceProjection";
 

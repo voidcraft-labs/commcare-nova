@@ -41,7 +41,7 @@ import {
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseType, Column, ColumnKind, UserProperty } from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
-import { propertyDisplayLabel } from "../shared/primitives/propertyDisplay";
+import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import {
 	columnKindChangeConsequence,
 	nextColumnDisplay,

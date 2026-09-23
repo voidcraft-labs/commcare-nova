@@ -24,7 +24,6 @@ import {
 } from "react";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
-import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
 import { Button } from "@/components/shadcn/button";
 import {
 	Combobox,
@@ -71,6 +70,7 @@ import {
 	isCaptureField,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
+import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 
 /**
  * Either destination shape a field's schema may carry.

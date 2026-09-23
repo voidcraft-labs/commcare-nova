@@ -224,7 +224,11 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	await step({ kind: "home" });
 	await step({ kind: "menu", moduleUuid });
 	await step({ kind: "form", formUuid: retire.uuid });
-	const selected = await step({ kind: "select", caseIds: [id] });
+	expect(await step({ kind: "select", caseIds: [id] })).toMatchObject({
+		screen: "details",
+		canContinue: true,
+	});
+	const selected = await step({ kind: "continue" });
 	expect(selected).toMatchObject({ screen: "form", name: "Retire" });
 	await step({
 		kind: "answer",
@@ -550,6 +554,7 @@ it("requires a saved role and parent selection, then executes additional operati
 		},
 	});
 	await step({ kind: "select", caseIds: ["home-a"] });
+	await step({ kind: "continue" });
 	const inspect = Object.values(doc.forms).find(
 		(form) => form.name === "Inspect",
 	);
@@ -566,6 +571,9 @@ it("requires a saved role and parent selection, then executes additional operati
 		completed: false,
 	});
 	expect(await step({ kind: "select", caseIds: ["pump-a"] })).toMatchObject({
+		screen: "details",
+	});
+	expect(await step({ kind: "continue" })).toMatchObject({
 		screen: "form",
 		name: "Inspect",
 	});
@@ -908,12 +916,170 @@ it("reports its local clock and uses the same day in list calculations and forms
 			],
 		},
 	});
-	const opened = await step({ kind: "select", caseIds: ["appointment-1"] });
+	expect(
+		await step({ kind: "select", caseIds: ["appointment-1"] }),
+	).toMatchObject({ screen: "details" });
+	const opened = await step({ kind: "continue" });
 	expect(opened).toMatchObject({
 		clock,
 		questions: expect.arrayContaining([
 			expect.objectContaining({ label: "Visit date", value: clock.today }),
 		]),
 	});
+	await step({ kind: "finish" });
+});
+
+it("observes Details, refuses skipped answers, and refreshes the saved record on return", async () => {
+	const doc = await createEvaluationApp({
+		name: "Repairs",
+		case_type: "repair",
+		case_list_columns: [
+			{ kind: "plain", field: "case_name", header: "Equipment" },
+			{ kind: "plain", field: "condition", header: "Condition" },
+		],
+		forms: [
+			{
+				name: "Update condition",
+				type: "followup",
+				fields: [
+					{
+						kind: "text",
+						id: "condition",
+						label: "Condition",
+						caseWrite: { caseType: "repair", property: "condition" },
+					},
+				],
+			},
+		],
+	});
+	const module = Object.values(doc.modules).find(
+		(item) => item.name === "Repairs",
+	);
+	if (!module) throw new Error("Missing repair menu");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose:
+				"Confirm a record, change it, inspect the return screen, and start the next task.",
+			scenario: {
+				records: [
+					{
+						id: "repair-a",
+						caseType: "repair",
+						name: "Pump",
+						properties: { condition: "Broken" },
+					},
+				],
+			},
+		}),
+	);
+	const step = async (action: AppTestAction) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				action,
+			}),
+		);
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: module.uuid });
+	expect(await step({ kind: "select", caseIds: ["repair-a"] })).toMatchObject({
+		screen: "details",
+		canContinue: true,
+		fields: expect.arrayContaining([
+			{
+				uuid: expect.any(String),
+				label: "Condition",
+				kind: "value",
+				text: "Broken",
+			},
+		]),
+	});
+	expect(
+		await step({
+			kind: "answer",
+			answers: [{ path: "condition", value: "Fixed" }],
+		}),
+	).toMatchObject({ completed: false });
+	expect(await step({ kind: "continue" })).toMatchObject({
+		screen: "form",
+		questions: expect.arrayContaining([
+			expect.objectContaining({ value: "Broken" }),
+		]),
+	});
+	await step({
+		kind: "answer",
+		answers: [{ path: "condition", value: "Fixed" }],
+	});
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "details",
+		savedInTest: true,
+		fields: expect.arrayContaining([
+			expect.objectContaining({ label: "Condition", text: "Fixed" }),
+		]),
+	});
+	expect(await step({ kind: "continue" })).toMatchObject({
+		screen: "form",
+		questions: expect.arrayContaining([
+			expect.objectContaining({ value: "Fixed" }),
+		]),
+	});
+	expect(await step({ kind: "back" })).toMatchObject({ screen: "details" });
+	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+	await step({ kind: "finish" });
+});
+
+it("reads informational Details without inventing a form or Continue action", async () => {
+	const doc = await createEvaluationApp({
+		name: "Directory",
+		case_type: "entry",
+		case_list_only: true,
+		forms: [],
+	});
+	const module = Object.values(doc.modules).find(
+		(item) => item.name === "Directory",
+	);
+	if (!module) throw new Error("Missing directory");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "directory-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Read information without a submission task",
+			scenario: {
+				records: [{ id: "entry-a", caseType: "entry", name: "Clinic" }],
+			},
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `directory-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid: module.uuid });
+	expect(await step({ kind: "select", caseIds: ["entry-a"] })).toMatchObject({
+		screen: "details",
+		canContinue: false,
+		record: { case_name: "Clinic" },
+	});
+	expect(await step({ kind: "continue" })).toMatchObject({ completed: false });
+	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
 	await step({ kind: "finish" });
 });

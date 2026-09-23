@@ -32,13 +32,13 @@ import {
 	type Column,
 	isStandardCaseListProperty,
 } from "@/lib/domain";
-import { useCanEdit } from "@/lib/session/hooks";
-import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
 	propertyTypeLabel,
-} from "../../shared/primitives/propertyDisplay";
+} from "@/lib/domain/propertyDisplay";
+import { useCanEdit } from "@/lib/session/hooks";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import { columnLabel } from "./ColumnInventory";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
 

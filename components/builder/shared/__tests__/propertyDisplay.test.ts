@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
-	type ProseTemplate,
-	projectProseTemplate,
-	proseText,
-} from "@/lib/domain/prose";
-import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
 	propertyFallbackDisplayLabel,
-} from "../primitives/propertyDisplay";
+} from "@/lib/domain/propertyDisplay";
+import {
+	type ProseTemplate,
+	projectProseTemplate,
+	proseText,
+} from "@/lib/domain/prose";
 
 const doc = buildDoc();
 const project = (label: ProseTemplate): string =>
