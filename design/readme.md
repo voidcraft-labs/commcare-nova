@@ -189,3 +189,11 @@ values; typed or pasted hashtags are literal until explicitly converted. A
 selected chip offers replacement or conversion to text. Pickers belong to the
 current draft, so Escape closes them before it cancels editing. Canvas hints
 keep the insertion action available without requiring a text selection.
+
+### Header fit
+
+The signed-in header keeps its controls centered and individually reachable.
+When the controls need more space, document actions move to a row beneath them.
+A wider Preview language and worker group can use its own row as well. Controls
+keep their touch targets and identity when the layout changes; resizing must not
+restart saving or dismiss an account control by rebuilding it.

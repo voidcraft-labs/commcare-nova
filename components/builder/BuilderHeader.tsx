@@ -91,8 +91,9 @@ export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {
 	const compactHeader = useIsBreakpoint("max", 1100);
 	/* Five-peer presence plus the compact document actions overlap the centered
 	 * Preview control until the canvas is comfortably wider than 533px. Keep
-	 * the two-row composition through 560px so visible controls never compete
-	 * for the same hit-test area at the breakpoint seam. */
+	 * an extra tools row through 560px. AppHeader also measures the actual
+	 * slot widths: Preview language, identity and presence can need more room
+	 * above this minimum breakpoint. */
 	const ultraCompactHeader = useIsBreakpoint("max", 560);
 
 	/* Undo/redo from doc temporal. Availability folds into stable

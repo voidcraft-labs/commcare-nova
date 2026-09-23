@@ -150,3 +150,96 @@ test("leaves Preview to add its first persona without claiming missing setup in 
 			.getByRole("button", { name: "Add persona", exact: true }),
 	).toBeEnabled();
 });
+
+test("Preview header controls stay individually clickable as content and width change", {
+	tag: "@seed:app-tests",
+}, async ({ scenario, page }) => {
+	const { appId } = seedFor(scenario, "app-tests");
+	await page.setViewportSize({ width: 680, height: 820 });
+	await page.goto(`/build/${appId}`);
+	const header = page.locator("[data-app-header]");
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const identity = header.getByRole("button", { name: /Running as/ });
+	const publish = header.getByRole("button", { name: "Publish", exact: true });
+	const account = header.getByRole("button", {
+		name: "Account menu",
+		exact: true,
+	});
+	await expect(identity).toBeVisible();
+	// The new identity control must fit without requiring a window resize.
+	await identity.click();
+	await page
+		.getByRole("menuitemradio", { name: /^Preview as Visit worker/ })
+		.click();
+	await expect(identity).toHaveAccessibleName(/Running as Visit worker/);
+	const originalPublish = await publish.elementHandle();
+	const originalAccount = await account.elementHandle();
+	if (!originalPublish || !originalAccount)
+		throw new Error("Header controls missing");
+	try {
+		// Exercise both sides of the old stacking, label and action breakpoints,
+		// then return to wide: the extra row must not become permanently stuck.
+		for (const width of [320, 560, 561, 639, 640, 680, 1100, 1101, 1440]) {
+			await page.setViewportSize({ width, height: 820 });
+			await expect
+				.poll(() =>
+					header.evaluate((element) => {
+						const controls = [
+							...element.querySelectorAll("button, a[href]"),
+						].filter((control) => control.getClientRects().length > 0);
+						const rects = controls.map((control) =>
+							control.getBoundingClientRect(),
+						);
+						return rects.every(
+							(a, i) =>
+								a.left >= 0 &&
+								a.right <= window.innerWidth &&
+								rects
+									.slice(i + 1)
+									.every(
+										(b) =>
+											a.right <= b.left + 0.5 ||
+											b.right <= a.left + 0.5 ||
+											a.bottom <= b.top + 0.5 ||
+											b.bottom <= a.top + 0.5,
+									),
+						);
+					}),
+				)
+				.toBe(true);
+			await identity.click();
+			await expect(
+				page.getByRole("menuitemradio", { name: /^Preview as Visit worker/ }),
+			).toBeVisible();
+			await page.keyboard.press("Escape");
+			await header.getByRole("button", { name: /^Worker language:/ }).click();
+			await expect(
+				page.getByRole("menuitemradio", { name: /English/ }),
+			).toBeVisible();
+			await page.keyboard.press("Escape");
+			// Resizing must move the existing tools and account portal targets,
+			// not remount their owners (including the autosave subscription).
+			expect(
+				await publish.evaluate(
+					(element, original) => element === original,
+					originalPublish,
+				),
+			).toBe(true);
+			expect(
+				await account.evaluate(
+					(element, original) => element === original,
+					originalAccount,
+				),
+			).toBe(true);
+		}
+		await expect(header).toHaveAttribute("data-header-layout", "standard");
+		await page.setViewportSize({ width: 680, height: 820 });
+		await publish.click();
+		await expect(
+			page.getByRole("dialog", { name: "Publish app", exact: true }),
+		).toBeVisible();
+	} finally {
+		await originalPublish.dispose();
+		await originalAccount.dispose();
+	}
+});

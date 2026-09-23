@@ -38,7 +38,7 @@ export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {
 		>
 			<Button
 				type="button"
-				className="max-sm:w-11 max-sm:px-0"
+				className="transition-colors max-sm:w-11 max-sm:px-0"
 				variant={previewing ? "default" : "outline"}
 				glow={previewing}
 				onClick={() => transitionPreview(!previewing)}
