@@ -32,6 +32,11 @@ import type {
 	InvalidFieldTarget,
 	SectionPage,
 } from "@/lib/preview/engine/formEngine";
+import {
+	availablePages,
+	pagesToValidate,
+	resolveCurrentPage,
+} from "@/lib/preview/engine/sectionPaging";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
@@ -40,11 +45,6 @@ import {
 	useGetActiveSection,
 	useSetActiveSection,
 } from "@/lib/session/hooks";
-import {
-	pagesToValidate,
-	resolveCurrentPage,
-	visiblePages,
-} from "./sectionPaging";
 
 export interface SectionPagingArgs {
 	readonly formUuid: Uuid | undefined;
@@ -68,7 +68,7 @@ export interface SectionPaging {
 	readonly count: number;
 	readonly canGoBack: boolean;
 	readonly isLast: boolean;
-	readonly goBack: () => void;
+	readonly goBack: () => Promise<void>;
 	readonly goNext: () => Promise<void>;
 	readonly goTo: (uuid: Uuid) => Promise<void>;
 	/** Turn to a page without validating anything (submit routing). */
@@ -98,14 +98,15 @@ export function useSectionPaging({
 	 * form's pages (opening form B while A's engine still runs) or show
 	 * the no-pages state before activation. Everything below keys on the
 	 * engine actually running THIS form. */
-	const engineFormUuid = useEngineEntry().formUuid;
+	const entry = useEngineEntry();
+	const engineFormUuid = entry.formUuid;
 	const live = enabled && formUuid !== undefined && engineFormUuid === formUuid;
 	const active = useActiveSection(formUuid ?? "");
 	const readActive = useGetActiveSection();
 	const setActive = useSetActiveSection();
 
 	const pages = useMemo(
-		() => (live ? visiblePages(allPages) : []),
+		() => (live ? availablePages(allPages) : []),
 		[live, allPages],
 	);
 	const current = useMemo(
@@ -130,6 +131,12 @@ export function useSectionPaging({
 		}
 	}, [live, formUuid, allPages, readActive, setActive]);
 
+	const currentUuid = current?.uuid;
+	useEffect(() => {
+		if (live && entry.ready && entry.entryKey && currentUuid)
+			void controller.enterSectionAsync(currentUuid);
+	}, [controller, live, currentUuid, entry.ready, entry.entryKey]);
+
 	const [announced, setAnnounced] = useState<SectionPaging["announced"]>(null);
 	const pendingFocusRef = useRef(false);
 	const takeFocusOnMount = useCallback((): boolean => {
@@ -139,8 +146,12 @@ export function useSectionPaging({
 	}, []);
 
 	const turnTo = useCallback(
-		(page: SectionPage) => {
-			if (formUuid === undefined) return;
+		async (page: SectionPage) => {
+			if (
+				formUuid === undefined ||
+				!(await controller.enterSectionAsync(page.uuid))
+			)
+				return;
 			pendingFocusRef.current = true;
 			setActive(formUuid, page.uuid);
 			setAnnounced((previous) => ({
@@ -148,7 +159,7 @@ export function useSectionPaging({
 				nonce: (previous?.nonce ?? 0) + 1,
 			}));
 		},
-		[formUuid, setActive],
+		[controller, formUuid, setActive],
 	);
 
 	const showPage = useCallback(
@@ -168,6 +179,7 @@ export function useSectionPaging({
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
 	const pagePasses = useCallback(
 		async (page: SectionPage): Promise<boolean> => {
+			if (!(await controller.enterSectionAsync(page.uuid))) return false;
 			if (await controller.validateSectionAsync(page.uuid)) return true;
 			const target = controller.firstInvalidFieldTarget({
 				withinSection: page.uuid,
@@ -185,14 +197,14 @@ export function useSectionPaging({
 		const next = pages[index + 1];
 		if (next === undefined) return;
 		if (!(await pagePasses(current))) return;
-		turnTo(next);
+		await turnTo(next);
 	}, [current, pages, index, pagePasses, turnTo]);
 
-	const goBack = useCallback(() => {
+	const goBack = useCallback(async () => {
 		if (current === undefined) return;
 		const previous = pages[index - 1];
 		if (previous === undefined) return;
-		turnTo(previous);
+		await turnTo(previous);
 	}, [current, pages, index, turnTo]);
 
 	const goTo = useCallback(
@@ -203,7 +215,7 @@ export function useSectionPaging({
 			for (const page of pagesToValidate(pages, current.uuid, uuid)) {
 				if (!(await pagePasses(page))) return;
 			}
-			turnTo(target);
+			await turnTo(target);
 		},
 		[current, pages, pagePasses, turnTo],
 	);

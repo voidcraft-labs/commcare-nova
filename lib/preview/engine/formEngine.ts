@@ -125,6 +125,7 @@ import {
 	type PreviewLookupData,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
+import { resolveCurrentPage } from "./sectionPaging";
 import { type InitializationExpression, TriggerDag } from "./triggerDag";
 import {
 	type FieldState,
@@ -229,6 +230,8 @@ export interface SectionPage {
 	 *  nothing to show is skipped, the way Android skips an empty or
 	 *  all-irrelevant field-list. */
 	readonly hasVisibleQuestions: boolean;
+	/** Row insertion can reveal questions that do not exist yet. */
+	readonly needsEntry?: boolean;
 }
 
 /** Stable fallback for paths that don't exist in the engine. Frozen so
@@ -331,6 +334,12 @@ interface InitializationRead {
 }
 
 export interface FormEngineRuntimeOptions {
+	/** A same-entry context/presentation rebuild, retaining row identity. */
+	readonly restoredEntry?: {
+		readonly checkpoint: FormEngineEntryCheckpoint;
+		readonly preserveAllValues: boolean;
+	};
+
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
@@ -341,11 +350,21 @@ export interface FormEngineRuntimeOptions {
 	readonly searchAnswers?: ReadonlyMap<string, string>;
 }
 
+interface RepeatInitializationSnapshot {
+	readonly count: number;
+	readonly ids?: readonly string[];
+}
+
 /** Server-owned checkpoint for continuing one pinned form entry. */
 export interface FormEngineEntryCheckpoint {
 	readonly instance: DataInstanceSnapshot;
 	readonly state: EngineStoreState;
 	readonly repeatKeys: readonly (readonly [string, readonly string[]])[];
+	readonly pendingSectionRepeats: readonly (readonly [
+		string,
+		RepeatInitializationSnapshot,
+	])[];
+	readonly activeSectionUuid?: Uuid;
 }
 
 export interface FormEngineWorkerWorld {
@@ -531,6 +550,12 @@ export class FormEngine {
 	/** Render-only identities that survive positional compaction. */
 	private repeatInstanceKeys = new Map<string, string[]>();
 	private readonly asyncRuntime: boolean;
+	private restoredEntry: FormEngineRuntimeOptions["restoredEntry"];
+	private pendingSectionRepeats = new Map<
+		string,
+		RepeatInitializationSnapshot
+	>();
+	private activeSectionUuid: Uuid | undefined;
 	private initializationStates: EngineStoreState | undefined;
 	private initializationContext: XPathInitializationContext | undefined;
 	private readonly presentationLanguage: LanguageTag | undefined;
@@ -572,6 +597,7 @@ export class FormEngine {
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.asyncRuntime = runtimeOptions.stagedAsync === true;
+		this.restoredEntry = runtimeOptions.restoredEntry;
 		this.presentationLanguage = input.language;
 
 		this.instance = new DataInstance(this.formRootAttributes);
@@ -580,11 +606,20 @@ export class FormEngine {
 
 		this.dag.build(this.tree, this.printDoc);
 		if (this.asyncRuntime) return;
+		const restored = this.restoredEntry;
+		this.restoredEntry = undefined;
+		if (restored) {
+			this.restoreEntryCheckpoint(restored.checkpoint);
+			if (!restored.preserveAllValues) this.healEntryContext();
+			else this.evaluateAllInto();
+			return;
+		}
 		this.initializeModel(this.tree);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states);
 		this.evaluateAllInto();
+		this.enterFirstSection();
 	}
 
 	// ── Public API ───────────────────────────────────────────────────
@@ -706,16 +741,18 @@ export class FormEngine {
 			instance: this.instance.checkpoint(),
 			state: this.store.getState(),
 			repeatKeys: [...this.repeatInstanceKeys],
+			pendingSectionRepeats: [...this.pendingSectionRepeats],
+			activeSectionUuid: this.activeSectionUuid,
 		});
 	}
 
-	/** Only the same immutable blueprint, identity and entry world may resume.
-	 * The server's pinned test session owns that fence; this is not a client
-	 * submission input. Do not initialize again or recalculate untouched values. */
+	/** Restore the entry before any evaluation. Test journeys require the same
+	 * pinned blueprint and identity. Controller-owned context rebuilds explicitly
+	 * heal untouched defaults afterward; this is never a client submission input. */
 	restoreEntryCheckpoint(checkpoint: FormEngineEntryCheckpoint): void {
-		if (!this.asyncRuntime)
-			throw new Error("Entry restoration requires a staged FormEngine.");
 		this.instance.restoreCheckpoint(checkpoint.instance);
+		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
+		this.activeSectionUuid = checkpoint.activeSectionUuid;
 		this.repeatInstanceKeys = new Map(
 			checkpoint.repeatKeys.map(([path, keys]) => [path, [...keys]]),
 		);
@@ -731,6 +768,15 @@ export class FormEngine {
 		if (!this.asyncRuntime) {
 			throw new Error("Async initialization requires a staged FormEngine.");
 		}
+		const restored = this.restoredEntry;
+		this.restoredEntry = undefined;
+		if (restored) {
+			this.restoreEntryCheckpoint(restored.checkpoint);
+			if (!restored.preserveAllValues)
+				await this.healEntryContextAsync(evaluateAsync);
+			else await this.settleAsync(evaluateAsync);
+			return;
+		}
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
 		await this.initializeModelAsync(this.tree, evaluateAsync);
@@ -738,6 +784,7 @@ export class FormEngine {
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
 		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+		await this.enterFirstSectionAsync(evaluateAsync);
 	}
 
 	async setValueAsync(
@@ -747,6 +794,8 @@ export class FormEngine {
 	): Promise<void> {
 		this.setValue(path, value);
 		await this.settleValueChangesAsync([path], evaluateAsync);
+		if (this.activeSectionUuid)
+			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
 	}
 
 	/** Reconcile every raw value staged since the previous worker revision in
@@ -876,6 +925,8 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+		if (!this.asyncRuntime && this.activeSectionUuid)
+			this.enterSection(this.activeSectionUuid);
 	}
 
 	/** Add a new repeat instance. Returns the new index. */
@@ -1082,6 +1133,7 @@ export class FormEngine {
 		});
 		for (const path of paths) {
 			const target = snapshot.get(path) ?? 1;
+			if (target > 0) this.pendingSectionRepeats.delete(path);
 			let current = this.getRepeatCount(path);
 			while (current < target) {
 				this.addRepeat(path);
@@ -1113,6 +1165,7 @@ export class FormEngine {
 		});
 		for (const path of paths) {
 			const target = snapshot.get(path) ?? 1;
+			if (target > 0) this.pendingSectionRepeats.delete(path);
 			let current = this.getRepeatCount(path);
 			while (current < target) {
 				await this.addRepeatAsync(path, evaluateAsync);
@@ -1247,6 +1300,12 @@ export class FormEngine {
 			pages.push({
 				uuid: node.field.uuid,
 				path,
+				needsEntry: [...this.pendingSectionRepeats].some(
+					([repeatPath, snapshot]) =>
+						snapshot.count > 0 &&
+						repeatPath.startsWith(`${path}/`) &&
+						effectivelyVisible.has(repeatPath),
+				),
 				hasVisibleQuestions:
 					effectivelyVisible.has(path) &&
 					hasVisibleQuestion(node.children ?? [], path),
@@ -2222,6 +2281,10 @@ export class FormEngine {
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
+		this.activeSectionUuid = resolveCurrentPage(
+			this.sectionPages(),
+			this.activeSectionUuid,
+		)?.uuid;
 	}
 
 	/**
@@ -2426,6 +2489,9 @@ export class FormEngine {
 	removeFieldStates(paths: readonly string[]): void {
 		const concretes = new Set<string>();
 		for (const path of paths) {
+			for (const pending of this.pendingSectionRepeats.keys())
+				if (pending === path || pending.startsWith(`${path}/`))
+					this.pendingSectionRepeats.delete(pending);
 			for (const concrete of this.materializePaths(path)) {
 				concretes.add(concrete);
 			}
@@ -2448,6 +2514,7 @@ export class FormEngine {
 	 * `""` when `!instance.has(path)`.
 	 */
 	deleteValue(path: string): void {
+		this.pendingSectionRepeats.delete(path);
 		const updates: EngineStoreState = {};
 		for (const concrete of this.materializePaths(path)) {
 			this.instance.delete(concrete);
@@ -2501,18 +2568,21 @@ export class FormEngine {
 			to,
 			state: current[from],
 			instanceKeys: this.repeatInstanceKeys.get(from),
+			pendingRepeat: this.pendingSectionRepeats.get(from),
 		}));
 		this.instance.renameMany(moves);
 		for (const { from } of stateMoves) {
 			if (current[from]) updates[from] = DEFAULT_ENGINE_STATE;
 			this.repeatInstanceKeys.delete(from);
+			this.pendingSectionRepeats.delete(from);
 		}
 		// Destinations land only after every source is retired. Besides making
 		// DataInstance atomic, this keeps the reactive store and repeat-row
 		// identity map correct for swaps and rename chains in the same batch.
-		for (const { to, state, instanceKeys } of stateMoves) {
+		for (const { to, state, instanceKeys, pendingRepeat } of stateMoves) {
 			if (to === null) continue;
 			if (state) updates[to] = { ...state, path: to };
+			if (pendingRepeat) this.pendingSectionRepeats.set(to, pendingRepeat);
 			if (instanceKeys !== undefined) {
 				this.repeatInstanceKeys.set(to, instanceKeys);
 			}
@@ -2783,6 +2853,7 @@ export class FormEngine {
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
 		this.evaluateAllInto();
+		this.enterFirstSection();
 	}
 
 	/** Clear touched state and validation errors (for mode switches). */
@@ -3697,6 +3768,7 @@ export class FormEngine {
 		prefix = "/data",
 		insertedPath?: string,
 		identity?: Readonly<Record<string, string>>,
+		healing = false,
 	): Generator<InitializationRead, void, InitializationValue> {
 		const fields: Array<{ node: FieldTreeNode; path: string }> = [];
 		const collect = (nodes: readonly FieldTreeNode[], parent: string): void => {
@@ -3708,11 +3780,19 @@ export class FormEngine {
 						...DEFAULT_ENGINE_STATE,
 						visible: true,
 					};
-				if (node.field.kind === "repeat") this.instance.setRepeatCount(path, 0);
-				else if (node.children) collect(node.children, path);
+				if (node.field.kind === "repeat") {
+					if (!healing) this.instance.setRepeatCount(path, 0);
+				} else if (node.children) collect(node.children, path);
 			}
 		};
 		collect(tree, prefix);
+		if (healing) {
+			for (const { node, path } of fields) {
+				const previous = this.store.getState()[path];
+				if (!isContainer(node.field) && !previous?.edited && !previous?.touched)
+					this.instance.set(path, "");
+			}
+		}
 		const calculated = new Set<string>();
 		if (identity) {
 			this.instance.setElementAttributes(prefix, identity);
@@ -3724,14 +3804,15 @@ export class FormEngine {
 				calculated,
 			);
 		}
-		const snapshots = new Map<
-			string,
-			{ count: number; ids?: readonly string[] }
-		>();
+		const snapshots = new Map<string, RepeatInitializationSnapshot>();
 		for (const { node, path } of fields) {
 			const field = node.field;
 			const source = expressionSource(field, "default_value", this.printDoc);
-			if (source !== undefined) {
+			const previous = this.store.getState()[path];
+			if (
+				source !== undefined &&
+				!(healing && (previous?.edited || previous?.touched))
+			) {
 				const value = yield { source, path };
 				if (isAsyncNodesetValues(value))
 					throw new Error("Expected a scalar default.");
@@ -3741,7 +3822,11 @@ export class FormEngine {
 					calculated,
 				);
 			}
-			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "query_bound" &&
+				(!healing || this.pendingSectionRepeats.has(path))
+			) {
 				const result = yield {
 					source: expressionSource(field, "ids_query", this.printDoc) ?? "",
 					path,
@@ -3763,7 +3848,8 @@ export class FormEngine {
 		for (const { node, path } of fields) {
 			if (
 				node.field.kind !== "repeat" ||
-				node.field.repeat_mode !== "count_bound"
+				node.field.repeat_mode !== "count_bound" ||
+				(healing && !this.pendingSectionRepeats.has(path))
 			)
 				continue;
 			const source =
@@ -3790,6 +3876,8 @@ export class FormEngine {
 			for (const { node, path } of fields) {
 				const writer = seeded?.get(node.field.uuid);
 				if (!writer) continue;
+				const previous = this.store.getState()[path];
+				if (healing && (previous?.edited || previous?.touched)) continue;
 				this.instance.set(path, own?.get(writer.property) ?? "");
 				yield* this.initializeExpressions(
 					this.dag.getAffectedInitialization([path], this.repeatCounts),
@@ -3816,19 +3904,188 @@ export class FormEngine {
 		);
 		for (const { node, path } of fields) {
 			if (node.field.kind !== "repeat") continue;
-			const snapshot = snapshots.get(path) ?? { count: 1 };
-			for (let index = 0; index < snapshot.count; index++) {
-				this.instance.setRepeatCount(path, index + 1);
-				yield* this.initializeScope(
-					node.children ?? [],
-					`${path}[${index}]`,
-					path,
-					snapshot.ids
-						? { id: snapshot.ids[index] ?? "", index: String(index) }
-						: undefined,
-				);
+			if (healing && !this.pendingSectionRepeats.has(path)) {
+				for (
+					let index = 0;
+					index < this.instance.getRepeatCount(path);
+					index++
+				) {
+					yield* this.initializeScope(
+						node.children ?? [],
+						`${path}[${index}]`,
+						undefined,
+						undefined,
+						true,
+					);
+				}
+				continue;
 			}
+			const snapshot = snapshots.get(path) ?? { count: 1 };
+			if (
+				prefix === "/data" &&
+				this.tree.some(
+					(root) =>
+						root.field.kind === "section" &&
+						path.startsWith(`/data/${root.field.id}/`),
+				)
+			) {
+				this.pendingSectionRepeats.set(path, snapshot);
+			} else yield* this.materializeInitializedRepeat(node, path, snapshot);
 		}
+	}
+
+	private *materializeInitializedRepeat(
+		node: FieldTreeNode,
+		path: string,
+		snapshot: RepeatInitializationSnapshot,
+	): Generator<InitializationRead, void, InitializationValue> {
+		for (let index = 0; index < snapshot.count; index++) {
+			this.instance.setRepeatCount(path, index + 1);
+			yield* this.initializeScope(
+				node.children ?? [],
+				`${path}[${index}]`,
+				path,
+				snapshot.ids
+					? { id: snapshot.ids[index] ?? "", index: String(index) }
+					: undefined,
+			);
+		}
+	}
+
+	/** Form-start actions already captured these outer counts/IDs. Only row
+	 * insertion is delayed until the section is visited; its nested actions
+	 * then see answers entered on previous pages. */
+	private *initializeSection(
+		sectionUuid: Uuid,
+	): Generator<InitializationRead, void, InitializationValue> {
+		const section = this.tree.find(
+			(node) =>
+				node.field.kind === "section" && node.field.uuid === sectionUuid,
+		);
+		if (!section) return;
+		this.activeSectionUuid = sectionUuid;
+		const prefix = `/data/${section.field.id}/`;
+		for (const [path, snapshot] of this.pendingSectionRepeats) {
+			if (
+				!path.startsWith(prefix) ||
+				!this.effectivelyVisiblePaths(this.initializationStates).has(path)
+			)
+				continue;
+			const node = this.findTreeNode(path);
+			if (!node) throw new Error("Section repeat is unavailable.");
+			yield* this.materializeInitializedRepeat(node, path, snapshot);
+			this.pendingSectionRepeats.delete(path);
+		}
+	}
+
+	private publishInitializedSections(): void {
+		const states: EngineStoreState = {};
+		this.initStatesInto(states, this.tree);
+		const previous = this.store.getState();
+		for (const [path, state] of Object.entries(states)) {
+			if (previous[path])
+				states[path] =
+					state.repeatCount === undefined
+						? { ...previous[path], value: state.value }
+						: { ...previous[path], repeatCount: state.repeatCount };
+		}
+		this.store.setState(states, true);
+	}
+
+	hasPendingSectionInitialization(): boolean {
+		return (
+			this.activeSectionUuid !== undefined &&
+			this.pendingRepeatsInSection(this.activeSectionUuid).length > 0
+		);
+	}
+
+	currentSectionUuid(): Uuid | undefined {
+		return this.activeSectionUuid;
+	}
+
+	private pendingRepeatsInSection(sectionUuid: Uuid): string[] {
+		const section = this.tree.find(
+			(node) =>
+				node.field.kind === "section" && node.field.uuid === sectionUuid,
+		);
+		if (!section) throw new Error("Section is unavailable.");
+		const prefix = `/data/${section.field.id}/`;
+		const visible = this.effectivelyVisiblePaths();
+		return [...this.pendingSectionRepeats.keys()].filter(
+			(path) => path.startsWith(prefix) && visible.has(path),
+		);
+	}
+
+	enterSection(sectionUuid: Uuid): void {
+		if (this.asyncRuntime)
+			throw new Error("Section entry requires the asynchronous evaluator.");
+		this.activeSectionUuid = sectionUuid;
+		while (this.pendingRepeatsInSection(sectionUuid).length > 0) {
+			this.runInitialization(this.initializeSection(sectionUuid));
+			this.publishInitializedSections();
+			this.evaluateAllInto();
+		}
+		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
+		if (!resolved) this.activeSectionUuid = undefined;
+		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
+	}
+
+	async enterSectionAsync(
+		sectionUuid: Uuid,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		this.activeSectionUuid = sectionUuid;
+		while (this.pendingRepeatsInSection(sectionUuid).length > 0) {
+			await this.runInitializationAsync(
+				this.initializeSection(sectionUuid),
+				evaluateAsync,
+			);
+			this.publishInitializedSections();
+			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+		}
+		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
+		if (!resolved) this.activeSectionUuid = undefined;
+		else if (resolved.uuid !== sectionUuid)
+			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
+	}
+
+	/** Nova context recovery re-evaluates untouched defaults with retained row
+	 * identities already installed. Only unvisited section snapshots recapture
+	 * the newly available context; consumed membership, including zero, stays. */
+	private healEntryContext(): void {
+		this.runInitialization(
+			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+		);
+		this.publishInitializedSections();
+		this.evaluateAllInto();
+		if (this.activeSectionUuid) this.enterSection(this.activeSectionUuid);
+		else this.enterFirstSection();
+	}
+
+	private async healEntryContextAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		await this.runInitializationAsync(
+			this.initializeScope(this.tree, "/data", undefined, undefined, true),
+			evaluateAsync,
+		);
+		this.publishInitializedSections();
+		await this.settleAsync(evaluateAsync);
+		if (this.activeSectionUuid)
+			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
+		else await this.enterFirstSectionAsync(evaluateAsync);
+	}
+
+	private enterFirstSection(): void {
+		const first = resolveCurrentPage(this.sectionPages(), undefined);
+		if (first) this.enterSection(first.uuid);
+	}
+
+	private async enterFirstSectionAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		const first = resolveCurrentPage(this.sectionPages(), undefined);
+		if (first) await this.enterSectionAsync(first.uuid, evaluateAsync);
 	}
 
 	private *initializeExpressions(
@@ -3861,10 +4118,22 @@ export class FormEngine {
 		insertedPath?: string,
 	): void {
 		if (this.asyncRuntime) return;
-		this.initializationStates =
-			prefix === "/data" ? {} : { ...this.store.getState() };
+		if (prefix === "/data") {
+			this.pendingSectionRepeats.clear();
+			this.activeSectionUuid = undefined;
+		}
+		this.runInitialization(
+			this.initializeScope(tree, prefix, insertedPath),
+			prefix === "/data",
+		);
+	}
+
+	private runInitialization(
+		steps: Generator<InitializationRead, void, InitializationValue>,
+		fresh = false,
+	): void {
+		this.initializationStates = fresh ? {} : { ...this.store.getState() };
 		try {
-			const steps = this.initializeScope(tree, prefix, insertedPath);
 			let step = steps.next();
 			while (!step.done) {
 				const { source, path, nodeset, carrier } = step.value;
@@ -3896,10 +4165,24 @@ export class FormEngine {
 		prefix = "/data",
 		insertedPath?: string,
 	): Promise<void> {
-		this.initializationStates =
-			prefix === "/data" ? {} : { ...this.store.getState() };
+		if (prefix === "/data") {
+			this.pendingSectionRepeats.clear();
+			this.activeSectionUuid = undefined;
+		}
+		await this.runInitializationAsync(
+			this.initializeScope(tree, prefix, insertedPath),
+			evaluateAsync,
+			prefix === "/data",
+		);
+	}
+
+	private async runInitializationAsync(
+		steps: Generator<InitializationRead, void, InitializationValue>,
+		evaluateAsync: FormEngineAsyncEvaluator,
+		fresh = false,
+	): Promise<void> {
+		this.initializationStates = fresh ? {} : { ...this.store.getState() };
 		try {
-			const steps = this.initializeScope(tree, prefix, insertedPath);
 			let step = steps.next();
 			while (!step.done) {
 				const { source, path, nodeset, carrier } = step.value;

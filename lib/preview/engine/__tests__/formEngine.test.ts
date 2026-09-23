@@ -5398,3 +5398,187 @@ describe("sections on submission", () => {
 		expect(mutation.primary.properties.notes).toBe("first visit");
 	});
 });
+
+describe("section entry initializes later rows", () => {
+	it.each([false, true])(
+		"captures nested membership on page entry and retains it on return (worker: %s)",
+		async (stagedAsync) => {
+			const input = dTree([
+				{
+					id: "first",
+					kind: "section",
+					children: [
+						{ id: "zone", kind: "text", default_value: xp("'north'") },
+					],
+				},
+				{
+					id: "second",
+					kind: "section",
+					children: [
+						{
+							id: "rounds",
+							kind: "repeat",
+							repeat_mode: "count_bound",
+							repeat_count: xp("1"),
+							children: [
+								{
+									id: "assets",
+									kind: "repeat",
+									repeat_mode: "query_bound",
+									data_source: {
+										ids_query: formXp(
+											"if(#form/first/zone = 'north', 'pump tap', 'tank')",
+										),
+									},
+									children: [
+										{
+											id: "note",
+											kind: "text",
+											default_value: xp("current()/../@id"),
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			]);
+			let engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync },
+			);
+			let worker = fixedWorldEvaluator(engine, `page-entry-${stagedAsync}`);
+			try {
+				if (stagedAsync) await engine.initializeAsync(worker.evaluateAsync);
+				const first = engine.sectionPages()[0];
+				const second = engine.sectionPages()[1];
+				if (!first || !second) throw new Error("Missing pages");
+				expect(engine.currentSectionUuid()).toBe(first.uuid);
+				expect(engine.getRepeatCount("/data/second/rounds")).toBe(0);
+				expect(second.hasVisibleQuestions).toBe(false);
+				expect(second.needsEntry).toBe(true);
+				if (stagedAsync) {
+					await engine.setValueAsync(
+						"/data/first/zone",
+						"south",
+						worker.evaluateAsync,
+					);
+					const checkpoint = engine.entryCheckpoint();
+					worker.runtime.dispose();
+					engine = new FormEngine(
+						input,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						undefined,
+						{ stagedAsync: true },
+					);
+					engine.restoreEntryCheckpoint(checkpoint);
+					worker = fixedWorldEvaluator(engine, "page-entry-restored");
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+				} else {
+					engine.setValue("/data/first/zone", "south");
+					engine.enterSection(second.uuid);
+				}
+				expect(engine.getRepeatCount("/data/second/rounds[0]/assets")).toBe(1);
+				expect(
+					engine.getState("/data/second/rounds[0]/assets[0]/note").value,
+				).toBe("tank");
+				if (stagedAsync) {
+					await engine.setValueAsync(
+						"/data/second/rounds[0]/assets[0]/note",
+						"retained",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(first.uuid, worker.evaluateAsync);
+					await engine.setValueAsync(
+						"/data/first/zone",
+						"north",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+				} else {
+					engine.setValue("/data/second/rounds[0]/assets[0]/note", "retained");
+					engine.enterSection(first.uuid);
+					engine.setValue("/data/first/zone", "north");
+					engine.enterSection(second.uuid);
+				}
+				expect(engine.getRepeatCount("/data/second/rounds[0]/assets")).toBe(1);
+				expect(
+					engine.getState("/data/second/rounds[0]/assets[0]/note").value,
+				).toBe("retained");
+			} finally {
+				worker.runtime.dispose();
+			}
+		},
+	);
+});
+
+it("inserts newly relevant rows on the current page and resolves a later page with no prompts", () => {
+	const engine = new FormEngine(
+		dTree([
+			{
+				id: "first",
+				kind: "section",
+				children: [
+					{ id: "gate", kind: "text", default_value: xp("'no'") },
+					{
+						id: "rows",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: xp("1"),
+						relevant: formXp("#form/first/gate = 'yes'"),
+						children: [
+							{
+								id: "saved_gate",
+								kind: "text",
+								default_value: formXp("#form/first/gate"),
+							},
+						],
+					},
+				],
+			},
+			{
+				id: "empty",
+				kind: "section",
+				children: [
+					{
+						id: "rows",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: xp("1"),
+						children: [{ id: "note", kind: "text", relevant: xp("false()") }],
+					},
+				],
+			},
+			{
+				id: "last",
+				kind: "section",
+				children: [{ id: "finish", kind: "text" }],
+			},
+		]),
+	);
+	expect(engine.getRepeatCount("/data/first/rows")).toBe(0);
+	engine.setValue("/data/first/gate", "yes");
+	expect(engine.getState("/data/first/rows[0]/saved_gate").value).toBe("yes");
+	engine.setValue("/data/first/rows[0]/saved_gate", "retained");
+	engine.setValue("/data/first/gate", "no");
+	engine.setValue("/data/first/gate", "yes");
+	expect(engine.getState("/data/first/rows[0]/saved_gate").value).toBe(
+		"retained",
+	);
+	const pages = engine.sectionPages();
+	engine.enterSection(pages[1].uuid);
+	expect(engine.currentSectionUuid()).toBe(pages[2].uuid);
+	expect(engine.getRepeatCount("/data/empty/rows")).toBe(1);
+	expect(engine.sectionPages()[1]).toMatchObject({
+		hasVisibleQuestions: false,
+		needsEntry: false,
+	});
+});

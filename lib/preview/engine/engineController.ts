@@ -647,6 +647,7 @@ export class EngineController {
 	private lifecycleGeneration = 0;
 	private currentAbort: AbortController | undefined;
 	private pendingWork: Promise<void> = Promise.resolve();
+	private pendingRebuildWork: Promise<void> = Promise.resolve();
 	/** Topology revisions are indivisible within one live entry. Browser events
 	 * arriving after an add/remove queue behind it instead of retiring work
 	 * after the repeat shape has already changed but before defaults/cascade and
@@ -873,6 +874,13 @@ export class EngineController {
 			changedPaths,
 			this.evaluatorFor(engine, entryKey, revision, generation, signal),
 		);
+		await this.initializePendingSectionRows(
+			engine,
+			entryKey,
+			revision,
+			generation,
+			signal,
+		);
 		if (
 			engine !== this.engine ||
 			entryKey !== this.currentEntryKey ||
@@ -883,6 +891,38 @@ export class EngineController {
 		}
 		for (const path of changedPaths) this.pendingValuePaths.delete(path);
 		this.syncAllPathsSelectively();
+	}
+
+	private async initializePendingSectionRows(
+		engine: FormEngine,
+		entryKey: string,
+		revision: number,
+		generation: number,
+		signal: AbortSignal,
+	): Promise<void> {
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			generation !== this.lifecycleGeneration ||
+			revision !== this.runtimeRevision
+		)
+			return;
+		const sectionUuid = engine.currentSectionUuid();
+		if (sectionUuid && engine.hasPendingSectionInitialization()) {
+			// Input changes may reveal a not-yet-created repeat on this page.
+			// Its insertion is indivisible, just like an explicit Add operation.
+			this.atomicRevisionsPending += 1;
+			this.publishEntryState();
+			try {
+				await engine.enterSectionAsync(
+					sectionUuid,
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				);
+			} finally {
+				this.atomicRevisionsPending -= 1;
+				this.publishEntryState();
+			}
+		}
 	}
 
 	private executeAsyncRevision<T>(
@@ -1002,8 +1042,10 @@ export class EngineController {
 		 * promise captured on entry can return while that later revision is active. */
 		for (;;) {
 			const pending = this.pendingWork;
-			await pending;
-			if (pending === this.pendingWork) break;
+			const rebuild = this.pendingRebuildWork;
+			await Promise.all([pending, rebuild]);
+			if (pending === this.pendingWork && rebuild === this.pendingRebuildWork)
+				break;
 		}
 		return (
 			this.runtimeFault === undefined &&
@@ -1306,27 +1348,34 @@ export class EngineController {
 			this.rebuildActiveForm(formUuid, caseData, preserveAllValues);
 			return this.engine !== undefined;
 		}
-		const entryKey =
-			this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
-				? this.currentEntryKey
-				: crypto.randomUUID();
-		const values = this.engine?.getValueSnapshot({
-			includeAllValues: preserveAllValues,
+		const previousEntryKey = this.currentEntryKey;
+		const task = this.pendingRebuildWork.then(async () => {
+			// A language rebuild and cold context may arrive in one publication.
+			// Keep their order, and snapshot only a fully settled answer world.
+			for (;;) {
+				const pending = this.pendingWork;
+				await pending;
+				if (pending === this.pendingWork) break;
+			}
+			if (
+				previousEntryKey !== this.currentEntryKey ||
+				this.activeFormUuid !== formUuid
+			)
+				return false;
+			const checkpoint = this.engine?.entryCheckpoint();
+			return this.mountFormAsync(
+				formUuid,
+				caseData,
+				previousEntryKey ?? crypto.randomUUID(),
+				checkpoint ? { checkpoint, preserveAllValues } : undefined,
+				this.caseDatabaseOverrideFor(formUuid),
+			);
 		});
-		const repeatCounts = this.engine?.getRepeatCountSnapshot();
-		const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
-		return this.mountFormAsync(
-			formUuid,
-			caseData,
-			entryKey,
-			{
-				values,
-				repeatCounts,
-				repeatInstanceKeys,
-				preserveAllValues,
-			},
-			this.caseDatabaseOverrideFor(formUuid),
+		this.pendingRebuildWork = task.then(
+			() => undefined,
+			() => undefined,
 		);
+		return task;
 	}
 
 	private async mountFormAsync(
@@ -1334,9 +1383,7 @@ export class EngineController {
 		caseData: CaseDataByType | undefined,
 		entryKey: string,
 		restore?: {
-			readonly values?: ReturnType<FormEngine["getValueSnapshot"]>;
-			readonly repeatCounts?: ReadonlyMap<string, number>;
-			readonly repeatInstanceKeys?: ReadonlyMap<string, readonly string[]>;
+			readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
 			readonly preserveAllValues: boolean;
 		},
 		caseDatabaseOverride?: CaseDatabaseSnapshot,
@@ -1351,7 +1398,7 @@ export class EngineController {
 		 * that gap: the field-specific subscriptions cannot be installed until the
 		 * engine has a tree, and building them later from this captured state would
 		 * otherwise miss an edit that landed while `initializeAsync` was awaiting.
-		 * Once the first revision settles, rebuild from the latest document before
+		 * Once the first revision settles, reconcile the missed document delta before
 		 * publishing it. The ordinary subscriptions cover the tiny hand-off after
 		 * this temporary watch is removed. */
 		const docStore = this.docStore;
@@ -1395,6 +1442,7 @@ export class EngineController {
 			caseDatabase,
 			{
 				stagedAsync: true,
+				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
 			},
 		);
@@ -1414,35 +1462,13 @@ export class EngineController {
 						signal,
 					);
 					await engine.initializeAsync(evaluator);
-					if (restore?.repeatCounts !== undefined) {
-						await engine.restoreRepeatCountSnapshotAsync(
-							restore.repeatCounts,
-							evaluator,
-						);
-					}
-					if (restore?.repeatInstanceKeys !== undefined) {
-						engine.restoreRepeatInstanceKeySnapshot(restore.repeatInstanceKeys);
-					}
-					if (restore?.values !== undefined) {
-						engine.restoreValues(restore.values, {
-							restoreAllValues: restore.preserveAllValues,
-						});
-						await engine.settleAsync(evaluator);
-					}
 					if (entryKey !== this.currentEntryKey || engine !== this.engine)
 						return false;
 					const maps = buildPathMaps(engine.getFieldTree());
 					this.uuidToPath = maps.uuidToPath;
 					this.pathToUuid = maps.pathToUuid;
 					this.syncAllToStore();
-					const uuids = collectFormUuids(formUuid, state.fieldOrder);
-					this.setupAuthoredPathTopologySubscription(formUuid);
-					this.setupPerFieldSubscriptions(uuids);
-					this.setupStructuralSubscription(formUuid);
-					this.setupMetadataSubscription();
-					this.setupUserPropertySubscription();
-					this.setupLocalizationSubscription();
-					this.setupAsyncReconciliationSubscription(formUuid);
+
 					if (
 						!documentChangedDuringActivation &&
 						docStore.getState() === state
@@ -1457,18 +1483,69 @@ export class EngineController {
 		} finally {
 			stopWatchingActivation();
 		}
+		if (entryKey !== this.currentEntryKey || engine !== this.engine)
+			return false;
+		if (!docStore.getState().forms[formUuid]) {
+			this.clearActiveForm();
+			return false;
+		}
+		const uuids = collectFormUuids(formUuid, state.fieldOrder);
+		this.setupAuthoredPathTopologySubscription(formUuid);
+		this.setupPerFieldSubscriptions(uuids);
+		this.setupStructuralSubscription(formUuid);
+		this.setupMetadataSubscription();
+		this.setupUserPropertySubscription();
+		this.setupLocalizationSubscription();
+		this.setupAsyncReconciliationSubscription(formUuid);
 		if (
 			documentChangedDuringActivation &&
 			entryKey === this.currentEntryKey &&
 			engine === this.engine
 		) {
-			return this.mountFormAsync(
-				formUuid,
-				caseData,
-				entryKey,
-				restore,
-				caseDatabaseOverride,
+			const current = docStore.getState();
+			this.reconcileAuthoredTopology(formUuid, current, state);
+			const previousUuids = collectFormUuids(formUuid, state.fieldOrder);
+			const currentUuids = collectFormUuids(formUuid, current.fieldOrder);
+			for (const uuid of previousUuids) {
+				this.reconcileField(uuid, current.fields[uuid], state.fields[uuid]);
+			}
+			this.onFieldsRemoved(
+				previousUuids.filter((uuid) => !currentUuids.includes(uuid)),
 			);
+			this.onFieldsAdded(
+				currentUuids.filter((uuid) => !previousUuids.includes(uuid)),
+			);
+			const currentModuleUuid = findModuleForForm(current, formUuid);
+			const previousModule = state.modules[moduleUuid];
+			const currentModule = currentModuleUuid
+				? current.modules[currentModuleUuid]
+				: undefined;
+			if (
+				current.forms[formUuid].type !== state.forms[formUuid].type ||
+				currentModule?.caseType !== previousModule?.caseType ||
+				(currentModule &&
+					previousModule &&
+					caseSelectionCardinality(currentModule) !==
+						caseSelectionCardinality(previousModule)) ||
+				current.userProperties !== state.userProperties
+			) {
+				// These context changes use the ordinary same-entry healing path.
+				// Queue behind this mount rather than restoring an obsolete schema.
+				this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
+					() => undefined,
+				);
+			}
+			this.reconcileDocumentRuntime(formUuid, current, state);
+			for (;;) {
+				const pending = this.pendingWork;
+				await pending;
+				if (pending === this.pendingWork) break;
+			}
+			if (engine !== this.engine || entryKey !== this.currentEntryKey)
+				return false;
+			this.entryReady = this.runtimeFault === undefined;
+			this.publishEntryState();
+			return this.entryReady;
 		}
 		if (ready && entryKey === this.currentEntryKey && engine === this.engine) {
 			this.reconciledDocumentState = state;
@@ -1494,29 +1571,14 @@ export class EngineController {
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
 					? this.currentEntryKey
 					: crypto.randomUUID();
-			const values = this.engine?.getValueSnapshot({
-				includeAllValues: preserveAllValues,
-			});
-			const repeatCounts = this.engine?.getRepeatCountSnapshot();
-			const repeatInstanceKeys = this.engine?.getRepeatInstanceKeySnapshot();
+			const checkpoint = this.engine?.entryCheckpoint();
 			this.mountForm(
 				formUuid,
 				caseData,
 				entryKey,
 				this.caseDatabaseOverrideFor(formUuid),
+				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 			);
-			if (repeatCounts !== undefined) {
-				this.engine?.restoreRepeatCountSnapshot(repeatCounts);
-			}
-			if (repeatInstanceKeys !== undefined) {
-				this.engine?.restoreRepeatInstanceKeySnapshot(repeatInstanceKeys);
-			}
-			if (values !== undefined && this.engine !== undefined) {
-				this.engine.restoreValues(values, {
-					restoreAllValues: preserveAllValues,
-				});
-				this.syncAllToStore();
-			}
 		});
 	}
 
@@ -1525,6 +1587,10 @@ export class EngineController {
 		caseData: CaseDataByType | undefined,
 		entryKey: string,
 		caseDatabaseOverride?: CaseDatabaseSnapshot,
+		restoredEntry?: {
+			readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
+			readonly preserveAllValues: boolean;
+		},
 	): void {
 		this.clearActiveForm();
 		if (this.previewIdentityBlocked || !this.docStore) {
@@ -1574,7 +1640,10 @@ export class EngineController {
 			this.previewIdentity,
 			this.lookupData,
 			caseDatabase,
-			searchAnswers === undefined ? {} : { searchAnswers },
+			{
+				restoredEntry,
+				...(searchAnswers === undefined ? {} : { searchAnswers }),
+			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
 
@@ -1928,6 +1997,46 @@ export class EngineController {
 	/** The form's pages (root sections) with their current visibility. */
 	sectionPages(): ReadonlyArray<SectionPage> {
 		return this.engine?.sectionPages() ?? [];
+	}
+
+	/** Materialize this page through the same engine operation used by test journeys. */
+	async enterSectionAsync(sectionUuid: Uuid): Promise<boolean> {
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		const entryKey = this.currentEntryKey;
+		if (!engine || !formUuid || !entryKey) return false;
+		await this.pendingWork;
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			formUuid !== this.activeFormUuid ||
+			!engine.sectionPages().some((page) => page.uuid === sectionUuid)
+		)
+			return false;
+		if (this.xpathRuntime === undefined)
+			return this.contain("repeat-change", formUuid, false, () => {
+				engine.enterSection(sectionUuid);
+				this.syncAllPathsSelectively();
+				return true;
+			});
+		return this.runAsyncRevision(
+			"repeat-change",
+			formUuid,
+			async (revision, generation, signal) => {
+				if (!engine.sectionPages().some((page) => page.uuid === sectionUuid))
+					return false;
+				await engine.enterSectionAsync(
+					sectionUuid,
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				);
+				if (engine !== this.engine || entryKey !== this.currentEntryKey)
+					return false;
+				this.syncAllPathsSelectively();
+				return true;
+			},
+			false,
+			{ atomic: true },
+		);
 	}
 
 	/** Validate the visible questions on one page. Returns true if valid. */
@@ -2375,160 +2484,163 @@ export class EngineController {
 		if (!this.docStore) return;
 		const store = this.docStore;
 		const unsub = store.subscribe((current, previous) => {
-			const engine = this.engine;
-			if (!engine) return;
-			if (
-				!activeFormTopologyChanged(
-					current,
-					previous,
-					formUuid,
-					this.trackedUuids,
-				)
-			) {
-				return;
-			}
-			this.contain("document-update", formUuid, undefined, () => {
-				const previousInput = buildEngineInput(
-					previous,
-					formUuid,
-					this.presentationLanguage,
-				);
-				const currentInput = buildEngineInput(
-					current,
-					formUuid,
-					this.presentationLanguage,
-				);
-				if (previousInput === undefined || currentInput === undefined) return;
+			this.reconcileAuthoredTopology(formUuid, current, previous);
+		});
+		this.unsubscribers.push(unsub);
+	}
 
-				const previousMaps = buildPathMaps(
-					buildFieldTree(
-						previousInput.formUuid,
-						previousInput.fields,
-						previousInput.fieldOrder,
-					),
-				);
-				const currentMaps = buildPathMaps(
-					buildFieldTree(
-						currentInput.formUuid,
-						currentInput.fields,
-						currentInput.fieldOrder,
-					),
-				);
-				const previousUuids = new Set(previousMaps.uuidToPath.keys());
-				const currentUuids = new Set(currentMaps.uuidToPath.keys());
-				const retainedUuids = [...previousUuids].filter((uuid) =>
-					currentUuids.has(uuid),
-				);
-				const pathPairs: Array<{
-					oldPath: string;
-					newPath: string;
-					oldSegmentKeys: readonly string[];
-					newSegmentKeys: readonly string[];
-				}> = [];
-				const captureMoves: AuthoredCapturePathMigrationEvent["moves"][number][] =
-					[];
-				for (const uuid of retainedUuids) {
-					const oldPath = previousMaps.uuidToPath.get(uuid);
-					const newPath = currentMaps.uuidToPath.get(uuid);
-					const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
-					const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
-					const previousField = previousInput.fields[uuid];
-					const currentField = currentInput.fields[uuid];
-					if (
-						oldPath === undefined ||
-						newPath === undefined ||
-						oldSegmentKeys === undefined ||
-						newSegmentKeys === undefined ||
-						previousField === undefined ||
-						currentField === undefined
-					) {
-						continue;
-					}
-					if (oldPath !== newPath) {
-						pathPairs.push({
-							oldPath,
-							newPath,
-							oldSegmentKeys,
-							newSegmentKeys,
-						});
-					}
-					const previousCapture = isCaptureFieldKind(previousField.kind);
-					const currentCapture = isCaptureFieldKind(currentField.kind);
-					if (
-						(previousCapture || currentCapture) &&
-						(oldPath !== newPath || previousField.kind !== currentField.kind)
-					) {
-						captureMoves.push({
-							kind: "retained",
-							fieldUuid: uuid,
-							previous: {
-								pathTemplate: oldPath,
-								segmentKeys: oldSegmentKeys,
-								...(previousCapture ? { captureKind: previousField.kind } : {}),
-							},
-							current: {
-								pathTemplate: newPath,
-								segmentKeys: newSegmentKeys,
-								...(currentCapture ? { captureKind: currentField.kind } : {}),
-							},
-						});
-					}
+	private reconcileAuthoredTopology(
+		formUuid: Uuid,
+		current: BlueprintDocState,
+		previous: BlueprintDocState,
+	): void {
+		const engine = this.engine;
+		if (!engine) return;
+		if (
+			!activeFormTopologyChanged(current, previous, formUuid, this.trackedUuids)
+		) {
+			return;
+		}
+		this.contain("document-update", formUuid, undefined, () => {
+			const previousInput = buildEngineInput(
+				previous,
+				formUuid,
+				this.presentationLanguage,
+			);
+			const currentInput = buildEngineInput(
+				current,
+				formUuid,
+				this.presentationLanguage,
+			);
+			if (previousInput === undefined || currentInput === undefined) return;
+
+			const previousMaps = buildPathMaps(
+				buildFieldTree(
+					previousInput.formUuid,
+					previousInput.fields,
+					previousInput.fieldOrder,
+				),
+			);
+			const currentMaps = buildPathMaps(
+				buildFieldTree(
+					currentInput.formUuid,
+					currentInput.fields,
+					currentInput.fieldOrder,
+				),
+			);
+			const previousUuids = new Set(previousMaps.uuidToPath.keys());
+			const currentUuids = new Set(currentMaps.uuidToPath.keys());
+			const retainedUuids = [...previousUuids].filter((uuid) =>
+				currentUuids.has(uuid),
+			);
+			const pathPairs: Array<{
+				oldPath: string;
+				newPath: string;
+				oldSegmentKeys: readonly string[];
+				newSegmentKeys: readonly string[];
+			}> = [];
+			const captureMoves: AuthoredCapturePathMigrationEvent["moves"][number][] =
+				[];
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				const newSegmentKeys = currentMaps.uuidToSegmentKeys.get(uuid);
+				const previousField = previousInput.fields[uuid];
+				const currentField = currentInput.fields[uuid];
+				if (
+					oldPath === undefined ||
+					newPath === undefined ||
+					oldSegmentKeys === undefined ||
+					newSegmentKeys === undefined ||
+					previousField === undefined ||
+					currentField === undefined
+				) {
+					continue;
 				}
-				for (const uuid of previousUuids) {
-					if (currentUuids.has(uuid)) continue;
-					const previousField = previousInput.fields[uuid];
-					if (
-						previousField === undefined ||
-						!isCaptureFieldKind(previousField.kind)
-					) {
-						continue;
-					}
-					const oldPath = previousMaps.uuidToPath.get(uuid);
-					const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
-					if (oldPath === undefined || oldSegmentKeys === undefined) continue;
+				if (oldPath !== newPath) {
+					pathPairs.push({
+						oldPath,
+						newPath,
+						oldSegmentKeys,
+						newSegmentKeys,
+					});
+				}
+				const previousCapture = isCaptureFieldKind(previousField.kind);
+				const currentCapture = isCaptureFieldKind(currentField.kind);
+				if (
+					(previousCapture || currentCapture) &&
+					(oldPath !== newPath || previousField.kind !== currentField.kind)
+				) {
 					captureMoves.push({
-						kind: "deleted",
+						kind: "retained",
 						fieldUuid: uuid,
 						previous: {
 							pathTemplate: oldPath,
 							segmentKeys: oldSegmentKeys,
-							captureKind: previousField.kind,
+							...(previousCapture ? { captureKind: previousField.kind } : {}),
+						},
+						current: {
+							pathTemplate: newPath,
+							segmentKeys: newSegmentKeys,
+							...(currentCapture ? { captureKind: currentField.kind } : {}),
 						},
 					});
 				}
-				if (pathPairs.length === 0 && captureMoves.length === 0) return;
+			}
+			for (const uuid of previousUuids) {
+				if (currentUuids.has(uuid)) continue;
+				const previousField = previousInput.fields[uuid];
+				if (
+					previousField === undefined ||
+					!isCaptureFieldKind(previousField.kind)
+				) {
+					continue;
+				}
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const oldSegmentKeys = previousMaps.uuidToSegmentKeys.get(uuid);
+				if (oldPath === undefined || oldSegmentKeys === undefined) continue;
+				captureMoves.push({
+					kind: "deleted",
+					fieldUuid: uuid,
+					previous: {
+						pathTemplate: oldPath,
+						segmentKeys: oldSegmentKeys,
+						captureKind: previousField.kind,
+					},
+				});
+			}
+			if (pathPairs.length === 0 && captureMoves.length === 0) return;
 
-				engine.renamePaths(pathPairs);
-				const removedPaths = [...previousUuids]
-					.filter((uuid) => !currentUuids.has(uuid))
-					.map((uuid) => previousMaps.uuidToPath.get(uuid))
-					.filter((path): path is string => path !== undefined);
-				if (removedPaths.length > 0) {
-					engine.removeFieldStates(removedPaths);
+			engine.renamePaths(pathPairs);
+			const removedPaths = [...previousUuids]
+				.filter((uuid) => !currentUuids.has(uuid))
+				.map((uuid) => previousMaps.uuidToPath.get(uuid))
+				.filter((path): path is string => path !== undefined);
+			if (removedPaths.length > 0) {
+				engine.removeFieldStates(removedPaths);
+			}
+			this.uuidToPath = currentMaps.uuidToPath;
+			this.pathToUuid = currentMaps.pathToUuid;
+			this.publishAuthoredCapturePathMigration(captureMoves);
+			engine.rebuildDag(currentInput);
+			for (const uuid of retainedUuids) {
+				const oldPath = previousMaps.uuidToPath.get(uuid);
+				const newPath = currentMaps.uuidToPath.get(uuid);
+				const field = currentInput.fields[uuid];
+				if (
+					oldPath !== undefined &&
+					newPath !== undefined &&
+					oldPath !== newPath &&
+					field !== undefined
+				) {
+					engine.ensureFieldStates(newPath, field);
 				}
-				this.uuidToPath = currentMaps.uuidToPath;
-				this.pathToUuid = currentMaps.pathToUuid;
-				this.publishAuthoredCapturePathMigration(captureMoves);
-				engine.rebuildDag(currentInput);
-				for (const uuid of retainedUuids) {
-					const oldPath = previousMaps.uuidToPath.get(uuid);
-					const newPath = currentMaps.uuidToPath.get(uuid);
-					const field = currentInput.fields[uuid];
-					if (
-						oldPath !== undefined &&
-						newPath !== undefined &&
-						oldPath !== newPath &&
-						field !== undefined
-					) {
-						engine.ensureFieldStates(newPath, field);
-					}
-				}
-				const allPaths = engine.getAllPaths();
-				if (allPaths.length > 0) engine.evaluatePathsInto(allPaths);
-				this.syncAllPathsSelectively();
-			});
+			}
+			const allPaths = engine.getAllPaths();
+			if (allPaths.length > 0) engine.evaluatePathsInto(allPaths);
+			this.syncAllPathsSelectively();
 		});
-		this.unsubscribers.push(unsub);
 	}
 
 	/**
@@ -2553,72 +2665,73 @@ export class EngineController {
 
 			const unsub = store.subscribe(
 				(s) => s.fields[uuid],
-				(current, previous) => {
-					if (!current || !previous || !this.engine) return;
-					const formUuid = this.activeFormUuid;
-					if (formUuid === undefined) return;
-					this.contain("document-update", formUuid, undefined, () => {
-						/* Case-write targets do not participate in expression evaluation, but
-						 * they do determine the exact mutation emitted at submit time. Refresh
-						 * that narrow document surface independently so a combined patch can
-						 * still take its ordinary expression/default handler below. */
-						if (fieldCaseWrite(current) !== fieldCaseWrite(previous)) {
-							const input = this.currentEngineInput();
-							if (input !== undefined) this.engine?.refreshCaseWriteDoc(input);
-						}
-						const changeType = classifyChange(
-							current as Field,
-							previous as Field,
-						);
-
-						switch (changeType) {
-							case "none":
-								return;
-							case "kind_change":
-								this.onKindChanged(uuid);
-								return;
-							case "expression":
-								this.onExpressionChanged(uuid);
-								return;
-							case "label_refs":
-								this.onLabelRefsChanged(uuid);
-								return;
-							case "id_rename":
-								// The whole-batch topology listener already moved every
-								// retained path, rebuilt the DAG, and re-evaluated once.
-								return;
-							case "default_value":
-								this.onDefaultValueChanged(uuid, current as Field);
-								return;
-							case "options_source": {
-								/* A combined write may also carry a default change; apply
-								 * the default FIRST (it evaluates directly, no DAG needed)
-								 * so the expression handler's rebuild + field-and-dependents
-								 * re-evaluation then recomputes choices AND retention
-								 * against the freshly defaulted value. */
-								const curDefault = (
-									current as Field & { default_value?: unknown }
-								).default_value;
-								const prevDefault = (
-									previous as Field & { default_value?: unknown }
-								).default_value;
-								if (curDefault !== prevDefault) {
-									this.onDefaultValueChanged(uuid, current as Field);
-								}
-								/* The choices node's edges and expression live in the DAG,
-								 * so the expression handler's rebuild + field-and-dependents
-								 * re-evaluation covers a filter/table/column change — the
-								 * choices arm recomputes and unselects dropped values. */
-								this.onExpressionChanged(uuid);
-								return;
-							}
-						}
-					});
-				},
+				(current, previous) => this.reconcileField(uuid, current, previous),
 			);
 
 			this.unsubscribers.push(unsub);
 		}
+	}
+
+	private reconcileField(
+		uuid: Uuid,
+		current: Field | undefined,
+		previous: Field | undefined,
+	): void {
+		if (!current || !previous || !this.engine) return;
+		const formUuid = this.activeFormUuid;
+		if (formUuid === undefined) return;
+		this.contain("document-update", formUuid, undefined, () => {
+			/* Case-write targets do not participate in expression evaluation, but
+			 * they do determine the exact mutation emitted at submit time. Refresh
+			 * that narrow document surface independently so a combined patch can
+			 * still take its ordinary expression/default handler below. */
+			if (fieldCaseWrite(current) !== fieldCaseWrite(previous)) {
+				const input = this.currentEngineInput();
+				if (input !== undefined) this.engine?.refreshCaseWriteDoc(input);
+			}
+			const changeType = classifyChange(current as Field, previous as Field);
+
+			switch (changeType) {
+				case "none":
+					return;
+				case "kind_change":
+					this.onKindChanged(uuid);
+					return;
+				case "expression":
+					this.onExpressionChanged(uuid);
+					return;
+				case "label_refs":
+					this.onLabelRefsChanged(uuid);
+					return;
+				case "id_rename":
+					// The whole-batch topology listener already moved every
+					// retained path, rebuilt the DAG, and re-evaluated once.
+					return;
+				case "default_value":
+					this.onDefaultValueChanged(uuid, current as Field);
+					return;
+				case "options_source": {
+					/* A combined write may also carry a default change; apply
+					 * the default FIRST (it evaluates directly, no DAG needed)
+					 * so the expression handler's rebuild + field-and-dependents
+					 * re-evaluation then recomputes choices AND retention
+					 * against the freshly defaulted value. */
+					const curDefault = (current as Field & { default_value?: unknown })
+						.default_value;
+					const prevDefault = (previous as Field & { default_value?: unknown })
+						.default_value;
+					if (curDefault !== prevDefault) {
+						this.onDefaultValueChanged(uuid, current as Field);
+					}
+					/* The choices node's edges and expression live in the DAG,
+					 * so the expression handler's rebuild + field-and-dependents
+					 * re-evaluation covers a filter/table/column change — the
+					 * choices arm recomputes and unselects dropped values. */
+					this.onExpressionChanged(uuid);
+					return;
+				}
+			}
+		});
 	}
 
 	/**
@@ -2765,107 +2878,122 @@ export class EngineController {
 	private setupAsyncReconciliationSubscription(formUuid: Uuid): void {
 		if (!this.docStore) return;
 		const store = this.docStore;
-		const unsub = store.subscribe((documentState, previousDocumentState) => {
-			const engine = this.engine;
-			const entryKey = this.currentEntryKey;
-			if (engine === undefined || entryKey === undefined) return;
-			if (
-				documentState.caseWriteProjectionRevision !==
-				previousDocumentState.caseWriteProjectionRevision
-			) {
-				this.caseWriteProjectionDirty = true;
+		const unsub = store.subscribe((current, previous) =>
+			this.reconcileDocumentRuntime(formUuid, current, previous),
+		);
+		this.unsubscribers.push(unsub);
+	}
+
+	private reconcileDocumentRuntime(
+		formUuid: Uuid,
+		documentState: BlueprintDocState,
+		previousDocumentState: BlueprintDocState,
+	): void {
+		const engine = this.engine;
+		const entryKey = this.currentEntryKey;
+		if (engine === undefined || entryKey === undefined) return;
+		if (
+			documentState.caseWriteProjectionRevision !==
+			previousDocumentState.caseWriteProjectionRevision
+		) {
+			this.caseWriteProjectionDirty = true;
+		}
+		if (this.xpathRuntime === undefined) {
+			if (this.caseWriteProjectionDirty) {
+				const input = buildEngineInput(
+					documentState,
+					formUuid,
+					this.presentationLanguage,
+				);
+				if (input !== undefined) {
+					engine.refreshCaseWriteDoc(input);
+					this.caseWriteProjectionDirty = false;
+				}
 			}
-			if (this.xpathRuntime === undefined) {
-				if (this.caseWriteProjectionDirty) {
-					const input = buildEngineInput(
+			this.reconciledDocumentState = documentState;
+			return;
+		}
+		if (
+			!activeFormRuntimeChanged(
+				documentState,
+				previousDocumentState,
+				formUuid,
+				this.trackedUuids,
+				this.presentationLanguage,
+			)
+		) {
+			this.queueRuntimeNeutralDocumentState(
+				documentState,
+				engine,
+				entryKey,
+				formUuid,
+			);
+			return;
+		}
+		this.runAsyncRevision(
+			"document-update",
+			formUuid,
+			async (revision, generation, signal) => {
+				const evaluator = this.evaluatorFor(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
+				);
+				const pendingDefaults = [...this.pendingDefaultFieldUuids];
+				const input = this.currentEngineInput();
+				if (input !== undefined) {
+					for (const uuid of pendingDefaults) {
+						const path = this.uuidToPath.get(uuid);
+						const field = input.fields[uuid];
+						if (
+							path !== undefined &&
+							field !== undefined &&
+							!isContainer(field)
+						) {
+							await engine.reevaluateDefaultAsync(path, field, evaluator);
+						}
+					}
+				}
+				await engine.settleAsync(evaluator);
+				await this.initializePendingSectionRows(
+					engine,
+					entryKey,
+					revision,
+					generation,
+					signal,
+				);
+				if (
+					engine !== this.engine ||
+					entryKey !== this.currentEntryKey ||
+					generation !== this.lifecycleGeneration ||
+					revision !== this.runtimeRevision
+				) {
+					return undefined;
+				}
+				for (const uuid of pendingDefaults) {
+					this.pendingDefaultFieldUuids.delete(uuid);
+				}
+				this.syncAllPathsSelectively();
+				if (
+					this.caseWriteProjectionDirty &&
+					this.docStore?.getState() === documentState
+				) {
+					const reconciledInput = buildEngineInput(
 						documentState,
 						formUuid,
 						this.presentationLanguage,
 					);
-					if (input !== undefined) {
-						engine.refreshCaseWriteDoc(input);
+					if (reconciledInput !== undefined) {
+						engine.refreshCaseWriteDoc(reconciledInput);
 						this.caseWriteProjectionDirty = false;
 					}
 				}
 				this.reconciledDocumentState = documentState;
-				return;
-			}
-			if (
-				!activeFormRuntimeChanged(
-					documentState,
-					previousDocumentState,
-					formUuid,
-					this.trackedUuids,
-					this.presentationLanguage,
-				)
-			) {
-				this.queueRuntimeNeutralDocumentState(
-					documentState,
-					engine,
-					entryKey,
-					formUuid,
-				);
-				return;
-			}
-			this.runAsyncRevision(
-				"document-update",
-				formUuid,
-				async (revision, generation, signal) => {
-					const evaluator = this.evaluatorFor(
-						engine,
-						entryKey,
-						revision,
-						generation,
-						signal,
-					);
-					const pendingDefaults = [...this.pendingDefaultFieldUuids];
-					const input = this.currentEngineInput();
-					if (input !== undefined) {
-						for (const uuid of pendingDefaults) {
-							const path = this.uuidToPath.get(uuid);
-							const field = input.fields[uuid];
-							if (
-								path !== undefined &&
-								field !== undefined &&
-								!isContainer(field)
-							) {
-								await engine.reevaluateDefaultAsync(path, field, evaluator);
-							}
-						}
-					}
-					await engine.settleAsync(evaluator);
-					if (
-						engine !== this.engine ||
-						entryKey !== this.currentEntryKey ||
-						generation !== this.lifecycleGeneration ||
-						revision !== this.runtimeRevision
-					) {
-						return undefined;
-					}
-					for (const uuid of pendingDefaults) {
-						this.pendingDefaultFieldUuids.delete(uuid);
-					}
-					this.syncAllPathsSelectively();
-					if (
-						this.caseWriteProjectionDirty &&
-						this.docStore?.getState() === documentState
-					) {
-						const reconciledInput = buildEngineInput(
-							documentState,
-							formUuid,
-							this.presentationLanguage,
-						);
-						if (reconciledInput !== undefined) {
-							engine.refreshCaseWriteDoc(reconciledInput);
-							this.caseWriteProjectionDirty = false;
-						}
-					}
-					this.reconciledDocumentState = documentState;
-				},
-				undefined,
-			);
-		});
-		this.unsubscribers.push(unsub);
+			},
+			undefined,
+		);
 	}
 
 	/**

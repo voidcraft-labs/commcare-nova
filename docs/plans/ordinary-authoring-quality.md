@@ -155,28 +155,17 @@ its release from cost alone.
 - [x] Make first-use prerequisites explicit in design and review (PR #676).
   Require a journey beginning with the records actually available, while retaining
   separate seeded workflow checks. The fresh garden failure informed this change.
-- [ ] Resolve repeat initialization before releasing the focused row-identity
-  guidance. Exact exported native evidence contradicts Preview's current
-  query-before-default order; native traversal also exposes eager nested-row
-  creation and missing nested initialization on Add. Follow the evidence in
-  `docs/research/query-repeat-authoring-context.md`, keeping this work separate
-  from any claim of autonomous success. Implement initialization actions in their
-  actual scope/order, preserve existing snapshots during insertion, account for
-  calculation dependencies and late preloads. Cover sync/worker/reset/rebuild and
-  browser Add; prove earlier/later defaults, triggered/standalone calculations and
-  parent row identities against independent Core execution. Do not substitute an
-  all-defaults-first pass or whole-form reinitialization. Scoped action ordering,
-  new-subtree initialization and explicit worker context are implemented in the
-  current PR. Three public exact-export Core checks, focused engine/controller
-  checks and browser Add pass. Intermediate relevance is included following
-  independent review. Frozen review, CI and deployment remain release gates.
-- [ ] Resolve the separate section-entry timing boundary. Unsectioned Preview
-  and Core have different screen grouping, but authored root sections are shared
-  page boundaries. Compare two authored sections using Core field-list prompt
-  collection and actual Preview Next: an answer on the first page must precede
-  creation of a nested bound row on the second. Decide the correction from that
-  observation; do not assume a wholesale navigation rewrite or claim universal
-  nested-entry parity from initial full-form traversal.
+- [x] Preserve initialization order, parent-row context and existing snapshots
+  when adding rows (PR #678). Exact-export Core, focused engine/controller,
+  real-Postgres evaluation and browser Add checks passed, followed by independent
+  review and full CI. Deployed as Cloud Run revision 00557-w28. Primary-source
+  evidence remains in `docs/research/query-repeat-authoring-context.md`.
+- [ ] Release the section-entry correction. Exact-export Core and actual Preview
+  Next confirmed later-page nested rows were inserted too early. The shared
+  engine now delays section rows, and app tests offer explicit page turns.
+  Controlled engine, Postgres journey and browser checks pass. Independent
+  review, complete CI, deployment and a fresh ordinary-agent trial remain.
+  Unsectioned native question-by-question timing remains a stated boundary.
 - [ ] Investigate why the architect abandoned an available uniqueness check and
   whether useful form-record query knowledge is missing from focused guidance.
   Improve the general authoring interface, then use a bounded fresh task to

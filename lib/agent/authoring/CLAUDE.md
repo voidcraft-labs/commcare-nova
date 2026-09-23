@@ -187,11 +187,15 @@ does not combine test records with stored rows or save them. Lookup data stays
 authorized and real. Results identify scenario evaluation and project ordinary
 case values; they do not prove storage, additional case operations or device behavior.
 
-The fields guide explains bound-repeat timing and row identity. Preview initializes initial rows at form load and
-new subtrees when a worker adds an enclosing row. Device traversal can create
-nested rows later; the guide explicitly avoids promising that page-entry timing
-matches Preview. Opening a page or changing relevance does not recapture a
-snapshot. A direct child hidden field can read its
+The fields guide distinguishes form-start count/ID snapshots from nested
+snapshots on row insertion. Section rows are inserted on first entry in Preview
+and disposable journeys; returning to a page retains those rows and answers.
+Journey observations expose available sections and refuse answers on another
+page. Forward navigation validates intervening pages. A standalone form check
+visits supplied answers in order, then remaining pages, and does not establish
+that navigation validation passed. Unsectioned Preview still presents the whole
+form together; this is not a claim of native question-by-question timing parity.
+A direct child hidden field can read its
 query-bound row identity with `current()/../@id` and expose a named form
 reference for operations. A property lookup inside a predicate uses
 `current()` to retain the originating row context; `#case` retains its selected-record

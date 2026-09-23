@@ -21,7 +21,8 @@ import { useEngineController } from "./useEngineController";
 function pagesKey(pages: ReadonlyArray<SectionPage>): string {
 	return pages
 		.map(
-			(page) => `${page.uuid}:${page.path}:${page.hasVisibleQuestions ? 1 : 0}`,
+			(page) =>
+				`${page.uuid}:${page.path}:${page.hasVisibleQuestions ? 1 : 0}:${page.needsEntry ? 1 : 0}`,
 		)
 		.join("|");
 }

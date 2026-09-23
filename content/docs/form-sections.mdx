@@ -43,18 +43,13 @@ only there. And a repeat that people add entries to cannot sit on a page,
 because a phone cannot add entries on a screen that shows several questions at
 once; fixed-count repeats, case-query repeats, and groups can.
 
-In Preview, a fixed-count repeat sets its number of entries when the form opens.
-Adding an enclosing entry sets the counts for its new nested entries.
-Changing an answer later keeps the entries already created.
+A repeat outside another repeat captures its count or record selection when the
+form opens. Preview creates that section’s rows when you first reach the page.
+Nested repeats capture their own counts or records when their enclosing row is
+created, so they can use answers from an earlier page.
 
-A case-query repeat keeps the records selected when Preview opens the form, or
-when a worker adds its enclosing entry. If a display condition initially hides that list,
-showing it reveals those records. Hiding and showing it again retains its answers;
-it does not refresh the record selection.
-
-A device can create nested entries later as the worker reaches them. For a
-consistent starting list, use information available when the form opens rather
-than answers from an earlier page.
+Returning to a page keeps the rows and answers already created. Changing an
+earlier answer or hiding and showing a list does not refresh its records.
 
 Nothing is permanent: removing the last section returns the form to a single
 page with its questions in place, and you can undo any of it.

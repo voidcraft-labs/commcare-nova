@@ -29,7 +29,9 @@ export const evaluateFormInputSchema = formAddressSchema
 		answers: z
 			.array(z.strictObject({ path: pathSchema, value: formAnswerValueSchema }))
 			.max(500)
-			.describe("Applied in order. Repeat a path to check changing an answer."),
+			.describe(
+				"Applied in order, entering each answer’s section first. Repeat a path to check changing an answer. Use an app test for page navigation and its validation.",
+			),
 		repeats: z
 			.array(
 				z.strictObject({

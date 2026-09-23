@@ -55,7 +55,7 @@ const continueSchema = z.strictObject({
 });
 export const continueAppTestTool = {
 	description:
-		"Take one worker action in a disposable app test. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
+		"Take one worker action in a disposable app test. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. Form observations offer sections; use section to turn a page before answering its questions. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
 	inputSchema: continueSchema,
 	async execute(
 		input: z.infer<typeof continueSchema>,

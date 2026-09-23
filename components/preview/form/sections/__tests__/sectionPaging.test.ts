@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { SectionPage } from "@/lib/preview/engine/formEngine";
 import {
+	availablePages,
 	pagesToValidate,
 	resolveCurrentPage,
-	visiblePages,
-} from "../sectionPaging";
+} from "@/lib/preview/engine/sectionPaging";
 
 function page(name: string, hasVisibleQuestions: boolean): SectionPage {
 	return {
@@ -21,9 +21,9 @@ const c = page("c", true);
 const d = page("d", true);
 const ALL = [a, b, c, d];
 
-describe("visiblePages", () => {
+describe("availablePages", () => {
 	it("keeps only the pages with something to show, in order", () => {
-		expect(visiblePages(ALL)).toEqual([a, c, d]);
+		expect(availablePages(ALL)).toEqual([a, c, d]);
 	});
 });
 
