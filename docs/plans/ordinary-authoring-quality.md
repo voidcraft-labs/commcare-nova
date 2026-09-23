@@ -136,8 +136,8 @@ required per-person records, although the same authored export and isolated
 journeys populated the roster. That first delivery remains failed. A controlled
 browser regression reproduces the missing row with a delayed selected-record
 read; deferring form initialization until its binding is ready corrects that
-boundary. Review, deployment and verification of the unchanged authored output
-remain pending; the all-role model release is still held.
+boundary. PR #684 passed review and CI and is deployed; unchanged-output
+verification now passes the roster, submission and retained-history boundaries.
 
 Further runtime acceptance found two older task-continuation defects: returning
 Home retains a selected case parent, so reopening history can skip the choice of
@@ -145,11 +145,10 @@ another person; app tests instead clear that selection. A whole case-database
 refresh also retires the active engine and restores default values instead of
 edited answers. Keep these distinct from the initial-preload correction, retain
 the browser/controller reproductions, and preserve authorization and scope
-boundaries when correcting continuation behavior. The follow-up now resets task
-selection on Home and retains an entry through same-scope database refresh, with
-submission refused while data is unavailable. Controlled controller and browser
-checks pass; full app navigation checks, independent review, CI, deployment and
-unchanged-app verification remain acceptance work.
+boundaries when correcting continuation behavior. PR #685 passed independent
+review, controller and browser checks, including unchanged-output history
+navigation, and all 24 CI checks. It is merged; live deployment verification
+remains acceptance work.
 
 
 The source-backed initial-delivery audit and observation improvements shipped in
