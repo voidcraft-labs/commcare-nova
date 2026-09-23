@@ -359,7 +359,8 @@ available as requested. Browser inspection also found a shared Builder header
 overlap at 680px; keyboard selection worked, but pointer access did not. PR #688 corrects that
 shared layout. Controlled production-browser checks and manual pointer checks
 at 320/680px pass locally, with one-row layout restored at 1440px; independent
-review found no actionable issues. CI and deployment remain release gates. Physical
+review found no actionable issues. All 24 CI checks passed; the exact artifact
+is verified at production revision 00566-ncp serving 100% traffic. Physical
 device UI, offline concurrency and real worker provisioning remain unproved.
 
 After this trial, total reported usage is $85.63447844, with the original unresolved
@@ -441,8 +442,8 @@ does not establish universal reliability or a general model ranking.
 
 Proceed with GPT-6 Sol for architect, peer, document extraction and translation,
 and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, after
-the header pointer-access correction is verified and deployed and the final model
-PR passes review and CI. PR #686 is already live. Offline extraction
+the final model PR passes review and CI. The runtime dependencies, including
+PR #686 and the header correction in PR #688, are already live. Offline extraction
 and knowledge callers move to the corresponding GPT-6 models as well. This is a bounded product
 decision: the later comparisons cover usable ordinary entry and retained history,
 the document-led comparison covers source fidelity and language behavior, and

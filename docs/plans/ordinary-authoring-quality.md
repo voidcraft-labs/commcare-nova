@@ -144,8 +144,9 @@ header controls at 680px. PR #688 corrects the shared layout using rendered
 content widths and preserves control owners during resizing. Six production
 browser checks, an intrinsic-content browser check and manual Chrome pointer
 checks at 320/680px pass locally; the header returns to one row at 1440px. Fresh
-independent review found no actionable issues. CI and live deployment remain
-gates before closing cross-surface acceptance or releasing the model change.
+independent review found no actionable issues and all 24 CI checks passed.
+PR #688 is live at revision 00566-ncp, with the exact artifact verified at
+100% traffic. The original pointer defect remains in the trial evidence.
 
 The final development comparison exposed another browser boundary: an
 unsectioned query roster initialized before its selected record loaded, then
@@ -255,8 +256,8 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Release the reviewed all-role model change after PR #688 is live. PR #686
-  is already deployed. The
+- [ ] Release the reviewed all-role model change. Runtime dependencies #686
+  and #688 are deployed. The
   completed comparison supports proceeding with GPT-6 Sol and Luna at existing
   efforts; final rebase, review, CI and live verification remain. All callers,
   including extraction, translation and offline scripts, move together. The
