@@ -36,6 +36,21 @@ export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
 	}));
 }
 
+/** Browser leaf form choosers keep their selection local to CaseListScreen.
+ * Only parent-menu selections survive a form entry and module navigation. */
+export function appTestMenuSelection(
+	context: AppTestContext,
+	state: AppTestState,
+	moduleUuid: Uuid,
+) {
+	return state.screen.kind === "menu" &&
+		state.screen.moduleUuid === moduleUuid &&
+		state.screen.selection !== undefined
+		? state.screen.selection
+		: previewMenuCaseContext(context.doc, moduleUuid, state.selections)
+				.selectedCase;
+}
+
 export function appTestForms(
 	context: AppTestContext,
 	state: AppTestState,
@@ -44,15 +59,19 @@ export function appTestForms(
 ) {
 	const { doc, identity, lookup } = context;
 	const mod = doc.modules[moduleUuid];
-	const selected = previewMenuCaseContext(doc, moduleUuid, state.selections)
-		.selectedCase?.cases;
+	const selected = appTestMenuSelection(context, state, moduleUuid)?.cases;
+	const leafChooser =
+		state.screen.kind === "menu" &&
+		state.screen.moduleUuid === moduleUuid &&
+		state.screen.selection !== undefined;
 	const properties =
 		selected?.length === 1 && caseSelectionCardinality(mod) === "single"
 			? selected[0].caseProperties
 			: undefined;
 	return menuFormUuidsOf(doc, moduleUuid).flatMap((uuid) => {
 		const form = doc.forms[uuid];
-		if (loadingOnly && !CASE_LOADING_FORM_TYPES.has(form.type)) return [];
+		if ((loadingOnly || leafChooser) && !CASE_LOADING_FORM_TYPES.has(form.type))
+			return [];
 		return [
 			{
 				form,
@@ -123,11 +142,7 @@ export function enterAppTestForm(
 	);
 	if (entry?.visibility !== "shown")
 		throw new Error("This form is not available on the current menu.");
-	const selection = previewMenuCaseContext(
-		context.doc,
-		moduleUuid,
-		state.selections,
-	).selectedCase;
+	const selection = appTestMenuSelection(context, state, moduleUuid);
 	const needsCase =
 		formLaunch({
 			formType: entry.form.type,
@@ -163,7 +178,7 @@ export function selectAppTestRecords(
 		!!screen.returnModules?.length ||
 		(screen.formUuid === undefined &&
 			moduleHasChildren(context.doc, screen.moduleUuid));
-	selections[screen.moduleUuid] = {
+	const selection = {
 		caseType: mod.caseType,
 		cases: rows.map((row) => ({
 			caseId: row.case_id,
@@ -171,13 +186,19 @@ export function selectAppTestRecords(
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		})),
 	};
-	if (selectsForMenu)
+	if (selectsForMenu) {
+		selections[screen.moduleUuid] = selection;
 		for (const uuid of [
 			...previewMenuModuleUuids(context.doc, screen.moduleUuid),
 			...previewCaseDescendantModuleUuids(context.doc, mod.caseType),
 		])
 			delete selections[uuid];
-	const next = { ...state, selections };
+	}
+	const next: AppTestState = {
+		...state,
+		selections,
+		screen: { kind: "menu", moduleUuid: screen.moduleUuid, selection },
+	};
 	if (selectsForMenu) {
 		const [target, ...remaining] = screen.returnModules ?? [];
 		return {
@@ -197,7 +218,7 @@ export function selectAppTestRecords(
 		...next,
 		screen:
 			automatic === undefined
-				? { kind: "menu", moduleUuid: screen.moduleUuid }
+				? next.screen
 				: enterAppTestForm(context, next, screen.moduleUuid, automatic),
 	};
 }

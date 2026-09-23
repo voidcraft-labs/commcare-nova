@@ -155,7 +155,12 @@ export interface AppTestSnapshot {
 export type AppTestScreen =
 	| { kind: "home" }
 	| { kind: "after-submit"; moduleUuid: Uuid; message: string }
-	| { kind: "menu"; moduleUuid: Uuid }
+	| {
+			kind: "menu";
+			moduleUuid: Uuid;
+			/** A leaf record's inline form chooser, not a persistent menu datum. */
+			selection?: PreviewMenuCaseSelection;
+	  }
 	| {
 			kind: "details";
 			moduleUuid: Uuid;

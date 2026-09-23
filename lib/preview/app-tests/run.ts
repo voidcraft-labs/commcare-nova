@@ -13,6 +13,7 @@ import { appTestDetails } from "./details";
 import {
 	appTestCanContinue,
 	appTestForms,
+	appTestMenuSelection,
 	appTestMenus,
 	enterAppTestForm,
 	enterAppTestMenu,
@@ -88,7 +89,8 @@ export async function observeAppTest(
 					),
 					recordsAvailable:
 						context.doc.modules[screen.moduleUuid].caseType !== undefined,
-					selected: state.selections[screen.moduleUuid]?.cases,
+					selected: appTestMenuSelection(context, state, screen.moduleUuid)
+						?.cases,
 				},
 			};
 		case "after-submit":
@@ -307,7 +309,11 @@ export async function advanceAppTest(
 						screen.moduleUuid,
 						action.formUuid,
 					),
-					history: [...state.history, screen],
+					// The browser's inline chooser is not a route. Back returns
+					// to its original Results/Details screen with a fresh read.
+					history: screen.selection
+						? state.history
+						: [...state.history, screen],
 				};
 			else if (screen.kind === "records") {
 				const read = await appTestRecords(context, scope, state);
