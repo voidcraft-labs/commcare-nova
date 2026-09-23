@@ -165,15 +165,15 @@ its release from cost alone.
   Shared engine and app-test page turns passed controlled tests, independent
   review and full CI. Revision 00558-mtp serves production; plugin 1.38.0 followed.
   Unsectioned native question-by-question timing remains a stated boundary.
-- [x] Complete the bounded comparison on the frozen corrected runtime. The last
+- [ ] Resume and complete the bounded comparison on the frozen corrected runtime. The last
   GPT-5.6 output passed its main role/history journey but excluded a valid zero
   count; GPT-6 stopped at the shared budget guard before app review or handoff.
   No expert repair instructions entered either trial. Results and the decision
   to retain GPT-5.6 are in `docs/research/model-quality-comparison-results.md`.
 - [ ] Establish broader first-delivery quality beyond the bounded successes.
   Required workflows were still omitted in completed trials, and review missed
-  consequential first-use and requirement gaps. Future paid acceptance needs a
-  new allocation; no silent retry or model-release pass is implied.
+  consequential first-use and requirement gaps. Continue within the authorized
+  $150 combined ceiling; preserve each interrupted or failed result.
 - [x] Correct standard metadata reads in forms (PR #680). Shared form admission
   omitted implicit values and form consumers misread attribute metadata. Exact
   native export and Preview checks cover selected and parent records. Independent
@@ -188,15 +188,20 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [x] Finish the all-role comparison artifact and release decision. Keep GPT-5.6
-  defaults: lower GPT-6 cost and clearer wording did not establish equal or better
-  complete role-based apps. All active callers are prepared together in a held
+- [ ] Update the all-role comparison artifact and release decision after recovery. Keep GPT-5.6
+  defaults pending evidence: lower GPT-6 cost and clearer wording did not establish
+  equal or better complete role-based apps. Credit useful additional scrutiny
+  separately from unmet requirements; sparse trials do not rank general intelligence. All active callers are prepared together in a held
   draft, including extractor and translator. Private evidence retains failures,
   verification depth, context/plan growth, repeated reads and usage costs.
-- [x] Enforce the shared $100 ceiling, including retries, extraction, translation
-  and editing. The ledger stopped at $97.683844175 including margins and an
-  unresolved charge reservation; the next dispatch could not fit safely. Do not
-  release unknown charges or restart paid trials without a new allocation.
+- [ ] Correct the trial accounting and enforce the authorized $150 total ceiling,
+  including prior trials, retries, extraction, translation and editing. The old
+  $97.683844175 ledger included $17.135566335 of blanket margins. Reported usage
+  plus the entire unresolved reservation is $80.54827784, so the earlier claim
+  that the $100 allocation could not support continued work was too conservative.
+  Settle known usage without that surcharge, retain unknown charges, reserve
+  model-specific future costs, and carry trial limits across ordinary recovery.
+  Preserve the original ledger through a reviewed scan and separate conversion.
 - [x] Complete the delivered-app acceptance report at its current revision.
   A final read-only refresh found no newer edits. Its repair was externally
   supervised. Name, identities, shared ownership and

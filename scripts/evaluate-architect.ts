@@ -48,8 +48,16 @@ import {
 } from "./lib/authoringInputCount";
 import {
 	completedPilotCharge,
+	pilotReservation,
+	readPilotLedger,
+	standardPilotTransport,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
+
+import {
+	priorTrialRuns,
+	remainingTrialBudget,
+} from "./lib/authoringTrialHistory";
 
 const options = new Command()
 	.description(
@@ -90,12 +98,6 @@ const MAX_REQUESTS = 400;
 // limits (for example translation's 32k) pass through unchanged.
 const MAX_OUTPUT_TOKENS = 128_000;
 const TRIAL_CEILING_USD = 30;
-const ledgerSchema = z.object({
-	ceilingUsd: z.number().positive().max(200),
-	targetUsd: z.number().positive(),
-	estimatedSpentUsd: z.number().nonnegative(),
-	calls: z.array(z.record(z.string(), z.unknown())),
-});
 
 async function main() {
 	const url = new URL(process.env.NOVA_DB_LOCAL_URL ?? "");
@@ -129,6 +131,9 @@ async function main() {
 		"lib/agent/build/authoringSession.ts",
 		"lib/agent/translation/translateLanguage.ts",
 		"lib/models.ts",
+		"scripts/lib/authoringPilotLedger.ts",
+		"scripts/lib/authoringInputCount.ts",
+		"scripts/lib/authoringTrialHistory.ts",
 	];
 	await save(
 		"source.json",
@@ -159,12 +164,13 @@ async function main() {
 		return;
 	}
 	await withPilotLedger(resolve(options.ledger), async (ledgerFile) => {
-		const ledger = ledgerSchema.parse(
+		const ledger = readPilotLedger(
 			JSON.parse(await readFile(ledgerFile.path, "utf8")),
 		);
 		const startingSpend = ledger.estimatedSpentUsd;
-		let trialStartingSpend = startingSpend;
+		const trialRunIds: string[] = [];
 		const runId = randomUUID();
+		trialRunIds.push(runId);
 		let userMessages: UIMessage[] = [
 			{
 				id: randomUUID() as string,
@@ -210,8 +216,10 @@ async function main() {
 				);
 			const saved = JSON.parse(
 				await readFile(resolve(previous, "run.json"), "utf8"),
-			) as { userMessages: UIMessage[]; trialStartingSpend?: number };
-			trialStartingSpend = saved.trialStartingSpend ?? startingSpend;
+			) as { userMessages: UIMessage[] };
+			trialRunIds.push(
+				...(await priorTrialRuns(previous, prior.appId, prior.designSessionId)),
+			);
 			userMessages = saved.userMessages;
 			if (
 				!userMessages.some(
@@ -352,68 +360,77 @@ async function main() {
 				actorUserId: actor.id,
 				models: MODEL_ROLES,
 				startedAt: new Date().toISOString(),
-				trialStartingSpend,
+				trialRunIds,
+				startingSpend,
 				userMessages,
 				...(options.resume && { resumedFrom: resolve(options.resume) }),
 			});
 			const provider = createNovaOpenAI(
 				process.env.OPENAI_API_KEY ?? "",
-				captureModelRequests(transport.fetch, async (request) => {
-					if (requests >= MAX_REQUESTS)
-						throw new Error("Trial request limit reached.");
-					const outputCeiling = z
-						.object({ max_output_tokens: z.number().positive().max(128_000) })
-						.parse(JSON.parse(request.body)).max_output_tokens;
-					// Every UTF-8 byte is a conservative token allowance for this text-only
-					// request, including deferred schemas. Price at the long-context Sol
-					// cache-write rate, plus the enforced output ceiling, before dispatch.
-					let reservedUsd =
-						(Buffer.byteLength(request.body) * 12.5 + outputCeiling * 45) /
-						1_000_000;
-					const limit = Math.min(
-						ledger.ceilingUsd,
-						ledger.targetUsd,
-						trialStartingSpend + TRIAL_CEILING_USD,
-					);
-					let inputTokenCount: number | undefined;
-					if (ledger.estimatedSpentUsd + reservedUsd > limit) {
-						inputTokenCount = await countAuthoringInput({
-							body: request.body,
-							apiKey: process.env.OPENAI_API_KEY ?? "",
-							signal: abort.signal,
-						});
-						reservedUsd = countedInputReservation(
-							inputTokenCount,
+				standardPilotTransport(
+					captureModelRequests(transport.fetch, async (request) => {
+						if (requests >= MAX_REQUESTS)
+							throw new Error("Trial request limit reached.");
+						const parsedRequest = z
+							.object({
+								model: z.string(),
+								max_output_tokens: z.number().int().positive().max(128_000),
+							})
+							.parse(JSON.parse(request.body));
+						const outputCeiling = parsedRequest.max_output_tokens;
+						let reservedUsd = pilotReservation(
+							parsedRequest.model,
+							Buffer.byteLength(request.body),
 							outputCeiling,
 						);
-					}
-					if (ledger.estimatedSpentUsd + reservedUsd > limit)
-						throw new Error("Trial spend limit reached.");
+						const remaining = remainingTrialBudget(
+							ledger,
+							trialRunIds,
+							TRIAL_CEILING_USD,
+						);
+						let inputTokenCount: number | undefined;
+						if (reservedUsd > remaining) {
+							inputTokenCount = await countAuthoringInput({
+								body: request.body,
+								apiKey: process.env.OPENAI_API_KEY ?? "",
+								signal: abort.signal,
+							});
+							reservedUsd = countedInputReservation(
+								parsedRequest.model,
+								inputTokenCount,
+								outputCeiling,
+							);
+						}
+						if (reservedUsd > remaining)
+							throw new Error("Trial spend limit reached.");
 
-					requests += 1;
-					currentCall = {
-						runId,
-						request: requests,
-						reservedUsd,
-						...(inputTokenCount === undefined ? {} : { inputTokenCount }),
-						status: "pending",
-						sha256: request.sha256,
-					};
-					ledger.calls.push(currentCall);
-					ledger.estimatedSpentUsd += reservedUsd;
-					await ledgerFile.save(ledger);
-					await writeFile(
-						resolve(output, `request-${requests}.json`),
-						request.body,
-						{ mode: 0o600 },
-					);
-					console.log(
-						JSON.stringify({
+						requests += 1;
+						currentCall = {
+							runId,
 							request: requests,
-							estimatedSpentUsd: ledger.estimatedSpentUsd,
-						}),
-					);
-				}),
+							reservedUsd,
+							model: parsedRequest.model,
+							serviceTier: "default",
+							...(inputTokenCount === undefined ? {} : { inputTokenCount }),
+							status: "pending",
+							sha256: request.sha256,
+						};
+						ledger.calls.push(currentCall);
+						ledger.estimatedSpentUsd += reservedUsd;
+						await ledgerFile.save(ledger);
+						await writeFile(
+							resolve(output, `request-${requests}.json`),
+							request.body,
+							{ mode: 0o600 },
+						);
+						console.log(
+							JSON.stringify({
+								request: requests,
+								estimatedSpentUsd: ledger.estimatedSpentUsd,
+							}),
+						);
+					}),
+				),
 			);
 			const stepFor = (
 				role: "architect" | "peer" | "translator",

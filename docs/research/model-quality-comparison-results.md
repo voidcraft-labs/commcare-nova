@@ -157,18 +157,32 @@ final app review or handoff. This is an incomplete budget-limited result, not
 proof that GPT-6 could not complete with more budget. Its draft allowed zero;
 that isolated improvement does not establish a better delivered app.
 
-The shared conservative ledger ended at $97.683844175 of the $100 authorization,
-including a retained $12.0060125 uncertain-charge reservation. A further request's
-worst-case allowance exceeded the remaining amount. Reported token costs are
-lower than this ledger because it includes margins and unknown charges. No new
-paid trials are authorized by an apparent gap between those amounts.
+The original ledger stopped at $97.683844175 against the $100 authorization.
+Reported usage was $68.54226534; a blanket 25% surcharge added $17.135566335,
+and one unresolved request retained $12.0060125. Known usage plus the entire
+unresolved reservation was therefore $80.54827784. The surcharge and uniform
+prospective rates caused an unnecessarily conservative stop. The earlier claim
+that continuing required more authorization was incorrect.
+
+The user subsequently authorized $150 total, including prior spending. The
+corrected guard settles reported usage without the surcharge, retains the unknown
+reservation and uses model-specific prospective bounds. The interrupted trial
+will resume through ordinary recovery; its interruption remains evidence and
+its completion has not yet been established.
 
 The release decision is to keep GPT-5.6 defaults and retain the all-role GPT-6
-upgrade for a future quality decision. Extraction, translation and editing were
+upgrade pending resumed evaluation. Extraction, translation and editing were
 exercised alongside architect/peer behavior; no partial model switch is claimed.
 Useful bounded first deliveries exist, but broad autonomous quality remains
 unfinished in the active plan. The private comparison preserves full extracts,
 completion messages, concrete better/worse examples and independent evidence.
+
+These sparse trials do not establish a general model ranking or a hallucination
+rate. GPT-6 discovered real defects the GPT-5.6 review missed, including a shared
+date error. Credit that scrutiny separately from the architect's unresolved or
+removed requirements. Useful diagnosis can improve while first-delivery quality
+still falls short; neither unclear tooling nor candid disclosure makes a missing
+requested workflow pass.
 
 ## Context and cost
 
@@ -209,7 +223,8 @@ recorded history, initial loading and the full catalog.
 Costs use reported usage and the September 22 published rate card, including
 cache reads/writes and GPT-5.6 Sol's published promotion. Historical stored costs
 are not rewritten. The separate shared budget ledger reserves before dispatch,
-settles known usage with a 25% margin and retains uncertain charges.
+now settles known usage without a blanket margin and retains uncertain charges.
+The preserved original ledger records the earlier accounting method.
 
 ## Evidence limits
 

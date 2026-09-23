@@ -35,6 +35,9 @@ import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
 	completedPilotCharge,
+	pilotReservation,
+	readPilotLedger,
+	standardPilotTransport,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
 import {
@@ -45,12 +48,6 @@ import {
 const ROLE = MODEL_ROLES.followUpEditor;
 const MODEL = ROLE.modelId;
 const MAX_REQUESTS = 12;
-const ledgerSchema = z.object({
-	ceilingUsd: z.number().positive().max(200),
-	targetUsd: z.number().positive(),
-	estimatedSpentUsd: z.number().nonnegative(),
-	calls: z.array(z.record(z.string(), z.unknown())),
-});
 
 const TASK = `Add a client registration workflow to this app. A worker registers a client's name and age in completed years. Both are required. Reject ages below 0 or above 120 with a helpful message. Show an optional phone question only for clients aged 18 or older. End with a short note that includes the client's name. Workers should be able to find clients by name and open a follow-up form to update their phone number without changing the name or age. Preserve the app's existing content. These requirements are complete; build the workflow now.`;
 
@@ -92,7 +89,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 		: TASK;
 	const ledgerPath = argument("--ledger");
 	return withPilotLedger(ledgerPath, async (ledgerFile) => {
-		const ledger = ledgerSchema.parse(
+		const ledger = readPilotLedger(
 			JSON.parse(await readFile(ledgerFile.path, "utf8")),
 		);
 		await mkdir(output, { mode: 0o700 });
@@ -191,35 +188,46 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 			try {
 				const provider = createNovaOpenAI(
 					apiKey ?? "dry-run",
-					captureModelRequests(transport.fetch, async (request) => {
-						if (requests >= MAX_REQUESTS)
-							throw new Error("Pilot request limit reached.");
-						// One dollar exceeds the cost of a full accepted Luna context plus this
-						// output allowance, even with long-context/cache-write rates (2026-09-12).
-						// Unknown outcomes retain the reservation; a completed step replaces it.
-						if (
-							ledger.estimatedSpentUsd + 1 >
-							Math.min(ledger.ceilingUsd, ledger.targetUsd)
-						)
-							throw new Error("Pilot spend limit reached.");
-						requests += 1;
-						currentCall = {
-							runId,
-							request: requests,
-							model: MODEL,
-							reservedUsd: 1,
-							status: "pending",
-							sha256: request.sha256,
-						};
-						ledger.calls.push(currentCall);
-						ledger.estimatedSpentUsd += 1;
-						await saveLedger();
-						await writeFile(
-							resolve(output, `request-${requests}.json`),
-							request.body,
-							{ mode: 0o600 },
-						);
-					}),
+					standardPilotTransport(
+						captureModelRequests(transport.fetch, async (request) => {
+							if (requests >= MAX_REQUESTS)
+								throw new Error("Pilot request limit reached.");
+							const parsedRequest = z
+								.object({
+									model: z.literal(MODEL),
+									max_output_tokens: z.number().int().positive().max(128_000),
+								})
+								.parse(JSON.parse(request.body));
+							const reservedUsd = pilotReservation(
+								parsedRequest.model,
+								Buffer.byteLength(request.body),
+								parsedRequest.max_output_tokens,
+							);
+							if (
+								ledger.estimatedSpentUsd + reservedUsd >
+								Math.min(ledger.ceilingUsd, ledger.targetUsd)
+							)
+								throw new Error("Pilot spend limit reached.");
+							requests += 1;
+							currentCall = {
+								runId,
+								request: requests,
+								model: MODEL,
+								reservedUsd,
+								serviceTier: "default",
+								status: "pending",
+								sha256: request.sha256,
+							};
+							ledger.calls.push(currentCall);
+							ledger.estimatedSpentUsd += reservedUsd;
+							await saveLedger();
+							await writeFile(
+								resolve(output, `request-${requests}.json`),
+								request.body,
+								{ mode: 0o600 },
+							);
+						}),
+					),
 				);
 				await save("run.json", {
 					runId,
@@ -273,10 +281,11 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 					providerOptions: reasoningProviderOptions(ROLE.reasoningEffort),
 					onStepEnd: async (step) => {
 						steps += 1;
-						const charge = completedPilotCharge(MODEL, step.usage, 1);
+						const reserved = Number(currentCall?.reservedUsd);
+						const charge = completedPilotCharge(MODEL, step.usage, reserved);
 						if (currentCall?.status !== "pending")
 							throw new Error("A metered step has no pending request.");
-						ledger.estimatedSpentUsd += charge.estimatedUsd - 1;
+						ledger.estimatedSpentUsd += charge.estimatedUsd - reserved;
 						Object.assign(currentCall, {
 							...charge,
 							usage: step.usage,

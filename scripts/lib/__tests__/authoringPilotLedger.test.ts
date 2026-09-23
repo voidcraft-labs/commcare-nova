@@ -2,7 +2,6 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { estimateCost } from "@/lib/db/usage";
 import { completedPilotCharge, withPilotLedger } from "../authoringPilotLedger";
 
 it("keeps one owner across path aliases and releases ownership after failure", async () => {
@@ -55,7 +54,7 @@ it("keeps the reservation for absent or invalid provider usage, including partia
 			{ inputTokens: 0, outputTokens: 1000 },
 			1,
 		),
-	).toEqual({ status: "completed", estimatedUsd: expect.closeTo(0.0015, 10) });
+	).toEqual({ status: "completed", estimatedUsd: expect.closeTo(0.0012, 10) });
 });
 
 it("settles complete cache usage but never discounts incomplete or inconsistent usage", () => {
@@ -69,9 +68,8 @@ it("settles complete cache usage but never discounts incomplete or inconsistent 
 		},
 		7,
 	);
-	expect(settled.estimatedUsd).toBe(
-		estimateCost("gpt-5.6-sol", 50_000, 100, 48_000, 1000) * 1.25,
-	);
+	expect(settled.estimatedUsd).toBeCloseTo(0.0302);
+	expect(allInput.estimatedUsd).toBe(0.252);
 	expect(settled.estimatedUsd).toBeLessThan(allInput.estimatedUsd);
 	for (const inputTokenDetails of [
 		{ cacheReadTokens: 48_000 },
