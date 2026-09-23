@@ -7,6 +7,18 @@ intent, without operator expressions, debugging instructions or repairs. Validit
 infrastructure and a favorable review do not establish that outcome. Keep this
 plan until the quality evaluation and delivered-app acceptance are complete.
 
+The target is a useful first delivered app from the normal design/build/review
+process. The evaluator participates as a regular user: answer Nova's design
+questions helpfully using domain context and reasonable preferences. Do not
+withhold useful answers to manufacture a failure. Questions that ask the user to
+debug Nova, supply expressions or choose an internal recovery procedure are
+product failures, not ordinary clarification.
+
+Assess that first delivery before requesting any changes. Corrective edit prompts
+cannot make its acceptance result pass. Separate edit trials may test editing,
+individual tools or prompt changes, but cannot substitute for end-to-end initial
+authoring. The intelligence needed for a decent first app must reside in Nova.
+
 Preserve the delivered app's current scope and collected data. Save role personas,
 keep invented places inside isolated tests, and distinguish those tests from
 ordinary Preview over real records. Do not revive the retired design graph or
@@ -26,13 +38,14 @@ usage and unfinished turns. Plugin 1.35.0 followed compatible Nova deployment.
 Controlled runtime, Postgres, independent Core/HQ and browser checks cover these
 contracts. PR #666's worker setup guidance is deployed and live-verified. PR #667
 corrects spoken question positions and removes internal identifiers from worker
-menu cards; its controlled browser check passes, with deployment/live verification
-pending. These statements describe evidence, not an autonomous quality verdict.
+menu cards; controlled and live browser checks passed at deployed `74a10506`.
+These statements describe evidence, not an autonomous quality verdict.
 
 The repaired app has a clearer name, three Preview identities, less generic audit
 collection, shared ownership for cross-role work, grower/contract selection and
 separate dated receipts with retained history. The final repair stream settled;
-known cumulative cost is $4.94241383. Independent native checks and recorded
+known cumulative cost including the final focused cleanup is $4.95410922.
+Independent native checks and recorded
 journeys support the tested behavior. Ordinary Preview now explains missing real
 place assignments and links to setup and recorded tests. No live business records
 were submitted during browser inspection. The repair required external findings
@@ -43,10 +56,64 @@ about 0.3-second connections and 52–167 ms small queries. Seventy subsequent
 one-minute samples reported zero swap bytes. Connection/workload caps are
 unchanged; this does not establish the underlying cause or lasting resolution.
 
+## Initial design trials already run
+
+Four requests entered the normal initial architect/peer process. The lengthy
+delivered-app repair was separate edit work; it must not obscure these outcomes.
+
+| Request | Result and evidence limit |
+| --- | --- |
+| Development lending | Completed; principal independent Preview and Core checks passed. The request influenced implementation, and an externally discovered entry correction was not established by the original trial. Development evidence, not untouched acceptance. |
+| First related-record role trial | Failed. A saved app existed, but the run stopped during corrections before final peer review at its conservative budget boundary. Independent checks found substantive remaining defects. |
+| Workshop | Completed after an 80-call harness stop and 22-call same-input recovery without expert feedback. Principal independent Preview and Core checks passed. This was a materially different request, but not an uninterrupted run or physical-device/offline proof. |
+| Fresh role-gated maintenance | Failed after design reviews, before any saved app or saved-app review. Four first-save rejections led to a request for internal workspace recovery. A subsequent product fix does not change this result. |
+
+There is no successful fresh role-gated end-to-end acceptance result yet.
+
+## Agreed next sequence
+
+1. Audit representative initial designs, reviews and externally directed repairs
+   before another full run. Follow reasoning summaries, messages, available
+   context, actual calls, tool arguments, returned errors and corrections. For
+   each consequential miss or incorrect review finding, establish what the agent
+   could know and observe at that point. Distinguish missing or inaccessible
+   knowledge, ambiguous schemas/results, misinterpretation, poor judgment,
+   runtime defects and transient failures. An invalid call is evidence to
+   investigate the model-facing contract, not automatically a hallucination.
+   Include repeated discovery/recovery failures and ineffective review cycles.
+2. Improve the generic design/review loop and information access from that
+   evidence. Make effective behavior and domain semantics discoverable when
+   needed; verify guidance against production and primary CommCare sources.
+   Strengthen independent journey selection and consequential review without
+   adding app-specific instructions, an incident checklist or repeated demands
+   to be thorough. Inspect current code and intervening changes before attributing
+   a historical failure to today's implementation. Substantive edit review is a
+   separate concern unless a shared defect also blocks initial authoring.
+3. After the fixes have meaningful controlled evidence, run a bounded GPT-5.6
+   initial design/build/review evaluation. Freeze the request and criteria, allow
+   normal user answers during design, then independently assess the first
+   delivered app without corrective edit requests or hidden expert context.
+   Cover a role-gated related-record journey and a materially different request.
+   Existing completed trials remain evidence at their measured revision; they
+   do not automatically establish the changed loop's quality.
+4. If the first output is materially short of a usable first version, investigate
+   and improve Nova before another acceptance attempt. Keep the failed result.
+   Once a request shapes implementation, treat subsequent use as development
+   evidence and retain an untouched request for acceptance. Do not keep repairing
+   an app until it looks like a successful autonomous build.
+5. Once GPT-5.6 establishes a credible baseline, compare GPT-6 on the same inputs,
+   tools, prompts and reasoning effort initially. Verify model availability and
+   published prices, and update prospective cost accounting without silently
+   repricing historical records. Compare usable outcomes, writing, tool errors,
+   recovery, calls and actual usage costs. Initial architect/peer builds primarily
+   compare Sol; a Luna edit comparison needs its own explicit evaluation. Model
+   benchmark claims are hypotheses until observed in Nova. Do not change the
+   production default merely because the newer model is cheaper.
+
 ## Remaining work and decisions
 
-- [ ] Establish a fresh successful role-gated related-record build through normal
-  design/build/review. Both earlier role trials remain failed. The proposed new
+- [ ] Complete the audit and generic improvements above before scheduling another
+  full trial. Both earlier role trials remain failed. The proposed new
   nursery request is frozen privately; its separate $30 allocation is pending
   approval. Do not start it or reuse an earlier trial's remaining allocation.
 - [ ] Resolve tool discovery across automatic compaction. Production responses
@@ -54,15 +121,13 @@ unchanged; this does not establish the underlying cause or lasting resolution.
   response, before Nova's next history projection. The approved eight-request
   synthetic probe cost $0.002319 and did not reproduce that failure. Its request
   bound is exhausted. No production correction is justified by that probe alone.
-- [ ] Finish delivered-app acceptance: verify the final Preview presentation after
-  #667 deploys, inspect remaining consequential workflows and retained event
-  history, and assess the final handoff's technical language. Preserve legitimate
-  business-event fields; check any redundant actor writes before removing them.
+- [ ] Finish delivered-app acceptance: inspect remaining consequential workflows
+  and retained event history, and assess the final handoff's technical language.
+  The #667 presentation checks and final redundant-write cleanup/native checks
+  passed; these supervised checks do not establish autonomous authoring quality.
+  Preserve legitimate business-event fields.
   Real deployment accounts and places have not been supplied. Do not fabricate
   them or claim location-dependent ordinary submission has been established.
-- [ ] Record #667's exact deployed revision and live browser outcome. Keep ordinary
-  user Playwright evidence separate from administrator impersonation, recorded
-  test playback and live-data submission.
 - [ ] Retain physical-device, remote-HQ and offline-sync limits. Decide whether a
   specific remaining requirement needs those observations; independent native
   execution alone cannot establish them.
@@ -70,19 +135,24 @@ unchanged; this does not establish the underlying cause or lasting resolution.
 ## Evaluation and delivery rules
 
 Freeze each new request and acceptance criteria before the run. Use ordinary
-user inputs and the production architect/peer tools; no expert repair prompts,
+user inputs, useful answers to design questions and the production architect/peer
+tools; no expert repair prompts,
 manually preselected hidden context or retrospective plan rewriting. Start at
 available app entry, then check roles, related selection, answers, rejection,
 submission effects, next tasks and retained history. Inspect source faithfulness,
 worker ergonomics and completion wording as well as structural correctness.
+Record evaluator answers and interventions so normal design participation is
+distinguishable from rescue. A blocked delivery is a failed result with a stated
+cause, not an omitted trial.
 
 Use the smallest meaningful boundary: production runtime for evaluation, real
 Postgres for transactions, independent consumers for wire claims and Playwright
 for interaction. Record unavailable observations. Measure calls, repeated reads,
 context/plan growth and input/output/cache cost alongside quality. Keep failed
 trials and unknown charges; infrastructure fixes never turn them into passes.
-The development and materially different workshop tasks passed their principal
-bounded checks, but neither replaces successful fresh role-gated acceptance.
+Keep ordinary-user browser evidence separate from administrator impersonation,
+recorded test playback and live-data submission. Evaluate native-only requirements
+with appropriate consumers or state what remains unobserved.
 
 Implement coherent changes in isolated worktrees, with native `gh stack` for
 actual dependencies, fresh independent review per PR, meaningful tests and green
