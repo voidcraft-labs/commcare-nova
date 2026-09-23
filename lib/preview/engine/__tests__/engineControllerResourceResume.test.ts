@@ -102,7 +102,10 @@ describe("search answers across device-data resource suspension", () => {
 				expect(ctrl.store.getState()[NAME]?.value).toBe("Amina");
 				await ctrl.onValueChangeAsync(NAME, "Edited name");
 				const entryKey = ctrl.entryKey;
+				// The refresh may begin after a rebuild was already queued.
+				const queuedRebuild = ctrl.rebuildActiveFormAsync(FORM);
 				ctrl.setCaseDatabaseState({ required: true, status: "loading" });
+				await queuedRebuild;
 				expect(ctrl.formUuid).toBe(FORM);
 				expect(ctrl.entryKey).toBe(entryKey);
 				expect(ctrl.store.getState()[NAME]?.value).toBe("Edited name");

@@ -1368,6 +1368,10 @@ export class EngineController {
 				this.activeFormUuid !== formUuid
 			)
 				return false;
+			// A refresh can start while this rebuild waits behind an answer revision.
+			// Keep the old entry; the ready snapshot will use the latest requested
+			// preloads instead of letting an older queued call overwrite them.
+			if (this.caseDatabaseWait() !== undefined) return false;
 			const checkpoint = this.engine?.entryCheckpoint();
 			return this.mountFormAsync(
 				formUuid,
@@ -1593,11 +1597,10 @@ export class EngineController {
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 	): boolean {
-		if (this.caseDatabaseWait() === undefined) return false;
 		if (this.requestedActivation?.formUuid === formUuid) {
 			this.requestedActivation = { ...this.requestedActivation, caseData };
 		}
-		return true;
+		return this.caseDatabaseWait() !== undefined;
 	}
 
 	private mountForm(
