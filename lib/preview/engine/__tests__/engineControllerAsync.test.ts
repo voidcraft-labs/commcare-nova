@@ -25,6 +25,8 @@ import {
 	applyControllerEdit,
 } from "./fixtures/controllerDoc";
 
+import { sectionEntryDoc } from "./fixtures/sectionEntry";
+
 const controllers = new Set<EngineController>();
 function ownedController(
 	...args: ConstructorParameters<typeof EngineController>
@@ -1157,4 +1159,95 @@ describe("EngineController async runtime", () => {
 		).resolves.toBe(undefined);
 		ctrl.dispose();
 	});
+});
+
+it("keeps newly revealed page-row insertion indivisible during another worker action", async () => {
+	vi.useFakeTimers();
+	const page = testUuid("conditional-page");
+	const doc = docWith(
+		{ uuid: page, id: "page", kind: "section", label: proseText("Page") },
+		{
+			uuid: FIELD_UUID,
+			id: "gate",
+			kind: "text",
+			label: proseText("Show rows"),
+		},
+		{
+			uuid: REPEAT_UUID,
+			id: "rows",
+			kind: "repeat",
+			repeat_mode: "count_bound",
+			repeat_count: xp("1"),
+			relevant: xp("/data/page/gate = 'yes'"),
+		},
+		{
+			uuid: REPEAT_CHILD_UUID,
+			id: "note",
+			kind: "text",
+			label: proseText("Note"),
+			default_value: xp("sleep(100, 'ready')"),
+		},
+	);
+	doc.fieldOrder = {
+		[FORM_UUID]: [page],
+		[page]: [FIELD_UUID, REPEAT_UUID],
+		[REPEAT_UUID]: [REPEAT_CHILD_UUID],
+	};
+	const ctrl = controllerForDoc(doc);
+	let change: Promise<boolean> | undefined;
+	let validation: Promise<boolean> | undefined;
+	try {
+		await ctrl.activateFormAsync(FORM_UUID);
+		change = ctrl.setValueAtAsync("/data/page/gate", "yes");
+		await vi.advanceTimersByTimeAsync(0);
+		expect(ctrl.entryStore.getState().topologySettling).toBe(true);
+		await expect(ctrl.setValueAtAsync("/data/page/gate", "no")).resolves.toBe(
+			false,
+		);
+		validation = ctrl.validateAllAsync();
+		await vi.runAllTimersAsync();
+		await expect(Promise.all([change, validation])).resolves.toEqual([
+			true,
+			true,
+		]);
+		expect(ctrl.store.getState()["/data/page/rows[0]/note"]?.value).toBe(
+			"ready",
+		);
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+	} finally {
+		ctrl.dispose();
+		await Promise.allSettled([change, validation]);
+	}
+});
+
+it("keeps pending page snapshots reachable after an authored section rename", async () => {
+	const doc = sectionEntryDoc();
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const section = Object.values(doc.fields).find(
+		(field) => field.id === "second",
+	);
+	if (!section) throw new Error("Missing section");
+	const store = createBlueprintDocStore();
+	store.getState().load(admittedControllerDoc(doc));
+	store.getState().startTracking();
+	const ctrl = ownedController(
+		new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
+	);
+	ctrl.setDocStore(store);
+	await ctrl.activateFormAsync(formUuid);
+	await ctrl.setValueAtAsync("/data/first/zone", "south");
+	applyControllerEdit(store, [
+		{
+			kind: "updateField",
+			uuid: section.uuid,
+			targetKind: "section",
+			patch: { id: "later" },
+		},
+	]);
+	await ctrl.awaitSettled();
+	await expect(ctrl.enterSectionAsync(section.uuid)).resolves.toBe(true);
+	expect(
+		ctrl.store.getState()["/data/later/rounds[0]/assets[0]/note"]?.value,
+	).toBe("tank");
+	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });

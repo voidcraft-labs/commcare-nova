@@ -27,6 +27,7 @@ import type {
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
+import { availablePages, pagesToValidate } from "./sectionPaging";
 
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
@@ -137,6 +138,28 @@ export async function evaluateFormSnapshot(
 	try {
 		if (context.entry) engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
+		if (input.sectionUuid) {
+			const pages = availablePages(engine.sectionPages());
+			if (!pages.some((page) => page.uuid === input.sectionUuid))
+				throw new FormEvaluationInputError("That section is unavailable.");
+			let allowed = true;
+			for (const page of pagesToValidate(
+				pages,
+				engine.currentSectionUuid() ?? "",
+				input.sectionUuid,
+			)) {
+				await engine.enterSectionAsync(page.uuid, evaluate);
+				if (!(await engine.validateSectionAsync(page.uuid, evaluate))) {
+					allowed = false;
+					break;
+				}
+			}
+			if (allowed) await engine.enterSectionAsync(input.sectionUuid, evaluate);
+		}
+		const sectionForPath = (path: string) =>
+			engine
+				.sectionPages()
+				.find((page) => path === page.path || path.startsWith(`${page.path}/`));
 		for (const repeat of input.repeats ?? []) {
 			const path = normalizePath(repeat.path);
 			const field = fieldAt(path);
@@ -157,6 +180,18 @@ export async function evaluateFormSnapshot(
 			);
 		for (const answer of input.answers) {
 			const path = normalizePath(answer.path);
+			const section = sectionForPath(path);
+			if (section) {
+				if (
+					context.captureEntry &&
+					section.uuid !== engine.currentSectionUuid()
+				)
+					throw new FormEvaluationInputError(
+						"Open that section before answering its questions.",
+					);
+				if (!context.captureEntry)
+					await engine.enterSectionAsync(section.uuid, evaluate);
+			}
 			const field = fieldAt(path);
 			if (
 				!field ||
@@ -166,16 +201,41 @@ export async function evaluateFormSnapshot(
 				field.kind === "hidden" ||
 				field.kind === "label" ||
 				isCaptureFieldKind(field.kind)
-			)
+			) {
 				throw new FormEvaluationInputError(
 					`Answer ${answer.path} is not an editable question in this form. Media capture requires the running app.`,
 				);
+			}
 			await engine.setValueAsync(
 				path,
 				evaluationAnswerValue(field.kind, answer.path, answer.value),
 				evaluate,
 			);
 		}
+		// Standalone checks follow supplied answer order and then remaining pages.
+		// Retained journeys advance only through explicit page turns.
+		if (!context.captureEntry)
+			for (const page of availablePages(engine.sectionPages())) {
+				await engine.enterSectionAsync(page.uuid, evaluate);
+			}
+		const sections = engine.sectionPages().map((page) => {
+			const field = engineInput.fields[page.uuid];
+			return {
+				...page,
+				current: page.uuid === engine.currentSectionUuid(),
+				label:
+					field?.kind === "section" && field.label
+						? projectProseTemplate(field.label, doc).text
+						: "",
+			};
+		});
+		const visibleSections = sections.filter(
+			(section) => section.hasVisibleQuestions || section.needsEntry,
+		);
+		const canSubmit =
+			!context.captureEntry ||
+			visibleSections.length === 0 ||
+			visibleSections.at(-1)?.current === true;
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
 		const fields = Object.entries(engine.store.getState()).map(
@@ -226,6 +286,8 @@ export async function evaluateFormSnapshot(
 				} = relevant ? { value } : { retainedValue: value };
 				return {
 					path: path.replace(/^\/data\//, ""),
+					onCurrentPage:
+						sectionForPath(path)?.uuid === engine.currentSectionUuid(),
 					kind,
 					// A retained answer on an excluded question is not a usable
 					// expression/submission value. Hidden calculated fields, unlike
@@ -257,7 +319,9 @@ export async function evaluateFormSnapshot(
 				: {}),
 			valid,
 			fields,
-			...(valid
+			sections,
+			canSubmit,
+			...(valid && canSubmit
 				? {
 						submission: engine.computeSubmissionMutation({
 							caseIds: ids,

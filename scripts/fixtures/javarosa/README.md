@@ -351,3 +351,10 @@ The insertion check uses the real entry controller to add rows before and after 
 a question; it checks earlier membership and answers remain intact. These checks
 passed on the pinned Core revision above. They do not establish delayed entry
 across separate pages, HQ regeneration, or a submitted business workflow.
+
+`ContainerRuntimeTest.laterFieldListInsertsRowsAfterEarlierAnswers` reads the
+emitted `container-section-entry.xml`. It opens the first native field list,
+answers its area question, enters the second and observes that nested rows use
+the new answer. Returning after another earlier answer change retains the
+created row and its answer. This is exact local CCZ evidence; it does not claim
+unsectioned Preview has native question-by-question timing.

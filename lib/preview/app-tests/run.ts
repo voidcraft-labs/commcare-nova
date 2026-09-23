@@ -184,7 +184,9 @@ export async function observeAppTest(
 					screen: "form",
 					worker,
 					name: context.doc.forms[screen.formUuid].name,
-					questions: evaluated.fields,
+					questions: evaluated.fields.filter((field) => field.onCurrentPage),
+					sections: evaluated.sections,
+					canSubmit: evaluated.canSubmit,
 					valid: evaluated.valid,
 					submission: "Not submitted",
 				},
@@ -393,6 +395,7 @@ export async function advanceAppTest(
 			next = read.state;
 			break;
 		}
+		case "section":
 		case "answer": {
 			if (screen.kind !== "form")
 				throw new Error("Open a form before answering questions.");
@@ -401,8 +404,10 @@ export async function advanceAppTest(
 				{
 					formUuid: screen.formUuid,
 					caseIds: screen.caseIds,
-					answers: action.answers,
-					repeats: action.repeats,
+					answers: action.kind === "answer" ? action.answers : [],
+					repeats: action.kind === "answer" ? action.repeats : undefined,
+					sectionUuid:
+						action.kind === "section" ? action.sectionUuid : undefined,
 					searchAnswers: screen.searchAnswers,
 				},
 				{

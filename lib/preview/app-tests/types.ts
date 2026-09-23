@@ -84,6 +84,12 @@ export const appTestStartSchema = z.strictObject({
 export type AppTestStartInput = z.infer<typeof appTestStartSchema>;
 
 export const appTestActionSchema = z.discriminatedUnion("kind", [
+	z.strictObject({
+		kind: z.literal("section"),
+		sectionUuid: uuidSchema.describe(
+			"A section offered by the current form. Forward navigation validates earlier pages.",
+		),
+	}),
 	z.strictObject({ kind: z.literal("observe") }),
 	z.strictObject({ kind: z.literal("continue") }),
 	z.strictObject({ kind: z.literal("back") }),

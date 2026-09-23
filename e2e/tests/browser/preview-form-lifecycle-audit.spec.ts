@@ -272,3 +272,50 @@ test("Form submission waits for real file upload, preserves same-Project answers
 		}
 	}
 });
+
+test("page entry initializes dependent repeat rows and Back preserves their answers", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+		},
+	);
+	try {
+		await page.goto(`${peer.origin}/?sections`);
+		const area = page.getByRole("textbox", { name: /Area/ });
+		await expect(area).toHaveValue("north");
+		await area.fill("");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(area).toBeVisible();
+		await expect(page.getByRole("alert")).toContainText(
+			"Review the highlighted question",
+		);
+		await area.fill("south");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		const notes = page.getByRole("textbox", { name: /Asset note/ });
+		await expect(notes).toHaveCount(1);
+		await expect(notes).toHaveValue("tank");
+		await notes.fill("retained");
+		await page.getByRole("button", { name: "Back", exact: true }).click();
+		await area.fill("north");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		await expect(notes).toHaveCount(1);
+		await expect(notes).toHaveValue("retained");
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});

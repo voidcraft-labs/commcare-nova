@@ -15,6 +15,7 @@ import {
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { readAppTestSteps } from "@/lib/db/appTests";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
+import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
 import { continueAppTest, startAppTest } from "../service";
 import type { AppTestAction } from "../types";
 
@@ -1246,4 +1247,110 @@ it("limits a mixed module's inline chooser to case forms and goes back to Result
 	});
 	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
 	await step({ kind: "finish" });
+});
+
+it("visits form pages using retained entry state before allowing submission", async () => {
+	const doc = sectionEntryDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const first = Object.values(doc.fields).find((field) => field.id === "first");
+	const second = Object.values(doc.fields).find(
+		(field) => field.id === "second",
+	);
+	if (!first || !second) throw new Error("Missing sections");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose:
+				"Choose an area, inspect its assets, and retain answers on return",
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `page-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "menu", moduleUuid });
+	expect(await step({ kind: "form", formUuid })).toMatchObject({
+		canSubmit: false,
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "first/zone",
+				value: "north",
+				label: "Area",
+			}),
+		]),
+	});
+	expect((await step({ kind: "submit" })).savedInTest).toBe(false);
+	await step({ kind: "answer", answers: [{ path: "first/zone", value: "" }] });
+	expect(
+		(await step({ kind: "section", sectionUuid: second.uuid })).sections,
+	).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({ uuid: first.uuid, current: true }),
+		]),
+	);
+	await step({
+		kind: "answer",
+		answers: [{ path: "first/zone", value: "south" }],
+	});
+	await expect(
+		step({
+			kind: "answer",
+			answers: [{ path: "second/rounds[0]/assets[0]/note", value: "early" }],
+		}),
+	).resolves.toMatchObject({
+		completed: false,
+		error: "Open that section before answering its questions.",
+	});
+	const opened = await step({ kind: "section", sectionUuid: second.uuid });
+	expect(opened).toMatchObject({
+		canSubmit: true,
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets",
+				repeatCount: 1,
+			}),
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[0]/note",
+				value: "tank",
+			}),
+		]),
+	});
+	await step({
+		kind: "answer",
+		answers: [{ path: "second/rounds[0]/assets[0]/note", value: "retained" }],
+	});
+	await step({ kind: "section", sectionUuid: first.uuid });
+	await step({
+		kind: "answer",
+		answers: [{ path: "first/zone", value: "north" }],
+	});
+	expect(
+		await step({ kind: "section", sectionUuid: second.uuid }),
+	).toMatchObject({
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets",
+				repeatCount: 1,
+			}),
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[0]/note",
+				value: "retained",
+			}),
+		]),
+	});
+	expect((await step({ kind: "submit" })).savedInTest).toBe(true);
 });

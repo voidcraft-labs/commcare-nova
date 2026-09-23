@@ -36,7 +36,7 @@ Navigation shares production menu, selection and routing projections.
 Observations identify the evaluator clock and its calendar day. Form workers,
 SQL record reads and submission calculations use the same process timezone;
 ordinary browser Preview uses the browser timezone. Neither asserts a supplied
-place has that timezone. Runtime version 4 distinguishes transient leaf form selection from persistent
+place has that timezone. Runtime version 6 adds section-entry checkpoints and explicit page turns; version 5 preserves scoped initialization order. Version 4 distinguishes transient leaf form selection from persistent
 parent-menu selection; version 3 added Details and Continue/Back and version 2
 the shared clock. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
@@ -84,3 +84,9 @@ does not add a persistent menu datum. Parent selectors and explicit link-carried
 selections keep the production menu-context lifetime. After a leaf form returns
 to its module, ordinary case-first routing reopens Results; Back from the form
 returns to the original Results/Details destination, not the transient chooser.
+
+Form observations return only the current page’s questions, available sections,
+and whether Submit is offered. A `section` action validates forward pages before
+entering the target; Back retains existing rows and answers. Future-page answers
+and early submissions cannot bypass this progression. These use the browser’s
+FormEngine insertion and paging projections, not a separate simulation.

@@ -233,3 +233,12 @@ context. Returning to a case-first module after a leaf form reopens Results.
 Explicit link-carried selections and parent chains retain their own production
 lifetime. Older retained journeys remain evidence at their original runtime;
 they require a new test to execute after a navigation contract change.
+
+Sectioned form journeys expose the current page and offered sections. Page
+entry uses the same FormEngine insertion lifecycle as Builder Preview, retaining
+form-start snapshots and creating nested rows only when their page is reached.
+Forward page turns validate intervening answers; test callers cannot answer an
+unvisited page or submit from an earlier one. Returning preserves existing rows.
+A one-shot form check follows supplied answer order and visits remaining pages;
+it is not a navigation acceptance result. Native checks remain necessary for
+question-by-question timing outside authored sections.

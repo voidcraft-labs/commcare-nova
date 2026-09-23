@@ -873,6 +873,22 @@ export class EngineController {
 			changedPaths,
 			this.evaluatorFor(engine, entryKey, revision, generation, signal),
 		);
+		const sectionUuid = engine.currentSectionUuid();
+		if (sectionUuid && engine.hasPendingSectionInitialization()) {
+			// Input changes may reveal a not-yet-created repeat on this page.
+			// Its insertion is indivisible, just like an explicit Add operation.
+			this.atomicRevisionsPending += 1;
+			this.publishEntryState();
+			try {
+				await engine.enterSectionAsync(
+					sectionUuid,
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				);
+			} finally {
+				this.atomicRevisionsPending -= 1;
+				this.publishEntryState();
+			}
+		}
 		if (
 			engine !== this.engine ||
 			entryKey !== this.currentEntryKey ||
@@ -1928,6 +1944,37 @@ export class EngineController {
 	/** The form's pages (root sections) with their current visibility. */
 	sectionPages(): ReadonlyArray<SectionPage> {
 		return this.engine?.sectionPages() ?? [];
+	}
+
+	/** Materialize this page through the same engine operation used by test journeys. */
+	async enterSectionAsync(sectionUuid: Uuid): Promise<boolean> {
+		await this.pendingWork;
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		const entryKey = this.currentEntryKey;
+		if (!engine || !formUuid || !entryKey) return false;
+		if (this.xpathRuntime === undefined)
+			return this.contain("repeat-change", formUuid, false, () => {
+				engine.enterSection(sectionUuid);
+				this.syncAllPathsSelectively();
+				return true;
+			});
+		return this.runAsyncRevision(
+			"repeat-change",
+			formUuid,
+			async (revision, generation, signal) => {
+				await engine.enterSectionAsync(
+					sectionUuid,
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				);
+				if (engine !== this.engine || entryKey !== this.currentEntryKey)
+					return false;
+				this.syncAllPathsSelectively();
+				return true;
+			},
+			false,
+			{ atomic: true },
+		);
 	}
 
 	/** Validate the visible questions on one page. Returns true if valid. */

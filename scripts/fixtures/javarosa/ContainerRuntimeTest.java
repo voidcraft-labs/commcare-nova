@@ -231,4 +231,25 @@ public class ContainerRuntimeTest {
   assertEquals(3.0,eval(parsed.getFormDef(),"count(/data/parents/item[2]/items)"));
  }
 
+
+ @Test public void laterFieldListInsertsRowsAfterEarlierAnswers()throws Exception {
+  FormParseInit parsed=load("section-entry",false);FormDef form=parsed.getFormDef();
+  FormEntryController controller=parsed.getFormEntryController();
+  controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+  assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+  org.javarosa.form.api.FormEntryPrompt[] first=controller.getQuestionPrompts();
+  assertEquals(1,first.length);
+  assertEquals(0.0,eval(form,"count(/data/second/rounds)"));
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("south")));
+  controller.jumpToIndex(first[0].getIndex());
+  assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+  FormIndex secondPage=controller.getModel().getFormIndex();
+  org.javarosa.form.api.FormEntryPrompt[] second=controller.getQuestionPrompts();
+  assertEquals(1,second.length);assertEquals("tank",second[0].getAnswerText());
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(second[0].getIndex(),new StringData("retained")));
+  assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("north")));
+  controller.jumpToIndex(secondPage);
+  second=controller.getQuestionPrompts();
+  assertEquals(1,second.length);assertEquals("retained",second[0].getAnswerText());
+ }
 }

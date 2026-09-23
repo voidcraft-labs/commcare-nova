@@ -21,6 +21,8 @@ export class FormEvaluationInputError extends Error {
 
 export interface FormEvaluationInput {
 	readonly formUuid: Uuid;
+	/** Internal page navigation for a retained test journey. */
+	readonly sectionUuid?: Uuid;
 	readonly answers: readonly { path: string; value: FormAnswerValue }[];
 	readonly repeats?: readonly { path: string; count: number }[];
 	readonly caseIds?: readonly string[];

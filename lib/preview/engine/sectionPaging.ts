@@ -6,11 +6,13 @@
 
 import type { SectionPage } from "@/lib/preview/engine/formEngine";
 
-/** The pages a worker can see: those with something on them. */
-export function visiblePages(
+/** Pages with questions or repeat rows whose contents are decided on entry. */
+export function availablePages(
 	pages: ReadonlyArray<SectionPage>,
 ): ReadonlyArray<SectionPage> {
-	return pages.filter((page) => page.hasVisibleQuestions);
+	return pages.filter(
+		(page) => page.hasVisibleQuestions || page.needsEntry === true,
+	);
 }
 
 /**
@@ -24,7 +26,7 @@ export function resolveCurrentPage(
 	pages: ReadonlyArray<SectionPage>,
 	active: string | undefined,
 ): SectionPage | undefined {
-	const visible = visiblePages(pages);
+	const visible = availablePages(pages);
 	if (visible.length === 0) return undefined;
 	if (active === undefined) return visible[0];
 	const remembered = visible.find((page) => page.uuid === active);
@@ -33,11 +35,11 @@ export function resolveCurrentPage(
 	if (position === -1) return visible[0];
 	const after = pages
 		.slice(position + 1)
-		.find((page) => page.hasVisibleQuestions);
+		.find((page) => page.hasVisibleQuestions || page.needsEntry === true);
 	if (after !== undefined) return after;
 	const before = [...pages.slice(0, position)]
 		.reverse()
-		.find((page) => page.hasVisibleQuestions);
+		.find((page) => page.hasVisibleQuestions || page.needsEntry === true);
 	return before ?? visible[0];
 }
 
