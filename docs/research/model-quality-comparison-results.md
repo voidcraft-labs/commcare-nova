@@ -382,7 +382,7 @@ does not establish universal reliability or a general model ranking.
 Proceed with GPT-6 Sol for architect, peer, document extraction and translation,
 and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, after
 PR #685 is live and the final model PR passes review and CI. Offline extraction
-and knowledge callers use the same role configuration. This is a bounded product
+and knowledge callers move to the corresponding GPT-6 models as well. This is a bounded product
 decision: the later comparisons cover usable ordinary entry and retained history,
 the document-led comparison covers source fidelity and language behavior, and
 all measured pairs cost less. The evidence does not establish universally better
