@@ -121,6 +121,25 @@ disposable in its handoff. These are bounded results, not unqualified acceptance
 
 ## Current evaluation and remaining work
 
+The final development comparison exposed another browser boundary: an
+unsectioned query roster initialized before its selected record loaded, then
+retained an empty snapshot. Ordinary Preview submitted a session without the
+required per-person records, although the same authored export and isolated
+journeys populated the roster. That first delivery remains failed. A controlled
+browser regression reproduces the missing row with a delayed selected-record
+read; deferring form initialization until its binding is ready corrects that
+boundary. Review, deployment and verification of the unchanged authored output
+remain pending; the all-role model release is still held.
+
+Further runtime acceptance found two older task-continuation defects: returning
+Home retains a selected case parent, so reopening history can skip the choice of
+another person; app tests instead clear that selection. A whole case-database
+refresh also retires the active engine and restores default values instead of
+edited answers. Keep these distinct from the initial-preload correction, retain
+the browser/controller reproductions, and preserve authorization and scope
+boundaries when correcting continuation behavior. They remain acceptance work.
+
+
 The source-backed initial-delivery audit and observation improvements shipped in
 PRs #669, #670 and #673. The latter makes retained test evidence discoverable and
 missing test references recoverable. Plugin 1.36.0 followed compatible Nova code.
@@ -246,4 +265,3 @@ source causes in
 [`ordinary-authoring-observations.md`](../research/ordinary-authoring-observations.md),
 and verified domain semantics in
 [`record-lifecycle-authoring.md`](../research/record-lifecycle-authoring.md).
-

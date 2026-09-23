@@ -3089,6 +3089,9 @@ test.describe("authenticated builder", () => {
 					await expect.poll(() => heldCaseRead).toBe(true);
 					await expect(
 						main.getByRole("textbox", { name: visit.noteFieldLabel }),
+					).toHaveCount(0);
+					await expect(
+						main.getByRole("button", { name: "Submit", exact: true }),
 					).toBeDisabled();
 				} finally {
 					releaseCaseRead.resolve();
@@ -3100,7 +3103,7 @@ test.describe("authenticated builder", () => {
 				});
 				// Returning mounts the source before its selected-case preload has
 				// settled. Wait for the same submission readiness as the first entry
-				// before editing; a late preload may replace an earlier answer.
+				// before editing; one-time defaults run only with the selected record.
 				await expect(submitAgain).toBeEnabled();
 				const sourceNote = main.getByRole("textbox", {
 					name: visit.noteFieldLabel,

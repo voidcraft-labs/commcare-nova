@@ -46,6 +46,9 @@ export function useFormEngine(
 	/** An admitted no-matches launch's search answers; fixed for the entry,
 	 * like `caseDatabase`. */
 	searchAnswers?: ReadonlyMap<string, string>,
+	/** A selected record and its ancestors must arrive before one-time defaults
+	 * and query row membership run. Later refreshes retain the existing entry. */
+	readyToInitialize = true,
 ): EngineController {
 	const controller = useBuilderFormEngine();
 	const accessPhase = useAccessPhase();
@@ -59,21 +62,20 @@ export function useFormEngine(
 	 * its entry key, answers, and attachment coordinator state throughout that
 	 * window. The app/provider and preview-identity lifecycles own their own
 	 * terminal boundaries. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: caseData cold arrivals rebuild the same entry in the authorized effect below; caseDatabase and searchAnswers are explicit navigation snapshots captured only for the initial activation
+	// biome-ignore lint/correctness/useExhaustiveDependencies: initial readiness and caseData arrivals are handled by the authorized effect below; caseDatabase and searchAnswers are explicit navigation snapshots captured only for the initial activation
 	useEffect(() => {
 		if (!formUuid) {
 			controller.deactivate();
 			return;
 		}
 		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
-		appliedPreloads.current = caseData;
-		const activation = controller.activateFormAsync(
-			formUuid,
-			caseData,
-			caseDatabase,
-			searchAnswers,
-		);
-		activation.catch(() => undefined);
+		if (readyToInitialize) {
+			appliedPreloads.current = caseData;
+			controller
+				.activateFormAsync(formUuid, caseData, caseDatabase, searchAnswers)
+				.catch(() => undefined);
+		} else controller.deactivate();
+		// Also owns an activation deferred to the authorized effect below.
 		return () => controller.deactivate();
 	}, [controller, formUuid]);
 
@@ -87,14 +89,15 @@ export function useFormEngine(
 		}
 	}, [accessPhase, controller]);
 
-	/* Case data commonly resolves after the screen activates. Rebuild the same
-	 * entry so its attachment key survives that cold arrival. A confirmed
+	/* Initial selected-record readiness starts the entry with complete context.
+	 * Subsequent context changes rebuild that entry without losing its answers
+	 * or attachment key. A confirmed
 	 * app/Project change deactivates the provider controller synchronously; the
 	 * authorized snapshot then activates a fresh entry even for survey and
 	 * registration forms whose `caseData` is undefined. */
 	// biome-ignore lint/correctness/useExhaustiveDependencies: appId/projectId re-run activation after the provider retires a confirmed old scope
 	useEffect(() => {
-		if (!formUuid || accessPhase !== "authorized") {
+		if (!formUuid || !readyToInitialize || accessPhase !== "authorized") {
 			return;
 		}
 		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
@@ -117,6 +120,7 @@ export function useFormEngine(
 		caseData,
 		caseDatabase,
 		searchAnswers,
+		readyToInitialize,
 		accessPhase,
 		appId,
 		projectId,

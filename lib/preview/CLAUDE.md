@@ -54,6 +54,13 @@ able to open a fresh generation.
 
 A pending form activation retains its explicit search-answer snapshot while required case data loads or refreshes. Resuming that activation carries the same answers into `#search/` defaults.
 
+Case-loading screens also wait for the selected record and its ancestor preloads
+before starting an entry. Disabling input while those reads finish is insufficient:
+one-time defaults and query-repeat membership must not run against absent context.
+`useFormEngine` defers initial activation but owns its cleanup even when readiness
+arrives later. An already active entry keeps the existing rebuild/answer-retention
+contract during subsequent context refreshes.
+
 Search draft and submission commands live in `engine/searchRunState.ts`;
 `hooks/useSearchInputRunState.ts` binds them to React. A standing search keeps
 its submitted hidden values until the next submission or an authored hidden

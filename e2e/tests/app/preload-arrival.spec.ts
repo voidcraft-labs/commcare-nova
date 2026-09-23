@@ -1,6 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 
-test("a later identical case read preserves the open calendar and native control identity", {
+test("a selected-record form waits for its raw preload before showing defaults", {
 	tag: "@seed:workspace",
 }, async ({ page, scenario }) => {
 	page.setDefaultTimeout(15_000);
@@ -34,15 +34,19 @@ test("a later identical case read preserves the open calendar and native control
 		await page.goto(seed.caseWorkspace.routes.tileForm);
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const date = page.locator('button[data-slot="date-picker"]');
-		await expect(date).toHaveText(/June 21, 2026/);
 		await expect.poll(() => arrived).toBe(true);
+		await expect(date).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Submit", exact: true }),
+		).toBeDisabled();
+		release.resolve();
+		await expect.poll(() => delivered).toBe(true);
+		await expect(date).toHaveText(/June 21, 2026/);
 		const original = await date.elementHandle();
 		if (!original) throw new Error("Missing date control");
 		await date.click();
 		const clear = page.getByRole("button", { name: "Clear", exact: true });
 		await expect(clear).toBeVisible();
-		release.resolve();
-		await expect.poll(() => delivered).toBe(true);
 		await clear.click();
 		await expect(date).toHaveText(/Pick a date/);
 		expect(await original.evaluate((element) => element.isConnected)).toBe(
