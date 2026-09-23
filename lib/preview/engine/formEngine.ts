@@ -37,6 +37,7 @@ import {
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
 import { isPathExpression } from "@/lib/commcare/xform/pathExpression";
+import { repeatCountSnapshotName } from "@/lib/commcare/xform/repeatCountSnapshot";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import type {
 	BlueprintDoc,
@@ -80,6 +81,10 @@ import {
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
+import {
+	initializationContextNode,
+	type XPathInitializationContext,
+} from "../xpath/initializationContext";
 import { javaRosaSplitOnSpaces } from "../xpath/javaString";
 import {
 	isXPathNodeSet,
@@ -120,7 +125,7 @@ import {
 	type PreviewLookupData,
 } from "./lookupEvaluation";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
-import { TriggerDag } from "./triggerDag";
+import { type InitializationExpression, TriggerDag } from "./triggerDag";
 import {
 	type FieldState,
 	fieldStatesEqual,
@@ -313,6 +318,16 @@ export interface FormEngineAsyncEvaluator {
 		| XPathValue
 		| { readonly kind: "nodeset-values"; readonly values: readonly string[] }
 	>;
+}
+
+type InitializationValue =
+	| XPathValue
+	| { readonly kind: "nodeset-values"; readonly values: readonly string[] };
+interface InitializationRead {
+	readonly source: string;
+	readonly path: string;
+	readonly nodeset?: boolean;
+	readonly carrier?: XPathInitializationContext;
 }
 
 export interface FormEngineRuntimeOptions {
@@ -516,6 +531,8 @@ export class FormEngine {
 	/** Render-only identities that survive positional compaction. */
 	private repeatInstanceKeys = new Map<string, string[]>();
 	private readonly asyncRuntime: boolean;
+	private initializationStates: EngineStoreState | undefined;
+	private initializationContext: XPathInitializationContext | undefined;
 	private readonly presentationLanguage: LanguageTag | undefined;
 	/** `#search/<name>` reads; empty outside an admitted no-matches launch. */
 	private readonly searchAnswers: ReadonlyMap<string, string>;
@@ -561,22 +578,11 @@ export class FormEngine {
 		this.instance.initFromFields(this.tree);
 		this.dag = new TriggerDag();
 
-		const seeded = this.seededWriters();
-		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
-		if (this.asyncRuntime) return;
-
-		/* JavaRosa materializes count/query-bound repeats once while the form
-		 * initializes. Their cardinality is structural input to both the DAG and
-		 * state walk, so establish it before either materializes paths. */
-		this.initializeBoundRepeats(this.tree);
-
 		this.dag.build(this.tree, this.printDoc);
-
-		/* Build initial states, apply defaults, and evaluate all expressions.
-		 * The results are written to the Zustand store in one atomic setState. */
+		if (this.asyncRuntime) return;
+		this.initializeModel(this.tree);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		this.applyDefaultsInto(states, this.tree, seeded);
 		this.store.setState(states);
 		this.evaluateAllInto();
 	}
@@ -669,6 +675,9 @@ export class FormEngine {
 				),
 			),
 			contextPath: context.contextPath,
+			...(this.initializationContext === undefined
+				? {}
+				: { initializationContext: this.initializationContext }),
 			position: context.position,
 			contextNode: address(context.contextNode),
 			originalContextNode: address(context.originalContextNode),
@@ -715,25 +724,18 @@ export class FormEngine {
 		this.store.setState(structuredClone(checkpoint.state), true);
 	}
 
-	/** Complete staged activation in JavaRosa order: bound topology, states,
-	 * one-time defaults, then the DAG's topological cascade. */
+	/** Complete scoped initialization actions before publishing question state. */
 	async initializeAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
 		if (!this.asyncRuntime) {
 			throw new Error("Async initialization requires a staged FormEngine.");
 		}
-		await this.initializeBoundRepeatsAsync(this.tree, evaluateAsync);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
+		await this.initializeModelAsync(this.tree, evaluateAsync);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		await this.applyDefaultsIntoAsync(
-			states,
-			this.tree,
-			evaluateAsync,
-			this.seededWriters(),
-		);
 		this.store.setState(states, true);
 		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 	}
@@ -815,19 +817,20 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<number> {
 		const index = this.addRepeat(repeatPath);
-		const prefix = `${repeatPath}[${index}]/`;
+		const prefix = `${repeatPath}[${index}]`;
+		const children = this.findTreeNode(repeatPath)?.children ?? [];
+		await this.initializeModelAsync(
+			children,
+			evaluateAsync,
+			prefix,
+			repeatPath,
+		);
 		const updates: EngineStoreState = {};
-		for (const [path, state] of Object.entries(this.store.getState())) {
-			if (!path.startsWith(prefix) || state === DEFAULT_ENGINE_STATE) continue;
-			const field = this.findField(path);
-			if (field === undefined) continue;
-			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
-			if (value !== undefined) {
-				this.instance.set(path, value);
-				updates[path] = { ...state, value };
-			}
+		for (const path of Object.keys(this.store.getState())) {
+			if (path.startsWith(`${prefix}/`)) updates[path] = DEFAULT_ENGINE_STATE;
 		}
-		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		this.initStatesInto(updates, children, prefix);
+		this.store.setState(updates);
 		await this.settleAsync(evaluateAsync);
 		return index;
 	}
@@ -881,34 +884,11 @@ export class FormEngine {
 		this.ensureRepeatInstanceKeys(repeatPath, newIndex + 1);
 		const instancePrefix = `${repeatPath}[${newIndex}]`;
 
+		const children = this.findTreeNode(repeatPath)?.children ?? [];
+		this.initializeModel(children, instancePrefix, repeatPath);
 		const updates: EngineStoreState = {};
-		const templatePrefix = `${repeatPath}[0]/`;
-		const newLeafPaths: string[] = [];
-		for (const [key] of this.instance.entries()) {
-			if (key.startsWith(`${instancePrefix}/`)) {
-				newLeafPaths.push(key);
-				const suffix = key.slice(`${instancePrefix}/`.length);
-				const templatePath = templatePrefix + suffix;
-				const templateState = this.store.getState()[templatePath];
-				updates[key] = {
-					path: key,
-					value: "",
-					visible: templateState?.visible ?? true,
-					required: templateState?.required ?? false,
-					valid: true,
-					touched: false,
-				};
-			}
-		}
-
-		/* Containers inside the new instance need their own FieldState —
-		 * group visibility and nested-repeat cardinality are per-instance.
-		 * The DataInstance walk above only covers leaves. */
-		const repeatNode = this.findTreeNode(repeatPath);
-		if (repeatNode?.children) {
-			this.seedContainerStates(updates, repeatNode.children, instancePrefix);
-		}
-
+		this.initStatesInto(updates, children, instancePrefix);
+		const newLeafPaths = Object.keys(updates);
 		// Bump `repeatCount` on the repeat's own state — this is what
 		// repeat-container subscribers observe to re-render with the new
 		// cardinality; the per-instance child states above are keyed by
@@ -922,12 +902,8 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 
-		/* One-time defaults for the new instance's leaves, then evaluate
-		 * EVERY instance's expressions plus every outside dependent — the
-		 * same defaults-then-evaluate order form load runs for `[0]`.
-		 * Existing instances re-evaluate too so this path stays symmetric with
-		 * removal, where `position()` and renumbered sibling reads can shift. */
-		this.applyInstanceDefaults(newLeafPaths);
+		/* Existing instances can depend on cardinality, but their one-time
+		 * defaults and membership snapshots remain intact. */
 		this.evaluateRepeatCascade(`${repeatPath}[`, newLeafPaths);
 
 		return newIndex;
@@ -1070,66 +1046,6 @@ export class FormEngine {
 		return value === "" ? undefined : value;
 	}
 
-	/**
-	 * Apply `default_value` one-time to freshly created repeat-instance
-	 * leaves — the live-store counterpart of `applyDefaultsInto`. The eval
-	 * context binds to each leaf's own instance, so a default reading a
-	 * repeat sibling reads the new instance, not `[0]`.
-	 */
-	private applyInstanceDefaults(paths: string[]): void {
-		const updates: EngineStoreState = {};
-		for (const path of paths) {
-			const field = this.findField(path);
-			if (!field) continue;
-			const value = this.computeDefault(field, path);
-			if (value !== undefined) {
-				this.instance.set(path, value);
-				const state = this.store.getState()[path];
-				if (state) updates[path] = { ...state, value };
-			}
-		}
-		if (Object.keys(updates).length > 0) {
-			this.store.setState(updates);
-		}
-	}
-
-	/**
-	 * Create container FieldStates for a freshly added repeat instance —
-	 * groups carry per-instance visibility, nested repeats per-instance
-	 * cardinality. Nested-repeat counts read from the DataInstance, whose
-	 * instance walk seeded the new subtree first; recursion covers every
-	 * live nested instance, not just `[0]`.
-	 */
-	private seedContainerStates(
-		updates: EngineStoreState,
-		nodes: ReadonlyArray<FieldTreeNode>,
-		prefix: string,
-	): void {
-		for (const node of nodes) {
-			const f = node.field;
-			if (f.kind !== "group" && f.kind !== "repeat") continue;
-			const path = `${prefix}/${f.id}`;
-			const base = this.initialContainerState(path, f.kind);
-			if (f.kind === "repeat") {
-				updates[path] = {
-					...base,
-					repeatCount: this.instance.getRepeatCount(path),
-				};
-				if (node.children) {
-					const count = this.instance.getRepeatCount(path);
-					for (let i = 0; i < count; i++) {
-						this.seedContainerStates(updates, node.children, `${path}[${i}]`);
-					}
-				}
-			} else {
-				updates[path] = base;
-				if (node.children) {
-					this.seedContainerStates(updates, node.children, path);
-				}
-			}
-		}
-	}
-
 	/** Get the repeat count for a repeat group path. */
 	getRepeatCount(repeatPath: string): number {
 		return this.instance.getRepeatCount(repeatPath);
@@ -1195,16 +1111,11 @@ export class FormEngine {
 			const depth = (path: string) => path.split("/").length;
 			return depth(a) - depth(b) || a.localeCompare(b);
 		});
-		const addedLeafPaths: string[] = [];
 		for (const path of paths) {
 			const target = snapshot.get(path) ?? 1;
 			let current = this.getRepeatCount(path);
 			while (current < target) {
-				const index = this.addRepeat(path);
-				const prefix = `${path}[${index}]/`;
-				for (const [valuePath] of this.instance.entries()) {
-					if (valuePath.startsWith(prefix)) addedLeafPaths.push(valuePath);
-				}
+				await this.addRepeatAsync(path, evaluateAsync);
 				current += 1;
 			}
 			while (current > Math.max(target, 1)) {
@@ -1212,18 +1123,6 @@ export class FormEngine {
 				current -= 1;
 			}
 		}
-
-		const updates: EngineStoreState = {};
-		for (const path of addedLeafPaths) {
-			const field = this.findField(path);
-			const state = this.store.getState()[path];
-			if (field === undefined || state === undefined) continue;
-			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
-			if (value === undefined) continue;
-			this.instance.set(path, value);
-			updates[path] = { ...state, value };
-		}
-		if (Object.keys(updates).length > 0) this.store.setState(updates);
 		await this.settleAsync(evaluateAsync);
 	}
 
@@ -1545,9 +1444,10 @@ export class FormEngine {
 		stateOverrides?: Readonly<EngineStoreState>,
 	): Map<string, boolean> {
 		const states =
-			stateOverrides === undefined
+			this.initializationStates ??
+			(stateOverrides === undefined
 				? this.store.getState()
-				: { ...this.store.getState(), ...stateOverrides };
+				: { ...this.store.getState(), ...stateOverrides });
 		const visible = this.effectivelyVisiblePaths(states);
 		return new Map(
 			Object.keys(states).map((path) => [path, visible.has(path)] as const),
@@ -2833,12 +2733,9 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		const seeded = this.seededWriters();
-		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
-		this.initializeBoundRepeats(this.tree);
-
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
+		this.initializeModel(this.tree);
 
 		/* Capture old store state BEFORE rebuilding. After rebuild + evaluate +
 		 * restore, we diff old vs new and only write paths that actually changed.
@@ -2849,7 +2746,6 @@ export class FormEngine {
 		/* Rebuild into a local record (doesn't touch the store yet) */
 		const newStates: EngineStoreState = {};
 		this.initStatesInto(newStates, this.tree);
-		this.applyDefaultsInto(newStates, this.tree, seeded);
 
 		/* Temporarily write to store so evaluateAllInto can read current state
 		 * via getState(). Use replace mode — we'll fix references below. */
@@ -2881,13 +2777,10 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		const seeded = this.seededWriters();
-		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
-		this.initializeBoundRepeats(this.tree);
+		this.initializeModel(this.tree);
 
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		this.applyDefaultsInto(states, this.tree, seeded);
 		this.store.setState(states, true);
 		this.evaluateAllInto();
 	}
@@ -3606,32 +3499,6 @@ export class FormEngine {
 		return this.primaryCaseWritesByField();
 	}
 
-	private preloadCaseData(
-		tree: FieldTreeNode[],
-		writesByField: ReadonlyMap<Uuid, CaseWriteField>,
-		prefix = "/data",
-	): void {
-		const own = this.ownCaseData();
-		if (own === undefined) return;
-		for (const node of tree) {
-			const f = node.field;
-			const path = `${prefix}/${f.id}`;
-			const writer = writesByField.get(f.uuid);
-			if (writer !== undefined && own.has(writer.property)) {
-				// Verbatim: the instance holds a temporal value exactly as the
-				// case store holds it, so this path, its `Tracked` twin, and
-				// typed case-ref resolution in `createEvalContext` cannot
-				// disagree about the same property (see
-				// `lib/domain/temporalValues.ts`).
-				this.instance.set(path, own.get(writer.property) ?? "");
-			}
-			if (node.children) {
-				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseData(node.children, writesByField, childPrefix);
-			}
-		}
-	}
-
 	/** Build initial FieldState objects into the provided record. */
 	private initStatesInto(
 		states: EngineStoreState,
@@ -3690,106 +3557,6 @@ export class FormEngine {
 		return value === "" ? undefined : value;
 	}
 
-	private async applyDefaultsIntoAsync(
-		states: EngineStoreState,
-		tree: readonly FieldTreeNode[],
-		evaluateAsync: FormEngineAsyncEvaluator,
-		seeded: ReadonlyMap<Uuid, CaseWriteField> | undefined,
-		prefix = "/data",
-	): Promise<void> {
-		for (const node of tree) {
-			const field = node.field;
-			const path = `${prefix}/${field.id}`;
-			/* Same law as `applyDefaultsInto`: the loaded case's value wins
-			 * over a default on every writer the case seeds. */
-			const value = seeded?.has(field.uuid)
-				? undefined
-				: await this.computeDefaultAsync(field, path, evaluateAsync);
-			if (value !== undefined) {
-				this.instance.set(path, value);
-				const state = states[path];
-				if (state) states[path] = { ...state, value };
-			}
-			if (!node.children) continue;
-			if (field.kind === "repeat") {
-				for (
-					let index = 0;
-					index < this.instance.getRepeatCount(path);
-					index += 1
-				) {
-					await this.applyDefaultsIntoAsync(
-						states,
-						node.children,
-						evaluateAsync,
-						seeded,
-						`${path}[${index}]`,
-					);
-				}
-			} else {
-				await this.applyDefaultsIntoAsync(
-					states,
-					node.children,
-					evaluateAsync,
-					seeded,
-					path,
-				);
-			}
-		}
-	}
-
-	/** Apply default_value expressions into the provided record. */
-	private applyDefaultsInto(
-		states: EngineStoreState,
-		tree: FieldTreeNode[],
-		seeded: ReadonlyMap<Uuid, CaseWriteField> | undefined,
-		prefix = "/data",
-	): void {
-		for (const node of tree) {
-			const f = node.field;
-			const path = `${prefix}/${f.id}`;
-			/* On the device both the field's own `default_value` and the case
-			 * preload are `xforms-ready` setvalues, and the preload is spliced
-			 * after the default in document order, so the loaded case's value
-			 * wins for every primary writer, even when the case holds no such
-			 * property yet (an empty nodeset seeds an empty string). A default
-			 * on a preloaded writer therefore never shows on a device, and
-			 * Preview must not show it either. `lib/domain/casePreload.ts` is
-			 * the shared statement of which writers those are; the inventory's
-			 * primary bucket is the same set with capture writers dropped, and
-			 * `seeded` is that map only when the case data actually seeded
-			 * (`seededWriters`), so a default is skipped only where a value
-			 * replaced it. */
-			const value = seeded?.has(f.uuid)
-				? undefined
-				: this.computeDefault(f, path);
-			if (value !== undefined) {
-				this.instance.set(path, value);
-				const state = states[path];
-				if (state) {
-					states[path] = { ...state, value };
-				}
-			}
-			if (node.children) {
-				if (f.kind === "repeat") {
-					for (
-						let index = 0;
-						index < this.instance.getRepeatCount(path);
-						index += 1
-					) {
-						this.applyDefaultsInto(
-							states,
-							node.children,
-							seeded,
-							`${path}[${index}]`,
-						);
-					}
-				} else {
-					this.applyDefaultsInto(states, node.children, seeded, path);
-				}
-			}
-		}
-	}
-
 	// ── Private: XPath evaluation context ────────────────────────────
 
 	private createEvalContext(
@@ -3809,7 +3576,17 @@ export class FormEngine {
 				? (relevance.get(candidatePath) ?? false)
 				: true,
 		);
-		const contextNode = xpathNodeAtPath(mainInstance, path);
+		const carrier = this.initializationContext;
+		const carrierParent =
+			carrier === undefined
+				? undefined
+				: xpathNodeAtPath(mainInstance, carrier.parentPath);
+		if (carrier !== undefined && carrierParent === undefined)
+			throw new Error("Missing initialization parent.");
+		const contextNode =
+			carrier !== undefined && carrierParent !== undefined
+				? initializationContextNode(carrierParent, carrier)
+				: xpathNodeAtPath(mainInstance, path);
 
 		const context: EvalContext = {
 			...(this.presentationLanguage === undefined
@@ -3911,123 +3688,232 @@ export class FormEngine {
 		return isPathExpression(lowerXPathForJavaRosa(expanded));
 	}
 
-	private async initializeBoundRepeatsAsync(
+	/** Defaults and query snapshots retain authored action order. Count
+	 * snapshots follow those actions; primary case preloads are appended last
+	 * by the export boundary. Calculation writes cascade between actions.
+	 * This program is shared by synchronous and worker-backed execution. */
+	private *initializeScope(
 		tree: readonly FieldTreeNode[],
-		evaluateAsync: FormEngineAsyncEvaluator,
 		prefix = "/data",
-	): Promise<void> {
-		for (const node of tree) {
-			const field = node.field;
-			const path = `${prefix}/${field.id}`;
-			if (field.kind === "repeat") {
-				if (field.repeat_mode === "count_bound") {
-					const source =
-						expressionSource(field, "repeat_count", this.printDoc) ?? "0";
-					const count = materializedRepeatCount(
-						this.isDirectRepeatCountReference(source),
-						await evaluateAsync(source, path),
-					);
-					this.instance.setRepeatCount(path, count);
-				} else if (field.repeat_mode === "query_bound") {
-					const source =
-						expressionSource(field, "ids_query", this.printDoc) ?? "";
-					const result = await evaluateAsync(
-						source,
-						path,
-						"nodeset-values-or-scalar",
-					);
-					const ids = isAsyncNodesetValues(result)
-						? result.values
-						: javaRosaSplitOnSpaces(xpathToString(result));
-					this.materializeQueryBoundRepeat(path, ids);
-				}
-				if (node.children) {
-					for (
-						let index = 0;
-						index < this.instance.getRepeatCount(path);
-						index += 1
-					) {
-						await this.initializeBoundRepeatsAsync(
-							node.children,
-							evaluateAsync,
-							`${path}[${index}]`,
-						);
-					}
-				}
-				continue;
+		insertedPath?: string,
+		identity?: Readonly<Record<string, string>>,
+	): Generator<InitializationRead, void, InitializationValue> {
+		const fields: Array<{ node: FieldTreeNode; path: string }> = [];
+		const collect = (nodes: readonly FieldTreeNode[], parent: string): void => {
+			for (const node of nodes) {
+				const path = `${parent}/${node.field.id}`;
+				fields.push({ node, path });
+				if (this.initializationStates)
+					this.initializationStates[path] = {
+						...DEFAULT_ENGINE_STATE,
+						visible: true,
+					};
+				if (node.field.kind === "repeat") this.instance.setRepeatCount(path, 0);
+				else if (node.children) collect(node.children, path);
 			}
-			if (node.children) {
-				await this.initializeBoundRepeatsAsync(
-					node.children,
-					evaluateAsync,
+		};
+		collect(tree, prefix);
+		const calculated = new Set<string>();
+		if (identity) {
+			this.instance.setElementAttributes(prefix, identity);
+			yield* this.initializeExpressions(
+				this.dag.getAffectedInitialization(
+					Object.keys(identity).map((key) => `${prefix}/@${key}`),
+					this.repeatCounts,
+				),
+				calculated,
+			);
+		}
+		const snapshots = new Map<
+			string,
+			{ count: number; ids?: readonly string[] }
+		>();
+		for (const { node, path } of fields) {
+			const field = node.field;
+			const source = expressionSource(field, "default_value", this.printDoc);
+			if (source !== undefined) {
+				const value = yield { source, path };
+				if (isAsyncNodesetValues(value))
+					throw new Error("Expected a scalar default.");
+				this.instance.set(path, this.computedFieldValue(field, value));
+				yield* this.initializeExpressions(
+					this.dag.getAffectedInitialization([path], this.repeatCounts),
+					calculated,
+				);
+			}
+			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
+				const result = yield {
+					source: expressionSource(field, "ids_query", this.printDoc) ?? "",
 					path,
+					nodeset: true,
+					carrier: {
+						parentPath: path.slice(0, path.lastIndexOf("/")),
+						name: field.id,
+						attributes: { ids: "", count: "", current_index: "" },
+						attribute: "ids",
+					},
+				};
+				const ids = isAsyncNodesetValues(result)
+					? result.values
+					: javaRosaSplitOnSpaces(xpathToString(result));
+				snapshots.set(path, { count: ids.length, ids });
+			}
+		}
+		const snapshotNames = new Map<string, Set<string>>();
+		for (const { node, path } of fields) {
+			if (
+				node.field.kind !== "repeat" ||
+				node.field.repeat_mode !== "count_bound"
+			)
+				continue;
+			const source =
+				expressionSource(node.field, "repeat_count", this.printDoc) ?? "0";
+			const parentPath =
+				prefix === "/data" ? "/data" : path.slice(0, path.lastIndexOf("/"));
+			const names = snapshotNames.get(parentPath) ?? new Set<string>();
+			const name = repeatCountSnapshotName(node.field.id, names);
+			names.add(name);
+			snapshotNames.set(parentPath, names);
+			const result = yield { source, path, carrier: { parentPath, name } };
+			if (isAsyncNodesetValues(result))
+				throw new Error("Expected a scalar count.");
+			snapshots.set(path, {
+				count: materializedRepeatCount(
+					this.isDirectRepeatCountReference(source),
+					result,
+				),
+			});
+		}
+		if (prefix === "/data") {
+			const seeded = this.seededWriters();
+			const own = this.ownCaseData();
+			for (const { node, path } of fields) {
+				const writer = seeded?.get(node.field.uuid);
+				if (!writer) continue;
+				this.instance.set(path, own?.get(writer.property) ?? "");
+				yield* this.initializeExpressions(
+					this.dag.getAffectedInitialization([path], this.repeatCounts),
+					calculated,
+				);
+			}
+		}
+		if (insertedPath) {
+			yield* this.initializeExpressions(
+				this.dag.getAffectedInitialization([insertedPath], this.repeatCounts),
+				calculated,
+			);
+		}
+		yield* this.initializeExpressions(
+			this.dag
+				.getAllPaths(this.repeatCounts)
+				.filter((path) => path.startsWith(`${prefix}/`))
+				.flatMap((path) => this.dag.initializationExpressions(path))
+				.filter(
+					({ path, type }) =>
+						insertedPath === undefined || !calculated.has(`${path}:${type}`),
+				),
+			calculated,
+		);
+		for (const { node, path } of fields) {
+			if (node.field.kind !== "repeat") continue;
+			const snapshot = snapshots.get(path) ?? { count: 1 };
+			for (let index = 0; index < snapshot.count; index++) {
+				this.instance.setRepeatCount(path, index + 1);
+				yield* this.initializeScope(
+					node.children ?? [],
+					`${path}[${index}]`,
+					path,
+					snapshot.ids
+						? { id: snapshot.ids[index] ?? "", index: String(index) }
+						: undefined,
 				);
 			}
 		}
 	}
 
-	/** One-time repeat materialization. Query-bound ids preserve the selected
-	 * nodes' lexical values; the legacy scalar arm accepts the same whitespace-
-	 * token list the emitted model-iteration setup stores in `@ids`. */
-	private initializeBoundRepeats(
-		tree: readonly FieldTreeNode[],
-		prefix = "/data",
-	): void {
-		if (this.asyncRuntime) return;
-		for (const node of tree) {
-			const field = node.field;
-			const path = `${prefix}/${field.id}`;
-			if (field.kind === "repeat") {
-				if (field.repeat_mode === "count_bound") {
-					const source =
-						expressionSource(field, "repeat_count", this.printDoc) ?? "0";
-					const evaluated = evaluate(source, this.createEvalContext(path));
-					const count = materializedRepeatCount(
-						this.isDirectRepeatCountReference(source),
-						evaluated,
-					);
-					this.instance.setRepeatCount(path, count);
-				} else if (field.repeat_mode === "query_bound") {
-					const evaluated = evaluateRuntime(
-						expressionSource(field, "ids_query", this.printDoc) ?? "",
-						this.createEvalContext(path),
-					);
-					const ids = isXPathNodeSet(evaluated)
-						? evaluated.nodes.map((selected) => xpathToString(selected.value()))
-						: javaRosaSplitOnSpaces(
-								xpathToString(unpackXPathRuntimeValue(evaluated)),
-							);
-					this.materializeQueryBoundRepeat(path, ids);
-				}
-				if (node.children) {
-					for (
-						let index = 0;
-						index < this.instance.getRepeatCount(path);
-						index += 1
-					) {
-						this.initializeBoundRepeats(node.children, `${path}[${index}]`);
-					}
-				}
-				continue;
-			}
-			if (node.children) this.initializeBoundRepeats(node.children, path);
+	private *initializeExpressions(
+		expressions: readonly InitializationExpression[],
+		calculated: Set<string>,
+	): Generator<InitializationRead, void, InitializationValue> {
+		for (const { path, type } of expressions) {
+			const source = this.dag
+				.getExpressions(path)
+				.find((entry) => entry.type === type)?.expr;
+			const field = this.findField(path);
+			if (source === undefined || field === undefined) continue;
+			const value = yield { source, path };
+			if (isAsyncNodesetValues(value))
+				throw new Error("Expected a scalar initialization value.");
+			if (type === "calculate")
+				this.instance.set(path, this.computedFieldValue(field, value));
+			else if (this.initializationStates)
+				this.initializationStates[path] = {
+					...(this.initializationStates[path] ?? DEFAULT_ENGINE_STATE),
+					visible: toBoolean(value),
+				};
+			calculated.add(`${path}:${type}`);
 		}
 	}
 
-	/** Materialize Preview's flattened repeat occurrence with the attributes
-	 * JavaRosa sets on the emitted query-bound `<item>`. The model-iteration
-	 * index is zero-based because `selected-at()` is zero-based. */
-	private materializeQueryBoundRepeat(
-		path: string,
-		ids: readonly string[],
+	private initializeModel(
+		tree: readonly FieldTreeNode[],
+		prefix = "/data",
+		insertedPath?: string,
 	): void {
-		this.instance.setRepeatCount(path, ids.length);
-		ids.forEach((id, index) => {
-			this.instance.setElementAttributes(`${path}[${index}]`, {
-				id,
-				index: String(index),
-			});
-		});
+		if (this.asyncRuntime) return;
+		this.initializationStates =
+			prefix === "/data" ? {} : { ...this.store.getState() };
+		try {
+			const steps = this.initializeScope(tree, prefix, insertedPath);
+			let step = steps.next();
+			while (!step.done) {
+				const { source, path, nodeset, carrier } = step.value;
+				this.initializationContext = carrier;
+				const context = this.createEvalContext(path);
+				if (nodeset) {
+					const result = evaluateRuntime(source, context);
+					step = steps.next(
+						isXPathNodeSet(result)
+							? {
+									kind: "nodeset-values",
+									values: result.nodes.map((node) =>
+										xpathToString(node.value()),
+									),
+								}
+							: unpackXPathRuntimeValue(result),
+					);
+				} else step = steps.next(evaluate(source, context));
+			}
+		} finally {
+			this.initializationStates = undefined;
+			this.initializationContext = undefined;
+		}
+	}
+
+	private async initializeModelAsync(
+		tree: readonly FieldTreeNode[],
+		evaluateAsync: FormEngineAsyncEvaluator,
+		prefix = "/data",
+		insertedPath?: string,
+	): Promise<void> {
+		this.initializationStates =
+			prefix === "/data" ? {} : { ...this.store.getState() };
+		try {
+			const steps = this.initializeScope(tree, prefix, insertedPath);
+			let step = steps.next();
+			while (!step.done) {
+				const { source, path, nodeset, carrier } = step.value;
+				this.initializationContext = carrier;
+				step = steps.next(
+					nodeset
+						? await evaluateAsync(source, path, "nodeset-values-or-scalar")
+						: await evaluateAsync(source, path),
+				);
+			}
+		} finally {
+			this.initializationStates = undefined;
+			this.initializationContext = undefined;
+		}
 	}
 
 	// ── Private: lookup-carrier evaluation ───────────────────────────

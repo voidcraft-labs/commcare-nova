@@ -1,3 +1,5 @@
+import type { XPathInitializationContext } from "./initializationContext";
+
 /**
  * Structured-clone-safe protocol for browser XPath evaluation.
  *
@@ -6,7 +8,7 @@
  * not add request payloads to diagnostics.
  */
 
-export const XPATH_WORKER_PROTOCOL_VERSION = 6 as const;
+export const XPATH_WORKER_PROTOCOL_VERSION = 7 as const;
 
 /** Build identity shared by the host chunk and the independently bundled
  * public Worker. Production receives Cloud Build's immutable UUID; local and
@@ -107,6 +109,7 @@ export interface XPathWorkerInstances {
 	readonly pathRelevance?: readonly XPathWorkerPathRelevance[];
 	readonly hashtagValues?: readonly XPathWorkerHashtagValue[];
 	readonly contextPath: string;
+	readonly initializationContext?: XPathInitializationContext;
 	readonly position?: number;
 	readonly contextNode?: XPathWorkerNodeAddress;
 	readonly originalContextNode?: XPathWorkerNodeAddress;

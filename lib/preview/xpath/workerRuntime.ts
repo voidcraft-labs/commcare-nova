@@ -9,6 +9,7 @@ import {
 	evaluateRuntimeAsync,
 } from "./asyncEvaluator";
 import { xpathToString } from "./coerce";
+import { initializationContextNode } from "./initializationContext";
 import { javaRosaSleep } from "./javaRosaSleep";
 import {
 	isXPathNodeSet,
@@ -471,6 +472,15 @@ export async function evaluateXPathWorkerRequest(
 			}),
 		);
 
+		const carrier = request.instances.initializationContext;
+		const carrierParent =
+			carrier === undefined ? undefined : main?.node(carrier.parentPath);
+		if (carrier !== undefined && carrierParent === undefined)
+			throw new Error("Missing initialization parent.");
+		const initializationNode =
+			carrier !== undefined && carrierParent !== undefined
+				? initializationContextNode(carrierParent, carrier)
+				: undefined;
 		const context: EvalContext = {
 			...(request.instances.locale === undefined
 				? {}
@@ -497,8 +507,11 @@ export async function evaluateXPathWorkerRequest(
 			resolveXPathInstance: (instanceId) => secondary.get(instanceId),
 			contextPath: request.instances.contextPath,
 			position: request.instances.position,
-			contextNode: resolveNode(request.instances.contextNode),
-			originalContextNode: resolveNode(request.instances.originalContextNode),
+			contextNode:
+				initializationNode ?? resolveNode(request.instances.contextNode),
+			originalContextNode:
+				initializationNode ??
+				resolveNode(request.instances.originalContextNode),
 		};
 		phase = "evaluation";
 		if (request.resultMode === "nodeset-values-or-scalar") {

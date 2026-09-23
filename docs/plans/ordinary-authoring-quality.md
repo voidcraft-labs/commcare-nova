@@ -148,10 +148,35 @@ its release from cost alone.
   zone while forms used the local runtime zone. Validate the viewer binding,
   isolated journey clock, and native semantics; release with independent review
   and green CI. PR #674 is live at the verified production revision. Do not alter an evaluated app to turn its failed result into a pass.
-- [ ] Close the Details/Continue observation gap in disposable app tests. The
-  browser can return to Details after submission and allow another attempt that
-  changes no records; earlier tests skipped that screen. Investigate the Preview
-  history behavior separately against the native previous-screen contract.
+- [x] Close the Details/Continue observation gap in disposable app tests (PR #675).
+  Correct transient leaf selection lifetime and Back navigation (PR #677), with
+  controlled Postgres, browser and native evidence. Both are deployed. Their
+  checks do not change prior autonomous trial outcomes.
+- [x] Make first-use prerequisites explicit in design and review (PR #676).
+  Require a journey beginning with the records actually available, while retaining
+  separate seeded workflow checks. The fresh garden failure informed this change.
+- [ ] Resolve repeat initialization before releasing the focused row-identity
+  guidance. Exact exported native evidence contradicts Preview's current
+  query-before-default order; native traversal also exposes eager nested-row
+  creation and missing nested initialization on Add. Follow the evidence in
+  `docs/research/query-repeat-authoring-context.md`, keeping this work separate
+  from any claim of autonomous success. Implement initialization actions in their
+  actual scope/order, preserve existing snapshots during insertion, account for
+  calculation dependencies and late preloads. Cover sync/worker/reset/rebuild and
+  browser Add; prove earlier/later defaults, triggered/standalone calculations and
+  parent row identities against independent Core execution. Do not substitute an
+  all-defaults-first pass or whole-form reinitialization. Scoped action ordering,
+  new-subtree initialization and explicit worker context are implemented in the
+  current PR. Three public exact-export Core checks, focused engine/controller
+  checks and browser Add pass. Intermediate relevance is included following
+  independent review. Frozen review, CI and deployment remain release gates.
+- [ ] Resolve the separate section-entry timing boundary. Unsectioned Preview
+  and Core have different screen grouping, but authored root sections are shared
+  page boundaries. Compare two authored sections using Core field-list prompt
+  collection and actual Preview Next: an answer on the first page must precede
+  creation of a nested bound row on the second. Decide the correction from that
+  observation; do not assume a wholesale navigation rewrite or claim universal
+  nested-entry parity from initial full-form traversal.
 - [ ] Investigate why the architect abandoned an available uniqueness check and
   whether useful form-record query knowledge is missing from focused guidance.
   Improve the general authoring interface, then use a bounded fresh task to

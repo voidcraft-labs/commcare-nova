@@ -34,6 +34,11 @@ export const containerScenarios = [
 	"query-conditional",
 	"query-conditional-parent",
 	"query-conditional-relative",
+	"init-named",
+	"init-raw",
+	"init-add",
+	"init-relevance",
+	"init-relevance-add",
 ] as const;
 export type ContainerScenario = (typeof containerScenarios)[number];
 const text = (id: string) => f({ kind: "text", id, label: proseText(id) });
@@ -303,6 +308,155 @@ export function containerWireFixture(scenario: ContainerScenario) {
 				...referenceCounts("empty_items", "empty_items"),
 				...referenceValues("ids", "items/item_id"),
 				...referenceValues("authored_items", "items/item"),
+			];
+			break;
+		case "init-relevance-add":
+			fields = [
+				f({
+					kind: "text",
+					id: "enabled",
+					label: proseText("Enabled"),
+					default_value: "'no'",
+				}),
+				f({
+					kind: "repeat",
+					id: "visits",
+					repeat_mode: "user_controlled",
+					children: [
+						f({
+							kind: "group",
+							id: "details",
+							relevant: "#form/visits/gate = 'yes'",
+							children: [
+								f({
+									kind: "text",
+									id: "zone",
+									label: proseText("Zone"),
+									default_value: "'north'",
+								}),
+							],
+						}),
+						f({
+							kind: "hidden",
+							id: "derived",
+							calculate: "string(#form/visits/details/zone)",
+						}),
+						f({ kind: "hidden", id: "gate", default_value: "#form/enabled" }),
+						f({
+							kind: "repeat",
+							id: "assets",
+							repeat_mode: "query_bound",
+							data_source: {
+								ids_query: "if(#form/visits/derived = 'north', 'pump tap', '')",
+							},
+							children: [text("note")],
+						}),
+					],
+				}),
+			];
+			break;
+		case "init-relevance":
+			fields = [
+				f({
+					kind: "text",
+					id: "zone",
+					label: proseText("Zone"),
+					default_value: "'north'",
+					relevant: "#form/gate = 'yes'",
+				}),
+				f({ kind: "hidden", id: "gate", default_value: "'no'" }),
+				f({
+					kind: "repeat",
+					id: "assets",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "if(#form/zone = 'north', 'pump', '')" },
+					children: [text("note")],
+				}),
+			];
+			break;
+		case "init-named":
+		case "init-raw":
+			fields = [
+				f({
+					kind: "repeat",
+					id: "assets",
+					repeat_mode: "query_bound",
+					data_source: { ids_query: "'pump tap'" },
+					children: [
+						f({ kind: "hidden", id: "row_id", calculate: "current()/../@id" }),
+						f({
+							kind: "repeat",
+							id: "tasks",
+							repeat_mode: "query_bound",
+							data_source: {
+								ids_query:
+									scenario === "init-raw"
+										? "if(current()/../../@id = 'pump', concat(current()/../../@id, '_task'), '')"
+										: "if(#form/assets/row_id = 'pump', concat(#form/assets/row_id, '_task'), '')",
+							},
+							children: [
+								f({
+									kind: "hidden",
+									id: "task_id",
+									calculate: "current()/../@id",
+								}),
+								text("note"),
+							],
+						}),
+						group("details", [
+							f({
+								kind: "repeat",
+								id: "checks",
+								repeat_mode: "count_bound",
+								repeat_count:
+									scenario === "init-raw"
+										? "if(current()/../../@id = 'pump', 2, 0)"
+										: "if(#form/assets/row_id = 'pump', 2, 0)",
+								children: [text("note")],
+							}),
+						]),
+					],
+				}),
+			];
+			break;
+		case "init-add":
+			fields = [
+				f({
+					kind: "text",
+					id: "zone",
+					label: proseText("Zone"),
+					default_value: "'north'",
+				}),
+				f({
+					kind: "repeat",
+					id: "visits",
+					repeat_mode: "user_controlled",
+					children: [
+						f({
+							kind: "text",
+							id: "zone",
+							label: proseText("Zone"),
+							default_value: "#form/zone",
+						}),
+						f({
+							kind: "repeat",
+							id: "assets",
+							repeat_mode: "query_bound",
+							data_source: {
+								ids_query:
+									"if(#form/visits/zone = 'north', 'pump tap', 'tank')",
+							},
+							children: [
+								f({
+									kind: "hidden",
+									id: "row_id",
+									calculate: "current()/../@id",
+								}),
+								text("note"),
+							],
+						}),
+					],
+				}),
 			];
 			break;
 		case "nested-query":

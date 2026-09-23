@@ -191,3 +191,30 @@ test("Repeated Preview questions keep native accessible names and retained DOM i
 		}
 	}
 });
+
+test("adding a repeat initializes its bound rows without replacing earlier answers", async ({
+	page,
+}) => {
+	const peer = await componentPeer("e2e/lib/preview-repeats-client.tsx");
+	await page.route(`${peer.origin}/api/auth/get-session`, (route) =>
+		route.fulfill({ json: null }),
+	);
+	try {
+		await page.goto(`${peer.origin}/?initialization`);
+		const notes = page.getByRole("textbox", { name: /Asset note/ });
+		await expect(notes).toHaveCount(2);
+		await expect(notes.nth(0)).toHaveValue("pump");
+		await expect(notes.nth(1)).toHaveValue("tap");
+		await notes.nth(1).fill("Retain this answer");
+		await page.getByRole("textbox", { name: /New visit zone/ }).fill("south");
+		await page.getByRole("button", { name: /^Add Visits/ }).click();
+		await expect(notes).toHaveCount(3);
+		await expect(notes.nth(0)).toHaveValue("pump");
+		await expect(notes.nth(1)).toHaveValue("Retain this answer");
+		await expect(notes.nth(2)).toHaveValue("tank");
+	} finally {
+		await page.evaluate(() => window.previewRepeatsAudit?.dispose());
+		await page.close();
+		await peer.close();
+	}
+});
