@@ -2009,7 +2009,8 @@ export class EngineController {
 		if (
 			engine !== this.engine ||
 			entryKey !== this.currentEntryKey ||
-			formUuid !== this.activeFormUuid
+			formUuid !== this.activeFormUuid ||
+			!engine.sectionPages().some((page) => page.uuid === sectionUuid)
 		)
 			return false;
 		if (this.xpathRuntime === undefined)
@@ -2022,6 +2023,8 @@ export class EngineController {
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
+				if (!engine.sectionPages().some((page) => page.uuid === sectionUuid))
+					return false;
 				await engine.enterSectionAsync(
 					sectionUuid,
 					this.evaluatorFor(engine, entryKey, revision, generation, signal),

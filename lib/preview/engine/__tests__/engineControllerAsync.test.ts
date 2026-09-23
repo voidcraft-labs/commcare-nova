@@ -1537,3 +1537,39 @@ it("reconciles questions added and renamed during a presentation rebuild", async
 	expect(await ctrl.validateAllAsync()).toBe(false);
 	expect(ctrl.entryStore.getState().fault).toBeUndefined();
 });
+
+it.each([false, true])(
+	"keeps the entry when its active page is removed, refusing queued navigation (worker=%s)",
+	async (worker) => {
+		const doc = sectionEntryDoc();
+		const form = doc.formOrder[doc.moduleOrder[0]][0];
+		const second = Object.values(doc.fields).find(
+			(field) => field.id === "second",
+		);
+		if (!second) throw new Error("Missing second section");
+		const store = createBlueprintDocStore();
+		store.getState().load(admittedControllerDoc(doc));
+		store.getState().startTracking();
+		const ctrl = ownedController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		ctrl.setDocStore(store);
+		await ctrl.activateFormAsync(form);
+		await ctrl.setValueAtAsync("/data/first/zone", "south");
+		await ctrl.enterSectionAsync(second.uuid);
+		const entry = ctrl.entryKey;
+		const navigation = ctrl.enterSectionAsync(second.uuid);
+		applyControllerEdit(store, [{ kind: "removeField", uuid: second.uuid }]);
+		await expect(navigation).resolves.toBe(false);
+		await ctrl.awaitSettled();
+		expect(ctrl.entryKey).toBe(entry);
+		expect(ctrl.formUuid).toBe(form);
+		expect(ctrl.sectionPages()).toHaveLength(1);
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		expect(await ctrl.validateAllAsync()).toBe(true);
+	},
+);

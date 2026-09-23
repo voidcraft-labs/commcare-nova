@@ -2281,6 +2281,10 @@ export class FormEngine {
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.printDoc);
+		this.activeSectionUuid = resolveCurrentPage(
+			this.sectionPages(),
+			this.activeSectionUuid,
+		)?.uuid;
 	}
 
 	/**
