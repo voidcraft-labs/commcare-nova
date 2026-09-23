@@ -46,8 +46,11 @@ and the controller's page/entry lifecycle. Core's `FormDef.initialize`,
 `extractPathRefs` currently omits relative `current()/../@id` dependencies, so
 merely cascading an identity write cannot initialize a named hidden row ID before
 a nested query reads it. Default actions must execute before late primary
-preloads even when the preload wins the final value: intermediate snapshots can
-observe those defaults. None of these gaps should become an instruction asking
+preloads even when the preload wins the final value: an exact exported follow-up
+form confirmed that its query retained the default-selected record while the
+question ended with the loaded case's different value. Direct count snapshots of
+preloaded fields still need their own native check before changing existing test
+expectations. None of these gaps should become an instruction asking
 the agent or user to debug initialization order.
 
 The shared authoring test creates a query repeat through ordinary tools and runs
