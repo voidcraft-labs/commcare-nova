@@ -6,7 +6,7 @@ first delivery passed bounded browser, Postgres and exact-export native checks.
 The final matched roster pair completed. Its GPT-6 output exposed a shared
 browser initialization defect despite passing native checks. Generic runtime
 corrections now pass unchanged-output browser verification. The evidence supports
-the all-role upgrade in PR #671, merged as `c512a838`; live verification is pending. Earlier
+the all-role upgrade in PR #671, merged as `c512a838` and verified live. Earlier
 failures remain failed; sparse outcomes do not establish a general model ranking.
 
 The method is in [model-quality-comparison-method.md](model-quality-comparison-method.md).
@@ -466,7 +466,9 @@ privilege-migration test. An unchanged rerun passed that test in 3.2 seconds and
 completed the shard; all required checks passed. All four CodeQL language
 analysis jobs passed, while its aggregate annotation was neutral because two
 baseline configurations were missing. This is a recorded CI limitation, not a
-clean security certification. The production deployment is still being verified.
+clean security certification. Cloud Build `781e3fe8` succeeded, including public
+app/docs/MCP probes. Its exact artifact digest matches production revision
+`00567-jvx`, serving 100% of traffic.
 
 Plugin 1.38.0 already followed the compatible shared tools. The final model and
 runtime corrections do not rename or add tools, so they require no further

@@ -260,11 +260,13 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Release the reviewed all-role model change. Runtime dependencies #686
+- [x] Release the reviewed all-role model change. Runtime dependencies #686
   and #688 are deployed. The
   completed comparison supports proceeding with GPT-6 Sol and Luna at existing
   efforts. Final rebase and independent review are complete; required CI passed
-  after an unchanged database shard rerun. Live verification remains. All callers,
+  after an unchanged database shard rerun. PR #671 is merged as c512a838;
+  Cloud Build 781e3fe8 succeeded and its exact image is verified at production
+  revision 00567-jvx serving all traffic. All callers,
   including extraction, translation and offline scripts, move together. The
   research report retains concrete benefits, regressions, costs and boundaries.
   Sparse trials do not rank general intelligence.
