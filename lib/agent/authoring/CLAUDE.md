@@ -76,6 +76,10 @@ Related-record names bind in the destination scope, while a canonical property
 with `via` stores the originating case type. Nested `where` clauses change both
 parse and print scope. The existing type checker owns relation traversal and
 numeric inference; do not duplicate those rules here.
+The effective catalog includes read-only `case_id`: a relationship identity read
+can target an existing parent directly without adding an authored ID property.
+Its wire attribute and Postgres scalar projection already belong to the shared
+property readers; ordinary field and operation writes remain forbidden.
 
 Print a name only when it resolves back to the same identity; an ambiguous label
 falls back to its scoped stable address. Existing identities take precedence

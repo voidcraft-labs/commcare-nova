@@ -86,11 +86,17 @@ const operationTargetInputSchema = z.strictObject({
 	opUuid: uuidSchema.describe("UUID of an earlier create operation"),
 });
 
-const sessionTargetInputSchema = z.strictObject({ kind: z.literal("session") });
+const sessionTargetInputSchema = z
+	.strictObject({ kind: z.literal("session") })
+	.describe(
+		"The single record selected before this form opens. Unavailable in registration and survey forms; it is not the record a registration creates.",
+	);
 
 const expressionTargetInputSchema = z.strictObject({
 	kind: z.literal("expression"),
-	expr: valueExpressionSchema,
+	expr: valueExpressionSchema.describe(
+		"An existing record ID. For a selected record's parent, use via(ancestor('parent'), #case/case_id). The relationship must exist and lead to the target case type.",
+	),
 });
 
 const existingTargetInputSchema = z.discriminatedUnion("kind", [

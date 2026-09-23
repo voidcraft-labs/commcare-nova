@@ -3,6 +3,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { type CaseOperation, proseText } from "@/lib/domain";
 import {
 	actingUser,
+	ancestorPath,
 	datetimeLiteral,
 	eq,
 	exists,
@@ -11,6 +12,7 @@ import {
 	literal,
 	now,
 	prop,
+	relationStep,
 	subcasePath,
 	term,
 	unowned,
@@ -125,6 +127,22 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				target: session,
 				writes: [
 					{ property: "nickname", value: term(prop("patient", "case_name")) },
+				],
+			}),
+			op("update_parent", {
+				action: "update",
+				caseType: "household",
+				target: {
+					kind: "expression",
+					expr: term(
+						prop("patient", "case_id", ancestorPath(relationStep("parent"))),
+					),
+				},
+				writes: [
+					{
+						property: "last_patient_id",
+						value: term(prop("patient", "case_id")),
+					},
 				],
 			}),
 		];
@@ -280,7 +298,20 @@ export function caseOperationFixture(scenario: OperationScenario) {
 						: []),
 				],
 			})),
-			...(scenario === "nested" ? [{ name: "household", properties: [] }] : []),
+			...(scenario === "nested"
+				? [
+						{
+							name: "household",
+							properties: [
+								{
+									name: "last_patient_id",
+									label: proseText("Last patient ID"),
+									data_type: "text" as const,
+								},
+							],
+						},
+					]
+				: []),
 		],
 		modules: [
 			...(scenario === "nested"

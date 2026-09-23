@@ -106,16 +106,22 @@ There is no successful fresh role-gated end-to-end acceptance result yet.
    published prices, and update prospective cost accounting without silently
    repricing historical records. Compare usable outcomes, writing, tool errors,
    recovery, calls and actual usage costs. Initial architect/peer builds primarily
-   compare Sol; a Luna edit comparison needs its own explicit evaluation. Model
+   compare Sol. Include document extraction on the same source before and after,
+   preserving each extraction as input to its corresponding app trial, and cover
+   translation and ordinary editing separately. Upgrade every configured model
+   role, not just the architect and peer, after assessing the comparison. Model
    benchmark claims are hypotheses until observed in Nova. Do not change the
    production default merely because the newer model is cheaper.
 
 ## Remaining work and decisions
 
 - [ ] Complete the audit and generic improvements above before scheduling another
-  full trial. Both earlier role trials remain failed. The proposed new
-  nursery request is frozen privately; its separate $30 allocation is pending
-  approval. Do not start it or reuse an earlier trial's remaining allocation.
+  full trial. Both earlier role trials remain failed. On September 22 the user
+  authorized up to $100 combined for all new trials, including GPT-6, extraction,
+  translation and any development retries. Track one conservative shared ledger,
+  reserve before dispatch and preserve unknown charges. The privately frozen
+  nursery request is available within this allocation; earlier allocations do
+  not increase the new ceiling.
 - [ ] Resolve tool discovery across automatic compaction. Production responses
   repeatedly failed to rediscover previously loaded tools within one provider
   response, before Nova's next history projection. The approved eight-request

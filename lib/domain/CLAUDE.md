@@ -115,10 +115,12 @@ instead of relying on PostgreSQL's materially different newline modes.
 Standard case metadata remains Nova vocabulary in storage. The derived HQ
 automation projection maps `case_type`/`case_name`/`date_opened`/`last_modified`
 to `type`/`name`/`opened_on`/`modified_on` for model-field readers and templates,
-while `case_id`, `owner_id`, and `external_id` already match. `case_id` and
-`case_type` are implicit text reads only in automation criteria, message
-templates, update value sources, and property-backed recipients; they remain
-outside the general case-list catalog and are never update targets. `status` is
+while `case_id`, `owner_id`, and `external_id` already match. `case_id` is also a
+read-only standard property in the effective catalog, so record expressions can
+read a selected or related record's identity without a custom copy. `case_type`
+is an implicit text read only in automation criteria, message templates, update
+value sources, and property-backed recipients; it remains outside the general
+case-list catalog. Neither identity nor type is a generic update target. `status` is
 never admitted because Nova text and HQ's boolean field differ. Standard
 datetime values admit date or blankness matches, not text equality/regex.
 Reset-on-change and case-property event-time slots accept custom properties only

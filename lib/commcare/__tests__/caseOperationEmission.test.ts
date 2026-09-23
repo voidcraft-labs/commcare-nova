@@ -54,7 +54,7 @@ const expectedOperations: Record<OperationScenario, string[]> = {
 	link: ["link_patient"],
 	scalar: ["rename_patient"],
 	relation: ["mark_related"],
-	nested: ["update_child"],
+	nested: ["update_child", "update_parent"],
 };
 const selected = "instance('commcaresession')/session/data/case_id";
 const namespace = "http://commcarehq.org/case/transaction/v2";

@@ -396,6 +396,18 @@ it("requires a saved role and parent selection, then executes additional operati
 					],
 				},
 			},
+			{
+				operation: {
+					id: "record_household_inspection",
+					action: "update",
+					caseType: "household",
+					target: {
+						kind: "expression",
+						expr: "via(ancestor('parent'), #case/case_id)",
+					},
+					writes: [{ property: "last_equipment_id", value: "#case/case_id" }],
+				},
+			},
 		],
 	});
 	await write("addFormLinks", {
@@ -571,6 +583,12 @@ it("requires a saved role and parent selection, then executes additional operati
 					expect.objectContaining({
 						case_type: "inspection",
 						properties: expect.objectContaining({ condition: "Working" }),
+					}),
+					expect.objectContaining({
+						case_id: "home-a",
+						properties: expect.objectContaining({
+							last_equipment_id: "pump-a",
+						}),
 					}),
 				]),
 			},

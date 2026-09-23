@@ -299,6 +299,7 @@ public class CaseOperationRuntimeTest {
         run.apply();
         assertEquals("Original name", run.record("patient-1").getPropertyString("nickname"));
         assertEquals("Household value", run.record("household-1").getPropertyString("nickname"));
+		assertEquals("patient-1", run.record("household-1").getPropertyString("last_patient_id"));
         assertEquals("Old nickname", run.record("patient-2").getPropertyString("nickname"));
     }
     @Test public void relationUsesCandidatePropertiesAndSelectedParent() throws Exception {
