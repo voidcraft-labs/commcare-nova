@@ -537,7 +537,7 @@ ${sourceContent}`;
 		"Files:",
 		...generatedFiles.map((f) => `  ${f.filename}.md — ${f.title}`),
 		"",
-		`Total upper-rate estimate: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Estimated total at maximum token rates: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 	]);
 }
 

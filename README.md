@@ -95,7 +95,10 @@ A [Lefthook](https://github.com/evilmartians/lefthook) pre-commit hook runs `bio
 
 ## Integration tests
 
-Some tests run against a real Postgres engine instead of hand-rolled mocks — they catch schema-boundary bugs that pure unit tests can't, since the test author chooses both sides of a mock and a wrong assumption goes undetected. These live in files matching `**/*.integration.test.ts` and run as part of `npm test`: the suite boots one [testcontainers](https://testcontainers.com/) Postgres per run (Docker required) and applies the real migrations, so tests exercise exactly the schema production runs.
+Transaction tests use real Postgres and live in `*.postgres.test.ts` or
+`*.postgres.test.tsx`; ordinary tests run without Docker. Browser behavior uses
+Playwright, and wire claims need independent consumers. See
+[docs/testing.md](docs/testing.md) for commands, boundaries and resource ownership.
 
 ## Stack
 

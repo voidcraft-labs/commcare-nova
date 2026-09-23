@@ -476,6 +476,6 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 				`  ${c.filename}.md — ${c.name} (${clusterPages.get(c.name)?.length ?? 0} pages)`,
 		),
 		"",
-		`Total upper-rate estimate: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Estimated total at maximum token rates: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 	]);
 }

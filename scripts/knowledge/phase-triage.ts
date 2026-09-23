@@ -284,7 +284,7 @@ Rate each page:
 		"Top topic tags (6+ pages):",
 		...topTags.map(([tag, count]) => `  ${tag}: ${count}`),
 		"",
-		`Total upper-rate estimate: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Estimated total at maximum token rates: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 		"",
 		"Top-scoring pages:",
 		...entries
