@@ -6,7 +6,7 @@ first delivery passed bounded browser, Postgres and exact-export native checks.
 The final matched roster pair completed. Its GPT-6 output exposed a shared
 browser initialization defect despite passing native checks. Generic runtime
 corrections now pass unchanged-output browser verification. The evidence supports
-releasing all five roles together after its remaining runtime dependency is live. Earlier
+the all-role upgrade in PR #671, merged as `c512a838`; live verification is pending. Earlier
 failures remain failed; sparse outcomes do not establish a general model ranking.
 
 The method is in [model-quality-comparison-method.md](model-quality-comparison-method.md).
@@ -441,8 +441,8 @@ does not establish universal reliability or a general model ranking.
 ## All-role release decision
 
 Proceed with GPT-6 Sol for architect, peer, document extraction and translation,
-and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, after
-the final model PR passes review and CI. The runtime dependencies, including
+and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, with
+independent review and required CI completed in PR #671. The runtime dependencies, including
 PR #686 and the header correction in PR #688, are already live. Offline extraction
 and knowledge callers move to the corresponding GPT-6 models as well. This is a bounded product
 decision: the later comparisons cover usable ordinary entry and retained history,
@@ -452,7 +452,23 @@ judgment, a lower hallucination rate or that every first delivery needs no edits
 
 Earlier omitted requirements remain failures. The release includes general
 information-access and runtime corrections, not app-specific prompts. Review can
-still over-check closely related cases, and complex first-delivery reliability
-remains unfinished acceptance in the active quality plan. No further paid run is
+still over-check closely related cases. The bounded first-delivery evaluation is
+complete; consistent success on all unfamiliar complex requests is not proved.
+The quality plan retains the specific output and review risks for further work. No further paid run is
 necessary to restate the already tested runtime corrections; the original frozen
 outputs and their failures are preserved beside the post-correction observations.
+
+## Release verification
+
+PR #671 was independently reviewed at `489ded6e` and merged as `c512a838`.
+The final CI attempt exceeded the five-second limit of an unchanged database
+privilege-migration test. An unchanged rerun passed that test in 3.2 seconds and
+completed the shard; all required checks passed. All four CodeQL language
+analysis jobs passed, while its aggregate annotation was neutral because two
+baseline configurations were missing. This is a recorded CI limitation, not a
+clean security certification. The production deployment is still being verified.
+
+Plugin 1.38.0 already followed the compatible shared tools. The final model and
+runtime corrections do not rename or add tools, so they require no further
+plugin release. Every production role and the offline knowledge callers use the
+corresponding GPT-6 model; historical usage retains its producing model and cost.
