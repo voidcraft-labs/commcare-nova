@@ -78,7 +78,8 @@ old Results page. Back retains the visited destinations; returning to a form
 starts a fresh entry. These observations describe Preview navigation, not a
 native session-stack proof.
 
-A leaf record's inline form chooser carries its selection on that screen. It
+A leaf record's inline form chooser carries its selection on that screen and
+offers only case-loading forms, matching the browser chooser. It
 does not add a persistent menu datum. Parent selectors and explicit link-carried
 selections keep the production menu-context lifetime. After a leaf form returns
 to its module, ordinary case-first routing reopens Results; Back from the form

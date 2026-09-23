@@ -60,13 +60,18 @@ export function appTestForms(
 	const { doc, identity, lookup } = context;
 	const mod = doc.modules[moduleUuid];
 	const selected = appTestMenuSelection(context, state, moduleUuid)?.cases;
+	const leafChooser =
+		state.screen.kind === "menu" &&
+		state.screen.moduleUuid === moduleUuid &&
+		state.screen.selection !== undefined;
 	const properties =
 		selected?.length === 1 && caseSelectionCardinality(mod) === "single"
 			? selected[0].caseProperties
 			: undefined;
 	return menuFormUuidsOf(doc, moduleUuid).flatMap((uuid) => {
 		const form = doc.forms[uuid];
-		if (loadingOnly && !CASE_LOADING_FORM_TYPES.has(form.type)) return [];
+		if ((loadingOnly || leafChooser) && !CASE_LOADING_FORM_TYPES.has(form.type))
+			return [];
 		return [
 			{
 				form,

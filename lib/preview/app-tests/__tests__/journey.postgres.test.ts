@@ -1152,3 +1152,98 @@ it("reads informational Details without inventing a form or Continue action", as
 	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
 	await step({ kind: "finish" });
 });
+
+it("limits a mixed module's inline chooser to case forms and goes back to Results without Details", async () => {
+	const doc = await createEvaluationApp({
+		name: "Equipment",
+		case_type: "equipment",
+		case_list_columns: [
+			{
+				kind: "plain",
+				field: "case_name",
+				header: "Equipment",
+				visibleInDetail: false,
+			},
+		],
+		forms: [
+			{
+				name: "Register",
+				type: "registration",
+				recordName: "#form/name",
+				fields: [{ kind: "text", id: "name", label: "Name", required: true }],
+			},
+			{
+				name: "Inspect",
+				type: "followup",
+				fields: [
+					{ kind: "label", id: "info", label: "Inspect this equipment." },
+				],
+			},
+			{
+				name: "Retire",
+				type: "close",
+				fields: [
+					{ kind: "label", id: "info", label: "Retire this equipment." },
+				],
+			},
+		],
+	});
+	const mod = Object.values(doc.modules).find(
+		(module) => module.name === "Equipment",
+	);
+	const register = Object.values(doc.forms).find(
+		(form) => form.name === "Register",
+	);
+	const inspect = Object.values(doc.forms).find(
+		(form) => form.name === "Inspect",
+	);
+	if (!mod || !register || !inspect) throw new Error("Incomplete mixed module");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose:
+				"Choose a case task without inventing registration in the inline chooser",
+			scenario: {
+				records: [{ id: "pump", caseType: "equipment", name: "Pump" }],
+			},
+		}),
+	);
+	const step = async (action: AppTestAction) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				action,
+			}),
+		);
+		return current.observation;
+	};
+	const menu = await step({ kind: "menu", moduleUuid: mod.uuid });
+	expect(menu.forms).toEqual(
+		expect.arrayContaining([expect.objectContaining({ name: "Register" })]),
+	);
+	await step({ kind: "records" });
+	const chooser = await step({ kind: "select", caseIds: ["pump"] });
+	expect(chooser).toMatchObject({
+		screen: "menu",
+		forms: [
+			expect.objectContaining({ name: "Inspect" }),
+			expect.objectContaining({ name: "Retire" }),
+		],
+	});
+	expect(await step({ kind: "form", formUuid: register.uuid })).toMatchObject({
+		completed: false,
+	});
+	expect(await step({ kind: "form", formUuid: inspect.uuid })).toMatchObject({
+		screen: "form",
+		name: "Inspect",
+	});
+	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+	await step({ kind: "finish" });
+});
