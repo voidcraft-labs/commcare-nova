@@ -106,7 +106,11 @@ render identities, and the active section survive. Context recovery reruns
 untouched defaults against those retained rows. Only pending section snapshots
 recapture newly available context; consumed zero-row membership stays empty.
 A language change retains all defaults as well as edited answers. This is
-Nova context recovery, not a native repeat-insertion event. Blur records touched state synchronously
+Nova context recovery, not a native repeat-insertion event. Rebuilds serialize
+within the same entry, so a presentation refresh cannot discard later identity
+or case-data recovery. Edits arriving during initialization catch up through the
+ordinary topology, field and worker reconciliation handlers before entry is
+ready; they do not replay an old checkpoint over the newer schema. Blur records touched state synchronously
 before queuing worker validation. A
 same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared

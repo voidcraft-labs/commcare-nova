@@ -1434,3 +1434,106 @@ it.each([false, true])(
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 	},
 );
+
+it("applies a cold identity arriving alongside a presentation rebuild", async () => {
+	const ctrl = controller({
+		uuid: FIELD_UUID,
+		id: "who",
+		kind: "text",
+		label: proseText("Worker"),
+		default_value: xp("#user/username"),
+	});
+	await ctrl.activateFormAsync(FORM_UUID);
+	const entry = ctrl.entryKey;
+	ctrl.setPresentationLanguage("en");
+	ctrl.setPreviewIdentity(
+		previewAsMe({ id: "worker-1", email: "inspector@example.org" }),
+	);
+	await ctrl.awaitSettled();
+	expect(ctrl.entryKey).toBe(entry);
+	expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe(
+		"inspector@example.org",
+	);
+	expect(ctrl.entryStore.getState().fault).toBeUndefined();
+});
+
+it("reconciles questions added and renamed during a presentation rebuild", async () => {
+	const doc = sectionEntryDoc();
+	const form = doc.formOrder[doc.moduleOrder[0]][0];
+	const fields = Object.values(doc.fields);
+	const first = fields.find((field) => field.id === "first");
+	const second = fields.find((field) => field.id === "second");
+	if (!first || !second) throw new Error("Missing fixture sections");
+	doc.fields[RESULT_FIELD_UUID] = {
+		uuid: RESULT_FIELD_UUID,
+		id: "trigger",
+		kind: "hidden",
+		calculate: xp("'ready'"),
+	};
+	doc.fieldOrder[first.uuid].push(RESULT_FIELD_UUID);
+	const store = createBlueprintDocStore();
+	store.getState().load(admittedControllerDoc(doc));
+	store.getState().startTracking();
+	let armed = false;
+	const base = createInProcessXPathWorkerFactory();
+	const ctrl = ownedController(
+		new XPathRuntime({
+			workerFactory: () => {
+				const port = base();
+				return {
+					...port,
+					postMessage(message) {
+						if (armed && message.operation === "evaluate") {
+							armed = false;
+							applyControllerEdit(store, [
+								{
+									kind: "addField",
+									parentUuid: first.uuid,
+									field: {
+										uuid: SECOND_FIELD_UUID,
+										id: "added",
+										kind: "text",
+										label: proseText("Added question"),
+										required: xp("true()"),
+									},
+								},
+								{
+									kind: "updateField",
+									uuid: second.uuid,
+									targetKind: "section",
+									patch: { id: "inspection" },
+								},
+							]);
+						}
+						port.postMessage(message);
+					},
+				};
+			},
+		}),
+	);
+	ctrl.setDocStore(store);
+	await ctrl.activateFormAsync(form);
+	await ctrl.setValueAtAsync("/data/first/zone", "south");
+	await ctrl.enterSectionAsync(second.uuid);
+	await ctrl.setValueAtAsync(
+		"/data/second/rounds[0]/assets[0]/note",
+		"Tank inspected",
+	);
+	const entry = ctrl.entryKey;
+	armed = true;
+	await expect(
+		ctrl.rebuildActiveFormAsync(form, undefined, true),
+	).resolves.toBe(true);
+	await ctrl.awaitSettled();
+	expect(armed).toBe(false);
+	expect(ctrl.entryKey).toBe(entry);
+	expect(ctrl.store.getState()[SECOND_FIELD_UUID]).toMatchObject({
+		value: "",
+		required: true,
+	});
+	expect(
+		ctrl.store.getState()["/data/inspection/rounds[0]/assets[0]/note"]?.value,
+	).toBe("Tank inspected");
+	expect(await ctrl.validateAllAsync()).toBe(false);
+	expect(ctrl.entryStore.getState().fault).toBeUndefined();
+});
