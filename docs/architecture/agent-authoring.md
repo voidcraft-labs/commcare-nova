@@ -28,6 +28,11 @@ projections, FormEngine and submission transaction. They do not change live case
 or assert native-device correctness. Builder's Test journeys shows the same
 retained observations, including the source revision and boundaries.
 
+Expected journey-test refusals, including an unavailable test reference after
+app authorization, return to the architect or peer as tool errors they can
+correct. Missing app authority remains terminal; a mistaken evidence identifier
+does not stand in for revoked access or reveal another app's observations.
+
 Form and journey answers accept coordinates for location questions and use the
 real Preview picker formatter. Invalid supplied coordinate values are input
 refusals, distinct from the form's authored validation. These checks do not

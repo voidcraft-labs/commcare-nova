@@ -208,6 +208,14 @@ it.each([
 						[
 							{
 								type: "tool" as const,
+								name: "readAppTest",
+								callId: "peer-wrong-test",
+								input: { testId: "70000000-0000-4000-8000-000000000001" },
+							},
+						],
+						[
+							{
+								type: "tool" as const,
 								name: "continueAppTest",
 								callId: "peer-finish",
 								input: {
@@ -491,6 +499,9 @@ it.each([
 					moduleUuid: app?.blueprint.moduleOrder[0],
 				});
 				if (exercisePeer) {
+					expect(evaluation("peer-wrong-test")).toMatchObject({
+						error: expect.stringContaining("full test identity"),
+					});
 					expect(evaluation("peer-journey")).toMatchObject({
 						step: 0,
 						observation: {

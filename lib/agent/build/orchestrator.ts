@@ -45,6 +45,7 @@ import { translateLanguage } from "@/lib/agent/translation/translateLanguage";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { resolveAppScopeInTransaction } from "@/lib/db/appAccess";
 import { loadApp, refreshBuildLiveness, setAwaitingInput } from "@/lib/db/apps";
+import { AppTestUnavailableError } from "@/lib/db/appTests";
 import {
 	loadDesignSession,
 	refreshDesignSessionLiveness,
@@ -504,6 +505,7 @@ export async function runBuildOrchestration(
 				// Recorded at the read boundary; the architect hears the true cause.
 				error instanceof ReadProjectionError ||
 				error instanceof SourceMaterialError ||
+				error instanceof AppTestUnavailableError ||
 				error instanceof ChangeSetStagingRejectedError
 			)
 				return { error: error.message };

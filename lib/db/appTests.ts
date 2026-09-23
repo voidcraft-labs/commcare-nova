@@ -225,7 +225,10 @@ export async function advanceAppTestSession(
 			.where("created_by", "=", args.actorUserId)
 			.forUpdate()
 			.executeTakeFirst();
-		if (!test) throw new AppAccessError("not_found");
+		if (!test)
+			throw new AppTestUnavailableError(
+				"This test is unavailable for this app and account. Use the full test identity returned when the journey began.",
+			);
 		const prior = await tx
 			.selectFrom("app_test_steps")
 			.selectAll()
@@ -327,7 +330,10 @@ export async function readAppTestSteps(
 			.where("app_id", "=", args.appId)
 			.where("project_id", "=", args.projectId)
 			.executeTakeFirst();
-		if (!test) throw new AppAccessError("not_found");
+		if (!test)
+			throw new AppTestUnavailableError(
+				"This test is unavailable for this app and account. Use the full test identity returned when the journey began.",
+			);
 		const steps = await tx
 			.selectFrom("app_test_steps")
 			.select(["step", "action", "observation", "created_at"])
