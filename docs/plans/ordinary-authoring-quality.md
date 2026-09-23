@@ -172,3 +172,10 @@ source causes in
 [`ordinary-authoring-observations.md`](../research/ordinary-authoring-observations.md),
 and verified domain semantics in
 [`record-lifecycle-authoring.md`](../research/record-lifecycle-authoring.md).
+
+The newer role-based first-delivery trial completed its build but failed ordinary
+Preview readiness: saved personas lacked places required for shared ownership.
+Peer reviews found this; the architect incorrectly treated the creation capability
+as unavailable. The failed result remains evidence. Stable construction-tool
+discovery and independent post-submit paging fixes are under validation; new
+first-delivery acceptance and the all-role GPT-6 comparison remain unfinished.

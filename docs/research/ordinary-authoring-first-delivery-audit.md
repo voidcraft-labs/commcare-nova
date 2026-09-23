@@ -105,3 +105,20 @@ multiple-selection reads expose no scalar record context. Existing native typed
 ancestor emission is unchanged. The architect allowance increases to 180 calls
 so focused corrections and verification have room to finish; a larger allowance
 is capacity, not evidence of better judgment or first-delivery success.
+
+## Completed build with unusable saved location context
+
+A subsequent role-based build completed but failed first-delivery acceptance.
+The peer identified missing saved place assignments twice. The architect tested
+with disposable places, then incorrectly concluded ordinary place creation was
+unavailable and revised the plan around that limitation. Captured provider
+requests show the creation tool was absent before birth and present afterward;
+the architect never searched for it after saving. This was a discovery/phase
+boundary plus a judgment failure, not an unavailable production capability.
+
+The construction catalog now retains those definitions from the start of building.
+Invocations requiring a saved app refuse before side effects and explain the
+prerequisite. A real Postgres check exercises early refusal, creation after birth,
+and saved persona assignment through the same authoring session. A new first
+delivery trial remains necessary; correcting the interface does not repair or
+retroactively pass the failed run.

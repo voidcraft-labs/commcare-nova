@@ -92,7 +92,11 @@ run, not successful delivery. The initial 120-call role trial failed during
 peer-driven corrections and remains failed evidence.
 
 Hosted tool search defers shared definitions for Nova's model calls. This lowers
-the initial context but does not remove their eventual cost. Schema factoring,
+the initial context but does not remove their eventual cost. The architect's
+construction catalog stays stable before and after the first save; operations
+requiring a saved app explain that prerequisite at invocation before side effects.
+This avoids teaching a temporary absence as a permanent product limitation.
+Schema factoring,
 plain authored content, scoped reads, and concise semantic results reduce the
 actual representation. `/agents` keeps the total catalog visible alongside the
 initial surface, prompt, changing context, and recorded usage.
