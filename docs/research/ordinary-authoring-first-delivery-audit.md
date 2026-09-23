@@ -122,3 +122,27 @@ prerequisite. A real Postgres check exercises early refusal, creation after birt
 and saved persona assignment through the same authoring session. A new first
 delivery trial remains necessary; correcting the interface does not repair or
 retroactively pass the failed run.
+
+## Retained evidence was not discoverable
+
+The first GPT-6 related-record build failed during a follow-up peer review. The
+architect's focus named an abbreviated test identity; the peer's captured input
+did not contain the full identity. It guessed the remainder and called
+`readAppTest`. The database classified that missing test as `AppAccessError`,
+which correctly terminates a run for lost app authorization but was wrong for an
+unavailable observation. The error aborted the build before its handoff.
+
+Builder could list recent tests, but the ordinary agent tool required a known
+identity. This combines a missing observation, a model guess and an incorrectly
+terminal error. It is not evidence that more domain instructions would help.
+`readAppTest` now accepts an omitted identity and returns the existing bounded,
+authorized recent-test listing, including purpose, revision and full identity.
+An unavailable test returns a recoverable error after app authorization; revoked
+app access remains terminal, and continuing another author's test remains
+forbidden. Foreign test identities do not reveal their existence.
+
+Real Postgres checks cover those boundaries. A controlled production peer loop
+receives the unavailable-test result, discovers its saved test, reads the returned
+identity and finishes. The original paid build remains failed. Fresh paired
+trials on the corrected contract are separate evidence, not a repair of its
+acceptance result. No app-specific recovery instruction was added to the prompt.

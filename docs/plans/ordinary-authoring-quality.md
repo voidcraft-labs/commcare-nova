@@ -165,14 +165,20 @@ its release from cost alone.
   Shared engine and app-test page turns passed controlled tests, independent
   review and full CI. Revision 00558-mtp serves production; plugin 1.38.0 followed.
   Unsectioned native question-by-question timing remains a stated boundary.
-- [ ] Complete the fresh ordinary-agent comparison on the frozen corrected
-  runtime. Keep earlier failed outputs and distinguish a bounded useful app
-  from general autonomous quality. No expert repair instructions enter a trial.
-- [ ] Correct standard metadata reads in forms (PR #680). Shared form admission
+- [x] Complete the bounded comparison on the frozen corrected runtime. The last
+  GPT-5.6 output passed its main role/history journey but excluded a valid zero
+  count; GPT-6 stopped at the shared budget guard before app review or handoff.
+  No expert repair instructions entered either trial. Results and the decision
+  to retain GPT-5.6 are in `docs/research/model-quality-comparison-results.md`.
+- [ ] Establish broader first-delivery quality beyond the bounded successes.
+  Required workflows were still omitted in completed trials, and review missed
+  consequential first-use and requirement gaps. Future paid acceptance needs a
+  new allocation; no silent retry or model-release pass is implied.
+- [x] Correct standard metadata reads in forms (PR #680). Shared form admission
   omitted implicit values and form consumers misread attribute metadata. Exact
-  native export and Preview checks now cover selected and parent records;
-  independent review, CI and deployment remain. The current comparison excludes
-  this later correction on both sides.
+  native export and Preview checks cover selected and parent records. Independent
+  review and full CI passed; production revision 00559-6cl serves the exact
+  verified image. The final comparison excludes this later correction on both sides.
 - [x] Investigate the abandoned uniqueness check: focused guidance omitted
   usable form queries over worker-available records. PR #675 makes those reads
   and predicate context discoverable with explicit local-state limits. It does
@@ -182,13 +188,15 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Finish the all-role comparison artifact and release decision. Preserve all
-  failures, requirements left unmet, verification-depth differences, context and
-  plan growth, repeated reads, token/cache usage and actual costs. Update all
-  active callers together if the release gate is met.
-- [ ] Keep the shared $100 authorization for all new trials, including retries,
-  extraction, translation and editing. Reserve before dispatch with the existing
-  conservative ledger; earlier allocations do not increase that ceiling.
+- [x] Finish the all-role comparison artifact and release decision. Keep GPT-5.6
+  defaults: lower GPT-6 cost and clearer wording did not establish equal or better
+  complete role-based apps. All active callers are prepared together in a held
+  draft, including extractor and translator. Private evidence retains failures,
+  verification depth, context/plan growth, repeated reads and usage costs.
+- [x] Enforce the shared $100 ceiling, including retries, extraction, translation
+  and editing. The ledger stopped at $97.683844175 including margins and an
+  unresolved charge reservation; the next dispatch could not fit safely. Do not
+  release unknown charges or restart paid trials without a new allocation.
 - [x] Complete the delivered-app acceptance report at its current revision.
   A final read-only refresh found no newer edits. Its repair was externally
   supervised. Name, identities, shared ownership and

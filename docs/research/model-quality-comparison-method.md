@@ -1,6 +1,9 @@
 # First-delivery model comparison
 
-Status: preparation and controlled checks; model trials and acceptance remain unfinished.
+Status: multiple paired trials and independent checks are recorded in
+[the comparison results](model-quality-comparison-results.md). The bounded evaluation
+and decision to retain GPT-5.6 are recorded; broader quality acceptance remains
+unfinished and failed runs stay in the evidence.
 
 Compare the complete GPT-5.6 and GPT-6 role sets on matching production code,
 role efforts, prompts, tools, and frozen ordinary user requests. Include a
@@ -36,7 +39,9 @@ The build runner allows 400 transport requests and 30 minutes per invocation, wi
 $30 trial ceiling carried across clarification resumes. A shared locked ledger
 enforces the separately authorized combined ceiling before dispatch, including
 retries and uncertain charges. Explicit production output ceilings pass through;
-otherwise the runner allows 128,000 output tokens, including reasoning. The
+otherwise the runner allows 128,000 output tokens, including reasoning. The final
+matched pair froze a 32,000-token ceiling on both sides to bound remaining cost;
+its private runner differs only in that ceiling and local import resolution. The
 reservation uses the serialized output ceiling, conservative input allowances,
 and a rate above the current compared models. Known usage settles with a 25%
 margin; unknown usage retains its reservation. Report model cost separately
