@@ -227,7 +227,7 @@ export async function advanceAppTestSession(
 			.executeTakeFirst();
 		if (!test)
 			throw new AppTestUnavailableError(
-				"This test is unavailable for this app and account. Use the full test identity returned when the journey began.",
+				"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
 			);
 		const prior = await tx
 			.selectFrom("app_test_steps")
@@ -332,7 +332,7 @@ export async function readAppTestSteps(
 			.executeTakeFirst();
 		if (!test)
 			throw new AppTestUnavailableError(
-				"This test is unavailable for this app and account. Use the full test identity returned when the journey began.",
+				"This test is unavailable for this app and account. List this app's recent tests to find its full identity.",
 			);
 		const steps = await tx
 			.selectFrom("app_test_steps")
@@ -380,6 +380,9 @@ export async function listAppTests(scope: AppTestScope) {
 			tests: tests.map((test) => ({
 				...test,
 				blueprint_seq: Number(test.blueprint_seq),
+				created_at: test.created_at.toISOString(),
+				expires_at: test.expires_at.toISOString(),
+				disposed_at: test.disposed_at?.toISOString() ?? null,
 			})),
 		};
 	});

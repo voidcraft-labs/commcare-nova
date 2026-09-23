@@ -262,20 +262,32 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	expect(evidence.steps).toHaveLength(current.step + 1);
 	// A recorded journey must be usable by the next real model step, including
 	// database timestamps after disposal. SDK JSON output rejects Date objects.
+	const listed = await call("readAppTest", {});
+	expect(listed).toMatchObject({
+		tests: [
+			expect.objectContaining({
+				id: testId,
+				purpose: "Register equipment, retire it, and check the next task.",
+				step: current.step,
+			}),
+		],
+	});
 	const toolEvidence = await call("readAppTest", { testId });
-	expect(() =>
-		modelMessageSchema.parse({
-			role: "tool",
-			content: [
-				{
-					type: "tool-result",
-					toolName: "readAppTest",
-					toolCallId: "history",
-					output: { type: "json", value: toolEvidence },
-				},
-			],
-		}),
-	).not.toThrow();
+	for (const evidence of [listed, toolEvidence]) {
+		expect(() =>
+			modelMessageSchema.parse({
+				role: "tool",
+				content: [
+					{
+						type: "tool-result",
+						toolName: "readAppTest",
+						toolCallId: "history",
+						output: { type: "json", value: evidence },
+					},
+				],
+			}),
+		).not.toThrow();
+	}
 });
 
 it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {

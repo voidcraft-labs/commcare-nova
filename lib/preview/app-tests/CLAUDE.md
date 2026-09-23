@@ -18,6 +18,9 @@ After app authorization succeeds, an unavailable test identity is an
 continuation belonging to another actor. It reveals no foreign evidence. The
 architect and peer receive expected test refusals as tool results and can correct
 their call. Lost app membership or run authority remains terminal.
+`readAppTest` without an identity returns the same bounded recent-test list as
+Builder, so a reviewer can discover evidence created by another authoring role.
+List and detail timestamps are ISO strings usable in model JSON results.
 
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach

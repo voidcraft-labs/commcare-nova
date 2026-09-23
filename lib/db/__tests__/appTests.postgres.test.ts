@@ -48,6 +48,7 @@ describe("app test session authority and evidence", () => {
 			owner: scope.actorUserId,
 			project_id: scope.projectId,
 		});
+		expect((await listAppTests(other)).tests).toEqual([]);
 		for (const testId of [
 			begun.testId,
 			"70000000-0000-4000-8000-000000000001",

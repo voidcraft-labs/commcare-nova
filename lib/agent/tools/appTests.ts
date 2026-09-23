@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readAppTestSteps } from "@/lib/db/appTests";
+import { listAppTests, readAppTestSteps } from "@/lib/db/appTests";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
 	appTestActionSchema,
@@ -70,15 +70,18 @@ export const continueAppTestTool = {
 		};
 	},
 };
-const readSchema = z.strictObject({ testId: testIdSchema });
+const readSchema = z.strictObject({ testId: testIdSchema.optional() });
 export const readAppTestTool = {
 	description:
-		"Read a test's source revision, worker actions and observed results, including failed actions. Evidence remains after test records expire or are discarded. A completed test is evidence for its exercised behavior, not a verdict on the whole app.",
+		"Omit testId to find this app's recent tests by purpose and source revision. Supply a returned identity to read its worker actions and observed results, including failed actions. Evidence remains after test records expire or are discarded. A completed test proves only its exercised behavior.",
 	inputSchema: readSchema,
 	async execute(input: z.infer<typeof readSchema>, ctx: ToolInvocationContext) {
 		return {
 			kind: "read" as const,
-			data: await readAppTestSteps({ ...scope(ctx), testId: input.testId }),
+			data:
+				input.testId === undefined
+					? await listAppTests(scope(ctx))
+					: await readAppTestSteps({ ...scope(ctx), testId: input.testId }),
 		};
 	},
 };

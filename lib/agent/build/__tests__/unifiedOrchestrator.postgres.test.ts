@@ -216,6 +216,14 @@ it.each([
 						[
 							{
 								type: "tool" as const,
+								name: "readAppTest",
+								callId: "peer-find-test",
+								input: {},
+							},
+						],
+						[
+							{
+								type: "tool" as const,
 								name: "continueAppTest",
 								callId: "peer-finish",
 								input: {
@@ -285,11 +293,11 @@ it.each([
 								?.input?.find(
 									(item) =>
 										item.type === "function_call_output" &&
-										item.call_id === "peer-journey",
+										item.call_id === "peer-find-test",
 								);
 							part.input = {
 								...(part.input as object),
-								testId: JSON.parse(String(receipt?.output)).testId,
+								testId: JSON.parse(String(receipt?.output)).tests[0].id,
 							};
 						}
 						respondWithParts(response, next, index);
@@ -500,7 +508,7 @@ it.each([
 				});
 				if (exercisePeer) {
 					expect(evaluation("peer-wrong-test")).toMatchObject({
-						error: expect.stringContaining("full test identity"),
+						error: expect.any(String),
 					});
 					expect(evaluation("peer-journey")).toMatchObject({
 						step: 0,

@@ -135,7 +135,8 @@ entry screen with disposable records. `continue_app_test` chooses a saved
 Preview identity, navigates visible menus, selects records, answers questions,
 submits into test storage, and observes the next task. It can also sync the
 test worker's record set or finish the test. Each response returns the step
-number required by the next action. `read_app_test` returns retained steps and
+number required by the next action. Omit `testId` from `read_app_test` to find recent
+tests by purpose and source revision. Supply a returned identity to read retained steps and
 their app revision. Builder's **Test journeys** presents those same observations.
 
 Tests start with explicitly supplied fictional records, never a copy of live
