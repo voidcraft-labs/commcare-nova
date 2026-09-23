@@ -2,13 +2,15 @@
 import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import { Command } from "commander";
 import { z } from "zod";
 import { readDesignSession } from "@/lib/agent/anatomy/recorded";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import { completeBuildOrchestration } from "@/lib/agent/build/orchestratorState";
+import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
+import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import {
 	AgentModelStepError,
 	type AgentModelStepFn,
@@ -18,19 +20,28 @@ import {
 	createModelCallTransport,
 	createNovaOpenAI,
 } from "@/lib/agent/openaiProvider";
+import { productionSourceMaterialDeps } from "@/lib/agent/sources.server";
+import { streamObjectWith } from "@/lib/agent/subGeneration";
+import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 import { getAuthDb } from "@/lib/auth/db";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
+import type { NovaUIMessage as UIMessage } from "@/lib/chat/attachmentRefs";
 import { claimAndReserveRun, failApp, loadApp } from "@/lib/db/apps";
 import { settleAndRelease } from "@/lib/db/credits";
 import {
+	claimAndReserveDesignSessionRun,
 	createAndClaimDesignSessionRun,
 	failAndRefundDesignSessionRun,
+	loadDesignSession,
 } from "@/lib/db/designSessions";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { insertReadyAsset } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
 import { UsageAccumulator } from "@/lib/db/usage";
+import { asMediaAssetId, gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { MODEL_ROLES } from "@/lib/models";
 import { createProject } from "@/lib/projects/manage";
+import { uploadAssetBytes } from "@/lib/storage/media";
 import {
 	countAuthoringInput,
 	countedInputReservation,
@@ -51,6 +62,11 @@ const options = new Command()
 		"--resume <directory>",
 		"resume this prior trial’s saved app and conversation",
 	)
+	.option("--document <file>", "attach and extract one UTF-8 text source")
+	.option(
+		"--answers <file>",
+		"ordinary answers to the prior pending question card",
+	)
 	.option("--feedback <file>", "independent observations to add when resuming")
 	.option("--confirm-paid", "authorize this bounded trial")
 	.option(
@@ -64,12 +80,16 @@ const options = new Command()
 		ledger: string;
 		resume?: string;
 		feedback?: string;
+		answers?: string;
+		document?: string;
 		confirmPaid?: boolean;
 		dryRun?: boolean;
 	}>();
-const MAX_REQUESTS = 80;
-const MAX_OUTPUT_TOKENS = 16_000;
-const TRIAL_CEILING_USD = 25;
+const MAX_REQUESTS = 400;
+// Preserve the models' output capacity, including reasoning. Explicit production
+// limits (for example translation's 32k) pass through unchanged.
+const MAX_OUTPUT_TOKENS = 128_000;
+const TRIAL_CEILING_USD = 30;
 const ledgerSchema = z.object({
 	ceilingUsd: z.number().positive().max(200),
 	targetUsd: z.number().positive(),
@@ -90,8 +110,8 @@ async function main() {
 			mode: 0o600,
 		});
 	const task = await readFile(resolve(options.task), "utf8");
-	if (options.feedback && !options.resume)
-		throw new Error("Feedback requires a prior trial.");
+	if ((options.feedback || options.answers) && !options.resume)
+		throw new Error("Feedback or answers require a prior trial.");
 	const feedback = options.feedback
 		? await readFile(resolve(options.feedback), "utf8")
 		: undefined;
@@ -143,8 +163,9 @@ async function main() {
 			JSON.parse(await readFile(ledgerFile.path, "utf8")),
 		);
 		const startingSpend = ledger.estimatedSpentUsd;
+		let trialStartingSpend = startingSpend;
 		const runId = randomUUID();
-		let userMessages = [
+		let userMessages: UIMessage[] = [
 			{
 				id: randomUUID() as string,
 				role: "user" as const,
@@ -174,43 +195,80 @@ async function main() {
 			if (priorTask.text !== task)
 				throw new Error("Resume requires the original trial request.");
 			resumedApp = await loadApp(prior.appId);
+			const session = await loadDesignSession(prior.designSessionId);
 			if (
-				!resumedApp ||
-				resumedApp.owner !== actor.id ||
-				resumedApp.project_id !== prior.projectId ||
-				resumedApp.status !== "error"
+				!session ||
+				session.owner_user_id !== actor.id ||
+				session.project_id !== prior.projectId ||
+				(resumedApp &&
+					(resumedApp.owner !== actor.id ||
+						resumedApp.project_id !== prior.projectId ||
+						resumedApp.status === "complete"))
 			)
 				throw new Error(
-					"Resume requires this actor's stopped trial app in its original Project.",
+					"Resume requires this actor's unfinished trial in its original Project.",
 				);
-			const recorded = await readDesignSession(prior.designSessionId);
-			const sources = new Map<
-				string,
-				{ id: string; role: "user"; parts: { type: "text"; text: string }[] }
-			>();
-			for (const context of recorded?.contexts ?? []) {
-				if (context.kind !== "architect") continue;
-				for (const item of context.items) {
-					const match = item.appendKey.match(/^request:([0-9a-f-]+):0$/);
-					if (
-						!match ||
-						item.message.role !== "user" ||
-						typeof item.message.content !== "string"
-					)
-						continue;
-					const id = z.uuid().parse(match[1]);
-					sources.set(id, {
-						id,
-						role: "user",
-						parts: [{ type: "text", text: item.message.content }],
-					});
-				}
-			}
-			userMessages = [...sources.values()];
-			if (!userMessages.some((m) => m.parts[0]?.text === task))
+			const saved = JSON.parse(
+				await readFile(resolve(previous, "run.json"), "utf8"),
+			) as { userMessages: UIMessage[]; trialStartingSpend?: number };
+			trialStartingSpend = saved.trialStartingSpend ?? startingSpend;
+			userMessages = saved.userMessages;
+			if (
+				!userMessages.some(
+					(m) =>
+						m.role === "user" &&
+						m.parts.some((p) => p.type === "text" && p.text === task),
+				)
+			)
 				throw new Error("The original request identity is unavailable.");
+			if (options.answers) {
+				const events: unknown[] = JSON.parse(
+					await readFile(resolve(previous, "events.json"), "utf8"),
+				);
+				const questionSchema = z.object({
+					type: z.literal("tool-input-available"),
+					toolName: z.literal("askQuestions"),
+					toolCallId: z.string(),
+					input: askQuestionsInputSchema,
+				});
+				const questions = events.flatMap((event) => {
+					const parsed = questionSchema.safeParse(event);
+					return parsed.success ? [parsed.data] : [];
+				});
+				const question = questions.at(-1);
+				if (!question)
+					throw new Error("The prior trial has no pending question card.");
+				const answers = z
+					.record(z.string(), z.string())
+					.parse(JSON.parse(await readFile(resolve(options.answers), "utf8")));
+				if (
+					question.input.questions.some(
+						(_, index) => !answers[String(index)]?.trim(),
+					)
+				)
+					throw new Error("Every question needs an ordinary user answer.");
+				userMessages.push({
+					id: randomUUID(),
+					role: "assistant",
+					parts: [
+						{
+							type: "tool-askQuestions",
+							toolCallId: question.toolCallId,
+							state: "output-available",
+							input: question.input,
+							output: answers,
+						},
+					],
+				});
+				await save("answers.json", { question, answers });
+			}
 		}
-		if (feedback && !userMessages.some((m) => m.parts[0]?.text === feedback))
+		if (
+			feedback &&
+			!userMessages.some((m) =>
+				m.parts.some((part) => part.type === "text" && part.text === feedback),
+			)
+		)
 			userMessages.push({
 				id: randomUUID(),
 				role: "user",
@@ -226,16 +284,24 @@ async function main() {
 			? {
 					designSessionId: prior.designSessionId,
 					proposedAppId: prior.appId,
-					...(await claimAndReserveRun(
-						prior.appId,
-						"build",
-						runId,
-						actor.id,
-						1,
-						prior.projectId,
-						undefined,
-						{ requireModeMatchesStatus: true },
-					)),
+					...(resumedApp
+						? await claimAndReserveRun(
+								prior.appId,
+								"build",
+								runId,
+								actor.id,
+								1,
+								prior.projectId,
+								undefined,
+								{ requireModeMatchesStatus: true },
+							)
+						: await claimAndReserveDesignSessionRun(
+								prior.designSessionId,
+								runId,
+								actor.id,
+								1,
+								prior.projectId,
+							)),
 				}
 			: await createAndClaimDesignSessionRun({
 					projectId: project.id,
@@ -245,9 +311,10 @@ async function main() {
 				});
 
 		const meter = new UsageAccumulator({
-			target: prior
-				? { kind: "app", appId: prior.appId }
-				: { kind: "design-session", designSessionId: claim.designSessionId },
+			target:
+				resumedApp && prior
+					? { kind: "app", appId: prior.appId }
+					: { kind: "design-session", designSessionId: claim.designSessionId },
 			userId: actor.id,
 			runId,
 			holderNonce: claim.holderNonce,
@@ -267,6 +334,7 @@ async function main() {
 		let currentCall: Record<string, unknown> | undefined;
 		const events: unknown[] = [];
 		let completed = false;
+		let paused = false;
 		try {
 			const transport = createModelCallTransport();
 			closeTransport = () => transport.destroy();
@@ -284,6 +352,7 @@ async function main() {
 				actorUserId: actor.id,
 				models: MODEL_ROLES,
 				startedAt: new Date().toISOString(),
+				trialStartingSpend,
 				userMessages,
 				...(options.resume && { resumedFrom: resolve(options.resume) }),
 			});
@@ -292,16 +361,19 @@ async function main() {
 				captureModelRequests(transport.fetch, async (request) => {
 					if (requests >= MAX_REQUESTS)
 						throw new Error("Trial request limit reached.");
+					const outputCeiling = z
+						.object({ max_output_tokens: z.number().positive().max(128_000) })
+						.parse(JSON.parse(request.body)).max_output_tokens;
 					// Every UTF-8 byte is a conservative token allowance for this text-only
 					// request, including deferred schemas. Price at the long-context Sol
 					// cache-write rate, plus the enforced output ceiling, before dispatch.
 					let reservedUsd =
-						(Buffer.byteLength(request.body) * 12.5 + MAX_OUTPUT_TOKENS * 45) /
+						(Buffer.byteLength(request.body) * 12.5 + outputCeiling * 45) /
 						1_000_000;
 					const limit = Math.min(
 						ledger.ceilingUsd,
 						ledger.targetUsd,
-						startingSpend + TRIAL_CEILING_USD,
+						trialStartingSpend + TRIAL_CEILING_USD,
 					);
 					let inputTokenCount: number | undefined;
 					if (ledger.estimatedSpentUsd + reservedUsd > limit) {
@@ -312,7 +384,7 @@ async function main() {
 						});
 						reservedUsd = countedInputReservation(
 							inputTokenCount,
-							MAX_OUTPUT_TOKENS,
+							outputCeiling,
 						);
 					}
 					if (ledger.estimatedSpentUsd + reservedUsd > limit)
@@ -375,10 +447,7 @@ async function main() {
 					try {
 						const result = await production({
 							...request,
-							maxOutputTokens: Math.min(
-								request.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
-								MAX_OUTPUT_TOKENS,
-							),
+							maxOutputTokens: request.maxOutputTokens ?? MAX_OUTPUT_TOKENS,
 						});
 						await settle(result.usage);
 						await save(`response-${requests}.json`, { role, ...result });
@@ -397,6 +466,93 @@ async function main() {
 					}
 				};
 			};
+			const condenser: AttachmentCondenser = {
+				async extractDocumentStructured(opts) {
+					currentCall = undefined;
+					const result = await streamObjectWith({
+						...opts,
+						model: provider(opts.model),
+						abortSignal: abort.signal,
+					});
+					if (currentCall) {
+						const call = currentCall as Record<string, unknown>;
+						const reserved = Number(call.reservedUsd);
+						const charge = completedPilotCharge(
+							opts.model,
+							result.usage ?? {},
+							reserved,
+						);
+						Object.assign(call, charge, {
+							model: opts.model,
+							role: "documentExtractor",
+							usage: result.usage,
+						});
+						ledger.estimatedSpentUsd += charge.estimatedUsd - reserved;
+						await ledgerFile.save(ledger);
+					}
+					await save(`response-${requests}.json`, {
+						role: "documentExtractor",
+						...result,
+					});
+					return {
+						object: result.object,
+						truncated: result.finishReason === "length",
+					};
+				},
+			};
+			if (options.document && !prior) {
+				const bytes = await readFile(resolve(options.document));
+				if (bytes.length > 100_000)
+					throw new Error("Trial text documents must be at most 100 KB.");
+				const contentHash = createHash("sha256").update(bytes).digest("hex");
+				const gcsObjectKey = gcsObjectKeyFor(project.id, contentHash, ".txt");
+				await uploadAssetBytes({
+					gcsObjectKey,
+					bytes,
+					contentType: "text/plain",
+					ifAbsent: true,
+				});
+				const asset = await insertReadyAsset({
+					assetId: asMediaAssetId(randomUUID()),
+					owner: actor.id,
+					project_id: project.id,
+					contentHash,
+					mimeType: "text/plain",
+					kind: "text",
+					extension: ".txt",
+					sizeBytes: bytes.length,
+					gcsObjectKey,
+					originalFilename: basename(options.document),
+				});
+				const extract = await ensureStoredExtract({
+					asset,
+					documentKind: "text",
+					condenser,
+					onInflight: "wait",
+				});
+				await save("extraction.json", {
+					source: bytes.toString("utf8"),
+					contentHash,
+					extract,
+					assetId: asset.id,
+				});
+				if (extract.status !== "ready")
+					throw new Error("Document extraction did not complete.");
+				userMessages[0].metadata = {
+					attachments: [
+						{
+							assetId: asset.id,
+							filename: asset.originalFilename,
+							mimeType: asset.mimeType,
+							kind: "text",
+						},
+					],
+				};
+				const run = JSON.parse(
+					await readFile(resolve(output, "run.json"), "utf8"),
+				);
+				await save("run.json", { ...run, userMessages });
+			}
 			const outcome = await runBuildOrchestration({
 				designSessionId: claim.designSessionId,
 				proposedAppId: claim.proposedAppId,
@@ -414,6 +570,7 @@ async function main() {
 				signal: abort.signal,
 				materializedAppId: resumedApp ? claim.proposedAppId : null,
 				deps: {
+					sourceDeps: productionSourceMaterialDeps(condenser),
 					modelStep: stepFor("architect"),
 					peerStep: stepFor("peer"),
 					translationStep: stepFor("translator"),
@@ -443,8 +600,9 @@ async function main() {
 				},
 			});
 			completed = outcome.kind === "completed";
+			paused = outcome.kind === "awaiting-input" && outcome.pauseOwned;
 			await save("outcome.json", outcome);
-			if (!completed) process.exitCode = 1;
+			if (!completed && !paused) process.exitCode = 1;
 		} catch (error) {
 			await save("error.json", {
 				name: error instanceof Error ? error.name : "Error",
@@ -456,9 +614,9 @@ async function main() {
 			process.off("SIGINT", stop);
 			process.off("SIGTERM", stop);
 			try {
-				if (!completed) meter.markRunFailed();
+				if (!completed && !paused) meter.markRunFailed();
 				await meter.flush();
-				if (!completed) {
+				if (!completed && !paused) {
 					const app = await loadApp(claim.proposedAppId);
 					if (app) {
 						const settled = await settleAndRelease(

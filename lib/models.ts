@@ -143,9 +143,21 @@ export type ModelPricingCard = {
 };
 
 export const MODEL_PRICING: Record<string, ModelPricingCard> = {
+	// Standard processing, verified September 22, 2026:
+	// https://developers.openai.com/api/docs/pricing
+	// Applies to newly recorded usage; persisted historical costs are unchanged.
+	"gpt-6-sol": {
+		short: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.2 },
+		long: { input: 4, output: 15, cacheWrite: 5, cacheRead: 0.4 },
+	},
+	"gpt-6-luna": {
+		short: { input: 0.1, output: 0.5, cacheWrite: 0.125, cacheRead: 0.01 },
+		long: { input: 0.2, output: 0.75, cacheWrite: 0.25, cacheRead: 0.02 },
+	},
 	"gpt-5.6-sol": {
-		short: { input: 5, output: 30, cacheWrite: 6.25, cacheRead: 0.5 },
-		long: { input: 10, output: 45, cacheWrite: 12.5, cacheRead: 1 },
+		// Published promotion available at least through November 21, 2026.
+		short: { input: 4, output: 20, cacheWrite: 5, cacheRead: 0.4 },
+		long: { input: 8, output: 30, cacheWrite: 10, cacheRead: 0.8 },
 	},
 	"gpt-5.6-terra": {
 		short: { input: 2, output: 12, cacheWrite: 2.5, cacheRead: 0.2 },

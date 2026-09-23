@@ -41,6 +41,8 @@ it.each([
 	["saved-work", false],
 	["active-peer", false],
 	["completed-peer", false],
+	["question-before-save", true],
+	["question-after-save", true],
 	["staged-work", true],
 	["active-peer", true],
 ] as const)(
@@ -66,6 +68,21 @@ it.each([
 					sampleGenerator: new HeuristicCaseGenerator(),
 				}),
 		);
+		const questionPause = interruption.startsWith("question-");
+		const question = {
+			type: "tool" as const,
+			name: "askQuestions",
+			callId: "clarification",
+			input: {
+				header: "Loan workflow",
+				questions: [
+					{
+						question: "Should borrowers be required?",
+						options: [{ label: "Yes" }, { label: "No" }],
+					},
+				],
+			},
+		};
 		const recoveredEmptyWorkspace = interruption === "active-peer";
 		const exercisePeer =
 			interruption === "uninterrupted" || recoveredEmptyWorkspace;
@@ -81,6 +98,7 @@ it.each([
 		});
 		let holderNonce = claim.holderNonce;
 		const script: readonly (readonly ProviderOutput[])[] = [
+			...(interruption === "question-before-save" ? [[question]] : []),
 			...(interruption === "uninterrupted"
 				? [
 						[
@@ -149,6 +167,7 @@ it.each([
 				},
 			],
 			[{ type: "tool", name: "saveWork", callId: "save", input: {} }],
+			...(interruption === "question-after-save" ? [[question]] : []),
 			...(recoveredEmptyWorkspace
 				? [
 						[
@@ -370,7 +389,12 @@ it.each([
 						return { blueprint: app.blueprint, head };
 					},
 				};
-				if (interruption !== "uninterrupted") {
+				if (questionPause) {
+					expect(await runBuildOrchestration(args)).toEqual({
+						kind: "awaiting-input",
+						pauseOwned: true,
+					});
+				} else if (interruption !== "uninterrupted") {
 					await expect(runBuildOrchestration(args)).rejects.toThrow(
 						"Simulated connection loss",
 					);
@@ -380,12 +404,13 @@ it.each([
 					runId = "replacement-run";
 					const existing = await loadApp(claim.proposedAppId);
 					if (existing) {
-						await h
-							.db()
-							.updateTable("apps")
-							.set({ updated_at: new Date(0) })
-							.where("id", "=", claim.proposedAppId)
-							.execute();
+						if (!questionPause)
+							await h
+								.db()
+								.updateTable("apps")
+								.set({ updated_at: new Date(0) })
+								.where("id", "=", claim.proposedAppId)
+								.execute();
 						holderNonce = (
 							await claimAndReserveRun(
 								claim.proposedAppId,
@@ -397,12 +422,13 @@ it.each([
 							)
 						).holderNonce;
 					} else {
-						await h
-							.db()
-							.updateTable("design_sessions")
-							.set({ run_lease_expires_at: new Date(0) })
-							.where("id", "=", claim.designSessionId)
-							.execute();
+						if (!questionPause)
+							await h
+								.db()
+								.updateTable("design_sessions")
+								.set({ run_lease_expires_at: new Date(0) })
+								.where("id", "=", claim.designSessionId)
+								.execute();
 						holderNonce = (
 							await claimAndReserveDesignSessionRun(
 								claim.designSessionId,
@@ -414,7 +440,33 @@ it.each([
 						).holderNonce;
 					}
 				}
-				const resumedArgs = { ...args, runId, holderNonce };
+				const resumedArgs: RunBuildOrchestrationArgs = {
+					...args,
+					runId,
+					holderNonce,
+					...(questionPause && {
+						materializedAppId:
+							interruption === "question-after-save"
+								? claim.proposedAppId
+								: null,
+						messages: [
+							...args.messages,
+							{
+								id: "ordinary-answer",
+								role: "assistant",
+								parts: [
+									{
+										type: "tool-askQuestions",
+										toolCallId: question.callId,
+										state: "output-available",
+										input: question.input,
+										output: { "0": "Yes" },
+									},
+								],
+							},
+						],
+					}),
+				};
 				const result = await runBuildOrchestration(resumedArgs);
 				expect(result.kind).toBe("completed");
 				if (result.kind !== "completed")
@@ -428,6 +480,8 @@ it.each([
 					JSON.parse(
 						String(toolResults.find((part) => part.call_id === callId)?.output),
 					);
+				if (questionPause)
+					expect(evaluation("clarification")).toEqual({ "0": "Yes" });
 				if (interruption === "uninterrupted")
 					expect(evaluation("missing-source")).toMatchObject({
 						error: expect.stringContaining("document"),
@@ -521,7 +575,7 @@ it.each([
 				// remains recoverable without paying for or applying another step.
 				expect(await runBuildOrchestration(resumedArgs)).toEqual(result);
 				const finalLeadRequest = requests.at(-1);
-				if (replaceRun) {
+				if (replaceRun && !questionPause) {
 					const states = (finalLeadRequest?.input ?? []).flatMap((item) => {
 						if (item.role !== "user" || !Array.isArray(item.content)) return [];
 						return item.content.flatMap((part) => {
