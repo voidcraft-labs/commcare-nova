@@ -80,6 +80,7 @@ export async function appTestRecords(
 						previewSessionValues(context.identity),
 						mod.caseListConfig?.searchInputs,
 						search.expressionValues,
+						context.clock.timeZone,
 					),
 					lookupTableSchemas: new Map(
 						context.lookup.definitions.map((table) => [

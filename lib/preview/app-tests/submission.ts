@@ -60,6 +60,7 @@ export async function submitAppTest(
 		committedApp: { blueprint: context.doc, mutation_seq: scope.blueprintSeq },
 		blueprintDigest: scope.blueprintDigest,
 		identity: context.identity,
+		viewerTimeZone: context.clock.timeZone,
 		lookupScope: {
 			projectId: scope.projectId,
 			actorId: scope.actorUserId,

@@ -15,8 +15,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
+import { viewerTimeZone } from "../engine/caseDataBindingClient";
 import { previewAsMe, previewAsPersona } from "../engine/identity";
 import { previewLookupData } from "../engine/lookupEvaluation";
+import { XPathDate } from "../xpath/types";
 import type { AppTestSnapshot, AppTestState } from "./types";
 
 export function appTestIdentity(
@@ -88,6 +90,12 @@ async function contextFor(
 		ensureOnly: true,
 	});
 	return {
+		// FormEngine workers inherit this process's local timezone. SQL must
+		// use it too, independently of the database connection's timezone.
+		clock: {
+			timeZone: viewerTimeZone(),
+			today: XPathDate.fromJSDateOnly(new Date()).toISOString(),
+		},
 		locations: snapshot.locations,
 		testPlaceIds: snapshot.testPlaceIds,
 		testAssignmentPersonaIds: snapshot.testAssignmentPersonaIds,

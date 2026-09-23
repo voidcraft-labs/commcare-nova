@@ -69,7 +69,12 @@ delivered-app repair was separate edit work; it must not obscure these outcomes.
 | September role-gated first delivery | Failed at the production 120-call architect bound, after 37 peer calls. The peer independently reproduced registration and stock defects and found ownership problems. Corrections were in progress; no final handoff or user repair prompts. Known usage cost $6.5519418. This request now informs development and is not untouched acceptance. |
 | Fresh role-gated maintenance | Failed after design reviews, before any saved app or saved-app review. Four first-save rejections led to a request for internal workspace recovery. A subsequent product fix does not change this result. |
 
-There is no successful fresh role-gated end-to-end acceptance result yet.
+Subsequent fresh GPT-5.6 related-record builds completed without expert repair
+prompts. Independent browser, Postgres and Core checks established the serial
+role-handoff and retained-history journeys. The corrected-contract control also
+passed local HQ regeneration and normalized duplicate rejection. It still has a
+simultaneous-checkout limit and incorrectly called ordinary Preview records
+disposable in its handoff. These are bounded results, not unqualified acceptance.
 
 ## Agreed next sequence
 
@@ -114,30 +119,55 @@ There is no successful fresh role-gated end-to-end acceptance result yet.
    benchmark claims are hypotheses until observed in Nova. Do not change the
    production default merely because the newer model is cheaper.
 
-## Remaining work and decisions
+## Current evaluation and remaining work
 
-- [ ] Complete the audit and generic improvements above before scheduling another
-  full trial. Both earlier role trials remain failed. On September 22 the user
-  authorized up to $100 combined for all new trials, including GPT-6, extraction,
-  translation and any development retries. Track one conservative shared ledger,
-  reserve before dispatch and preserve unknown charges. The privately frozen
-  nursery request is available within this allocation; earlier allocations do
-  not increase the new ceiling.
-- [ ] Resolve tool discovery across automatic compaction. Production responses
-  repeatedly failed to rediscover previously loaded tools within one provider
-  response, before Nova's next history projection. The approved eight-request
-  synthetic probe cost $0.002319 and did not reproduce that failure. Its request
-  bound is exhausted. No production correction is justified by that probe alone.
-- [ ] Finish delivered-app acceptance: inspect remaining consequential workflows
-  and retained event history, and assess the final handoff's technical language.
-  The #667 presentation checks and final redundant-write cleanup/native checks
-  passed; these supervised checks do not establish autonomous authoring quality.
-  Preserve legitimate business-event fields.
-  Real deployment accounts and places have not been supplied. Do not fabricate
-  them or claim location-dependent ordinary submission has been established.
-- [ ] Retain physical-device, remote-HQ and offline-sync limits. Decide whether a
-  specific remaining requirement needs those observations; independent native
-  execution alone cannot establish them.
+The source-backed initial-delivery audit and observation improvements shipped in
+PRs #669, #670 and #673. The latter makes retained test evidence discoverable and
+missing test references recoverable. Plugin 1.36.0 followed compatible Nova code.
+The first GPT-6 role trial failed before handoff; that result remains failed.
+
+The document-led bilingual pair and separate editing pair completed, with
+independent browser and native checks. GPT-6 had clearer extraction and dependent
+question validation and lower measured cost. Its edit used fewer verification
+steps, so reduced calls alone are not an improvement. All five model roles have
+been exercised; the upgrade and offline caller audit remain in the model PR.
+
+A new matched role pair completed after evidence discovery was fixed. GPT-6's
+peer independently reproduced duplicate creation and a due-today item incorrectly
+marked overdue, as well as correcting ambiguous record selection. The architect
+left duplicate prevention unresolved and removed the overdue badge. Its candid
+handoff does not satisfy those requirements. The matched GPT-5.6 app handled
+both better, although the shared timezone defect also affects its list near a
+day boundary. Do not claim the new model universally improves quality or approve
+its release from cost alone.
+
+- [x] Audit actual tools, errors, reasoning summaries and review corrections;
+  distinguish observation defects from model judgment. Keep representative
+  findings in research, not an incident checklist in prompts.
+- [ ] Correct the shared local-day inconsistency: SQL `today()` used the database
+  zone while forms used the local runtime zone. Validate the viewer binding,
+  isolated journey clock, and native semantics; release with independent review
+  and green CI. Do not alter an evaluated app to turn its failed result into a pass.
+- [ ] Investigate why the architect abandoned an available uniqueness check and
+  whether useful form-record query knowledge is missing from focused guidance.
+  Improve the general authoring interface, then use a bounded fresh task to
+  assess first delivery. Do not prescribe the failed app's exact solution.
+- [ ] Finish the all-role comparison artifact and release decision. Preserve all
+  failures, requirements left unmet, verification-depth differences, context and
+  plan growth, repeated reads, token/cache usage and actual costs. Update all
+  active callers together if the release gate is met.
+- [ ] Keep the shared $100 authorization for all new trials, including retries,
+  extraction, translation and editing. Reserve before dispatch with the existing
+  conservative ledger; earlier allocations do not increase that ceiling.
+- [ ] Complete the delivered-app acceptance report at its current revision.
+  Its repair was externally supervised. Name, identities, shared ownership and
+  separate receipts were repaired; ordinary entry, retained observations and
+  independent native checks were inspected. Real worker accounts and places
+  were not supplied, so location-dependent ordinary submissions remain unproved.
+- [ ] Preserve provider-compaction uncertainty: the earlier bounded probe did
+  not reproduce discovery loss. No production fix is claimed from that probe.
+- [ ] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
+  limits. Native execution and local HQ regeneration do not establish them.
 
 ## Evaluation and delivery rules
 
@@ -173,9 +203,3 @@ source causes in
 and verified domain semantics in
 [`record-lifecycle-authoring.md`](../research/record-lifecycle-authoring.md).
 
-The newer role-based first-delivery trial completed its build but failed ordinary
-Preview readiness: saved personas lacked places required for shared ownership.
-Peer reviews found this; the architect incorrectly treated the creation capability
-as unavailable. The failed result remains evidence. Stable construction-tool
-discovery and independent post-submit paging fixes are under validation; new
-first-delivery acceptance and the all-role GPT-6 comparison remain unfinished.

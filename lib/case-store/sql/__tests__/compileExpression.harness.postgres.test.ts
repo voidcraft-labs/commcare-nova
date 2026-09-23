@@ -135,16 +135,56 @@ describe("compileExpression — round-trip — form bindings", () => {
 // ---------------------------------------------------------------
 
 describe("compileExpression — round-trip — today / now", () => {
-	test("today resolves to the current date", async ({ db }) => {
-		// Run a SELECT that materializes the `today` expression and
-		// compares it to Postgres's `CURRENT_DATE`. If the compiler
-		// emitted the right token, the comparison resolves to true.
-		const expr = compileExpression(today(), makeCtx(db));
-		const rows = await db
-			.selectFrom(sql`(values (1))`.as("v"))
-			.select(sql<boolean>`${expr} = current_date`.as("matches"))
-			.execute();
-		expect(rows).toEqual([{ matches: true }]);
+	test("today follows the viewer's calendar across midnight, independent of the database zone", async ({
+		db,
+	}) => {
+		for (const sessionZone of ["UTC", "America/Los_Angeles"]) {
+			await sql`select set_config('TimeZone', ${sessionZone}, true)`.execute(
+				db,
+			);
+			const { rows: clock } = await sql<{
+				instant: Date;
+			}>`select now() as instant`.execute(db);
+			const instant = clock[0].instant;
+			// These two viewer zones are 25 hours apart, so at least one
+			// disagrees with UTC at every time of day, without a clock mock.
+			for (const viewerZone of [
+				"Pacific/Kiritimati",
+				"Pacific/Pago_Pago",
+				undefined,
+				"Not/AZone",
+				"+05:30",
+			]) {
+				const validZone = viewerZone?.startsWith("Pacific/")
+					? viewerZone
+					: "UTC";
+				const parts = new Intl.DateTimeFormat("en-US", {
+					timeZone: validZone,
+					year: "numeric",
+					month: "2-digit",
+					day: "2-digit",
+				}).formatToParts(instant);
+				const part = (name: string) =>
+					parts.find((item) => item.type === name)?.value;
+				const expected = `${part("year")}-${part("month")}-${part("day")}`;
+				const expr = compileExpression(
+					today(),
+					makeCtx(db, {
+						bindings: { viewerTimeZone: viewerZone },
+					}),
+				);
+				const { rows } = await sql<{
+					day: string;
+					overdue: boolean;
+					type: string;
+				}>`
+					select cast(${expr} as text) as day,
+					cast(${expected} as date) < ${expr} as overdue,
+					pg_typeof(${expr})::text as type
+				`.execute(db);
+				expect(rows).toEqual([{ day: expected, overdue: false, type: "date" }]);
+			}
+		}
 	});
 
 	test("now resolves to the current timestamp", async ({ db }) => {

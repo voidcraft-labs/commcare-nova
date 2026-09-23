@@ -164,6 +164,39 @@ describe("app test session authority and evidence", () => {
 			}),
 		).toEqual(finished);
 	});
+	it("keeps old-runtime evidence readable and disposable without executing another action", async () => {
+		await setup();
+		const begun = await start();
+		await h
+			.db()
+			.updateTable("app_test_sessions")
+			.set({ runtime_version: 1 })
+			.where("id", "=", begun.testId)
+			.execute();
+		const action = {
+			...scope,
+			testId: begun.testId,
+			requestId: "new-step",
+			requestDigest: "new-step",
+			expectedStep: 0,
+			action: { kind: "observe" },
+			advance: async () => {
+				throw new Error("Old runtime must not execute");
+			},
+		};
+		await expect(advanceAppTestSession(action)).rejects.toThrow(
+			"runtime changed",
+		);
+		expect(
+			(await readAppTestSteps({ ...scope, testId: begun.testId })).steps,
+		).toHaveLength(1);
+		expect(
+			await advanceAppTestSession({ ...action, action: { kind: "finish" } }),
+		).toMatchObject({ observation: { ended: true } });
+		expect(
+			(await readAppTestSteps({ ...scope, testId: begun.testId })).disposed_at,
+		).not.toBeNull();
+	});
 	it("serializes a retry into one saved step and retains evidence after disposal", async () => {
 		await setup();
 		const begun = await start();
