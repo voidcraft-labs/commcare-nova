@@ -101,11 +101,15 @@ describe("buildSessionLintContext", () => {
 			if (!ctx) throw new Error("Missing session context");
 			const accept = caseTypePropsForValidation(ctx);
 			expect([...(accept?.keys() ?? [])]).toEqual(["patient"]);
-			expect([...(accept?.get("patient") ?? [])].sort()).toEqual([
-				"age",
-				"case_id",
-				"mood",
-			]);
+			for (const expression of [
+				"#patient/age",
+				"#patient/mood",
+				"#patient/owner_id",
+				"#patient/status",
+			]) {
+				expect(xpathDiagnostics(expression, ctx)).toEqual([]);
+			}
+			expect(xpathDiagnostics("#patient/unknown", ctx)).not.toEqual([]);
 			const formCtx = buildLintContext(state, formUuid);
 			if (!formCtx) throw new Error("Missing form context");
 			expect(xpathDiagnostics("#patient/mood = 'good'", ctx)).toEqual([]);

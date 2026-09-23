@@ -1091,3 +1091,8 @@ pending rows may reveal prompts stay available until insertion resolves them;
 an empty result re-anchors through the shared paging projection. Revealing an
 uncreated repeat on the current page also inserts it, under the controller’s
 atomic topology barrier. Later input cannot interrupt a partially created row.
+
+`previewHashtagNodeSet` uses the canonical case-attribute set for record metadata,
+matching form export. The casedb projection includes external ID as both its
+attribute and copied child, as Core does. Its opening/modification DateData values
+remain calendar dates in expressions, even though Postgres stores timestamps.

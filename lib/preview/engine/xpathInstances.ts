@@ -2,6 +2,7 @@ import type { CaseIndexRow } from "@/lib/case-store";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
 import {
+	CASE_NODE_ATTRIBUTE_PROPERTIES,
 	type CasePropertyDataType,
 	type CaseType,
 	USERCASE_CASE_TYPE,
@@ -364,6 +365,10 @@ function caseElement(
 				name: "last_modified",
 				value: caseDateValue(row.modified_on),
 			},
+			// Core also copies external_id from Case.data into a child element.
+			...(row.external_id === null
+				? []
+				: [{ name: "external_id", value: row.external_id }]),
 			...properties,
 			{
 				name: "index",
@@ -646,8 +651,8 @@ export function previewHashtagNodeSet(
 	);
 	return new XPathNodeSet(
 		selected.flatMap((node) =>
-			property === "case_id"
-				? [...node.attributes("case_id")]
+			CASE_NODE_ATTRIBUTE_PROPERTIES.has(property)
+				? [...node.attributes(property)]
 				: [...node.children(property)],
 		),
 		true,

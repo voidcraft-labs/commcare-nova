@@ -401,7 +401,6 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 			type: "case",
 			caseType: "mother",
 			path: "case_id",
-			label: "case id",
 		});
 	});
 

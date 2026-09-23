@@ -10,6 +10,7 @@
  * per-case-type namespaces, which the editor cannot parse.
  */
 import { parser } from "@/lib/commcare/xpath";
+import { emitCasePropertyWirePath } from "./casePropertyWire";
 import { USERCASE_CASE_SELECTOR } from "./usercaseWire";
 
 // Pre-resolve node types — zero string comparisons at runtime
@@ -116,14 +117,9 @@ export function expandCaseToWire(
 	// A walk with no trailing property (a bare `#case/parent` relationship)
 	// resolves to the related case node itself.
 	if (!propPath) return caseById(idExpr);
-	// A case's id is the `@case_id` ATTRIBUTE of its casedb element
-	// (`commcare-core .../CaseChildElement.java`: the record id is installed
-	// under the attribute name `case_id`; the children are `case_name`,
-	// `date_opened`, `last_modified`, and the case's own properties). A child
-	// element named `case_id` never exists, so the one property Nova seeds on
-	// every type (`toReachableIndex`) reads the attribute.
-	if (propPath === "case_id") return `${caseById(idExpr)}/@case_id`;
-	return `${caseById(idExpr)}/${propPath}`;
+	// Use the same metadata leaf mapping as record lists and queries. Core
+	// stores owner, status and identity as attributes, including after a parent walk.
+	return `${caseById(idExpr)}/${emitCasePropertyWirePath(propPath)}`;
 }
 
 /**

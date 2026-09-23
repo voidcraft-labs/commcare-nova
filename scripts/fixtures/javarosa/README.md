@@ -358,3 +358,15 @@ answers its area question, enters the second and observes that nested rows use
 the new answer. Returning after another earlier answer change retains the
 created row and its answer. This is exact local CCZ evidence; it does not claim
 unsectioned Preview has native question-by-question timing.
+
+## Built-in form record reads
+
+Run `node --conditions=react-server --import tsx
+scripts/fixtures/hq/emit-standard-case-reads.ts /tmp/nova-standard-case-reads-evidence`,
+then the Gradle command above with that resource directory and
+`--tests nova.compatibility.StandardCaseReadsRuntimeTest`. The exact admitted CCZ
+reads identity, name, owner, lifecycle status, external ID, opening date and last
+modification date on a selected record and a closed parent. Native Case storage
+supplies the records; this is not synthetic casedb XML. The paired Preview test
+uses the production casedb projection and FormEngine. Dates are calendar values
+in both form runtimes. This does not prove device sync or HQ regeneration.

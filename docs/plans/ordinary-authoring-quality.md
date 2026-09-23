@@ -160,16 +160,28 @@ its release from cost alone.
   real-Postgres evaluation and browser Add checks passed, followed by independent
   review and full CI. Deployed as Cloud Run revision 00557-w28. Primary-source
   evidence remains in `docs/research/query-repeat-authoring-context.md`.
-- [ ] Release the section-entry correction. Exact-export Core and actual Preview
-  Next confirmed later-page nested rows were inserted too early. The shared
-  engine now delays section rows, and app tests offer explicit page turns.
-  Controlled engine, Postgres journey and browser checks pass. Independent
-  review, complete CI, deployment and a fresh ordinary-agent trial remain.
+- [x] Release the section-entry correction (PR #679). Exact-export Core and
+  actual Preview Next confirmed later-page nested rows were inserted too early.
+  Shared engine and app-test page turns passed controlled tests, independent
+  review and full CI. Revision 00558-mtp serves production; plugin 1.38.0 followed.
   Unsectioned native question-by-question timing remains a stated boundary.
-- [ ] Investigate why the architect abandoned an available uniqueness check and
-  whether useful form-record query knowledge is missing from focused guidance.
-  Improve the general authoring interface, then use a bounded fresh task to
-  assess first delivery. Do not prescribe the failed app's exact solution.
+- [ ] Complete the fresh ordinary-agent comparison on the frozen corrected
+  runtime. Keep earlier failed outputs and distinguish a bounded useful app
+  from general autonomous quality. No expert repair instructions enter a trial.
+- [ ] Correct standard metadata reads in forms (PR #680). Shared form admission
+  omitted implicit values and form consumers misread attribute metadata. Exact
+  native export and Preview checks now cover selected and parent records;
+  independent review, CI and deployment remain. The current comparison excludes
+  this later correction on both sides.
+- [x] Investigate the abandoned uniqueness check: focused guidance omitted
+  usable form queries over worker-available records. PR #675 makes those reads
+  and predicate context discoverable with explicit local-state limits. It does
+  not add a global uniqueness guarantee or pass the failed trial.
+- [x] Bound native candidate-answer validation: both exports pass the actual
+  Core completion check called by the inspected Android save path, which rejects
+  the stored duplicate after initial candidate admission. No Android UI or
+  remote WebApps submission was exercised. Do not infer persistent browser
+  staleness from one immediate transition snapshot.
 - [ ] Finish the all-role comparison artifact and release decision. Preserve all
   failures, requirements left unmet, verification-depth differences, context and
   plan growth, repeated reads, token/cache usage and actual costs. Update all
@@ -177,8 +189,9 @@ its release from cost alone.
 - [ ] Keep the shared $100 authorization for all new trials, including retries,
   extraction, translation and editing. Reserve before dispatch with the existing
   conservative ledger; earlier allocations do not increase that ceiling.
-- [ ] Complete the delivered-app acceptance report at its current revision.
-  Its repair was externally supervised. Name, identities, shared ownership and
+- [x] Complete the delivered-app acceptance report at its current revision.
+  A final read-only refresh found no newer edits. Its repair was externally
+  supervised. Name, identities, shared ownership and
   separate receipts were repaired; ordinary entry, retained observations and
   independent native checks were inspected. Real worker accounts and places
   were not supplied, so location-dependent ordinary submissions remain unproved.
