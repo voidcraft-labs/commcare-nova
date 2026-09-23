@@ -1,9 +1,10 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
+import { createModelCallTransport } from "@/lib/agent/openaiProvider";
 import {
 	migrateTrialLedger,
 	scanTrialLedger,
@@ -147,62 +148,76 @@ it("recovers all run identities and refuses a different app or a cyclic ancestry
 it("captures the exact Standard request sent to the provider and stops before dispatch when reservation fails", async () => {
 	const received: Array<{ body: string; authorization: string | undefined }> =
 		[];
-	await withSocketHttpPeer(
-		"api.openai.com",
-		(request, response) => {
-			const chunks: Buffer[] = [];
-			request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
-			request.on("end", () => {
-				received.push({
-					body: Buffer.concat(chunks).toString(),
-					authorization: request.headers.authorization,
-				});
-				response.writeHead(200).end("ok");
+	const server = createServer((request, response) => {
+		const chunks: Buffer[] = [];
+		request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+		request.on("end", () => {
+			received.push({
+				body: Buffer.concat(chunks).toString(),
+				authorization: request.headers.authorization,
 			});
-		},
-		async () => {
-			let captured = "";
-			const transport = standardPilotTransport(
-				captureModelRequests(fetch, async (request) => {
-					captured = request.body;
-				}),
-			);
-			const body = JSON.stringify({
-				model: "gpt-6-sol",
-				input: "test",
-				service_tier: "priority",
-			});
-			const response = await transport("https://api.openai.com/v1/responses", {
+			response.writeHead(200).end("ok");
+		});
+	});
+	const production = createModelCallTransport();
+	try {
+		await new Promise<void>((resolve, reject) => {
+			server.once("error", reject);
+			server.listen(0, "127.0.0.1", resolve);
+		});
+		const address = server.address();
+		if (!address || typeof address === "string")
+			throw new Error("No peer port");
+		const url = `http://127.0.0.1:${address.port}/v1/responses`;
+
+		let captured = "";
+		const transport = standardPilotTransport(
+			captureModelRequests(production.fetch, async (request) => {
+				captured = request.body;
+			}),
+		);
+		const body = JSON.stringify({
+			model: "gpt-6-sol",
+			input: "test",
+			service_tier: "priority",
+		});
+		const response = await transport(url, {
+			method: "POST",
+			headers: {
+				Authorization: "Bearer synthetic",
+				"Content-Length": String(Buffer.byteLength(body)),
+			},
+			body,
+		});
+		expect(await response.text()).toBe("ok");
+		expect(received).toEqual([
+			{ body: captured, authorization: "Bearer synthetic" },
+		]);
+		expect(JSON.parse(captured)).toEqual({
+			model: "gpt-6-sol",
+			input: "test",
+			service_tier: "default",
+		});
+		const refusing = standardPilotTransport(
+			captureModelRequests(production.fetch, async () => {
+				throw new Error("No budget");
+			}),
+		);
+		await expect(
+			refusing(url, {
 				method: "POST",
-				headers: {
-					Authorization: "Bearer synthetic",
-					"Content-Length": String(Buffer.byteLength(body)),
-				},
 				body,
-			});
-			expect(await response.text()).toBe("ok");
-			expect(received).toEqual([
-				{ body: captured, authorization: "Bearer synthetic" },
-			]);
-			expect(JSON.parse(captured)).toEqual({
-				model: "gpt-6-sol",
-				input: "test",
-				service_tier: "default",
-			});
-			const refusing = standardPilotTransport(
-				captureModelRequests(fetch, async () => {
-					throw new Error("No budget");
-				}),
+			}),
+		).rejects.toThrow("No budget");
+		expect(received).toHaveLength(1);
+	} finally {
+		await production.destroy();
+		server.closeAllConnections();
+		if (server.listening)
+			await new Promise<void>((resolve, reject) =>
+				server.close((error) => (error ? reject(error) : resolve())),
 			);
-			await expect(
-				refusing("https://api.openai.com/v1/responses", {
-					method: "POST",
-					body,
-				}),
-			).rejects.toThrow("No budget");
-			expect(received).toHaveLength(1);
-		},
-	);
+	}
 });
 
 it("counts sibling continuations even when recovery selects an older checkpoint", () => {

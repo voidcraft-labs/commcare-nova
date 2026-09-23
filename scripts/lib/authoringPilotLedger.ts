@@ -119,16 +119,22 @@ export function standardPilotTransport(transport: typeof fetch): typeof fetch {
 	return async (input, init) => {
 		const request = new Request(input, init);
 		if (!new URL(request.url).pathname.endsWith("/responses"))
-			return transport(request);
+			return transport(input, init);
 		const body = z
 			.record(z.string(), z.unknown())
 			.parse(await request.clone().json());
 		body.service_tier = "default";
 		const headers = new Headers(request.headers);
 		headers.delete("content-length");
-		return transport(
-			new Request(request, { headers, body: JSON.stringify(body) }),
-		);
+		// Node's built-in Request and npm Undici's Request are different classes.
+		// Pass serialized values across the production transport boundary.
+		return transport(request.url, {
+			...init,
+			method: request.method,
+			headers: Object.fromEntries(headers),
+			body: JSON.stringify(body),
+			signal: request.signal,
+		});
 	};
 }
 
