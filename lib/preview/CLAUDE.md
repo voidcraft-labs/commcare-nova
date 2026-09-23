@@ -111,6 +111,9 @@ before rebuilding. A list row and the later full case read may be separate Map
 instances with identical values; that cold arrival must retain open controls,
 focus and browser-local drafts. Changed values or ancestor additions still
 rebuild the same entry, and confirmed scope changes still activate a new entry.
+A selected record must finish loading before a fresh entry accepts answers. The
+form remains visible, but its controls are inert until the binding and engine are
+ready; returning from a linked form must not expose a temporary blank preload.
 
 Every displayed prose slot contributes answer dependencies, including help,
 inline choice labels and validation messages. A question displaying its own

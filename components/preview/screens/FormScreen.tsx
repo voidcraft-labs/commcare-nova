@@ -1981,10 +1981,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
+	// The first engine can render before the selected record's preload arrives.
+	// Keep that visible form inert until its actual binding is ready, so a fresh
+	// entry cannot accept answers which the subsequent initialization replaces.
+	const selectedCaseLoading =
+		needsBoundCase && (effectiveCaseIds?.length ?? 0) > 0 && !caseBindingReady;
 	const formFrozen =
 		submitStatus.kind === "running" ||
 		clearRunning ||
 		engineInitializing ||
+		selectedCaseLoading ||
 		repeatTopologySettling;
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
@@ -2154,10 +2160,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/* The form ALWAYS renders: flipping to preview keeps it in place and the
 	 * case data loads IN; it is never swapped for a loading/empty interstitial
-	 * (that multi-stage flash is the antithesis of the flipbook). The only
-	 * thing a directly-previewed case-loading form gates on a bound case is
-	 * the submit action: `computeSubmissionMutation` needs the caseId, so
-	 * `caseMissing` drives the submit row below, not the whole screen. */
+	 * (that multi-stage flash is the antithesis of the flipbook). A selected
+	 * record still loading keeps the visible controls inert. With no record
+	 * selected, `caseMissing` drives the submit row rather than hiding the
+	 * form: the author can inspect it without claiming a writable target. */
 	const caseMissing =
 		needsBoundCase &&
 		(effectiveCaseIds === undefined || effectiveCaseIds.length === 0);

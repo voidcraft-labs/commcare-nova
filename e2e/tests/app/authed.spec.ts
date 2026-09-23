@@ -3056,15 +3056,58 @@ test.describe("authenticated builder", () => {
 				await expect(
 					main.getByRole("heading", { name: "Follow-up review", exact: true }),
 				).toBeVisible();
-				// Visit the source again without reloading the Builder session. The
-				// linked destination has remembered its last page from this visit.
-				await trail
-					.getByRole("button", { name: "Go back", exact: true })
-					.click();
-				await main
-					.getByRole("textbox", { name: visit.noteFieldLabel })
-					.fill(FORM_LINKS_SEED.linkingNote);
-				await main.getByRole("button", { name: "Submit", exact: true }).click();
+				// Hold only the source's selected-record read, retaining its real
+				// response. The previously visited form must not accept answers
+				// against stale data while the fresh entry is still being prepared.
+				const releaseCaseRead = Promise.withResolvers<void>();
+				let heldCaseRead = false;
+				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
+					const request = route.request();
+					const body = request.postData();
+					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
+					if (
+						request.method() === "POST" &&
+						request.headers()["next-action"] &&
+						Array.isArray(args) &&
+						args[0] === fixture.appId &&
+						args[1] === FORM_LINKS_SEED.caseType &&
+						typeof args[2] === "string" &&
+						args[3] === 0
+					) {
+						const response = await route.fetch();
+						heldCaseRead = true;
+						await releaseCaseRead.promise;
+						await route.fulfill({ response });
+						return;
+					}
+					await route.continue();
+				});
+				try {
+					await trail
+						.getByRole("button", { name: "Go back", exact: true })
+						.click();
+					await expect.poll(() => heldCaseRead).toBe(true);
+					await expect(
+						main.getByRole("textbox", { name: visit.noteFieldLabel }),
+					).toBeDisabled();
+				} finally {
+					releaseCaseRead.resolve();
+					await page.unrouteAll({ behavior: "wait" });
+				}
+				const submitAgain = main.getByRole("button", {
+					name: "Submit",
+					exact: true,
+				});
+				// Returning mounts the source before its selected-case preload has
+				// settled. Wait for the same submission readiness as the first entry
+				// before editing; a late preload may replace an earlier answer.
+				await expect(submitAgain).toBeEnabled();
+				const sourceNote = main.getByRole("textbox", {
+					name: visit.noteFieldLabel,
+				});
+				await sourceNote.fill(FORM_LINKS_SEED.linkingNote);
+				await expect(sourceNote).toHaveValue(FORM_LINKS_SEED.linkingNote);
+				await submitAgain.click();
 				await expect(
 					main.getByRole("textbox", { name: followUp.noteFieldLabel }),
 				).toBeVisible();
