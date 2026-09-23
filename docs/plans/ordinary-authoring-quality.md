@@ -125,9 +125,28 @@ Final model-release CI exposed another entry path: opening a case-loading form
 in Edit could initialize its query rows before Preview supplied the selected
 record. A controlled browser check reproduces the empty roster after the read
 arrives. The correction defers that first activation in either mode and preserves
-an already initialized entry through later Edit/Preview flips. Review, production
-browser evidence and release remain pending; no paid rerun or generated-app
-repair was used to bypass this runtime defect.
+an already initialized entry through later Edit/Preview flips. The production
+browser/Postgres check, fresh independent review and all 24 CI checks pass.
+PR #686 is deployed, with its exact artifact verified at revision 00565-8p7
+serving all traffic. No paid rerun or generated-app repair was used to bypass
+this runtime defect.
+
+A fresh role-gated related-record first-delivery trial completed on the reviewed
+model candidate in 198 calls for $2.8700952, without corrective prompts. Its
+request and criteria were frozen before calls and did not shape these fixes.
+Independent browser entry, failed-attempt retry across workers, coordinator
+coverage, stopped-recipient planning exclusion and retained history pass;
+Postgres and exact-export Core checks confirm the tested effects. The peer
+independently found a history dead end and list ergonomics problems, then reused
+earlier evidence while checking corrections. Minor language and driver-history
+limitations remain recorded. Browser inspection also found overlapping Builder
+header controls at 680px. PR #688 corrects the shared layout using rendered
+content widths and preserves control owners during resizing. Six production
+browser checks, an intrinsic-content browser check and manual Chrome pointer
+checks at 320/680px pass locally; the header returns to one row at 1440px. Fresh
+independent review found no actionable issues and all 24 CI checks passed.
+PR #688 is live at revision 00566-ncp, with the exact artifact verified at
+100% traffic. The original pointer defect remains in the trial evidence.
 
 The final development comparison exposed another browser boundary: an
 unsectioned query roster initialized before its selected record loaded, then
@@ -136,8 +155,8 @@ required per-person records, although the same authored export and isolated
 journeys populated the roster. That first delivery remains failed. A controlled
 browser regression reproduces the missing row with a delayed selected-record
 read; deferring form initialization until its binding is ready corrects that
-boundary. Review, deployment and verification of the unchanged authored output
-remain pending; the all-role model release is still held.
+boundary. PR #684 passed review and CI and is deployed; unchanged-output
+verification now passes the roster, submission and retained-history boundaries.
 
 Further runtime acceptance found two older task-continuation defects: returning
 Home retains a selected case parent, so reopening history can skip the choice of
@@ -145,11 +164,10 @@ another person; app tests instead clear that selection. A whole case-database
 refresh also retires the active engine and restores default values instead of
 edited answers. Keep these distinct from the initial-preload correction, retain
 the browser/controller reproductions, and preserve authorization and scope
-boundaries when correcting continuation behavior. The follow-up now resets task
-selection on Home and retains an entry through same-scope database refresh, with
-submission refused while data is unavailable. Controlled controller and browser
-checks pass; full app navigation checks, independent review, CI, deployment and
-unchanged-app verification remain acceptance work.
+boundaries when correcting continuation behavior. PR #685 passed independent
+review, controller and browser checks, including unchanged-output history
+navigation, and all 24 CI checks. The exact image is verified at production revision
+00564-j7w serving all traffic.
 
 
 The source-backed initial-delivery audit and observation improvements shipped in
@@ -196,11 +214,29 @@ its release from cost alone.
   Shared engine and app-test page turns passed controlled tests, independent
   review and full CI. Revision 00558-mtp serves production; plugin 1.38.0 followed.
   Unsectioned native question-by-question timing remains a stated boundary.
-- [ ] Resume and complete the bounded comparison on the frozen corrected runtime. The last
-  GPT-5.6 output passed its main role/history journey but excluded a valid zero
-  count; GPT-6 stopped at the shared budget guard before app review or handoff.
-  No expert repair instructions entered either trial. Results and the decision
-  to retain GPT-5.6 are in `docs/research/model-quality-comparison-results.md`.
+- [x] Resume the interrupted related-record comparison on its frozen runtime.
+  GPT-6 completed through ordinary recovery without expert repair prompts.
+  Browser entry, role switching, zero-count acceptance, shared retained history,
+  normalized duplicates, Postgres effects and exact-export Core checks passed.
+  Its 160 calls cost $2.190009 versus 165 calls and $5.261829 for GPT-5.6.
+  The original budget interruption and all earlier failures remain recorded.
+- [x] Correct misleading record-expression errors (PR #683). Existing function
+  metadata now distinguishes form-only functions, unknown functions and literal
+  argument requirements without changing expression admission. Real parser and
+  Preview checks, independent review and full CI passed; exact image/revision
+  deployment is verified. Both frozen development trials exclude this change.
+- [x] Complete the bounded matched full-roster development pair. Both models
+  delivered without corrective prompts. GPT-5.6 passed the principal browser,
+  Postgres and Core journey; GPT-6 passed Core but exposed a browser loading-order
+  defect. PR #684 is reviewed, CI green and live. The unchanged GPT-6 app now
+  saves separate marks, excludes leavers from later rosters while retaining
+  history, and rejects invalid session labels. This remains development evidence;
+  the original first-browser failure is preserved.
+- [x] Finish PR #685 CI/deployment. Home retained an old parent selection; data
+  refresh could erase answers. The generic fixes pass independent review and
+  controlled browser/controller checks, including the queued-rebuild race found
+  during review. The unchanged generated app now allows the coordinator to
+  choose a different participant from Home and inspect retained history.
 - [ ] Establish broader first-delivery quality beyond the bounded successes.
   Required workflows were still omitted in completed trials, and review missed
   consequential first-use and requirement gaps. Continue within the authorized
@@ -209,7 +245,8 @@ its release from cost alone.
   omitted implicit values and form consumers misread attribute metadata. Exact
   native export and Preview checks cover selected and parent records. Independent
   review and full CI passed; production revision 00559-6cl serves the exact
-  verified image. The final comparison excludes this later correction on both sides.
+  verified image. The reading pair excludes this later correction on both sides;
+  the final roster development pair includes it equally.
 - [x] Investigate the abandoned uniqueness check: focused guidance omitted
   usable form queries over worker-available records. PR #675 makes those reads
   and predicate context discoverable with explicit local-state limits. It does
@@ -219,29 +256,28 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Update the all-role comparison artifact and release decision after recovery. Keep GPT-5.6
-  defaults pending evidence: lower GPT-6 cost and clearer wording did not establish
-  equal or better complete role-based apps. Credit useful additional scrutiny
-  separately from unmet requirements; sparse trials do not rank general intelligence. All active callers are prepared together in a held
-  draft, including extractor and translator. Private evidence retains failures,
-  verification depth, context/plan growth, repeated reads and usage costs.
-- [ ] Correct the trial accounting and enforce the authorized $150 total ceiling,
-  including prior trials, retries, extraction, translation and editing. The old
-  $97.683844175 ledger included $17.135566335 of blanket margins. Reported usage
-  plus the entire unresolved reservation is $80.54827784, so the earlier claim
-  that the $100 allocation could not support continued work was too conservative.
-  Settle known usage without that surcharge, retain unknown charges, reserve
-  model-specific future costs, and carry trial limits across ordinary recovery.
-  Preserve the original ledger through a reviewed scan and separate conversion.
+- [ ] Release the reviewed all-role model change. Runtime dependencies #686
+  and #688 are deployed. The
+  completed comparison supports proceeding with GPT-6 Sol and Luna at existing
+  efforts; final rebase, review, CI and live verification remain. All callers,
+  including extraction, translation and offline scripts, move together. The
+  research report retains concrete benefits, regressions, costs and boundaries.
+  Sparse trials do not rank general intelligence.
+- [x] Correct trial accounting and enforce $150 TOTAL including prior trials,
+  retries, extraction, translation and editing. PR #682 is reviewed, CI green
+  and live verified. The original ledger and hash-checked conversion are retained.
+  Known usage after the additional held-out trial is $85.63447844 plus the entire
+  unresolved $12.0060125 reservation, totaling $97.64049094. The previous
+  blanket surcharge and premature budget stop remain documented mistakes.
 - [x] Complete the delivered-app acceptance report at its current revision.
   A final read-only refresh found no newer edits. Its repair was externally
   supervised. Name, identities, shared ownership and
   separate receipts were repaired; ordinary entry, retained observations and
   independent native checks were inspected. Real worker accounts and places
   were not supplied, so location-dependent ordinary submissions remain unproved.
-- [ ] Preserve provider-compaction uncertainty: the earlier bounded probe did
+- [x] Preserve provider-compaction uncertainty: the earlier bounded probe did
   not reproduce discovery loss. No production fix is claimed from that probe.
-- [ ] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
+- [x] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
   limits. Native execution and local HQ regeneration do not establish them.
 
 ## Evaluation and delivery rules

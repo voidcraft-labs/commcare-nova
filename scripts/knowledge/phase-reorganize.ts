@@ -1,4 +1,4 @@
-/** Phase 4: Reorganize — two-pass Opus reorganization of distilled knowledge files */
+/** Phase 4: Reorganize — two-pass reorganization of distilled knowledge files. */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -6,6 +6,7 @@ import * as readline from "node:readline";
 import { createOpenAI } from "@ai-sdk/openai";
 import { Output, streamText } from "ai";
 import { z } from "zod";
+import { MODEL_PRICING, OPENAI_BASE_OPTIONS } from "../../lib/models.js";
 import { log, logCost, logSummary } from "./log.js";
 import type { PipelineConfig } from "./types.js";
 
@@ -13,9 +14,11 @@ const DISTILL_DIR = ".data/confluence-cache/distilled";
 const KNOWLEDGE_DIR = "scripts/knowledge/output";
 const CACHE_DIR = ".data/confluence-cache";
 const PLAN_PATH = path.join(CACHE_DIR, "reorg-plan.json");
-const REORGANIZE_MODEL = "gpt-5.6-sol";
-const OPUS_INPUT_COST = 5; // $/M tokens
-const OPUS_OUTPUT_COST = 25; // $/M tokens
+const REORGANIZE_MODEL = "gpt-6-sol";
+// Conservative rates include long-context calls and more expensive cache writes.
+const RATES = MODEL_PRICING[REORGANIZE_MODEL].long;
+const INPUT_COST = Math.max(RATES.input, RATES.cacheWrite);
+const OUTPUT_COST = RATES.output;
 
 function estimateTokens(chars: number): number {
 	return Math.ceil(chars / 4);
@@ -113,8 +116,8 @@ export async function reorgPlan(config: PipelineConfig): Promise<ReorgPlan> {
 	const inputTokens = estimateTokens(allContent.length);
 	const outputTokensEst = 8000;
 	const estCost =
-		(inputTokens / 1_000_000) * OPUS_INPUT_COST +
-		(outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST;
+		(inputTokens / 1_000_000) * INPUT_COST +
+		(outputTokensEst / 1_000_000) * OUTPUT_COST;
 
 	log("Reorganize", `Pass 1: Planning reorganization`);
 	log(
@@ -190,10 +193,11 @@ KEEP — XPath expression patterns:
 KEEP — Blueprint-level design guidance:
 "A case list has a case type. Each column can be a case property or a calculate condition. In calculate conditions, the calculation runs over each row — use current()/property_name to reference the current row. If a parent case property is needed for display or search, denormalize it."`;
 
-	log("Reorganize", `  Sending to Opus...`);
+	log("Reorganize", `  Sending to ${REORGANIZE_MODEL}...`);
 
 	const stream = streamText({
 		model: openai(REORGANIZE_MODEL),
+		providerOptions: { openai: OPENAI_BASE_OPTIONS },
 		output: Output.object({ schema: reorgPlanSchema }),
 		system,
 		prompt: allContent,
@@ -242,8 +246,8 @@ KEEP — Blueprint-level design guidance:
 		"  Pass 1 done",
 		usage.inputTokens ?? 0,
 		usage.outputTokens ?? 0,
-		OPUS_INPUT_COST,
-		OPUS_OUTPUT_COST,
+		INPUT_COST,
+		OUTPUT_COST,
 	);
 
 	// Save plan
@@ -320,8 +324,8 @@ export async function reorgExecute(config: PipelineConfig): Promise<void> {
 		estimateTokens(totalSourceChars) + plan.files.length * 500; // system prompt overhead per call
 	const outputTokensEst = estimateTokens(totalSourceChars * 0.7); // output ~70% of input size
 	const estCost =
-		(inputTokensEst / 1_000_000) * OPUS_INPUT_COST +
-		(outputTokensEst / 1_000_000) * OPUS_OUTPUT_COST;
+		(inputTokensEst / 1_000_000) * INPUT_COST +
+		(outputTokensEst / 1_000_000) * OUTPUT_COST;
 
 	log(
 		"Reorganize",
@@ -458,6 +462,7 @@ ${sourceContent}`;
 		try {
 			const result = streamText({
 				model: openai(REORGANIZE_MODEL),
+				providerOptions: { openai: OPENAI_BASE_OPTIONS },
 				system,
 				prompt,
 			});
@@ -486,8 +491,8 @@ ${sourceContent}`;
 				`    ${file.filename}.md`,
 				usage.inputTokens ?? 0,
 				usage.outputTokens ?? 0,
-				OPUS_INPUT_COST,
-				OPUS_OUTPUT_COST,
+				INPUT_COST,
+				OUTPUT_COST,
 			);
 			totalCost += fileCost;
 			log("Reorganize", `    Running total: $${totalCost.toFixed(4)}`);
@@ -532,7 +537,7 @@ ${sourceContent}`;
 		"Files:",
 		...generatedFiles.map((f) => `  ${f.filename}.md — ${f.title}`),
 		"",
-		`Total cost: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Estimated total at maximum token rates: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 	]);
 }
 
@@ -543,7 +548,7 @@ export async function reorganize(config: PipelineConfig): Promise<void> {
 
 	if (!config.skipConfirmation) {
 		const ok = await confirm(
-			`[Reorganize] Proceed to Pass 2 (write ${plan.files.length} files with Opus)?`,
+			`[Reorganize] Proceed to Pass 2 (write ${plan.files.length} files with ${REORGANIZE_MODEL})?`,
 		);
 		if (!ok) {
 			log(

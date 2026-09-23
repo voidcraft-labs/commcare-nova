@@ -99,9 +99,10 @@ form reference spellings. Form XPath reads ancestors by type, such as
 registration/survey nor multiple selection claims a single record context.
 The fields guide distinguishes this selected-record context from a query-bound
 repeat's retained row identity. It documents the direct-child
-`current()/../@id` read and the actual initialization point: form load for a
-top-level repeat, creation of its enclosing repeat row for a nested repeat.
-Later answers or page entry do not rebuild membership.
+`current()/../@id` read and the actual initialization point: form load for
+unsectioned top-level rows, first section entry for section content, and creation
+of an enclosing repeat row for nested rows. Returning to a section retains its
+existing rows and answers; later answers do not rebuild membership.
 
 The architect has a durable 180-call allowance per user turn, including recovery;
 peer and translation bounds remain separate. Reaching a bound is an unfinished
@@ -242,3 +243,18 @@ unvisited page or submit from an earlier one. Returning preserves existing rows.
 A one-shot form check follows supplied answer order and visits remaining pages;
 it is not a navigation acceptance result. Native checks remain necessary for
 question-by-question timing outside authored sections.
+## Model generation and saved context
+
+All production roles use GPT-6: Sol at medium effort for the architect, peer,
+document extraction and translation; Luna at xhigh for ordinary edits. The
+role map in `lib/models.ts` owns these choices. Extraction version 6 gives new
+requests a distinct cache key; previous extracts remain readable at their stored
+version. Usage retains the producing model and its recorded cost.
+
+Ordinary edit history uses Nova's conservative continuation policy: completed
+historical turns lose reasoning, while same-model trailing question continuations
+retain it. A model change converts that answered question round to dialogue.
+Durable build and peer histories retain reasoning and discard incompatible
+compaction checkpoints. This is local compatibility policy, not a claim that the
+provider rejects all reasoning across models. No model upgrade alone establishes
+first-delivery quality; the active evaluation plan records that evidence.

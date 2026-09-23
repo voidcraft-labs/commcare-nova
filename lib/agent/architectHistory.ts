@@ -40,8 +40,8 @@ export async function projectArchitectHistory<
 	 * and `strict` are read, so a definition-only record projects identically
 	 * to the mounted one. */
 	tools: ToolSet;
-	/** The model this turn runs on: prior-turn reasoning and compaction
-	 * checkpoints are model-bound. */
+	/** The model this turn runs on: Nova's continuation and compaction
+	 * compatibility policies compare this identity. */
 	model: string;
 }): Promise<ProjectedArchitectHistory<UI>> {
 	/* Repair deploy-crossing histories BEFORE validation: preserve the AI
@@ -62,15 +62,12 @@ export async function projectArchitectHistory<
 		args.tools,
 	);
 
-	/* Apply the reasoning-part wire contract AFTER the tool repair (what
-	 * pairing survives depends on which tool parts did): historical assistant
-	 * messages drop their reasoning parts: prior-turn reasoning is ignored
-	 * server-side, bills as input every turn, and is model-bound (one model
-	 * change would 400 every old thread), while a trailing answered
-	 * askQuestions continuation keeps its reasoning (the wire REQUIRES it
-	 * beside the function call whose output this turn submits) unless the
-	 * pause crossed a model change, in which case the round rides as plain
-	 * dialogue text. Contract + sources on the module. */
+	/* Apply Nova's reasoning replay policy after tool repair, since surviving
+	 * tool parts determine continuation pairing. Completed historical turns
+	 * drop reasoning; a same-model trailing answered question preserves it.
+	 * Cross-model question continuations become dialogue text. Current models
+	 * can use compatible prior-turn reasoning; this conservative editor policy
+	 * is separate from the durable architect/peer history contract. */
 	const reasoningSafe = sanitizeHistoricalReasoningParts(sanitized, args.model);
 	const effective = projectCompatibleCompactedHistory(
 		reasoningSafe,

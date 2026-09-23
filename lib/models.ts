@@ -3,7 +3,7 @@
  *
  * Every LLM call goes straight to OpenAI through `@ai-sdk/openai` (the
  * Responses API) with the ONE server credential, `OPENAI_API_KEY`. Model ids
- * are OpenAI's own (e.g. "gpt-5.6-luna"); swapping a constant here switches
+ * are OpenAI's own (e.g. "gpt-6-luna"); swapping a constant here switches
  * the model on every surface that uses it.
  */
 
@@ -53,7 +53,7 @@ export const OPENAI_BASE_OPTIONS = {
  * summaries to stream back as `reasoning-delta` parts; without it the
  * reasoning phase is silent and nothing feeds the live-progress surfaces.
  *
- * `cache` (optional) activates GPT-5.6's documented prompt-cache
+ * `cache` (optional) activates the documented prompt-cache
  * configuration as ONE unit — `promptCacheKey` (cache-routing affinity; the
  * SA passes one key per app) together with `promptCacheOptions
  * { mode: 'implicit', ttl: '30m' }` (contractual 30-minute lifetime;
@@ -98,23 +98,23 @@ interface ModelRoleConfig {
  */
 export const MODEL_ROLES = {
 	architect: {
-		modelId: "gpt-5.6-sol",
+		modelId: "gpt-6-sol",
 		reasoningEffort: "medium",
 	},
 	peer: {
-		modelId: "gpt-5.6-sol",
+		modelId: "gpt-6-sol",
 		reasoningEffort: "medium",
 	},
 	followUpEditor: {
-		modelId: "gpt-5.6-luna",
+		modelId: "gpt-6-luna",
 		reasoningEffort: "xhigh",
 	},
 	documentExtractor: {
-		modelId: "gpt-5.6-sol",
+		modelId: "gpt-6-sol",
 		reasoningEffort: "medium",
 	},
 	translator: {
-		modelId: "gpt-5.6-sol",
+		modelId: "gpt-6-sol",
 		reasoningEffort: "medium",
 	},
 } as const satisfies Record<string, ModelRoleConfig>;

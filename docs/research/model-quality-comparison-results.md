@@ -1,10 +1,13 @@
 # First-delivery model comparison results
 
-September 23, 2026. The bounded comparison is complete with an incomplete final
-GPT-6 trial at the shared budget guard. The production default remains GPT-5.6.
-GPT-6 improved cost and some writing, but completed role-based trials did not
-establish equal or better first-delivery quality. The all-role upgrade remains
-a draft. Infrastructure corrections do not retrospectively pass failed apps.
+September 23, 2026. The interrupted GPT-6 related-record trial completed through
+ordinary recovery on its original runtime, without expert repair prompts. Its
+first delivery passed bounded browser, Postgres and exact-export native checks.
+The final matched roster pair completed. Its GPT-6 output exposed a shared
+browser initialization defect despite passing native checks. Generic runtime
+corrections now pass unchanged-output browser verification. The evidence supports
+releasing all five roles together after its remaining runtime dependency is live. Earlier
+failures remain failed; sparse outcomes do not establish a general model ranking.
 
 The method is in [model-quality-comparison-method.md](model-quality-comparison-method.md).
 Requests, source documents, generated app names, identifiers and full transcripts
@@ -28,7 +31,9 @@ Sol medium for architect, peer, extraction and translation; Luna xhigh for editi
 | Repeated-record task, GPT-5.6 | 190 completed; one charge uncertain | $7.555687 known | 20 | Core workflow omitted; final review timed out |
 | Same task, GPT-6, including ordinary clarification | 296 | $6.147800 | 29 unique | Core workflow omitted despite useful ordinary answers |
 | Final simpler related-record task, GPT-5.6 | 165 | $5.261829 | 8 | Main entry/sharing/history journey passed; unrequested positive-only count fails the zero-count criterion |
-| Same final task, GPT-6, including ordinary clarification | 49 | $0.610479 | 4 unique | Budget-limited before saved-app review or handoff; no ordinary Preview entry |
+| Same final task, GPT-6, including ordinary clarification and recovery | 160 | $2.190009 | 4 unique | Entry, shared retained history, zero count, normalized duplicates and native checks passed; original budget interruption preserved |
+| Full-roster development task, GPT-5.6 | 210 | $8.140068 | 8 | Principal browser, persisted history and native journeys passed, with a short-name usability limit |
+| Same full-roster task, GPT-6 | 231 | $4.502519 | 1 | First browser failed at empty roster; exact-export native checks passed; controlled test identifies shared loading-order defect |
 
 The bilingual pair's captured runner, prompt, orchestrator, loop, authoring tools,
 session and translation source hashes match; model-role configuration differs.
@@ -104,7 +109,7 @@ failed despite its useful internal review and candid setup notes.
 GPT-5.6 used 92 architect and 55 peer requests; GPT-6 used 104 and 130. Current
 plans grew from 5,989 to 10,489 and 4,847 to 10,576 characters respectively.
 GPT-6 was cheaper again, but did more review without delivering a usable start.
-The release remains held. General first-use readiness guidance and input
+At that point, the release remained held. General first-use readiness guidance and input
 provenance shipped in PR #676; this failed task informed development and cannot
 serve as untouched acceptance for that correction.
 
@@ -151,11 +156,29 @@ correction.
 
 GPT-6 asked a useful question about offline uniqueness, and the ordinary answer
 accepted its recommended sync-first process and coordinator review with honest
-limits. After 17 first-turn calls and 32 continuation calls, the shared guard
-refused another dispatch. The saved app had no ordinary Preview entry and no
-final app review or handoff. This is an incomplete budget-limited result, not
-proof that GPT-6 could not complete with more budget. Its draft allowed zero;
-that isolated improvement does not establish a better delivered app.
+limits. The original two turns stopped at the old guard after 49 calls. Following
+accounting correction and renewed authorization, the same conversation resumed
+on the captured runtime with no corrective instructions. A local transport
+construction error was proved to occur before dispatch; it was fixed, separately
+recorded and charged at zero. The successful continuation made 111 model calls.
+
+The completed GPT-6 app passed ordinary empty entry, saved role switching, shared
+registration, negative-count rejection, zero-count acceptance, later submissions,
+normalized duplicate rejection and distinct parents' filtered histories. Real
+Postgres retained two parent records and three correctly linked child records.
+The exact export passed independent Core registration, validation and transaction
+checks. Native session inputs were supplied only for that separate wire boundary;
+they were not substituted for ordinary browser entry.
+
+Its peer independently found an unfiltered history, verified the correction, and
+reused earlier unchanged registration/submission evidence. A later check focused
+on the clarified case-sensitive search hint. The current plan was revised rather
+than continually appended: it finished at 6,651 characters after peaking at
+6,735, versus 10,967 for GPT-5.6. GPT-6 used 160 calls (76 architect, 84 peer),
+compared with 165 (93 architect, 72 peer), and cost about 58% less. Its date still
+requires manual entry whereas GPT-5.6 supplies today; lowercase search guidance
+is an honest usability limitation. These differences belong alongside the
+successful zero-count behavior, not behind a single model score.
 
 The original ledger stopped at $97.683844175 against the $100 authorization.
 Reported usage was $68.54226534; a blanket 25% surcharge added $17.135566335,
@@ -164,18 +187,129 @@ unresolved reservation was therefore $80.54827784. The surcharge and uniform
 prospective rates caused an unnecessarily conservative stop. The earlier claim
 that continuing required more authorization was incorrect.
 
-The user subsequently authorized $150 total, including prior spending. The
-corrected guard settles reported usage without the surcharge, retains the unknown
-reservation and uses model-specific prospective bounds. The interrupted trial
-will resume through ordinary recovery; its interruption remains evidence and
-its completion has not yet been established.
+The user subsequently authorized $150 total, including prior spending. PR #682
+corrected settlement and model-specific prospective reservations, carried trial
+allowances across recovery, and preserved the original ledger through a reviewed
+scan and separate conversion. After successful recovery, known usage was
+$82.76438324 plus the unchanged $12.0060125 unresolved reservation, totaling
+$94.77039574 after the final development pair. These are token-derived costs,
+not a reconciled provider invoice.
 
-The release decision is to keep GPT-5.6 defaults and retain the all-role GPT-6
-upgrade pending resumed evaluation. Extraction, translation and editing were
-exercised alongside architect/peer behavior; no partial model switch is claimed.
-Useful bounded first deliveries exist, but broad autonomous quality remains
-unfinished in the active plan. The private comparison preserves full extracts,
-completion messages, concrete better/worse examples and independent evidence.
+The resumed first delivery and corrected-runtime roster checks support proceeding
+with the all-role upgrade once its runtime dependencies are deployed. Extraction, translation and ordinary editing have also
+been compared; no partial model switch is claimed. The final matched pair uses
+the corrected repeat and section-entry runtime plus the metadata fix equally on
+both sides, with the same 32,000-token output ceiling. Because earlier roster
+failures informed those changes, this pair is development evidence, not untouched
+acceptance or a replacement result for the failed task. The related-record and
+bilingual comparisons remain separate evidence. Full extracts, completion
+messages, concrete better/worse examples and independent checks stay private.
+
+## Full-roster development comparison
+
+The final matched pair checks the previously omitted whole-roster workflow after
+PRs #678/#679 and the built-in metadata correction. Both sides use the same
+request, production runtime and 32,000-token output ceiling; only configured
+models differ. This is development evidence because earlier failures informed
+the corrections. No expert feedback was sent to either build.
+
+GPT-5.6 completed in 210 calls (129 architect, 81 peer), costing $8.1400684.
+The peer independently caught missing role restrictions, missing-assignment
+submission failure, an absent duplicate-session check, redundant history routes,
+an unusable empty roster and ambiguous participant identification. Corrections
+went through ordinary authoring tools. Later reviews reused unchanged evidence
+and focused on the remaining relationship-backed display column.
+
+Independent ordinary browser entry used the saved coordinator and two facilitator
+identities from an empty business-data start. One submission saved separate marks
+for two participants. A later session omitted a departed participant while the
+coordinator could still reach both people's earlier history. Another group's
+roster excluded those participants. Actual Postgres rows retained the original
+statuses and notes with correct parents and shared ownership. A declared per-tab
+timezone override exercised the next calendar date; it was restored afterward.
+This later-session control is distinct from ordinary initial-entry evidence.
+
+The exact exported forms and suite also passed CommCare Core registration,
+section-entry roster materialization, linked transactions, duplicate rejection,
+departure without closure, and retained history. Native inputs included worker
+cases and an older group fixture; they do not establish real account setup or
+physical-device sync. The first native harness attempt lacked Core's case-index
+storage adapter; fixing that harness did not change the app or exported XML.
+
+Usability is qualified: an unrequested two-character name minimum rejects short
+names, its combined assignment/name error does not explain that restriction,
+and the final handoff leads with review status and revision rather than a clear
+starting task. Preview also exposes generic repeat/instance terminology. None of
+these are concealed by the successful core workflow.
+
+Two failed expression calls exposed a generic diagnostic defect: form-only
+functions used in record predicates or operation values returned a misleading
+literal-value error. PR #683 names the actual expression boundary and preserves
+accepted semantics. It is excluded from both frozen trials, and no repair
+instructions were supplied to them.
+
+GPT-6 completed normally in 231 calls (158 architect, 73 peer), costing
+$4.5025189. Its peer independently found missing role gates, ambiguous same-day
+history, normalized duplicate labels and whitespace-only labels. The architect
+corrected these through normal tools, though related label boundaries took several
+successive passes. It accepted a one-character name and gave a clearer handoff
+covering first tasks, worker roles, real setup and offline limits. One returned
+tool error concerned a missing document reference; it does not establish a model
+hallucination rate.
+
+Its first ordinary browser result failed. Two correctly linked current participants
+were present, but the session form showed an empty roster and saved a session with
+no attendance marks. The exact revision's exported forms passed Core roster
+materialization, linked transactions, later sessions, departure with retained
+history, other-group separation and label validation.
+
+A controlled production browser regression establishes the difference: FormScreen
+initialized before its selected-record preload arrived. The subsequent same-entry
+refresh correctly retained query membership, which had initialized empty. Isolated
+app tests and Core receive the context before initialization, so neither covers this
+React loading order. PR #684 defers first activation until the binding is ready.
+PR #684 passed independent review and all CI checks and is deployed. On its
+corrected runtime, the unchanged generated app saved separate marks for both
+participants, required each attendance answer, excluded a departed participant
+from later rosters without closing or deleting their record, blocked duplicate
+and blank session labels, and separated another group’s participants. Postgres
+confirmed distinct sessions and retained notes.
+
+Ordinary Home navigation then exposed a second product defect: it retained the
+previous history parent and skipped the next participant selector. PR #685 clears
+task context at Home while preserving worker identity and authorization. On that
+code, the unchanged app now lets the coordinator select each participant and read
+their separate retained history without switching roles. It also preserves edited
+answers across same-scope data refresh, including a queued-rebuild race found by
+independent review. Controlled production browser and controller checks pass;
+its reviewed change is deployed. The first-browser failure remains
+recorded; runtime correction does not retroactively make it an autonomous pass.
+
+Final model-release CI then exposed a separate entry route. The test opened a
+form in Edit before entering Preview, so its expectation of a cold engine was
+timing-dependent. A controlled production-component check established the real
+consequence: the Edit engine could capture empty query membership before the
+selected record arrived and retain it in Preview. PR #686 requires that context
+for first initialization in either mode. The regression fails on the prior code
+and passes after correction, alongside the production-build/Postgres preload
+check and retained-answer checks through later Edit/Preview flips. Independent
+review found no actionable issues. All 24 CI checks passed; the exact artifact
+is verified at production revision 00565-8p7 serving all traffic. No generated
+app was edited or paid trial rerun to bypass this runtime defect.
+
+| Full-roster metric | GPT-5.6 | GPT-6 |
+| --- | ---: | ---: |
+| Input tokens, including cache | 14,352,009 | 16,681,571 |
+| Output tokens, including reasoning | 42,187 | 32,643 |
+| Cache-read tokens | 13,992,286 | 16,288,582 |
+| Cache-write tokens | 260,522 | 264,789 |
+| Largest call input | 119,641 | 123,083 |
+| Current-plan characters, first to last | 9,612 to 12,480 | 5,370 to 9,317 |
+
+GPT-6 cost about 45% less, with more calls and input tokens. Its plan peaked at
+9,737 characters and then shrank; it was revised rather than simply appended.
+Fewer invalid calls and a clearer handoff are useful differences, but do not hide
+the browser failure or repeated review of closely related cases.
 
 These sparse trials do not establish a general model ranking or a hallucination
 rate. GPT-6 discovered real defects the GPT-5.6 review missed, including a shared
@@ -183,6 +317,55 @@ date error. Credit that scrutiny separately from the architect's unresolved or
 removed requirements. Useful diagnosis can improve while first-delivery quality
 still falls short; neither unclear tooling nor candid disclosure makes a missing
 requested workflow pass.
+
+## Fresh held-out first delivery
+
+An additional role-gated related-record request was frozen before any calls and
+did not shape the implementation. GPT-6 completed the ordinary architect/peer
+process in 198 calls (89 architect, 109 peer), costing $2.8700952. No clarification
+was requested, no expert correction was supplied, and the delivered app was not
+edited for acceptance. This is an unpaired held-out check, not a replacement
+result for an earlier failed comparison.
+
+Independent ordinary browser entry began with no business records and used the
+three saved worker identities. Registration, per-recipient daily planning,
+required-answer and duplicate rejection, a failed attempt followed by another
+worker's successful retry, coordinator coverage, stopping new service and later
+history all passed. Actual Postgres rows retained separate attempts, original
+notes and worker identities, correct parent relationships and shared ownership.
+Stopped and completed business states did not close the cases. The exact export
+also passed independent Core constraints, preloads and case transactions, with
+explicit native session inputs confined to that separate consumer boundary.
+
+The peer independently found missing history navigation, crowded list columns,
+ambiguous dietary information and ownership requirements. After corrections, it
+reused earlier observations and checked changed behavior. One design review and
+three saved-app reviews were still required; the last checked wording. Five
+returned tool errors included first-save and unsaved-test prerequisites, a
+case-context display condition, an unsupported nested menu and an invented
+scenario key. The agents recovered through ordinary tool results without operator
+instructions. These are specific observations, not a hallucination-rate estimate.
+
+The current plan finished at 8,898 characters after peaking at 9,334. The run used
+10,527,492 input tokens including cache, 26,365 output tokens, 10,307,136 cache-read
+tokens and 208,612 cache-write tokens. The largest call input was 92,772 tokens.
+This retained context supported focused follow-up; it did not eliminate repeated
+review or establish optimal cost.
+
+The principal requested workflow is usable, with recorded limits: a long history
+label, raw outcome words in record names, and a note hint suggesting later-driver
+access that the authored driver menus do not establish. Coordinator history is
+available as requested. Browser inspection also found a shared Builder header
+overlap at 680px; keyboard selection worked, but pointer access did not. PR #688 corrects that
+shared layout. Controlled production-browser checks and manual pointer checks
+at 320/680px pass locally, with one-row layout restored at 1440px; independent
+review found no actionable issues. All 24 CI checks passed; the exact artifact
+is verified at production revision 00566-ncp serving 100% traffic. Physical
+device UI, offline concurrency and real worker provisioning remain unproved.
+
+After this trial, total reported usage is $85.63447844, with the original unresolved
+reservation of $12.0060125 retained. Accounting totals $97.64049094 against the
+$150 authorization, leaving $52.35950906. No further paid run is currently needed.
 
 ## Context and cost
 
@@ -254,3 +437,22 @@ deployment accounts and places were not fabricated to make acceptance appear com
 
 This small set supports bounded improvements in usability, writing and cost. It
 does not establish universal reliability or a general model ranking.
+
+## All-role release decision
+
+Proceed with GPT-6 Sol for architect, peer, document extraction and translation,
+and GPT-6 Luna for ordinary editing, at the existing reasoning efforts, after
+the final model PR passes review and CI. The runtime dependencies, including
+PR #686 and the header correction in PR #688, are already live. Offline extraction
+and knowledge callers move to the corresponding GPT-6 models as well. This is a bounded product
+decision: the later comparisons cover usable ordinary entry and retained history,
+the document-led comparison covers source fidelity and language behavior, and
+all measured pairs cost less. The evidence does not establish universally better
+judgment, a lower hallucination rate or that every first delivery needs no edits.
+
+Earlier omitted requirements remain failures. The release includes general
+information-access and runtime corrections, not app-specific prompts. Review can
+still over-check closely related cases, and complex first-delivery reliability
+remains unfinished acceptance in the active quality plan. No further paid run is
+necessary to restate the already tested runtime corrections; the original frozen
+outputs and their failures are preserved beside the post-correction observations.

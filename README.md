@@ -4,7 +4,7 @@ A web app for designing CommCare applications through natural language conversat
 
 ## How it works
 
-Nova uses a single AI agent — the **Solutions Architect (SA)** — powered by OpenAI's GPT-5.6 through the Vercel AI Gateway (Vercel AI SDK). The SA converses with users to understand requirements, generates a complete app blueprint through tool calls, and handles subsequent edits in the same conversational interface.
+Nova uses OpenAI's GPT-6 through the direct Responses API and Vercel AI SDK. An architect designs and builds the app, with an independent peer reviewing the plan and saved behavior. A Solutions Architect handles subsequent edits in the same conversational interface. Document extraction and translation use the same configured model family; `lib/models.ts` owns the production roles and reasoning efforts.
 
 Users authenticate via Google OAuth, and each app is persisted to Cloud SQL Postgres with full ownership tracking. After initial generation, users can revisit their apps, edit them through chat or the visual builder, and pick up where they left off. Chat history is preserved per-app as threaded conversations.
 
@@ -95,12 +95,15 @@ A [Lefthook](https://github.com/evilmartians/lefthook) pre-commit hook runs `bio
 
 ## Integration tests
 
-Some tests run against a real Postgres engine instead of hand-rolled mocks — they catch schema-boundary bugs that pure unit tests can't, since the test author chooses both sides of a mock and a wrong assumption goes undetected. These live in files matching `**/*.integration.test.ts` and run as part of `npm test`: the suite boots one [testcontainers](https://testcontainers.com/) Postgres per run (Docker required) and applies the real migrations, so tests exercise exactly the schema production runs.
+Transaction tests use real Postgres and live in `*.postgres.test.ts` or
+`*.postgres.test.tsx`; ordinary tests run without Docker. Browser behavior uses
+Playwright, and wire claims need independent consumers. See
+[docs/testing.md](docs/testing.md) for commands, boundaries and resource ownership.
 
 ## Stack
 
 - **Next.js 16** (App Router, Turbopack) · **TypeScript** strict · **Tailwind CSS v4**
-- **Vercel AI SDK** + **Vercel AI Gateway** (OpenAI GPT-5.6) — streaming chat, tool calls, structured output
+- **Vercel AI SDK** + **OpenAI Responses API** (GPT-6 Sol and Luna) — streaming chat, tool calls, structured output
 - **@modelcontextprotocol/server** (MCP SDK v2) — `/api/mcp` streamable-HTTP server exposing the SA's tools to external clients
 - **Better Auth** + **@better-auth/oauth-provider** + **@better-auth/cimd** — Google OAuth for the app, OAuth 2.1 authorization server for MCP clients, which identify themselves by Client ID Metadata Document or by dynamic registration
 - **Cloud SQL Postgres** (Kysely) — app persistence, case data, chat threads, event logging, usage, realtime fan-out via LISTEN/NOTIFY
