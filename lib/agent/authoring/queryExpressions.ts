@@ -1,4 +1,5 @@
 import {
+	FUNCTION_REGISTRY,
 	functionArityIssue,
 	QUERY_FUNCTIONS,
 } from "@/lib/domain/expressionFunctions";
@@ -49,7 +50,11 @@ const arithmetic = new Set(["+", "-", "*", "div", "mod"]);
 function arity(name: string, args: readonly Node[]) {
 	const spec = QUERY_FUNCTIONS.get(name);
 	if (!spec)
-		throw new AuthoringInputError(`Unknown expression function: ${name}.`);
+		throw new AuthoringInputError(
+			FUNCTION_REGISTRY.has(name)
+				? `${name}() is available in form expressions, but not record expressions. The expressions guide describes each function's supported contexts.`
+				: `Unknown expression function: ${name}(). The expressions guide lists supported functions.`,
+		);
 	const issue = functionArityIssue(name, args.length, spec);
 	if (issue) throw new AuthoringInputError(issue);
 }
@@ -162,8 +167,8 @@ function compiler(bindings: QueryBindings) {
 			return bindings.reference(node.namespace, node.path);
 		if (node.kind === "call") {
 			const { name, args } = node;
+			arity(name, args);
 			if (name === "property") {
-				arity(name, args);
 				const via = args[2] ? relation(args[2]) : undefined;
 				const origin = string(args[0]);
 				if (via && origin !== bindings.typeContext.currentCaseType)
@@ -181,7 +186,6 @@ function compiler(bindings: QueryBindings) {
 				};
 			}
 			if (name === "via") {
-				arity(name, args);
 				const path = relation(args[0]);
 				const property = compiler(bindings.forRelation(path)).term(args[1]);
 				if (property.kind !== "prop" || property.via !== undefined)
@@ -194,29 +198,24 @@ function compiler(bindings: QueryBindings) {
 				return { ...property, caseType: origin, via: path };
 			}
 			if (["field", "search", "user"].includes(name)) {
-				arity(name, args);
 				return bindings.reference(
 					name === "field" ? "form" : name,
 					string(args[0]).split("/"),
 				);
 			}
 			if (name === "session") {
-				arity(name, args);
 				return { kind: "session-context", field: string(args[0]) };
 			}
 			if (name === "external-user") {
-				arity(name, args);
 				return { kind: "session-user", field: string(args[0]) };
 			}
 			if (name === "location") {
-				arity(name, args);
 				return {
 					kind: "fixed-location",
 					locationUuid: bindings.identity("location", string(args[0])),
 				};
 			}
 			if (name === "owner-location") {
-				arity(name, args);
 				return {
 					kind: "owner-location-at-level",
 					levelUuid: bindings.identity("level", string(args[0])),
@@ -224,7 +223,6 @@ function compiler(bindings: QueryBindings) {
 				};
 			}
 			if (name === "table-column") {
-				arity(name, args);
 				const tableId = bindings.identity("table", string(args[0]));
 				return {
 					kind: "table-column",
@@ -486,7 +484,10 @@ function compiler(bindings: QueryBindings) {
 				}),
 			};
 		}
-		throw new AuthoringInputError(`Unknown condition function: ${name}.`);
+		arity(name, args);
+		throw new AuthoringInputError(
+			`${name}() does not produce a condition. This slot needs a condition, such as #case/age >= 18.`,
+		);
 	}
 	return { predicate, value, term };
 }

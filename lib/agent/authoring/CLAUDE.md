@@ -51,7 +51,10 @@ the owning tool's missing-item and no-op behavior. A name is never a stored alia
 
 `lib/domain/expressionFunctions.ts` owns form and record-expression signatures.
 Both parsers validate arity from that catalog; `getAuthoringGuide` reads it for
-function lookup. Shared operations keep their semantics across contexts. The
+function lookup. Record-expression refusals identify form-only or unknown functions
+before interpreting their arguments as literal constructors; the same catalog
+owns that distinction. Genuine literal-only arguments keep their own refusal.
+Shared operations keep their semantics across contexts. The
 expressions guide explains reference scope once; form guidance covers wording
 and question behavior separately.
 

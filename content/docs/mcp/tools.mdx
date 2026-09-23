@@ -115,7 +115,9 @@ Forms and record expressions share their common functions. `is-blank(value)`
 accepts any value: missing and empty are blank; zero, false and whitespace are not.
 `coalesce` returns the first nonblank argument, or the last argument as its fallback.
 For a function's scope and argument count, use `get_authoring_guide` with
-`topic: "expressions"` and `functionName`.
+`topic: "expressions"` and `functionName`. If a form-only function appears in a
+record expression, the error names the function and its supported context. A
+function accepted in one context is not automatically available in the other.
 
 `evaluate_form` runs a form with supplied answers using the production Preview
 engine. It reports question state, validation and proposed case values without

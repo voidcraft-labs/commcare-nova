@@ -328,6 +328,58 @@ it("keeps literal punctuation and backslashes distinct from executable reference
 	}
 });
 
+it("identifies unsupported record functions without mistaking their arguments for literals", () => {
+	for (const [source, name, parse] of [
+		["concat(string(2), ' attendees')", "string", parseQueryValue],
+		[
+			"string-length(external-user('group')) > 0",
+			"string-length",
+			parseQueryPredicate,
+		],
+		["contains('Ada', 'A')", "contains", parseQueryPredicate],
+	] as const) {
+		try {
+			parse(source, scope);
+			throw new Error("Unsupported function was accepted");
+		} catch (error) {
+			expect(error).toBeInstanceOf(AuthoringInputError);
+			expect((error as Error).message).toContain(`${name}()`);
+			expect((error as Error).message).toMatch(
+				/form expressions.*not record expressions/,
+			);
+		}
+	}
+	// Supported replacements still execute through the production runtime.
+	const session = previewSessionValues(
+		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+	);
+	expect(
+		evaluatePreviewSearchExpression(
+			parseQueryValue("concat(2, ' attendees')", scope),
+			session,
+		),
+	).toBe("2 attendees");
+	expect(
+		evaluatePreviewSearchPredicate(
+			parseQueryPredicate("not(is-blank(session('userid')))", scope),
+			[],
+			session,
+			new Map(),
+		),
+	).toBe(true);
+	expect(() => parseQueryValue("nonexistent(1)", scope)).toThrow(
+		/Unknown.*nonexistent/,
+	);
+	expect(() => parseQueryPredicate("today()", scope)).toThrow(
+		/today\(\).*condition/,
+	);
+	// Literal-only arguments retain their own diagnostic rather than a false
+	// unsupported-function claim for an admitted expression.
+	expect(() =>
+		parseQueryValue("format-date(today(), #form/pattern)", scope),
+	).toThrow(/literal/);
+});
+
 it("rejects unresolved paths, incomplete syntax, and unsupported calls instead of storing opaque text", () => {
 	for (const source of [
 		"age >= 18",
