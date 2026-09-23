@@ -29,7 +29,13 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useLayoutEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	Tooltip,
 	TooltipContent,
@@ -76,7 +82,8 @@ export interface AppHeaderProps {
 	account?: ReactNode;
 	/** Give `actions` (and then the banner) rows of their own under the band,
 	 *  for a surface whose tools cannot fit beside everything else at the width
-	 *  it is being asked to. Nothing shrinks: the 44px floor is a floor. */
+	 *  it is being asked to. This is a minimum: rendered slot widths can also
+	 *  require extra rows. Nothing shrinks: the 44px floor is a floor. */
 	stacked?: boolean;
 }
 
@@ -89,12 +96,93 @@ export function AppHeader({
 	center,
 	actions,
 	account,
-	stacked = false,
+	stacked: forceStacked = false,
 }: AppHeaderProps) {
 	/* Under 360px of height every band gives up its outer air first: the
 	 * controls inside are already at the floor and cannot. */
 	const shortViewport = useIsBreakpoint("max", 360, "height");
 	const band = shortViewport ? "60px" : "64px";
+
+	const headerRef = useRef<HTMLElement>(null);
+	const startRef = useRef<HTMLDivElement>(null);
+	const centerRef = useRef<HTMLDivElement>(null);
+	const toolsRef = useRef<HTMLDivElement>(null);
+	const actionsRef = useRef<HTMLDivElement>(null);
+	const accountRef = useRef<HTMLDivElement>(null);
+	const bannerRef = useRef<HTMLDivElement>(null);
+	const [fit, setFit] = useState({
+		toolsNeedRow: false,
+		centerNeedsRow: false,
+	});
+	const stacked = forceStacked || fit.toolsNeedRow || fit.centerNeedsRow;
+
+	useLayoutEffect(() => {
+		const header = headerRef.current;
+		const start = startRef.current;
+		const center = centerRef.current;
+		const tools = toolsRef.current;
+		const actions = actionsRef.current;
+		const account = accountRef.current;
+		if (!header || !start || !center || !tools || !actions || !account) return;
+		const measure = () => {
+			const headerStyle = getComputedStyle(header);
+			const available =
+				header.clientWidth -
+				Number.parseFloat(headerStyle.paddingLeft) -
+				Number.parseFloat(headerStyle.paddingRight);
+			const width = (element: HTMLElement) =>
+				element.getBoundingClientRect().width;
+			const gap = Number.parseFloat(getComputedStyle(tools).columnGap) || 0;
+			const leftGap = Number.parseFloat(getComputedStyle(start).columnGap) || 0;
+			const bannerWidth = bannerRef.current
+				? width(bannerRef.current) + leftGap
+				: 0;
+			const left = width(start) + (stacked ? bannerWidth : 0);
+			const leftWithoutBanner = left - bannerWidth;
+			const centerWidth = width(center);
+			const right = width(actions) + gap + width(account);
+			const toolsNeedRow =
+				centerWidth > 0 && centerWidth + 2 * Math.max(left, right) > available;
+			const centerNeedsRow =
+				centerWidth > 0 &&
+				centerWidth + 2 * Math.max(leftWithoutBanner, width(account)) >
+					available;
+			setFit((previous) =>
+				previous.toolsNeedRow === toolsNeedRow &&
+				previous.centerNeedsRow === centerNeedsRow
+					? previous
+					: { toolsNeedRow, centerNeedsRow },
+			);
+		};
+		// Measure intrinsic slot contents, not their available grid tracks. The
+		// same widths decide both directions, so stacking cannot trap itself or
+		// oscillate. Portal arrivals, persona/language changes and presence all
+		// resize these boxes without requiring a window resize.
+		// A layout change can resize the observed header itself. Apply the next
+		// measurement outside the observer delivery so it never writes layout
+		// back into that delivery cycle.
+		let frame = 0;
+		const observer = new ResizeObserver(() => {
+			cancelAnimationFrame(frame);
+			frame = requestAnimationFrame(measure);
+		});
+		const bannerElement = banner ? bannerRef.current : null;
+		for (const element of [
+			header,
+			start,
+			center,
+			actions,
+			account,
+			bannerElement,
+		]) {
+			if (element) observer.observe(element);
+		}
+		measure();
+		return () => {
+			observer.disconnect();
+			cancelAnimationFrame(frame);
+		};
+	}, [stacked, banner]);
 
 	/* Armed by the lockup collapsing AND the claiming surface saying that
 	 * collapse is a build starting. `onAnimationEnd` clears it rather than a
@@ -146,12 +234,16 @@ export function AppHeader({
 		 * column's min-content, so a long impersonation banner or a wide tool
 		 * cluster would push the centre off centre instead of compressing. */
 		<header
+			ref={headerRef}
 			data-app-header
 			data-header-layout={stacked ? "stacked" : "standard"}
 			style={{ gridTemplateRows: stacked ? `${band} auto` : band }}
 			className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center border-b border-nova-border bg-nova-void px-2 sm:px-4"
 		>
-			<div className="col-start-1 row-start-1 flex min-w-0 items-center sm:gap-4">
+			<div
+				ref={startRef}
+				className={`col-start-1 row-start-1 flex items-center sm:gap-4 ${markOnly ? "w-max" : "min-w-0"}`}
+			>
 				{/* Composed from the primitives rather than `SimpleTooltip`, which
 				    returns its child BARE when there is no content: that moves the
 				    mark between two positions in the tree, React rebuilds the
@@ -163,11 +255,22 @@ export function AppHeader({
 					<TooltipTrigger render={mark} />
 					{tip ? <TooltipContent side="bottom">{tip}</TooltipContent> : null}
 				</Tooltip>
-				{stacked ? null : banner}
+				{!stacked && banner ? (
+					<div ref={bannerRef} className={markOnly ? "w-max" : "min-w-0"}>
+						{banner}
+					</div>
+				) : null}
 				{start}
 			</div>
 
-			<div className="col-start-2 row-start-1 min-w-0 justify-self-center">
+			<div
+				ref={centerRef}
+				className={
+					fit.centerNeedsRow
+						? "col-span-3 row-start-2 flex min-h-12 w-max max-w-full items-center justify-self-center"
+						: "col-start-2 row-start-1 w-max justify-self-center"
+				}
+			>
 				{center}
 			</div>
 
@@ -176,9 +279,10 @@ export function AppHeader({
 			    must change where this box SITS and never which box it is. */}
 			<div
 				data-app-header-tools
+				ref={toolsRef}
 				className={
 					stacked
-						? "col-span-3 row-start-2 -mx-2 flex min-h-12 min-w-0 items-center justify-center gap-1 border-t border-nova-border px-2 sm:-mx-4 sm:px-4"
+						? "contents gap-1 sm:gap-2"
 						: "col-start-3 row-start-1 flex min-w-0 items-center gap-1 justify-self-end sm:gap-2"
 				}
 			>
@@ -190,24 +294,38 @@ export function AppHeader({
 				    only the box's own left edge moves, and the account control beyond
 				    it never shifts at all. */}
 				<div
-					className={`grid min-w-0 items-center [&>*]:[grid-area:1/1] ${
-						stacked ? "justify-items-center" : "justify-items-end"
-					}`}
+					style={
+						stacked ? { gridRowStart: fit.centerNeedsRow ? 3 : 2 } : undefined
+					}
+					className={
+						stacked
+							? "col-span-3 -mx-2 flex min-h-12 min-w-0 items-center justify-center border-t border-nova-border px-2 sm:-mx-4 sm:px-4"
+							: "min-w-0"
+					}
 				>
-					{actions}
+					<div
+						ref={actionsRef}
+						className="grid w-max items-center justify-items-end [&>*]:[grid-area:1/1]"
+					>
+						{actions}
+					</div>
 				</div>
-				{stacked ? null : account}
-			</div>
-
-			{stacked ? (
-				<div className="col-start-3 row-start-1 justify-self-end">
+				<div
+					ref={accountRef}
+					className="col-start-3 row-start-1 w-max shrink-0 justify-self-end"
+				>
 					{account}
 				</div>
-			) : null}
+			</div>
 
 			{stacked && banner ? (
-				<div className="col-span-3 row-start-3 -mx-2 min-w-0 border-t border-nova-border px-2 py-2 sm:-mx-4 sm:px-4">
-					{banner}
+				<div
+					style={{ gridRowStart: fit.centerNeedsRow ? 4 : 3 }}
+					className="col-span-3 -mx-2 min-w-0 border-t border-nova-border px-2 py-2 sm:-mx-4 sm:px-4"
+				>
+					<div ref={bannerRef} className="w-max max-w-full">
+						{banner}
+					</div>
 				</div>
 			) : null}
 		</header>

@@ -84,7 +84,7 @@ function PreviewIdentityMenuBody() {
 						<Button
 							type="button"
 							variant="ghost"
-							className="max-w-52 max-sm:max-w-28 max-sm:gap-1 max-sm:px-2"
+							className="transition-colors max-w-52 max-sm:max-w-28 max-sm:gap-1 max-sm:px-2"
 						/>
 					}
 				>
