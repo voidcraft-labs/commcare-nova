@@ -3224,6 +3224,9 @@ test.describe("authenticated builder", () => {
 				);
 				await editor.press("ControlOrMeta+Enter");
 				expect((await saved).ok()).toBe(true);
+				// Response headers precede the browser's decoded save receipt.
+				// Finish this edit before the next step replaces the document.
+				await expect(page.getByText(/^Saved /)).toBeVisible();
 			});
 
 			await test.step("the Search canvas names the form Results offers, and the tree marks it", async () => {
