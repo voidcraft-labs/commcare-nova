@@ -80,7 +80,16 @@ platform behavior; the peer derives expected outcomes from the request before
 judging the proposed solution. Review includes later visits where required
 history could be lost behind a current summary. Record-expression reads include
 the read-only `case_id`, including through relationships, so a parent update does
-not require copied identity fields or a redesigned workflow.
+not require copied identity fields or a redesigned workflow. Form reads expose
+`recordContext`: the single selected type and its reachable ancestors, with
+form reference spellings. Form XPath reads ancestors by type, such as
+`#household/region`; record expressions use relationship functions. Neither
+registration/survey nor multiple selection claims a single record context.
+
+The architect has a durable 180-call allowance per user turn, including recovery;
+peer and translation bounds remain separate. Reaching a bound is an unfinished
+run, not successful delivery. The initial 120-call role trial failed during
+peer-driven corrections and remains failed evidence.
 
 Hosted tool search defers shared definitions for Nova's model calls. This lowers
 the initial context but does not remove their eventual cost. Schema factoring,

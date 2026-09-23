@@ -51,7 +51,13 @@ unless you supply other Results columns. Set a form's `recordName` to an answer
 or expression, such as `#form/name` or `concat(#form/borrower, ' - ', #form/tool)`.
 Nova creates the underlying writer and preserves other saved answers. Advanced
 create operations use their `name` expression for the same purpose.
-`get_form` returns the current naming rule and navigation; `get_module` describes
+`get_form` returns the current naming rule, navigation, and `recordContext` for
+reading the selected record and its ancestors. In form expressions,
+`#household/region` reads the selected record’s household ancestor;
+`#household/case_id` reads that ancestor’s identity. Registration and survey
+forms have no selected record.
+
+`get_module` describes
 its normal opening screen, including Search or Results where applicable.
 
 Adding a form to a module that currently shows only a case list keeps that list

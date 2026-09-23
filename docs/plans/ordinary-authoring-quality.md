@@ -66,6 +66,7 @@ delivered-app repair was separate edit work; it must not obscure these outcomes.
 | Development lending | Completed; principal independent Preview and Core checks passed. The request influenced implementation, and an externally discovered entry correction was not established by the original trial. Development evidence, not untouched acceptance. |
 | First related-record role trial | Failed. A saved app existed, but the run stopped during corrections before final peer review at its conservative budget boundary. Independent checks found substantive remaining defects. |
 | Workshop | Completed after an 80-call harness stop and 22-call same-input recovery without expert feedback. Principal independent Preview and Core checks passed. This was a materially different request, but not an uninterrupted run or physical-device/offline proof. |
+| September role-gated first delivery | Failed at the production 120-call architect bound, after 37 peer calls. The peer independently reproduced registration and stock defects and found ownership problems. Corrections were in progress; no final handoff or user repair prompts. Known usage cost $6.5519418. This request now informs development and is not untouched acceptance. |
 | Fresh role-gated maintenance | Failed after design reviews, before any saved app or saved-app review. Four first-save rejections led to a request for internal workspace recovery. A subsequent product fix does not change this result. |
 
 There is no successful fresh role-gated end-to-end acceptance result yet.

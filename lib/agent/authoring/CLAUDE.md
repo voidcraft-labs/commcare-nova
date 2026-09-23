@@ -78,6 +78,9 @@ parse and print scope. The existing type checker owns relation traversal and
 numeric inference; do not duplicate those rules here.
 The effective catalog includes read-only `case_id`: a relationship identity read
 can target an existing parent directly without adding an authored ID property.
+Form reads expose the selected and reachable ancestor types with their typed
+form-reference spellings through `formRecordContext.ts`, using the domain load
+and reachability rules. Read sources are distinct from write destinations.
 Its wire attribute and Postgres scalar projection already belong to the shared
 property readers; ordinary field and operation writes remain forbidden.
 

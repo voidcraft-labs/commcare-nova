@@ -19,7 +19,7 @@ export const textSchema = z
 export const expressionSchema = z
 	.union([z.string(), z.boolean()])
 	.describe(
-		"XPath: #form/age reads an answer; #case/age reads the selected record. Booleans set constant conditions.",
+		"XPath: #form/age reads an answer; #case/age reads the selected record; #household/region reads its household ancestor by record type. Booleans set constant conditions.",
 	);
 
 /** Interpolation names a reference, never executable code. Backslash escapes

@@ -18,7 +18,10 @@ import {
 	recoverableCompletedModelSteps,
 } from "./modelContextStore";
 
-export const ARCHITECT_MAX_STEPS = 120;
+// The entry-to-submission trial exhausted 120 architect steps while correcting
+// independently reproduced peer findings. Include room for focused correction
+// and verification; the durable per-turn bound still includes resumed calls.
+export const ARCHITECT_MAX_STEPS = 180;
 // Entry-to-next-task checks need several observations per journey. The first
 // role-gated trial used 18 scoped reads and 22 journey calls before completing
 // its first review. Retain a durable bound, with room to finish the evidence.
