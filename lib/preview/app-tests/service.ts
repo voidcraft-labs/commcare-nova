@@ -93,6 +93,13 @@ export async function startAppTest(
 				blueprintSeq: source.blueprintSeq,
 			};
 			await seedAppTest(tx, testScope, snapshot, input);
+			const suppliedRecords = new Map<string, number>();
+			for (const record of input.scenario?.records ?? []) {
+				suppliedRecords.set(
+					record.caseType,
+					(suppliedRecords.get(record.caseType) ?? 0) + 1,
+				);
+			}
 			const initial: AppTestState = {
 				personaUuid: null,
 				screen: { kind: "home" },
@@ -126,6 +133,10 @@ export async function startAppTest(
 				observation: {
 					...observed.observation,
 					purpose: input.purpose,
+					suppliedRecords: Array.from(suppliedRecords, ([caseType, count]) => ({
+						caseType,
+						count,
+					})),
 					sourceRevision: source.blueprintSeq,
 					lookupRevision: snapshot.lookup.projectRevision,
 					organizationRevision: snapshot.organizationRevision,

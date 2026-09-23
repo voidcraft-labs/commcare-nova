@@ -84,7 +84,12 @@ Prompts do not duplicate either the inventory or
 the underlying storage grammar.
 The architect consults focused guidance before designing around uncertain
 platform behavior; the peer derives expected outcomes from the request before
-judging the proposed solution. Review includes later visits where required
+judging the proposed solution. Design and review assess how users obtain the first required records from their
+provided or agreed starting state. Seeded later-stage journeys cannot establish
+that readiness; retained start observations identify supplied record counts by
+type. External setup remains a design decision to resolve when it changes the
+user's workflow, not a handoff that automatically makes a blocked app usable.
+Review includes later visits where required
 history could be lost behind a current summary. Record-expression reads include
 the read-only `case_id`, including through relationships, so a parent update does
 not require copied identity fields or a redesigned workflow. Form reads expose

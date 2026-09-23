@@ -241,3 +241,30 @@ action and cell-value projection, with explicit Continue/Back and current,
 device-scoped record reads. Native previous-screen semantics still need a
 separate navigation check; mirroring observed Preview behavior is not proof of
 a native session stack. Neither correction changes the failed trial's verdict.
+
+## Supplied prerequisites concealed a blocked first task
+
+A matched initial-build trial introduced prerequisite parent records to preserve
+portable ownership. Its peer found and corrected real ownership and history
+defects, using `startAppTest` with supplied parent records. The final design had
+no in-app creation path for those prerequisites. The user had not supplied the
+records or agreed to an external import. Independent browser entry reached an
+empty required selector, so the first delivery failed.
+
+This was not an unavailable observation: omitting `scenario` already starts a
+journey without business records. The peer explicitly recognized the external
+setup and still accepted the app. Existing guidance favored app-entry testing
+but allowed whatever starting records the example needed; it did not connect
+those assumptions strongly enough to the user's starting state. The shared
+scenario description also described a non-writing form check, although app tests
+retain isolated transactional effects.
+
+Design guidance now asks how the first records arise and treats consequential
+external setup as a user decision. Architect and peer distinguish first-use
+readiness from seeded later-stage checks. The app-test schema describes its own
+storage boundary, and the retained start observation reports supplied record
+counts by type. This makes input provenance available to another reviewer after
+the original call, without a second approval model or test-plan bureaucracy.
+There is no requirement to start every workflow empty: existing data and agreed
+imports are legitimate inputs. Prompt prose is assessed in bounded agent trials,
+not substring tests. The failed app remains failed evidence.
