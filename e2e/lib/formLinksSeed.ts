@@ -122,10 +122,29 @@ export function buildFormLinksBlueprint(appId = "test-app"): BlueprintDoc {
 						type: "followup",
 						fields: [
 							f({
-								uuid: FORM_LINKS_SEED.followUp.noteFieldUuid,
-								kind: "text",
-								id: "followup_note",
-								label: proseText(FORM_LINKS_SEED.followUp.noteFieldLabel),
+								kind: "section",
+								id: "followup_details",
+								label: proseText("Follow-up details"),
+								children: [
+									f({
+										uuid: FORM_LINKS_SEED.followUp.noteFieldUuid,
+										kind: "text",
+										id: "followup_note",
+										label: proseText(FORM_LINKS_SEED.followUp.noteFieldLabel),
+									}),
+								],
+							}),
+							f({
+								kind: "section",
+								id: "followup_review",
+								label: proseText("Follow-up review"),
+								children: [
+									f({
+										kind: "label",
+										id: "review",
+										label: proseText("Review this visit before submitting."),
+									}),
+								],
 							}),
 						],
 					},

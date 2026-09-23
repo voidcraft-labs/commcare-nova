@@ -80,10 +80,23 @@ platform behavior; the peer derives expected outcomes from the request before
 judging the proposed solution. Review includes later visits where required
 history could be lost behind a current summary. Record-expression reads include
 the read-only `case_id`, including through relationships, so a parent update does
-not require copied identity fields or a redesigned workflow.
+not require copied identity fields or a redesigned workflow. Form reads expose
+`recordContext`: the single selected type and its reachable ancestors, with
+form reference spellings. Form XPath reads ancestors by type, such as
+`#household/region`; record expressions use relationship functions. Neither
+registration/survey nor multiple selection claims a single record context.
+
+The architect has a durable 180-call allowance per user turn, including recovery;
+peer and translation bounds remain separate. Reaching a bound is an unfinished
+run, not successful delivery. The initial 120-call role trial failed during
+peer-driven corrections and remains failed evidence.
 
 Hosted tool search defers shared definitions for Nova's model calls. This lowers
-the initial context but does not remove their eventual cost. Schema factoring,
+the initial context but does not remove their eventual cost. The architect's
+construction catalog stays stable before and after the first save; operations
+requiring a saved app explain that prerequisite at invocation before side effects.
+This avoids teaching a temporary absence as a permanent product limitation.
+Schema factoring,
 plain authored content, scoped reads, and concise semantic results reduce the
 actual representation. `/agents` keeps the total catalog visible alongside the
 initial surface, prompt, changing context, and recorded usage.

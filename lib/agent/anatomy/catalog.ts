@@ -1,7 +1,7 @@
 /**
  * The role catalog: one entry per model role, with the facts a reader needs
  * before the prompt text (model and effort, prompt version, cache key,
- * ledger, ceilings, strictness, call site), and the four lifecycles that
+ * ledger, ceilings, strictness, call site), and the lifecycles that
  * connect the roles on the map.
  *
  * Facts come from the production constants that govern each call site.
@@ -75,17 +75,6 @@ export interface RoleFacts {
 	readonly ceilings: readonly RoleFact[];
 	/** The primary call site. */
 	readonly source: SourceRef;
-}
-
-const MODEL_LABELS: Record<string, string> = {
-	"gpt-5.6-sol": "Sol",
-	"gpt-5.6-luna": "Luna",
-	"gpt-5.6-terra": "Terra",
-};
-
-/** "Luna" for `gpt-5.6-luna`; the raw id for anything unfamiliar. */
-export function modelLabel(modelId: string): string {
-	return MODEL_LABELS[modelId] ?? modelId;
 }
 
 function roleModel(key: ModelRoleKey) {
@@ -244,7 +233,12 @@ export function providerOptionsFor(role: AnatomyRoleId): unknown {
 
 // ── The lifecycles on the map ────────────────────────────────────────────
 
-export type LifecycleId = "chat-build" | "chat-edit" | "attachment" | "mcp";
+export type LifecycleId =
+	| "chat-build"
+	| "chat-edit"
+	| "attachment"
+	| "translation"
+	| "mcp";
 
 export type LifecycleStep =
 	| {
@@ -317,7 +311,7 @@ export const LIFECYCLES: readonly Lifecycle[] = [
 		id: "attachment",
 		title: "Attachment",
 		summary:
-			"A document is read once, at upload or as the send-time backstop, and its extract rides every later turn.",
+			"A document is extracted at upload or as a send-time backstop. The build architect reads stored passages on demand; edit turns resolve attached extracts into context.",
 		steps: [
 			{ kind: "input", label: "One document: text, docx, xlsx, or pdf" },
 			{
@@ -326,6 +320,27 @@ export const LIFECYCLES: readonly Lifecycle[] = [
 				note: "one structured call, figures ride as image parts",
 			},
 			{ kind: "handoff", label: "hands: a stored extract the architect reads" },
+		],
+	},
+	{
+		id: "translation",
+		title: "Translation",
+		summary:
+			"The authoring agent requests a language; a translator processes the app's current worker-facing content in batches.",
+		steps: [
+			{
+				kind: "input",
+				label: "Source wording, target language and terminology",
+			},
+			{
+				kind: "role",
+				role: "translator",
+				note: "Validates each structured batch before applying it.",
+			},
+			{
+				kind: "handoff",
+				label: "Saved translations marked for language review",
+			},
 		],
 	},
 	{

@@ -10,7 +10,6 @@ import {
 	lifecyclesFor,
 	listDesignSessions,
 	listLocalApps,
-	modelLabel,
 	providerOptionsFor,
 	ROLE_FACTS,
 	readAppInput,
@@ -93,7 +92,7 @@ export default async function AgentRolePage({
 				id,
 				title: ROLE_FACTS[id].title,
 			}))}
-			modelLabel={facts.modelId === null ? null : modelLabel(facts.modelId)}
+			modelLabel={facts.modelId}
 			lifecycles={lifecyclesFor(role).map((lifecycle) => lifecycle.title)}
 			moments={composition.moments}
 			momentId={momentSpec.id}

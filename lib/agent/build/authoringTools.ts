@@ -103,18 +103,18 @@ export function sharedToolAvailable(
 	phase: AuthoringToolPhase,
 ): boolean {
 	if (entry.policy.effect === "read-blueprint") return true;
-	if (entry.policy.effect === "exercise-app") return phase.hasApp;
-	if (phase.role === "peer" || !phase.building) return false;
-	return (
-		entry.policy.staging !== "forbidden" ||
-		phase.hasApp ||
-		entry.policy.capabilities.includes("lookup-write")
-	);
+	if (phase.role === "peer")
+		return entry.policy.effect === "exercise-app" && phase.hasApp;
+	// Keep the construction catalog stable across the first save. Hiding a
+	// resource until then teaches the architect that the capability is absent;
+	// deferred tool discovery does not announce newly available definitions.
+	// The invocation boundary explains prerequisites before any side effect.
+	return phase.building;
 }
 
 /** All authoring definitions come from the same editor/MCP registry. Hosted
- * search defers their loading; unavailable effects are absent, not forbidden
- * by a paragraph the model has to remember. */
+ * search defers their loading. Role authority determines discovery; first-save
+ * prerequisites are enforced by the invocation boundary. */
 export function architectToolDefinitions(phase: AuthoringToolPhase): ToolSet {
 	const shared = solutionsArchitectToolDefinitions();
 	const selected: ToolSet = {

@@ -48,6 +48,8 @@ Writers for a single selected record start with its saved value, even when that 
 
 References depend on the current scope. #form/name reads a form answer; nested fields accept a unique short name or full path. #case/property reads the selected record. Registration and survey forms have no selected record. #user/property reads worker information. In record expressions, that property must be declared in the app; external-user('key') reads custom data supplied outside the app. #search/name reads a Search answer in Search rules or that module's no-matches registration. Names bind to stable identities; ambiguous names need an exact path or ID.
 
+In form expressions, #<record-type>/<property> reads the selected record or an ancestor by its declared type. For a visit whose parent type is household, #household/region reads that household’s region and #household/case_id reads its identity. Read the form’s recordContext for the available types. This follows the saved relationship without copying parent values or IDs into custom fields. Registration and survey forms have no selected record; selecting several records does not provide one scalar record to read.
+
 ${workerIdentityGuidance()}
 
 Forms and record expressions share concat(...), coalesce(...), if(condition,yes,no), number(value), date(value), format-date(value,format), and is-blank(value). Blank means missing or empty; zero, false and whitespace are values. coalesce returns the first nonblank value, or its last argument if all are blank. Other functions depend on the expression's scope; request this guide with functionName for a function's availability and argument count.

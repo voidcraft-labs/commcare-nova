@@ -8,8 +8,8 @@
  * the stepper has to name the open page and Submit has to take Next's place
  * on the last one. So the fixture is the smallest form that exercises all
  * of it: page one carries one required question, page two one optional
- * question. The journey authors nothing and submits nothing, so one app
- * serves every attempt.
+ * question. The journey also submits an entry with a conditional first page;
+ * each Playwright attempt owns its app and submission receipts.
  */
 
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
@@ -52,6 +52,7 @@ export function buildFormSectionsBlueprint(appId = "test-app"): BlueprintDoc {
 						uuid: FORM_SECTIONS_SEED.formUuid,
 						name: FORM_SECTIONS_SEED.formName,
 						type: "survey",
+						postSubmit: "module",
 						fields: [
 							f({
 								uuid: aboutYou.uuid,
@@ -64,6 +65,7 @@ export function buildFormSectionsBlueprint(appId = "test-app"): BlueprintDoc {
 										kind: "text",
 										id: "your_name",
 										label: proseText(aboutYou.nameLabel),
+										relevant: "#form/your_visit/visit_note != 'skip intro'",
 										required: xp("true()"),
 									}),
 								],
@@ -79,6 +81,7 @@ export function buildFormSectionsBlueprint(appId = "test-app"): BlueprintDoc {
 										kind: "text",
 										id: "visit_note",
 										label: proseText(yourVisit.noteLabel),
+										validate: xp(". != 'invalid'"),
 									}),
 								],
 							}),

@@ -258,6 +258,17 @@ export class AuthoringSession {
 		)
 			return { error: "This operation is unavailable in the current phase." };
 		if (
+			this.appId === null &&
+			entry.policy.staging === "forbidden" &&
+			!entry.policy.capabilities.includes("lookup-write")
+		) {
+			return {
+				error:
+					"Save the first complete workflow to create the app before using this operation. Its places, records and attachments need a saved app.",
+			};
+		}
+
+		if (
 			entry.policy.effect !== "read-blueprint" &&
 			entry.policy.staging !== "forbidden"
 		) {

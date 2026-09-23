@@ -41,7 +41,6 @@ export type { Lifecycle, LifecycleStep, RoleFact, RoleFacts } from "./catalog";
 export {
 	LIFECYCLES,
 	lifecyclesFor,
-	modelLabel,
 	OPENAI_COMPACTION_NOTE,
 	providerOptionsFor,
 	ROLE_FACTS,

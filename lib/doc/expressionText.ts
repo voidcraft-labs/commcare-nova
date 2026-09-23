@@ -81,7 +81,7 @@ export function parseAuthoredXPath(
 				.map((issue) =>
 					issue.kind === "syntax"
 						? `Invalid expression: ${issue.source}`
-						: `Unknown or ambiguous reference: ${issue.source}. Name a field with #form/<full-path>.`,
+						: `Unknown or ambiguous reference: ${issue.source}. Use #form/<full-path> for an answer, #case/<property> for the selected record, or #<record-type>/<property> for an ancestor. Read the form for its available record types.`,
 				)
 				.join("\n"),
 		);

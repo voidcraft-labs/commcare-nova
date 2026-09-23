@@ -241,7 +241,10 @@ visible row belonged to on unmount and reads it imperatively, once, to seed the
 virtualizer's `initialOffset` (`components/preview/form/virtual/sectionScroll.ts`).
 A form that was never paged has no entry, and an entry outlives a visit the way
 the scroll memory does (coming back to a form lands on the page you left; Clear
-form returns the running form to its first page). It is not a shadow of the
+form returns the running form to its first page). A successful post-submit
+navigation forgets the completed form's page and any concrete linked form's
+page, so a new entry resolves its first visible section from its own answers.
+Failed or stale submissions and edit/Preview flips preserve that memory. It is not a shadow of the
 doc: a page the form no longer has, or one with nothing to show right now, is
 simply re-anchored by both readers rather than trusted.
 

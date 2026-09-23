@@ -111,6 +111,12 @@ before rebuilding. A list row and the later full case read may be separate Map
 instances with identical values; that cold arrival must retain open controls,
 focus and browser-local drafts. Changed values or ancestor additions still
 rebuild the same entry, and confirmed scope changes still activate a new entry.
+A selected record's complete required preload must be available before a fresh
+entry accepts answers; an identical follow-up raw-row read may remain pending. The
+form remains visible, but its controls are inert until the binding and engine are
+ready; returning from a linked form must not expose a temporary blank preload.
+A missing selected record is a terminal unavailable state with a route back to
+record selection, never an indefinite loading or submission status.
 
 Every displayed prose slot contributes answer dependencies, including help,
 inline choice labels and validation messages. A question displaying its own
@@ -1057,3 +1063,8 @@ input identity stable as conditional siblings appear or disappear.
 
 The running home screen shows authored module names. Internal case-type badges
 belong only to edit mode; they are not worker instructions or record labels.
+
+Successful post-submit navigation forgets section memory for the completed form
+and an immediately linked destination form. The fresh entry chooses its first
+visible section from fresh answers; failed submissions and edit/Preview flips
+keep their page.

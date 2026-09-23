@@ -2,7 +2,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import {
-	modelLabel,
 	type RecordedContext,
 	readDesignSession,
 	recordedItemsOf,
@@ -55,7 +54,7 @@ export default async function RecordedSessionPage({
 			generation: context.generation,
 			supersedesContextId: context.supersedesContextId,
 			modelId: context.modelId,
-			modelLabel: modelLabel(context.modelId),
+			modelLabel: context.modelId,
 			promptVersion: context.promptVersion,
 			toolsetDigest: context.toolsetDigest,
 			contextVersion: context.contextVersion,

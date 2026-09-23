@@ -1002,6 +1002,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
 		const { submitted, result, mutation, isCurrent, settleAttempt } = args;
+		/* Forget page memory only when this completed entry actually leaves.
+		 * The next engine resolves its first visible page from fresh answers;
+		 * choosing a page now would use the submitted entry's conditionality. */
+		const forgetCompletedPages = (destinationFormUuid?: Uuid): void => {
+			if (submitted.formUuid !== undefined) {
+				session.getState().forgetActiveSection(submitted.formUuid);
+			}
+			if (destinationFormUuid !== undefined) {
+				session.getState().forgetActiveSection(destinationFormUuid);
+			}
+		};
 		let announced = false;
 		const announceWrite = (): void => {
 			if (announced) return;
@@ -1034,6 +1045,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			setPreviewSelectedCase(undefined);
 			setPreviewCaseTarget(undefined);
 			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
 			navigate.openCaseList(moduleUuid);
 		};
 		const submittedForm =
@@ -1058,6 +1070,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				setPreviewCaseTarget(undefined);
 				session.getState().setPreviewParentCaseRequest(undefined);
 				settleAttempt({ kind: "idle" });
+				forgetCompletedPages();
 				dispatchPostSubmit("app_home", noMatchesRegistration.moduleUuid);
 				return;
 			}
@@ -1075,6 +1088,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		) {
 			announceWrite();
 			settleAttempt({ kind: "idle" });
+			forgetCompletedPages();
 			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
 			return;
 		}
@@ -1384,14 +1398,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			switch (route.kind) {
 				case "post-submit":
 					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
 					dispatchPostSubmit(route.destination, submitted.moduleUuid);
 					return;
 				case "module":
 					applyCaseSelections();
 					settleAttempt({ kind: "idle" });
+					forgetCompletedPages();
 					openModuleLanding(navigate, route.moduleUuid, route.landing);
 					return;
 				case "form":
+					forgetCompletedPages(route.formUuid);
 					applyCaseSelections();
 					/* The target's case binding is rewritten BEFORE the push, so
 					 * the form mounts already bound (or already bound to nothing)
@@ -1964,10 +1981,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
+	// The first engine can render before the selected record's preload arrives.
+	// Keep that visible form inert until its preload is available, so a fresh
+	// entry cannot accept answers which the subsequent initialization replaces.
+	// An auto-selected list row already supplies a complete own-type preload;
+	// its identical raw-row read must not interrupt an open control. Ancestor
+	// preloads still need the full read. Submission keeps its stricter binding gate.
+	const selectedCaseLoading =
+		needsBoundCase &&
+		(effectiveCaseIds?.length ?? 0) > 0 &&
+		!caseBindingReady &&
+		(caseData === undefined ||
+			caseBindingReplaced ||
+			reachableChain.length > 1);
 	const formFrozen =
 		submitStatus.kind === "running" ||
 		clearRunning ||
 		engineInitializing ||
+		selectedCaseLoading ||
 		repeatTopologySettling;
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
@@ -2079,6 +2110,39 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		);
 	}
 
+	if (
+		needsBoundCase &&
+		!severalCaseForm &&
+		effectiveCaseId !== undefined &&
+		carriedCaseData === undefined &&
+		caseDataState.kind === "missing"
+	) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-4 px-6">
+				<div role="status" className="max-w-xs space-y-2 text-center">
+					<h3 className="text-sm font-medium text-nova-text">
+						This record is no longer available
+					</h3>
+					<p className="text-sm text-nova-text-muted">
+						The record may have changed or moved out of this worker's access.
+						Another record can be selected to continue.
+					</p>
+				</div>
+				<button
+					type="button"
+					className={FORM_PRIMARY_ACTION_CLS}
+					onClick={() => {
+						setPreviewSelectedCase(undefined);
+						setPreviewCaseTarget({ formUuid });
+						navigate.replace({ kind: "cases", moduleUuid });
+					}}
+				>
+					Choose another record
+				</button>
+			</div>
+		);
+	}
+
 	/** A NAV-bound singular case-loading form hitting an auth or transport
 	 * failure must surface it. Multi-case forms deliberately have no scalar
 	 * preload, so only the one-case arm participates in this read guard. */
@@ -2137,10 +2201,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	/* The form ALWAYS renders: flipping to preview keeps it in place and the
 	 * case data loads IN; it is never swapped for a loading/empty interstitial
-	 * (that multi-stage flash is the antithesis of the flipbook). The only
-	 * thing a directly-previewed case-loading form gates on a bound case is
-	 * the submit action: `computeSubmissionMutation` needs the caseId, so
-	 * `caseMissing` drives the submit row below, not the whole screen. */
+	 * (that multi-stage flash is the antithesis of the flipbook). A selected
+	 * record still loading keeps the visible controls inert. With no record
+	 * selected, `caseMissing` drives the submit row rather than hiding the
+	 * form: the author can inspect it without claiming a writable target. */
 	const caseMissing =
 		needsBoundCase &&
 		(effectiveCaseIds === undefined || effectiveCaseIds.length === 0);
@@ -2411,9 +2475,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						<p role="status" className="px-6 pb-3 text-xs text-nova-text-muted">
 							{clearRunning
 								? "A fresh form entry is ready."
-								: repeatTopologySettling
-									? "Answers are paused while this repeat updates."
-									: "Answers are locked while this submission finishes."}
+								: selectedCaseLoading
+									? "The selected record is loading. Answers will be available shortly."
+									: repeatTopologySettling
+										? "Answers are paused while this repeat updates."
+										: "Answers are locked while this submission finishes."}
 						</p>
 					) : null}
 					{/* Inline error sits BELOW the submit row so the user's

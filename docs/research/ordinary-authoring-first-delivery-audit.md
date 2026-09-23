@@ -74,3 +74,51 @@ the first output independently from app entry and retain failures with causes.
 Use a shared $100 ceiling for all new calls, including extraction, translation,
 development retries and GPT-6 comparison. Compare each role, retaining extracted
 documents and the resulting app outputs so changes in interpretation are visible.
+
+## September 22 first-delivery trial
+
+A newly frozen role-gated request ran at `a7d95b64` without operator feedback.
+It failed at the production architect allowance: 120 architect calls and 37
+peer calls, 161 tool calls, $6.5519418 measured model cost. No completed first
+handoff exists. The saved intermediate app is diagnostic evidence only.
+
+The peer independently reproduced a registration failure on an unanswered date
+and a submission that made a related record's balance negative, and identified
+an ownership default inconsistent with cross-role sharing. The architect began
+corrections without external directions. This is evidence that the peer can find
+consequential issues through ordinary tools, but the run did not converge.
+
+Form ancestor reads were an avoidable source of failed guesses and retesting.
+The guide explained `via(ancestor(...), ...)` for record expressions without
+explaining the form's existing `#<record-type>/<property>` reference. A rejected
+parent reference suggested a form field, after which the architect tried raw
+instance paths. `reachableCaseTypes`, `formOpensWithOneCase`, typed reference
+emission and Preview already supported the intended reading. Scoped form reads
+now expose that available context; the shared schema and guide explain it, and
+the unresolved-reference diagnostic includes the correct alternative.
+
+A controlled test takes the reference returned by the ordinary shared tool,
+authors it into a validation and identity calculation, then runs production
+FormEngine against linked records. It distinguishes the actual parent from an
+unrelated record and checks accepted/rejected answers. Registration, survey and
+multiple-selection reads expose no scalar record context. Existing native typed
+ancestor emission is unchanged. The architect allowance increases to 180 calls
+so focused corrections and verification have room to finish; a larger allowance
+is capacity, not evidence of better judgment or first-delivery success.
+
+## Completed build with unusable saved location context
+
+A subsequent role-based build completed but failed first-delivery acceptance.
+The peer identified missing saved place assignments twice. The architect tested
+with disposable places, then incorrectly concluded ordinary place creation was
+unavailable and revised the plan around that limitation. Captured provider
+requests show the creation tool was absent before birth and present afterward;
+the architect never searched for it after saving. This was a discovery/phase
+boundary plus a judgment failure, not an unavailable production capability.
+
+The construction catalog now retains those definitions from the start of building.
+Invocations requiring a saved app refuse before side effects and explain the
+prerequisite. A real Postgres check exercises early refusal, creation after birth,
+and saved persona assignment through the same authoring session. A new first
+delivery trial remains necessary; correcting the interface does not repair or
+retroactively pass the failed run.

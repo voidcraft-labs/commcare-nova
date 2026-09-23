@@ -5,12 +5,11 @@ import tablerServer from "@iconify-icons/tabler/server";
 import Link from "next/link";
 import { Badge } from "@/components/shadcn/badge";
 import type { AnatomyRoleId, Lifecycle } from "@/lib/agent/anatomy";
-import { modelLabel } from "@/lib/agent/anatomy";
 import { formatTokens } from "../_lib/format";
 import type { RoleSummary } from "../_lib/roleSummary";
 
 /**
- * The map: four lifecycles as vertical strips of the roles they pass
+ * The map: lifecycles as vertical strips of the roles they pass
  * through, with the handoff between roles stated in words. No connectors, no
  * diagram library: the order down the strip is the order of the lifecycle.
  */
@@ -124,7 +123,7 @@ function RoleCard({ summary, note }: { summary: RoleSummary; note?: string }) {
 				<span className="font-medium text-[15px]">{facts.title}</span>
 				{facts.modelId !== null && facts.effort !== null && (
 					<span className="shrink-0 text-nova-text-secondary text-xs">
-						{modelLabel(facts.modelId)} · {facts.effort}
+						{facts.modelId} · {facts.effort}
 					</span>
 				)}
 			</div>

@@ -3052,6 +3052,113 @@ test.describe("authenticated builder", () => {
 				const trail = page.getByRole("navigation", { name: "Page navigation" });
 				await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 				await expect(trail).toContainText(followUp.formName);
+				await main.getByRole("button", { name: "Next", exact: true }).click();
+				await expect(
+					main.getByRole("heading", { name: "Follow-up review", exact: true }),
+				).toBeVisible();
+				// Hold only the source's selected-record read, retaining its real
+				// response. The previously visited form must not accept answers
+				// against stale data while the fresh entry is still being prepared.
+				const releaseCaseRead = Promise.withResolvers<void>();
+				let heldCaseRead = false;
+				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
+					const request = route.request();
+					const body = request.postData();
+					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
+					if (
+						request.method() === "POST" &&
+						request.headers()["next-action"] &&
+						Array.isArray(args) &&
+						args[0] === fixture.appId &&
+						args[1] === FORM_LINKS_SEED.caseType &&
+						typeof args[2] === "string" &&
+						args[3] === 0
+					) {
+						const response = await route.fetch();
+						heldCaseRead = true;
+						await releaseCaseRead.promise;
+						await route.fulfill({ response });
+						return;
+					}
+					await route.continue();
+				});
+				try {
+					await trail
+						.getByRole("button", { name: "Go back", exact: true })
+						.click();
+					await expect.poll(() => heldCaseRead).toBe(true);
+					await expect(
+						main.getByRole("textbox", { name: visit.noteFieldLabel }),
+					).toBeDisabled();
+				} finally {
+					releaseCaseRead.resolve();
+					await page.unrouteAll({ behavior: "wait" });
+				}
+				const submitAgain = main.getByRole("button", {
+					name: "Submit",
+					exact: true,
+				});
+				// Returning mounts the source before its selected-case preload has
+				// settled. Wait for the same submission readiness as the first entry
+				// before editing; a late preload may replace an earlier answer.
+				await expect(submitAgain).toBeEnabled();
+				const sourceNote = main.getByRole("textbox", {
+					name: visit.noteFieldLabel,
+				});
+				await sourceNote.fill(FORM_LINKS_SEED.linkingNote);
+				await expect(sourceNote).toHaveValue(FORM_LINKS_SEED.linkingNote);
+				await submitAgain.click();
+				await expect(
+					main.getByRole("textbox", { name: followUp.noteFieldLabel }),
+				).toBeVisible();
+				await expect(
+					main.getByRole("heading", { name: "Follow-up details", exact: true }),
+				).toBeVisible();
+			});
+			await test.step("an unavailable selected record offers another selection", async () => {
+				// Obtain the missing-record response from the real authorized server
+				// read, using an absent ID at the network boundary. No fixture row
+				// or live data is deleted to exercise this terminal read result.
+				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
+					const request = route.request();
+					const body = request.postData();
+					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
+					if (
+						request.method() === "POST" &&
+						request.headers()["next-action"] &&
+						Array.isArray(args) &&
+						args[0] === fixture.appId &&
+						args[1] === FORM_LINKS_SEED.caseType &&
+						typeof args[2] === "string" &&
+						args[3] === 0
+					) {
+						args[2] = "missing-selected-record";
+						await route.fulfill({
+							response: await route.fetch({ postData: JSON.stringify(args) }),
+						});
+						return;
+					}
+					await route.continue();
+				});
+				try {
+					await page
+						.getByRole("navigation", { name: "Page navigation" })
+						.getByRole("button", { name: "Go back", exact: true })
+						.click();
+					await expect(
+						main.getByRole("heading", {
+							name: "This record is no longer available",
+						}),
+					).toBeVisible();
+				} finally {
+					await page.unrouteAll({ behavior: "wait" });
+				}
+				await main
+					.getByRole("button", { name: "Choose another record", exact: true })
+					.click();
+				await expect(
+					main.getByRole("list", { name: "Cases", exact: true }),
+				).toBeVisible();
 			});
 		},
 	);
@@ -3316,6 +3423,32 @@ test.describe("authenticated builder", () => {
 			await expect(
 				main.getByText("Section 1 of 2", { exact: true }),
 			).toBeVisible({ timeout: 20_000 });
+		});
+		await test.step("a completed entry restarts at the first page using fresh answers", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await next.click();
+			const note = main.getByRole("textbox", { name: yourVisit.noteLabel });
+			await note.fill("invalid");
+			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await expect(note).toBeFocused();
+			await expect(step("Section 2 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			// The submitted answers hide page one. Resetting to the old entry's
+			// first visible page would incorrectly remember page two again.
+			await note.fill("skip intro");
+			await expect(stepper.getByRole("button")).toHaveCount(1);
+			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await main
+				.getByRole("button", { name: FORM_SECTIONS_SEED.formName, exact: true })
+				.click();
+			await expect(step("Section 1 of 2")).toHaveAttribute(
+				"aria-current",
+				"step",
+			);
+			await expect(nameField).toHaveValue("");
+			await expect(next).toBeVisible();
 		});
 	});
 

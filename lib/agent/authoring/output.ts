@@ -42,6 +42,7 @@ import {
 	authoringFingerprint,
 	translationReviewRevision,
 } from "./fingerprints";
+import { formRecordContext } from "./formRecordContext";
 import { printAuthoringIcon } from "./icons";
 import { printAuthoringMessage } from "./messages";
 import { queryPrinter } from "./printQueryExpression";
@@ -227,10 +228,11 @@ const readProjectors: {
 		};
 	},
 	getField: (data, { field }) => ({ ...data, field: field(data.field) }),
-	getForm(data, { project, scope, field }) {
+	getForm(data, { project, scope, field, doc }) {
 		const { fields, ...form } = data.form;
 		return {
 			...data,
+			recordContext: formRecordContext(doc, form.uuid),
 			...(data.recordName !== undefined && {
 				recordName: project(
 					xpathExpressionSchema,

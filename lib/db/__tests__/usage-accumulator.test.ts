@@ -129,15 +129,12 @@ describe("UsageAccumulator", () => {
 		expect(snap.outputTokens).toBe(150);
 		expect(snap.cacheReadTokens).toBe(60);
 		expect(snap.cacheWriteTokens).toBe(10);
-		// Pin the exact cost against GPT-5.6 Sol pricing from @/lib/models
-		// (input 5, output 30, cacheRead 0.5, cacheWrite 6.25 per 1M tokens).
-		//   uncachedInput = 300 - 60 - 10 = 230
-		//   cost = (230*5 + 60*0.5 + 10*6.25 + 150*30) / 1_000_000
-		//        = (1150 + 30 + 62.5 + 4500) / 1_000_000
-		//        = 5742.5 / 1_000_000 = 0.0057425
-		// toBeGreaterThan(0) would silently accept a regression that zeroed
-		// any of the four rate terms; exact pinning catches formula drift.
-		expect(snap.costEstimate).toBeCloseTo(0.0057425, 10);
+		// Published GPT-5.6 Sol promotional rates, September 22, 2026.
+		// Uncached input = 300 - 60 - 10 = 230; preserve all four terms.
+		expect(snap.costEstimate).toBeCloseTo(
+			(230 * 4 + 60 * 0.4 + 10 * 5 + 150 * 20) / 1_000_000,
+			10,
+		);
 	});
 
 	it("prices each call at its own context tier and model before aggregation", () => {

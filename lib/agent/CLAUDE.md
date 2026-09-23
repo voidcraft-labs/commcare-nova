@@ -51,7 +51,11 @@ accepts them, cast text into an AST, or regex-parse XPath.
 
 `sharedToolRegistry.ts` declares every operation's effect, required context,
 staging eligibility, and external capabilities. Availability comes from those
-declarations and the current role and phase, not a prompt prohibition. Planning
+declarations and the current role, not a prompt prohibition. Once construction
+begins, its shared catalog remains stable across first save. Resource and journey
+operations are discoverable before birth but refuse with a save-first prerequisite
+at invocation; they cannot touch external state without a saved app. Project lookup
+authoring retains its existing pre-app boundary. Planning
 and peer review cannot mutate app or Project data. The `exercise-app` effect
 permits disposable journey tests of a saved app, including during app review;
 it is forbidden in staging and never counts as an app change. Each action
@@ -129,7 +133,9 @@ items intact on resume; encrypted reasoning is not human-readable reasoning.
 ## Inspection and evidence
 
 `/agents` separates composition from code, current local app state, and recorded
-runs. Definitions and role facts come from their production owners. Token counts
+runs. Definitions and role facts come from their production owners; show full
+model IDs so generations remain distinguishable, including extraction and
+translation. Token counts
 use `o200k_base` estimates over the available text; actual provider usage is
 reported separately. Show deferred definitions as part of the full catalog and
 expose their later loading in recorded requests. A size estimate is neither a
