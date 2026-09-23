@@ -147,7 +147,7 @@ export function compileExpression(
 		case "term":
 			return compileTerm(expr.term, ctx);
 		case "today":
-			return compileToday();
+			return compileToday(ctx);
 		case "now":
 			return compileNow();
 		case "id-of":
@@ -221,14 +221,17 @@ export function compileExpression(
 const eb = expressionBuilder<Database, keyof Database>();
 
 /**
- * `today` → `cast(now() as date)`. `now()::date` is transaction-
- * stable equivalent to `current_date` per
- * `https://www.postgresql.org/docs/18/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT`.
- * `current_date` is a niladic SQL keyword Kysely's `eb.fn` cannot
- * emit (the function module always wraps the name in parens).
+ * The worker's calendar day, as in form/device today(). Convert the
+ * transaction-stable instant to the viewer's wall clock before taking its
+ * date; the database session's timezone must not move a due-today record
+ * into yesterday. Non-preview callers have the same explicit UTC fallback
+ * as format-date.
  */
-function compileToday(): AliasableExpression<unknown> {
-	return eb.cast(eb.fn<Date>("now"), "date");
+function compileToday(
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
+	return eb.cast(eb.fn<Date>("timezone", [eb.val(zone), compileNow()]), "date");
 }
 
 function compileNow(): AliasableExpression<unknown> {

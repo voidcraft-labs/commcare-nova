@@ -110,7 +110,14 @@ export async function startAppTest(
 						appId: scope.appId,
 						restoreScope: context.restoreScope,
 					});
-					return observeAppTest(context, scope, { ...initial, deviceCases });
+					const result = await observeAppTest(context, scope, {
+						...initial,
+						deviceCases,
+					});
+					return {
+						...result,
+						observation: { ...result.observation, clock: context.clock },
+					};
 				},
 			);
 			return {
@@ -208,7 +215,10 @@ export async function continueAppTest(
 							throw new Error(
 								"This test exceeded its record or state limit. Start a smaller journey.",
 							);
-						return result;
+						return {
+							...result,
+							observation: { ...result.observation, clock: context.clock },
+						};
 					},
 				);
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);

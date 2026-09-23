@@ -2596,3 +2596,16 @@ intent while letting HQ bind hydration to the actual source case. Otherwise a
 manual query may only retain an existing source selection under the same datum.
 `FORM_LINK_SEARCH_CASE_UNREPRESENTABLE` refuses incompatible manual assignments
 at both shared mutation gates. Ordinary list destinations retain manual values.
+
+### Local calendar consistency
+
+Preview record expressions evaluate `today()` in the browser-supplied, validated
+IANA timezone, using UTC only when no valid viewer zone is available. PostgreSQL's
+connection timezone cannot choose the worker's calendar day. Form evaluation and
+CommCare Core's `XPathTodayFunc::evalBody` / `DateUtils::roundDate` use the local
+calendar. Isolated app journeys run their form workers, record queries and
+submission expressions in the evaluator's process timezone and include that
+clock in observations. This is not a geographic timezone inferred from a place.
+The Postgres regression uses independent Intl calendar projections in zones
+25 hours apart and non-UTC connection settings, so it exposes the midnight
+disagreement at any test execution time.

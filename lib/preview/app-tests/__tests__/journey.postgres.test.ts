@@ -828,3 +828,92 @@ it("creates a place-owned record from empty entry using the worker reading adver
 	});
 	await step({ kind: "finish" });
 });
+
+it("reports its local clock and uses the same day in list calculations and forms", async () => {
+	const doc = await createEvaluationApp({
+		name: "Appointments",
+		case_type: "appointment",
+		case_list_columns: [
+			{
+				kind: "calculated",
+				header: "Today",
+				expression: "format-date(today(), '%Y-%m-%d')",
+			},
+		],
+		forms: [
+			{
+				name: "Visit",
+				type: "followup",
+				fields: [
+					{
+						kind: "date",
+						id: "visit_date",
+						label: "Visit date",
+						default_value: "today()",
+					},
+				],
+			},
+		],
+	});
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "calendar-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Compare the list and form day",
+			scenario: {
+				records: [
+					{ id: "appointment-1", caseType: "appointment", name: "Visit" },
+				],
+			},
+		},
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `calendar-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	const clock = z
+		.object({ timeZone: z.string(), today: z.string() })
+		.parse(current.observation.clock);
+	expect(clock.timeZone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+	const mod = Object.values(doc.modules).find(
+		(item) => item.name === "Appointments",
+	);
+	const form = Object.values(doc.forms).find((item) => item.name === "Visit");
+	if (!mod || !form) throw new Error("Missing calendar fixture");
+	const listed = await step({ kind: "menu", moduleUuid: mod.uuid });
+	const column = mod.caseListConfig?.columns[0];
+	if (!column) throw new Error("Missing calendar column");
+	expect(listed).toMatchObject({
+		clock,
+		results: {
+			kind: "rows",
+			rows: [
+				expect.objectContaining({
+					case_id: "appointment-1",
+					calculated: { [column.uuid]: clock.today },
+				}),
+			],
+		},
+	});
+	const opened = await step({ kind: "select", caseIds: ["appointment-1"] });
+	expect(opened).toMatchObject({
+		clock,
+		questions: expect.arrayContaining([
+			expect.objectContaining({ label: "Visit date", value: clock.today }),
+		]),
+	});
+	await step({ kind: "finish" });
+});

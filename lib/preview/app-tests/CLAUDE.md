@@ -30,7 +30,12 @@ namespace; saved lookup rows and actual place context are authorized read inputs
 Test-only persona assignments do not provision workers or establish deployment
 readiness. The narrow store cannot alter schemas or dispatch media effects.
 
-Navigation shares production menu, selection and routing projections. Search,
+Navigation shares production menu, selection and routing projections.
+Observations identify the evaluator clock and its calendar day. Form workers,
+SQL record reads and submission calculations use the same process timezone;
+ordinary browser Preview uses the browser timezone. Neither asserts a supplied
+place has that timezone. Clock semantics changed at runtime version 2, so older
+journeys remain readable but cannot continue under the new runtime. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation

@@ -151,7 +151,8 @@ export interface TermBindings {
 
 	/**
 	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
-	 * .timeZone`), supplied by the preview client. `format-date` renders
+	 * .timeZone`), supplied by the preview client. `today` takes the local
+	 * calendar date and `format-date` renders
 	 * wall-clock tokens in this zone — the device formats in ITS local
 	 * zone, and in Preview the author's browser stands in for the device.
 	 * Absent (non-preview compile sites, older callers) falls back to UTC,
