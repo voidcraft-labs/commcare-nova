@@ -43,7 +43,7 @@ it("counts the model input without dispatching a generation and refuses malforme
 			};
 			const count = await countAuthoringInput(args);
 			expect(count).toBe(200_000);
-			expect(countedInputReservation(count, 16000)).toBe(3.845);
+			expect(countedInputReservation("gpt-5.6-sol", count, 16000)).toBe(2.98);
 			await expect(countAuthoringInput(args)).rejects.toThrow();
 			expect(received.map((item) => item.path)).toEqual([
 				"/v1/responses/input_tokens",

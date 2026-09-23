@@ -3,6 +3,7 @@
  * https://developers.openai.com/api/docs/guides/token-counting
  */
 import { z } from "zod";
+import { pilotReservation } from "./authoringPilotLedger";
 
 const COUNT_INPUT_KEYS = [
 	"conversation",
@@ -71,10 +72,13 @@ export async function countAuthoringInput(args: {
 /** No assumed cache hit: long-context cache-write pricing and output ceiling,
  * with a 25% input allowance above the provider count. */
 export function countedInputReservation(
+	model: string,
 	inputTokens: number,
 	maxOutputTokens: number,
 ): number {
-	return (
-		(Math.ceil(inputTokens * 1.25) * 12.5 + maxOutputTokens * 45) / 1_000_000
+	return pilotReservation(
+		model,
+		Math.ceil(inputTokens * 1.25),
+		maxOutputTokens,
 	);
 }

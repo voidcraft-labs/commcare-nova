@@ -31,8 +31,7 @@ question answers, and usage. They are private and must not be committed.
 factory and its history projection against a fresh app prepared by shared tools.
 It retains the production step bound, run lease, usage settlement and model
 callbacks. A dry run verifies fixture setup without spending. Paid edits share
-the same ledger, with a $5 per-edit ceiling and a $1 reservation per bounded Luna
-request. This is an edit-role comparison, not evidence of initial delivery or
+the same ledger, with a $5 per-edit ceiling and model-specific reservations. This is an edit-role comparison, not evidence of initial delivery or
 browser chat transport behavior.
 
 The build runner allows 400 transport requests and 30 minutes per invocation, with a
@@ -42,10 +41,25 @@ retries and uncertain charges. Explicit production output ceilings pass through;
 otherwise the runner allows 128,000 output tokens, including reasoning. The final
 matched pair froze a 32,000-token ceiling on both sides to bound remaining cost;
 its private runner differs only in that ceiling and local import resolution. The
-reservation uses the serialized output ceiling, conservative input allowances,
-and a rate above the current compared models. Known usage settles with a 25%
-margin; unknown usage retains its reservation. Report model cost separately
-from this conservative budget ledger.
+reservation uses the serialized output ceiling and each model's highest
+published input, cache-write and output rates across context tiers. Requests
+explicitly select Standard processing before capture and dispatch. Input uses a
+serialized-byte bound, or the official token count plus a 25% input allowance
+when the byte bound would stop a build. Known reported usage settles at the
+published rate without a blanket surcharge; unknown usage retains its full
+reservation. Missing cache details use the highest applicable input rate.
+
+The original ledger added 25% to every settled call. That inflated accumulated
+spend and stopped the last comparison unnecessarily. Version 2 requires an
+explicit one-time conversion: run `scripts/scan-authoring-ledger.ts` with the
+source and authorized total ceiling, review its totals and retained unknown
+charges, then run `scripts/migrate-authoring-ledger.ts` with that exact source
+hash and a new destination. The original file remains intact. Runtime runners
+refuse legacy or internally inconsistent ledgers. New reservations carry the stable design-session identity. Per-trial limits
+include every continuation with that identity, plus legacy runs recovered from
+artifacts, persisted usage summaries and current authority. Choosing an older
+resume directory or changing the global balance cannot reset that allowance. A ceiling in a file is an accounting guard, not authorization to
+spend beyond the user's allocation.
 
 Prices were verified against [OpenAI's published rate card](https://developers.openai.com/api/docs/pricing)
 on September 22, 2026. GPT-5.6 Sol's currently published promotion is distinct

@@ -34,6 +34,9 @@ import { MODEL_ROLES } from "@/lib/models";
 import { createProject } from "@/lib/projects/manage";
 import {
 	completedPilotCharge,
+	pilotReservation,
+	readPilotLedger,
+	standardPilotTransport,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
 
@@ -164,14 +167,9 @@ async function main() {
 	});
 	if (options.dryRun) return;
 	await withPilotLedger(resolve(options.ledger), async (ledgerFile) => {
-		const ledger = z
-			.object({
-				ceilingUsd: z.number().positive().max(100),
-				targetUsd: z.number().positive(),
-				estimatedSpentUsd: z.number().nonnegative(),
-				calls: z.array(z.record(z.string(), z.unknown())),
-			})
-			.parse(JSON.parse(await readFile(ledgerFile.path, "utf8")));
+		const ledger = readPilotLedger(
+			JSON.parse(await readFile(ledgerFile.path, "utf8")),
+		);
 		const startSpend = ledger.estimatedSpentUsd;
 		const claim = await claimAndReserveRun(
 			genesis.appId,
@@ -209,32 +207,48 @@ async function main() {
 			},
 			onError: undefined,
 		};
-		const capture = captureModelRequests(transport.fetch, async (request) => {
-			// One UTF-8 byte per input token plus 128k output, at the larger Luna
-			// long-context/cache-write rate, with 25% margin, costs less than $1.
-			if (Buffer.byteLength(request.body, "utf8") > 1_000_000)
-				throw new Error("The bounded edit trial input is too large.");
-			if (
-				requests >= SOLUTIONS_ARCHITECT_MAX_STEPS ||
-				ledger.estimatedSpentUsd + 1 >
-					Math.min(ledger.ceilingUsd, ledger.targetUsd, startSpend + 5)
-			)
-				throw new Error("Edit trial budget reached.");
-			requests++;
-			currentCall = {
-				runId,
-				request: requests,
-				model: model.modelId,
-				reservedUsd: 1,
-				status: "pending",
-			};
-			ledger.calls.push(currentCall);
-			ledger.estimatedSpentUsd += 1;
-			await ledgerFile.save(ledger);
-			await writeFile(resolve(out, `request-${requests}.json`), request.body, {
-				mode: 0o600,
-			});
-		});
+		const capture = standardPilotTransport(
+			captureModelRequests(transport.fetch, async (request) => {
+				const parsedRequest = z
+					.object({
+						model: z.literal(model.modelId),
+						max_output_tokens: z.number().int().positive().max(128_000),
+					})
+					.parse(JSON.parse(request.body));
+				const reservedUsd = pilotReservation(
+					parsedRequest.model,
+					Buffer.byteLength(request.body),
+					parsedRequest.max_output_tokens,
+				);
+				if (Buffer.byteLength(request.body, "utf8") > 1_000_000)
+					throw new Error("The bounded edit trial input is too large.");
+				if (
+					requests >= SOLUTIONS_ARCHITECT_MAX_STEPS ||
+					ledger.estimatedSpentUsd + reservedUsd >
+						Math.min(ledger.ceilingUsd, ledger.targetUsd, startSpend + 5)
+				)
+					throw new Error("Edit trial budget reached.");
+				requests++;
+				currentCall = {
+					runId,
+					request: requests,
+					model: model.modelId,
+					reservedUsd,
+					serviceTier: "default",
+					status: "pending",
+				};
+				ledger.calls.push(currentCall);
+				ledger.estimatedSpentUsd += reservedUsd;
+				await ledgerFile.save(ledger);
+				await writeFile(
+					resolve(out, `request-${requests}.json`),
+					request.body,
+					{
+						mode: 0o600,
+					},
+				);
+			}),
+		);
 		const ctx = new GenerationContext({
 			apiKey: apiKey ?? "dry-run",
 			transport: async (input, init) => {
@@ -295,8 +309,13 @@ async function main() {
 				onStepEnd: async (step) => {
 					if (currentCall?.status !== "pending")
 						throw new Error("The completed edit step has no reservation.");
-					const charge = completedPilotCharge(model.modelId, step.usage, 1);
-					ledger.estimatedSpentUsd += charge.estimatedUsd - 1;
+					const reserved = Number(currentCall.reservedUsd);
+					const charge = completedPilotCharge(
+						model.modelId,
+						step.usage,
+						reserved,
+					);
+					ledger.estimatedSpentUsd += charge.estimatedUsd - reserved;
 					Object.assign(currentCall, charge, { usage: step.usage });
 					await ledgerFile.save(ledger);
 					steps++;
