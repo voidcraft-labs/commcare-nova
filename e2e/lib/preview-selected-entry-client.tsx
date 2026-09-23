@@ -13,6 +13,7 @@ import {
 	useBuilderFormEngine,
 } from "@/lib/preview/engine/provider";
 import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
+import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
@@ -105,6 +106,12 @@ root.render(
 				<BuilderFormEngineProvider>
 					<PreviewCaseDatabaseProvider>
 						<Capture />
+						<button
+							type="button"
+							onClick={() => invalidateCaseData(doc.appId, "room")}
+						>
+							Refresh record
+						</button>
 						<FormScreen
 							screen={{
 								type: "form",
