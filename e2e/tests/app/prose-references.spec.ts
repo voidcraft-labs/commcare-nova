@@ -242,7 +242,11 @@ test("hashtag suggestions select namespaces and references without ending the dr
 	const main = page.getByRole("main");
 	await main.getByRole("button", { name: "Your name", exact: true }).click();
 	const label = main.getByRole("textbox", { name: "Label", exact: true });
-	await label.fill("#");
+	// Wait for TipTap's deferred focus before replacing the selected text.
+	// DOM fill can race that focus and append to the old ProseMirror selection.
+	await expect(label).toBeFocused();
+	await label.press("ControlOrMeta+a");
+	await label.pressSequentially("#");
 	await expect(
 		page.getByRole("option", { name: "#form/ Form field", exact: true }),
 	).toBeVisible();
