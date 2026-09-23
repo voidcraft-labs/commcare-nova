@@ -131,6 +131,15 @@ read; deferring form initialization until its binding is ready corrects that
 boundary. Review, deployment and verification of the unchanged authored output
 remain pending; the all-role model release is still held.
 
+Further runtime acceptance found two older task-continuation defects: returning
+Home retains a selected case parent, so reopening history can skip the choice of
+another person; app tests instead clear that selection. A whole case-database
+refresh also retires the active engine and restores default values instead of
+edited answers. Keep these distinct from the initial-preload correction, retain
+the browser/controller reproductions, and preserve authorization and scope
+boundaries when correcting continuation behavior. They remain acceptance work.
+
+
 The source-backed initial-delivery audit and observation improvements shipped in
 PRs #669, #670 and #673. The latter makes retained test evidence discoverable and
 missing test references recoverable. Plugin 1.36.0 followed compatible Nova code.

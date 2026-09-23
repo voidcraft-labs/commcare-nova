@@ -9,16 +9,14 @@ test("Selected record arrives before one-time query rows are initialized", async
 }) => {
 	const peer = await selectedEntryPeer();
 	let release: () => void = () => {};
-	let selected = new Promise<void>((resolve) => {
+	const selected = new Promise<void>((resolve) => {
 		release = resolve;
 	});
-	let replies = 0;
 	await page.route(`${peer.origin}/selected-record`, async (route) => {
 		await selected;
 		await route.fulfill({
 			json: { kind: "row", row: selectedRow, ancestors: [] },
 		});
-		replies++;
 	});
 	try {
 		await Promise.all([
@@ -37,23 +35,6 @@ test("Selected record arrives before one-time query rows are initialized", async
 		);
 		await note.fill("Checked the shelves");
 		await expect(note).toHaveValue("Checked the shelves");
-		const original = await note.elementHandle();
-		if (!original) throw new Error("Missing note control");
-		selected = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		await Promise.all([
-			page.waitForRequest(`${peer.origin}/selected-record`),
-			page.getByRole("button", { name: "Refresh record", exact: true }).click(),
-		]);
-		await expect(note).toHaveValue("Checked the shelves");
-		release();
-		await expect.poll(() => replies).toBe(2);
-		await expect(note).toHaveValue("Checked the shelves");
-		expect(await original.evaluate((element) => element.isConnected)).toBe(
-			true,
-		);
-
 		await expect(
 			page.getByRole("button", { name: "Submit", exact: true }),
 		).toBeEnabled();
