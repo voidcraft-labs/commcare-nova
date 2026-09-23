@@ -441,6 +441,9 @@ it("continues an entry without rerunning defaults or rematerializing its query r
 						kind: "text",
 						id: "ids",
 						label: "Parts",
+						// The query snapshot runs before the late case preload.
+						// Give this retention fixture an earlier initialization action.
+						default_value: "#equipment/ids",
 						caseWrite: { caseType: "equipment", property: "ids" },
 					},
 					{
