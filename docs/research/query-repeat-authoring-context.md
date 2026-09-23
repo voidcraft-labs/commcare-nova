@@ -29,13 +29,14 @@ only an earlier default, including calculations triggered by that default, is
 visible to the query snapshot. A standalone calculation has not yet run. Moving
 all defaults and calculations before every repeat would therefore be incorrect.
 
-Core also separates snapshot actions from row creation. A diagnostic form with a
+Core also separates snapshot actions from row creation. A Nova-exported form with a
 bound outer repeat was initialized, an earlier question was answered through
 `FormEntryController`, and only then was the outer repeat entered. Its nested
 query captured the new answer. Preview currently creates the outer rows eagerly;
 its `addRepeat` paths also omit nested bound initialization. Immediate full native
-traversal hides this distinction. The nested diagnostic is a controlled XML
-variant, not yet an exact Nova export or an end-to-end app acceptance result.
+traversal hides this distinction. A controlled XML variant first isolated the behavior; the same check then passed
+against an exact Nova export authored through the shared tool grammar. Neither
+is an end-to-end app acceptance result.
 
 Relevant production boundaries are `FormEngine` initialization, insertion, reset
 and schema rebuild; `DataInstance` template cardinality; `TriggerDag` dependencies;
