@@ -33,6 +33,9 @@ Test-only persona assignments do not provision workers or establish deployment
 readiness. The narrow store cannot alter schemas or dispatch media effects.
 
 Navigation shares production menu, selection and routing projections.
+Form evaluation receives a captured record snapshot before initialization. It
+does not execute the browser's asynchronous record-loading hooks or React
+lifecycle; those boundaries need browser evidence even when a journey passes.
 Observations identify the evaluator clock and its calendar day. Form workers,
 SQL record reads and submission calculations use the same process timezone;
 ordinary browser Preview uses the browser timezone. Neither asserts a supplied

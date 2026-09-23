@@ -647,6 +647,21 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		return undefined;
 	}, [severalCaseForm, carriedCaseData, settledCase, autoRow, reachableChain]);
 
+	const needsBoundCase =
+		mode === "preview" &&
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type);
+	const caseBindingReady =
+		!needsBoundCase ||
+		(severalCaseForm &&
+			(effectiveCaseIds?.length ?? 0) > 0 &&
+			!caseBindingReplaced) ||
+		carriedCaseData !== undefined ||
+		(effectiveCaseId !== undefined &&
+			!caseBindingReplaced &&
+			caseDataState.kind === "row" &&
+			caseDataState.row.case_id === effectiveCaseId);
+
 	const editable = isReady;
 
 	const controller = useFormEngine(
@@ -654,6 +669,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		caseData,
 		carriedCaseDatabase,
 		searchAnswers,
+		caseBindingReady,
 	);
 	const engineEntry = useEngineEntry();
 	const runtimeFault =
@@ -908,21 +924,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		setPreviewCaseTarget,
 		setPreviewSelectedCase,
 	]);
-
-	const needsBoundCase =
-		mode === "preview" &&
-		form !== undefined &&
-		CASE_LOADING_FORM_TYPES.has(form.type);
-	const caseBindingReady =
-		!needsBoundCase ||
-		(severalCaseForm &&
-			(effectiveCaseIds?.length ?? 0) > 0 &&
-			!caseBindingReplaced) ||
-		carriedCaseData !== undefined ||
-		(effectiveCaseId !== undefined &&
-			!caseBindingReplaced &&
-			caseDataState.kind === "row" &&
-			caseDataState.row.case_id === effectiveCaseId);
 
 	const dispatchPostSubmit = useCallback(
 		(
@@ -1981,12 +1982,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
-	// The first engine can render before the selected record's preload arrives.
-	// Keep that visible form inert until its preload is available, so a fresh
-	// entry cannot accept answers which the subsequent initialization replaces.
-	// An auto-selected list row already supplies a complete own-type preload;
-	// its identical raw-row read must not interrupt an open control. Ancestor
-	// preloads still need the full read. Submission keeps its stricter binding gate.
+	// A fresh entry waits for its selected record and ancestor preloads before
+	// running one-time defaults and query snapshots. An existing entry can
+	// retain its settled inputs while an equivalent own-row read refreshes;
+	// submission still requires the current authoritative binding.
 	const selectedCaseLoading =
 		needsBoundCase &&
 		(effectiveCaseIds?.length ?? 0) > 0 &&
