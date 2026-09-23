@@ -125,8 +125,9 @@ Final model-release CI exposed another entry path: opening a case-loading form
 in Edit could initialize its query rows before Preview supplied the selected
 record. A controlled browser check reproduces the empty roster after the read
 arrives. The correction defers that first activation in either mode and preserves
-an already initialized entry through later Edit/Preview flips. Review, production
-browser evidence and release remain pending; no paid rerun or generated-app
+an already initialized entry through later Edit/Preview flips. The production
+browser/Postgres check and fresh independent review pass; CI and deployment
+remain pending; no paid rerun or generated-app
 repair was used to bypass this runtime defect.
 
 The final development comparison exposed another browser boundary: an
@@ -147,8 +148,8 @@ edited answers. Keep these distinct from the initial-preload correction, retain
 the browser/controller reproductions, and preserve authorization and scope
 boundaries when correcting continuation behavior. PR #685 passed independent
 review, controller and browser checks, including unchanged-output history
-navigation, and all 24 CI checks. It is merged; live deployment verification
-remains acceptance work.
+navigation, and all 24 CI checks. The exact image is verified at production revision
+00564-j7w serving all traffic.
 
 
 The source-backed initial-delivery audit and observation improvements shipped in
@@ -213,7 +214,7 @@ its release from cost alone.
   saves separate marks, excludes leavers from later rosters while retaining
   history, and rejects invalid session labels. This remains development evidence;
   the original first-browser failure is preserved.
-- [ ] Finish PR #685 CI/deployment. Home retained an old parent selection; data
+- [x] Finish PR #685 CI/deployment. Home retained an old parent selection; data
   refresh could erase answers. The generic fixes pass independent review and
   controlled browser/controller checks, including the queued-rebuild race found
   during review. The unchanged generated app now allows the coordinator to
@@ -237,7 +238,7 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Release the reviewed all-role model change after PR #685 is live. The
+- [ ] Release the reviewed all-role model change after PR #686 is live. The
   completed comparison supports proceeding with GPT-6 Sol and Luna at existing
   efforts; final rebase, review, CI and live verification remain. All callers,
   including extraction, translation and offline scripts, move together. The
@@ -255,9 +256,9 @@ its release from cost alone.
   separate receipts were repaired; ordinary entry, retained observations and
   independent native checks were inspected. Real worker accounts and places
   were not supplied, so location-dependent ordinary submissions remain unproved.
-- [ ] Preserve provider-compaction uncertainty: the earlier bounded probe did
+- [x] Preserve provider-compaction uncertainty: the earlier bounded probe did
   not reproduce discovery loss. No production fix is claimed from that probe.
-- [ ] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
+- [x] Retain physical-device, remote-HQ, offline-sync and survey-report retrieval
   limits. Native execution and local HQ regeneration do not establish them.
 
 ## Evaluation and delivery rules
