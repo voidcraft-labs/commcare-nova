@@ -6,6 +6,7 @@ import * as readline from "node:readline";
 import { createOpenAI } from "@ai-sdk/openai";
 import { Output, streamText } from "ai";
 import { z } from "zod";
+import { MODEL_PRICING, OPENAI_BASE_OPTIONS } from "../../lib/models.js";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
 import type {
@@ -16,9 +17,11 @@ import type {
 } from "./types.js";
 
 const DISTILL_DIR = ".data/confluence-cache/distilled";
-const DISTILL_MODEL = "gpt-5.6-luna";
-const SONNET_INPUT_COST = 3; // $/M tokens
-const SONNET_OUTPUT_COST = 15; // $/M tokens
+const DISTILL_MODEL = "gpt-6-luna";
+// Conservative rates include long-context calls and more expensive cache writes.
+const RATES = MODEL_PRICING[DISTILL_MODEL].long;
+const INPUT_COST = Math.max(RATES.input, RATES.cacheWrite);
+const OUTPUT_COST = RATES.output;
 
 const tagClusterSchema = z.object({
 	clusters: z.array(
@@ -158,8 +161,8 @@ export async function distill(
 	const clusteringInputTokens = estimateTokens(tagsInputChars) + 500;
 	const clusteringOutputTokens = 3000;
 	const clusteringCost =
-		(clusteringInputTokens / 1_000_000) * SONNET_INPUT_COST +
-		(clusteringOutputTokens / 1_000_000) * SONNET_OUTPUT_COST;
+		(clusteringInputTokens / 1_000_000) * INPUT_COST +
+		(clusteringOutputTokens / 1_000_000) * OUTPUT_COST;
 
 	const totalContentChars = relevantPages.reduce(
 		(sum, p) => sum + p.content.length,
@@ -168,8 +171,8 @@ export async function distill(
 	const distillInputTokens = estimateTokens(totalContentChars);
 	const distillOutputTokens = 12 * 3000;
 	const distillCost =
-		(distillInputTokens / 1_000_000) * SONNET_INPUT_COST +
-		(distillOutputTokens / 1_000_000) * SONNET_OUTPUT_COST;
+		(distillInputTokens / 1_000_000) * INPUT_COST +
+		(distillOutputTokens / 1_000_000) * OUTPUT_COST;
 
 	const estCost = clusteringCost + distillCost;
 
@@ -201,11 +204,12 @@ export async function distill(
 	log("Distill", `Step 1: Clustering ${tagArray.length} tags...`);
 	log(
 		"Distill",
-		`  Sending tag array (~${estimateTokens(tagsInputChars).toLocaleString()} tokens) to Sonnet...`,
+		`  Sending tag array (~${estimateTokens(tagsInputChars).toLocaleString()} tokens) to ${DISTILL_MODEL}...`,
 	);
 
 	const clusterStream = streamText({
 		model: openai(DISTILL_MODEL),
+		providerOptions: { openai: OPENAI_BASE_OPTIONS },
 		output: Output.object({ schema: tagClusterSchema }),
 		instructions: `You are organizing CommCare platform knowledge for an AI agent that builds CommCare apps.
 
@@ -266,8 +270,8 @@ Guidelines:
 		"  Clustering done",
 		clusterUsage.inputTokens ?? 0,
 		clusterUsage.outputTokens ?? 0,
-		SONNET_INPUT_COST,
-		SONNET_OUTPUT_COST,
+		INPUT_COST,
+		OUTPUT_COST,
 	);
 
 	// Log clusters
@@ -386,6 +390,7 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 
 				const result = streamText({
 					model: openai(DISTILL_MODEL),
+					providerOptions: { openai: OPENAI_BASE_OPTIONS },
 					instructions: distillSystem,
 					prompt,
 				});
@@ -408,8 +413,8 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 					`    ${cluster.name}${batchLabel}`,
 					usage.inputTokens ?? 0,
 					usage.outputTokens ?? 0,
-					SONNET_INPUT_COST,
-					SONNET_OUTPUT_COST,
+					INPUT_COST,
+					OUTPUT_COST,
 				);
 				totalCost += batchCost;
 				log("Distill", `    Running total: $${totalCost.toFixed(4)}`);
@@ -471,6 +476,6 @@ Format as clean markdown. Start with a level-1 heading matching the topic name. 
 				`  ${c.filename}.md — ${c.name} (${clusterPages.get(c.name)?.length ?? 0} pages)`,
 		),
 		"",
-		`Total cost: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Total upper-rate estimate: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 	]);
 }

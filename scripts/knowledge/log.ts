@@ -18,7 +18,7 @@ export function logCost(
 	const outputCost = (outputTokens / 1_000_000) * costPerMOutput;
 	const totalCost = inputCost + outputCost;
 	console.log(
-		`[${phase}] ${label}: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out — $${totalCost.toFixed(4)}`,
+		`[${phase}] ${label}: ${inputTokens.toLocaleString()} in / ${outputTokens.toLocaleString()} out — upper-rate estimate $${totalCost.toFixed(4)}`,
 	);
 	return totalCost;
 }

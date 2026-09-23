@@ -296,7 +296,7 @@ export const LIFECYCLES: readonly Lifecycle[] = [
 		id: "chat-edit",
 		title: "Chat edit",
 		summary:
-			"Every later turn sends the whole thread plus a fresh app-state snapshot to one tool-loop agent.",
+			"Each edit projects the saved thread into model context and adds a fresh app-state snapshot. A compatible compaction checkpoint can replace earlier messages in that projection; the saved transcript remains complete.",
 		steps: [
 			{ kind: "input", label: "Thread history and the current blueprint" },
 			{

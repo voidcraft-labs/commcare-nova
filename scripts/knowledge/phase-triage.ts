@@ -1,4 +1,4 @@
-/** Phase 2: Triage — classify crawled pages for relevance using Haiku */
+/** Phase 2: Triage — classify crawled pages for relevance. */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -6,6 +6,7 @@ import * as readline from "node:readline";
 import { createOpenAI } from "@ai-sdk/openai";
 import { generateText, Output } from "ai";
 import { z } from "zod";
+import { MODEL_PRICING, OPENAI_BASE_OPTIONS } from "../../lib/models.js";
 import { log, logCost, logSummary } from "./log.js";
 import { loadCrawledPages } from "./phase-crawl.js";
 import type {
@@ -17,9 +18,11 @@ import type {
 
 const CACHE_DIR = ".data/confluence-cache";
 const TRIAGE_PATH = path.join(CACHE_DIR, "triage.json");
-const TRIAGE_MODEL = "gpt-5.6-luna";
-const HAIKU_INPUT_COST = 1; // $/M tokens
-const HAIKU_OUTPUT_COST = 5; // $/M tokens
+const TRIAGE_MODEL = "gpt-6-luna";
+// Conservative rates include long-context calls and more expensive cache writes.
+const RATES = MODEL_PRICING[TRIAGE_MODEL].long;
+const INPUT_COST = Math.max(RATES.input, RATES.cacheWrite);
+const OUTPUT_COST = RATES.output;
 const MAX_CONTENT_CHARS = 6000; // ~1500 tokens per page for triage
 
 const triagePageSchema = z.object({
@@ -122,8 +125,8 @@ export async function triage(
 	const estInputTokens = estimateTokens(totalContentChars + pages.length * 500); // content + prompt overhead
 	const estOutputTokens = pages.length * 80; // ~80 tokens per classification
 	const estCost =
-		(estInputTokens / 1_000_000) * HAIKU_INPUT_COST +
-		(estOutputTokens / 1_000_000) * HAIKU_OUTPUT_COST;
+		(estInputTokens / 1_000_000) * INPUT_COST +
+		(estOutputTokens / 1_000_000) * OUTPUT_COST;
 
 	log(
 		"Triage",
@@ -156,6 +159,7 @@ export async function triage(
 		try {
 			const result = await generateText({
 				model: openai(TRIAGE_MODEL),
+				providerOptions: { openai: OPENAI_BASE_OPTIONS },
 				output: Output.object({ schema: triageBatchSchema }),
 				instructions: `You are classifying Confluence pages for relevance to an AI agent that builds CommCare apps. The agent generates app structures (modules, forms, fields, case configuration, form logic) from natural language.
 
@@ -208,8 +212,8 @@ Rate each page:
 				`Batch ${batchNum}/${totalBatches}`,
 				usage.inputTokens ?? 0,
 				usage.outputTokens ?? 0,
-				HAIKU_INPUT_COST,
-				HAIKU_OUTPUT_COST,
+				INPUT_COST,
+				OUTPUT_COST,
 			);
 
 			// Save incrementally after each batch
@@ -280,7 +284,7 @@ Rate each page:
 		"Top topic tags (6+ pages):",
 		...topTags.map(([tag, count]) => `  ${tag}: ${count}`),
 		"",
-		`Total cost: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
+		`Total upper-rate estimate: $${totalCost.toFixed(4)} (${totalInputTokens.toLocaleString()} in / ${totalOutputTokens.toLocaleString()} out)`,
 		"",
 		"Top-scoring pages:",
 		...entries
