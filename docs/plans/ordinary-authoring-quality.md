@@ -174,11 +174,11 @@ its release from cost alone.
   Required workflows were still omitted in completed trials, and review missed
   consequential first-use and requirement gaps. Future paid acceptance needs a
   new allocation; no silent retry or model-release pass is implied.
-- [ ] Correct standard metadata reads in forms (PR #680). Shared form admission
+- [x] Correct standard metadata reads in forms (PR #680). Shared form admission
   omitted implicit values and form consumers misread attribute metadata. Exact
-  native export and Preview checks now cover selected and parent records;
-  independent review, CI and deployment remain. The current comparison excludes
-  this later correction on both sides.
+  native export and Preview checks cover selected and parent records. Independent
+  review and full CI passed; production revision 00559-6cl serves the exact
+  verified image. The final comparison excludes this later correction on both sides.
 - [x] Investigate the abandoned uniqueness check: focused guidance omitted
   usable form queries over worker-available records. PR #675 makes those reads
   and predicate context discoverable with explicit local-state limits. It does
