@@ -58,6 +58,12 @@ Screen readers announce question and section positions within their current
 container. Hidden calculations and questions that do not currently apply are
 skipped, including inside each repeated entry.
 
+A repeating section can let workers add entries, use a fixed count, or show one
+entry per matching record. For the latter two, Nova fixes the entries when the
+form loads, or when the enclosing repeated entry is added for a nested section.
+Changing an answer or opening a later page does not rebuild that list. The
+information used to choose entries needs to be available when they are created.
+
 Preview checks each answer before submitting the form. Whole-number questions
 accept integers; decimal questions also accept fractions. If an answer is
 incomplete or has the wrong format, it stays visible beside a message so you
