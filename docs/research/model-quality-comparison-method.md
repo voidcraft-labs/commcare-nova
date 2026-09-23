@@ -55,9 +55,10 @@ explicit one-time conversion: run `scripts/scan-authoring-ledger.ts` with the
 source and authorized total ceiling, review its totals and retained unknown
 charges, then run `scripts/migrate-authoring-ledger.ts` with that exact source
 hash and a new destination. The original file remains intact. Runtime runners
-refuse legacy or internally inconsistent ledgers. Per-trial limits sum the calls
-in the same app/session's resume ancestry; a changed global balance cannot reset
-that allowance. A ceiling in a file is an accounting guard, not authorization to
+refuse legacy or internally inconsistent ledgers. New reservations carry the stable design-session identity. Per-trial limits
+include every continuation with that identity, plus legacy runs recovered from
+artifacts, persisted usage summaries and current authority. Choosing an older
+resume directory or changing the global balance cannot reset that allowance. A ceiling in a file is an accounting guard, not authorization to
 spend beyond the user's allocation.
 
 Prices were verified against [OpenAI's published rate card](https://developers.openai.com/api/docs/pricing)

@@ -220,6 +220,20 @@ async function main() {
 			trialRunIds.push(
 				...(await priorTrialRuns(previous, prior.appId, prior.designSessionId)),
 			);
+			const { appId, designSessionId } = prior;
+			const recordedRuns = await (await getAppDb())
+				.selectFrom("run_summaries")
+				.select("run_id")
+				.where((eb) =>
+					eb.or([
+						eb("app_id", "=", appId),
+						eb("design_session_id", "=", designSessionId),
+					]),
+				)
+				.execute();
+			trialRunIds.push(...recordedRuns.map((run) => run.run_id));
+			for (const authorityRun of [resumedApp?.run_id, session.run_id])
+				if (authorityRun) trialRunIds.push(authorityRun);
 			userMessages = saved.userMessages;
 			if (
 				!userMessages.some(
@@ -387,6 +401,7 @@ async function main() {
 							ledger,
 							trialRunIds,
 							TRIAL_CEILING_USD,
+							claim.designSessionId,
 						);
 						let inputTokenCount: number | undefined;
 						if (reservedUsd > remaining) {
@@ -407,6 +422,7 @@ async function main() {
 						requests += 1;
 						currentCall = {
 							runId,
+							trialId: claim.designSessionId,
 							request: requests,
 							reservedUsd,
 							model: parsedRequest.model,

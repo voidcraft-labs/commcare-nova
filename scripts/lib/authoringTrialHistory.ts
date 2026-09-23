@@ -35,10 +35,11 @@ export function remainingTrialBudget(
 	ledger: PilotLedger,
 	runIds: readonly string[],
 	trialCeilingUsd: number,
+	trialId: string,
 ): number {
 	const ids = new Set(runIds);
 	const trialSpent = ledger.calls
-		.filter((call) => ids.has(String(call.runId)))
+		.filter((call) => call.trialId === trialId || ids.has(String(call.runId)))
 		.reduce((total, call) => total + pilotCallCharge(call), 0);
 	return Math.min(
 		ledger.ceilingUsd - ledger.estimatedSpentUsd,

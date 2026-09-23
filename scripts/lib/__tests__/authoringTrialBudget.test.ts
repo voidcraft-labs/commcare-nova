@@ -49,13 +49,14 @@ it("settles reported usage once and retains unknown charges without resetting re
 		calls: [...result.ledger.calls, unrelated],
 	});
 	expect(
-		remainingTrialBudget(ledger, ["initial", "resumed", "next"], 30),
+		remainingTrialBudget(ledger, ["initial", "resumed", "next"], 30, "design"),
 	).toBeCloseTo(17.6);
 	expect(
 		remainingTrialBudget(
 			{ ...ledger, ceilingUsd: 120 },
 			["initial", "resumed"],
 			30,
+			"design",
 		),
 	).toBeCloseTo(7.6);
 	expect(() => readPilotLedger(legacy)).toThrow();
@@ -202,4 +203,31 @@ it("captures the exact Standard request sent to the provider and stops before di
 			expect(received).toHaveLength(1);
 		},
 	);
+});
+
+it("counts sibling continuations even when recovery selects an older checkpoint", () => {
+	const ledger = readPilotLedger({
+		accountingVersion: 2,
+		ceilingUsd: 150,
+		targetUsd: 150,
+		estimatedSpentUsd: 29,
+		calls: [
+			{ runId: "initial", status: "completed", estimatedUsd: 6 },
+			{
+				runId: "recovery-one",
+				trialId: "design",
+				status: "pending",
+				reservedUsd: 20,
+			},
+			{
+				runId: "sibling-completed",
+				trialId: "design",
+				status: "completed",
+				estimatedUsd: 3,
+			},
+		],
+	});
+	expect(
+		remainingTrialBudget(ledger, ["initial", "recovery-two"], 30, "design"),
+	).toBe(1);
 });
