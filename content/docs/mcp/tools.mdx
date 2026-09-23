@@ -142,8 +142,10 @@ number required by the next action. Omit `testId` from `read_app_test` to find r
 tests by purpose and source revision. Supply a returned identity to read retained steps and
 their app revision. Builder's **Test journeys** presents those same observations.
 
-Tests start with explicitly supplied fictional records, never a copy of live
-cases. Optional fictional places and assignments apply only within the test;
+Tests start empty unless fictional records are explicitly supplied; they never
+copy live cases. The first observation records supplied counts by case type.
+Starting with supplied records checks what happens after those records exist;
+it does not show how a user obtains them. Optional fictional places and assignments apply only within the test;
 they do not configure deployment. Lookup data and existing place context are
 authorized snapshots. A saved app change requires a new test. Continuation
 expires after 24 hours; finishing discards disposable records and keeps the

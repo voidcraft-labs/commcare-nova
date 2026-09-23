@@ -174,6 +174,7 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 			purpose: "Register equipment, retire it, and check the next task.",
 		}),
 	);
+	expect(current.observation.suppliedRecords).toEqual([]);
 	const testId = current.testId;
 	const step = async (action: AppTestAction) => {
 		const args = {
@@ -264,6 +265,7 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	await step({ kind: "finish" });
 	const evidence = await readAppTestSteps({ ...scope, testId });
 	expect(evidence.steps).toHaveLength(current.step + 1);
+	expect(evidence.steps[0].observation.suppliedRecords).toEqual([]);
 	// A recorded journey must be usable by the next real model step, including
 	// database timestamps after disposal. SDK JSON output rejects Date objects.
 	const listed = await call("readAppTest", {});
@@ -502,7 +504,17 @@ it("requires a saved role and parent selection, then executes additional operati
 		})),
 	};
 	let current = stepSchema.parse(await call("startAppTest", inputs, "start"));
+	expect(current.observation.suppliedRecords).toEqual([
+		{ caseType: "household", count: 3 },
+		{ caseType: "equipment", count: 2 },
+	]);
 	expect(await call("startAppTest", inputs, "start")).toEqual(current);
+	const retainedStart = await call("readAppTest", { testId: current.testId });
+	expect(retainedStart).toMatchObject({
+		steps: [
+			{ observation: { suppliedRecords: current.observation.suppliedRecords } },
+		],
+	});
 	expect(doc.personas?.[worker.uuid].locations).toBeUndefined();
 	expect(
 		await h

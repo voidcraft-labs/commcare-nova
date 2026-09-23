@@ -25,7 +25,9 @@ List and detail timestamps are ISO strings usable in model JSON results.
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach
 must resolve there, with the current production column contract. No live case
-rows are copied. Supplied records and fictional places exist only in this
+rows are copied. Start observations retain supplied record counts by type,
+including an empty list when no business records were supplied. This is input
+provenance, not a readiness verdict or a count of current worker-visible rows. Supplied records and fictional places exist only in this
 namespace; saved lookup rows and actual place context are authorized read inputs.
 Test-only persona assignments do not provision workers or establish deployment
 readiness. The narrow store cannot alter schemas or dispatch media effects.

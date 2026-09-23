@@ -31,7 +31,11 @@ export const appTestStartSchema = z.strictObject({
 		.min(1)
 		.max(1000)
 		.describe("The worker journey and expected result to investigate."),
-	scenario: evaluationScenarioSchema.optional(),
+	scenario: evaluationScenarioSchema
+		.optional()
+		.describe(
+			"Optional starting records in isolated test storage. Omit to exercise creation from no business records. Supplied records are test prerequisites, not evidence that the app creates or provides them. IDs are test labels; parentId refers to another supplied record. Live case rows are never copied.",
+		),
 	owners: z
 		.array(
 			z.strictObject({
