@@ -23,8 +23,8 @@ The running menu keeps three distinct case facts, and they must not collapse:
 - `previewSelectedCase` mirrors the one record currently open on Results for the
   breadcrumb/Details step. Opening Details never changes the selected set.
 - `previewMenuCaseSelections` is keyed by module UUID and binds a case type plus
-  its ordered `cases` collection to that menu. It survives ordinary in-Preview
-  navigation so a parent menu can keep its Forms and child tiles available; a
+  its ordered `cases` collection to that menu. It survives navigation within the
+  running task so a parent menu keeps its Forms and child tiles available; a
   compatible same-type child may reuse it without turning the Form target into
   shared state.
 
@@ -60,7 +60,8 @@ into the Form target; same-type inheritance may reuse it only when the
 destination has the same scalar/collection cardinality and its authored maximum
 is large enough. A scalar/set transition or a different case type starts a fresh
 target selection. Search, paging, Details, Back, and compatible menu navigation
-retain the set. Preview reset, persona change, Project boundary, or module
+retain the set. Home clears the current task's case facts and search context,
+without changing worker identity or authorization. Preview reset, persona change, Project boundary, or module
 removal clears it. A maximum change does not trim it: the running screen holds
 the over-limit set until the worker removes enough cases.
 

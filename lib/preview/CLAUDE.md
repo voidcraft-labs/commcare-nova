@@ -202,6 +202,21 @@ repeat add/remove revisions are atomic within an entry: later browser events
 queue behind topology mutation, defaults/cascade, and compaction publication.
 Navigation may still retire the whole entry and discard its engine.
 
+Home ends the current running task. It clears selected parent records, the current
+Form/Details target, and transient search context while retaining the chosen worker
+and actor authorization. Reopening a related-record history therefore offers its
+parent selection again, matching isolated app-test Home. Moving within a parent
+menu still retains the parent needed by its children.
+
+A required device-case database refresh pauses an existing entry without retiring
+its answers, query membership or attachment entry key. New input, validation and
+submission are refused until data is ready; the latest snapshot rebuilds the same
+entry from its checkpoint. Cold activation still waits for real data. Deactivation
+on navigation, worker replacement, confirmed app/Project change or access
+revocation remains terminal and discards the old entry. A rebuilt runtime may
+remount question controls; this does not claim preservation of focus or an open
+native picker through a whole-database refresh.
+
 Running navigation preserves the requested leaf across parent-case selection.
 A direct Form or Results record that needs one or more case parents first visits
 those selectors in case-type order, then replaces the selector with that exact

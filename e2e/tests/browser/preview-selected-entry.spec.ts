@@ -9,14 +9,16 @@ test("Selected record arrives before one-time query rows are initialized", async
 }) => {
 	const peer = await selectedEntryPeer();
 	let release: () => void = () => {};
-	const selected = new Promise<void>((resolve) => {
+	let selected = new Promise<void>((resolve) => {
 		release = resolve;
 	});
+	let replies = 0;
 	await page.route(`${peer.origin}/selected-record`, async (route) => {
 		await selected;
 		await route.fulfill({
 			json: { kind: "row", row: selectedRow, ancestors: [] },
 		});
+		replies++;
 	});
 	try {
 		await Promise.all([
@@ -35,6 +37,18 @@ test("Selected record arrives before one-time query rows are initialized", async
 		);
 		await note.fill("Checked the shelves");
 		await expect(note).toHaveValue("Checked the shelves");
+		selected = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		await Promise.all([
+			page.waitForRequest(`${peer.origin}/selected-record`),
+			page.getByRole("button", { name: "Refresh record", exact: true }).click(),
+		]);
+		await expect(note).toHaveValue("Checked the shelves");
+		release();
+		await expect.poll(() => replies).toBe(2);
+		await expect(note).toHaveValue("Checked the shelves");
+
 		await expect(
 			page.getByRole("button", { name: "Submit", exact: true }),
 		).toBeEnabled();

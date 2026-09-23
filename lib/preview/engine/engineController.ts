@@ -781,6 +781,7 @@ export class EngineController {
 		fallback: T,
 		run: () => T,
 	): T {
+		if (this.caseDatabaseWait() !== undefined) return fallback;
 		try {
 			return run();
 		} catch (error) {
@@ -993,6 +994,7 @@ export class EngineController {
 		fallback: T,
 		options: { readonly atomic?: boolean; readonly prepare?: () => void } = {},
 	): Promise<T> {
+		if (this.caseDatabaseWait() !== undefined) return Promise.resolve(fallback);
 		const deferReservation = this.atomicRevisionsPending > 0;
 		const scheduledGeneration = this.lifecycleGeneration;
 		if (options.atomic) {
@@ -1194,7 +1196,10 @@ export class EngineController {
 		}
 
 		if (state.required && state.status !== "ready") {
-			if (this.activeFormUuid !== undefined) this.clearActiveForm();
+			// A resource refresh suspends this entry; it does not start a new task.
+			// Keep its captured world and answers until the authoritative snapshot
+			// returns. Submission and new input remain gated by caseDatabaseWait.
+			// Identity, Project, navigation and access revocation deactivate separately.
 			this.publishEntryState();
 			return;
 		}
@@ -1344,6 +1349,7 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		preserveAllValues = false,
 	): Promise<boolean> {
+		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return false;
 		if (this.xpathRuntime === undefined) {
 			this.rebuildActiveForm(formUuid, caseData, preserveAllValues);
 			return this.engine !== undefined;
@@ -1564,6 +1570,7 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		preserveAllValues = false,
 	): void {
+		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return;
 		if (this.runtimeFault?.formUuid === formUuid) return;
 		this.runtimeFault = undefined;
 		this.contain("rebuild", formUuid, undefined, () => {
@@ -1580,6 +1587,17 @@ export class EngineController {
 				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 			);
 		});
+	}
+
+	private deferCaseDatabaseRebuild(
+		formUuid: Uuid,
+		caseData?: CaseDataByType,
+	): boolean {
+		if (this.caseDatabaseWait() === undefined) return false;
+		if (this.requestedActivation?.formUuid === formUuid) {
+			this.requestedActivation = { ...this.requestedActivation, caseData };
+		}
+		return true;
 	}
 
 	private mountForm(
@@ -1842,7 +1860,7 @@ export class EngineController {
 	 *  entry point, where repeat children carry per-instance indexed paths
 	 *  the uuid map can't address. */
 	setValueAt(path: string, value: string): void {
-		if (!this.engine) return;
+		if (!this.engine || this.caseDatabaseWait() !== undefined) return;
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("value-change", formUuid, undefined, () => {
@@ -1861,6 +1879,7 @@ export class EngineController {
 	}
 
 	async setValueAtAsync(path: string, value: string): Promise<boolean> {
+		if (this.caseDatabaseWait() !== undefined) return false;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;

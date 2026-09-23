@@ -137,7 +137,11 @@ another person; app tests instead clear that selection. A whole case-database
 refresh also retires the active engine and restores default values instead of
 edited answers. Keep these distinct from the initial-preload correction, retain
 the browser/controller reproductions, and preserve authorization and scope
-boundaries when correcting continuation behavior. They remain acceptance work.
+boundaries when correcting continuation behavior. The follow-up now resets task
+selection on Home and retains an entry through same-scope database refresh, with
+submission refused while data is unavailable. Controlled controller and browser
+checks pass; full app navigation checks, independent review, CI, deployment and
+unchanged-app verification remain acceptance work.
 
 
 The source-backed initial-delivery audit and observation improvements shipped in

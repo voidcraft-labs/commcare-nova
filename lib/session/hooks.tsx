@@ -152,6 +152,10 @@ export function usePreviewParentCaseRequest():
 	return useBuilderSession((s) => s.previewParentCaseRequest);
 }
 
+export function useClearPreviewNavigation(): () => void {
+	return useBuilderSession((s) => s.clearPreviewNavigation);
+}
+
 export function useSetPreviewParentCaseRequest(): (
 	request: PreviewParentCaseRequest | undefined,
 ) => void {

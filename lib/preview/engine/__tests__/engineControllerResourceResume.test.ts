@@ -70,7 +70,7 @@ function storeForSearchRegistration() {
 
 describe("search answers across device-data resource suspension", () => {
 	it.each([false, true])(
-		"keeps the admitted search answers when required data arrives (worker=%s)",
+		"keeps an entry through same-scope data refresh and discards it on deactivation (worker=%s)",
 		async (worker) => {
 			const ctrl = new EngineController(
 				worker
@@ -100,15 +100,35 @@ describe("search answers across device-data resource suspension", () => {
 				await ctrl.awaitSettled();
 				expect(ctrl.entryStore.getState().fault).toBeUndefined();
 				expect(ctrl.store.getState()[NAME]?.value).toBe("Amina");
+				await ctrl.onValueChangeAsync(NAME, "Edited name");
+				const entryKey = ctrl.entryKey;
 				ctrl.setCaseDatabaseState({ required: true, status: "loading" });
-				expect(ctrl.formUuid).toBeUndefined();
+				expect(ctrl.formUuid).toBe(FORM);
+				expect(ctrl.entryKey).toBe(entryKey);
+				expect(ctrl.store.getState()[NAME]?.value).toBe("Edited name");
+				expect(await ctrl.validateAllAsync()).toBe(false);
+				expect(() => ctrl.computeSubmissionMutation({})).toThrow();
+				expect(await ctrl.onValueChangeAsync(NAME, "Blocked edit")).toBe(false);
+				ctrl.setCaseDatabaseState({ required: true, status: "error" });
+				expect(ctrl.store.getState()[NAME]?.value).toBe("Edited name");
 				ctrl.setCaseDatabaseState({
 					required: true,
 					status: "ready",
 					snapshot: { rows: [], indices: [] },
 				});
 				await ctrl.awaitSettled();
-				expect(ctrl.store.getState()[NAME]?.value).toBe("Amina");
+				expect(ctrl.entryKey).toBe(entryKey);
+				expect(ctrl.store.getState()[NAME]?.value).toBe("Edited name");
+				ctrl.setCaseDatabaseState({ required: true, status: "loading" });
+				ctrl.deactivate();
+				ctrl.setCaseDatabaseState({
+					required: true,
+					status: "ready",
+					snapshot: { rows: [], indices: [] },
+				});
+				await ctrl.awaitSettled();
+				expect(ctrl.formUuid).toBeUndefined();
+				expect(ctrl.store.getState()[NAME]).toBeUndefined();
 			} finally {
 				ctrl.dispose();
 				await ctrl.awaitSettled();

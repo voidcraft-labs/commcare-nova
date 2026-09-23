@@ -148,3 +148,42 @@ test(
 		).toBeVisible();
 	},
 );
+
+test("Home starts a fresh parent choice when reopening a related record list", {
+	tag: "@seed:case-changes",
+}, async ({ scenario, page }) => {
+	const { appId } = seedFor(scenario, "case-changes").caseChanges;
+	await page.goto(`/build/${appId}`);
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const main = page.locator("main");
+	for (let entry = 0; entry < 2; entry++) {
+		await main
+			.getByRole("button", {
+				name: new RegExp(`^${CASE_CHANGES_SEED.archivedModuleName}\\b`),
+			})
+			.click();
+		await expect(
+			main.getByRole("heading", {
+				name: CASE_CHANGES_SEED.moduleName,
+				exact: true,
+			}),
+		).toBeVisible();
+		await main
+			.getByRole("button", { name: /^View details for Smoke patient/ })
+			.click();
+		await main.getByRole("button", { name: "Continue", exact: true }).click();
+		await expect(
+			main.getByRole("heading", {
+				name: CASE_CHANGES_SEED.archivedModuleName,
+				exact: true,
+			}),
+		).toBeVisible();
+		await page
+			.getByRole("navigation", { name: "Page navigation" })
+			.getByRole("button", { name: "Home", exact: true })
+			.click();
+		await expect(
+			main.getByRole("textbox", { name: "Application name", exact: true }),
+		).toBeVisible();
+	}
+});
