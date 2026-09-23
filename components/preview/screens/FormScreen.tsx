@@ -1982,10 +1982,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const repeatTopologySettling =
 		engineEntry.formUuid === formUuid && engineEntry.topologySettling;
 	// The first engine can render before the selected record's preload arrives.
-	// Keep that visible form inert until its actual binding is ready, so a fresh
+	// Keep that visible form inert until its preload is available, so a fresh
 	// entry cannot accept answers which the subsequent initialization replaces.
+	// An auto-selected list row already supplies a complete own-type preload;
+	// its identical raw-row read must not interrupt an open control. Ancestor
+	// preloads still need the full read. Submission keeps its stricter binding gate.
 	const selectedCaseLoading =
-		needsBoundCase && (effectiveCaseIds?.length ?? 0) > 0 && !caseBindingReady;
+		needsBoundCase &&
+		(effectiveCaseIds?.length ?? 0) > 0 &&
+		!caseBindingReady &&
+		(caseData === undefined ||
+			caseBindingReplaced ||
+			reachableChain.length > 1);
 	const formFrozen =
 		submitStatus.kind === "running" ||
 		clearRunning ||
