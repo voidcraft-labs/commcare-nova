@@ -99,9 +99,10 @@ form reference spellings. Form XPath reads ancestors by type, such as
 registration/survey nor multiple selection claims a single record context.
 The fields guide distinguishes this selected-record context from a query-bound
 repeat's retained row identity. It documents the direct-child
-`current()/../@id` read and the actual initialization point: form load for a
-top-level repeat, creation of its enclosing repeat row for a nested repeat.
-Later answers or page entry do not rebuild membership.
+`current()/../@id` read and the actual initialization point: form load for
+unsectioned top-level rows, first section entry for section content, and creation
+of an enclosing repeat row for nested rows. Returning to a section retains its
+existing rows and answers; later answers do not rebuild membership.
 
 The architect has a durable 180-call allowance per user turn, including recovery;
 peer and translation bounds remain separate. Reaching a bound is an unfinished

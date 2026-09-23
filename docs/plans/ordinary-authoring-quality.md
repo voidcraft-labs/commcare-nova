@@ -196,11 +196,29 @@ its release from cost alone.
   Shared engine and app-test page turns passed controlled tests, independent
   review and full CI. Revision 00558-mtp serves production; plugin 1.38.0 followed.
   Unsectioned native question-by-question timing remains a stated boundary.
-- [ ] Resume and complete the bounded comparison on the frozen corrected runtime. The last
-  GPT-5.6 output passed its main role/history journey but excluded a valid zero
-  count; GPT-6 stopped at the shared budget guard before app review or handoff.
-  No expert repair instructions entered either trial. Results and the decision
-  to retain GPT-5.6 are in `docs/research/model-quality-comparison-results.md`.
+- [x] Resume the interrupted related-record comparison on its frozen runtime.
+  GPT-6 completed through ordinary recovery without expert repair prompts.
+  Browser entry, role switching, zero-count acceptance, shared retained history,
+  normalized duplicates, Postgres effects and exact-export Core checks passed.
+  Its 160 calls cost $2.190009 versus 165 calls and $5.261829 for GPT-5.6.
+  The original budget interruption and all earlier failures remain recorded.
+- [x] Correct misleading record-expression errors (PR #683). Existing function
+  metadata now distinguishes form-only functions, unknown functions and literal
+  argument requirements without changing expression admission. Real parser and
+  Preview checks, independent review and full CI passed; exact image/revision
+  deployment is verified. Both frozen development trials exclude this change.
+- [x] Complete the bounded matched full-roster development pair. Both models
+  delivered without corrective prompts. GPT-5.6 passed the principal browser,
+  Postgres and Core journey; GPT-6 passed Core but exposed a browser loading-order
+  defect. PR #684 is reviewed, CI green and live. The unchanged GPT-6 app now
+  saves separate marks, excludes leavers from later rosters while retaining
+  history, and rejects invalid session labels. This remains development evidence;
+  the original first-browser failure is preserved.
+- [ ] Finish PR #685 CI/deployment. Home retained an old parent selection; data
+  refresh could erase answers. The generic fixes pass independent review and
+  controlled browser/controller checks, including the queued-rebuild race found
+  during review. The unchanged generated app now allows the coordinator to
+  choose a different participant from Home and inspect retained history.
 - [ ] Establish broader first-delivery quality beyond the bounded successes.
   Required workflows were still omitted in completed trials, and review missed
   consequential first-use and requirement gaps. Continue within the authorized
@@ -209,7 +227,8 @@ its release from cost alone.
   omitted implicit values and form consumers misread attribute metadata. Exact
   native export and Preview checks cover selected and parent records. Independent
   review and full CI passed; production revision 00559-6cl serves the exact
-  verified image. The final comparison excludes this later correction on both sides.
+  verified image. The reading pair excludes this later correction on both sides;
+  the final roster development pair includes it equally.
 - [x] Investigate the abandoned uniqueness check: focused guidance omitted
   usable form queries over worker-available records. PR #675 makes those reads
   and predicate context discoverable with explicit local-state limits. It does
@@ -219,20 +238,18 @@ its release from cost alone.
   the stored duplicate after initial candidate admission. No Android UI or
   remote WebApps submission was exercised. Do not infer persistent browser
   staleness from one immediate transition snapshot.
-- [ ] Update the all-role comparison artifact and release decision after recovery. Keep GPT-5.6
-  defaults pending evidence: lower GPT-6 cost and clearer wording did not establish
-  equal or better complete role-based apps. Credit useful additional scrutiny
-  separately from unmet requirements; sparse trials do not rank general intelligence. All active callers are prepared together in a held
-  draft, including extractor and translator. Private evidence retains failures,
-  verification depth, context/plan growth, repeated reads and usage costs.
-- [ ] Correct the trial accounting and enforce the authorized $150 total ceiling,
-  including prior trials, retries, extraction, translation and editing. The old
-  $97.683844175 ledger included $17.135566335 of blanket margins. Reported usage
-  plus the entire unresolved reservation is $80.54827784, so the earlier claim
-  that the $100 allocation could not support continued work was too conservative.
-  Settle known usage without that surcharge, retain unknown charges, reserve
-  model-specific future costs, and carry trial limits across ordinary recovery.
-  Preserve the original ledger through a reviewed scan and separate conversion.
+- [ ] Release the reviewed all-role model change after PR #685 is live. The
+  completed comparison supports proceeding with GPT-6 Sol and Luna at existing
+  efforts; final rebase, review, CI and live verification remain. All callers,
+  including extraction, translation and offline scripts, move together. The
+  research report retains concrete benefits, regressions, costs and boundaries.
+  Sparse trials do not rank general intelligence.
+- [x] Correct trial accounting and enforce $150 TOTAL including prior trials,
+  retries, extraction, translation and editing. PR #682 is reviewed, CI green
+  and live verified. The original ledger and hash-checked conversion are retained.
+  Known usage after the final development pair is $82.76438324 plus the entire
+  unresolved $12.0060125 reservation, totaling $94.77039574. The previous
+  blanket surcharge and premature budget stop remain documented mistakes.
 - [x] Complete the delivered-app acceptance report at its current revision.
   A final read-only refresh found no newer edits. Its repair was externally
   supervised. Name, identities, shared ownership and
