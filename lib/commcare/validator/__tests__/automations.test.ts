@@ -7,7 +7,6 @@ import {
 	type Automation,
 	automationMessageText,
 	type BlueprintDoc,
-	effectiveCaseTypes,
 	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
@@ -258,15 +257,9 @@ describe("automation property criteria validation", () => {
 	});
 
 	it.each(["case_id", "case_type"])(
-		"treats %s as implicit text metadata for automation criteria only",
+		"accepts %s metadata without a custom property declaration",
 		(property) => {
 			const doc = docWithCriterion("case", property, "has-value");
-			const visit = effectiveCaseTypes(doc).find(
-				(caseType) => caseType.name === "visit",
-			);
-			expect(visit?.properties.some((entry) => entry.name === property)).toBe(
-				false,
-			);
 			expect(validateCandidate(doc)).toEqual([]);
 		},
 	);

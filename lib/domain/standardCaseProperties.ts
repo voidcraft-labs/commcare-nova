@@ -45,6 +45,7 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
  * read against.
  */
 export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
+	case_id: "text",
 	case_name: "text",
 	date_opened: "datetime",
 	last_modified: "datetime",
@@ -55,6 +56,7 @@ export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
 
 /** Friendly labels for the one supported authoring name of each system value. */
 export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
+	case_id: "Record ID",
 	case_name: "Case name",
 	date_opened: "Date opened",
 	last_modified: "Last modified",
@@ -66,6 +68,8 @@ export const CANONICAL_STANDARD_CASE_PROPERTY_LABELS = {
 /** Meaning of existing runtime values, shared by author-facing projections.
  * These are lifecycle facts, not a substitute for a durable business event. */
 export const STANDARD_CASE_PROPERTY_DESCRIPTIONS = {
+	case_id:
+		"The record's stable, read-only identity. Use it to reference an existing record, including through a saved relationship. It is not a name or an identifier workers should have to type.",
 	case_name: "The record's display name.",
 	date_opened:
 		"When the record was opened. Ordinary later edits preserve this timestamp.",
@@ -145,9 +149,9 @@ export const CASE_NODE_ATTRIBUTE_PROPERTIES: ReadonlySet<string> = new Set([
  * Standard case values backed by first-class case-row columns rather than the
  * authored JSON property document. These values survive a case-type change as
  * row metadata and must never enter a JSON-property conversion/parking plan.
- * `case_id` and `case_type` are not display-list conveniences, so they sit
- * outside `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`, but share the same scalar
- * storage contract.
+ * `case_type` remains outside `STANDARD_CASE_LIST_PROPERTY_DATA_TYPES`, but
+ * shares the same scalar storage contract. Record identity is a read-only
+ * standard property; neither value is an ordinary write destination.
  */
 export const CASE_SCALAR_PROPERTY_NAMES: ReadonlySet<string> = new Set([
 	"case_id",

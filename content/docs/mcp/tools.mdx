@@ -801,6 +801,15 @@ Operation `writes` may save custom case properties or the standard
 retype operations expose their dedicated naming fields instead. Commcare Nova keeps
 standard scalars out of custom case-property data.
 
+Record expressions can read the stable, read-only `#case/case_id`. To update the
+selected record's parent, an expression target can use
+`via(ancestor('parent'), #case/case_id)` with that parent's case type. The saved
+relationship supplies the identity; no copied custom ID is needed. A `session`
+target means the single record selected before opening a form, so it is not
+available in registration or survey forms. To create an independently owned
+record explicitly, use a survey with a create operation rather than a
+registration plus a second create.
+
 | Tool | What it does |
 |---|---|
 | `get_case_operations` | List every operation in execution order with `operationUuid`, readable metadata, and authored conditions and values. |

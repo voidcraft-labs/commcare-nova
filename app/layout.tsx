@@ -20,7 +20,6 @@ const reactProfiler = readReactProfilerConfig();
 const display = Outfit({
 	subsets: ["latin"],
 	variable: "--font-nova-display",
-	weight: ["300", "400", "500", "600", "700"],
 });
 
 const sans = Plus_Jakarta_Sans({

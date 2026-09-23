@@ -50,6 +50,10 @@ question opens with are the ones a worker would see.
 
 Other case changes in the same form can also use the selected case's information.
 A new visit can take its name from the client and link back to that client.
+Every record has a read-only **Record ID**. A change can use an existing
+relationship to find the parent record to update, without asking the worker to
+type an identifier or storing another copy of it. Names and other useful details
+remain the better way for workers to choose records.
 These calculations use the case's values from before submission, even when an
 earlier change updates them. The changes themselves run in the order shown.
 
