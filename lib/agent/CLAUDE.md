@@ -129,7 +129,9 @@ items intact on resume; encrypted reasoning is not human-readable reasoning.
 ## Inspection and evidence
 
 `/agents` separates composition from code, current local app state, and recorded
-runs. Definitions and role facts come from their production owners. Token counts
+runs. Definitions and role facts come from their production owners; show full
+model IDs so generations remain distinguishable, including extraction and
+translation. Token counts
 use `o200k_base` estimates over the available text; actual provider usage is
 reported separately. Show deferred definitions as part of the full catalog and
 expose their later loading in recorded requests. A size estimate is neither a
