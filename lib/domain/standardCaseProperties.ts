@@ -72,9 +72,9 @@ export const STANDARD_CASE_PROPERTY_DESCRIPTIONS = {
 		"The record's stable, read-only identity. Use it to reference an existing record, including through a saved relationship. It is not a name or an identifier workers should have to type.",
 	case_name: "The record's display name.",
 	date_opened:
-		"When the record was opened. Ordinary later edits preserve this timestamp.",
+		"When the record was opened. Ordinary later edits preserve this timestamp. Form expressions read its calendar date, matching the device; the stored value retains its time.",
 	last_modified:
-		"The latest case modification timestamp, not the time it reached the server. Later edits replace it; an approval or other business event that must survive edits needs its own saved value.",
+		"The latest case modification timestamp, not the time it reached the server. Form expressions read its calendar date, matching the device. Later edits replace it; an approval or other business event that must survive edits needs its own saved value.",
 	owner_id:
 		"The worker or case-sharing group that owns the record; a place can supply that group. Ownership and record relationships determine which workers sync the record. This is not its creator or latest editor, nor permission to access a Nova Project.",
 	external_id: "An external identifier for the record, when one is assigned.",

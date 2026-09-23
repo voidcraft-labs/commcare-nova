@@ -81,22 +81,7 @@ describe("reachableCaseTypes — own + ancestors, depth = parent-index hops", ()
 	});
 });
 
-describe("toReachableIndex — seeds case_id on every type", () => {
-	it("adds case_id (label 'case id') even though no record declares it", () => {
-		const index = toReachableIndex(
-			reachableCaseTypes("pregnancy", TYPES),
-			EMPTY_DOC,
-		);
-		expect(index.get("pregnancy")?.properties.get("case_id")).toEqual({
-			label: "case id",
-		});
-		expect(index.get("mother")?.properties.get("case_id")).toEqual({
-			label: "case id",
-		});
-		// Declared properties are preserved alongside the seed.
-		expect(index.get("pregnancy")?.properties.has("ga_weeks")).toBe(true);
-	});
-
+describe("toReachableIndex — preserves authored catalog labels", () => {
 	it("does not overwrite a declared case_id label", () => {
 		const declared: CaseType[] = [
 			{
@@ -125,53 +110,46 @@ describe("caseRefAcceptMap — form-type narrowing", () => {
 		expect([...(accept.get("pregnancy") ?? [])]).toEqual(["case_id"]);
 	});
 
-	it("makes a registration case readable after submission but keeps survey sessions case-free", () => {
+	it.each(["followup", "close"] as const)(
+		"exposes existing system and declared properties on %s",
+		(formType) => {
+			const index = toReachableIndex(
+				reachableCaseTypes("pregnancy", TYPES),
+				EMPTY_DOC,
+			);
+			for (const scope of ["form", "session"] as const) {
+				const accept = caseRefAcceptMap(index, formType, scope);
+				for (const name of ["pregnancy", "mother"]) {
+					const properties = accept.get(name);
+					expect(properties?.size).toBe(8);
+					for (const property of [
+						"case_id",
+						"case_name",
+						"date_opened",
+						"last_modified",
+						"owner_id",
+						"status",
+						"external_id",
+					])
+						expect(properties?.has(property)).toBe(true);
+					expect(properties?.has("modified_by")).toBe(false);
+				}
+				expect(accept.get("pregnancy")?.has("ga_weeks")).toBe(true);
+				expect(accept.get("pregnancy")?.has("household_code")).toBe(false);
+			}
+		},
+	);
+	it("makes the created record readable after submission, but surveys remain case-free", () => {
 		const index = toReachableIndex(
 			reachableCaseTypes("pregnancy", TYPES),
 			EMPTY_DOC,
 		);
-		const session = caseRefAcceptMap(index, "registration", "session");
 		expect(
-			[...session.entries()].map(([name, properties]) => [
-				name,
-				[...properties].sort(),
-			]),
-		).toEqual([
-			["pregnancy", ["case_id", "case_name", "ga_weeks"]],
-			["mother", ["case_id", "case_name", "household_code"]],
-		]);
+			caseRefAcceptMap(index, "registration", "session")
+				.get("pregnancy")
+				?.has("owner_id"),
+		).toBe(true);
 		expect(caseRefAcceptMap(index, "survey", "session")).toEqual(new Map());
-	});
-
-	it("exposes every reachable type's full property set on followup", () => {
-		const index = toReachableIndex(
-			reachableCaseTypes("pregnancy", TYPES),
-			EMPTY_DOC,
-		);
-		const accept = caseRefAcceptMap(index, "followup");
-		expect([...(accept.get("pregnancy") ?? [])].sort()).toEqual([
-			"case_id",
-			"case_name",
-			"ga_weeks",
-		]);
-		expect([...(accept.get("mother") ?? [])].sort()).toEqual([
-			"case_id",
-			"case_name",
-			"household_code",
-		]);
-	});
-
-	it("exposes the same full property set on close (a followup superset)", () => {
-		const index = toReachableIndex(
-			reachableCaseTypes("pregnancy", TYPES),
-			EMPTY_DOC,
-		);
-		const accept = caseRefAcceptMap(index, "close");
-		expect([...(accept.get("mother") ?? [])].sort()).toEqual([
-			"case_id",
-			"case_name",
-			"household_code",
-		]);
 	});
 
 	it("rejects every case ref on a survey form (loads no case)", () => {

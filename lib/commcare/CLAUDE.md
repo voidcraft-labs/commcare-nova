@@ -1259,3 +1259,9 @@ The sibling stays inside the same group/repeat and is derived wire, never an
 authored field. Native CCZ and HQ-regenerated submission tests prove saved
 instants, active blank clearing and excluded-answer omission. Generic XPath
 string conversion and ordinary preload precedence are unchanged.
+
+Typed form case references share `emitCasePropertyWirePath` with case lists and
+queries after selecting the own or ancestor record. Identity, owner and lifecycle
+status use attributes; external ID remains Core's copied child property.
+`StandardCaseReadsRuntimeTest` executes all supported metadata reads in the exact
+CCZ against native Case instances, including a closed parent.

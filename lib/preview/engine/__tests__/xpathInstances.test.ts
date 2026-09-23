@@ -185,7 +185,7 @@ describe("Preview structural XPath instances", () => {
 				"string(instance('casedb')/casedb/case[@case_id='patient-1']/external_id)",
 				ctx,
 			),
-		).toBe("");
+		).toBe("ext-1");
 		expect(
 			evaluate(
 				"count(instance('casedb')/casedb/case[@case_id='patient-1']/missing_property)",

@@ -9,6 +9,10 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { CaseWrite, FieldKind } from "./fields";
 import type { FormType } from "./forms";
 import { projectProseTemplate } from "./prose";
+import {
+	STANDARD_CASE_LIST_PROPERTIES,
+	standardCasePropertyDisplayLabel,
+} from "./standardCaseProperties";
 import type { XPathPrintableDoc } from "./xpath/print";
 
 /**
@@ -195,16 +199,10 @@ export type ReachableCaseTypeIndex = Map<
 	{ depth: number; properties: Map<string, { label?: string }> }
 >;
 
-/** Turn the ordered `reachableCaseTypes` list into the name-keyed index the
- *  lint context and validator both read. Seeds `case_id` as an implicit
- *  property of every type: it's a system property of every case (the loaded
- *  case's id), addressable as `#<type>/case_id`, so resolve / validate /
- *  autocomplete all see it uniformly even though the case-type record never
- *  declares it. A declared `case_id` (rare) keeps its own label.
- *
- *  `doc` is what a catalog label's worker-property references are spelled
- *  against — the label reaches a person as the autocomplete's `detail` line and
- *  as a case chip's title. */
+/** Build the form-readable catalog from declared properties and the system
+ * values every case carries. Form-type narrowing still decides whether a case
+ * exists at this point. Declared labels retain precedence over default labels.
+ * `doc` resolves worker-property references in authored catalog labels. */
 export function toReachableIndex(
 	reachable: ReachableCaseType[],
 	doc: XPathPrintableDoc,
@@ -217,8 +215,12 @@ export function toReachableIndex(
 				{ label: projectProseTemplate(p.label, doc).text },
 			]),
 		);
-		if (!properties.has("case_id"))
-			properties.set("case_id", { label: "case id" });
+		for (const property of STANDARD_CASE_LIST_PROPERTIES) {
+			if (!properties.has(property))
+				properties.set(property, {
+					label: standardCasePropertyDisplayLabel(property),
+				});
+		}
 		index.set(t.name, { depth: t.depth, properties });
 	}
 	return index;

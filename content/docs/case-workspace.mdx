@@ -615,3 +615,17 @@ can collapse either sidebar when you want more room; the canvas reflows without
 moving a setting to a different place. Scrolling stays inside the active tab's
 body, so the Search / Results / Details strip remains available even on a short
 window.
+
+## Built-in record information
+
+Case name, record ID, owner, external ID, opening date, last modification date,
+and open or closed status already belong to each record. A form that opens a
+record can read these values from it or its parents without adding custom
+properties. Form expressions read the two dates at calendar-day precision,
+matching CommCare devices; stored timestamps retain their time.
+
+The owner controls sharing and sync, and does not identify who last edited a
+record. Closing a case normally removes it from a worker's next sync, though an
+open related case can keep it as a dependency. A separate property can describe
+business stages such as awaiting approval. An approval date or approver that
+must survive later edits needs its own saved value.

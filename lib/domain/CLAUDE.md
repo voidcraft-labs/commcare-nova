@@ -390,3 +390,8 @@ storage-assignable to it, using `isValueStorageAssignable`: text and single-choi
 values share string storage, and integers fit decimal storage. This does not relax
 field-kind agreement or per-branch operation validation. Unknown destinations
 still derive from writer evidence; incompatible opinions remain a rejection.
+
+Form-readable references use `toReachableIndex`: declared properties plus the
+canonical standard case properties at every reachable depth. Registration
+forms still read only their new record ID before submission, and surveys read
+no selected record. Do not require custom definitions to read built-in metadata.
