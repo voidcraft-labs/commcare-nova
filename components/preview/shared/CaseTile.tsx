@@ -12,19 +12,17 @@
 // tile needs because it draws no header row.
 
 "use client";
-import {
-	type ColumnDisplayContext,
-	renderColumnCell,
-} from "@/components/builder/case-list-config/columnCellRenderer";
+import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import type { CaseProperty } from "@/lib/domain";
+import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import type { TileGridProjection } from "@/lib/preview/caseTileLayout";
 import {
 	planTileCell,
 	type TileResultsColumn,
 	tileGridStyle,
 } from "@/lib/preview/caseTileRendering";
+import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
-import { caseColumnLabel } from "./caseColumnLabel";
 
 /**
  * Where the tile is drawn. The geometry is identical either way; the

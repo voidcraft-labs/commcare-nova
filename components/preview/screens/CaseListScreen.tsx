@@ -47,11 +47,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import {
-	type ColumnDisplayContext,
-	projectColumnDisplay,
-	renderColumnCell,
-} from "@/components/builder/case-list-config/columnCellRenderer";
+import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import {
 	useLocalizedModule,
@@ -59,7 +55,6 @@ import {
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
-import { caseColumnLabel } from "@/components/preview/shared/caseColumnLabel";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
 import {
 	ListFilterBox,
@@ -118,11 +113,13 @@ import {
 } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { PreviewMarkdown } from "@/lib/markdown";
+import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
 	automaticallyLaunchesSearch,
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
+import { caseSelectionRowAction } from "@/lib/preview/caseSelectionNavigation";
 import {
 	type GroupedTileProjection,
 	splitTileGridByGroupHeader,
@@ -135,6 +132,10 @@ import {
 	type TileResultsColumn,
 	tileResultsColumns,
 } from "@/lib/preview/caseTileRendering";
+import {
+	type ColumnDisplayContext,
+	projectColumnDisplay,
+} from "@/lib/preview/columnDisplay";
 import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
 import {
 	caseRowToFormPreload,
@@ -1641,14 +1642,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * step in place; no detail fields means the row proceeds straight on;
 	 * a module with no case-loading form has nowhere to go (the list is
 	 * informational). */
-	const rowAction: "detail" | "form" | "none" =
-		detailColumns.length > 0
-			? "detail"
-			: multipleSelection !== undefined
-				? "none"
-				: canContinue
-					? "form"
-					: "none";
+	const rowAction = caseSelectionRowAction({
+		hasDetails: detailColumns.length > 0,
+		multiple: multipleSelection !== undefined,
+		canContinue,
+	});
 	const handleOpenCase = (
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,

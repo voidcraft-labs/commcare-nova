@@ -144,10 +144,14 @@ its release from cost alone.
 - [x] Audit actual tools, errors, reasoning summaries and review corrections;
   distinguish observation defects from model judgment. Keep representative
   findings in research, not an incident checklist in prompts.
-- [ ] Correct the shared local-day inconsistency: SQL `today()` used the database
+- [x] Correct the shared local-day inconsistency: SQL `today()` used the database
   zone while forms used the local runtime zone. Validate the viewer binding,
   isolated journey clock, and native semantics; release with independent review
-  and green CI. Do not alter an evaluated app to turn its failed result into a pass.
+  and green CI. PR #674 is live at the verified production revision. Do not alter an evaluated app to turn its failed result into a pass.
+- [ ] Close the Details/Continue observation gap in disposable app tests. The
+  browser can return to Details after submission and allow another attempt that
+  changes no records; earlier tests skipped that screen. Investigate the Preview
+  history behavior separately against the native previous-screen contract.
 - [ ] Investigate why the architect abandoned an available uniqueness check and
   whether useful form-record query knowledge is missing from focused guidance.
   Improve the general authoring interface, then use a bounded fresh task to

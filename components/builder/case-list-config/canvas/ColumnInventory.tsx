@@ -3,7 +3,7 @@
 // header falls back to readable words rather than leaking `snake_case`.
 
 import type { Column } from "@/lib/domain";
-import { propertyFallbackDisplayLabel } from "../../shared/primitives/propertyDisplay";
+import { propertyFallbackDisplayLabel } from "@/lib/domain/propertyDisplay";
 
 export function columnLabel(column: Column): string {
 	if (column.header.trim() !== "") return column.header;

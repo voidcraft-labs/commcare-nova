@@ -32,6 +32,7 @@ export function appTestNamespace(testId: string): string {
 
 export type AppTestCaseStore = Pick<
 	CaseStore,
+	| "traverse"
 	| "query"
 	| "count"
 	| "queryGrouped"

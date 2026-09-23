@@ -8,15 +8,15 @@
 
 "use client";
 import { useMemo } from "react";
-import {
-	type CalculatedTemporalType,
-	type ColumnDisplayContext,
-	resolveCalculatedTemporalType,
-} from "@/components/builder/case-list-config/columnCellRenderer";
 import { useLocalizedValues } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseListConfig, CaseProperty, Column } from "@/lib/domain";
+import {
+	type CalculatedTemporalType,
+	type ColumnDisplayContext,
+	resolveCalculatedTemporalType,
+} from "@/lib/preview/columnDisplay";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
 import { projectLocalizedCaseProperties } from "./localizedCaseProperties";
 

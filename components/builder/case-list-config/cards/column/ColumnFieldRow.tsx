@@ -34,9 +34,9 @@ import { usePredicateEditContext } from "@/components/builder/shared/editorConte
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
-import { propertyDisplayLabelForName } from "@/components/builder/shared/primitives/propertyDisplay";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty } from "@/lib/domain";
+import { propertyDisplayLabelForName } from "@/lib/domain/propertyDisplay";
 
 interface ColumnFieldRowProps {
 	/** The column's selected, declared case-property name. */

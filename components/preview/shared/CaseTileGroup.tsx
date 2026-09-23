@@ -20,10 +20,10 @@
 
 "use client";
 
-import type { ColumnDisplayContext } from "@/components/builder/case-list-config/columnCellRenderer";
 import type { CaseProperty } from "@/lib/domain";
 import type { GroupedTileProjection } from "@/lib/preview/caseTileGrouping";
 import type { TileResultsColumn } from "@/lib/preview/caseTileRendering";
+import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 import { CaseTile } from "./CaseTile";
 

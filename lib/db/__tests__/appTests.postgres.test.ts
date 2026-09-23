@@ -170,7 +170,7 @@ describe("app test session authority and evidence", () => {
 		await h
 			.db()
 			.updateTable("app_test_sessions")
-			.set({ runtime_version: 1 })
+			.set({ runtime_version: 2 })
 			.where("id", "=", begun.testId)
 			.execute();
 		const action = {

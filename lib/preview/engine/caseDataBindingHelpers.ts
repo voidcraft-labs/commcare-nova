@@ -963,7 +963,7 @@ function buildCaseStoreSortKeys(
  * guarantees at-most-one match.
  */
 export async function readCaseData(
-	store: CaseStore,
+	store: Pick<CaseStore, "query" | "traverse">,
 	args: {
 		appId: string;
 		caseType: string;
@@ -1064,7 +1064,7 @@ const ANCESTOR_WALK_DEPTH_CEILING = 64;
  * shape as an unset property.
  */
 async function walkAncestors(
-	store: CaseStore,
+	store: Pick<CaseStore, "traverse">,
 	appId: string,
 	anchor: CaseRow,
 	depth: number,

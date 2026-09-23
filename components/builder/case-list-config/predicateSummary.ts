@@ -23,7 +23,7 @@ import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabelForName,
 	propertyFallbackSentenceLabel,
-} from "../shared/primitives/propertyDisplay";
+} from "@/lib/domain/propertyDisplay";
 import { resolveRelationDestination } from "../shared/relationDestination";
 import {
 	type EditorSearchInputDecl,

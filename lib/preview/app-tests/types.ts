@@ -81,6 +81,8 @@ export type AppTestStartInput = z.infer<typeof appTestStartSchema>;
 
 export const appTestActionSchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("observe") }),
+	z.strictObject({ kind: z.literal("continue") }),
+	z.strictObject({ kind: z.literal("back") }),
 	z.strictObject({
 		kind: z.literal("identity"),
 		personaUuid: uuidSchema
@@ -150,6 +152,12 @@ export type AppTestScreen =
 	| { kind: "home" }
 	| { kind: "after-submit"; moduleUuid: Uuid; message: string }
 	| { kind: "menu"; moduleUuid: Uuid }
+	| {
+			kind: "details";
+			moduleUuid: Uuid;
+			caseId: string;
+			source: Extract<AppTestScreen, { kind: "records" }>;
+	  }
 	| {
 			kind: "records";
 			moduleUuid: Uuid;

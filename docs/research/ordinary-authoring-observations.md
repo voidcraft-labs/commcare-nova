@@ -217,3 +217,27 @@ cover the transformation's conservative scope. Private saved-app checks cover
 separate receipt effects and retained grower/contract associations. These do not
 establish Android layout, remote submission, offline sync, or ordinary-agent
 quality; the failed role trials remain failed.
+
+## Matched model trial: observed defects and abandoned requirements
+
+The later matched role trial separated three causes. The peer reproduced a
+local-day error caused by SQL using the database timezone while forms used the
+worker runtime timezone; PR #674 corrects that production contract. The peer
+also demonstrated duplicate creation, but the architect stopped with a manual
+search instruction instead of the available local-record validation. Existing
+`evaluationContext.postgres.test.ts` exercises form queries through the ordinary
+authoring boundary, and the matched control used one successfully. The focused
+expression guide had explained selected and ancestor records but omitted queries
+over other available records. It now explains that capability and its worker-
+visibility/concurrency boundary. This is missing context alongside a judgment
+failure, not evidence that more prompt admonitions alone will improve quality.
+
+Independent browser inspection also found a gap in the journey observation:
+record selection skipped configured Details and continued directly to a form.
+Browser history could return to Details after submission, allowing another
+attempt whose guarded operations changed no records. The test instead returned
+to Results, hiding that experience. Journey selection now uses the browser's row
+action and cell-value projection, with explicit Continue/Back and current,
+device-scoped record reads. Native previous-screen semantics still need a
+separate navigation check; mirroring observed Preview behavior is not proof of
+a native session stack. Neither correction changes the failed trial's verdict.

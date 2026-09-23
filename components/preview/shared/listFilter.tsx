@@ -15,13 +15,13 @@ import { Icon } from "@iconify/react/offline";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
 import { useId, useRef } from "react";
-import {
-	type ColumnDisplayContext,
-	projectColumnDisplay,
-} from "@/components/builder/case-list-config/columnCellRenderer";
 import { Button } from "@/components/shadcn/button";
 import { Input } from "@/components/shadcn/input";
 import type { Column } from "@/lib/domain";
+import {
+	type ColumnDisplayContext,
+	projectColumnDisplay,
+} from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
 
 /**

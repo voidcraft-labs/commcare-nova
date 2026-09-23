@@ -29,7 +29,6 @@ import {
 	casePropertyRenameSources,
 	parseCasePropertyRenameSourceId,
 } from "@/components/builder/casePropertyRenameDraft";
-import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -65,6 +64,7 @@ import {
 	humanizeId,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain";
+import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import type {
 	CasePropertyRenamePreflightResult,
 	CasePropertyRenameStorageImpact,

@@ -22,7 +22,6 @@ import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSquareCheck from "@iconify-icons/tabler/square-check";
-import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
 	applicableSearchModes,
@@ -63,6 +62,7 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { checkRelationPath } from "@/lib/domain/predicate/typeChecker";
+import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { MATCH_MODE_VOCABULARY } from "../shared/matchModeVocabulary";
 import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
 

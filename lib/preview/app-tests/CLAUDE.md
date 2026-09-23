@@ -34,8 +34,8 @@ Navigation shares production menu, selection and routing projections.
 Observations identify the evaluator clock and its calendar day. Form workers,
 SQL record reads and submission calculations use the same process timezone;
 ordinary browser Preview uses the browser timezone. Neither asserts a supplied
-place has that timezone. Clock semantics changed at runtime version 2, so older
-journeys remain readable but cannot continue under the new runtime. Search,
+place has that timezone. Runtime version 3 adds Details and explicit Continue/Back to the version 2
+clock semantics; older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation
@@ -64,3 +64,13 @@ or automations. Keep unavailable observations explicit. Normal-agent discovery
 and independent browser/native acceptance are separate quality evidence.
 
 Recorded evidence returns ISO timestamp strings at the shared read boundary. Server Actions can carry `Date` instances, but model JSON tool results cannot; the real Postgres journey test passes history through the SDK message schema before counting it as readable evidence.
+
+Single-record selection follows the browser's shared row-action decision. A
+configured Details screen exposes ordered, formatted values through the same
+cell projector as the browser. Continue reloads the selected identity using the
+production device-scoped detail reader and then applies ordinary form/menu
+eligibility. Informational details have no Continue action. A returning Details
+screen reads current stored values, even if the record no longer matches its
+old Results page. Back retains the visited destinations; returning to a form
+starts a fresh entry. These observations describe Preview navigation, not a
+native session-stack proof.

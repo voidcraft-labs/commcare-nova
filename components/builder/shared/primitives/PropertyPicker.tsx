@@ -47,16 +47,16 @@ import {
 	effectiveDataType,
 } from "@/lib/domain";
 import { humanizeId } from "@/lib/domain/idSlug";
+import {
+	friendlyPropertyDisambiguator,
+	propertyDisplayLabel,
+	propertyTypeLabel,
+} from "@/lib/domain/propertyDisplay";
 import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
 import {
 	type ExpressionChangeAdmission,
 	usePredicateEditContext,
 } from "../editorContext";
-import {
-	friendlyPropertyDisambiguator,
-	propertyDisplayLabel,
-	propertyTypeLabel,
-} from "./propertyDisplay";
 
 interface PropertyPickerProps {
 	/** Currently selected property name, or undefined when unset. */

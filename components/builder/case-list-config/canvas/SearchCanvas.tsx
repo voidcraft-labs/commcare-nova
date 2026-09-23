@@ -48,14 +48,14 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
-import { PreviewMarkdown } from "@/lib/markdown";
-import { useCanEdit } from "@/lib/session/hooks";
-import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
 	propertyTypeLabel,
-} from "../../shared/primitives/propertyDisplay";
+} from "@/lib/domain/propertyDisplay";
+import { PreviewMarkdown } from "@/lib/markdown";
+import { useCanEdit } from "@/lib/session/hooks";
+import { LIST_ROW_CLS } from "@/lib/styles";
 import {
 	resolveRows,
 	rowHasStructuralError,
