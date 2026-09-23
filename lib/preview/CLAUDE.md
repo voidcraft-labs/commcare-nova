@@ -111,7 +111,8 @@ before rebuilding. A list row and the later full case read may be separate Map
 instances with identical values; that cold arrival must retain open controls,
 focus and browser-local drafts. Changed values or ancestor additions still
 rebuild the same entry, and confirmed scope changes still activate a new entry.
-A selected record must finish loading before a fresh entry accepts answers. The
+A selected record's complete required preload must be available before a fresh
+entry accepts answers; an identical follow-up raw-row read may remain pending. The
 form remains visible, but its controls are inert until the binding and engine are
 ready; returning from a linked form must not expose a temporary blank preload.
 A missing selected record is a terminal unavailable state with a route back to
