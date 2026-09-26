@@ -75,8 +75,8 @@ shared Project-membership advisory gate and exact `auth_member` row, while
 transaction. The returned Project, role, `canEdit`, blueprint, and `baseSeq`
 therefore belong to one serial winner. `GET /api/apps/[id]` returns exactly
 `{ projectId, role, canEdit, blueprint, baseSeq }`; the client rejects unknown
-keys. Do not reintroduce aliases or separate app-row, entity, membership, or
-cursor reads for this surface.
+keys. This surface has no aliases and reads app row, entities, membership, and
+cursor only through that one snapshot.
 
 **There is no blueprint blob.** An app is its `apps` row (scalars +
 denormalized list fields + the run lease and credit marker as nullable column
@@ -529,7 +529,7 @@ design-session-targeted after materialization; the thread/stream writers
 resolve a materialized session's bound app WITHOUT a held lock and then
 lock the APP row `FOR SHARE` as the authority
 (`threads.ts::lockThreadTargetAuthority`),
-so run authority delegates exactly as §11.7 orders the locks — and target
+so run authority delegates in the lock order above — and target
 LIVENESS delegates the same way (`generationTargetHeldLive`: a session
 carrying an `app_id` answers with the app's liveness, so a stream reconnect
 after materialization never reads the terminal session row as a dead run).
@@ -544,7 +544,7 @@ sidecar receipts, then the session's atomic
 target additionally include its bound materialized session's rows
 (`appScopeThreadFilter`) so the build conversation stays on the app page;
 every thread WRITE keeps the row's exact target guard.
-`designInProgress.ts` is the §15.9 list read: the caller's own active
+`designInProgress.ts` is the Designs-in-progress list read: the caller's own active
 pre-app build sessions in the active Project, stage derived through
 `lib/agent/build`'s orchestration fold (a deliberate data→agent import —
 restating the fold here is how a list starts disagreeing with the
@@ -728,9 +728,7 @@ app-less shell and hydrates the canonical Blueprint from the app page.
 `thread_id` is the PK (client-minted uuid) with writers app-guarded so a
 forged id can't write across apps. Every POST sends the thread's FULL durable
 history — there is no UI/history trim; the server may project the model input
-from a compatible provider compaction item and re-inject authoritative state
-(the run summary's
-`fresh_edit`/`cache_expired` fields retired with it).
+from a compatible provider compaction item and re-inject authoritative state.
 
 ## Two ledgers, different lifecycles
 
@@ -771,9 +769,10 @@ derived-rate reject would falsely turn away an affordable turn. `isChargeableTur
 decides charge vs. free continuation off the **last message's role**: a fresh
 instruction ends with `user` (charge); an answered-`askQuestions` auto-resend
 ends with the SA's `assistant` (free). It MUST read the **raw
-`body.messages`**, never the route's cache-expiry transform — that transform
-leaves a `user` message last on every POST and would charge every
-clarification round-trip.
+`body.messages`**, never any transform of the history the SA receives (today
+the tool-part sanitizer): a transform that leaves a `user` message last would
+charge every clarification round-trip. `redrive` is the one explicit
+exception, a fresh exact-turn claim.
 
 ## Claim and reserve are ONE transaction
 
@@ -954,10 +953,10 @@ apps → kernel.
 the same retryable app-locked transaction AFTER the committed-batch write
 tail (so a lost holder CAS has already aborted), with the
 kernel's authoritative seq/batch id/candidate — never caller-asserted ones.
-The Atomic Change Set runtime has one variant: `commit-design-change-
-set` (lock the `design_change_sets` row AFTER the app lock — canonical order
-— verify status/revision/lineage, flip `open → committed`, insert the
-immutable `design_committed_slices` receipt). Initial-build localization adds
+The authoring runtime has one variant: `commit-authoring-workspace` (lock the
+`authoring_workspaces` row AFTER the app lock — canonical order — verify
+status/revision/plan/owner/Project, flip `open → committed`, insert the
+immutable `authoring_checkpoints` receipt). Initial-build localization adds
 `commit-design-localization`: it locks the exact running localization attempt,
 requires the canonical source to be its pinned final-slice head, flips the
 attempt to committed, and inserts one immutable localization receipt using the
@@ -992,23 +991,14 @@ captured base scope, an open set strands terminally (its commit rejects),
 and committed lineage is app-keyed. The runtime contract lives in
 `lib/agent/change-set/CLAUDE.md`.
 
-**The design-artifact tables are the pipeline's durable record, not app
-history.** `design_source_packages`, `design_revisions`, `design_reviews`,
+**The design-artifact tables are sealed history, not app history.**
+`design_source_packages`, `design_revisions`, `design_reviews`,
 `design_review_dispositions`, `design_build_plans`, and
-`design_conformance_reports` are all append-only
-runtime DML — insert-only artifacts, never row-locked, never updated,
-never streamed. Every JSONB envelope/payload is authoritative persisted
-JSON: `::text` reads through `persistedJson.ts` + the exact producer
-schemas, with the canonical-JS artifact digest re-verified on every read.
-`design_session_id` is bound to `design_sessions(id)`. The read/write
-boundary and
-integrity rules live in `lib/agent/design/artifactStore.ts`
-(`lib/agent/design/CLAUDE.md` is the contract).
-Canonical conformance reports additionally bind one app sequence and snapshot;
-`conformanceStore.ts` rechecks the live holder, app and active artifacts under
-the authority lock before inserting or reusing a report. Tenancy follows the
-app/session. A Project move or later edit preserves the historical report and
-advances the app sequence; it never rewrites the report's body.
+`design_conformance_reports` are insert-only records that are never row-locked,
+updated, or streamed. No runtime path writes them. `designSessions.ts` reads
+`design_revisions` / `design_build_plans` only to check an existing session's
+build authority. Any read still goes through `::text` and `persistedJson.ts`.
+`design_session_id` is bound to `design_sessions(id)`.
 
 Retired design sessions retain their sealed artifacts, model records and usage
 accounts, but are outside current typed artifact reads and run authority.
@@ -1021,22 +1011,9 @@ messages. Pre-app conversations keep their historical session. Retirement
 refuses held or unsettled runs, unfinished app builds and unaccounted model or
 localization usage; it neither forgives billing nor abandons canonical work.
 
-`design_artifact_workspaces` is the private mutable authoring carrier for one
-contract, revision, or plan candidate; `design_artifact_workspace_steps` is
-its append-only operation ledger. Every open/read/stage/finalize transaction
-locks and authorizes the exact live design-session/app holder plus current
-Project membership before touching the workspace. The operation ledger is
-never row-locked. A stage is idempotent only for the same provider
-`tool_call_id` and input digest, advances an exact expected revision, and is
-invisible to app history and user surfaces. Finalization validates the replayed
-candidate and changes `open → finalized` in the same transaction that inserts
-the immutable artifact; lineage binds the exact source package plus immutable
-base/reviews. A source-package change rebinds same-phase/base/review work only
-when content-free projection digests prove a byte-identical prefix extension;
-different or missing source and different immutable ancestry supersede the open
-workspace. Per-call and cumulative per-POST bounds prevent runaway work
-without a persistent stage cliff that could strand a candidate after final
-validation.
+`design_artifact_workspaces` / `design_artifact_workspace_steps` are retained
+rows from the same retired pipeline. The only runtime write is the discard
+transaction, which marks a session's `open` workspaces `superseded`.
 
 `design_model_contexts` is the mutable ordinal carrier for the exact private
 model transcript of each reviewed-design role. Its item and step children are
@@ -1059,10 +1036,7 @@ decides whether paid work counts. The transaction also returns the cumulative
 run cost; a zero-cost credit refund is legal only after that authoritative write
 succeeds and proves the complete run still has no paid work.
 
-`design_slice_attempt_budget_claims` is the append-only idempotency ledger for
-executor sub-budget units. The mutable attempt row is locked while one stable
-claim key is inserted and its matching counter advances; replay of that key
-returns the existing claim without incrementing the counter again.
+
 
 `commitGuardedBatch` is the one blueprint write every surface shares (chat,
 MCP, auto-save, the cross-Project move): lock the app row → dedup latch read
@@ -1243,7 +1217,3 @@ bind the started event to that turn across context generations; original event
 digests and usage rows stay immutable. Reconnects retain the allowance; a new
 user message or answered question starts a new one. Missing provenance in a
 design start is an invariant failure before another provider call.
-
-The one-time historical conversion is complete in local and production data.
-Its operator scripts and temporary receipt column have been retired; durable
-turn provenance remains part of normal recovery and budget accounting.

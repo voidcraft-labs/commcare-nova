@@ -53,21 +53,15 @@ ids, which correlate private payload-free outcome annotations without exposing
 the tool input or result. No money values on events; sub-generation usage
 (document extraction etc.) stays summary-only.
 
-The private design loop emits `design-tool-outcome` annotations with opaque
-call identity, tool name, input character count, duration, a closed outcome
-category, a stable code, and optional validation stage plus issue count. The
-private build executor emits `executor-tool-outcome` annotations with only
-model step, tool name, operation index, workspace revision, a closed outcome
-category, and a stable code. Raw inputs, outputs, rejection prose, and
-customer-authored names never enter either event.
-
-Terminal reviewed-build failures also emit one structured
-`design_build_failed` operational line outside this event stream. Product
-resumability does not choose its severity. Only an expected external
-prerequisite stays at warning; a provider, protocol, validation, compiler, or
-budget defect logs at error and mirrors to Sentry even when the preserved
-design can resume after a deploy. `designSessionId`, `runId`, `errorType`, and
-`failureClass` are bounded searchable tags. No authored payload joins them.
+The event schema keeps the `design-tool-outcome` and `executor-tool-outcome`
+annotation families so runs recorded by the retired design loop and slice
+executor stay readable (`scripts/inspect-logs.ts`); no serving code emits them.
+Both are payload-free. `design-tool-outcome` carries opaque call identity,
+tool name, input character count, duration, a closed outcome category, a
+stable code, and optional validation stage plus issue count.
+`executor-tool-outcome` carries only model step, tool name, operation index,
+workspace revision, a closed outcome category, and a stable code. Raw inputs,
+outputs, rejection prose, and customer-authored names never enter either.
 
 ## Writer semantics
 

@@ -89,7 +89,7 @@ part of the blueprint.
 Four session fields describe "what phase is the builder in":
 
 - `events: Event[]` — the current active run's events. **Cleared at both `beginRun()` and `endRun()`**, so `events.length > 0` is itself the "a run is in progress" signal — no `agentActive` shadow flag, no mirror to drift. The stream dispatcher appends as `data-mutations` + `data-conversation-event` envelopes arrive.
-- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags now (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs. `beginRun({startedWithData})` overrides the capture for ONE case: reconnecting to an in-flight BUILD run after a page refresh, where the build's committed modules are already in the loaded doc and the default capture would misread the resumed build as an edit.
+- `runStartedWithData: boolean` — captured once in `beginRun()` (did the doc already have data when the run opened?). The build-vs-edit discriminator: builds and edits emit the SAME stage tags (`app`, `module:create`, `form:M-F`), so the buffer alone can't tell them apart, and a build's own mutations populating the doc mid-run must not flip the derivation. False outside runs. `beginRun({startedWithData})` overrides the capture for ONE case: reconnecting to an in-flight BUILD run after a page refresh, where the build's committed modules are already in the loaded doc and the default capture would misread the resumed build as an edit.
 - `runCompletedAt: number | undefined` — stamped by the dispatcher's `data-done` handler (the chat route's drain-end build-finished signal). Cleared by `acknowledgeCompletion()` after the celebration timer. askQuestions / clarifying-text / edit-tool runs never stamp — they close silently.
 - `loading: boolean` — initial hydration flag (existing app load or replay).
 - `buildUnfinished: boolean` — the APP-level "this app's build never
@@ -131,7 +131,7 @@ Run-boundary actions are orthogonal and atomic:
 - `markRunCompleted()` — stamp runCompletedAt. Does NOT touch events or doc undo.
 - `acknowledgeCompletion()` — clear runCompletedAt.
 
-**Every other lifecycle signal is derived from these fields** via pure functions (`lifecycle.ts`, plus `derivePhase` in `hooks.tsx`): phase, stage, classified error, validation attempt, status message, postBuildEdit. No `agentActive` / `agentStage` / `agentError` / `statusMessage` / `postBuildEdit` / `justCompleted` flags exist — those were shadow state populated only by the live SSE path; deriving from the buffer instead keeps the layout a pure function of the events.
+**Every other lifecycle signal is derived from these fields** via pure functions (`lifecycle.ts`, plus `derivePhase` in `hooks.tsx`): phase, stage, classified error, validation attempt, status message, postBuildEdit. None of them is stored; deriving from the buffer keeps the layout a pure function of the events.
 
 ## Mutable app access
 
@@ -184,16 +184,16 @@ client can see: an explicit input terminal (an unanswered question card or a
 completed internal wait tool, read off the transcript) and a run-stopping
 stream error. BOTH error kinds stop the stage line: a
 recoverable error reads `incomplete` ("Stopped before it finished") and a fatal
-one `failed`; neither creates a user retry action. Marking only fatal
-errors left the line spinning over a dead run, observed live. An automatic
+one `failed`; neither creates a user retry action. A recoverable error still
+ends the run, so the line must not keep spinning. An automatic
 provider-retry warning is explicitly marked `runContinues` on the conversation
 event and does not become a terminal progress failure; later pulses and commits
 continue to drive the same run.
 
 **Stage is derived, never stored.** `deriveDesignStage` folds "which frames
-have arrived" into the §15.2 vocabulary, so the line on screen cannot disagree
-with the durable events that produced it, and the plan's ban on a client-only
-state machine holds. The live refinement inside the design span is the
+have arrived" into the design-stage vocabulary, so the line on screen cannot
+disagree with the durable events that produced it; there is no client-only
+stage state machine. The live refinement inside the design span is the
 `data-design-pulse` frame — the SERVER naming which pipeline call is streaming
 right now (author/review/revise/plan) — which is the only source that can say
 `reviewing-design`/`revising-design` while those calls run; the store keeps

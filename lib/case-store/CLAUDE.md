@@ -331,7 +331,7 @@ nullable with no database default and optional on insert, so a great many rows
 carry NULL and equality silently erases every one of them. Every lifecycle
 read is `is distinct from 'closed'`. The direction of the mistake decides how
 bad it is: in the automation host-ambiguity probe — which exists to REFUSE a
-count it cannot resolve — the miss failed OPEN, letting the count run on an
+count it cannot resolve — the miss fails OPEN and lets the count run on an
 ambiguous population.
 
 **The bound store carries two identities, and they are not
@@ -707,7 +707,7 @@ Phase A keeps its existing transaction locks and ordinary case writes continue.
    type's second sync, with every create queued behind it skipped)
    and emits no drops at all. Local databases keep `cases` in
    `public`, so only production shows it — the regression test in
-   `postgres/__tests__/store.test.ts` moves the table to reproduce
+   `postgres/__tests__/store.postgres.test.ts` moves the table to reproduce
    the converged shape.
 
 ### Why two phases, not one transaction
@@ -1044,8 +1044,8 @@ Postgres on each run, so an authoring-time SQL error fails CI loudly.
 
 The canonical-identity migration is the deliberate non-rolling exception: its
 old and new document/mutation schemas cannot coexist without preserving the
-dual dialect the change exists to delete. It therefore runs only inside Unit
-18's reviewed maintenance fence, after all old writers are drained and the
+dual dialect the change exists to delete. It therefore runs only inside a
+reviewed maintenance fence, after all old writers are drained and the
 authoritative backup is complete. It converts snapshots and authored-identity
 SQL columns in one transaction, establishes a new per-app fold horizon, and
 admits no compatibility reader, alias, or transitive rollout state.
@@ -1095,18 +1095,18 @@ that already carries the schema; they are just as immutable as the rest.)
 
 ### Production: the migrate Cloud Run Job
 
-Migrations run once per deploy as the `commcare-nova-migrate` Cloud Run
-Job, NOT on container boot. `cloudbuild.yaml` runs the Job
-(`node migrate.cjs`) between pushing the image and deploying the new
-revision; a non-zero exit fails the build before the deploy step, so
-code never ships ahead of a failed schema change. The container `CMD` is
-node-only.
+Migrations run as the `commcare-nova-migrate` Cloud Run Job, NOT on
+container boot. `cloudbuild.yaml` builds the migration image in its own
+step and `scripts/rollout/migration-gate.py` runs the Job while the app
+image compiles (or reuses a verified Execution, below); the deploy step
+waits on it, so a non-zero exit fails the build and code never ships
+ahead of a failed schema change.
 
-`migrate.cjs` is `scripts/migrate.ts` bundled by esbuild during the
-Docker build (the Next standalone runner has no full node_modules, so
-kysely + pg + the Cloud SQL connector are inlined into one file). The
-Job reuses the app image with a `--command=node --args=migrate.cjs`
-override under a dedicated migration identity on the service's network. It calls
+`migrate.cjs` is `scripts/migrate.ts` bundled by esbuild in the
+Dockerfile's `migration-build` stage (kysely + pg + the Cloud SQL
+connector inlined into one file) and shipped in the separate `migration`
+image, whose `CMD` is `node migrate.cjs`. The Job runs that image under a
+dedicated migration identity on the service's network. It calls
 `getCaseStoreDatabase()`, so it connects through the SAME
 `@google-cloud/cloud-sql-connector` + IAM path the runtime uses. Its connector
 env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
@@ -1167,9 +1167,8 @@ image target and Job update. Ordinary application deployment does not build,
 update, or invoke this worker, or alter Scheduler.
 
 Ordinary deployment requires automatic scaling and creates exactly one Ready
-revision at 100% desired and observed traffic. Completed admission-cutover
-labels, session fences, and ingress/scaling recovery machinery have been
-removed. Historical migration implementations remain immutable.
+revision at 100% desired and observed traffic. Historical migration
+implementations remain immutable.
 
 The canonical-identity cutover's frozen capture is lossless: dispatcher,
 Project-orphan closure, and full-table scan all consume PostgreSQL's canonical

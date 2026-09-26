@@ -75,7 +75,6 @@ also prove the exact run holder in the writing transaction. These tools are
 `mutate-external` with staged execution forbidden, because lookup rows are not
 Blueprint state and cannot participate in a change-set workspace.
 
-Table deletion, column removal, and column retype are reachable:
 `actions.ts` exports `deleteLookupTableAction`, `removeLookupColumnAction`, and
 `retypeLookupColumnAction`, and the Project data workspace's confirmation dialog
 calls them after naming the apps a destructive change would block. Established
@@ -203,7 +202,7 @@ preview's builder-session cache
 (`lib/preview/engine/lookupDataBinding.ts`) evaluates carriers over one.
 Missing and foreign ids are absent from both the definitions and the rows map.
 
-`nova_lookup_stream` writes and reads are live. The one shared dedicated listener
+`nova_lookup_stream` carries lookup invalidation. The one shared dedicated listener
 fans exact decimal revisions only to subscribers for that Project, and the app
 stream relays seq-less full-manifest frames over the builder's existing
 EventSource. Lookup frames never set SSE `id:`; that cursor belongs exclusively

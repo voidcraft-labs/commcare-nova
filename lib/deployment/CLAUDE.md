@@ -196,9 +196,9 @@ preflight against an already-released deployment changes NOTHING durable:
 store skips the write. The refusal is reported on the attempt itself
 (`PublishOutcome.refusal`), never persisted into the phase history — the
 failure usually belongs to the person who clicked (their key, their
-draft), and a persisted one lingered, so a stale upload rejection from
-last week ended up explaining today's unrelated refusal on every surface
-that scanned the phases for "the" failure. The guard reads
+draft), and a persisted one outlives its cause, so a stale upload
+rejection would explain a later, unrelated refusal on every surface
+that scans the phases for "the" failure. The guard reads
 `deploymentDisplaysAsReached`, NOT the strict predicate — the strict one
 answers `false` at every rung while a deployment is `incomplete`, so it
 would hand the worst case the worst answer: an app uploaded, built and
@@ -223,8 +223,8 @@ the display one fills exactly the rungs whose producing phase succeeded
 BEFORE the failed one, because a failed probe did not undo the upload.
 The comparison is by PHASE, not by state: preflight's entry and success
 states are both `preflight`, so a state comparison cannot tell "about to
-be checked" from "checked and passed" and drew the first rung green for
-the very check that failed.
+be checked" from "checked and passed" and would draw the first rung green
+for the very check that failed.
 
 `built` means a build of what the project space currently holds, not
 merely that some build exists. An older build with newer changes above it
@@ -430,11 +430,10 @@ HQ's own answer.
 ## No lock spans the CommCare HQ round trips
 
 Publishing and observing both spend seconds to minutes talking to
-CommCare HQ. An earlier design serialized each target with a
-session-scoped advisory lock held across that time, which pinned a pooled
-Postgres connection per publish — two concurrent media-bearing publishes
-held 2 of an instance's 3 connections idle for minutes and starved every
-other request on the instance.
+CommCare HQ. A lock held across that time pins a pooled Postgres
+connection per publish: with three connections per instance, two
+concurrent media-bearing publishes would hold two of them idle for
+minutes and starve every other request on the instance.
 
 So there is no cross-transaction lock at all. Every store write is one
 short transaction that locks the app row, takes the deployment row
@@ -506,7 +505,7 @@ plus `django_user.delete()` before re-raising, but that guard covers only
 what is raised inside it, and the account is committed before tastypie
 serializes the answer. A real project space answered 500 with the worker
 live. So every refusal from `hq/workers.ts` carries `mayHaveLanded`, and
-`http.ts::writeMayHaveLanded` is the ONE definition of it, shared with the
+`lib/commcare/hq/http.ts::writeMayHaveLanded` is the ONE definition of it, shared with the
 lookup-table driver. It is false only for the statuses CommCare HQ
 produces before the view runs — 400, 401, 403, 405, 413, 429, 501 — and
 for an edge answering a 4xx, which means the edge refused and CommCare HQ
