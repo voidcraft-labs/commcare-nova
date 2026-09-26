@@ -56,9 +56,12 @@ the tool input or result. No money values on events; sub-generation usage
 The event schema keeps the `design-tool-outcome` and `executor-tool-outcome`
 annotation families so runs recorded by the retired design loop and slice
 executor stay readable (`scripts/inspect-logs.ts`); no serving code emits them.
-Both are payload-free: opaque call identity, tool name, a closed outcome
-category, and a stable code. Raw inputs, outputs, rejection prose, and
-customer-authored names never enter either.
+Both are payload-free. `design-tool-outcome` carries opaque call identity,
+tool name, input character count, duration, a closed outcome category, a
+stable code, and optional validation stage plus issue count.
+`executor-tool-outcome` carries only model step, tool name, operation index,
+workspace revision, a closed outcome category, and a stable code. Raw inputs,
+outputs, rejection prose, and customer-authored names never enter either.
 
 ## Writer semantics
 
