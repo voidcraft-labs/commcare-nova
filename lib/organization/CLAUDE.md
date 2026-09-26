@@ -20,7 +20,8 @@ is settled transactionally rather than by scan.
   freshly locked app row, never from a client-asserted id and never from the
   user's mutable active Project — but it is not a column. That is what makes a
   cross-Project app move a genuine no-op here rather than a fourth thing to
-  re-tenant, and `__tests__/integration` proves it rather than asserting it.
+  re-tenant, and `__tests__/organizationStore.postgres.test.ts` proves it
+  rather than asserting it.
 - `id` is server-minted UUIDv7 and is the ownership identity: it is what a
   case's `owner_id` holds and what the fixture emits as `@id`. `site_code` is
   the create-once human and bulk-upload identity. Display names change freely;
@@ -312,30 +313,29 @@ Rows still come only from complete server reads, never an optimistic reducer.
 - `countCasesOwnedBy` in `service.ts` is the one place this package reads case
   rows, and it is raw SQL because `cases` belongs to the case store's schema
   rather than `AppDatabase`. It is advisory only — never a gate.
-- Do not import `lib/commcare` here. Unit 9 owns the fixture's meaning and its
-  budget; it may refuse to emit a footprint but cannot reinterpret these rows.
-- A persona's assignment now reaches CommCare HQ, but only through the
+- Do not import `lib/commcare` here. The compile boundary owns the fixture's
+  meaning and its budget; it may refuse to emit a footprint but cannot
+  reinterpret these rows.
+- A persona's assignment reaches CommCare HQ only through the
   provisioning call: `lib/deployment/workers.ts` maps each assigned place
   through the deployment ledger's `location` mappings and sends
   `primary_location` + `locations` together. That is a WORKER's assignment,
   not a case-owner rule, and the two stay separate — a place the ledger has no
   live mapping for refuses the call rather than being created on the way past.
-- The compiler lowers fixed-place and reverse-hop owner terms, and only ONE of
-  them is still closed at export. Neither of the two reasons this file used to
-  give is among the surviving ones. The HQ identity map exists: publishing
-  creates the places on the target project space and the deployment ledger
-  holds each one's `location_id`. The device fixture is not Nova's to ship
-  either — HQ builds it on RESTORE from those same rows
-  (`locations/fixtures.py::FlatLocationSerializer`), so nothing Nova exports
-  could carry one. A REVERSE HOP therefore exports on every mode: `emitTerm`
+- The compiler lowers fixed-place and reverse-hop owner terms; export refuses
+  only the fixed place. Publishing creates the places on the target project
+  space and the deployment ledger holds each one's `location_id`, and HQ
+  builds the device fixture on RESTORE from those same rows
+  (`locations/fixtures.py::FlatLocationSerializer`), so neither a missing
+  identity map nor a missing fixture is a reason to refuse. A REVERSE HOP
+  exports on every mode: `emitTerm`
   writes level codes, which a publish puts on the project space as
   `location_type_code`, matched against the case's own `owner_id`, which is
   HQ's value at runtime — no Nova identity crosses. A FIXED PLACE stays
   refused, because `emitTerm` writes Nova's own place UUID as a literal and no
-  compile path resolves it through the deployment's `location` mappings. Do not
-  describe a fixed-place owner as deployable until a compile path reads those
-  mappings, do not re-add the fixture or the identity map to the refusal's
-  reasons, and do not widen the refusal back over the reverse hop.
+  compile path resolves it through the deployment's `location` mappings; a
+  fixed-place owner is deployable only once a compile path reads those
+  mappings.
   The native location proof executes HQ's actual flat serializer and Core's
   indexed restore/form consumers. Its supplied ORM rows do not prove HQ's
   footprint SQL; the Postgres companion independently checks service-admitted

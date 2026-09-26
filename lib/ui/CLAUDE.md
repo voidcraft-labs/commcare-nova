@@ -74,7 +74,7 @@ DOM, React render, or synthetic keyboard event. Persistence callbacks are the
 commit model's external boundary; use accepted and refused outcomes and inspect
 the resulting draft and lifecycle. Own model disposal and subscriptions.
 
-The real Builder journey in `e2e/tests/authed.spec.ts` verifies the browser
+The real Builder journey in `e2e/tests/app/authed.spec.ts` verifies the browser
 adapter: typing P in an input stays an edit, Escape cancels without deselection,
 P outside an input enters Preview, and a refused identifier commit preserves
 both the draft and actual focus before retry. Browser focus/selection claims

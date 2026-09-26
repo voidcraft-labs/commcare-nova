@@ -17,9 +17,9 @@ The generic AST also carries contextual case-operation leaves: `field { uuid }`,
 - `count(self)` reduces to `1`, or `CASE WHEN <where> THEN 1 ELSE 0`; it does not enter the relation-path compiler.
 - **Leaf-alias depth thread.** Hop aliases are isolated by SQL subquery scoping, but the leaf alias is NOT for inner→outer correlation: an inner subquery reusing `rp_leaf` shadows the outer leaf and the correlation collapses into self-equality on the inner row. `relationPathDepth` increments on every recursion into a walk's inner predicate, and `leafAliasForDepth` derives `rp_leaf` / `rp_leaf_<N>` so inner blocks never shadow outer ones. `compileTerm`'s non-self via reads inherit the same depth.
 
-## Zero raw-SQL emission
+## No raw-SQL escape hatches
 
-The stack emits ZERO raw SQL — no `sql\`...\`` templates, no `sql.raw`. Three Postgres features that look like they need raw emission are routed through typed-builder primitives instead:
+The stack emits no `sql.raw`. `sql` tagged templates appear only in `compilePredicate.ts`'s dynamic fuzzy-date helpers, where every interpolation is a typed-builder expression. Three Postgres features that look like they need raw emission are routed through typed-builder primitives instead:
 
 - `today` takes the date of `timezone(viewerTimeZone, now())`: the transaction-stable instant in the viewer's local calendar, matching form/device `today()`, with the same validated UTC fallback as `format-date`. The database session timezone cannot change overdue decisions.
 - `interval` isn't in Kysely's castable types → `date-add` builds through `make_interval(...)`, which returns interval directly. Fixed-duration units multiply a one-unit interval by a `float8` quantity so fractions remain representable. Calendar units check `q = trunc(q)` before adapting to `make_interval`'s integer slot: integral decimal spellings such as `1.0` work, while `1.5` raises instead of Postgres silently rounding it. The compiler resolves the base through the canonical temporal type rules: date bases cast the shifted result back to `date`, while datetime bases remain `timestamptz`, matching CCHQ's distinct `date-add` / `datetime-add` results.

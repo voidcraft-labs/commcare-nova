@@ -112,10 +112,10 @@ automation validator still owns allowed properties, shadowing, and message limit
 Literal opening braces are escaped individually, including a single brace next
 to a reference; otherwise text and an insertion can merge into a new delimiter.
 
-The native and JavaScript prototypes have been retired. Their comparison and
-limitations remain in `docs/research/agent-authoring-pilot-2026-09-12.md`; Git
-history preserves the implementations. The local evaluator now uses production
-prompts and tools, with effects restricted to its disposable app.
+The local evaluator uses production prompts and tools, with effects restricted
+to its disposable app. The comparison of the earlier native and JavaScript
+prototypes lives in `docs/research/agent-authoring-pilot-2026-09-12.md`; Git
+history preserves their implementations.
 
 Resolve all names for one operation against its complete scope before preparing
 mutations. Creation allocates identities before binding expressions. A field or

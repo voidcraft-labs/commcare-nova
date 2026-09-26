@@ -39,9 +39,11 @@ lifecycle; those boundaries need browser evidence even when a journey passes.
 Observations identify the evaluator clock and its calendar day. Form workers,
 SQL record reads and submission calculations use the same process timezone;
 ordinary browser Preview uses the browser timezone. Neither asserts a supplied
-place has that timezone. Runtime version 6 adds section-entry checkpoints and explicit page turns; version 5 preserves scoped initialization order. Version 4 distinguishes transient leaf form selection from persistent
-parent-menu selection; version 3 added Details and Continue/Back and version 2
-the shared clock. Older journeys remain readable but require a fresh test to execute. Search,
+place has that timezone. `RUNTIME_VERSION` in `lib/db/appTests.ts` fences
+execution semantics (section-entry checkpoints and page turns, scoped
+initialization order, transient leaf versus persistent parent-menu selection,
+Details with Continue/Back, the shared clock); bump it when those semantics
+change. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation

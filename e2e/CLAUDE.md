@@ -144,7 +144,7 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   Project (Ada `owner`; Grace, Katherine, Alan `editor` — seeded by
   `e2e/lib/multiplayerSeed.ts` into a two-module, four-field app; user ids are
   chosen so all four hash to DISTINCT palette hues, and two carry avatar
-  photos), each in its OWN `browser.newContext({ storageState })`. The
+  photos), each in its OWN `createSmokeContext(browser, { storageState })`. The
   two-user block drives eight scenarios over the real SSE stream + guarded
   writer + reconciler:
   bidirectional presence + live co-edit; disjoint-edit merge (no clobber);
@@ -156,8 +156,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   DELETE → the stream revokes + the roster drops the peer). Each captures a screenshot to
   `e2e/multiplayer-screenshots/` (git-ignored) so the UI/UX is eyeballable.
   Non-obvious rules:
-  - The project has NO project-level `storageState` (the spec opens its own two
-    contexts) and applies the strict error guard per-page via `attachErrorGuard`
+  - The project has NO project-level `storageState` (the spec opens one context
+    per peer) and applies the strict error guard per-page via `attachErrorGuard`
     (`e2e/lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
     revocation test guards both pages through teardown. Expected revocation and
     404 presence responses do not emit application errors. Teardown settles every
@@ -172,7 +172,7 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
     ONLY under `MP_MANUAL=1` so a bare/CI `playwright test` can't hit the
     forever-wait. `SMOKE_REUSE_BUILD=1` skips the production rebuild on an
     unchanged-code relaunch (never set it in CI).
-  - The seed writes a shared `auth_organization` + two `auth_member` rows through
+  - The seed writes a shared `auth_organization` + four `auth_member` rows through
     Better Auth's own adapter (a direct create bypasses the invitation
     domain-gate, which fires only on the invitation API path), and the shared app
     carries a POPULATED, fixed-uuid blueprint installed via
