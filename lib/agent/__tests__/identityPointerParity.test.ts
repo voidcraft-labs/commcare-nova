@@ -123,16 +123,55 @@ describe("shared-tool authored identity registry", () => {
 	});
 
 	it("publishes the same authored grammar through SA and actual MCP tools/list", () => {
-		for (const { saName, mcpName, tool } of SHARED_TOOL_REGISTRY) {
+		for (const { saName, mcpName, tool, policy } of SHARED_TOOL_REGISTRY) {
 			const expected = authoringToolSchema(saName, tool.inputSchema).json;
 			const listed = mcpSchemas.get(mcpName);
 			expect(listed, mcpName).toBeDefined();
 			if (!listed) throw new Error(`Missing ${mcpName}`);
 			const actual = structuredClone(listed);
-			const properties = actual.properties as Record<string, unknown>;
-			delete properties.app_id;
+			const properties = actual.properties as Record<string, JsonNode>;
+			const choosesTarget =
+				policy.effect === "read-blueprint" || policy.effect === "exercise-app";
+			const needsRequest = policy.effect !== "read-blueprint";
+			const transportFields = [
+				"work_id",
+				...(choosesTarget ? ["app_id"] : []),
+				...(needsRequest ? ["request_id"] : []),
+			];
+			const transportRequired = [
+				...(choosesTarget ? [] : ["work_id"]),
+				...(needsRequest ? ["request_id"] : []),
+			];
+			for (const name of ["app_id", "work_id", "request_id"]) {
+				// These are transport-only arguments. A new authored field must
+				// never accidentally disappear when the envelope is removed.
+				expect(expected.properties, mcpName).not.toHaveProperty(name);
+				if (transportFields.includes(name)) {
+					expect(properties[name], `${mcpName}.${name}`).toBeDefined();
+					const { description, ...constraints } = properties[name];
+					expect(description, `${mcpName}.${name}`).toEqual(expect.any(String));
+					expect(constraints, `${mcpName}.${name}`).toEqual({
+						type: "string",
+						minLength: 1,
+					});
+				} else {
+					expect(properties, mcpName).not.toHaveProperty(name);
+				}
+			}
+			expect(actual.required, mcpName).toEqual([
+				...((expected.required as string[] | undefined) ?? []),
+				...transportRequired,
+			]);
+			if (choosesTarget) {
+				expect(actual.oneOf, mcpName).toEqual([
+					{ required: ["app_id"] },
+					{ required: ["work_id"] },
+				]);
+				delete actual.oneOf;
+			}
+			for (const name of transportFields) delete properties[name];
 			actual.required = (actual.required as string[]).filter(
-				(name) => name !== "app_id",
+				(name) => !transportRequired.includes(name),
 			);
 			if (!("required" in expected)) delete actual.required;
 			expect(actual, mcpName).toEqual(expected);

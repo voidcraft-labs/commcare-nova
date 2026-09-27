@@ -15,23 +15,39 @@ import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
 
 it("reports a bounded runtime cause when an expression expects one record but receives several", async () => {
-	const doc = await createEvaluationApp({
-		name: "Loans",
-		case_type: "loan",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Inspect",
-				type: "followup",
-				fields: [
-					{
-						kind: "hidden",
-						id: "record_name",
-						calculate: "string(instance('casedb')/casedb/case/case_name)",
-					},
-				],
+				name: "Loans",
+				caseType: "loan",
+				forms: [{ name: "Inspect", type: "followup" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Inspect",
+					fields: [
+						{
+							kind: "hidden",
+							id: "record_name",
+							calculate: "string(instance('casedb')/casedb/case/case_name)",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Inspect",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Inspect",
 	)?.uuid;
@@ -65,38 +81,61 @@ it("reports a bounded runtime cause when an expression expects one record but re
 });
 
 it("evaluates worker-only validation, branch state and a proposed named record without changing the document", async () => {
-	const doc = await createEvaluationApp({
-		name: "People",
-		case_type: "person",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [
-					{
-						kind: "text",
-						id: "name",
-						label: "Name",
-						required: true,
-						validate: {
-							expr: "regex(#form/name, '^[A-Z][a-z]+$')",
-							msg: "Use a capitalized name",
-						},
-					},
-					{ kind: "int", id: "age", label: "Age", required: true },
-					{
-						kind: "text",
-						id: "guardian",
-						label: "Guardian",
-						relevant: "#form/age < 18",
-						required: true,
-						caseWrite: { caseType: "person", property: "guardian" },
-					},
-				],
+				name: "People",
+				caseType: "person",
+				forms: [{ name: "Register", type: "registration" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "People",
+					formUuid: "Register",
+					fields: [
+						{
+							kind: "text",
+							id: "name",
+							label: "Name",
+							required: true,
+							validate: {
+								expr: "regex(#form/name, '^[A-Z][a-z]+$')",
+								msg: "Use a capitalized name",
+							},
+						},
+						{ kind: "int", id: "age", label: "Age", required: true },
+						{
+							kind: "text",
+							id: "guardian",
+							label: "Guardian",
+							relevant: "#form/age < 18",
+							required: true,
+							caseWrite: { caseType: "person", property: "guardian" },
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "People",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "People",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const before = structuredClone(doc);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Register",
@@ -173,43 +212,54 @@ it("evaluates worker-only validation, branch state and a proposed named record w
 });
 
 it("evaluates separate repeat answers and refuses writes to a calculated value", async () => {
-	const doc = await createEvaluationApp({
-		name: "Visits",
-		forms: [
+	const doc = await createEvaluationApp(
+		[{ name: "Visits", forms: [{ name: "Checklist", type: "survey" }] }],
+		[
 			{
-				name: "Checklist",
-				type: "survey",
-				fields: [
-					{
-						kind: "text",
-						id: "delivering",
-						label: "Delivering",
-						default_value: "'yes'",
-					},
-					{
-						kind: "repeat",
-						id: "visits",
-						label: "Visits",
-						relevant: "#form/delivering = 'yes'",
-						repeat: { mode: "user_controlled" },
-					},
-					{
-						kind: "int",
-						id: "rating",
-						parentUuid: "visits",
-						label: "Rating",
-						required: true,
-						validate: { expr: ". >= 1 and . <= 5", msg: "Use 1 through 5" },
-					},
-					{
-						kind: "hidden",
-						id: "total",
-						calculate: "sum(#form/visits/rating)",
-					},
-				],
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Checklist",
+					fields: [
+						{
+							kind: "text",
+							id: "delivering",
+							label: "Delivering",
+							default_value: "'yes'",
+						},
+						{
+							kind: "repeat",
+							id: "visits",
+							label: "Visits",
+							relevant: "#form/delivering = 'yes'",
+							repeat: { mode: "user_controlled" },
+						},
+						{
+							kind: "int",
+							id: "rating",
+							parentUuid: "visits",
+							label: "Rating",
+							required: true,
+							validate: { expr: ". >= 1 and . <= 5", msg: "Use 1 through 5" },
+						},
+						{
+							kind: "hidden",
+							id: "total",
+							calculate: "sum(#form/visits/rating)",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Visits",
+					formUuid: "Checklist",
+					fieldUuid: "fixture_placeholder",
+				},
 			},
 		],
-	});
+	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Checklist",
 	)?.uuid;
@@ -287,18 +337,40 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 });
 
 it("honors the authored selection maximum for a form that closes several records", async () => {
-	const doc = await createEvaluationApp({
-		name: "Loans",
-		case_type: "loan",
-		selection: { kind: "multiple", maximum: 1 },
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Return",
-				type: "close",
-				fields: [{ kind: "text", id: "note", label: "Note" }],
+				name: "Loans",
+				caseType: "loan",
+				forms: [{ name: "Return", type: "close" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Return",
+					fields: [{ kind: "text", id: "note", label: "Note" }],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Return",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "configureCaseSelection",
+				input: {
+					moduleUuid: "Loans",
+					selection: { kind: "multiple", maximum: 1 },
+				},
+			},
+		],
+	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Return",
 	)?.uuid;
@@ -429,51 +501,67 @@ it("uses the running Search's date-range values in a no-matches registration", a
 });
 
 it("continues an entry without rerunning defaults or rematerializing its query rows", async () => {
-	const doc = await createEvaluationApp({
-		name: "Equipment",
-		case_type: "equipment",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Inspect",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "ids",
-						label: "Parts",
-						// The query snapshot runs before the late case preload.
-						// Give this retention fixture an earlier initialization action.
-						default_value: "#equipment/ids",
-						caseWrite: { caseType: "equipment", property: "ids" },
-					},
-					{
-						kind: "text",
-						id: "token",
-						label: "Inspection token",
-						default_value: "uuid()",
-					},
-					{
-						kind: "repeat",
-						id: "parts",
-						label: "Parts",
-						repeat: { mode: "query_bound", ids_query: "string(#form/ids)" },
-					},
-					{
-						kind: "hidden",
-						id: "part_id",
-						parentUuid: "parts",
-						calculate: "current()/../@id",
-					},
-					{
-						kind: "text",
-						id: "condition",
-						parentUuid: "parts",
-						label: "Condition",
-					},
-				],
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [{ name: "Inspect", type: "followup" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Inspect",
+					fields: [
+						{
+							kind: "text",
+							id: "ids",
+							label: "Parts",
+							// The query snapshot runs before the late case preload.
+							// Give this retention fixture an earlier initialization action.
+							default_value: "#equipment/ids",
+							caseWrite: { caseType: "equipment", property: "ids" },
+						},
+						{
+							kind: "text",
+							id: "token",
+							label: "Inspection token",
+							default_value: "uuid()",
+						},
+						{
+							kind: "repeat",
+							id: "parts",
+							label: "Parts",
+							repeat: { mode: "query_bound", ids_query: "string(#form/ids)" },
+						},
+						{
+							kind: "hidden",
+							id: "part_id",
+							parentUuid: "parts",
+							calculate: "current()/../@id",
+						},
+						{
+							kind: "text",
+							id: "condition",
+							parentUuid: "parts",
+							label: "Condition",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Inspect",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Inspect",
 	)?.uuid;
@@ -533,27 +621,50 @@ it("continues an entry without rerunning defaults or rematerializing its query r
 });
 
 it("uses location-picker coordinates and separates malformed test answers from authored validation", async () => {
-	const doc = await createEvaluationApp({
-		name: "Sites",
-		case_type: "site",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [
-					{ kind: "text", id: "name", label: "Name", required: true },
-					{
-						kind: "geopoint",
-						id: "location",
-						label: "Location",
-						required: true,
-						caseWrite: { caseType: "site", property: "location" },
-					},
-				],
+				name: "Sites",
+				caseType: "site",
+				forms: [{ name: "Register", type: "registration" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Sites",
+					formUuid: "Register",
+					fields: [
+						{ kind: "text", id: "name", label: "Name", required: true },
+						{
+							kind: "geopoint",
+							id: "location",
+							label: "Location",
+							required: true,
+							caseWrite: { caseType: "site", property: "location" },
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Sites",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Sites",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Register",
 	)?.uuid;

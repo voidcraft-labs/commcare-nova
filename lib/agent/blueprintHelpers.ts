@@ -106,13 +106,13 @@ export function formSnapshot(
 // ── Mutation builders — modules ─────────────────────────────────────────
 
 /** Input shape for a new module. `uuid` may be supplied to pin identity
- *  (`createModule` pre-mints the uuid its later batch entries
- *  reference), otherwise the helper mints one. */
+ *  otherwise the helper mints one. */
 export interface NewModuleInput {
 	uuid?: string;
 	id?: string;
 	name: string;
 	parentModuleUuid?: Uuid;
+	parentCaseModuleUuid?: Uuid;
 	caseType?: string;
 	caseListOnly?: boolean;
 	purpose?: string;
@@ -138,6 +138,9 @@ export function addModuleMutations(input: NewModuleInput): Mutation[] {
 		name: input.name,
 		...(input.parentModuleUuid !== undefined && {
 			parentModuleUuid: input.parentModuleUuid,
+		}),
+		...(input.parentCaseModuleUuid !== undefined && {
+			parentCaseModuleUuid: input.parentCaseModuleUuid,
 		}),
 		...(input.caseType !== undefined && { caseType: input.caseType }),
 		...(input.caseListOnly !== undefined && {
@@ -562,21 +565,14 @@ export interface NewFormInput {
 	entry?: Form["entry"];
 }
 
-/** Build an `addForm` mutation. Mints a uuid when the caller doesn't
- *  supply one. Forms are keyed under their owning module via the
- *  `moduleUuid` argument — the reducer refuses to install a form whose
- *  module isn't registered. `moduleAddedInBatch` skips the existence
- *  check for a module an earlier mutation in the SAME batch creates
- *  (`createModule`'s atomic module + forms + fields shape) — the caller
- *  owns the uuid in that case, so an unknown-module guard would only
- *  reject a module that is about to exist. */
+/** Build an empty form under an existing module. Its questions are separate
+ * mutations in the same private authoring workspace. */
 export function addFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	input: NewFormInput,
-	opts?: { moduleAddedInBatch?: boolean },
 ): Mutation[] {
-	if (!opts?.moduleAddedInBatch && doc.modules[moduleUuid] === undefined) {
+	if (doc.modules[moduleUuid] === undefined) {
 		return [];
 	}
 	const uuid = asUuid(

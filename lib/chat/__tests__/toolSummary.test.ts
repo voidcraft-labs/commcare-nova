@@ -378,3 +378,29 @@ it.each([
 		expect(JSON.stringify(part)).toBe(before);
 	}
 });
+
+describe("private-work transcript outcomes", () => {
+	it("distinguishes pending changes from saved checkpoints and rejected saves", () => {
+		const pending = {
+			...donePart("addFields", { count: 2, location: "Visit" }),
+			output: {
+				ok: true,
+				saved: false,
+				summary: { count: 2, location: "Visit" },
+			},
+		} as ToolUIPart;
+		expect(toolAction(pending)).toBe("Added 2 fields (pending)");
+		const refused = {
+			...pending,
+			type: "tool-saveWork",
+			output: { success: false, saved: false, kind: "gate-rejected" },
+		} as ToolUIPart;
+		expect(toolStatus(refused)).toBe("failed");
+		expect(toolAction(refused)).not.toBe("Saved progress");
+		const saved = {
+			...refused,
+			output: { success: true, saved: true },
+		} as ToolUIPart;
+		expect(toolAction(saved)).toBe("Saved progress");
+	});
+});

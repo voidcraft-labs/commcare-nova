@@ -18,17 +18,20 @@ import { z } from "zod";
 
 export const askQuestionsInputSchema = z.strictObject({
 	header: z.string().describe("Short header for this group of questions"),
-	questions: z.array(
-		z.strictObject({
-			question: z.string(),
-			options: z.array(
-				z.strictObject({
-					label: z.string(),
-					description: z.string().optional(),
-				}),
-			),
-		}),
-	),
+	questions: z
+		.array(
+			z.strictObject({
+				question: z.string(),
+				options: z.array(
+					z.strictObject({
+						label: z.string(),
+						description: z.string().optional(),
+					}),
+				),
+			}),
+		)
+		.min(1)
+		.max(5),
 });
 
 export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
@@ -42,6 +45,6 @@ export type AskQuestionsInput = z.infer<typeof askQuestionsInputSchema>;
  */
 export const askQuestionsTool = {
 	description:
-		"Ask up to five questions whose answers materially affect the app. Work pauses for the answers. Offer two to four useful choices when available, with your recommendation first and labeled Recommended in the conversation's language. Free text is always available, so it needs no separate option. The user can attach a file when answering. Decide routine details yourself.",
+		"Ask one to five questions whose answers materially affect the app. Work pauses for the answers. Offer two to four useful choices when available, with your recommendation first and labeled Recommended in the conversation's language. Free text is always available, so it needs no separate option. The user can attach a file when answering. Decide routine details yourself.",
 	inputSchema: askQuestionsInputSchema,
 };

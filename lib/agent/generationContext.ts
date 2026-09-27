@@ -44,6 +44,7 @@ import type {
 	StepResultPerformance,
 	UIMessageStreamWriter,
 } from "ai";
+import { sql } from "kysely";
 import type { Session } from "@/lib/auth";
 import { classifyError as classifyValidityError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -66,6 +67,7 @@ import {
 } from "@/lib/db/commitGuard";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import type { GenerationTarget } from "@/lib/db/generationTargets";
+import { getAppDb } from "@/lib/db/pg";
 import type {
 	DesignBuildCostPhase,
 	DurableUsageIdentity,
@@ -77,6 +79,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
 	type AdmittedMutationStages,
+	admitMutationBatch,
 	admittedMutationSlice,
 	encodeAdmittedMutationEnvelope,
 } from "@/lib/doc/mutationAdmission";
@@ -115,6 +118,7 @@ import type {
 	RecordMutationsResult,
 } from "./toolExecutionContext";
 import { type SavedDataReview, savedDataReview } from "./toolResults";
+import { askQuestionsInputSchema } from "./tools/askQuestions";
 import type { CanonicalMutationHost } from "./workspace/canonicalHost";
 
 /**
@@ -747,6 +751,40 @@ export class GenerationContext
 		return { events, committedDoc: result.committedDoc, seq: result.seq };
 	}
 
+	private readonly publishedCheckpoints = new Set<string>();
+
+	/** A private save has already committed through the canonical kernel. Replay
+	 * its exact durable batch to the live chat and event log, never staged edits.
+	 * The latest snapshot/cursor are read together after fresh authorization. */
+	async publishAuthoringCheckpoint(
+		seq: number,
+		batchId: string,
+	): Promise<void> {
+		const snapshot = await this.reloadAuthorizedSnapshot();
+		const row = await (await getAppDb())
+			.selectFrom("app_changes")
+			.select(sql<string>`mutations::text`.as("mutationsText"))
+			.where("app_id", "=", this.appId)
+			.where("seq", "=", seq)
+			.where("batch_id", "=", batchId)
+			.where("actor_id", "=", this.userId)
+			.executeTakeFirstOrThrow();
+		this._latestDoc = snapshot.doc;
+		this._latestSeq = snapshot.canonicalSeq;
+		if (this.publishedCheckpoints.has(batchId)) return;
+		const mutations = admitMutationBatch(JSON.parse(row.mutationsText));
+		const events = this.buildEnvelopes(mutations);
+		this.writer.write(
+			encodeAdmittedMutationEnvelope({
+				type: "data-mutations",
+				data: { mutations, events, seq, batchId },
+				transient: true,
+			}).value as never,
+		);
+		for (const event of events) this.logWriter.logEvent(event);
+		this.publishedCheckpoints.add(batchId);
+	}
+
 	/** Read-and-clear the saved-data consequence the LAST commit's row migration
 	 * stashed — consumed by the SA wrapper after each mutating tool result so
 	 * a park is never invisible to the person who caused it. */
@@ -760,12 +798,10 @@ export class GenerationContext
 	 * CanonicalMutationHost implementation. AWAITS the inline guarded commit
 	 * (`commitBatch` → `commitGuardedBatch`) and returns its committed doc, so a
 	 * tool body sees the writer's `nextDoc` (a concurrent peer edit merged in),
-	 * never its own local candidate. Both the inline await here AND the SA's
-	 * `serial()` mutex around tool bodies are load-bearing: the mutex is what
-	 * makes each commit build on the previous one's committed doc, and the await
-	 * is what lets `consumeStream()` resolving imply every commit settled —
-	 * removing either reintroduces lost concurrent edits and unsettled writes at
-	 * drain end. A rejection propagates (the batch is not emitted).
+	 * never its own local candidate. CanonicalMutationWorkspace serializes its
+	 * calls; this await ensures each call settles before the next one starts.
+	 * A rejection propagates and the batch is not emitted. Ordinary chat edits
+	 * use private work instead and publish through publishAuthoringCheckpoint.
 	 */
 	async recordMutations(
 		prepared: PreparedMutationCandidate,
@@ -1134,10 +1170,15 @@ export class GenerationContext
 		for (const tc of step.toolCalls ?? []) {
 			this.usage.noteToolCall();
 			/* `askQuestions` (the tool key in `solutionsArchitect.ts`'s tool set) has
-			 * no `execute` and halts the loop to await the user, so seeing it means
-			 * the run is PAUSING for input, not finishing — the signal the route needs
-			 * to mark the app `awaiting_input`. */
-			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
+			 * no `execute` and halts for valid user questions. Invalid calls remain
+			 * repairable SDK errors and must not park the run awaiting an answer
+			 * the user cannot give. */
+			if (
+				tc.toolName === "askQuestions" &&
+				!step.toolErrors?.some((error) => error.toolCallId === tc.toolCallId) &&
+				askQuestionsInputSchema.safeParse(tc.input).success
+			)
+				this._pausedOnInput = true;
 			// Clarification questions are user-visible conversation history, not
 			// private design protocol payloads. Keep them inspectable even when
 			// stage/inspect/finalize calls from the same agent are suppressed.

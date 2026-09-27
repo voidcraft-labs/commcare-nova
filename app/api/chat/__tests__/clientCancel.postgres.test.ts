@@ -39,6 +39,7 @@ import type { Insertable, Kysely } from "kysely";
 import { beforeEach, describe, expect, it as test, vi } from "vitest";
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { withResponsesPeer } from "@/lib/agent/__tests__/responsesPeer";
+import { getWork, listWork } from "@/lib/agent/authoring/session";
 import {
 	EDIT_TURN_LIMIT_MESSAGE,
 	SOLUTIONS_ARCHITECT_MAX_STEPS,
@@ -466,6 +467,35 @@ async function pollFor<T>(
 		if (Date.now() > deadline) throw new Error("pollFor timed out");
 		await new Promise((r) => setTimeout(r, 50));
 	}
+}
+
+/** The scripted provider saves using the opaque revision it actually received. */
+async function stagedRevision(callId: string): Promise<string> {
+	return pollFor(async () => {
+		for (const request of peer.requests) {
+			if (!Array.isArray(request.input)) continue;
+			for (const item of request.input) {
+				if (item?.type !== "function_call_output" || item.call_id !== callId)
+					continue;
+				const text =
+					typeof item.output === "string"
+						? item.output
+						: Array.isArray(item.output)
+							? item.output
+									.map((part: { text?: string }) => part.text ?? "")
+									.join("")
+							: "";
+				const result = JSON.parse(text) as {
+					revision?: unknown;
+					error?: unknown;
+				};
+				if (typeof result.revision !== "string")
+					throw new Error(`No staged revision in tool output: ${text}`);
+				return result.revision;
+			}
+		}
+		return undefined;
+	});
 }
 
 async function chunkRows(streamId: string) {
@@ -1320,8 +1350,13 @@ describe("server-derived build-vs-edit mode", () => {
 		});
 		await seedBoundSession(ADOPT_SESSION, ADOPT_APP);
 		const rename = peer.response();
-		rename.tool("updateApp", { name: "Adopted edit rename" });
+		rename.tool(
+			"updateApp",
+			{ name: "Adopted edit rename" },
+			{ callId: "adopted-rename" },
+		);
 		rename.finish();
+		const saveRename = peer.response();
 		const renamed = peer.response();
 		renamed.text("Renamed the app.");
 		renamed.finish();
@@ -1368,6 +1403,11 @@ describe("server-derived build-vs-edit mode", () => {
 			})
 			.where("id", "=", ADOPT_APP)
 			.execute();
+
+		saveRename.tool("saveWork", {
+			expectedRevision: await stagedRevision("adopted-rename"),
+		});
+		saveRename.finish();
 
 		const wire = await wirePromise;
 		expect(wire).not.toContain('"fatal":true');
@@ -1993,6 +2033,11 @@ describe("barrier persistence", () => {
 		/* Edit failures preserve the app's completed status. A stranded failed
 		 * turn must still project interruption instead of retiring its marker. */
 		await seedFeedEditApp();
+		const before = await appDb
+			.selectFrom("apps")
+			.select(["app_name", "mutation_seq"])
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
 		const model = peer.response();
 
 		const response = await post(editTurnRequest());
@@ -2004,7 +2049,7 @@ describe("barrier persistence", () => {
 		 * fails. An injected claw-back write failure strands marker + partial. */
 		failClawBackWrites.on = true;
 		model.text("Half an answer");
-		model.tool("getLanguages", {});
+		model.tool("updateApp", { name: "Preserved after failure" });
 		model.finish();
 		const next = peer.response();
 		next.fail("provider failed after the persisted step");
@@ -2012,10 +2057,25 @@ describe("barrier persistence", () => {
 
 		const app = await appDb
 			.selectFrom("apps")
-			.select(["id", "status"])
+			.select(["id", "status", "app_name", "mutation_seq"])
 			.where("owner", "=", USER)
 			.executeTakeFirstOrThrow();
 		expect(app.status).toBe("complete");
+		expect(app).toMatchObject(before);
+		const host = { kind: "chat", threadId: THREAD } as const;
+		const pending = await listWork({
+			actorUserId: USER,
+			host,
+			appId: FEED_APP,
+		});
+		expect(pending.work).toHaveLength(1);
+		expect(
+			await getWork({
+				actorUserId: USER,
+				host,
+				workId: pending.work[0].workId,
+			}),
+		).toMatchObject({ pendingChanges: 1 });
 
 		const thread = await threadRow(THREAD);
 		expect(thread.active_stream_id).toBe(streamId);
@@ -2138,8 +2198,13 @@ describe("barrier persistence", () => {
 		expect(thread.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 	}, 30_000);
 
-	it("keeps completed edits and explains a tool-step limit in live and durable chat", async () => {
+	it("preserves pending edits and explains a tool-step limit in live and durable chat", async () => {
 		await seedFeedEditApp();
+		const before = await appDb
+			.selectFrom("apps")
+			.select("app_name")
+			.where("id", "=", FEED_APP)
+			.executeTakeFirstOrThrow();
 		const model = peer.response();
 		const response = await post(editTurnRequest());
 		const streamId = response.headers.get("x-workflow-run-id");
@@ -2149,7 +2214,7 @@ describe("barrier persistence", () => {
 			const reply = step === 0 ? model : peer.response();
 			reply.tool(
 				step === 0 ? "updateApp" : "getLanguages",
-				step === 0 ? { name: "Saved before turn limit" } : {},
+				step === 0 ? { name: "Pending at turn limit" } : {},
 				{ callId: `limit-${step}` },
 			);
 			reply.finish();
@@ -2186,10 +2251,24 @@ describe("barrier persistence", () => {
 			.where("id", "=", FEED_APP)
 			.executeTakeFirstOrThrow();
 		expect(app).toEqual({
-			app_name: "Saved before turn limit",
+			app_name: before.app_name,
 			lock_run_id: null,
 			status: "complete",
 		});
+		const host = { kind: "chat", threadId: THREAD } as const;
+		const pending = await listWork({
+			actorUserId: USER,
+			host,
+			appId: FEED_APP,
+		});
+		expect(pending.work).toHaveLength(1);
+		expect(
+			await getWork({
+				actorUserId: USER,
+				host,
+				workId: pending.work[0].workId,
+			}),
+		).toMatchObject({ pendingChanges: 1 });
 	}, 30_000);
 
 	it("does not call a final answer unfinished when hosted discovery occurs on the last allowed step", async () => {
@@ -2250,7 +2329,7 @@ describe("barrier persistence", () => {
 		expect(after).toEqual(before);
 	});
 
-	it("large streamed tool inputs stay out of the log while all three mutations and the final transcript commit", async () => {
+	it("large streamed tool inputs stay out of the log while three staged mutations publish as one checkpoint", async () => {
 		await seedFeedEditApp();
 		const model = peer.response();
 
@@ -2270,9 +2349,15 @@ describe("barrier persistence", () => {
 			);
 			response.finish();
 		}
+		const saveCheckpoint = peer.response();
 		const closing = peer.response();
 		closing.text("Built it.");
 		closing.finish();
+
+		saveCheckpoint.tool("saveWork", {
+			expectedRevision: await stagedRevision("call-2"),
+		});
+		saveCheckpoint.finish();
 
 		// EOF joins the actual producer, SDK fold and finalization; no timing
 		// estimate is needed for instrumentation-heavy provider decoding.
@@ -2294,7 +2379,7 @@ describe("barrier persistence", () => {
 			.where("id", "=", FEED_APP)
 			.executeTakeFirstOrThrow();
 		expect(app.app_name).toBe(names[2]);
-		expect(Number(app.mutation_seq)).toBe(4); // canonical birth + all three tool commits
+		expect(Number(app.mutation_seq)).toBe(2); // canonical birth + one valid checkpoint
 
 		/* The stream's first chunk is the seed-steps statement the client's
 		 * cold-resume filter windows on: a fresh turn seeds zero steps. */

@@ -195,7 +195,7 @@ export function registerUploadMediaAsset(
 				 * every read site authorizes against. An explicit project_id
 				 * needs the `edit` capability there; omitted, the upload
 				 * lands in the caller's personal Project (mirrors
-				 * `create_app`). */
+				 * `begin_work`). */
 				const project = args.project_id
 					? (
 							await requireProjectAccess(

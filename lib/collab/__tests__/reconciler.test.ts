@@ -937,6 +937,44 @@ describe("reconciler", () => {
 
 	// ── Stale / gap frames ──────────────────────────────────────────────
 	describe("inbound frame ordering", () => {
+		it("notifies pending-work readers on confirmed saves, never local edits or stale echoes", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 10,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			const revisions: number[] = [];
+			const stop = h.reconciler.subscribeCanonicalRevision(() =>
+				revisions.push(h.reconciler.canonicalRevision()),
+			);
+			try {
+				applyLocal(h, [{ kind: "setAppName", name: "Local pending" }]);
+				expect(revisions).toEqual([]);
+				h.reconciler.onFrame(
+					autosaveFrame(10, "old", "peer", [
+						{ kind: "setAppName", name: "Stale" },
+					]),
+				);
+				expect(revisions).toEqual([]);
+				h.reconciler.onFrame(
+					autosaveFrame(11, "new", "peer", [
+						{ kind: "setAppName", name: "Saved by peer" },
+					]),
+				);
+				expect(revisions).toEqual([11]);
+				stop();
+				h.reconciler.onFrame(
+					autosaveFrame(12, "later", "peer", [
+						{ kind: "setAppName", name: "Another save" },
+					]),
+				);
+				expect(revisions).toEqual([11]);
+			} finally {
+				stop();
+			}
+		});
+
 		it("drops a stale seq <= baseSeq frame (no reload, no apply)", () => {
 			const h = harness({
 				appId: "app-1",

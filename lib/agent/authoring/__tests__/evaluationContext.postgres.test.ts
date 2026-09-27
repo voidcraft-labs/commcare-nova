@@ -18,29 +18,45 @@ const actor = "evaluator";
 const projectId = "evaluation-project";
 
 it("uses the authorized worker's records and makes no case or blueprint writes", async () => {
-	const source = await createEvaluationApp({
-		name: "Loans",
-		case_type: "loan",
-		forms: [
+	const source = await createEvaluationApp(
+		[
 			{
-				name: "Return",
-				type: "close",
-				fields: [
-					{
-						kind: "text",
-						id: "condition",
-						label: "Condition",
-						required: true,
-						validate: {
-							expr: "count(instance('casedb')/casedb/case[@case_type = 'loan'][@case_id != #loan/case_id][condition = #form/condition]) = 0",
-							msg: "Another loan already has this condition.",
-						},
-						caseWrite: { caseType: "loan", property: "condition" },
-					},
-				],
+				name: "Loans",
+				caseType: "loan",
+				forms: [{ name: "Return", type: "close" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Return",
+					fields: [
+						{
+							kind: "text",
+							id: "condition",
+							label: "Condition",
+							required: true,
+							validate: {
+								expr: "count(instance('casedb')/casedb/case[@case_type = 'loan'][@case_id != #loan/case_id][condition = #form/condition]) = 0",
+								msg: "Another loan already has this condition.",
+							},
+							caseWrite: { caseType: "loan", property: "condition" },
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Loans",
+					formUuid: "Return",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const appId = await h.seedAppWithBlueprint(source, {
 		owner: actor,
 		projectId,

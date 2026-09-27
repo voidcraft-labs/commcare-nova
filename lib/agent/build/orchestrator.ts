@@ -7,6 +7,7 @@ import {
 	AuthoringInputError,
 	ReadProjectionError,
 } from "@/lib/agent/authoring/errors";
+import { WORK_TOOL_DEFINITIONS } from "@/lib/agent/authoring/lifecycleTools";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { ChangeSetStagingRejectedError } from "@/lib/agent/change-set/errors";
 import { classifyError } from "@/lib/agent/errorClassifier";
@@ -633,7 +634,9 @@ export async function runBuildOrchestration(
 					output = await planTool(call, { editor: "architect" });
 				else if (call.toolName === "readSource")
 					output = readSource(source, call.input);
-				else if (call.toolName === "getApp") output = await runtime.overview();
+				else if (call.toolName === "getApp")
+					output = await runtime.overview(true);
+				else if (call.toolName === "getWork") output = await runtime.getWork();
 				else if (
 					call.toolName === "reviewPlan" ||
 					call.toolName === "reviewApp"
@@ -675,8 +678,14 @@ export async function runBuildOrchestration(
 						),
 					);
 				} else if (call.toolName === "saveWork") {
-					output = await runtime.saveWork(call.toolCallId);
+					const { expectedRevision } =
+						WORK_TOOL_DEFINITIONS.saveWork.inputSchema.parse(call.input);
+					output = await runtime.saveWork(call.toolCallId, expectedRevision);
 					await emitState({ kind: "building", appId: runtime.appId });
+				} else if (call.toolName === "discardWork") {
+					const { expectedRevision } =
+						WORK_TOOL_DEFINITIONS.discardWork.inputSchema.parse(call.input);
+					output = await runtime.discardWork(call.toolCallId, expectedRevision);
 				} else output = await runtime.shared(call, "architect");
 			} catch (error) {
 				output = recoverableToolError(error);

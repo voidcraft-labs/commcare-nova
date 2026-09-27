@@ -149,6 +149,9 @@ export interface CompositionInputs {
 }
 
 export interface AppInput {
+	readonly work?: Awaited<
+		ReturnType<typeof import("@/lib/agent/authoring/session").getWork>
+	>;
 	readonly appId: string;
 	readonly appName: string;
 	/** The app's current blueprint. */

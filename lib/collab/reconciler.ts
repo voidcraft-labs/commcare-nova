@@ -355,6 +355,9 @@ export interface ReconcilerSnapshot {
 }
 
 export interface Reconciler {
+	/** Subscribe only to confirmed server revisions, independent of local edits. */
+	subscribeCanonicalRevision(listener: () => void): () => void;
+	canonicalRevision(): number;
 	/** Whether human-uncommitted edits should PUT (false while dormant). */
 	canPut(): boolean;
 	/** Whether the reconciler is still dormant (a new build with no app id yet).
@@ -507,6 +510,12 @@ export function createReconciler(
 	let appId = init.appId;
 	let dormant = init.appId === undefined;
 	let baseSeq = init.baseSeq;
+	const revisionListeners = new Set<() => void>();
+	function setCanonicalRevision(next: number) {
+		if (next === baseSeq) return;
+		baseSeq = next;
+		for (const listener of revisionListeners) listener();
+	}
 	let confirmedDoc = normalizeConfirmed(init.baseDoc);
 	const selfUserId = init.userId;
 	let selfActiveRunId: string | undefined;
@@ -1241,7 +1250,7 @@ export function createReconciler(
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
-		baseSeq = frame.seq;
+		setCanonicalRevision(frame.seq);
 		dropBatch(frame.batchId);
 		refoldDisplayed(humanBatches, frame.mutations);
 	}
@@ -1257,7 +1266,7 @@ export function createReconciler(
 		confirmedDoc = produce(confirmedDoc, (draft) => {
 			applyBatch(draft, frame.mutations);
 		});
-		baseSeq = frame.seq;
+		setCanonicalRevision(frame.seq);
 		refoldDisplayed(humanBatches, frame.mutations);
 	}
 
@@ -1398,7 +1407,7 @@ export function createReconciler(
 		// `load()`, which would trip the open-bracket assert if a reload lands
 		// mid-chat-run (the agent bracket is open then).
 		confirmedDoc = hydrateConfirmed(reloaded.blueprint);
-		baseSeq = M;
+		setCanonicalRevision(M);
 		reseedConfirmed(captureHuman, /* clearUndo */ true);
 		reloadInFlight = false;
 		// A frame arrived DURING the GET (it re-armed `reloadPending` rather than
@@ -1581,7 +1590,7 @@ export function createReconciler(
 			}
 		}
 		confirmedDoc = hydrateConfirmed(args.doc);
-		baseSeq = M;
+		setCanonicalRevision(M);
 		// Same suppressed reseed a reload runs (commitDoc + clear undo inside a
 		// remote-apply bracket) — NOT load(), which would trip the open-bracket
 		// assert (the agent suppression bracket is still open at data-done;
@@ -1600,7 +1609,7 @@ export function createReconciler(
 		baseDoc: BlueprintDoc;
 	}): void {
 		appId = args.appId;
-		baseSeq = args.baseSeq;
+		setCanonicalRevision(args.baseSeq);
 		confirmedDoc = normalizeConfirmed(args.baseDoc);
 		dormant = false;
 	}
@@ -1643,6 +1652,7 @@ export function createReconciler(
 		// after this becomes a no-op (no resubscribe → no leaked EventSource, no
 		// commitDoc into a torn-down store, no reschedule).
 		disposed = true;
+		revisionListeners.clear();
 		reloadPending = false;
 		cancelRetry?.();
 		cancelRetry = undefined;
@@ -1650,6 +1660,13 @@ export function createReconciler(
 	}
 
 	return {
+		subscribeCanonicalRevision(listener) {
+			revisionListeners.add(listener);
+			return () => {
+				revisionListeners.delete(listener);
+			};
+		},
+		canonicalRevision: () => baseSeq,
 		canPut,
 		isDormant,
 		localBase,

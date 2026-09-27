@@ -1,4 +1,4 @@
-/** Actual app/credential admission and HTTP decoding for both compatibility names. */
+/** Actual app/credential admission and HTTP decoding for the semantic compatibility tool. */
 import type { Client } from "@modelcontextprotocol/client";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -10,7 +10,6 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { plainColumn } from "@/lib/domain";
 import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
-import { registerGetAppHqFeatureFlagsCompatibility } from "../tools/getAppHqFeatureFlagsCompatibility";
 import { withMcpClient } from "./client";
 import { resultText } from "./resultText";
 
@@ -27,8 +26,7 @@ const ACTOR = "viewer",
 	PROJECT = "program",
 	APP = "compatibility-app";
 const HOST = "https://india.commcarehq.org";
-const CURRENT = "check_project_space_compatibility",
-	LEGACY = "get_app_hq_feature_flags";
+const CURRENT = "check_project_space_compatibility";
 const visible = {
 	meta: { total_count: 1 },
 	objects: [{ domain_name: "clinic", project_name: "Clinic" }],
@@ -42,7 +40,6 @@ function asUser<T>(
 	return withMcpClient((server) => {
 		const ctx = { userId, scopes, authKind: "oauth" as const };
 		registerCheckProjectSpaceCompatibility(server, ctx);
-		registerGetAppHqFeatureFlagsCompatibility(server, ctx);
 	}, run);
 }
 async function seed(mode: "entry" | "search" | "plain" = "entry") {
@@ -171,23 +168,13 @@ function report(state: "available" | "missing" | "unverified" | "not_checked") {
 						: "This project space isn't ready for this app. Nova couldn't confirm Deep links. Nothing has been sent. Check your CommCare HQ connection, then try again.",
 	};
 }
-function legacyRequirement() {
-	return {
-		...deepLinkCapability,
-		slug: "deep-links",
-		required_for: deepLinkCapability.reasons[0],
-		docs_url:
-			"https://docs.commcare.app/project-space-compatibility#deep-links",
-		namespaces: [],
-	};
-}
 
-it("checks the selected deployment over HTTP and projects the same semantic result for current and legacy clients", async () => {
+it("checks the selected deployment over HTTP and returns semantic compatibility", async () => {
 	await seed();
 	await settings();
 	const before = await h.readAppRow(APP);
 	await withHttpPeer(async (peer) => {
-		for (let i = 0; i < 2; i++) {
+		for (let i = 0; i < 1; i++) {
 			reply(peer, "/api/user_domains/v1/?limit=100", visible);
 			reply(
 				peer,
@@ -205,23 +192,9 @@ it("checks the selected deployment over HTTP and projects the same semantic resu
 				app_name: "Clinic intake",
 				project_space_compatibility: report("available"),
 			});
-			expect(await payload(client, LEGACY)).toEqual({
-				...current,
-				domain_checked: true,
-				feature_flag_requirements: {
-					verification: "verified",
-					target_domain: "clinic",
-					required_flags: [legacyRequirement()],
-					missing_flags: [],
-					unverified_flags: [],
-					support_email: "support@dimagi.com",
-					docs_url: "https://docs.commcare.app/project-space-compatibility",
-					message: report("available").message,
-				},
-			});
 		});
 		expect(calls(peer)).toEqual(
-			Array.from({ length: 2 }, () =>
+			Array.from({ length: 1 }, () =>
 				[
 					"/api/user_domains/v1/?limit=100",
 					"/api/user_domains/v1/?limit=100&feature_flag=session_endpoints",
@@ -229,10 +202,7 @@ it("checks the selected deployment over HTTP and projects the same semantic resu
 			).flat(),
 		);
 	});
-	expect(vi.mocked(decrypt).mock.calls).toEqual([
-		["stored-ciphertext"],
-		["stored-ciphertext"],
-	]);
+	expect(vi.mocked(decrypt).mock.calls).toEqual([["stored-ciphertext"]]);
 	expect(await h.readAppRow(APP)).toEqual(before);
 	expect(await h.db().selectFrom("app_changes").selectAll().execute()).toEqual(
 		[],
@@ -306,35 +276,6 @@ it("treats revoked live HQ membership as unverified and performs no private sett
 	});
 });
 
-it("supports legacy requirement discovery without a target, HQ scope, credentials or an HTTP request", async () => {
-	await seed();
-	await withHttpPeer(async (peer) => {
-		await asUser(
-			async (client) => {
-				expect(await payload(client, LEGACY, { app_id: APP })).toEqual({
-					app_id: APP,
-					app_name: "Clinic intake",
-					domain_checked: false,
-					project_space_compatibility: report("not_checked"),
-					feature_flag_requirements: {
-						verification: "not_checked",
-						required_flags: [legacyRequirement()],
-						missing_flags: [],
-						unverified_flags: [],
-						support_email: "support@dimagi.com",
-						docs_url: "https://docs.commcare.app/project-space-compatibility",
-						message: report("not_checked").message,
-					},
-				});
-			},
-			ACTOR,
-			["nova.read", "nova.write"],
-		);
-		expect(calls(peer)).toEqual([]);
-		expect(decrypt).not.toHaveBeenCalled();
-	});
-});
-
 it("refuses missing scope, foreign apps and unreachable targets before KMS or HTTP", async () => {
 	await seed();
 	await h.seedApp({
@@ -343,7 +284,7 @@ it("refuses missing scope, foreign apps and unreachable targets before KMS or HT
 		project_id: "foreign-project",
 	});
 	await withHttpPeer(async (peer) => {
-		for (const name of [CURRENT, LEGACY]) {
+		for (const name of [CURRENT]) {
 			await asUser(
 				async (client) => {
 					const result = await client.callTool({
@@ -399,7 +340,7 @@ it("refuses missing scope, foreign apps and unreachable targets before KMS or HT
 		}
 		await settings();
 		await asUser(async (client) => {
-			for (const name of [CURRENT, LEGACY]) {
+			for (const name of [CURRENT]) {
 				const result = await client.callTool({
 					name,
 					arguments: { app_id: APP, domain: "outside" },

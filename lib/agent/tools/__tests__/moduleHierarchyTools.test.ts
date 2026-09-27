@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { createModuleTool } from "../createModule";
@@ -24,7 +23,7 @@ function rootDoc() {
 }
 
 describe("module hierarchy shared tools", () => {
-	it("creates one complete child batch and reads back parent and child identities", async () => {
+	it("creates a child record viewer and reads back parent and child identities", async () => {
 		const doc = expectAdmittedDoc(rootDoc());
 		const parentModuleUuid = doc.moduleOrder[0];
 		if (parentModuleUuid === undefined)
@@ -33,19 +32,8 @@ describe("module hierarchy shared tools", () => {
 		const created = await harness.runTool(createModuleTool, {
 			parentModuleUuid,
 			name: "Follow-up",
-			forms: [
-				{
-					name: "Check in",
-					type: "survey",
-					fields: [
-						{
-							id: "notes",
-							kind: "text",
-							label: proseText("Notes"),
-						},
-					],
-				},
-			],
+			case_type: "visit",
+			case_list_only: true,
 		});
 		if ("error" in created.result) throw new Error(created.result.error);
 		expect(created.result.parentModuleUuid).toBe(parentModuleUuid);

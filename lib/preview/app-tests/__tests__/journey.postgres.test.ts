@@ -3,6 +3,8 @@ import { sql } from "kysely";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
@@ -136,33 +138,78 @@ it.each([false, true])(
 );
 
 it("starts at visible entry, preserves answers between calls and persists a close only in disposable records", async () => {
-	const doc = await createEvaluationApp({
-		name: "Equipment",
-		case_type: "equipment",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [
-					{ kind: "text", id: "name", label: "Equipment name", required: true },
-				],
-			},
-			{
-				name: "Retire",
-				type: "close",
-				fields: [
-					{
-						kind: "text",
-						id: "reason",
-						label: "Reason for retirement",
-						required: true,
-						caseWrite: { caseType: "equipment", property: "retirement_reason" },
-					},
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Register", type: "registration" },
+					{ name: "Retire", type: "close" },
 				],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fields: [
+						{
+							kind: "text",
+							id: "name",
+							label: "Equipment name",
+							required: true,
+						},
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Retire",
+					fields: [
+						{
+							kind: "text",
+							id: "reason",
+							label: "Reason for retirement",
+							required: true,
+							caseWrite: {
+								caseType: "equipment",
+								property: "retirement_reason",
+							},
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Retire",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 	await h.seedAppWithBlueprint(doc, {
 		id: scope.appId,
@@ -298,7 +345,25 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 });
 
 it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {
-	const author = makeAuthoringHarness();
+	// This fixture exercises the saved journey, not private authoring persistence.
+	const author = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Households",
+				caseType: "household",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+			{
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Inspect", type: "followup" },
+					{ name: "Receipt", type: "survey" },
+				],
+			},
+		]),
+	);
 	const write = async (name: string, input: unknown) =>
 		expect(await author.call(name, input)).toMatchObject({ ok: true });
 	await write("addUserProperties", {
@@ -318,45 +383,31 @@ it("requires a saved role and parent selection, then executes additional operati
 	await write("addPersonas", {
 		personas: [{ name: "Inspection worker", userTypeUuid: "Inspector" }],
 	});
-	await write("createModule", {
-		name: "Households",
-		case_type: "household",
-		forms: [
-			{
-				name: "Visit",
-				type: "followup",
-				fields: [
-					{ kind: "label", id: "intro", label: "Select this household" },
-				],
-			},
-		],
+	await write("addFields", {
+		formUuid: "Visit",
+		moduleUuid: "Households",
+		fields: [{ kind: "label", id: "intro", label: "Select this household" }],
 	});
-	await write("createModule", {
-		name: "Equipment",
-		case_type: "equipment",
-		forms: [
+	await write("addFields", {
+		formUuid: "Inspect",
+		moduleUuid: "Equipment",
+		fields: [
 			{
-				name: "Inspect",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "condition",
-						label: "Condition",
-						required: true,
-						caseWrite: { caseType: "equipment", property: "condition" },
-					},
-					{ kind: "text", id: "note", label: "Temporary note" },
-					{
-						kind: "text",
-						id: "worker_note",
-						label: "Worker note",
-						caseWrite: {
-							caseType: "commcare-user",
-							property: "last_inspection",
-						},
-					},
-				],
+				kind: "text",
+				id: "condition",
+				label: "Condition",
+				required: true,
+				caseWrite: { caseType: "equipment", property: "condition" },
+			},
+			{ kind: "text", id: "note", label: "Temporary note" },
+			{
+				kind: "text",
+				id: "worker_note",
+				label: "Worker note",
+				caseWrite: {
+					caseType: "commcare-user",
+					property: "last_inspection",
+				},
 			},
 		],
 	});
@@ -373,11 +424,14 @@ it("requires a saved role and parent selection, then executes additional operati
 		moduleUuid: "Households",
 		displayCondition: "#user/role_code = 'inspector'",
 	});
-	await write("createForm", {
+	await write("updateForm", {
 		moduleUuid: "Equipment",
-		name: "Receipt",
-		type: "survey",
+		formUuid: "Receipt",
 		post_submit: "previous",
+	});
+	await write("addFields", {
+		formUuid: "Receipt",
+		moduleUuid: "Equipment",
 		fields: [
 			{
 				kind: "hidden",
@@ -460,6 +514,17 @@ it("requires a saved role and parent selection, then executes additional operati
 			},
 		],
 	});
+	for (const [moduleUuid, formUuid] of [
+		["Households", "Visit"],
+		["Equipment", "Inspect"],
+		["Equipment", "Receipt"],
+	]) {
+		await write("removeField", {
+			moduleUuid,
+			formUuid,
+			fieldUuid: "fixture_placeholder",
+		});
+	}
 	const doc = author.currentDoc();
 	const worker = Object.values(doc.personas ?? {})[0];
 	const equipment = Object.values(doc.modules).find(
@@ -638,23 +703,27 @@ it("requires a saved role and parent selection, then executes additional operati
 });
 
 it("opens browse-first Results with its hidden Search values already applied", async () => {
-	const author = makeAuthoringHarness();
+	const author = await makeDurableAuthoringHarness(h);
 	expect(
-		await author.call("createModule", {
-			name: "People",
-			case_type: "person",
-			forms: [
+		await author.call("createModule", { name: "People", case_type: "person" }),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("createForm", {
+			moduleUuid: "People",
+			name: "Visit",
+			type: "followup",
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await author.call("addFields", {
+			formUuid: "Visit",
+			moduleUuid: "People",
+			fields: [
 				{
-					name: "Visit",
-					type: "followup",
-					fields: [
-						{
-							kind: "text",
-							id: "region",
-							label: "Region",
-							caseWrite: { caseType: "person", property: "region" },
-						},
-					],
+					kind: "text",
+					id: "region",
+					label: "Region",
+					caseWrite: { caseType: "person", property: "region" },
 				},
 			],
 		}),
@@ -673,7 +742,7 @@ it("opens browse-first Results with its hidden Search values already applied", a
 			filter: "when-provided(#search/region, #case/region = #search/region)",
 		}),
 	).toMatchObject({ ok: true });
-	const doc = author.currentDoc();
+	const doc = await author.currentDoc();
 	const people = Object.values(doc.modules).find(
 		(module) => module.name === "People",
 	);
@@ -724,7 +793,7 @@ it("opens browse-first Results with its hidden Search values already applied", a
 });
 
 it("creates a place-owned record from empty entry using the worker reading advertised to authors", async () => {
-	const author = makeAuthoringHarness();
+	const author = await makeDurableAuthoringHarness(h);
 	const write = async (name: string, input: unknown) =>
 		expect(await author.call(name, input)).toMatchObject({ ok: true });
 	const readings = z
@@ -751,23 +820,26 @@ it("creates a place-owned record from empty entry using the worker reading adver
 			},
 		],
 	});
-	await write("createModule", {
-		name: "Groups",
-		case_type: "group",
-		forms: [
-			{
-				name: "Register group",
-				type: "survey",
-				fields: [
-					{ kind: "text", id: "name", label: "Group name", required: true },
-				],
-			},
-			{
-				name: "Review group",
-				type: "followup",
-				fields: [{ kind: "label", id: "intro", label: "Review this group" }],
-			},
-		],
+	await write("createModule", { name: "Groups", case_type: "group" });
+	await write("createForm", {
+		moduleUuid: "Groups",
+		name: "Register group",
+		type: "survey",
+	});
+	await write("addFields", {
+		formUuid: "Register group",
+		moduleUuid: "Groups",
+		fields: [{ kind: "text", id: "name", label: "Group name", required: true }],
+	});
+	await write("createForm", {
+		moduleUuid: "Groups",
+		name: "Review group",
+		type: "followup",
+	});
+	await write("addFields", {
+		formUuid: "Review group",
+		moduleUuid: "Groups",
+		fields: [{ kind: "label", id: "intro", label: "Review this group" }],
 	});
 	await write("addCaseOperations", {
 		moduleUuid: "Groups",
@@ -785,7 +857,7 @@ it("creates a place-owned record from empty entry using the worker reading adver
 			},
 		],
 	});
-	const doc = author.currentDoc();
+	const doc = await author.currentDoc();
 	const module = Object.values(doc.modules).find((m) => m.name === "Groups");
 	const register = Object.values(doc.forms).find(
 		(f) => f.name === "Register group",
@@ -851,31 +923,57 @@ it("creates a place-owned record from empty entry using the worker reading adver
 });
 
 it("reports its local clock and uses the same day in list calculations and forms", async () => {
-	const doc = await createEvaluationApp({
-		name: "Appointments",
-		case_type: "appointment",
-		case_list_columns: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				kind: "calculated",
-				header: "Today",
-				expression: "format-date(today(), '%Y-%m-%d')",
+				name: "Appointments",
+				caseType: "appointment",
+				forms: [{ name: "Visit", type: "followup" }],
 			},
 		],
-		forms: [
+		[
 			{
-				name: "Visit",
-				type: "followup",
-				fields: [
-					{
-						kind: "date",
-						id: "visit_date",
-						label: "Visit date",
-						default_value: "today()",
-					},
-				],
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Appointments",
+					formUuid: "Visit",
+					fields: [
+						{
+							kind: "date",
+							id: "visit_date",
+							label: "Visit date",
+							default_value: "today()",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Appointments",
+					formUuid: "Visit",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addCaseListColumns",
+				input: {
+					moduleUuid: "Appointments",
+					columns: [
+						{
+							kind: "calculated",
+							header: "Today",
+							expression: "format-date(today(), '%Y-%m-%d')",
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeCaseListColumn",
+				input: { moduleUuid: "Appointments", columnUuid: "Name" },
 			},
 		],
-	});
+	);
 	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
 	await h.seedAppWithBlueprint(doc, {
 		id: scope.appId,
@@ -950,44 +1048,93 @@ it.each([
 ] as const)(
 	"keeps leaf selection local (chooser $chooser, return $destination)",
 	async ({ chooser, destination }) => {
-		const doc = await createEvaluationApp({
-			name: "Repairs",
-			case_type: "repair",
-			case_list_columns: [
-				{ kind: "plain", field: "case_name", header: "Equipment" },
-				{ kind: "plain", field: "condition", header: "Condition" },
-			],
-			forms: [
+		const doc = await createEvaluationApp(
+			[
 				{
-					name: "Update condition",
-					type: "followup",
-					post_submit: destination,
-					fields: [
-						{
-							kind: "text",
-							id: "condition",
-							label: "Condition",
-							caseWrite: { caseType: "repair", property: "condition" },
-						},
+					name: "Repairs",
+					caseType: "repair",
+					forms: [
+						{ name: "Update condition", type: "followup" },
+						...(chooser
+							? [{ name: "Inspect", type: "followup" as const }]
+							: []),
 					],
+				},
+			],
+			[
+				{
+					toolName: "addFields",
+					input: {
+						moduleUuid: "Repairs",
+						formUuid: "Update condition",
+						fields: [
+							{
+								kind: "text",
+								id: "condition",
+								label: "Condition",
+								caseWrite: { caseType: "repair", property: "condition" },
+							},
+						],
+					},
+				},
+				{
+					toolName: "updateForm",
+					input: {
+						moduleUuid: "Repairs",
+						formUuid: "Update condition",
+						post_submit: destination,
+					},
+				},
+				{
+					toolName: "removeField",
+					input: {
+						moduleUuid: "Repairs",
+						formUuid: "Update condition",
+						fieldUuid: "fixture_placeholder",
+					},
 				},
 				...(chooser
 					? [
 							{
-								name: "Inspect",
-								type: "followup",
-								fields: [
-									{
-										kind: "label",
-										id: "info",
-										label: "Inspect this equipment.",
-									},
-								],
+								toolName: "addFields",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Inspect",
+									fields: [
+										{
+											kind: "label",
+											id: "info",
+											label: "Inspect this equipment.",
+										},
+									],
+								},
+							},
+							{
+								toolName: "removeField",
+								input: {
+									moduleUuid: "Repairs",
+									formUuid: "Inspect",
+									fieldUuid: "fixture_placeholder",
+								},
 							},
 						]
 					: []),
+				{
+					toolName: "addCaseListColumns",
+					input: {
+						moduleUuid: "Repairs",
+						columns: [
+							{ kind: "plain", field: "case_name", header: "Equipment" },
+							{ kind: "plain", field: "condition", header: "Condition" },
+						],
+					},
+				},
+				{
+					toolName: "removeCaseListColumn",
+					input: { moduleUuid: "Repairs", columnUuid: "Name" },
+				},
 			],
-		});
+		);
 		const form = Object.values(doc.forms).find(
 			(item) => item.name === "Update condition",
 		);
@@ -1107,12 +1254,10 @@ it.each([
 );
 
 it("reads informational Details without inventing a form or Continue action", async () => {
-	const doc = await createEvaluationApp({
-		name: "Directory",
-		case_type: "entry",
-		case_list_only: true,
-		forms: [],
-	});
+	const doc = await createEvaluationApp(
+		[{ name: "Directory", caseType: "entry", forms: [] }],
+		[],
+	);
 	const module = Object.values(doc.modules).find(
 		(item) => item.name === "Directory",
 	);
@@ -1155,40 +1300,99 @@ it("reads informational Details without inventing a form or Continue action", as
 });
 
 it("limits a mixed module's inline chooser to case forms and goes back to Results without Details", async () => {
-	const doc = await createEvaluationApp({
-		name: "Equipment",
-		case_type: "equipment",
-		case_list_columns: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				kind: "plain",
-				field: "case_name",
-				header: "Equipment",
-				visibleInDetail: false,
-			},
-		],
-		forms: [
-			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [{ kind: "text", id: "name", label: "Name", required: true }],
-			},
-			{
-				name: "Inspect",
-				type: "followup",
-				fields: [
-					{ kind: "label", id: "info", label: "Inspect this equipment." },
-				],
-			},
-			{
-				name: "Retire",
-				type: "close",
-				fields: [
-					{ kind: "label", id: "info", label: "Retire this equipment." },
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Register", type: "registration" },
+					{ name: "Inspect", type: "followup" },
+					{ name: "Retire", type: "close" },
 				],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fields: [{ kind: "text", id: "name", label: "Name", required: true }],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Inspect",
+					fields: [
+						{ kind: "label", id: "info", label: "Inspect this equipment." },
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Inspect",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Retire",
+					fields: [
+						{ kind: "label", id: "info", label: "Retire this equipment." },
+					],
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Equipment",
+					formUuid: "Retire",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+			{
+				toolName: "addCaseListColumns",
+				input: {
+					moduleUuid: "Equipment",
+					columns: [
+						{
+							kind: "plain",
+							field: "case_name",
+							header: "Equipment",
+							visibleInDetail: false,
+						},
+					],
+				},
+			},
+			{
+				toolName: "removeCaseListColumn",
+				input: { moduleUuid: "Equipment", columnUuid: "Name" },
+			},
+		],
+	);
 	const mod = Object.values(doc.modules).find(
 		(module) => module.name === "Equipment",
 	);

@@ -1,3 +1,4 @@
+import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
 import type {
 	LookupColumnId,
 	LookupRowId,
@@ -30,8 +31,8 @@ export interface LookupScope {
 	role: string;
 }
 
-/** App-bound authority used by shared SA/MCP Project-data writers. The
- * transaction re-resolves the app Project and current membership; `role` is
+/** App or private-session authority for shared SA/MCP Project-data writers. The
+ * transaction re-resolves the owner, Project, and current membership; `role` is
  * deliberately absent because a caller snapshot cannot authorize a write. */
 export type LookupAgentWriteScope = {
 	projectId: string;
@@ -45,8 +46,13 @@ export type LookupAgentWriteScope = {
 		nonce: string;
 	};
 } & (
-	| { appId: string; designSessionId?: never }
-	| { designSessionId: string; appId?: never }
+	| { appId: string; designSessionId?: never; ordinaryAuthoring?: never }
+	| { designSessionId: string; appId?: never; ordinaryAuthoring?: never }
+	| {
+			ordinaryAuthoring: OrdinaryAuthoringAuthority;
+			appId?: never;
+			designSessionId?: never;
+	  }
 );
 
 export interface LookupColumn {

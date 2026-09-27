@@ -45,13 +45,15 @@ export function AskQuestionsCard({
 	const questions = input?.questions ?? [];
 	const answeredLocally =
 		questions.length > 0 && currentIndex >= questions.length;
-	const isWaiting = state === "input-available" && !answeredLocally;
+	const emptyRound = state === "input-available" && questions.length === 0;
+	const isWaiting =
+		state === "input-available" && !answeredLocally && !emptyRound;
 	const isComplete = state === "output-available" || answeredLocally;
 	/* A round whose turn failed before it was answered: the claw-back keeps
 	 * the failed turn's partial in the transcript and closes its dangling
 	 * tool calls as `output-error`, so this card renders as an ended round,
 	 * never as a skeleton forever loading. */
-	const isInterrupted = state === "output-error";
+	const isInterrupted = state === "output-error" || emptyRound;
 	const displayAnswers = state === "output-available" ? output || {} : answers;
 	const isLoading = !isWaiting && !isComplete && !isInterrupted;
 
@@ -124,7 +126,9 @@ export function AskQuestionsCard({
 						)
 					)}
 					<p className="text-sm font-medium text-nova-text-secondary mt-0.5">
-						{input?.header || "A few questions"}
+						{emptyRound
+							? "Questions unavailable"
+							: input?.header || "A few questions"}
 					</p>
 				</div>
 
@@ -144,6 +148,12 @@ export function AskQuestionsCard({
 					)}
 					{isInterrupted && (
 						<div className="space-y-2">
+							{emptyRound && (
+								<p className="text-sm text-nova-text-muted">
+									Nova didn't include a question. You can continue in the
+									conversation.
+								</p>
+							)}
 							{questions.map((q, i) => (
 								<p
 									key={questionIds.current[i]}

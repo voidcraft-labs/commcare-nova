@@ -121,21 +121,28 @@ initial surface, prompt, changing context, and recorded usage.
 
 ## Private construction and canonical checkpoints
 
-A Project-scoped session exists before an app does. Construction begins from a
-reviewed plan in a private workspace. Shared mutations can leave incomplete
+All agent app edits use durable private work. A Project-scoped session can
+exist before an app does. Architect construction begins from a reviewed plan;
+ordinary editor and MCP sessions need no build plan. Shared mutations can leave incomplete
 intermediate work there; only a complete, valid candidate can be saved. The
 first save atomically creates a meaningful app, including its runtime schema,
 ordered history, lookup edges, session mapping, and exact receipt. Later saves
-commit valid checkpoints through the same canonical kernel used by Builder and
-MCP. Each private edit admits the full pending batch against its original base,
+commit valid checkpoints through the same canonical kernel used by Builder. Each private edit admits the full pending batch against its original base,
 so removing and recreating an identity cannot poison a later checkpoint. Staging,
 reopening and saving reduce that same batch, including translation cleanup.
-Preview and export consume only canonical revisions.
+Preview and export consume only canonical revisions. A checkpoint applies its
+case-schema and saved-value changes in the same transaction and retains their
+migration report beside the checkpoint. Lost-response retries return the same
+saved-data warning. Index convergence and worker synchronization follow the
+commit as derived work.
 
 The current holder and Project edit membership authorize every write. An active
-peer review pauses construction. A checkpoint re-resolves current resources and
-replays admitted mutations against locked canonical state, preserving compatible
-concurrent changes and rejecting conflicts. The initial build stays locked for
+peer review pauses construction. A checkpoint re-resolves current resources under lock and requires the exact
+canonical sequence from which the candidate began. Any later canonical change
+refuses the save and preserves the candidate; there is no implicit merge.
+Explicit discard abandons the pending candidate while keeping the work
+identity. The next edit starts from current saved state; reads do not create a
+replacement candidate. Previously saved checkpoints and external effects remain. The initial build stays locked for
 ordinary editing until completion. If later work stops, its earlier canonical
 revision remains available and the same session can resume.
 
@@ -148,7 +155,24 @@ data changes need the user's request or informed confirmation; a similar name
 is not permission to adopt or overwrite a resource. Organization writes retain
 their independent role and revision checks as well.
 
+Ordinary sessions retain their own permanent actor and Project authority;
+architect work retains its design-session lineage and live holder checks.
+Existing build sessions need no blanket conversion. Every invocation and exact
+receipt replay reauthorizes access. MCP exposes `begin_work`, `list_work`,
+`get_work`, `save_work` and `discard_work`; app mutations require a work identity
+and durable request identity. Shared reads explicitly select candidate or saved
+state. Save and discard bind the opaque candidate revision returned by reads.
+
 ## Conversation and recovery
+
+Ordinary edit conversations retain private work across interrupted turns and
+page loads. A pending-work row offers Continue or Discard after the run settles.
+When the saved base changed, Restart from saved app explicitly discards the
+candidate and continues the original request against current saved state.
+Recovery actions are unavailable while a run or recovery request is active.
+Reads and actions bind the actor, thread and Project; another conversation's
+candidate is not implicitly adopted. A failed recovery leaves the work available.
+
 
 The architect has one durable conversation per compatible context. Each peer
 review has its own revision-bound completion identity and inherits the peer's

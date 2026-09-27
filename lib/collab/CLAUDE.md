@@ -19,6 +19,11 @@ A batch leaves `sentPending` only when its OWN echo frame returns. A solo editor
 receives its own batches back as echoes and reconciles exactly like a
 collaborator.
 
+The reconciler exposes its confirmed revision through `canonicalRevision` and
+`subscribeCanonicalRevision`. Pending chat work uses that read-only signal to
+refresh stale-work status after a saved change. Local edits and repeated frames
+never invalidate it; subscription cleanup belongs to the mounted consumer.
+
 ## Echo vs remote — the classification that keeps two tabs honest
 
 A frame is a self-**echo** when `batchId ∈ awaitingEcho`, OR when `kind === "chat" && actorId === selfUserId && runId != null && runId === selfActiveRunId` (a chat frame from this tab's active run). A `runId`-less frame carrying the same user's `actorId` — a peer TAB's autosave — is **remote**, because one user's two tabs share a single `actorId`; an `actorId`-only match would make one tab's autosave look like a self-echo of the other. The `kind === "chat"` gate is load-bearing too: MCP's `deriveRunId` CONTINUES the app's stored `run_id` in a sliding window, so a same-user MCP edit made after a chat run carries that run's id — its mutations were never applied to this tab's store, so an echo classification would skip the apply entirely. `ChatContainer` additionally clears `selfActiveRunId` at run end (stream close) — every run batch is registered by then, so `batchId` matching covers its late echoes. An echo advances `confirmedDoc` + drops the batch; a remote frame advances `confirmedDoc` and re-folds `sentPending`. Neither touches the undo history: an entry is a command batch whose placements are ANCHORS, so a peer's change cannot move where an undo lands and there is nothing to rebase.

@@ -70,16 +70,20 @@ it("discovers place creation before birth, refuses early effects, then creates a
 	expect(
 		await call("startAppTest", { purpose: "Enter the app" }, "test-too-early"),
 	).toMatchObject({ error: expect.any(String) });
+	expect(await call("createModule", { name: "Visits" })).not.toHaveProperty(
+		"error",
+	);
 	expect(
-		await call("createModule", {
-			name: "Visits",
-			forms: [
-				{
-					name: "Visit",
-					type: "survey",
-					fields: [{ kind: "text", id: "note", label: "Note" }],
-				},
-			],
+		await call("createForm", {
+			moduleUuid: "Visits",
+			name: "Visit",
+			type: "survey",
+		}),
+	).not.toHaveProperty("error");
+	expect(
+		await call("addFields", {
+			formUuid: "Visit",
+			fields: [{ kind: "text", id: "note", label: "Note" }],
 		}),
 	).not.toHaveProperty("error");
 	expect(
@@ -105,7 +109,10 @@ it("discovers place creation before birth, refuses early effects, then creates a
 			personas: [{ personaUuid, name: "Preview worker" }],
 		}),
 	).not.toHaveProperty("error");
-	expect(await session.saveWork("birth")).toMatchObject({ saved: true });
+	const birthRevision = (await session.getWork()).revision;
+	if (!birthRevision) throw new Error("Private birth work has no revision");
+	const birth = await session.saveWork("birth", birthRevision);
+	expect(birth).toMatchObject({ saved: true });
 	const before = (await call("getOrganization", {})) as {
 		revision: string;
 		locations: unknown[];
@@ -132,7 +139,20 @@ it("discovers place creation before birth, refuses early effects, then creates a
 			locationUuids: [savedPlace.id],
 		}),
 	).not.toHaveProperty("error");
-	expect(await session.saveWork("assignment")).toMatchObject({ saved: true });
+	const assignmentRevision = (await session.getWork()).revision;
+	if (!assignmentRevision)
+		throw new Error("Private assignment has no revision");
+	const assignment = await session.saveWork("assignment", assignmentRevision);
+	expect(assignment).toMatchObject({ saved: true });
+	// Exact call identities still refer to their original checkpoint after later saves.
+	expect(await session.saveWork("birth", birthRevision)).toEqual(birth);
+	expect(await session.saveWork("assignment", assignmentRevision)).toEqual(
+		assignment,
+	);
+	expect(await call("createModule", { name: "Visits" })).toMatchObject({
+		saved: false,
+	});
+	expect((await session.getWork()).pendingChanges).toBe(0);
 	const users = await call("getUsers", {});
 	expect(users).toMatchObject({
 		personas: [

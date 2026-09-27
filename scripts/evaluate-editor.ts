@@ -8,17 +8,21 @@ import { Command } from "commander";
 import { z } from "zod";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
 import { projectArchitectHistory } from "@/lib/agent/architectHistory";
-import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
-import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
+import { openChatWork } from "@/lib/agent/authoring/chatWork";
+import {
+	beginWork,
+	executeWorkTool,
+	getWork,
+	saveWork,
+} from "@/lib/agent/authoring/session";
+import { buildWorkStateMessage } from "@/lib/agent/authoring/workMessages";
 import { GenerationContext } from "@/lib/agent/generationContext";
 import { createModelCallTransport } from "@/lib/agent/openaiProvider";
-import { buildAppStateMessage } from "@/lib/agent/prompts";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import {
 	createSolutionsArchitect,
 	SOLUTIONS_ARCHITECT_MAX_STEPS,
 } from "@/lib/agent/solutionsArchitect";
-import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import type { Session } from "@/lib/auth";
 import { getAuthDb } from "@/lib/auth/db";
 import { withSchemaContext } from "@/lib/case-store";
@@ -26,10 +30,9 @@ import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { claimAndReserveRun, loadApp } from "@/lib/db/apps";
 import { settleAndRelease } from "@/lib/db/credits";
+import { upsertThreadTurn } from "@/lib/db/threads";
 import { UsageAccumulator } from "@/lib/db/usage";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { LogWriter } from "@/lib/log/writer";
-import { initMcpCall } from "@/lib/mcp/context";
 import { MODEL_ROLES } from "@/lib/models";
 import { createProject } from "@/lib/projects/manage";
 import {
@@ -101,56 +104,52 @@ async function main() {
 		randomUUID(),
 		{ name: "Editor comparison", status: "complete" },
 	);
-	const seedHost = initMcpCall(
-		{
-			userId: actor.id,
-			scopes: ["nova.read", "nova.write"],
-			authKind: "api-key",
-		},
-		genesis.appId,
-		project.id,
-		"owner",
-		randomUUID(),
-		undefined,
-	);
-	const workspace = new CanonicalMutationWorkspace({
-		host: seedHost.mcpCtx,
-		initialDoc: hydratePersistedBlueprint(genesis.blueprint),
-		baseSeq: genesis.baseSeq,
+	const seedAuthority = {
+		actorUserId: actor.id,
+		host: { kind: "mcp" as const },
+	};
+	const opened = await beginWork({
+		...seedAuthority,
+		projectId: project.id,
+		target: { appId: genesis.appId },
+		requestId: randomUUID(),
 	});
-	try {
-		for (const item of setup) {
-			const entry = SHARED_TOOL_REGISTRY.find(
-				(entry) => entry.saName === item.toolName,
-			);
-			if (
-				!entry ||
-				entry.policy.capabilities.some(
-					(c) =>
-						!["canonical-blueprint-write", "case-store-migration"].includes(c),
-				)
+	const seedWork = { ...seedAuthority, workId: opened.workId };
+	for (const item of setup) {
+		const entry = SHARED_TOOL_REGISTRY.find(
+			(entry) => entry.saName === item.toolName,
+		);
+		if (
+			!entry ||
+			entry.policy.capabilities.some(
+				(c) =>
+					!["canonical-blueprint-write", "case-store-migration"].includes(c),
 			)
-				throw new Error("Setup can only edit the isolated app.");
-			const input = authoringToolSchema(
-				entry.saName,
-				entry.tool.inputSchema,
-			).authored.parse(item.input);
-			const result = await workspace.invoke({
-				toolName: entry.saName,
-				execute: async (ctx) => {
-					const outcome = await runSharedToolCall(entry, input, ctx);
-					return outcome.kind === "read" ? outcome.data : outcome.result;
-				},
-			});
-			if (
-				result &&
-				typeof result === "object" &&
-				("error" in result || ("ok" in result && result.ok === false))
-			)
-				throw new Error(JSON.stringify(result));
+		) {
+			throw new Error("Setup can only edit the isolated app.");
 		}
-	} finally {
-		await seedHost.logWriter.flush();
+		const outcome = await executeWorkTool({
+			...seedWork,
+			toolName: item.toolName,
+			input: item.input,
+			requestId: randomUUID(),
+		});
+		const result = outcome.kind === "read" ? outcome.data : outcome.result;
+		if (
+			result &&
+			typeof result === "object" &&
+			("error" in result || ("ok" in result && result.ok === false))
+		)
+			throw new Error(JSON.stringify(result));
+	}
+	const seedStatus = await getWork(seedWork);
+	if (seedStatus.revision) {
+		const saved = await saveWork({
+			...seedWork,
+			expectedRevision: seedStatus.revision,
+			requestId: randomUUID(),
+		});
+		if (saved.saved !== true) throw new Error(JSON.stringify(saved));
 	}
 	const app = await loadApp(genesis.appId);
 	if (!app) throw new Error("The fixture is missing.");
@@ -284,14 +283,20 @@ async function main() {
 		let complete = false;
 		try {
 			ctx.startRunLeaseHeartbeat();
-			const agent = createSolutionsArchitect(
-				ctx,
-				hydratePersistedBlueprint(app.blueprint),
-				app.mutation_seq,
-			);
-			const state = buildAppStateMessage(
-				hydratePersistedBlueprint(app.blueprint),
-			);
+			const threadId = randomUUID();
+			await upsertThreadTurn({
+				target: ctx.target,
+				threadId,
+				runId: ctx.runId,
+				streamId: randomUUID(),
+				holderNonce: claim.holderNonce,
+				threadType: "edit",
+				messages: [],
+				expectedProjectId: project.id,
+			});
+			const work = await openChatWork(ctx, threadId);
+			const agent = createSolutionsArchitect(ctx, work);
+			const state = buildWorkStateMessage(await work.status());
 			const history = await projectArchitectHistory({
 				messages: [
 					{
@@ -337,10 +342,15 @@ async function main() {
 				},
 			});
 			const finishReason = await result.finishReason;
-			complete = finishReason === "stop" && !ctx.pausedOnInput();
+			const privateWork = await work.status();
+			complete =
+				finishReason === "stop" &&
+				!ctx.pausedOnInput() &&
+				privateWork.pendingChanges === 0;
 			await save("result.json", {
 				complete,
 				finishReason,
+				privateWork,
 				text: await result.text,
 				messages: await result.responseMessages,
 				usage: usage.snapshot(),

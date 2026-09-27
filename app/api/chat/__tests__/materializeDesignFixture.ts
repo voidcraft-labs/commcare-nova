@@ -37,26 +37,27 @@ export async function materializeDesignFixture(args: {
 		receipt = value;
 	});
 	await session.ensureWorkspace();
-	const result = await session.shared(
-		{
-			toolName: "createModule",
-			toolCallId: "fixture-module",
-			input: {
-				name: "Visits",
-				forms: [
-					{
-						name: "Visit",
-						type: "survey",
-						fields: [{ kind: "text", id: "notes", label: "Visit notes" }],
-					},
-				],
+	for (const [toolName, input] of [
+		["createModule", { name: "Visits" }],
+		["createForm", { moduleUuid: "Visits", name: "Visit", type: "survey" }],
+		[
+			"addFields",
+			{
+				formUuid: "Visit",
+				fields: [{ kind: "text", id: "notes", label: "Visit notes" }],
 			},
-		},
-		"architect",
-	);
-	if (typeof result === "object" && result !== null && "error" in result)
-		throw new Error(String(result.error));
-	await session.saveWork("fixture-save");
+		],
+	] as const) {
+		const result = await session.shared(
+			{ toolName, toolCallId: `fixture-${toolName}`, input },
+			"architect",
+		);
+		if (typeof result === "object" && result !== null && "error" in result)
+			throw new Error(String(result.error));
+	}
+	const { revision } = await session.getWork();
+	if (!revision) throw new Error("Fixture did not produce a candidate");
+	await session.saveWork("fixture-save", revision);
 	if (!receipt) throw new Error("Fixture did not materialize an app");
 	return receipt;
 }

@@ -38,6 +38,7 @@ import {
 	describeArchiveImpact,
 	moveLocation,
 	readOrganization,
+	recoverOrganizationAuthoringReceipt,
 	setLocationArchived,
 	updateLocation,
 } from "@/lib/organization/service";
@@ -67,6 +68,7 @@ function scope(ctx: ToolInvocationContext): OrganizationScope {
 	return {
 		requestId: ctx.invocation.requestId,
 		authoringSessionId: ctx.authoringSessionId,
+		ordinaryAuthoring: ctx.ordinaryAuthoring,
 		appId: requireInvocationAppId(ctx),
 		projectId: ctx.projectId,
 		actorUserId: ctx.userId,
@@ -719,7 +721,28 @@ function rowResult<T>(
 	);
 }
 
+/** Shared projection for normal organization writes and receipt-only recovery. */
+async function recoverLocationTool(ctx: ToolInvocationContext) {
+	const result = await recoverOrganizationAuthoringReceipt(scope(ctx));
+	if (!result) return undefined;
+	if ("blueprintChange" in result && result.blueprintChange) {
+		const { blueprintChange, ...organization } = result;
+		ctx.adoptAuthoritativeSnapshot({
+			doc: blueprintChange.committedDoc,
+			canonicalSeq: blueprintChange.seq,
+			batchId: blueprintChange.batchId,
+		});
+		return {
+			kind: "mutate" as const,
+			mutations: blueprintChange.mutations,
+			result: { ok: true, ...organization },
+		};
+	}
+	return { kind: "read" as const, data: result };
+}
+
 export const createLocationTool = {
+	recover: recoverLocationTool,
 	description:
 		"Create a place and optional nested descendants together. Use the current organization revision; the result returns the next revision. Omit siteCode to derive a permanent code from the name.",
 	inputSchema: createLocationToolInputSchema,
@@ -735,6 +758,7 @@ export const createLocationTool = {
 };
 
 export const updateLocationTool = {
+	recover: recoverLocationTool,
 	description:
 		"Update one place by uuid. Site codes are create-once and cannot be changed.",
 	inputSchema: updateLocationToolInputSchema,
@@ -750,6 +774,7 @@ export const updateLocationTool = {
 };
 
 export const moveLocationTool = {
+	recover: recoverLocationTool,
 	description:
 		"Move one place within the organization tree, optionally positioning it after a sibling.",
 	inputSchema: moveLocationToolInputSchema,
@@ -774,6 +799,7 @@ export const moveLocationTool = {
 };
 
 export const setLocationArchivedTool = {
+	recover: recoverLocationTool,
 	description:
 		"Archive or unarchive a place. Archiving is two-step: first call with archived=true and confirm omitted/false to receive a bounded impact, its exact confirmation token, and the expectedRevisionForConfirmation; after the user agrees, call with confirm=true, expectedRevision set to that returned revision, and the unchanged confirmedImpact. A blocked preflight must not be confirmed. It never reassigns case owners.",
 	inputSchema: setLocationArchivedToolInputSchema,
@@ -818,7 +844,11 @@ export const setLocationArchivedTool = {
 				/* The archive committed persona mutations through the service's own
 				 * app-locked transaction, so the exact fresh-store document — not
 				 * this invocation's snapshot — is the state to continue from. */
-				ctx.adoptAuthoritativeSnapshot({ doc: blueprintChange.committedDoc });
+				ctx.adoptAuthoritativeSnapshot({
+					doc: blueprintChange.committedDoc,
+					canonicalSeq: blueprintChange.seq,
+					batchId: blueprintChange.batchId,
+				});
 				return {
 					kind: "mutate" as const,
 					mutations: blueprintChange.mutations,

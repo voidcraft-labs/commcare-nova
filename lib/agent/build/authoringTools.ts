@@ -1,5 +1,6 @@
 import type { ToolSet } from "ai";
 import { z } from "zod";
+import { WORK_TOOL_DEFINITIONS } from "@/lib/agent/authoring/lifecycleTools";
 import { planMarkdownSchema } from "@/lib/agent/planning/plan";
 import {
 	SHARED_TOOL_REGISTRY,
@@ -54,7 +55,7 @@ export const PLANNING_TOOL_DEFINITIONS = {
 		strict: false,
 	},
 	getApp: {
-		description: "Read the app overview and any unsaved work.",
+		description: "Read the saved app overview.",
 		inputSchema: empty,
 		strict: false,
 	},
@@ -78,12 +79,9 @@ const LEAD_TOOL_DEFINITIONS = {
 		inputSchema: empty,
 		strict: false,
 	},
-	saveWork: {
-		description:
-			"Save a complete, valid workflow from the private workspace. The first save creates the app; subsequent saves extend it.",
-		inputSchema: empty,
-		strict: false,
-	},
+	getWork: WORK_TOOL_DEFINITIONS.getWork,
+	saveWork: WORK_TOOL_DEFINITIONS.saveWork,
+	discardWork: WORK_TOOL_DEFINITIONS.discardWork,
 	reviewApp: {
 		description:
 			"Ask a colleague to inspect the saved app against the user's request and plan. The colleague retains earlier review evidence. Describe corrections or uncertainties to focus the next inspection. Returns their assessment and any plan improvements.",
@@ -126,7 +124,9 @@ export function architectToolDefinitions(phase: AuthoringToolPhase): ToolSet {
 		Object.assign(selected, LEAD_TOOL_DEFINITIONS);
 		if (!phase.building) {
 			delete selected.translateLanguage;
+			delete selected.getWork;
 			delete selected.saveWork;
+			delete selected.discardWork;
 			delete selected.reviewApp;
 		}
 		if (!phase.hasApp) delete selected.reviewApp;

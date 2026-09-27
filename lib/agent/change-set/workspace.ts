@@ -20,6 +20,7 @@ import type {
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
@@ -58,7 +59,6 @@ import { canonicalJsonDigest, workspaceCallInputDigest } from "./digest";
 import {
 	ChangeSetIntegrityError,
 	ChangeSetRequestIdCollisionError,
-	ChangeSetScopeLostError,
 	type ChangeSetStageErrorCode,
 	ChangeSetStagingRejectedError,
 } from "./errors";
@@ -70,7 +70,7 @@ import {
 	type StageRequestReceipt,
 } from "./schemas";
 import {
-	loadChangeSet,
+	authorizeChangeSet,
 	lookupStageRequest,
 	stageChangeSetRequest,
 } from "./store";
@@ -84,7 +84,12 @@ import {
 export interface ChangeSetWorkspaceHost {
 	readonly actorUserId: string;
 	readonly runId: string;
-	readonly chatRunHolder: ChatRunHolderCapability;
+	readonly chatRunHolder?: ChatRunHolderCapability;
+	readonly authoringSessionId?: string;
+	readonly ordinaryAuthoring?: ToolInvocationContext["ordinaryAuthoring"];
+	readonly authoringOrigin?: "chat" | "mcp";
+	readonly authoringThreadId?: string;
+	readonly allowIdleAuthoringRead?: boolean;
 	readonly lookupDefinitions?: ToolInvocationContext["lookupDefinitions"];
 	readonly lookupCatalog?: ToolInvocationContext["lookupCatalog"];
 	readonly conversionImpact: ConversionImpactFn;
@@ -143,6 +148,31 @@ export type StagedInputPreparation = (
 	input: unknown,
 ) => Promise<PreparedStagedInput>;
 
+/** Keep the authorized revision and its durable steps under one lock. A new
+ * invocation may append as soon as the transaction ends, but cannot make this
+ * read combine an older revision with newer steps. Resync uses the same boundary. */
+async function loadAuthorizedWorkspace(
+	host: ChangeSetWorkspaceHost,
+	changeSetId: string,
+) {
+	return withAppTx(async (tx) => {
+		const changeSet = await authorizeChangeSet(
+			{
+				changeSetId,
+				actorUserId: host.actorUserId,
+				runId: host.runId,
+				chatRunHolder: host.chatRunHolder,
+				authoringOrigin: host.authoringOrigin,
+				authoringThreadId: host.authoringThreadId,
+				allowIdleAuthoringRead: host.allowIdleAuthoringRead,
+			},
+			tx,
+		);
+		const rehydrated = await rehydrateChangeSet(changeSet, tx);
+		return { changeSet, rehydrated };
+	});
+}
+
 export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	readonly mode = "change-set" as const;
 
@@ -177,11 +207,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		host: ChangeSetWorkspaceHost,
 		changeSetId: string,
 	): Promise<ChangeSetMutationWorkspace> {
-		const changeSet = await loadChangeSet(changeSetId);
-		if (changeSet === undefined) {
-			throw new ChangeSetScopeLostError("This change set no longer exists.");
-		}
-		const rehydrated = await rehydrateChangeSet(changeSet);
+		const { changeSet, rehydrated } = await loadAuthorizedWorkspace(
+			host,
+			changeSetId,
+		);
 		return new ChangeSetMutationWorkspace({
 			host,
 			changeSet,
@@ -323,6 +352,15 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	/** The same authorized, rows-free lookup snapshot informs diagnostics and
 	 * readable repair context. It is never a second catalog or a new write. */
 	async inspectState() {
+		await authorizeChangeSet({
+			changeSetId: this.changeSet.id,
+			actorUserId: this.host.actorUserId,
+			runId: this.host.runId,
+			chatRunHolder: this.host.chatRunHolder,
+			authoringOrigin: this.host.authoringOrigin,
+			authoringThreadId: this.host.authoringThreadId,
+			allowIdleAuthoringRead: this.host.allowIdleAuthoringRead,
+		});
 		const snapshot = this.currentSnapshot();
 		const changeSet = this.changeSet;
 		const steps = [...this.steps];
@@ -360,6 +398,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		const requestId = args.requestId ?? crypto.randomUUID();
 
 		const run = async (): Promise<StageDispatchResult<T>> => {
+			await authorizeChangeSet({
+				changeSetId: this.changeSet.id,
+				actorUserId: this.host.actorUserId,
+				runId: this.host.runId,
+				chatRunHolder: this.host.chatRunHolder,
+			});
 			if (invocationOrdinal !== this.lastStartedOrdinal + 1) {
 				throw new Error(
 					`[change-set workspace] invocation ${invocationOrdinal} (${args.toolName}) started out of order after ${this.lastStartedOrdinal}.`,
@@ -524,7 +568,8 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			userId: this.host.actorUserId,
 			runId: this.host.runId,
 			chatRunHolder: this.host.chatRunHolder,
-			authoringSessionId: this.changeSet.designSessionId,
+			authoringSessionId: this.changeSet.designSessionId ?? undefined,
+			ordinaryAuthoring: this.host.ordinaryAuthoring,
 			snapshot,
 			invocation: {
 				requestId: args.requestId,
@@ -608,11 +653,10 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	 * the next receipt's fingerprints re-seed it.
 	 */
 	private async resyncFromDurable(): Promise<void> {
-		const changeSet = await loadChangeSet(this.changeSet.id);
-		if (changeSet === undefined) {
-			throw new ChangeSetScopeLostError("This change set no longer exists.");
-		}
-		const rehydrated = await rehydrateChangeSet(changeSet);
+		const { changeSet, rehydrated } = await loadAuthorizedWorkspace(
+			this.host,
+			this.changeSet.id,
+		);
 		this.changeSet = changeSet;
 		this.steps = [...rehydrated.steps];
 		this.overlayDoc = rehydrated.overlay.doc;

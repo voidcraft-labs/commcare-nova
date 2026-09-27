@@ -22,6 +22,23 @@ function currentAnswer(route: ReturnType<typeof answerRoute>) {
 }
 
 describe("AskQuestionsCard committed composer binding", () => {
+	it("leaves the composer available for an empty historical question round", () => {
+		const pendingAnswerRef = answerRoute();
+		const addToolOutput = vi.fn();
+		const view = render(
+			<AskQuestionsCard
+				toolCallId="empty"
+				input={{ header: "Workflow complete", questions: [] }}
+				state="input-available"
+				pendingAnswerRef={pendingAnswerRef}
+				addToolOutput={addToolOutput}
+			/>,
+		);
+		expect(pendingAnswerRef.current).toBeNull();
+		expect(view.queryByText("Question 1 of 0")).toBeNull();
+		expect(addToolOutput).not.toHaveBeenCalled();
+	});
+
 	it("retires the typed route while disabled and resumes partial answers exactly once", () => {
 		const pendingAnswerRef = answerRoute();
 		const addToolOutput = vi.fn();

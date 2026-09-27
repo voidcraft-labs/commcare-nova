@@ -131,9 +131,9 @@ back to the same authoring representation. Literal braces and backslashes must
 round-trip. Conditions use Nova's existing XPath grammar. Instance and current()-rooted paths retain their existing XPath semantics.
 Connect wrapper paths are admitted by the canonical Connect validator.
 
-Preparation runs inside the authorized workspace invocation. The canonical
-workspace validates immediate edits; a private workspace can retain incomplete
-work until publication passes the same kernel. Authorization, reference
+Preparation runs inside the authorized workspace invocation. Agent and MCP workspaces retain incomplete construction privately; saving
+passes the full canonical gate. Builder edits retain their immediate canonical
+commit boundary. Authorization, reference
 validation, atomic writes, and concurrency remain with those owners. Do not catch a commit conflict as a preparation error or rebind an already
 prepared operation after a peer edit. The pilot's call deduplication lasts only
 for its process; production must use the durable call ledger.

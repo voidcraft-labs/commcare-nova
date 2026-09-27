@@ -161,9 +161,9 @@ export type ToolRuntimeCapability =
  *   Blueprint work, `exclusive` for the tool whose every batch IS the
  *   batch-exclusive case-store saga, `forbidden` for anything with an
  *   external side effect. A tool whose batches only SOMETIMES compose a
- *   case-store saga (a module removal retiring a case type, a field edit
- *   migrating rows) is `allowed`; the batch-exclusive mutation KINDS
- *   (`renameCaseProperties`, `retireCaseType`) carry that exclusivity.
+ *   case-store operation (a module removal retiring a case type, a field edit
+ *   migrating rows) is `allowed`; only the `renameCaseProperties` mutation
+ *   requires an isolated batch.
  * - `capabilities` — what the tool's execution requires of its host surface.
  */
 export interface ToolExecutionPolicy {

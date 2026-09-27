@@ -1,43 +1,27 @@
-/** Actual shared tools through SDK dispatch, migrated authorization and guarded commits. */
+/** Real SDK dispatch through private work, migrated authorization and publication. */
+import type { Client } from "@modelcontextprotocol/client";
 import { sql } from "kysely";
-import { expect, it } from "vitest";
-import { z } from "zod";
-import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
-import { testUuid } from "@/__tests__/helpers/uuid";
+import { expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { addFieldsTool } from "@/lib/agent/tools/addFields";
-import {
-	getCasePropertyTool,
-	updateCasePropertyTool,
-} from "@/lib/agent/tools/caseProperties";
-import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
-import { editFieldTool } from "@/lib/agent/tools/editField";
-import { getFormTool } from "@/lib/agent/tools/getForm";
-import {
-	addLocationPropertiesTool,
-	addOrganizationLevelsTool,
-	createLocationTool,
-	getOrganizationTool,
-} from "@/lib/agent/tools/organization";
-import {
-	buildCaseTypeMap,
-	withProjectContext,
-	withSchemaContext,
-} from "@/lib/case-store";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
+import { withProjectContext } from "@/lib/case-store";
 import { getCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
-import { loadApp } from "@/lib/db/apps";
-import type { BlueprintDoc } from "@/lib/domain";
-import { builtinIconRef } from "@/lib/domain/builtinIcons";
-import { proseText } from "@/lib/domain/prose";
-import { readEvents } from "@/lib/log/reader";
 import {
-	registerSharedTool,
-	type SharedToolModule,
-} from "../adapters/sharedToolAdapter";
+	prepareGenesisCandidate,
+	writePreparedGenesisInTransaction,
+} from "@/lib/db/appGenesis";
+import { loadApp } from "@/lib/db/apps";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
+import type { BlueprintDoc } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
+import { log } from "@/lib/logger";
+import { registerSharedTool } from "../adapters/sharedToolAdapter";
+import { registerWorkTools } from "../tools/work";
 import { withMcpClient } from "./client";
 import { promptDoc } from "./promptFixtures";
-import { resultText } from "./resultText";
+import { resultContentText, resultText } from "./resultText";
 
 const h = setupAppStateTestDb("mcp_shared_", { authSchema: "migrated" });
 const ACTOR = "editor";
@@ -48,865 +32,345 @@ const context = {
 	authKind: "oauth" as const,
 };
 const register: Parameters<typeof withMcpClient>[0] = (server) => {
-	registerSharedTool(
-		server,
-		"get_case_property",
-		getCasePropertyTool,
-		context,
-		"view",
-	);
-	registerSharedTool(
-		server,
-		"update_case_property",
-		updateCasePropertyTool,
-		context,
-		"edit",
-	);
-	registerSharedTool(server, "add_fields", addFieldsTool, context, "edit");
-	registerSharedTool(server, "edit_field", editFieldTool, context, "edit");
-	registerSharedTool(server, "get_form", getFormTool, context, "view");
-	registerSharedTool(
-		server,
-		"configure_connect",
-		configureConnectTool,
-		context,
-		"edit",
-	);
+	registerWorkTools(server, context);
+	for (const entry of SHARED_TOOL_REGISTRY)
+		registerSharedTool(server, entry, context);
 };
-async function seed() {
-	const doc = promptDoc();
-	// A built-in tile icon is what an ordinary built app carries, so every read
-	// below prints one through the real client path.
-	const seededForm = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
-	seededForm.icon = builtinIconRef("register");
-	await h.seedAppWithBlueprint(doc, {
-		id: doc.appId,
-		owner: "creator",
+async function seedCanonical(doc: BlueprintDoc) {
+	await h.seedProjectMember("creator", PROJECT, "owner");
+	const candidate = prepareGenesisCandidate({
+		appId: doc.appId,
 		projectId: PROJECT,
+		mutations: diffDocsToMutations(emptyBlueprintDoc(doc.appId), doc),
 	});
+	await h.withTransaction((tx) =>
+		writePreparedGenesisInTransaction(tx, {
+			candidate,
+			actorUserId: "creator",
+			runId: crypto.randomUUID(),
+			status: "complete",
+		}),
+	);
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
-	const moduleUuid = doc.moduleOrder[0];
-	const formUuid = doc.formOrder[moduleUuid][0];
-	return {
-		doc,
-		address: { app_id: doc.appId, moduleUuid, formUuid },
-		fieldUuid: doc.fieldOrder[formUuid][0],
-	};
+	return doc;
 }
-async function changes(appId: string) {
-	return h
+async function seed() {
+	return seedCanonical(promptDoc());
+}
+async function call(
+	client: Client,
+	name: string,
+	input: Record<string, unknown>,
+) {
+	const result = await client.callTool({ name, arguments: input });
+	if (result.isError) {
+		const cause = vi.mocked(log.error).mock.calls.at(-1)?.[1];
+		if (cause instanceof Error) throw cause;
+	}
+	expect(result.isError, resultContentText(result)).not.toBe(true);
+	return JSON.parse(resultContentText(result));
+}
+async function begin(client: Client, appId?: string) {
+	return call(client, "begin_work", {
+		request_id: crypto.randomUUID(),
+		...(appId
+			? { app_id: appId }
+			: { new_app: { name: "Clinic intake", project_id: PROJECT } }),
+	});
+}
+async function save(client: Client, workId: string) {
+	const work = await call(client, "get_work", { work_id: workId });
+	return call(client, "save_work", {
+		work_id: workId,
+		expected_revision: work.revision,
+		request_id: crypto.randomUUID(),
+	});
+}
+async function changes(appId: string, includeBaseline = false) {
+	let query = h
 		.db()
 		.selectFrom("app_changes")
-		.select(["seq", "kind", "actor_id", "run_id", "mutations"])
-		.where("app_id", "=", appId)
-		.orderBy("seq")
-		.execute();
-}
-async function events(appId: string) {
-	const rows = await h
-		.db()
-		.selectFrom("events")
-		.select("event")
-		.where("app_id", "=", appId)
-		.orderBy("id")
-		.execute();
-	return rows.map((row) => row.event);
+		.selectAll()
+		.where("app_id", "=", appId);
+	if (!includeBaseline) query = query.where("kind", "!=", "fold-baseline");
+	return query.orderBy("seq").execute();
 }
 
-it("reads and edits one catalog property through MCP without changing saved case values", async () => {
-	const doc: BlueprintDoc = promptDoc();
-	doc.caseTypes = [
-		{
-			name: "plot",
-			properties: [
-				{
-					name: "beds",
-					label: proseText("Beds"),
-					data_type: "int",
-					validation: { parts: [{ kind: "text", text: ". >= 1" }] },
-					validation_msg: proseText("Enter at least one bed."),
-				},
-			],
-		},
-	];
-	await h.seedAppWithBlueprint(doc, {
-		id: doc.appId,
-		owner: "creator",
-		projectId: PROJECT,
-	});
+it("constructs a new app through separate module, form and question calls, then publishes once", async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
-	const schema = await withSchemaContext();
-	await schema.applySchemaChange({
-		appId: doc.appId,
-		caseType: "plot",
-		caseTypeSchemas: buildCaseTypeMap(doc),
-		syncedSeq: 0,
-	});
-	const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
-	await store.insert({
-		appId: doc.appId,
-		row: {
-			case_id: "plot-1",
-			case_type: "plot",
-			case_name: "North plot",
-			modified_on: new Date("2026-09-13T00:00:00Z"),
-			properties: { beds: 5 },
-		},
-	});
-	const db = await getCaseStoreDatabase();
-	const beforeCases = await db.selectFrom("cases").selectAll().execute();
-	const address = { app_id: doc.appId, caseType: "plot", property: "beds" };
 	await withMcpClient(register, async (client) => {
-		expect(
-			JSON.parse(
-				resultText(
-					await client.callTool({
-						name: "get_case_property",
-						arguments: address,
-					}),
-				),
-			),
-		).toMatchObject({ property: { label: "Beds", validation: ". >= 1" } });
-		expect(
-			JSON.parse(
-				resultText(
-					await client.callTool({
-						name: "update_case_property",
-						arguments: {
-							...address,
-							updates: {
-								label: "Number of beds",
-								validation: null,
-								validation_msg: null,
-							},
-						},
-					}),
-				),
-			),
-		).toEqual({ ok: true });
-		expect(
-			JSON.parse(
-				resultText(
-					await client.callTool({
-						name: "get_case_property",
-						arguments: address,
-					}),
-				),
-			),
-		).toEqual({
-			caseType: "plot",
-			property: { name: "beds", label: "Number of beds", data_type: "int" },
+		const tools = await client.listTools();
+		expect(tools.tools.some((tool) => tool.name === "create_app")).toBe(false);
+		const opened = await begin(client);
+		const work_id = opened.work_id;
+		expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual([]);
+		const module = await call(client, "create_module", {
+			work_id,
+			request_id: "module",
+			name: "Intake",
 		});
-		const writes = await changes(doc.appId);
-		expect(writes).toHaveLength(1);
-		expect(writes[0]).toMatchObject({
-			kind: "mcp",
-			actor_id: ACTOR,
-			mutations: [
-				{
-					kind: "setCaseProperty",
-					caseType: "plot",
-					property: {
-						name: "beds",
-						label: proseText("Number of beds"),
-						data_type: "int",
-					},
-				},
-			],
+		expect(module).toMatchObject({ ok: true, saved: false, work_id });
+		const form = await call(client, "create_form", {
+			work_id,
+			request_id: "form",
+			moduleUuid: module.moduleUuid,
+			name: "Patient intake",
+			type: "survey",
 		});
-		expect(await db.selectFrom("cases").selectAll().execute()).toEqual(
-			beforeCases,
-		);
-		await h.seedProjectMember(ACTOR, PROJECT, "viewer");
-		resultText(
-			await client.callTool({ name: "get_case_property", arguments: address }),
-		);
-		expect(
-			await client.callTool({
-				name: "update_case_property",
-				arguments: { ...address, updates: { label: "Denied" } },
-			}),
-		).toHaveProperty("isError", true);
-		expect(await changes(doc.appId)).toEqual(writes);
+		const incomplete = await save(client, work_id);
+		expect(incomplete.success).toBe(false);
+		expect(await h.db().selectFrom("apps").selectAll().execute()).toEqual([]);
+		const fieldArgs = {
+			work_id,
+			request_id: "question",
+			moduleUuid: module.moduleUuid,
+			formUuid: form.formUuid,
+			fields: [{ id: "name", kind: "text", label: "Patient name" }],
+		};
+		const fields = await call(client, "add_fields", fieldArgs);
+		expect(await call(client, "add_fields", fieldArgs)).toEqual(fields);
+		const privateForm = await call(client, "get_form", {
+			work_id,
+			moduleUuid: module.moduleUuid,
+			formUuid: form.formUuid,
+		});
+		expect(privateForm.form.fields).toHaveLength(1);
+		const status = await call(client, "get_work", { work_id });
+		const saveArgs = {
+			work_id,
+			request_id: "birth",
+			expected_revision: status.revision,
+		};
+		const saved = await call(client, "save_work", saveArgs);
+		expect(saved.success).toBe(true);
+		expect(await call(client, "save_work", saveArgs)).toEqual(saved);
+		const apps = await h.db().selectFrom("apps").selectAll().execute();
+		expect(apps).toHaveLength(1);
+		const app = await loadApp(apps[0].id);
+		expect(app?.blueprint.fields[fields.fields[0].uuid]).toMatchObject({
+			id: "name",
+			label: proseText("Patient name"),
+		});
+		expect(await changes(apps[0].id, true)).toHaveLength(1);
+		expect(await call(client, "get_work", { work_id })).toMatchObject({
+			app_id: apps[0].id,
+			pending_changes: 0,
+		});
 	});
 });
 
-it("binds names throughout a recursive place request and stores property identities", async () => {
-	const { doc } = await seed();
-	await withMcpClient(
-		(server) => {
-			registerSharedTool(
-				server,
-				"add_organization_levels",
-				addOrganizationLevelsTool,
-				context,
-				"edit",
-			);
-			registerSharedTool(
-				server,
-				"add_location_properties",
-				addLocationPropertiesTool,
-				context,
-				"edit",
-			);
-			registerSharedTool(
-				server,
-				"create_location",
-				createLocationTool,
-				context,
-				"edit",
-			);
-			registerSharedTool(
-				server,
-				"get_organization",
-				getOrganizationTool,
-				context,
-				"view",
-			);
-		},
-		async (client) => {
-			async function call(name: string, input: Record<string, unknown>) {
-				const result = await client.callTool({
-					name,
-					arguments: { app_id: doc.appId, ...input },
-				});
-				expect(result.isError, resultText(result)).not.toBe(true);
-				const payload = JSON.parse(resultText(result));
-				expect(payload).not.toHaveProperty("error");
-				return payload;
-			}
-			await call("add_organization_levels", {
-				levels: [
-					{
-						code: "district",
-						name: "District",
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-					{
-						code: "clinic",
-						name: "Clinic",
-						parentLevelUuid: "District",
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-					{
-						code: "ward",
-						name: "Ward",
-						parentLevelUuid: "Clinic",
-						caseFlow: { workers: "none", ownsCases: false },
-						addressBook: { reach: "own-branch" },
-					},
-				],
-			});
-			await call("add_location_properties", {
-				properties: [{ slug: "staff", label: "Staff" }],
-			});
-			const before = await call("get_organization", {});
-			const created = await call("create_location", {
-				expectedRevision: before.revision,
-				name: "North",
-				levelUuid: "District",
-				values: { staff: "8" },
-				descendants: [
-					{
-						name: "Central",
-						levelUuid: "Clinic",
-						values: { Staff: "4" },
-						descendants: [
-							{ name: "Outreach", levelUuid: "Ward", values: { staff: "2" } },
-						],
-					},
-				],
-			});
-			await call("create_location", {
-				expectedRevision: created.revision,
-				parentId: "North",
-				levelUuid: "Clinic",
-				name: "South",
-				values: { staff: "3" },
-			});
-			const saved = await call("get_organization", { includeValues: true });
-			const app = await loadApp(doc.appId);
-			if (!app?.blueprint) throw new Error("Missing saved app.");
-			const property = Object.values(app.blueprint.locationProperties ?? {})[0];
-			const levels = Object.values(app.blueprint.organizationLevels ?? {});
-			expect(saved.locations).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						name: "Outreach",
-						levelUuid: levels.find((item) => item.name === "Ward")?.uuid,
-						values: { [property.uuid]: "2" },
-					}),
-					expect.objectContaining({
-						name: "South",
-						parentId: created.location.id,
-						values: { [property.uuid]: "3" },
-					}),
-				]),
-			);
-			const duplicate = await client.callTool({
-				name: "create_location",
-				arguments: {
-					app_id: doc.appId,
-					expectedRevision: saved.revision,
-					parentId: "North",
-					levelUuid: "Clinic",
-					name: "Duplicate",
-					values: { staff: "1", Staff: "2" },
-				},
-			});
-			expect(duplicate.isError).toBe(true);
-			expect(duplicate.content).toEqual([
-				{
-					type: "text",
-					text: expect.stringContaining(
-						"Two values reference the same property",
-					),
-				},
-			]);
-			const unchanged = await call("get_organization", { includeValues: true });
-			expect(unchanged.locations).toEqual(saved.locations);
-			expect(unchanged.revision).toBe(saved.revision);
-		},
-	);
+it("keeps edits private and reads either version explicitly", async () => {
+	const doc = await seed();
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	await withMcpClient(register, async (client) => {
+		const { work_id } = await begin(client, doc.appId);
+		const address = { moduleUuid, formUuid };
+		const result = await call(client, "add_fields", {
+			work_id,
+			request_id: "add",
+			...address,
+			fields: [{ id: "note", kind: "text", label: "Note" }],
+		});
+		expect(result.saved).toBe(false);
+		expect(
+			(await call(client, "get_form", { app_id: doc.appId, ...address })).form
+				.fields,
+		).toHaveLength(1);
+		expect(
+			(await call(client, "get_form", { work_id, ...address })).form.fields,
+		).toHaveLength(2);
+		expect(await changes(doc.appId)).toEqual([]);
+		expect((await save(client, work_id)).success).toBe(true);
+		expect(
+			(await loadApp(doc.appId))?.blueprint.fieldOrder[formUuid],
+		).toHaveLength(2);
+		expect(await changes(doc.appId)).toHaveLength(1);
+	});
 });
 
-it("adds fields once, preserves returned identities and drains matching event envelopes before replying", async () => {
-	const { doc, address } = await seed();
-	const fieldUuid = testUuid("mcp-created-select");
-	const yes = testUuid("mcp-created-yes");
-	const no = testUuid("mcp-created-no");
+it("reauthorizes work and exact retries after membership loss", async () => {
+	const doc = await seed();
 	await withMcpClient(register, async (client) => {
-		const payload = JSON.parse(
-			resultText(
-				await client.callTool({
-					name: "add_fields",
-					arguments: {
-						...address,
-						fields: [
-							{
-								fieldUuid,
-								id: "consent",
-								kind: "single_select",
-								label: "Consent",
-								optionsSource: {
-									kind: "inline",
-									options: [
-										{ optionUuid: yes, value: "yes", label: "Yes" },
-										{ optionUuid: no, value: "no", label: "No" },
-									],
-								},
-							},
-						],
-					},
-				}),
-			),
-		);
-		expect(payload).toEqual({
-			ok: true,
-			fields: [
-				{
-					uuid: fieldUuid,
-					id: "consent",
-					options: [
-						{ uuid: yes, value: "yes" },
-						{ uuid: no, value: "no" },
-					],
-				},
-			],
-		});
-		const app = await loadApp(doc.appId);
-		expect(app?.mutation_seq).toBe(1);
-		expect(app?.blueprint.fieldOrder[address.formUuid]).toEqual([
-			...doc.fieldOrder[address.formUuid],
-			fieldUuid,
-		]);
-		expect(app?.blueprint.fields[fieldUuid]).toMatchObject({
-			uuid: fieldUuid,
-			kind: "single_select",
-			id: "consent",
-			optionsSource: {
-				kind: "inline",
-				options: [
-					{ uuid: yes, value: "yes", label: proseText("Yes") },
-					{ uuid: no, value: "no", label: proseText("No") },
-				],
-			},
-		});
-		const history = await changes(doc.appId);
-		expect(history).toEqual([
-			{
-				seq: "1",
-				kind: "mcp",
-				actor_id: ACTOR,
-				run_id: app?.run_id,
-				mutations: expect.any(Array),
-			},
-		]);
-		if (!app?.run_id) throw new Error("MCP run attribution missing");
-		const persistedEvents = await readEvents(doc.appId, app.run_id);
-		expect(persistedEvents).toHaveLength(history[0].mutations.length);
-		expect(persistedEvents).toEqual(
-			history[0].mutations.map((mutation, seq) => ({
-				kind: "mutation",
-				runId: app.run_id,
-				ts: expect.any(Number),
-				seq,
-				actor: "agent",
-				source: "mcp",
-				stage: `form:${address.formUuid}`,
-				mutation,
-			})),
-		);
-		const read = JSON.parse(
-			resultText(
-				await client.callTool({ name: "get_form", arguments: address }),
-			),
-		);
-		expect(read.moduleUuid).toBe(address.moduleUuid);
-		expect(read.formUuid).toBe(address.formUuid);
-		expect(read.form.icon).toBe("register");
-		expect(read.form.fields.at(-1)).toMatchObject({
-			uuid: fieldUuid,
-			id: "consent",
-		});
-		expect(await changes(doc.appId)).toEqual(history);
-		expect(await readEvents(doc.appId, app.run_id)).toEqual(persistedEvents);
-	});
-});
-it("preserves object-level and nested schema refinements through actual SDK dispatch", async () => {
-	const { doc, address } = await seed();
-	const before = await loadApp(doc.appId);
-	await withMcpClient(register, async (client) => {
-		for (const args of [
-			{ app_id: doc.appId, mode: "learn" },
-			{ app_id: doc.appId, mode: null, participants: [] },
-			{
-				app_id: doc.appId,
-				mode: "learn",
-				participants: [
-					{
-						formUuid: address.formUuid,
-						connect: {
-							learn_module: {
-								id: "intro",
-								name: "Intro",
-								description: "First",
-								time_estimate: 5,
-							},
-						},
-					},
-					{
-						formUuid: address.formUuid,
-						connect: { assessment: { id: "assessment" } },
-					},
-				],
-			},
-		]) {
-			const result = await client.callTool({
-				name: "configure_connect",
-				arguments: args,
-			});
-			expect(result).toMatchObject({
-				isError: true,
-				content: [
-					{
-						type: "text",
-						text: expect.stringMatching(
-							/Input validation error|"error_type":"invalid_input"/,
-						),
-					},
-				],
-			});
-		}
-	});
-	expect(await loadApp(doc.appId)).toEqual(before);
-	expect(await changes(doc.appId)).toEqual([]);
-	expect(await events(doc.appId)).toEqual([]);
-});
-it("enforces current roles for read and write tools and rejects foreign/deleted apps before executing", async () => {
-	const { doc, address } = await seed();
-	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
-	await withMcpClient(register, async (client) => {
-		const before = await loadApp(doc.appId);
-		resultText(await client.callTool({ name: "get_form", arguments: address }));
-		const denied = await client.callTool({
-			name: "add_fields",
-			arguments: {
-				...address,
-				fields: [{ id: "note", kind: "text", label: "Note" }],
-			},
-		});
-		expect(denied).toEqual({
-			isError: true,
-			content: [
-				{
-					type: "text",
-					text: JSON.stringify({
-						error_type: "not_found",
-						message: "App not found.",
-						app_id: doc.appId,
-					}),
-				},
-			],
-		});
-		expect(await loadApp(doc.appId)).toEqual(before);
+		const { work_id } = await begin(client, doc.appId);
+		const args = { work_id, request_id: "module", name: "Pending" };
+		await call(client, "create_module", args);
 		await sql`DELETE FROM auth_member WHERE "userId" = ${ACTOR}`.execute(
 			h.db(),
 		);
-		const foreign = await client.callTool({
-			name: "get_form",
-			arguments: address,
-		});
-		expect(foreign).toEqual(denied);
-		await h.seedProjectMember(ACTOR, PROJECT, "editor");
-		await h
-			.db()
-			.updateTable("apps")
-			.set({
-				deleted_at: new Date(),
-				recoverable_until: new Date(Date.now() + 1000),
-			})
-			.where("id", "=", doc.appId)
-			.execute();
-		expect(
-			await client.callTool({ name: "get_form", arguments: address }),
-		).toEqual(foreign);
-	});
-	expect(await changes(doc.appId)).toEqual([]);
-	expect(await events(doc.appId)).toEqual([]);
-});
-it("refuses duplicate field ids without writes and strips app_id from the actual shared input", async () => {
-	const { doc, address } = await seed();
-	const before = await loadApp(doc.appId);
-	const echo: SharedToolModule = {
-		description: "Observe admitted input",
-		inputSchema: z.strictObject({ value: z.string().default("fallback") }),
-		async execute(input, ctx) {
-			return {
-				kind: "read",
-				data: { input, projectId: ctx.projectId, appId: ctx.appId },
-			};
-		},
-	};
-	await withMcpClient(
-		(server) => {
-			register(server);
-			registerSharedTool(server, "echo", echo, context, "view");
-		},
-		async (client) => {
-			expect(
-				JSON.parse(
-					resultText(
-						await client.callTool({
-							name: "echo",
-							arguments: { app_id: doc.appId },
-						}),
-					),
-				),
-			).toEqual({
-				input: { value: "fallback" },
-				projectId: PROJECT,
-				appId: doc.appId,
-			});
-			const refusal = JSON.parse(
-				resultText(
-					await client.callTool({
-						name: "add_fields",
-						arguments: {
-							...address,
-							fields: [
-								{
-									id: "patient_name",
-									kind: "text",
-									label: "Duplicate",
-								},
-							],
-						},
-					}),
-				),
+		for (const [name, input] of [
+			["create_module", args],
+			["get_work", { work_id }],
+		] as const) {
+			const result = await client.callTool({ name, arguments: input });
+			expect(result.isError).toBe(true);
+			expect(JSON.parse(resultContentText(result)).error_type).toBe(
+				"not_found",
 			);
-			expect(refusal).toEqual({
-				error: expect.stringContaining('"patient_name"'),
-			});
-		},
-	);
-	expect(await loadApp(doc.appId)).toEqual(before);
-	expect(await changes(doc.appId)).toEqual([]);
-	expect(await events(doc.appId)).toEqual([]);
+		}
+		expect(await changes(doc.appId)).toEqual([]);
+	});
 });
-it("commits a real conversion plus patch as one change, with no prefix or log on a late SQL rejection", async () => {
-	const { doc, address, fieldUuid } = await seed();
-	const before = await loadApp(doc.appId);
-	await sql`CREATE FUNCTION reject_mcp_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF EXISTS (SELECT 1 FROM jsonb_array_elements(NEW.mutations) AS m WHERE m->>'kind' = 'updateField') THEN RAISE EXCEPTION 'private late commit rejection'; END IF; RETURN NEW; END $$`.execute(
-		h.db(),
-	);
-	await sql`CREATE TRIGGER reject_mcp_change BEFORE INSERT ON app_changes FOR EACH ROW EXECUTE FUNCTION reject_mcp_change()`.execute(
-		h.db(),
-	);
+
+it("discards only the requested candidate and retains exact prior receipts", async () => {
+	const doc = await seed();
 	await withMcpClient(register, async (client) => {
-		const args = {
-			...address,
-			fieldUuid,
-			updates: {
-				kind: "barcode",
-				id: "patient_code",
-				label: "Patient code",
-			},
-		};
-		const rejected = await client.callTool({
-			name: "edit_field",
-			arguments: args,
+		const { work_id } = await begin(client, doc.appId);
+		const original = await call(client, "create_module", {
+			work_id,
+			request_id: "first",
+			name: "First",
 		});
-		expect(rejected).toEqual({
-			isError: true,
-			content: [
+		const status = await call(client, "get_work", { work_id });
+		const args = {
+			work_id,
+			request_id: "discard",
+			expected_revision: status.revision,
+		};
+		const discarded = await call(client, "discard_work", args);
+		await call(client, "create_module", {
+			work_id,
+			request_id: "second",
+			name: "Second",
+		});
+		expect(await call(client, "discard_work", args)).toEqual(discarded);
+		expect(
+			await call(client, "create_module", {
+				work_id,
+				request_id: "first",
+				name: "First",
+			}),
+		).toEqual(original);
+		const current = await call(client, "get_work", { work_id });
+		expect(current.pending_changes).toBeGreaterThan(0);
+		expect(
+			current.app.modules.some(
+				(module: { name: string }) => module.name === "Second",
+			),
+		).toBe(true);
+		expect(
+			current.app.modules.some(
+				(module: { name: string }) => module.name === "First",
+			),
+		).toBe(false);
+		expect(await changes(doc.appId)).toEqual([]);
+	});
+});
+
+it("preserves nested refinements after transport admission without advancing private work", async () => {
+	const doc = await seed();
+	await withMcpClient(register, async (client) => {
+		const { work_id } = await begin(client, doc.appId);
+		const before = await call(client, "get_work", { work_id });
+		const result = await client.callTool({
+			name: "configure_connect",
+			arguments: { work_id, request_id: "invalid-connect", mode: "learn" },
+		});
+		expect(result.isError).toBe(true);
+		expect(JSON.parse(resultContentText(result))).toMatchObject({
+			error_type: "invalid_input",
+			message: expect.stringMatching(/participants|participant/i),
+		});
+		const after = await call(client, "get_work", { work_id });
+		expect(after.pending_changes).toBe(before.pending_changes);
+		expect(after.app).toEqual(before.app);
+		expect(await changes(doc.appId)).toEqual([]);
+	});
+});
+
+it("requires a clean checkpoint for organization rows and applies their effects immediately", async () => {
+	const doc = await seed();
+	await withMcpClient(register, async (client) => {
+		const { work_id } = await begin(client, doc.appId);
+		await call(client, "add_organization_levels", {
+			work_id,
+			request_id: "levels",
+			levels: [
 				{
-					type: "text",
-					text: JSON.stringify({
-						error_type: "internal",
-						message: "Something went wrong during generation.",
-						app_id: doc.appId,
-					}),
+					code: "district",
+					name: "District",
+					caseFlow: { workers: "none", ownsCases: false },
+					addressBook: { reach: "own-branch" },
 				},
 			],
 		});
-		expect(await loadApp(doc.appId)).toEqual(before);
-		expect(await changes(doc.appId)).toEqual([]);
-		expect(await events(doc.appId)).toEqual([]);
-		await sql`DROP TRIGGER reject_mcp_change ON app_changes`.execute(h.db());
-		const result = JSON.parse(
-			resultText(
-				await client.callTool({ name: "edit_field", arguments: args }),
-			),
-		);
-		expect(result).toHaveProperty("ok", true);
-		const app = await loadApp(doc.appId);
-		expect(app?.mutation_seq).toBe(1);
-		expect(app?.blueprint.fields[fieldUuid]).toMatchObject({
-			kind: "barcode",
-			id: "patient_code",
-			label: proseText("Patient code"),
+		const organization = await call(client, "get_organization", { work_id });
+		const early = await client.callTool({
+			name: "create_location",
+			arguments: {
+				work_id,
+				request_id: "early-place",
+				name: "North",
+				levelUuid: "District",
+				expectedRevision: organization.revision,
+			},
 		});
-		const history = await changes(doc.appId);
-		expect(history).toHaveLength(1);
-		expect(history[0].mutations.map((m) => m.kind)).toEqual([
-			"convertField",
-			"updateField",
-		]);
-		if (!app?.run_id) throw new Error("Missing run attribution");
-		const logged = await readEvents(doc.appId, app.run_id);
-		expect(logged).toEqual(
-			history[0].mutations.map((mutation, seq) => ({
-				kind: "mutation",
-				runId: app.run_id,
-				ts: expect.any(Number),
-				seq,
-				actor: "agent",
-				source: "mcp",
-				stage: `${seq === 0 ? "convert" : "edit"}:${address.formUuid}`,
-				mutation,
-			})),
+		expect(early.isError).toBe(true);
+		expect((await save(client, work_id)).success).toBe(true);
+		const ready = await call(client, "get_organization", { work_id });
+		const placeArgs = {
+			work_id,
+			request_id: "place",
+			name: "North",
+			levelUuid: "District",
+			expectedRevision: ready.revision,
+		};
+		const placed = await call(client, "create_location", placeArgs);
+		const canonical = await call(client, "get_organization", {
+			app_id: doc.appId,
+		});
+		expect(canonical.locations).toEqual(
+			expect.arrayContaining([expect.objectContaining({ name: "North" })]),
+		);
+		expect((await call(client, "get_work", { work_id })).pending_changes).toBe(
+			0,
+		);
+		await call(client, "create_module", {
+			work_id,
+			request_id: "later-app-edit",
+			name: "Pending",
+		});
+		const pending = await call(client, "get_work", { work_id });
+		expect(await call(client, "create_location", placeArgs)).toEqual(placed);
+		const collision = await client.callTool({
+			name: "create_module",
+			arguments: { work_id, request_id: "place", name: "Collision" },
+		});
+		expect(collision.isError).toBe(true);
+		expect(JSON.parse(resultContentText(collision))).toMatchObject({
+			error_type: "invalid_input",
+		});
+		expect((await call(client, "get_work", { work_id })).revision).toBe(
+			pending.revision,
 		);
 	});
 });
 
-it.each([false, true])(
-	"awaits the actual log INSERT before replying, including a tool failure: %s",
-	async (throws) => {
-		const { doc } = await seed();
-		const tool: SharedToolModule = {
-			description: "Commit then return or fail",
-			inputSchema: z.object({}),
-			async execute(_input, ctx) {
-				const result = await ctx.applyBatch({
-					mutations: [{ kind: "setAppName", name: "Committed" }],
-					stage: "rename",
-				});
-				if (!result.ok) throw new Error(result.error);
-				if (throws)
-					throw new Error("private tool failure after accepted commit");
-				return {
-					kind: "mutate",
-					mutations: result.mutations,
-					result: { ok: true, summary: { subject: "App" } },
-				};
-			},
-		};
-		await withMcpClient(
-			(server) =>
-				registerSharedTool(server, "commit_probe", tool, context, "edit"),
-			async (client) => {
-				const response = await whileBlocked(
-					h,
-					(pg) => pg.query("LOCK TABLE events IN ACCESS EXCLUSIVE MODE"),
-					() =>
-						client.callTool({
-							name: "commit_probe",
-							arguments: { app_id: doc.appId },
-						}),
-					async (settled, controller) => {
-						expect(settled).toBe(false);
-						expect(
-							(
-								await controller.query(
-									"SELECT app_name FROM apps WHERE id = $1",
-									[doc.appId],
-								)
-							).rows,
-						).toEqual([{ app_name: "Committed" }]);
-						expect(
-							(
-								await controller.query(
-									"SELECT seq FROM app_changes WHERE app_id = $1",
-									[doc.appId],
-								)
-							).rows,
-						).toEqual([{ seq: "1" }]);
-					},
-				);
-				if (throws)
-					expect(response).toMatchObject({
-						isError: true,
-						content: [
-							{
-								type: "text",
-								text: JSON.stringify({
-									error_type: "internal",
-									message: "Something went wrong during generation.",
-									app_id: doc.appId,
-								}),
-							},
-						],
-					});
-				else expect(JSON.parse(resultText(response))).toEqual({ ok: true });
-				expect(await events(doc.appId)).toEqual([
-					{
-						kind: "mutation",
-						runId: expect.any(String),
-						ts: expect.any(Number),
-						seq: 0,
-						actor: "agent",
-						source: "mcp",
-						stage: "rename",
-						mutation: { kind: "setAppName", name: "Committed" },
-					},
-				]);
-			},
-		);
-	},
-);
-
-function caseWriteAdapterBlueprint(): BlueprintDoc {
-	return buildDoc({
-		appName: "Case-write MCP parity",
-		caseTypes: [
-			{
-				name: "household",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-			{
-				name: "patient",
-				parent_type: "household",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-			{
-				name: "sibling",
-				parent_type: "household",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-			{
-				name: "child",
-				parent_type: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Follow up",
-						type: "followup",
-						fields: [f({ kind: "text", id: "friendly_name" })],
-					},
-				],
-			},
-			...["sibling", "child"].map((caseType) => ({
-				name: `${caseType} cases`,
-				caseType,
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: `${caseType} notes`,
-						type: "survey" as const,
-						fields: [f({ kind: "text", id: `${caseType}_notes` })],
-					},
-				],
-			})),
-		],
-	});
-}
-
-it.each(["child", "sibling"] as const)(
-	"rechecks the actual case-write membership rule for %s without fabricated commits",
-	async (destination) => {
-		const doc = caseWriteAdapterBlueprint();
-		await h.seedAppWithBlueprint(doc, {
-			id: doc.appId,
-			owner: "creator",
-			projectId: PROJECT,
-		});
-		await h.seedProjectMember(ACTOR, PROJECT, "editor");
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		const fieldUuid = doc.fieldOrder[formUuid][0];
-		const before = await loadApp(doc.appId);
-		await withMcpClient(register, async (client) => {
-			const result = JSON.parse(
-				resultText(
-					await client.callTool({
-						name: "edit_field",
-						arguments: {
-							app_id: doc.appId,
-							moduleUuid,
-							formUuid,
-							fieldUuid,
-							updates: {
-								kind: "text",
-								caseWrite: { caseType: destination, property: "case_name" },
-							},
-						},
-					}),
-				),
+it("does not expose another member's pending work through reads or discovery", async () => {
+	const doc = await seed();
+	await h.seedProjectMember("colleague", PROJECT, "editor");
+	const work = await withMcpClient(register, (client) =>
+		begin(client, doc.appId),
+	);
+	await withMcpClient(
+		(server) => registerWorkTools(server, { ...context, userId: "colleague" }),
+		async (client) => {
+			const result = await client.callTool({
+				name: "get_work",
+				arguments: { work_id: work.work_id },
+			});
+			expect(result.isError).toBe(true);
+			expect(JSON.parse(resultContentText(result)).error_type).toBe(
+				"not_found",
 			);
-			if (destination === "child") {
-				expect(result).toHaveProperty("ok", true);
-				const app = await loadApp(doc.appId);
-				expect(app?.blueprint.fields[fieldUuid]).toMatchObject({
-					caseWrite: { caseType: "child", property: "case_name" },
-				});
-				expect(app?.mutation_seq).toBe(1);
-				expect(await changes(doc.appId)).toHaveLength(1);
-				expect(await events(doc.appId)).toHaveLength(1);
-			} else {
-				expect(result).toEqual({ error: expect.stringContaining("sibling") });
-				expect(await loadApp(doc.appId)).toEqual(before);
-				expect(await changes(doc.appId)).toEqual([]);
-				expect(await events(doc.appId)).toEqual([]);
-			}
-		});
-	},
-);
+			expect(await call(client, "list_work", { project_id: PROJECT })).toEqual({
+				work: [],
+			});
+		},
+	);
+});
 
-it("reports real conversion impact before consent and retains the saved-value note after a confirmed migration", async () => {
+it("asks for conversion consent, leaves case data untouched while staged, and reports parking at save", async () => {
 	const doc = buildDoc({
 		appId: "conversion-app",
 		appName: "Patient measurements",
@@ -916,6 +380,7 @@ it("reports real conversion impact before consent and retains the saved-value no
 				properties: [
 					{ name: "case_name", label: "Name", data_type: "text" },
 					{ name: "weight", label: "Weight", data_type: "decimal" },
+					{ name: "unused", label: "Unused", data_type: "text" },
 				],
 			},
 		],
@@ -947,19 +412,7 @@ it("reports real conversion impact before consent and retains the saved-value no
 			},
 		],
 	});
-	await h.seedAppWithBlueprint(doc, {
-		id: doc.appId,
-		owner: "author",
-		projectId: PROJECT,
-	});
-	await h.seedProjectMember(ACTOR, PROJECT, "editor");
-	const schema = await withSchemaContext();
-	await schema.applySchemaChange({
-		appId: doc.appId,
-		caseType: "patient",
-		caseTypeSchemas: buildCaseTypeMap(doc),
-		syncedSeq: 0,
-	});
+	await seedCanonical(doc);
 	const store = await withProjectContext(PROJECT, ACTOR, ACTOR);
 	await store.insert({
 		appId: doc.appId,
@@ -978,19 +431,22 @@ it("reports real conversion impact before consent and retains the saved-value no
 	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = doc.fieldOrder[formUuid][1];
 	const args = {
-		app_id: doc.appId,
 		moduleUuid,
 		formUuid,
 		fieldUuid,
 		updates: { kind: "int" },
 	};
 	await withMcpClient(register, async (client) => {
+		const { work_id } = await begin(client, doc.appId);
 		const consent = JSON.parse(
 			resultText(
-				await client.callTool({ name: "edit_field", arguments: args }),
+				await client.callTool({
+					name: "edit_field",
+					arguments: { ...args, work_id, request_id: "impact" },
+				}),
 			),
 		);
-		expect(consent).toEqual({
+		expect(consent).toMatchObject({
 			needsConfirmation: {
 				caseType: "patient",
 				newlyHeldCases: 1,
@@ -1020,13 +476,97 @@ it("reports real conversion impact before consent and retains the saved-value no
 			resultText(
 				await client.callTool({
 					name: "edit_field",
-					arguments: { ...args, confirmConversion: true },
+					arguments: {
+						...args,
+						work_id,
+						request_id: "convert",
+						confirmConversion: true,
+					},
 				}),
 			),
 		);
 		expect(confirmed).toMatchObject({
 			ok: true,
 			field: { uuid: fieldUuid, kind: "int" },
+		});
+		expect(await loadApp(doc.appId)).toEqual(beforeApp);
+		expect(await db.selectFrom("cases").selectAll().execute()).toEqual(
+			beforeCases,
+		);
+		expect(
+			await db.selectFrom("parked_case_values").selectAll().execute(),
+		).toEqual([]);
+		await call(client, "remove_case_properties", {
+			work_id,
+			request_id: "remove-unused",
+			properties: [{ caseType: "patient", property: "unused" }],
+		});
+		const state = await call(client, "get_work", { work_id });
+		const saveArgs = {
+			work_id,
+			request_id: "save-conversion",
+			expected_revision: state.revision,
+		};
+		const beforeEntities = await h
+			.db()
+			.selectFrom("blueprint_entities")
+			.selectAll()
+			.where("app_id", "=", doc.appId)
+			.orderBy("uuid")
+			.execute();
+		const beforeEvents = await h
+			.db()
+			.selectFrom("events")
+			.selectAll()
+			.where("app_id", "=", doc.appId)
+			.orderBy("id")
+			.execute();
+		await sql`CREATE FUNCTION reject_mcp_checkpoint() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private late checkpoint failure'; END $$`.execute(
+			h.db(),
+		);
+		await sql`CREATE TRIGGER reject_mcp_checkpoint BEFORE INSERT ON authoring_checkpoints FOR EACH ROW EXECUTE FUNCTION reject_mcp_checkpoint()`.execute(
+			h.db(),
+		);
+		const rejected = await client.callTool({
+			name: "save_work",
+			arguments: saveArgs,
+		});
+		expect(rejected.isError).toBe(true);
+		expect(await loadApp(doc.appId)).toEqual(beforeApp);
+		expect(
+			await h
+				.db()
+				.selectFrom("blueprint_entities")
+				.selectAll()
+				.where("app_id", "=", doc.appId)
+				.orderBy("uuid")
+				.execute(),
+		).toEqual(beforeEntities);
+		expect(await db.selectFrom("cases").selectAll().execute()).toEqual(
+			beforeCases,
+		);
+		expect(
+			await db.selectFrom("parked_case_values").selectAll().execute(),
+		).toEqual([]);
+		expect(await changes(doc.appId)).toEqual([]);
+		expect(
+			await h
+				.db()
+				.selectFrom("events")
+				.selectAll()
+				.where("app_id", "=", doc.appId)
+				.orderBy("id")
+				.execute(),
+		).toEqual(beforeEvents);
+		expect((await call(client, "get_work", { work_id })).revision).toBe(
+			state.revision,
+		);
+		await sql`DROP TRIGGER reject_mcp_checkpoint ON authoring_checkpoints`.execute(
+			h.db(),
+		);
+		const saved = await call(client, "save_work", saveArgs);
+		expect(saved).toMatchObject({
+			success: true,
 			dataReview: {
 				values: 1,
 				location: "Case data",
@@ -1035,6 +575,16 @@ it("reports real conversion impact before consent and retains the saved-value no
 			},
 		});
 		expect(confirmed).not.toHaveProperty("summary");
+		// Recover the window after canonical commit and before the ordinary
+		// session recorded its response. The checkpoint owns this consequence.
+		await h
+			.db()
+			.updateTable("authoring_session_requests")
+			.set({ result_json: null })
+			.where("ordinary_session_id", "=", work_id)
+			.where("request_id", "=", "save-conversion")
+			.execute();
+		expect(await call(client, "save_work", saveArgs)).toEqual(saved);
 		expect((await loadApp(doc.appId))?.blueprint.fields[fieldUuid].kind).toBe(
 			"int",
 		);
@@ -1070,52 +620,49 @@ it("reports real conversion impact before consent and retains the saved-value no
 	});
 });
 
-it("admits a staged conversion whose required calculation arrives in the same call", async () => {
-	const { doc, address, fieldUuid } = await seed();
-	const before = await loadApp(doc.appId);
-	const calculate = { parts: [{ kind: "text", text: '"automatic"' }] };
+it("runs a saved worker journey through work-scoped MCP calls and refuses pending candidates", async () => {
+	const doc = await seed();
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	await withMcpClient(register, async (client) => {
-		const missing = JSON.parse(
-			resultText(
-				await client.callTool({
-					name: "edit_field",
-					arguments: { ...address, fieldUuid, updates: { kind: "hidden" } },
-				}),
-			),
-		);
-		expect(missing).toEqual({
-			error: expect.stringMatching(/calculate|default_value/),
+		const { work_id } = await begin(client, doc.appId);
+		await call(client, "add_fields", {
+			work_id,
+			request_id: "journey-field",
+			formUuid,
+			fields: [{ id: "notes", kind: "text", label: "Notes" }],
 		});
-		expect(await loadApp(doc.appId)).toEqual(before);
-		expect(await changes(doc.appId)).toEqual([]);
-		const accepted = JSON.parse(
-			resultText(
-				await client.callTool({
-					name: "edit_field",
-					arguments: {
-						...address,
-						fieldUuid,
-						updates: { kind: "hidden", calculate: '"automatic"' },
-					},
-				}),
-			),
-		);
-		expect(accepted).toMatchObject({
-			ok: true,
-			field: { uuid: fieldUuid, kind: "hidden" },
-			conversion: { from: "text", to: "hidden" },
+		expect((await save(client, work_id)).success).toBe(true);
+		const args = {
+			work_id,
+			request_id: "journey",
+			purpose: "Inspect saved intake entry",
+		};
+		const journey = await call(client, "start_app_test", args);
+		try {
+			expect(journey.testId).toEqual(expect.any(String));
+			expect(await call(client, "start_app_test", args)).toEqual(journey);
+		} finally {
+			await call(client, "continue_app_test", {
+				work_id,
+				request_id: "finish-journey",
+				testId: journey.testId,
+				expectedStep: journey.step,
+				action: { kind: "finish" },
+			});
+		}
+		await call(client, "create_module", {
+			work_id,
+			request_id: "pending-module",
+			name: "Unfinished",
 		});
-		expect((await loadApp(doc.appId))?.blueprint.fields[fieldUuid]).toEqual({
-			uuid: fieldUuid,
-			id: "patient_name",
-			kind: "hidden",
-			calculate,
+		const refused = await client.callTool({
+			name: "start_app_test",
+			arguments: { ...args, request_id: "pending-journey" },
 		});
-		const committed = await changes(doc.appId);
-		expect(committed).toHaveLength(1);
-		expect(committed[0].mutations.map((m) => m.kind)).toEqual([
-			"convertField",
-			"updateField",
-		]);
+		expect(refused.isError).toBe(true);
+		expect(JSON.parse(resultContentText(refused))).toMatchObject({
+			error_type: "invalid_input",
+			message: expect.stringContaining("Save the current app changes"),
+		});
 	});
 });

@@ -173,6 +173,7 @@ const RUNTIME_READ_WRITE_TABLES = [
 	"app_deployment_resources",
 	"authoring_plans",
 	"authoring_workspaces",
+	"authoring_sessions",
 	"authoring_reviews",
 	"design_change_sets",
 	"design_sessions",
@@ -229,7 +230,10 @@ const RUNTIME_APPEND_ONLY_TABLES = [
  * No runtime path deletes a handle, and the workspace authority row
  * (`design_artifact_workspaces`) serializes writers, so no code may row-lock
  * a handle row. */
-const RUNTIME_INSERT_UPDATE_TABLES = ["design_identity_handles"] as const;
+const RUNTIME_INSERT_UPDATE_TABLES = [
+	"design_identity_handles",
+	"authoring_session_requests",
+] as const;
 
 /** Runtime owns each tombstone/reference-edge lifecycle but never mutates a
  * row in place: writers insert, reconcilers delete, and every other path reads. */

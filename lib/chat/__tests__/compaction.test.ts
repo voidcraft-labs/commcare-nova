@@ -7,6 +7,8 @@ import {
 	projectModelHistoryFromNewestCompaction,
 } from "@/lib/chat/compaction";
 
+import { MODEL_CONTEXT_VERSION } from "@/lib/models";
+
 const MODEL = "gpt-5.6-sol";
 
 function textMessage(id: string, role: "user" | "assistant", text: string) {
@@ -34,7 +36,7 @@ describe("model context compaction", () => {
 	it("projects from the newest compatible compaction item without deleting UI history", () => {
 		const complete = [
 			textMessage("old-user", "user", "old request"),
-			compactedMessage({ model: MODEL, contextVersion: "v1" }),
+			compactedMessage({ model: MODEL, contextVersion: MODEL_CONTEXT_VERSION }),
 			textMessage("new-user", "user", "new request"),
 		];
 		const projected = projectCompatibleCompactedHistory(complete, MODEL);
@@ -53,11 +55,11 @@ describe("model context compaction", () => {
 	it("keeps ordinary history but strips an incompatible provider checkpoint", () => {
 		const history = [
 			textMessage("old", "user", "old"),
-			compactedMessage({ model: MODEL, contextVersion: "v1" }),
+			compactedMessage({ model: MODEL, contextVersion: MODEL_CONTEXT_VERSION }),
 		];
 		for (const projected of [
 			projectCompatibleCompactedHistory(history, "gpt-5.6-luna"),
-			projectCompatibleCompactedHistory(history, MODEL, "v2"),
+			projectCompatibleCompactedHistory(history, MODEL, "incompatible-context"),
 		]) {
 			expect(projected).toHaveLength(2);
 			expect(projected[0]).toEqual(history[0]);

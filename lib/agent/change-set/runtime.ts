@@ -15,8 +15,9 @@
  */
 
 import { produce } from "immer";
+import type { Kysely, Transaction } from "kysely";
 import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
-import { getAppDb } from "@/lib/db/pg";
+import { type AppDatabase, getAppDb } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -73,12 +74,14 @@ export interface RehydratedChangeSet {
 
 /**
  * Rehydrate one change set from durable state: exact base (digest-proved)
- * plus its ordered mutation batches.
+ * plus its ordered mutation batches. A mutable candidate must be read and
+ * rehydrated under the same authority/workspace transaction lock.
  */
 export async function rehydrateChangeSet(
 	changeSet: DesignChangeSet,
+	handle?: Kysely<AppDatabase> | Transaction<AppDatabase>,
 ): Promise<RehydratedChangeSet> {
-	const db = await getAppDb();
+	const db = handle ?? (await getAppDb());
 	const steps = await loadChangeSetSteps(changeSet.id, db);
 	if (steps.length !== changeSet.nextOrdinal) {
 		throw new ChangeSetIntegrityError(

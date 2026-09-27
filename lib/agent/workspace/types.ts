@@ -17,6 +17,7 @@
 import type { StageRequestReceipt } from "@/lib/agent/change-set/schemas";
 import type { ConversionImpact } from "@/lib/case-store";
 import type { ChatRunHolderCapability } from "@/lib/db/apps";
+import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
 import type { AdmittedMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc, CasePropertyDataType } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
@@ -53,7 +54,7 @@ export interface WorkspaceSnapshot {
 /** Identity of one tool invocation against a workspace. */
 export interface ToolInvocationIdentity {
 	/** Stable per-call id — the AI SDK's `toolCallId` on the chat surface, a
-	 * server-minted UUID on MCP. The durable change-set host keys request
+	 * caller-supplied request_id for MCP writes (read IDs are server-minted). The durable change-set host keys request
 	 * idempotency on it; the canonical host carries it for correlation. */
 	readonly requestId: string;
 	/** Workspace-allocated position in the serialized invocation order.
@@ -143,6 +144,8 @@ export interface ToolInvocationContext {
 	readonly chatRunHolder?: ChatRunHolderCapability;
 	/** The server-owned planning session, before and after the app's birth. */
 	readonly authoringSessionId?: string;
+	/** Ordinary chat/MCP work has its own authority, never a design session. */
+	readonly ordinaryAuthoring?: OrdinaryAuthoringAuthority;
 
 	/** The immutable snapshot this invocation reads. `snapshot.doc` replaces
 	 * the `doc` argument tools used to receive. */
@@ -206,6 +209,8 @@ export interface ToolInvocationContext {
 	adoptAuthoritativeSnapshot(args: {
 		readonly doc: BlueprintDoc;
 		readonly canonicalSeq?: number;
+		/** Exact already-committed batch, when adoption follows a mixed transaction. */
+		readonly batchId?: string;
 	}): void;
 }
 

@@ -53,6 +53,17 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Celebrate quietly.** "Your app is ready". Warmth, not fireworks. Exclamation points almost never.
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
 
+**Unfinished chat edits.** A quiet row below the transcript and above the
+composer says “Changes waiting to be saved” when the current conversation has
+private edits. Offer “Continue” and “Discard”; the saved app remains usable.
+When someone changed the saved app underneath those edits, offer “Restart from
+saved app” and “Discard” instead. Explain that restarting discards the pending
+changes and begins again from the current saved app. Keep discarded candidates
+out of the visible app and never present a merge as automatic. Disable recovery
+actions while the run or a recovery request is active. A failed request keeps the
+row and its work available. This is a recovery choice, not a new draft status for
+the app, and it must not expose another person's or conversation's private work.
+
 **Credential uncertainty.** The Workers panel uses “Account unconfirmed” when
 an account may not exist and “Password unconfirmed” when the account exists but
 a retained password is uncertain. Keep every candidate visible until resolved or

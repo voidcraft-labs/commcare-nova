@@ -251,6 +251,7 @@ export const isEditToolPart = (part: {
  *  outcome, a read tool carries its own payload, and an in-flight call carries
  *  nothing yet. */
 interface MutationOutput {
+	saved?: boolean;
 	ok?: boolean;
 	message?: string;
 	summary?: ToolCallSummary;
@@ -284,7 +285,7 @@ const presentedResult = (part: ToolUIPart) => {
 
 /** Tools whose OUTCOME is `{ success, errors? }` — both retired, both
  *  still present on threads persisted before their retirement. */
-const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp"]);
+const COMPLETION_TOOLS = new Set(["completeBuild", "validateApp", "saveWork"]);
 
 /** A refused completion OUTCOME: the call returns `{ success:false, errors }`.
  *  This is the one case where a completed tool call must read as a failure —
@@ -302,7 +303,13 @@ export const completionErrors = (part: ToolUIPart): string[] | null => {
 		| { success?: boolean; errors?: string[] }
 		| undefined;
 	if (out?.success === false) {
-		return out.errors?.length ? out.errors : ["The app isn't finished yet."];
+		return out.errors?.length
+			? out.errors
+			: [
+					toolName(part) === "saveWork"
+						? "These changes need attention before they can be saved."
+						: "The app isn't finished yet.",
+				];
 	}
 	return null;
 };
@@ -333,7 +340,7 @@ export const toolStatus = (part: ToolUIPart): ToolStatus => {
  *  fields" once it lands, and back to the gerund for a failure (the change
  *  never happened, so "Added" would lie). The call's subject is appended in
  *  quotes when the tool reported one. Unknown historical tools use a neutral activity label. */
-export const toolAction = (part: ToolUIPart): string => {
+const authoredToolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
 	const tense: keyof ActionPhrases =
 		toolStatus(part) === "done" ? "done" : "doing";
@@ -384,6 +391,14 @@ export const toolAction = (part: ToolUIPart): string => {
 			: "App activity");
 	return summary?.subject && !SUBJECT_ON_LOCATION_LINE.has(name)
 		? `${action} "${summary.subject}"`
+		: action;
+};
+
+/** Pending edits are durable private work, not changes to the saved app. */
+export const toolAction = (part: ToolUIPart): string => {
+	const action = authoredToolAction(part);
+	return toolStatus(part) === "done" && outputOf(part)?.saved === false
+		? `${action} (pending)`
 		: action;
 };
 

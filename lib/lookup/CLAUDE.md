@@ -67,8 +67,13 @@ an immutable predecessor UUID, never a numeric position. A success advances the
 Project once, notifies once, and returns every minted UUID plus the resulting
 revision axes. Any operation failure rolls back the complete batch.
 
-`agentService.ts` resolves an SA/MCP app only to establish its exact current
-Project and capability. Reads require `view`; ordinary writes require `edit`;
+`agentService.ts` resolves an app, reviewed build session, or ordinary authoring
+session to establish its exact current Project and capability. Ordinary work
+retains its own actor, origin, and chat-thread authority before and after app
+birth; it never borrows a design-session identity. Its lookup receipts are keyed
+by the stable work ID, and receipt replay rechecks that authority and membership
+inside the lookup transaction. Project data writes can precede the first app
+checkpoint and remain immediate effects when app work is discarded. Reads require `view`; ordinary writes require `edit`;
 tag/wire-name,
 retype, remove-column, and remove-table operations retain `delete`. Chat calls
 also prove the exact run holder in the writing transaction. These tools are

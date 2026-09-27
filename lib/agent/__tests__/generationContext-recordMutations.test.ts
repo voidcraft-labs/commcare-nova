@@ -931,7 +931,16 @@ describe("GenerationContext.handleAgentStep", () => {
 		ctx.handleAgentStep(
 			{
 				usage: MINIMAL_USAGE,
-				toolCalls: [{ toolCallId: "q-1", toolName: "askQuestions", input: {} }],
+				toolCalls: [
+					{
+						toolCallId: "q-1",
+						toolName: "askQuestions",
+						input: {
+							header: "Workflow",
+							questions: [{ question: "Who will use it?", options: [] }],
+						},
+					},
+				],
 			},
 			"Solutions Architect",
 			TEST_MODEL,

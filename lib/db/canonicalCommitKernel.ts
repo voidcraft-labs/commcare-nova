@@ -40,6 +40,7 @@ import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import {
 	buildCaseTypeMap,
 	CasePropertyHasSavedValuesError,
+	type MigrationReport,
 	withSchemaContext,
 } from "@/lib/case-store";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
@@ -109,6 +110,7 @@ import {
 	MediaReferenceProjectionError,
 	type MediaReferenceRequirement,
 } from "./mediaAssets";
+import type { MigrationOutcome } from "./migrationOutcome";
 import {
 	assemblePersistedBlueprintJsonText,
 	type PersistedEntityRowText,
@@ -733,6 +735,7 @@ export interface CanonicalCommitRequest {
 
 /** Outcome of {@link commitCanonicalBatch}. */
 export interface CanonicalCommitReceipt {
+	readonly migration?: MigrationOutcome;
 	readonly seq: number;
 	/** The committed doc, fully hydrated (`fieldParent` + `refIndex`). */
 	readonly committedDoc: BlueprintDoc;
@@ -746,6 +749,8 @@ export interface GuardedBatchBeforeWriteContext {
 	readonly nextDoc: BlueprintDoc;
 	readonly seq: number;
 	readonly casePropertyRenamePlan?: CasePropertyRenamePlan;
+	/** Schema Phase A already performed by mandatory removal admission. */
+	readonly materializedSchemaReports?: ReadonlyMap<string, MigrationReport>;
 }
 
 export interface CanonicalCommitTransactionHooks {
@@ -759,7 +764,7 @@ export interface CanonicalCommitTransactionHooks {
 	 */
 	readonly beforeWrite?: (
 		context: GuardedBatchBeforeWriteContext,
-	) => Promise<void>;
+	) => Promise<void> | Promise<MigrationOutcome | undefined>;
 	/**
 	 * Closed, typed SQL-only sidecars (`canonicalCommitSidecars.ts`) executed
 	 * AFTER the committed-batch write tail, in the same transaction, with the
@@ -929,6 +934,18 @@ export async function commitCanonicalBatch(
 				deduped: true,
 			};
 		}
+		for (const sidecar of internalOptions.sidecars ?? []) {
+			if (
+				sidecar.kind === "commit-authoring-workspace" &&
+				sidecar.baseSeq !== undefined &&
+				sidecar.baseSeq !== null &&
+				safePersistedSequence(fresh.mutation_seq, "app mutation sequence") !==
+					sidecar.baseSeq
+			)
+				throw new BlueprintCommitRejectedError(
+					"The saved app changed after this private work began. Discard and restart from the current app.",
+				);
+		}
 		if (args.expectedOrganizationRevision !== undefined) {
 			const organizationState = await tx
 				.selectFrom("app_organization_state")
@@ -1023,6 +1040,7 @@ export async function commitCanonicalBatch(
 			properties.add(mutation.property);
 			removedProperties.set(mutation.caseType, properties);
 		}
+		const materializedSchemaReports = new Map<string, MigrationReport>();
 		if (removedProperties.size > 0) {
 			const store = await withSchemaContext();
 			const schemas = removalSchemas ?? buildCaseTypeMap(verdict.nextDoc);
@@ -1030,7 +1048,7 @@ export async function commitCanonicalBatch(
 				([a], [b]) => a.localeCompare(b),
 			)) {
 				try {
-					await store.applySchemaChangePhaseA(
+					const prepared = await store.applySchemaChangePhaseA(
 						tx as unknown as Parameters<
 							typeof store.applySchemaChangePhaseA
 						>[0],
@@ -1042,6 +1060,7 @@ export async function commitCanonicalBatch(
 							removedProperties: [...properties],
 						},
 					);
+					materializedSchemaReports.set(caseType, prepared.report);
 				} catch (error) {
 					if (error instanceof CasePropertyHasSavedValuesError)
 						throw new BlueprintCommitRejectedError(error.message);
@@ -1051,8 +1070,9 @@ export async function commitCanonicalBatch(
 			// Phase A records durable pending index work; ordinary post-commit
 			// convergence or point-of-use healing drains it without holding locks.
 		}
-		await internalOptions.beforeWrite?.({
+		const migration = await internalOptions.beforeWrite?.({
 			tx,
+			materializedSchemaReports,
 			freshDoc,
 			nextDoc: verdict.nextDoc,
 			seq,
@@ -1106,6 +1126,7 @@ export async function commitCanonicalBatch(
 				seq,
 				batchId,
 				committedSnapshot: persistable,
+				...(migration === undefined ? {} : { migration }),
 				sidecars: internalOptions.sidecars,
 			});
 		}
@@ -1113,6 +1134,7 @@ export async function commitCanonicalBatch(
 			seq,
 			committedDoc: verdict.nextDoc,
 			deduped: false,
+			...(migration === undefined ? {} : { migration }),
 		};
 	};
 	const commitOnce = (): Promise<CanonicalCommitReceipt> =>

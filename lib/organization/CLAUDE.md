@@ -146,9 +146,12 @@ transaction.
 
 When archive unassigns personas, the nested blueprint commit keeps the calling
 surface's provenance (`chat` with the exact holder, `mcp`, or browser
-`autosave`) and returns the exact committed document and mutations. The shared
-SA/MCP tool adopts that fresh document as a mutating result; it must not keep
-reasoning from its pre-archive working copy. That document is an internal
+`autosave`) and returns the exact committed document, mutations, canonical
+sequence and batch identity. The shared SA/MCP tool adopts that fresh document
+as a mutating result; it must not keep reasoning from its pre-archive working
+copy. The durable service receipt preserves the checkpoint identity, so chat
+can publish that exact batch after response loss without recommitting or
+replaying stale document state over newer saves. That document is an internal
 service/tool result only. The browser Server Action returns the bounded public
 projection — revision plus archive and unassignment counts — and must not
 serialize the complete Blueprint or mutation batch back to the client.

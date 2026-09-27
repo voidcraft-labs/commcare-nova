@@ -4,9 +4,9 @@
  *
  *   - `explicit-blank` (`createExplicitBlankApp`): the canonical minimal
  *     Survey/Form/Question app, created immediately for "Start with a blank
- *     app" and MCP `create_app`. Its receipt keeps the starter UUIDs because
+ *     app" in Builder. Its receipt keeps the starter UUIDs because
  *     the blank-builder UX selects/names them.
- *   - `design-slice`: a chat build's meaningful first workflow, materialized
+ *   - `design-slice`: the first valid checkpoint from private agent work, materialized
  *     from a genesis Atomic Change Set by
  *     `lib/agent/change-set/materializeGenesis.ts`, which composes the
  *     transaction-scoped writer here (the replay lives beside the change-set

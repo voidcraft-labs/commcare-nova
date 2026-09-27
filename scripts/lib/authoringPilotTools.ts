@@ -1,20 +1,18 @@
 import type { ToolSet } from "ai";
-import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
+import { WORK_TOOL_DEFINITIONS } from "@/lib/agent/authoring/lifecycleTools";
 import {
-	SHARED_TOOL_REGISTRY,
-	type SharedToolRegistryEntry,
-} from "@/lib/agent/sharedToolRegistry";
+	discardWork,
+	executeWorkTool,
+	getWork,
+	saveWork,
+	type WorkArgs,
+} from "@/lib/agent/authoring/session";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import type { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
-import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 
-/** The trial sends the production grammar unchanged. Only operations
- * on the disposable app may execute; Project resources are outside this trial.
- * This measures an edit task, not the separate design/build orchestration. */
-export function authoringTrialTools(
-	workspace: CanonicalMutationWorkspace,
-): ToolSet {
+/** Production grammar and durable private work, restricted to the disposable
+ * app. Project resources remain outside this bounded comparison. */
+export function authoringTrialTools(work: WorkArgs): ToolSet {
 	return Object.fromEntries(
 		Object.entries(solutionsArchitectToolDefinitions()).map(
 			([name, definition]) =>
@@ -28,8 +26,29 @@ export function authoringTrialTools(
 									input: unknown,
 									options: { toolCallId: string },
 								) => {
-									const entry: SharedToolRegistryEntry | undefined =
-										SHARED_TOOL_REGISTRY.find((entry) => entry.saName === name);
+									if (name === "getWork") {
+										WORK_TOOL_DEFINITIONS.getWork.inputSchema.parse(input);
+										return getWork(work);
+									}
+									if (name === "saveWork")
+										return saveWork({
+											...work,
+											requestId: options.toolCallId,
+											...WORK_TOOL_DEFINITIONS.saveWork.inputSchema.parse(
+												input,
+											),
+										});
+									if (name === "discardWork")
+										return discardWork({
+											...work,
+											requestId: options.toolCallId,
+											...WORK_TOOL_DEFINITIONS.discardWork.inputSchema.parse(
+												input,
+											),
+										});
+									const entry = SHARED_TOOL_REGISTRY.find(
+										(entry) => entry.saName === name,
+									);
 									if (
 										!entry ||
 										entry.policy.capabilities.some(
@@ -44,62 +63,18 @@ export function authoringTrialTools(
 											error:
 												"This local comparison can only read or edit its disposable app.",
 										};
-									return workspace.invoke({
-										toolName: name,
+									const outcome = await executeWorkTool({
+										...work,
 										requestId: options.toolCallId,
-										execute: async (ctx) => {
-											const outcome = await entry.tool.execute(
-												await prepareAuthoringInput({
-													toolName: name,
-													schema: entry.tool.inputSchema,
-													input,
-													ctx,
-												}),
-												ctx,
-											);
-											return outcome.kind === "read"
-												? projectAuthoringReadInContext(name, outcome.data, ctx)
-												: outcome.result;
-										},
+										toolName: name,
+										input,
 									});
+									return outcome.kind === "read"
+										? outcome.data
+										: outcome.result;
 								},
 							},
 						],
 		),
 	);
-}
-
-/** Repeated delivery of one call reuses its outcome in this process. Retain
- * failures too: an unknown commit outcome must never trigger a blind retry.
- * Production recovery needs the existing durable call ledger, not this map. */
-export function deduplicatePilotCalls<TOOLS extends ToolSet>(
-	tools: TOOLS,
-): TOOLS {
-	const calls = new Map<string, { signature: string; result: unknown }>();
-	return Object.fromEntries(
-		Object.entries(tools).map(([name, definition]) => {
-			const execute = definition.execute;
-			if (!execute) return [name, definition];
-			return [
-				name,
-				{
-					...definition,
-					execute: (input, options) => {
-						const signature = canonicalJsonText({ name, input });
-						const previous = calls.get(options.toolCallId);
-						if (previous) {
-							if (previous.signature !== signature)
-								throw new Error("A repeated tool call changed its input.");
-							return previous.result;
-						}
-						const result = Promise.resolve().then(() =>
-							execute(input, options),
-						);
-						calls.set(options.toolCallId, { signature, result });
-						return result;
-					},
-				} satisfies ToolSet[string],
-			];
-		}),
-	) as TOOLS;
 }

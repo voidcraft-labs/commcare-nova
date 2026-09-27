@@ -129,3 +129,19 @@ it("publishes only patterns that a regex engine other than JavaScript's can read
 		});
 	expect(refused).toEqual([]);
 });
+
+it("publishes an exact choice between saved and private read targets", () => {
+	const tool = listed.find((entry) => entry.name === "get_form");
+	if (!tool) throw new Error("get_form is missing");
+	const validate = new Ajv({
+		strict: false,
+		validateFormats: false,
+	}).compile(tool.inputSchema);
+	const address = { moduleUuid: "Intake", formUuid: "Patient intake" };
+	expect(validate({ ...address, app_id: "saved-app" })).toBe(true);
+	expect(validate({ ...address, work_id: "private-work" })).toBe(true);
+	expect(
+		validate({ ...address, app_id: "saved-app", work_id: "private-work" }),
+	).toBe(false);
+	expect(validate(address)).toBe(false);
+});

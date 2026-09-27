@@ -72,39 +72,29 @@ async function fixture() {
 		() => {},
 	);
 	await session.ensureWorkspace();
-	expect(
-		await session.shared(
+	for (const [toolName, input] of [
+		["createModule", { name: "Loans", case_type: "loan" }],
+		["createForm", { moduleUuid: "Loans", name: "Lend", type: "registration" }],
+		[
+			"addFields",
 			{
-				toolName: "createModule",
-				toolCallId: "loans",
-				input: {
-					name: "Loans",
-					case_type: "loan",
-					forms: [
-						{
-							name: "Lend",
-							type: "registration",
-							recordName: "#form/borrower",
-							fields: [
-								{
-									kind: "text",
-									id: "borrower",
-									label: "Borrower",
-									required: true,
-								},
-								{
-									kind: "label",
-									id: "confirmation",
-									label: "Confirm {{borrower}}",
-								},
-							],
-						},
-					],
-				},
+				formUuid: "Lend",
+				fields: [
+					{ kind: "text", id: "borrower", label: "Borrower", required: true },
+					{ kind: "label", id: "confirmation", label: "Confirm {{borrower}}" },
+				],
 			},
-			"architect",
-		),
-	).toMatchObject({ ok: true });
+		],
+		["updateForm", { formUuid: "Lend", recordName: "#form/borrower" }],
+	] as const) {
+		expect(
+			await session.shared(
+				{ toolName, input, toolCallId: `loans-${toolName}` },
+				"architect",
+			),
+		).toMatchObject({ ok: true });
+	}
+
 	return { session, authority, claim };
 }
 
@@ -277,9 +267,13 @@ it("recovers accepted batches across a replacement run, preserves references and
 					},
 				]),
 			});
-			expect(await session.saveWork("save-translated-app")).toMatchObject({
+			const revision = (await session.getWork()).revision;
+			if (!revision) throw new Error("Missing pending revision");
+			expect(
+				await session.saveWork("save-translated-app", revision),
+			).toMatchObject({
 				saved: true,
-				revision: 1,
+				savedRevision: 1,
 			});
 			const app = await loadApp(f.claim.proposedAppId);
 			expect(

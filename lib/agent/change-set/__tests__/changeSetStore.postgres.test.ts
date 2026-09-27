@@ -153,21 +153,24 @@ it("proves an unchanged private automation without reading an app and replays th
 	await workspace.stageDispatch({
 		toolName: "createModule",
 		requestId: "visits",
+		input: { name: "Visits", case_type: "visit" },
+	});
+	await workspace.stageDispatch({
+		toolName: "createForm",
+		requestId: "register",
+		input: { moduleUuid: "Visits", name: "Register", type: "registration" },
+	});
+	await workspace.stageDispatch({
+		toolName: "addFields",
+		requestId: "state",
 		input: {
-			name: "Visits",
-			case_type: "visit",
-			forms: [
+			formUuid: "Register",
+			fields: [
 				{
-					name: "Register",
-					type: "registration",
-					fields: [
-						{
-							kind: "text",
-							id: "state",
-							label: "State",
-							caseWrite: { caseType: "visit", property: "state" },
-						},
-					],
+					kind: "text",
+					id: "state",
+					label: "State",
+					caseWrite: { caseType: "visit", property: "state" },
 				},
 			],
 		},
@@ -225,13 +228,6 @@ it("replays a shared creation's exact identities after concurrent retries and re
 		requestId: "create",
 		input: {
 			name: "Intake",
-			forms: [
-				{
-					name: "Register",
-					type: "survey",
-					fields: [{ kind: "text", id: "name", label: "Name" }],
-				},
-			],
 		},
 	};
 	const results = await whileBlocked(

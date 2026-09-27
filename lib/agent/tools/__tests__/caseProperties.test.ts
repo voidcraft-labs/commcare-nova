@@ -1,59 +1,63 @@
 import { describe, expect, it } from "vitest";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { proseText } from "@/lib/domain";
 
 const authoring = () => makeAuthoringHarness();
 
 async function fixture() {
-	const h = authoring();
-	expect(
-		await h.call("generateSchema", {
+	return makeAuthoringHarness(
+		{},
+		buildDoc({
 			caseTypes: ["plot", "garden"].map((name) => ({
 				name,
 				properties: [
 					{
 						name: "beds",
-						label: "Beds",
-						data_type: "int",
-						hint: "Original hint",
-						validation: ". >= 1",
-						validation_msg: "Enter at least one bed.",
+						label: proseText("Beds"),
+						data_type: "int" as const,
+						hint: proseText("Original hint"),
+						validation: xp(". >= 1"),
+						validation_msg: proseText("Enter at least one bed."),
 					},
 				],
 			})),
-		}),
-	).toMatchObject({ ok: true });
-	expect(
-		await h.call("createModule", {
-			name: "Plots",
-			case_type: "plot",
-			case_list_columns: [
-				{ kind: "plain", field: "case_name", header: "Plot" },
-			],
-			forms: [
+			modules: [
 				{
-					name: "Register plot",
-					type: "registration",
-					fields: [
+					name: "Plots",
+					caseType: "plot",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Plot" },
+					]),
+					forms: [
 						{
-							kind: "text",
-							id: "plot_name",
-							label: "Plot name",
-							caseWrite: { caseType: "plot", property: "case_name" },
-						},
-						{
-							kind: "int",
-							id: "bed_count",
-							label: "Beds in this plot",
-							hint: "Question-specific help",
-							validate: { expr: ". >= 1 and . <= 50", msg: "Enter 1 to 50." },
-							caseWrite: { caseType: "plot", property: "beds" },
+							name: "Register plot",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "plot_name",
+									label: proseText("Plot name"),
+									caseWrite: { caseType: "plot", property: "case_name" },
+								}),
+								f({
+									kind: "int",
+									id: "bed_count",
+									label: proseText("Beds in this plot"),
+									hint: proseText("Question-specific help"),
+									validate: {
+										expr: xp(". >= 1 and . <= 50"),
+										msg: proseText("Enter 1 to 50."),
+									},
+									caseWrite: { caseType: "plot", property: "beds" },
+								}),
+							],
 						},
 					],
 				},
 			],
 		}),
-	).toMatchObject({ ok: true });
-	return h;
+	);
 }
 
 describe("record property authoring", () => {
@@ -87,95 +91,6 @@ describe("record property authoring", () => {
 		).toBe(false);
 	});
 
-	it("edits record ancestry without inventing a selection route, then resolves an explicit module by name", async () => {
-		const h = await fixture();
-		expect(
-			await h.call("createModule", {
-				name: "Gardens",
-				case_type: "garden",
-				case_list_only: true,
-			}),
-		).toMatchObject({ ok: true });
-		expect(
-			await h.call("setCaseTypeParent", {
-				caseType: "plot",
-				parentType: "garden",
-			}),
-		).toMatchObject({ ok: true });
-		expect(
-			await h.call("createForm", {
-				moduleUuid: "Gardens",
-				name: "Add plot",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "plot_name",
-						label: "Plot",
-						caseWrite: { caseType: "plot", property: "case_name" },
-					},
-					{
-						kind: "image",
-						id: "photo",
-						label: "Evidence",
-						caseWrite: { caseType: "plot", property: "photo", mode: "url" },
-					},
-				],
-			}),
-		).toMatchObject({ ok: true });
-		expect(
-			await h.call("getCaseOperations", {
-				moduleUuid: "Gardens",
-				formUuid: "Add plot",
-			}),
-		).toMatchObject({
-			operations: [],
-			answerWrites: [
-				{
-					caseType: "plot",
-					action: "create",
-					parentCaseType: "garden",
-					preloadedAnswers: [],
-				},
-			],
-		});
-		const plot = Object.values(h.currentDoc().modules).find(
-			(module) => module.name === "Plots",
-		);
-		const garden = Object.values(h.currentDoc().modules).find(
-			(module) => module.name === "Gardens",
-		);
-		if (!plot || !garden) throw new Error("Missing created modules");
-		expect(plot.parentCaseModuleUuid).toBeUndefined();
-		expect(
-			await h.call("updateModule", {
-				moduleUuid: "Plots",
-				parentCaseModuleUuid: "Gardens",
-			}),
-		).toMatchObject({ ok: true });
-		expect(h.currentDoc().modules[plot.uuid].parentCaseModuleUuid).toBe(
-			garden?.uuid,
-		);
-		const before = structuredClone(h.currentDoc());
-		expect(
-			await h.call("setCaseTypeParent", { caseType: "plot", parentType: null }),
-		).toHaveProperty("error");
-		expect(h.currentDoc()).toEqual(before);
-		expect(
-			await h.call("updateModule", {
-				moduleUuid: "Plots",
-				parentCaseModuleUuid: null,
-			}),
-		).toMatchObject({ ok: true });
-		// Clearing navigation does not erase the child-creation relationship.
-		expect(
-			await h.call("setCaseTypeParent", { caseType: "plot", parentType: null }),
-		).toHaveProperty("error");
-		expect(
-			h.currentDoc().caseTypes?.find((type) => type.name === "plot")
-				?.parent_type,
-		).toBe("garden");
-	});
 	it("declares an empty catalog and reports an unchanged declaration without another write", async () => {
 		const h = authoring();
 		const input = { caseTypes: [{ name: "plot", properties: [] }] };

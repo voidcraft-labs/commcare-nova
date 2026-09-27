@@ -1,6 +1,6 @@
 /** Private edits and canonical checkpoints over real Postgres.
  * Shared tools provide the authored writes; concurrent canonical changes exercise
- * the commit kernel's rebase and failure paths. No model responses are involved. */
+ * the commit kernel's stale-base and failure paths. No model responses are involved. */
 import { expect, it } from "vitest";
 import {
 	beginPlanReview,
@@ -155,31 +155,59 @@ async function visible(appId: string) {
 const create = {
 	toolName: "createModule",
 	requestId: "households",
-	input: {
-		name: "Households",
-		forms: [
-			{
-				name: "Household survey",
-				type: "survey",
-				fields: [
-					{
-						kind: "single_select",
-						id: "status",
-						label: "Status",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{ value: "active", label: "Active" },
-								{ value: "closed", label: "Closed" },
-							],
-						},
-					},
-					{ kind: "text", id: "notes", label: "Notes" },
-				],
-			},
-		],
-	},
+	input: { name: "Households" },
 };
+async function stageHousehold(
+	workspace: ChangeSetMutationWorkspace,
+	call: {
+		toolName: string;
+		requestId: string;
+		input: { name: string; moduleUuid?: string };
+	} = create,
+) {
+	const first = await workspace.stageDispatch(call);
+	const module = Object.values(workspace.currentSnapshot().doc.modules).find(
+		(m) => m.name === call.input.name,
+	);
+	if (!module) throw new Error("Missing staged module");
+	const form = await workspace.stageDispatch({
+		toolName: "createForm",
+		requestId: `${call.requestId}-form`,
+		input: {
+			moduleUuid: module.uuid,
+			name: "Household survey",
+			type: "survey",
+		},
+	});
+	expect(form.receipt?.disposition).toBe("staged");
+	const formUuid = workspace.currentSnapshot().doc.formOrder[module.uuid]?.[0];
+	if (!formUuid) throw new Error("Missing staged form");
+	const fields = await workspace.stageDispatch({
+		toolName: "addFields",
+		requestId: `${call.requestId}-fields`,
+		input: {
+			moduleUuid: module.uuid,
+			formUuid,
+			fields: [
+				{
+					kind: "single_select",
+					id: "status",
+					label: "Status",
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{ value: "active", label: "Active" },
+							{ value: "closed", label: "Closed" },
+						],
+					},
+				},
+				{ kind: "text", id: "notes", label: "Notes" },
+			],
+		},
+	});
+	expect(fields.receipt?.disposition).toBe("staged");
+	return first;
+}
 function statusField(workspace: ChangeSetMutationWorkspace) {
 	const field = Object.values(workspace.currentSnapshot().doc.fields).find(
 		(field) => field.id === "status",
@@ -192,7 +220,7 @@ function statusField(workspace: ChangeSetMutationWorkspace) {
 it("keeps private edits invisible, retains choice identities, and replays the exact semantic result after reopening", async () => {
 	const f = await fixture();
 	const before = await visible(f.app.appId);
-	const first = await f.workspace.stageDispatch(create);
+	const first = await stageHousehold(f.workspace);
 	expect(first.receipt?.disposition, JSON.stringify(first.result)).toBe(
 		"staged",
 	);
@@ -230,19 +258,19 @@ it("keeps private edits invisible, retains choice identities, and replays the ex
 		f.host,
 		f.changeSet.id,
 	);
-	const replay = await reopened.stageDispatch(create);
+	const replay = await stageHousehold(reopened);
 	expect(replay.replayed).toBe(true);
 	expect(replay.result).toEqual(first.result);
 	expect(replay.receipt).toEqual(first.receipt);
 	expect(reopened.currentSnapshot()).toEqual(f.workspace.currentSnapshot());
-	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(2);
+	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(4);
 });
 
 it("resynchronizes a stale continuation before replay, and refuses reuse of a call id with different input", async () => {
 	const f = await fixture();
 	const winner = await ChangeSetMutationWorkspace.open(f.host, f.changeSet.id);
-	const first = await winner.stageDispatch(create);
-	const replay = await f.workspace.stageDispatch(create);
+	const first = await stageHousehold(winner);
+	const replay = await stageHousehold(f.workspace);
 	expect(replay.result).toEqual(first.result);
 	expect(f.workspace.currentSnapshot()).toEqual(winner.currentSnapshot());
 	const hostile = JSON.parse('{"__proto__":{"changed":true}}');
@@ -252,7 +280,7 @@ it("resynchronizes a stale continuation before replay, and refuses reuse of a ca
 			input: { ...create.input, ...hostile },
 		}),
 	).rejects.toBeInstanceOf(ChangeSetRequestIdCollisionError);
-	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(1);
+	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(3);
 });
 
 it("rejects malformed inputs and external writes without changing private or canonical state", async () => {
@@ -279,7 +307,7 @@ it("rejects malformed inputs and external writes without changing private or can
 it("commits the complete workspace once and returns the same checkpoint on retry", async () => {
 	const f = await fixture();
 	const before = await visible(f.app.appId);
-	await f.workspace.stageDispatch(create);
+	await stageHousehold(f.workspace);
 	await f.workspace.stageDispatch({
 		toolName: "updateApp",
 		requestId: "title",
@@ -301,6 +329,9 @@ it("commits the complete workspace once and returns the same checkpoint on retry
 		committedSeq: result.receipt.seq,
 	});
 	expect(await f.commit()).toEqual({ ...result, replayed: true });
+	await expect(
+		f.commit(f.workspace.current().revision - 1),
+	).rejects.toMatchObject({ code: "WORKSPACE_REVISION_STALE" });
 	expect(await visible(f.app.appId)).toEqual(after);
 });
 
@@ -308,7 +339,7 @@ it.each(["replacement-holder", "revoked-membership"] as const)(
 	"rechecks authority on a committed replay after %s",
 	async (reason) => {
 		const f = await fixture();
-		await f.workspace.stageDispatch(create);
+		await stageHousehold(f.workspace);
 		expect((await f.commit()).kind).toBe("committed");
 		const before = await visible(f.app.appId);
 		if (reason === "replacement-holder")
@@ -330,24 +361,26 @@ it.each(["replacement-holder", "revoked-membership"] as const)(
 	},
 );
 
-it("rebases private edits over a newer canonical change without overwriting it", async () => {
+it("refuses an unrelated newer canonical revision and preserves the candidate", async () => {
 	const f = await fixture();
-	await f.workspace.stageDispatch(create);
+	await stageHousehold(f.workspace);
 	await f.concurrent([{ kind: "setAppName", name: "Concurrent title" }]);
 	const outcome = await f.commit();
-	expect(outcome.kind).toBe("committed");
+	expect(outcome.kind).toBe("stale-base");
 	const app = await loadApp(f.app.appId);
 	expect(app?.blueprint.appName).toBe("Concurrent title");
 	expect(
 		Object.values(app?.blueprint.modules ?? {}).some(
 			(module) => module.name === "Households",
 		),
-	).toBe(true);
+	).toBe(false);
+	expect((await loadChangeSet(f.changeSet.id))?.status).toBe("open");
+	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(3);
 });
 
 it("reports a removed target and preserves private work for repair", async () => {
 	const f = await fixture();
-	await f.workspace.stageDispatch(create);
+	await stageHousehold(f.workspace);
 	expect((await f.commit()).kind).toBe("committed");
 	const next = await f.open();
 	const field = statusField(next.workspace);
@@ -367,10 +400,7 @@ it("reports a removed target and preserves private work for repair", async () =>
 		expectedRevision: 1,
 	});
 	expect(result).toMatchObject({
-		kind: "rebase-conflict",
-		report: {
-			conflicts: [expect.objectContaining({ code: "TARGET_REMOVED" })],
-		},
+		kind: "stale-base",
 	});
 	expect(await visible(f.app.appId)).toEqual(before);
 	expect((await loadChangeSet(next.changeSet.id))?.status).toBe("open");
@@ -399,7 +429,7 @@ it("retains an invalid private candidate until repaired and refuses publication 
 		requestId: "remove-empty-workflow",
 		input: { moduleUuid: f.app.starter.moduleUuid },
 	});
-	await f.workspace.stageDispatch(create);
+	await stageHousehold(f.workspace);
 	expect((await f.commit()).kind).toBe("committed");
 });
 
@@ -497,7 +527,7 @@ it("rejects reuse of a removed private identity before staging and permits a fre
 	expect(replay.replayed).toBe(true);
 	expect(replay.result).toEqual(rejected.result);
 	const replacementUuid = crypto.randomUUID();
-	await workspace.stageDispatch({
+	await stageHousehold(workspace, {
 		...create,
 		requestId: "replace-households",
 		input: { ...create.input, moduleUuid: replacementUuid },
@@ -510,7 +540,7 @@ it("rejects reuse of a removed private identity before staging and permits a fre
 
 it("keeps translated content identical across private edits, reopening and checkpoint commit", async () => {
 	const f = await fixture();
-	await f.workspace.stageDispatch(create);
+	await stageHousehold(f.workspace);
 	const field = statusField(f.workspace);
 	const editHint = (requestId: string, hint: string | null) => ({
 		toolName: "editField",
@@ -557,4 +587,46 @@ it("keeps translated content identical across private edits, reopening and check
 	});
 	expect(outcome.kind).toBe("committed");
 	expect((await loadApp(f.app.appId))?.blueprint).toEqual(staged);
+});
+
+it("lets only one candidate revision win across concurrent durable continuations", async () => {
+	const f = await fixture();
+	const other = await ChangeSetMutationWorkspace.open(f.host, f.changeSet.id);
+	const before = await visible(f.app.appId);
+	const outcomes = await Promise.allSettled([
+		f.workspace.stageDispatch({
+			toolName: "updateApp",
+			requestId: "first",
+			input: { name: "First candidate" },
+		}),
+		other.stageDispatch({
+			toolName: "updateApp",
+			requestId: "second",
+			input: { name: "Second candidate" },
+		}),
+	]);
+	expect(
+		outcomes.filter((result) => result.status === "fulfilled"),
+	).toHaveLength(1);
+	const failure = outcomes.find((result) => result.status === "rejected");
+	expect(failure?.status === "rejected" && failure.reason).toMatchObject({
+		code: "WORKSPACE_REVISION_STALE",
+	});
+	expect(await loadChangeSetSteps(f.changeSet.id)).toHaveLength(1);
+	expect((await loadChangeSet(f.changeSet.id))?.revision).toBe(1);
+	expect(await visible(f.app.appId)).toEqual(before);
+});
+
+it("reauthorizes an accepted private receipt before replaying its result", async () => {
+	const f = await fixture();
+	await f.workspace.stageDispatch(create);
+	const steps = await loadChangeSetSteps(f.changeSet.id);
+	await h
+		.pool()
+		.query(
+			'DELETE FROM auth_member WHERE "userId"=$1 AND "organizationId"=$2',
+			[actor, project],
+		);
+	await expect(f.workspace.stageDispatch(create)).rejects.toThrow();
+	expect(await loadChangeSetSteps(f.changeSet.id)).toEqual(steps);
 });

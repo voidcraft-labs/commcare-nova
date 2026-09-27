@@ -20,7 +20,7 @@ Run `/mcp`, pick `nova` from the list, and complete the sign-in in the browser w
 
 If the sign-in window doesn't open, run `/mcp` again. If Claude Code later says you're not signed in anymore, run `/mcp`, pick `nova`, and choose Reauthenticate.
 
-Running Nova unattended, from CI, or from automated agents that can't stop for a browser? Set a `NOVA_API_KEY` in your environment instead and skip the sign-in entirely. See [API keys](../mcp/api-keys.mdx).
+Running Nova unattended, from CI, or from automated agents that can't stop for a browser? Set up a personal API-key connection to skip browser sign-in. See [API keys](../mcp/api-keys.mdx).
 
 ## Build your first app
 
@@ -33,6 +33,11 @@ Run `/nova:build` followed by a description of what you want:
 Claude builds the app and pauses to ask you a question whenever something in the spec is unclear. When it's done, it prints the new app's ID and a summary of what it built.
 
 If you'd rather Claude make every call itself without asking, use `/nova:autobuild` instead. The [Commands](./commands.mdx) page covers the difference and the rest of what you can do once you have apps in Nova.
+
+Claude builds and refines changes privately, then saves complete, valid progress.
+Your saved app stays usable while the next changes take shape. If work stops
+before a save, ask Claude to resume it; the last saved app remains unchanged.
+Saving an app, testing its workflow and uploading it to HQ are separate steps.
 
 ## Uploading to CommCare HQ
 

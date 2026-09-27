@@ -11,14 +11,17 @@ import { z } from "zod";
 import { captureModelRequests } from "@/lib/agent/anatomy/requestCapture";
 import { estimateTokens } from "@/lib/agent/anatomy/tokens";
 import {
+	beginWork,
+	discardWork,
+	getWork,
+	getWorkSnapshot,
+} from "@/lib/agent/authoring/session";
+import { buildWorkStateMessage } from "@/lib/agent/authoring/workMessages";
+import {
 	createModelCallTransport,
 	createNovaOpenAI,
 } from "@/lib/agent/openaiProvider";
-import {
-	buildAppStateMessage,
-	buildSolutionsArchitectPrompt,
-} from "@/lib/agent/prompts";
-import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
+import { buildSolutionsArchitectPrompt } from "@/lib/agent/prompts";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
@@ -29,8 +32,6 @@ import {
 	restoreApp,
 	softDeleteApp,
 } from "@/lib/db/apps";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { initMcpCall } from "@/lib/mcp/context";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import {
@@ -40,10 +41,7 @@ import {
 	standardPilotTransport,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
-import {
-	authoringTrialTools,
-	deduplicatePilotCalls,
-} from "./lib/authoringPilotTools";
+import { authoringTrialTools } from "./lib/authoringPilotTools";
 
 const ROLE = MODEL_ROLES.followUpEditor;
 const MODEL = ROLE.modelId;
@@ -103,6 +101,9 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 			"scripts/lib/authoringPilotScenario.ts",
 			"lib/agent/anatomy/requestCapture.ts",
 			"scripts/lib/authoringPilotTools.ts",
+			"lib/agent/authoring/session.ts",
+			"lib/agent/authoring/lifecycleTools.ts",
+			"lib/agent/authoring/workMessages.ts",
 			"lib/agent/authoring/toolSchema.ts",
 			"lib/agent/authoring/readableSchema.ts",
 			"lib/agent/authoring/input.ts",
@@ -163,23 +164,18 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 		const genesis = await prepareApp();
 		try {
 			await save("before.json", genesis.blueprint);
-			const { mcpCtx, logWriter } = initMcpCall(
-				{
-					userId: actor.id,
-					scopes: ["nova.read", "nova.write"],
-					authKind: "api-key",
-				},
-				genesis.appId,
+			const authority = {
+				actorUserId: actor.id,
+				host: { kind: "mcp" as const },
+			};
+			const opened = await beginWork({
+				...authority,
 				projectId,
-				"owner",
-				runId,
-				undefined,
-			);
-			const workspace = new CanonicalMutationWorkspace({
-				host: mcpCtx,
-				initialDoc: hydratePersistedBlueprint(genesis.blueprint),
-				baseSeq: genesis.baseSeq,
+				target: { appId: genesis.appId },
+				requestId: runId,
 			});
+			const work = { ...authority, workId: opened.workId };
+
 			const transport = createModelCallTransport();
 			let requests = 0;
 			let steps = 0;
@@ -245,7 +241,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 						: null,
 				});
 				const instructions = buildSolutionsArchitectPrompt();
-				const tools = deduplicatePilotCalls(authoringTrialTools(workspace));
+				const tools = authoringTrialTools(work);
 				await save("instructions.json", { instructions });
 				const definitions = await Promise.all(
 					Object.entries(tools).map(async ([name, definition]) => ({
@@ -266,7 +262,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 				await save("tokens.json", tokens);
 				if (dryRun) {
 					await save("dry-run.json", {
-						blueprint: workspace.currentSnapshot().doc,
+						blueprint: (await getWorkSnapshot(work)).doc,
 					});
 					console.log(JSON.stringify({ output, dryRun: true, tokens }));
 					return;
@@ -308,9 +304,7 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 						);
 					},
 				});
-				const initialState = buildAppStateMessage(
-					workspace.currentSnapshot().doc,
-				);
+				const initialState = buildWorkStateMessage(await getWork(work));
 				const result = await agent.generate({
 					messages: [
 						{ role: "user", content: task },
@@ -327,6 +321,8 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 					requests,
 					usage: result.usage,
 					blueprint: persisted?.blueprint,
+					privateWork: await getWork(work),
+					pendingBlueprint: (await getWorkSnapshot(work)).doc,
 					estimatedTotalSpentUsd: ledger.estimatedSpentUsd,
 				});
 				console.log(
@@ -342,12 +338,18 @@ The app is soft-deleted on exit. Private artifacts contain full model context.`)
 					message: error instanceof Error ? error.message : String(error),
 					steps,
 					requests,
-					blueprint: workspace.currentSnapshot().doc,
+					blueprint: (await getWorkSnapshot(work)).doc,
 				});
 				throw error;
 			} finally {
 				try {
-					await logWriter.flush();
+					const pending = await getWork(work);
+					if (pending.revision)
+						await discardWork({
+							...work,
+							expectedRevision: pending.revision,
+							requestId: `${runId}:cleanup`,
+						});
 				} finally {
 					await transport.destroy();
 				}

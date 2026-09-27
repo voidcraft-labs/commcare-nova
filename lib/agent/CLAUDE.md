@@ -17,8 +17,9 @@ changes are valid. CommCare wire details belong in `lib/commcare`.
 - `build/authoringSession.ts` supplies a private workspace during construction.
   `saveWork` creates the app from its first complete workflow, then commits later
   checkpoints through the same kernel. Read `change-set/CLAUDE.md` for authority,
-  receipts, rebase, and atomic publication.
-- `solutionsArchitect.ts` runs ordinary edit turns against an existing app.
+  receipts, strict base checks, and atomic publication.
+- `solutionsArchitect.ts` runs ordinary edit turns in durable private work for
+  an existing app.
   The chat route persists an unfinished-turn notice when its step limit stops
   after a tool, preserving completed changes without claiming completion.
   `workspace/` serializes the shared operations for this editor, private builds,
@@ -76,9 +77,12 @@ On creation, null and omission both mean absent. Whole-cluster replacement tools
 state that scope in their schema. Never accept invented filler to satisfy a
 schema, and never produce a rejection the available input grammar cannot fix.
 
-Structural creation is atomic. A module may include its forms, questions, and
-case-list columns; a form includes its questions. The whole call is prepared
-before validation. An invalid child rejects the call rather than silently
+Structural operations are focused: `createModule` creates a module,
+`createForm` creates an empty form, and `addFields` adds its questions. Record
+modules start with a Name column. Answer-dependent form rules follow question
+creation through `updateForm`. The whole call is prepared before admission;
+whole-app completeness is checked at save. An invalid child rejects the call
+rather than silently
 skipping it or returning an identity that did not land. Names resolve within the
 complete call scope; unresolved or ambiguous references refuse before mutation.
 
@@ -91,7 +95,8 @@ planners because they may affect existing data.
 
 Shared tool results report `ok`, created identities, relevant changed values,
 and actionable failures or confirmations. A success does not imply publication:
-private builds stage changes until `saveWork`. The UI-only `summary` is stripped
+the architect, ordinary editor and MCP all stage app changes until `saveWork`.
+The UI-only `summary` is stripped
 from both live and resumed model context and from MCP results. Do not append
 instructions to continue after every success. Saved values set aside by a
 migration travel as `dataReview`; automation writes report remaining setup,
@@ -170,3 +175,8 @@ recorded inspection, not chat copy. Transcript failures use the catalog's activi
 kind and an honest failure notice. Specific consequences belong in a typed result
 presenter, including unchanged, blocked and confirmation outcomes; do not display
 raw tool errors or ask the user to interpret internal identifiers.
+
+`askQuestions` accepts one to five questions. Only a schema-valid call without a
+tool error pauses a run for user input; invalid calls remain SDK errors that the
+agent can repair. An empty question round is never a completion signal, and a
+historical empty card must leave the ordinary composer available.

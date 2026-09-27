@@ -31,7 +31,7 @@ import type { ToolContext } from "../types";
  * result. The `stage: "app_deleted"` marker inside the
  * content JSON lets the model latch on to the life-cycle event without
  * having to infer it from the tool name alone — same pattern
- * `create_app` uses for `app_created`.
+ * lifecycle tools use for their receipts.
  */
 export function registerDeleteApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
