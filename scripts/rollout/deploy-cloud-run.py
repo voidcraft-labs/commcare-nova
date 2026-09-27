@@ -169,31 +169,29 @@ def _normalize_revision_name(service: dict[str, Any], value: str) -> str:
 def _traffic_target_revision(service: dict[str, Any], target: dict[str, Any]) -> str:
     allocation_type = target.get("type")
     revision = target.get("revision")
-    if (
-        allocation_type
-        in (
-            None,
-            "",
-            "TRAFFIC_TARGET_ALLOCATION_TYPE_UNSPECIFIED",
-            "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
-        )
-        and not revision
-    ):
-        latest = service.get("latestReadyRevision")
-        if not isinstance(latest, str) or not latest:
-            fail("LATEST traffic has no latest Ready revision.")
-        return latest
     if allocation_type not in (
         None,
         "",
         "TRAFFIC_TARGET_ALLOCATION_TYPE_UNSPECIFIED",
+        "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST",
         "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION",
     ):
         fail(
             f"Cloud Run returned an unknown traffic allocation type: {allocation_type!r}."
         )
-    if not isinstance(revision, str) or not revision:
-        fail("Explicit Cloud Run traffic omitted its revision.")
+    # A LATEST target in desired `traffic` names no revision and follows the
+    # latest Ready one. Observed `trafficStatuses` reports the same LATEST
+    # target together with the revision actually serving it, and that named
+    # revision is the fact the candidate checks need.
+    if revision is None or revision == "":
+        if allocation_type == "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION":
+            fail("Explicit Cloud Run traffic omitted its revision.")
+        latest = service.get("latestReadyRevision")
+        if not isinstance(latest, str) or not latest:
+            fail("LATEST traffic has no latest Ready revision.")
+        return latest
+    if not isinstance(revision, str):
+        fail("Cloud Run returned a traffic target whose revision is not a name.")
     return _normalize_revision_name(service, revision)
 
 
