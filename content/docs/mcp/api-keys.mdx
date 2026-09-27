@@ -29,49 +29,40 @@ OAuth's sign-in needs a person at a browser, and parallel tools sharing one OAut
 
 ## Use it with Claude Code
 
-The setup depends on whether you have the [Nova plugin](../claude-code/index.mdx) installed.
-
-### With the plugin
-
-The plugin reads `NOVA_API_KEY` from your environment. Set it to your key value and the plugin authenticates with it automatically, with no extra commands and no second server entry:
+Set `NOVA_API_KEY` to your key value in the environment that starts Claude Code:
 
 ```bash
 export NOVA_API_KEY="sk-nova-v1-YOUR_KEY_HERE"
 ```
 
-<Callout type="warn">
-Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value. Put the `export` line in your shell profile (`~/.zshrc`, `~/.bashrc`) so it's set every time Claude Code starts.
-</Callout>
+Replace the example value with your actual key. Then add a personal server configuration once:
 
-Leave `NOVA_API_KEY` unset to use browser sign-in instead: the plugin falls back to the OAuth flow on its own.
-
-<Callout type="warn">
-Stuck on *Needs authentication* even with a key set? If an earlier sign-in failed, Claude Code remembers that failed state and keeps skipping the connection, even once the key is valid. Clear it by deleting `~/.claude/mcp-needs-auth-cache.json`, then restart Claude Code. (The `/mcp` → Clear authentication option doesn't clear this one.)
-</Callout>
-
-### Without the plugin
-
-Add the server directly. Drop a config block in your project's `.mcp.json` or a user-scope file at `~/.claude.json`, with the full key value in the `Authorization` header:
-
-```json
-{
-  "mcpServers": {
-    "nova": {
-      "type": "http",
-      "url": "https://mcp.commcare.app/mcp",
-      "headers": {
-        "Authorization": "Bearer sk-nova-v1-YOUR_KEY_HERE"
-      }
-    }
-  }
-}
+```bash
+claude mcp add-json --scope user nova '{"type":"http","url":"https://mcp.commcare.app/mcp","headers":{"Authorization":"Bearer ${NOVA_API_KEY}"}}'
 ```
 
-<Callout type="warn">
-Replace `sk-nova-v1-YOUR_KEY_HERE` with your actual key value.
+The single quotes preserve the environment-variable reference, so the saved configuration contains no key value. Claude Code reads the key from the environment at startup. Keep it set for each unattended run.
+
+This works with or without the [Nova plugin](../claude-code/index.mdx). With the plugin installed, Claude Code uses your personal connection in place of the bundled connection to the same endpoint. The plugin's skills and autonomous agent support both connections.
+
+<Callout type="info">
+The plugin's bundled connection uses browser sign-in. Setting `NOVA_API_KEY` alone does not change it: Claude Code removes credential environment variables from plugin-provided header helpers. The personal configuration above uses Claude Code's supported [environment expansion](https://code.claude.com/docs/en/mcp#environment-variable-expansion-in-mcpjson) and [server precedence](https://code.claude.com/docs/en/mcp#scope-hierarchy-and-precedence).
 </Callout>
 
-To keep the key out of a committed file, set it in your environment and reference it as `"Bearer ${NOVA_API_KEY}"`, Claude Code fills it in at startup. The variable has to be set: if it's missing, Claude Code won't start the `nova` server and tells you which variable is unset (a hand-added entry like this has no OAuth fallback to catch you). Want browser sign-in instead? Omit the `Authorization` header entirely and Claude Code runs the OAuth flow.
+To return to browser sign-in with the plugin, remove your personal connection and restart Claude Code:
+
+```bash
+claude mcp remove --scope user nova
+```
+
+Without the plugin, replace the personal connection with one that has no `Authorization` header:
+
+```bash
+claude mcp remove --scope user nova
+claude mcp add --scope user --transport http nova https://mcp.commcare.app/mcp
+```
+
+Unsetting the key alone leaves the API-key connection configured. A missing or rejected key fails authentication rather than falling back to browser sign-in. Check that `NOVA_API_KEY` is set in the environment that starts Claude Code, then reconnect through `/mcp`.
 
 ## Scopes
 
