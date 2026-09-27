@@ -22,10 +22,13 @@ async function wireJsonSchema(schema: unknown): Promise<unknown> {
 }
 
 describe("Solutions Architect tool definitions", () => {
-	it("lists hosted discovery and questions before deferred shared tools", () => {
+	it("lists discovery, private-work lifecycle and questions before shared tools", () => {
 		const definitions = solutionsArchitectToolDefinitions();
 		expect(Object.keys(definitions)).toEqual([
 			"toolSearch",
+			"getWork",
+			"saveWork",
+			"discardWork",
 			"askQuestions",
 			...SHARED_TOOL_REGISTRY.map((entry) => entry.saName),
 		]);
