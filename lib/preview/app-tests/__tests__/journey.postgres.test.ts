@@ -4,6 +4,7 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
@@ -344,7 +345,25 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 });
 
 it("requires a saved role and parent selection, then executes additional operations before opening the next form", async () => {
-	const author = await makeDurableAuthoringHarness(h);
+	// This fixture exercises the saved journey, not private authoring persistence.
+	const author = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Households",
+				caseType: "household",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+			{
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [
+					{ name: "Inspect", type: "followup" },
+					{ name: "Receipt", type: "survey" },
+				],
+			},
+		]),
+	);
 	const write = async (name: string, input: unknown) =>
 		expect(await author.call(name, input)).toMatchObject({ ok: true });
 	await write("addUserProperties", {
@@ -364,22 +383,10 @@ it("requires a saved role and parent selection, then executes additional operati
 	await write("addPersonas", {
 		personas: [{ name: "Inspection worker", userTypeUuid: "Inspector" }],
 	});
-	await write("createModule", { name: "Households", case_type: "household" });
-	await write("createForm", {
-		moduleUuid: "Households",
-		name: "Visit",
-		type: "followup",
-	});
 	await write("addFields", {
 		formUuid: "Visit",
 		moduleUuid: "Households",
 		fields: [{ kind: "label", id: "intro", label: "Select this household" }],
-	});
-	await write("createModule", { name: "Equipment", case_type: "equipment" });
-	await write("createForm", {
-		moduleUuid: "Equipment",
-		name: "Inspect",
-		type: "followup",
 	});
 	await write("addFields", {
 		formUuid: "Inspect",
@@ -417,10 +424,9 @@ it("requires a saved role and parent selection, then executes additional operati
 		moduleUuid: "Households",
 		displayCondition: "#user/role_code = 'inspector'",
 	});
-	await write("createForm", {
+	await write("updateForm", {
 		moduleUuid: "Equipment",
-		name: "Receipt",
-		type: "survey",
+		formUuid: "Receipt",
 		post_submit: "previous",
 	});
 	await write("addFields", {
@@ -508,7 +514,18 @@ it("requires a saved role and parent selection, then executes additional operati
 			},
 		],
 	});
-	const doc = await author.currentDoc();
+	for (const [moduleUuid, formUuid] of [
+		["Households", "Visit"],
+		["Equipment", "Inspect"],
+		["Equipment", "Receipt"],
+	]) {
+		await write("removeField", {
+			moduleUuid,
+			formUuid,
+			fieldUuid: "fixture_placeholder",
+		});
+	}
+	const doc = author.currentDoc();
 	const worker = Object.values(doc.personas ?? {})[0];
 	const equipment = Object.values(doc.modules).find(
 		(module) => module.name === "Equipment",
