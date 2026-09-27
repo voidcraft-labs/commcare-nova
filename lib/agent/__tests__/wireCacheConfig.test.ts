@@ -44,7 +44,9 @@ interface CapturedBody {
 	}>;
 }
 
-async function captureEditTurns(): Promise<CapturedBody[]> {
+async function captureEditTurns(
+	invalidQuestionFirst = false,
+): Promise<CapturedBody[]> {
 	const bodies: CapturedBody[] = [];
 	await withResponsesPeer(
 		(request, response) => {
@@ -61,20 +63,35 @@ async function captureEditTurns(): Promise<CapturedBody[]> {
 						id: "resp_local",
 						created_at: 1,
 						model: MODEL_ROLES.followUpEditor.modelId,
-						output: [
-							{
-								type: "message",
-								role: "assistant",
-								id: "msg_local",
-								content: [
-									{
-										type: "output_text",
-										text: "Ready for your next edit.",
-										annotations: [],
-									},
-								],
-							},
-						],
+						output:
+							invalidQuestionFirst && bodies.length === 1
+								? [
+										{
+											type: "function_call",
+											id: "fc_empty",
+											call_id: "empty-question",
+											name: "askQuestions",
+											arguments: JSON.stringify({
+												header: "Workflow complete",
+												questions: [],
+											}),
+											status: "completed",
+										},
+									]
+								: [
+										{
+											type: "message",
+											role: "assistant",
+											id: "msg_local",
+											content: [
+												{
+													type: "output_text",
+													text: "Ready for your next edit.",
+													annotations: [],
+												},
+											],
+										},
+									],
 						usage: { input_tokens: 11, output_tokens: 7 },
 					}),
 				);
@@ -126,10 +143,13 @@ async function captureEditTurns(): Promise<CapturedBody[]> {
 						messages: [...markStablePrefixBoundary(history), appState],
 					});
 					expect(result.text).toBe("Ready for your next edit.");
+					expect(ctx.pausedOnInput()).toBe(false);
+					const steps =
+						invalidQuestionFirst && appName === "Clinic North" ? 2 : 1;
 					expect(usage.snapshot()).toMatchObject({
-						inputTokens: 11,
-						outputTokens: 7,
-						stepCount: 1,
+						inputTokens: 11 * steps,
+						outputTokens: 7 * steps,
+						stepCount: steps,
 					});
 				} finally {
 					await ctx.stopRunLeaseHeartbeat();
@@ -142,6 +162,22 @@ async function captureEditTurns(): Promise<CapturedBody[]> {
 }
 
 describe("actual SA edit-turn Responses wire", () => {
+	it("rejects an empty question round and lets the actual SDK repair it without pausing", async () => {
+		const bodies = await captureEditTurns(true);
+		expect(bodies).toHaveLength(3);
+		expect(
+			bodies[0].tools?.find((tool) => tool.name === "askQuestions")?.parameters,
+		).toMatchObject({
+			properties: { questions: { minItems: 1, maxItems: 5 } },
+		});
+		expect(bodies[1].input).toContainEqual(
+			expect.objectContaining({
+				type: "function_call_output",
+				call_id: "empty-question",
+			}),
+		);
+	});
+
 	it("sends stateless cache settings and real optional tool schemas with a stable prefix", async () => {
 		const bodies = await captureEditTurns();
 		expect(bodies).toHaveLength(2);

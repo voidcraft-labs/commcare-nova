@@ -118,6 +118,7 @@ import type {
 	RecordMutationsResult,
 } from "./toolExecutionContext";
 import { type SavedDataReview, savedDataReview } from "./toolResults";
+import { askQuestionsInputSchema } from "./tools/askQuestions";
 import type { CanonicalMutationHost } from "./workspace/canonicalHost";
 
 /**
@@ -1169,10 +1170,15 @@ export class GenerationContext
 		for (const tc of step.toolCalls ?? []) {
 			this.usage.noteToolCall();
 			/* `askQuestions` (the tool key in `solutionsArchitect.ts`'s tool set) has
-			 * no `execute` and halts the loop to await the user, so seeing it means
-			 * the run is PAUSING for input, not finishing — the signal the route needs
-			 * to mark the app `awaiting_input`. */
-			if (tc.toolName === "askQuestions") this._pausedOnInput = true;
+			 * no `execute` and halts for valid user questions. Invalid calls remain
+			 * repairable SDK errors and must not park the run awaiting an answer
+			 * the user cannot give. */
+			if (
+				tc.toolName === "askQuestions" &&
+				!step.toolErrors?.some((error) => error.toolCallId === tc.toolCallId) &&
+				askQuestionsInputSchema.safeParse(tc.input).success
+			)
+				this._pausedOnInput = true;
 			// Clarification questions are user-visible conversation history, not
 			// private design protocol payloads. Keep them inspectable even when
 			// stage/inspect/finalize calls from the same agent are suppressed.

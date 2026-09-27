@@ -175,3 +175,8 @@ recorded inspection, not chat copy. Transcript failures use the catalog's activi
 kind and an honest failure notice. Specific consequences belong in a typed result
 presenter, including unchanged, blocked and confirmation outcomes; do not display
 raw tool errors or ask the user to interpret internal identifiers.
+
+`askQuestions` accepts one to five questions. Only a schema-valid call without a
+tool error pauses a run for user input; invalid calls remain SDK errors that the
+agent can repair. An empty question round is never a completion signal, and a
+historical empty card must leave the ordinary composer available.
