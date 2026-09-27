@@ -70,6 +70,7 @@ import type {
 import { locationValueCatalogIssue } from "./valueCatalog";
 import {
 	assertExpectedOrganizationRevision,
+	authorizeOrganizationWriteInTransaction,
 	commitOrganizationChange,
 	type LockedOrganization,
 	lockOrganizationForWrite,
@@ -603,6 +604,66 @@ type OrganizationWriteResult =
 	| UpdateLocationResult
 	| SetArchivedResult;
 
+/** Restore the service-owned receipt. Every caller verifies its digest and
+ * reauthorizes before asking for these committed facts. */
+async function restoreOrganizationReceipt<R extends OrganizationWriteResult>(
+	tx: Transaction<AppDatabase>,
+	scope: OrganizationScope,
+	receipt: unknown,
+): Promise<R> {
+	// These are this writer's digest-verified bytes. Restore the two
+	// domain values JSON cannot retain: dates and a hydrated document.
+	const result = receipt as R;
+	if ("location" in result)
+		return {
+			...result,
+			location: {
+				...result.location,
+				archivedAt:
+					result.location.archivedAt === null
+						? null
+						: new Date(result.location.archivedAt),
+			},
+		};
+	if (result.blueprintChange)
+		return {
+			...result,
+			blueprintChange: {
+				seq: result.blueprintChange.seq,
+				batchId: result.blueprintChange.batchId,
+				mutations: admitMutationBatch([]),
+				committedDoc: await loadDocInTransaction(tx, scope.appId),
+			},
+		};
+	return result;
+}
+
+/** Recovery is a read of a committed receipt, never permission to retry a new
+ * effect while private work is pending. The caller binds this request identity
+ * to its original authored input in the ordinary session ledger. */
+export async function recoverOrganizationAuthoringReceipt(
+	scope: OrganizationScope,
+): Promise<OrganizationWriteResult | undefined> {
+	const requestId = scope.requestId;
+	if (!requestId) return undefined;
+	return withAppTx(async (tx) => {
+		await authorizeOrganizationWriteInTransaction(tx, scope, {
+			capability: "edit",
+			exclusiveApp: true,
+		});
+		const prior = await tx
+			.selectFrom("organization_authoring_receipts")
+			.select(["receipt_digest", "receipt"])
+			.where("app_id", "=", scope.appId)
+			.where("request_id", "=", requestId)
+			.executeTakeFirst();
+		if (!prior) return undefined;
+		if (prior.receipt_digest !== canonicalJsonDigest(prior.receipt))
+			throw new Error("The organization receipt no longer matches its digest.");
+		return restoreOrganizationReceipt(tx, scope, prior.receipt);
+	});
+}
+
 /** The domain write and its exact answer share the existing organization lock
  * and transaction. Replays reauthorize before reading their receipt. */
 async function withOrganizationWrite<R extends OrganizationWriteResult>(
@@ -644,30 +705,25 @@ async function withOrganizationWrite<R extends OrganizationWriteResult>(
 					throw new Error(
 						"The organization receipt no longer matches its digest.",
 					);
-				// These are this writer's digest-verified bytes. Restore the two
-				// domain values JSON cannot retain: dates and a hydrated document.
-				const result = prior.receipt as unknown as R;
-				if ("location" in result)
-					return {
-						...result,
-						location: {
-							...result.location,
-							archivedAt:
-								result.location.archivedAt === null
-									? null
-									: new Date(result.location.archivedAt),
-						},
-					};
-				if (result.blueprintChange)
-					return {
-						...result,
-						blueprintChange: {
-							mutations: admitMutationBatch([]),
-							committedDoc: await loadDocInTransaction(tx, scope.appId),
-						},
-					};
-				return result;
+				return restoreOrganizationReceipt<R>(tx, scope, prior.receipt);
 			}
+		}
+		if (scope.ordinaryAuthoring) {
+			const pending = await tx
+				.selectFrom("authoring_sessions")
+				.innerJoin(
+					"authoring_workspaces",
+					"authoring_workspaces.id",
+					"authoring_sessions.active_candidate_id",
+				)
+				.select("authoring_workspaces.next_ordinal")
+				.where("authoring_sessions.id", "=", scope.ordinaryAuthoring.sessionId)
+				.executeTakeFirst();
+			if (pending && BigInt(pending.next_ordinal) > BigInt(0))
+				throw new OrganizationError(
+					"conflict",
+					"Save the pending app changes before changing these records.",
+				);
 		}
 		assertExpectedOrganizationRevision(locked, expectedRevision);
 		const result = await write(tx, locked);
@@ -676,7 +732,14 @@ async function withOrganizationWrite<R extends OrganizationWriteResult>(
 			// refreshes the caller's document and emits no old mutations.
 			const persisted =
 				"blueprintChange" in result && result.blueprintChange
-					? { ...result, blueprintChange: { committed: true } }
+					? {
+							...result,
+							blueprintChange: {
+								committed: true,
+								seq: result.blueprintChange.seq,
+								batchId: result.blueprintChange.batchId,
+							},
+						}
 					: result;
 			const json = JSON.stringify(persisted);
 			await tx
@@ -1463,6 +1526,8 @@ export interface SetArchivedResult {
 	/** Present when the archive also committed persona mutations. Shared tools
 	 * adopt this exact fresh-store result instead of continuing on a stale doc. */
 	readonly blueprintChange?: {
+		readonly seq: number;
+		readonly batchId: string;
 		readonly mutations: AdmittedMutationBatch;
 		readonly committedDoc: BlueprintDoc;
 	};
@@ -1603,9 +1668,10 @@ export async function setLocationArchived(
 						const admittedMutations = admitMutationBatch(plan.mutations);
 						const chatRunHolder = scope.chatRunHolder;
 						const changeSource = scope.changeSource;
+						const batchId = randomUUID();
 						const committed = await commitGuardedBatchInTransaction(tx, {
 							appId: scope.appId,
-							batchId: randomUUID(),
+							batchId,
 							...(changeSource?.kind === "chat" && chatRunHolder !== undefined
 								? {
 										kind: "chat" as const,
@@ -1620,6 +1686,8 @@ export async function setLocationArchived(
 							expectedProjectId: scope.projectId,
 						});
 						blueprintChange = {
+							seq: committed.seq,
+							batchId,
 							mutations: admittedMutations,
 							committedDoc: committed.committedDoc,
 						};

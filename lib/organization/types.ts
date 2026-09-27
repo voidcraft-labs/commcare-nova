@@ -4,6 +4,7 @@
 // client surfaces can bind against them without pulling the server-only
 // service into a bundle.
 
+import type { OrdinaryAuthoringAuthority } from "@/lib/db/authoringAuthority";
 import type { Uuid } from "@/lib/domain";
 
 /**
@@ -24,6 +25,7 @@ export interface OrganizationScope {
 	/** Server-owned tool invocation identity, stable across process recovery. */
 	readonly requestId?: string;
 	readonly authoringSessionId?: string;
+	readonly ordinaryAuthoring?: OrdinaryAuthoringAuthority;
 	readonly appId: string;
 	readonly projectId: string;
 	readonly role: string;

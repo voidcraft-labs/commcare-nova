@@ -225,46 +225,9 @@ async function prepareInput<S extends z.ZodType>(args: {
 	if (toolName === "createModule")
 		root.moduleUuid = uuidSchema.parse(input.moduleUuid);
 
-	function prepareForm(
-		form: Input,
-		path: AuthoringPath,
-		caseType: string | undefined,
-	) {
-		const uuid = uuidSchema.parse(form.formUuid);
-		const prepared = prepareFormNames({
-			doc,
-			formUuid: uuid,
-			fields: z.array(z.unknown()).parse(form.fields),
-		});
-		form.fields = prepared.fields;
-		scopes.push({
-			path,
-			options: {
-				...root,
-				formUuid: uuid,
-				fields: prepared.names,
-				currentCaseType:
-					form.type === "followup" || form.type === "close"
-						? caseType
-						: undefined,
-			},
-		});
-	}
 	if (toolName === "createModule") {
-		const caseType = z.string().nullish().parse(input.case_type) ?? undefined;
-		root.currentCaseType = caseType;
-		if (input.forms != null) {
-			const forms = records.parse(input.forms);
-			for (const [index, form] of forms.entries())
-				prepareForm(form, ["forms", index], caseType);
-			input.forms = forms;
-		}
-	} else if (toolName === "createForm") {
-		prepareForm(
-			input,
-			[],
-			moduleUuid ? doc.modules[moduleUuid]?.caseType : undefined,
-		);
+		root.currentCaseType =
+			z.string().nullish().parse(input.case_type) ?? undefined;
 	} else if (toolName === "addFields") {
 		if (!formUuid)
 			throw new AuthoringInputError(

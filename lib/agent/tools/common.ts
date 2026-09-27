@@ -137,7 +137,13 @@ export function requireInvocationAppId(ctx: ToolInvocationContext): string {
  * `ctx.adoptAuthoritativeSnapshot`, never by nominating a document in its
  * result.
  */
+export interface AuthoritativeCheckpoint {
+	readonly seq: number;
+	readonly batchId: string;
+}
+
 export interface MutatingToolResult<R> {
+	authoritativeCheckpoint?: AuthoritativeCheckpoint;
 	kind: "mutate";
 	mutations:
 		| AdmittedMutationBatch
@@ -155,6 +161,7 @@ export interface MutatingToolResult<R> {
  * two consumers (chat factory, MCP adapter).
  */
 export interface ReadToolResult<R> {
+	authoritativeCheckpoint?: AuthoritativeCheckpoint;
 	kind: "read";
 	data: R;
 }

@@ -3,6 +3,7 @@ import "server-only";
 import { sql, type Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
+import { assertAuthoringSessionAuthorityInTransaction } from "@/lib/db/authoringSessions";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
@@ -44,7 +45,7 @@ export interface LockedOrganization {
 	readonly locationCount: number;
 }
 
-export async function lockOrganizationForWrite(
+export async function authorizeOrganizationWriteInTransaction(
 	tx: Transaction<AppDatabase>,
 	scope: OrganizationScope,
 	options: {
@@ -52,9 +53,10 @@ export async function lockOrganizationForWrite(
 		/** `true` when this transaction will also commit a blueprint batch. */
 		readonly exclusiveApp?: boolean;
 	},
-): Promise<LockedOrganization> {
+): Promise<void> {
 	const app = await (options.exclusiveApp === true ||
-	scope.authoringSessionId !== undefined
+	scope.authoringSessionId !== undefined ||
+	scope.ordinaryAuthoring !== undefined
 		? tx
 				.selectFrom("apps")
 				.select(["project_id", "deleted_at", ...LEASE_COLUMNS])
@@ -88,6 +90,24 @@ export async function lockOrganizationForWrite(
 			"not_found",
 			"This app's organization isn't available. It may have been deleted or moved to another project — reload to get the latest state.",
 		);
+	}
+
+	if (scope.ordinaryAuthoring) {
+		const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
+			sessionId: scope.ordinaryAuthoring.sessionId,
+			actorUserId: scope.actorUserId,
+			expectedProjectId: scope.projectId,
+			origin: scope.ordinaryAuthoring.origin,
+			threadId:
+				scope.ordinaryAuthoring.origin === "chat"
+					? scope.ordinaryAuthoring.threadId
+					: undefined,
+			chatRunHolder: scope.chatRunHolder,
+		});
+		if (session.appId !== scope.appId)
+			throw new CommitReauthError(
+				"This work does not own the app's organization.",
+			);
 	}
 
 	// Re-authorize against the FRESHLY LOCKED Project rather than trusting the
@@ -138,7 +158,17 @@ export async function lockOrganizationForWrite(
 			throw new RunHolderLostError("released");
 		await lockPlanForBuild(tx, scope.authoringSessionId);
 	}
+}
 
+export async function lockOrganizationForWrite(
+	tx: Transaction<AppDatabase>,
+	scope: OrganizationScope,
+	options: {
+		readonly capability: AppCapability;
+		readonly exclusiveApp?: boolean;
+	},
+): Promise<LockedOrganization> {
+	await authorizeOrganizationWriteInTransaction(tx, scope, options);
 	await tx
 		.insertInto("app_organization_state")
 		.values({ app_id: scope.appId })

@@ -147,25 +147,48 @@ it.each([
 					input: {
 						name: "Loans",
 						case_type: "loan",
-						forms: [
+					},
+				},
+			],
+			[
+				{
+					type: "tool",
+					name: "createForm",
+					callId: "lend",
+					input: { moduleUuid: "Loans", name: "Lend", type: "registration" },
+				},
+			],
+			[
+				{
+					type: "tool",
+					name: "addFields",
+					callId: "loan-fields",
+					input: {
+						formUuid: "Lend",
+						fields: [
 							{
-								name: "Lend",
-								type: "registration",
-								recordName: "concat(#form/borrower, ' - ', #form/tool)",
-								fields: [
-									{
-										kind: "text",
-										id: "borrower",
-										label: "Borrower",
-										required: true,
-									},
-									{ kind: "text", id: "tool", label: "Tool", required: true },
-								],
+								kind: "text",
+								id: "borrower",
+								label: "Borrower",
+								required: true,
 							},
+							{ kind: "text", id: "tool", label: "Tool", required: true },
 						],
 					},
 				},
 			],
+			[
+				{
+					type: "tool",
+					name: "updateForm",
+					callId: "loan-name",
+					input: {
+						formUuid: "Lend",
+						recordName: "concat(#form/borrower, ' - ', #form/tool)",
+					},
+				},
+			],
+			[{ type: "tool", name: "getWork", callId: "before-save", input: {} }],
 			[{ type: "tool", name: "saveWork", callId: "save", input: {} }],
 			...(interruption === "question-after-save" ? [[question]] : []),
 			...(recoveredEmptyWorkspace
@@ -286,8 +309,22 @@ it.each([
 						const next = script[index];
 						if (!next) throw new Error(`Unexpected provider call ${index}`);
 						for (const part of next) {
-							if (part.type !== "tool" || part.callId !== "peer-finish")
+							if (part.type !== "tool") continue;
+							if (part.callId === "save") {
+								const receipt = requests
+									.at(-1)
+									?.input?.find(
+										(item) =>
+											item.type === "function_call_output" &&
+											item.call_id === "before-save",
+									);
+								part.input = {
+									expectedRevision: JSON.parse(String(receipt?.output))
+										.revision,
+								};
 								continue;
+							}
+							if (part.callId !== "peer-finish") continue;
 							const receipt = requests
 								.at(-1)
 								?.input?.find(

@@ -1,5 +1,10 @@
 import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
+import { assertAuthoringSessionAuthorityInTransaction } from "./authoringSessions";
 import { assertDesignSessionRunAuthorityInTransaction } from "./designSessions";
+import {
+	type MigrationOutcome,
+	migrationOutcomeSchema,
+} from "./migrationOutcome";
 import { safePersistedSequence } from "./persistedJson";
 /**
  * Canonical commit sidecars — the closed, typed SQL-only operations a
@@ -45,11 +50,13 @@ export type CanonicalCommitSidecar =
 			/** Receipt-row identity, minted by the caller OUTSIDE the retryable
 			 * transaction so a retry reuses it. */
 			readonly receiptId: string;
-			readonly designSessionId: string;
-			readonly planRevision: number;
+			readonly designSessionId: string | null;
+			readonly planRevision: number | null;
+			readonly authoringSessionId?: string | null;
+			readonly baseSeq?: number | null;
 			readonly actorUserId: string;
 			readonly runId: string;
-			readonly holderNonce: string;
+			readonly holderNonce?: string;
 			readonly projectId: string;
 			readonly mutationCount: number;
 	  }
@@ -85,6 +92,7 @@ export async function executeCanonicalCommitSidecars(
 		readonly batchId: string;
 		/** The exact persistable candidate the kernel is committing. */
 		readonly committedSnapshot: unknown;
+		readonly migration?: MigrationOutcome;
 		readonly sidecars: readonly CanonicalCommitSidecar[];
 	},
 ): Promise<void> {
@@ -109,6 +117,7 @@ async function commitDesignLocalizationSidecar(
 		readonly seq: number;
 		readonly batchId: string;
 		readonly committedSnapshot: unknown;
+		readonly migration?: MigrationOutcome;
 	},
 	sidecar: Extract<
 		CanonicalCommitSidecar,
@@ -189,19 +198,54 @@ async function commitDesignChangeSetSidecar(
 		readonly seq: number;
 		readonly batchId: string;
 		readonly committedSnapshot: unknown;
+		readonly migration?: MigrationOutcome;
 	},
 	sidecar: Extract<
 		CanonicalCommitSidecar,
 		{ kind: "commit-authoring-workspace" }
 	>,
 ): Promise<void> {
-	await assertDesignSessionRunAuthorityInTransaction(tx, {
-		designSessionId: sidecar.designSessionId,
-		actorUserId: sidecar.actorUserId,
-		expectedProjectId: sidecar.projectId,
-		holder: { mode: "build", runId: sidecar.runId, nonce: sidecar.holderNonce },
-	});
-	await lockPlanForBuild(tx, sidecar.designSessionId, sidecar.planRevision);
+	if (sidecar.authoringSessionId) {
+		const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
+			sessionId: sidecar.authoringSessionId,
+			actorUserId: sidecar.actorUserId,
+			expectedProjectId: sidecar.projectId,
+			...(sidecar.holderNonce
+				? {
+						chatRunHolder: {
+							source: "chat" as const,
+							mode: "edit" as const,
+							runId: sidecar.runId,
+							nonce: sidecar.holderNonce,
+						},
+					}
+				: {}),
+		});
+		if (session.activeCandidateId !== sidecar.changeSetId)
+			throw new CanonicalCommitSidecarError(
+				"This candidate is no longer the current private work.",
+			);
+	} else {
+		if (
+			!sidecar.designSessionId ||
+			sidecar.planRevision === null ||
+			!sidecar.holderNonce
+		)
+			throw new CanonicalCommitSidecarError(
+				"The reviewed build authority is unavailable.",
+			);
+		await assertDesignSessionRunAuthorityInTransaction(tx, {
+			designSessionId: sidecar.designSessionId,
+			actorUserId: sidecar.actorUserId,
+			expectedProjectId: sidecar.projectId,
+			holder: {
+				mode: "build",
+				runId: sidecar.runId,
+				nonce: sidecar.holderNonce,
+			},
+		});
+		await lockPlanForBuild(tx, sidecar.designSessionId, sidecar.planRevision);
+	}
 	const row = await tx
 		.selectFrom("authoring_workspaces")
 		.selectAll()
@@ -215,10 +259,18 @@ async function commitDesignChangeSetSidecar(
 		safePersistedSequence(row.revision, "workspace revision") !==
 			sidecar.expectedRevision ||
 		row.design_session_id !== sidecar.designSessionId ||
-		safePersistedSequence(row.plan_revision, "workspace plan revision") !==
+		(row.plan_revision === null
+			? null
+			: safePersistedSequence(row.plan_revision, "workspace plan revision")) !==
 			sidecar.planRevision ||
 		row.owner_user_id !== sidecar.actorUserId ||
-		row.owner_run_id !== sidecar.runId ||
+		(sidecar.authoringSessionId == null &&
+			row.owner_run_id !== sidecar.runId) ||
+		row.authoring_session_id !== (sidecar.authoringSessionId ?? null) ||
+		(row.kind === "app-edit" &&
+			(row.base_seq === null ||
+				safePersistedSequence(row.base_seq, "workspace base") + 1 !==
+					commit.seq)) ||
 		row.base_project_id !== sidecar.projectId
 	)
 		throw new CanonicalCommitSidecarError(
@@ -236,11 +288,21 @@ async function commitDesignChangeSetSidecar(
 		})
 		.where("id", "=", row.id)
 		.execute();
+	if (sidecar.authoringSessionId) {
+		await tx
+			.updateTable("authoring_sessions")
+			.set({ active_candidate_id: null, updated_at: new Date() })
+			.where("id", "=", sidecar.authoringSessionId)
+			.where("active_candidate_id", "=", row.id)
+			.execute();
+	}
+
 	await tx
 		.insertInto("authoring_checkpoints")
 		.values({
 			id: sidecar.receiptId,
 			design_session_id: sidecar.designSessionId,
+			authoring_session_id: sidecar.authoringSessionId ?? null,
 			request_id: sidecar.requestId,
 			plan_revision: sidecar.planRevision,
 			change_set_id: sidecar.changeSetId,
@@ -249,6 +311,10 @@ async function commitDesignChangeSetSidecar(
 			batch_id: commit.batchId,
 			committed_snapshot_digest: digest,
 			mutation_count: sidecar.mutationCount,
+			migration_report:
+				commit.migration === undefined
+					? null
+					: JSON.stringify(migrationOutcomeSchema.parse(commit.migration)),
 		})
 		.execute();
 }

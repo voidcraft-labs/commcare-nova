@@ -126,8 +126,6 @@ export function bindNamedIdentity(args: {
 				),
 				(item) => [item.name],
 			);
-			if (toolName === "createModule")
-				candidates.push(...declarations(input.forms, "formUuid", "name"));
 			if (toolName === "createForm")
 				candidates.push(...declarations([input], "formUuid", "name"));
 			break;
@@ -164,7 +162,7 @@ export function bindNamedIdentity(args: {
 			]);
 			if (["configureCaseList", "addCaseListColumns"].includes(toolName))
 				candidates.push(...declarations(input.columns, "columnUuid", "header"));
-			if (["createModule", "updateModule"].includes(toolName))
+			if (toolName === "updateModule")
 				candidates.push(
 					...declarations(input.case_list_columns, "columnUuid", "header"),
 				);

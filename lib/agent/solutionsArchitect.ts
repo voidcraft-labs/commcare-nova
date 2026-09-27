@@ -1,6 +1,6 @@
 /** The editor's ToolLoopAgent. Shared tools accept authored values, which are
- * bound inside the authorized canonical workspace before validation and commit.
- * The workspace serializes calls and adopts committed or reloaded state. The
+ * bound inside the authorized private workspace before staging and publication.
+ * The workspace serializes calls and preserves pending edits across turns. The
  * route owns run finalization; new-app design and construction live in build/.
  */
 
@@ -13,6 +13,7 @@ import {
 import type { ZodType } from "zod";
 import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
+import { AuthoringAuthorityError } from "@/lib/db/authoringSessions";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -20,11 +21,15 @@ import {
 	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import type { BlueprintDoc } from "@/lib/domain";
 import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
+import type { ChatWork } from "./authoring/chatWork";
 import { AuthoringInputError, ReadProjectionError } from "./authoring/errors";
-import { runSharedToolCall } from "./authoring/sharedToolCall";
+import { WORK_TOOL_DEFINITIONS } from "./authoring/lifecycleTools";
 import { authoringToolSchema } from "./authoring/toolSchema";
+import {
+	ChangeSetStagingRejectedError,
+	ChangeSetWorkspaceRevisionStaleError,
+} from "./change-set/errors";
 import type { GenerationContext } from "./generationContext";
 import { novaOpenAITools } from "./openaiProvider";
 import { buildSolutionsArchitectPrompt } from "./prompts";
@@ -32,10 +37,9 @@ import {
 	SHARED_TOOL_REGISTRY,
 	type SharedToolRegistryEntry,
 } from "./sharedToolRegistry";
-import { withoutToolPresentation, withSavedDataReview } from "./toolResults";
+import { withoutToolPresentation } from "./toolResults";
 import { askQuestionsTool } from "./tools/askQuestions";
 import { wireToolSchema } from "./wireSchemas";
-import { CanonicalMutationWorkspace } from "./workspace/canonicalWorkspace";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -57,7 +61,7 @@ function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
 export const SOLUTIONS_ARCHITECT_MAX_STEPS = 80;
 
 export const EDIT_TURN_LIMIT_MESSAGE =
-	"This editing turn reached its limit before I could finish. Completed changes are saved. I can continue from here.";
+	"This editing turn reached its limit before I could finish. Saved checkpoints are safe and pending changes are preserved. I can continue from here.";
 
 /** Provider 5xx / 429 at request establishment retries with the SDK's
  * exponential backoff — 5 attempts (~30s of patience) instead of the
@@ -72,6 +76,18 @@ export const SOLUTIONS_ARCHITECT_MAX_RETRIES = 4;
 export function solutionsArchitectToolDefinitions(): ToolSet {
 	return {
 		toolSearch: novaOpenAITools.toolSearch(),
+		getWork: {
+			...WORK_TOOL_DEFINITIONS.getWork,
+			providerOptions: { openai: { deferLoading: true } },
+		},
+		saveWork: {
+			...WORK_TOOL_DEFINITIONS.saveWork,
+			providerOptions: { openai: { deferLoading: true } },
+		},
+		discardWork: {
+			...WORK_TOOL_DEFINITIONS.discardWork,
+			providerOptions: { openai: { deferLoading: true } },
+		},
 		askQuestions: {
 			description: askQuestionsTool.description,
 			inputSchema: wire(askQuestionsTool.inputSchema),
@@ -98,48 +114,12 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
 	};
 }
 
-/**
- * Create the Solutions Architect agent — the direct canonical EDIT executor.
- * A chat BUILD never mounts it: the design pipeline's orchestrator and slice
- * executor (`lib/agent/build/`) own new-app construction, so the SA always
- * runs the edit prompt over an app's current persisted state (the blueprint
- * summary arrives as a per-turn message the route appends).
- *
- * @param initialDoc - The workspace's starting `BlueprintDoc`: the app's
- *   current state loaded from Postgres.
- * @param initialCanonicalSeq - Revision from the same authorized snapshot.
- *   Read-only journey tests must work before the editor makes any change.
- */
+/** The ordinary editor stages private changes in the thread's durable work.
+ * Only saveWork publishes a fully valid checkpoint to the app. */
 export function createSolutionsArchitect(
 	ctx: GenerationContext,
-	initialDoc: BlueprintDoc,
-	initialCanonicalSeq: number,
+	work: ChatWork,
 ) {
-	/* The workspace owns the current document and the invocation order.
-	 *
-	 * The AI SDK invokes parallel `tool_use` blocks from one assistant turn
-	 * concurrently via `Promise.all(toolCalls.map(...))`. `workspace.invoke`
-	 * allocates each invocation's ordinal SYNCHRONOUSLY at entry — before any
-	 * await — and runs bodies strictly in that order, so every body observes
-	 * the doc as left by the previous one, and each commit builds on the last
-	 * (the data-loss race the retired closure doc suffered is structurally
-	 * gone). The ordinal captures DISPATCH order: bodies provably start in
-	 * the order `invoke` was called (`canonicalWorkspace.ts` throws on an
-	 * out-of-order start), but whether dispatch order matches MODEL-EMIT
-	 * order still depends on the SDK calling each tool's `execute` without
-	 * per-branch awaits upstream of this wrapper — the same boundary caveat
-	 * as before. A lifecycle hook that awaits per branch can reorder
-	 * SIBLING calls' dispatch (a dependent parent lookup then misses — a
-	 * visible tool error, never a corrupted document), which is why
-	 * ordering-dependent creation rides single batched calls. Each commit
-	 * adopts the writer's committed doc; an authoritative conflict adopts
-	 * one fresh authorized snapshot via the host's reload. */
-	const workspace = new CanonicalMutationWorkspace({
-		host: ctx,
-		initialDoc,
-		baseSeq: initialCanonicalSeq,
-	});
-
 	/**
 	 * Fence all work after an authoritative scope failure. A guarded commit or
 	 * conflict-reload check stores the exact thrown object on GenerationContext
@@ -168,7 +148,11 @@ export function createSolutionsArchitect(
 	 * the working document. This makes it impossible to add, remove, rename, or
 	 * replace a shared tool on only one surface.
 	 */
-	function wrapShared(entry: SharedToolRegistryEntry) {
+	function wrapShared(
+		entry:
+			| Pick<SharedToolRegistryEntry, "saName">
+			| { saName: "getWork" | "saveWork" | "discardWork" },
+	) {
 		const { saName } = entry;
 		const definition = definitions[saName];
 		if (definition === undefined) {
@@ -180,64 +164,29 @@ export function createSolutionsArchitect(
 			...definition,
 			execute: async (input: unknown, options?: ToolCallOptionsLike) => {
 				try {
-					return await workspace.invoke({
-						toolName: saName,
-						...(options?.toolCallId !== undefined && {
-							requestId: options.toolCallId,
-						}),
-						execute: async (invocationCtx) => {
-							throwIfTerminalRunError();
-							try {
-								const outcome = await runSharedToolCall(
-									entry,
-									input,
-									invocationCtx,
-								);
-								switch (outcome.kind) {
-									case "read":
-										return outcome.data;
-									case "mutate":
-										return withSavedDataReview(
-											outcome.result,
-											ctx.consumeSavedDataReview(),
-										);
-								}
-							} catch (err) {
-								/* Read-shaped tools can still own external side effects
-								 * (currently media deletion). Preserve every authoritative
-								 * fence as the same terminal latch a guarded blueprint
-								 * commit sets. (A commit-path terminal error was already
-								 * latched by the host; the `??=` latches make this
-								 * idempotent.) */
-								if (err instanceof RunHolderLostError) {
-									ctx.latchRunHolderLost(err);
-								} else if (err instanceof MutationBatchIdCollisionError) {
-									// A reused batch id is our protocol failure. Latching ends the
-									// run: a bare throw becomes a `tool-error` part, which the model
-									// reads as retryable and answers by calling again with a fresh
-									// server-minted id — the exact loop this exists to stop.
-									ctx.latchBatchIdCollision(err);
-								} else if (
-									err instanceof CommitReauthError ||
-									err instanceof AppProjectChangedError
-								) {
-									ctx.latchTerminalScopeError(err);
-								}
-								throw err;
-							}
-						},
-					});
+					throwIfTerminalRunError();
+					if (!options?.toolCallId)
+						throw new Error(
+							"An authoring call needs its stable tool-call identity.",
+						);
+					return await work.invoke(saName, input, options.toolCallId);
 				} catch (err) {
-					/* A RETRYABLE conflict — a peer deleted/changed what this tool
-					 * targeted between its snapshot and the commit. The WORKSPACE
-					 * already adopted one fresh authorized snapshot (through the
-					 * host's reload, whose Project must still match the run's
-					 * admitted scope), so the next tool builds on current server
-					 * state; here the failure surfaces to the SA as the standard
-					 * `{ error }` envelope. Terminal signals — lost access, moved
-					 * Project, lost holder, batch-id collision — are NOT caught:
-					 * they propagate (latched above) and fail the run. */
+					if (err instanceof AuthoringAuthorityError)
+						ctx.latchTerminalScopeError(new CommitReauthError(err.message));
+					else if (err instanceof RunHolderLostError)
+						ctx.latchRunHolderLost(err);
+					else if (err instanceof MutationBatchIdCollisionError)
+						ctx.latchBatchIdCollision(err);
+					else if (
+						err instanceof CommitReauthError ||
+						err instanceof AppProjectChangedError
+					)
+						ctx.latchTerminalScopeError(err);
+					// Expected input or pending-work findings remain editable. Scope failures
+					// stay latched and terminal; no failure silently rebases private work.
 					if (
+						err instanceof ChangeSetStagingRejectedError ||
+						err instanceof ChangeSetWorkspaceRevisionStaleError ||
 						err instanceof BlueprintCommitRejectedError ||
 						err instanceof AuthoringInputError ||
 						// Already recorded at the read boundary. The SA hears that the
@@ -257,6 +206,9 @@ export function createSolutionsArchitect(
 	// from that registry; the SA and MCP cannot carry divergent module lists.
 	const sharedTools = {
 		toolSearch: definitions.toolSearch,
+		getWork: wrapShared({ saName: "getWork" }),
+		saveWork: wrapShared({ saName: "saveWork" }),
+		discardWork: wrapShared({ saName: "discardWork" }),
 		// `askQuestions` is the one client-side tool — no `execute`, the
 		// agent stops for user input when the model calls it. Kept as a
 		// bare `{ description, inputSchema }` object so the AI SDK can
@@ -267,21 +219,20 @@ export function createSolutionsArchitect(
 		),
 	};
 
-	// ── Build agent ──────────────────────────────────────────────────
-	// One tool set for both modes (generateSchema included — it's how a
-	// new case type enters an existing app too). There is no finishing
-	// tool — the route finalizes a build when the run's drain ends.
+	// The ordinary editor owns private work for this conversation. A final
+	// answer is available after publication or deliberate discard; pending
+	// edits require another tool step or a question for the user.
 
 	const agent = new ToolLoopAgent({
 		model: ctx.model(MODEL_ROLES.followUpEditor.modelId),
 		// The prompt is static and contributes no per-app bytes, so the
 		// provider's exact-prefix cache survives doc mutations. The current
 		// blueprint summary rides the per-turn message the route appends
-		// (`buildAppStateMessage`).
+		// (`buildWorkStateMessage`).
 		instructions: buildSolutionsArchitectPrompt(),
 		stopWhen: isStepCount(SOLUTIONS_ARCHITECT_MAX_STEPS),
 		maxRetries: SOLUTIONS_ARCHITECT_MAX_RETRIES,
-		prepareStep: ({ messages }) => {
+		prepareStep: async ({ messages }) => {
 			// A tool execution error is a non-fatal AI SDK content part. Stop the
 			// loop explicitly once an authoritative scope error has been latched;
 			// otherwise the SDK would ask the model for another step in a run whose
@@ -293,7 +244,9 @@ export function createSolutionsArchitect(
 			// the SA's stable per-app cache affinity (key + options). The route adds
 			// one request-local explicit boundary before its volatile state tail;
 			// that metadata does not alter the model-visible transcript.
+			const pending = await work.status();
 			return {
+				...(pending.pendingChanges > 0 && { toolChoice: "required" as const }),
 				messages: projectModelHistoryFromNewestCompaction(messages),
 				providerOptions: reasoningProviderOptions(
 					MODEL_ROLES.followUpEditor.reasoningEffort,

@@ -1,35 +1,6 @@
-/**
- * Turn-level auto-retry — the chat route's policy for re-running the SA turn
- * after a TRANSIENT mid-stream failure (a provider 500 halfway through a
- * generation, a dropped provider connection), inside the same POST / claim /
- * stream, invisibly to the user.
- *
- * Why this is safe — the property the whole feature leans on: an in-route
- * retry is the SAME operation as the manual retry users perform today, with
- * the same guarantees, because
- *
- *   1. every tool mutation was committed inline through the guarded writer
- *      BEFORE the failure, so no committed work is lost or replayed — the
- *      retry continues from the exact committed doc; and
- *   2. the validity gate rejects duplicate structural work at commit (a
- *      re-declared case type, a colliding field id), and a gate rejection is
- *      a normal tool-error the SA self-corrects from — so a retry that
- *      re-attempts something already done converges instead of duplicating.
- *
- * There is deliberately NO step-boundary retry here: an LLM step is
- * nondeterministic, so "resume the failed step" has no exactly-once meaning.
- * The turn is Nova's safe retry unit.
- *
- * The retry prompt appends one continuation message carrying the CURRENT
- * committed blueprint summary, so the model continues the request from the
- * committed state instead of re-planning work that already landed. Appending
- * (rather than rebuilding the system prompt) keeps the provider's cached
- * prefix intact across attempts.
- */
+/** Bounded retry policy for transient provider failures. The chat route reads
+ * current durable private work through authoring/workMessages on each retry. */
 
-import type { ModelMessage } from "ai";
-import type { BlueprintDoc } from "@/lib/domain";
-import { appOverview } from "./appOverview";
 import type { ClassifiedError, ErrorType } from "./errorClassifier";
 
 /**
@@ -85,7 +56,7 @@ export function shouldRetryTurn(
  *  conversation event (warning rendering, not a failure): the run has not
  *  failed, it is being re-driven. */
 export const TURN_RETRY_MESSAGE =
-	"A temporary provider error interrupted this run, so Nova is retrying automatically. Anything already built is saved and will not be redone.";
+	"A temporary provider error interrupted this run, so Nova is retrying automatically. Saved checkpoints and pending changes are preserved.";
 
 /**
  * The retry notice for one classified fault. A flagged prompt is not a
@@ -96,40 +67,6 @@ export const TURN_RETRY_MESSAGE =
  */
 export function turnRetryMessage(type: ErrorType): string {
 	return type === "prompt_flagged"
-		? "The model provider flagged this step as a possible usage-policy violation, which happens to ordinary content now and then, so Nova is trying the step again automatically. Anything already built is saved and will not be redone."
+		? "The model provider flagged this step as a possible usage-policy violation, which happens to ordinary content now and then, so Nova is trying the step again automatically. Saved checkpoints and pending changes are preserved."
 		: TURN_RETRY_MESSAGE;
-}
-
-/**
- * The continuation message appended to the retry attempt's prompt: the
- * committed overview shared with edit turns, plus the interruption context.
- * Returns null for an empty
- * doc — with nothing committed, a bare re-run of the original messages IS the
- * continuation, and the extra message would only churn the cached prefix.
- *
- * Built fresh per retry from the LATEST committed doc and appended to the
- * BASE prompt (never stacked on a previous retry's note), so the model always
- * sees exactly one authoritative state snapshot.
- */
-export function buildTurnRetryContinuation(
-	doc: BlueprintDoc,
-	cause: "provider-retry" | "redrive" = "provider-retry",
-): ModelMessage | null {
-	const hasContent =
-		doc.moduleOrder.length > 0 ||
-		(doc.caseTypes != null && Object.keys(doc.caseTypes).length > 0);
-	if (!hasContent) return null;
-	const interruption =
-		cause === "redrive"
-			? // The instance-death re-drive: the prior run was killed mid-flight
-				// (deploy, OOM) and this is a fresh run over the same turn.
-				"The previous attempt was interrupted. "
-			: "A temporary provider error interrupted the previous attempt. ";
-	return {
-		role: "user",
-		content:
-			interruption +
-			"Changes already saved are reflected below. Read the relevant parts of the app to find what remains, then finish the original request.\n\n" +
-			`Current app overview:\n${JSON.stringify(appOverview(doc))}`,
-	};
 }

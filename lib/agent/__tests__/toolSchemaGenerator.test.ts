@@ -18,8 +18,6 @@ import {
 	projectedOptionsSourceSchema,
 } from "../toolSchemaGenerator";
 import { addFieldsInputSchema } from "../tools/addFields";
-import { createFormInputSchema } from "../tools/createForm";
-import { createModuleInputSchema } from "../tools/createModule";
 import { editFieldInputSchema } from "../tools/editField";
 
 const generated = generateToolSchemas();
@@ -76,18 +74,6 @@ describe("toolSchemaGenerator", () => {
 			help: proseText("Include the country code when it is known."),
 		};
 		expect(generated.addFieldsItemSchema.safeParse(field).success).toBe(true);
-		expect(
-			createModuleInputSchema.safeParse({
-				name: "Registration",
-				forms: [
-					{
-						name: "Register",
-						type: "survey",
-						fields: [field],
-					},
-				],
-			}).success,
-		).toBe(true);
 	});
 
 	it("lets a case-bound field omit label and options — the record seeds them", () => {
@@ -447,7 +433,7 @@ describe("toolSchemaGenerator", () => {
 		}
 	});
 
-	it("uses one strict projected option/source contract across all four field writers", () => {
+	it("uses one strict projected option/source contract across field additions and edits", () => {
 		const moduleUuid = "11111111-1111-4111-8111-111111111111";
 		const formUuid = "22222222-2222-4222-8222-222222222222";
 		const fieldUuid = "33333333-3333-4333-8333-333333333333";
@@ -471,28 +457,6 @@ describe("toolSchemaGenerator", () => {
 				input: { moduleUuid, formUuid, fields: [select] },
 			},
 			{
-				schema: createFormInputSchema,
-				input: {
-					moduleUuid,
-					name: "Questions",
-					type: "survey",
-					fields: [select],
-				},
-			},
-			{
-				schema: createModuleInputSchema,
-				input: {
-					name: "Questions",
-					forms: [
-						{
-							name: "Questions",
-							type: "survey",
-							fields: [select],
-						},
-					],
-				},
-			},
-			{
 				schema: editFieldInputSchema,
 				input: {
 					moduleUuid,
@@ -514,13 +478,7 @@ describe("toolSchemaGenerator", () => {
 		): Record<string, unknown> | undefined =>
 			"fields" in copy
 				? (copy.fields as Array<Record<string, unknown>>)[0]
-				: "forms" in copy
-					? (
-							(copy.forms as Array<Record<string, unknown>>)[0].fields as Array<
-								Record<string, unknown>
-							>
-						)[0]
-					: (copy.updates as Record<string, unknown>);
+				: (copy.updates as Record<string, unknown>);
 
 		const forbiddenOptionKeys = [
 			{ uuid: optionUuid },

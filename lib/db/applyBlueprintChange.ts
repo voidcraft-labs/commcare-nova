@@ -2,8 +2,10 @@
  * Persist one admitted Blueprint mutation batch and keep its derived case
  * schema current.
  *
- * Ordinary schema changes commit first and run an idempotent, seq-guarded
- * materialization. The explicit, batch-exclusive `renameCaseProperties`
+ * Private checkpoints materialize schemas and retain the migration outcome
+ * atomically with publication. Other ordinary schema changes commit first
+ * and run an idempotent, seq-guarded materialization. The explicit,
+ * batch-exclusive `renameCaseProperties`
  * command instead puts fresh Blueprint admission, live-row and parked-row
  * collision admission, schema Phase A, exact key movement, Blueprint
  * persistence, and the app-change event in one app-locked Postgres
@@ -41,6 +43,7 @@ import {
 	classifyCaseTypeChanges,
 } from "./classifyCaseTypeChanges";
 import { BlueprintCommitRejectedError } from "./commitGuard";
+import type { MigrationOutcome } from "./migrationOutcome";
 import { isTransientDbError } from "./schemaSyncRetry";
 import {
 	findUsercaseRow,
@@ -49,6 +52,8 @@ import {
 	workersWithRemovedUsercases,
 } from "./syncUsercaseRow";
 import type { ClientAppChangeKind } from "./types";
+
+export type { MigrationOutcome } from "./migrationOutcome";
 
 /**
  * Arguments for `applyBlueprintChange`.
@@ -112,32 +117,6 @@ export interface ApplyBlueprintChangeArgs {
  * committed at. `committedDoc` is the hydrated committed doc, including on an
  * authorized in-transaction dedup hit.
  */
-/**
- * What the commit's row migrations did to the saved case data —
- * aggregated over the Phase-1 forward applies AND the post-commit
- * sweep (whose write-time detection can retype/park on its own).
- * `parked` counts VALUES set aside into `parked_case_values`;
- * `failureReasons` is their person-readable why. Absent when the
- * commit touched no case-type schema (the fast path) or deduped.
- * The PUT route surfaces it so the builder can toast the outcome
- * instead of silently discarding it.
- */
-export interface MigrationOutcome {
-	readonly migrated: number;
-	readonly reshaped: number;
-	readonly retyped: number;
-	readonly restored: number;
-	readonly parked: number;
-	/**
-	 * The case types whose syncs set values aside this commit — the
-	 * client's discovery signal (which module's Case data to point the
-	 * toast at, which per-type caches to refresh). Empty when nothing
-	 * parked.
-	 */
-	readonly parkedCaseTypes: readonly string[];
-	readonly failureReasons: readonly string[];
-}
-
 export interface ApplyBlueprintChangeResult {
 	readonly seq: number;
 	readonly committedDoc: BlueprintDoc;
@@ -157,8 +136,9 @@ interface AttributedReport {
 /**
  * Persist the batch through the fresh guarded writer. Explicit property
  * renames and case-type retirements fail atomically before commit on any
- * Blueprint or storage conflict. Ordinary active-schema materialization and
- * every concurrent-index completion are post-commit, idempotent derived work.
+ * Blueprint or storage conflict. Private checkpoints also materialize active
+ * schemas and capture their saved-data outcome inside that transaction.
+ * Index completion remains post-commit idempotent convergence.
  */
 export async function applyBlueprintChange(
 	args: ApplyBlueprintChangeArgs,
@@ -178,6 +158,10 @@ export async function applyBlueprintChange(
 			"[applyBlueprintChange] chat writes require matching chat holder authority; non-chat writes cannot supply it",
 		);
 	}
+	const durableWorkspace =
+		args.sidecars?.some(
+			(sidecar) => sidecar.kind === "commit-authoring-workspace",
+		) === true;
 	const explicitRename =
 		guard.mutations.length === 1 &&
 		guard.mutations[0]?.kind === "renameCaseProperties";
@@ -211,6 +195,7 @@ export async function applyBlueprintChange(
 					}
 					throw error;
 				}
+				return renameOutcome(prepared.report);
 			},
 		});
 		if (deduped || prepared === undefined) {
@@ -235,7 +220,13 @@ export async function applyBlueprintChange(
 	 * re-sync every persona on every save. */
 	let priorDoc: BlueprintDoc | undefined;
 	const { result, deduped } = await persistBlueprint(args, {
-		beforeWrite: async ({ tx, freshDoc, nextDoc, seq }) => {
+		beforeWrite: async ({
+			tx,
+			freshDoc,
+			nextDoc,
+			seq,
+			materializedSchemaReports,
+		}) => {
 			priorDoc = freshDoc;
 			entries = classifyCaseTypeChanges({
 				prior: freshDoc,
@@ -255,6 +246,36 @@ export async function applyBlueprintChange(
 						fallbackCaseTypeSchemas: buildCaseTypeMap(freshDoc),
 					},
 				);
+			}
+			if (durableWorkspace) {
+				const reports: AttributedReport[] = [
+					...(materializedSchemaReports ?? []),
+				].map(([caseType, report]) => ({ caseType, report }));
+				const caseTypeSchemas = buildCaseTypeMap(nextDoc);
+				const types = [
+					...new Set(
+						entries
+							.filter((entry) => entry.kind === "sync")
+							.map((entry) => entry.caseType),
+					),
+				].sort();
+				for (const caseType of types) {
+					if (materializedSchemaReports?.has(caseType)) continue;
+					store ??= await withSchemaContext();
+					const prepared = await store.applySchemaChangePhaseA(
+						tx as unknown as Parameters<
+							typeof store.applySchemaChangePhaseA
+						>[0],
+						{
+							appId: args.appId,
+							caseType,
+							caseTypeSchemas,
+							syncedSeq: seq,
+						},
+					);
+					reports.push({ caseType, report: prepared.report });
+				}
+				if (reports.length > 0) return migrationOutcome(reports);
 			}
 		},
 	});
@@ -304,7 +325,7 @@ export async function applyBlueprintChange(
 	if (syncEntries.length === 0) return result;
 	return {
 		...result,
-		migration: migrationOutcome(reports),
+		migration: result.migration ?? migrationOutcome(reports),
 	};
 }
 
@@ -445,6 +466,9 @@ async function persistBlueprint(
 		result: {
 			seq: commit.seq,
 			committedDoc: commit.committedDoc,
+			...(commit.migration === undefined
+				? {}
+				: { migration: commit.migration }),
 		},
 		deduped: commit.deduped,
 	};

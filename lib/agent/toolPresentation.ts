@@ -316,6 +316,12 @@ export const AUTHORING_TOOL_PRESENTATION = {
 		doing: "Starting the app",
 		done: "Started the app",
 	},
+	getWork: read("Checking pending changes", "Checked pending changes"),
+	discardWork: {
+		kind: "activity",
+		doing: "Discarding pending changes",
+		done: "Discarded pending changes",
+	},
 	saveWork: {
 		kind: "activity",
 		doing: "Saving progress",

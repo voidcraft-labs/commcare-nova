@@ -137,7 +137,6 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 			...moduleAddress(doc),
 			name: "Register",
 			type: "registration",
-			fields: [{ kind: "text", id: "case_name", label: proseText("Name") }],
 		});
 		expect("error" in out.result && out.result.error).toContain("case_type");
 		expect(out.mutations).toEqual([]);
@@ -158,7 +157,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("updateModule sets case_type (with the columns the flip obliges), after which the same createForm commits", async () => {
+	it("updateModule sets case_type together with its required columns", async () => {
 		const doc = caseTypelessDoc();
 		const h = makeHarness(doc);
 
@@ -190,26 +189,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 		if (!("columns" in fixed.result)) throw new Error("expected success");
 		expect(fixed.result.columns).toEqual([{ uuid: columnUuid }]);
 
-		const out = await h.runTool(createFormTool, {
-			...moduleAddress(h.currentDoc()),
-			name: "Register",
-			type: "registration",
-			fields: [
-				{
-					kind: "text",
-					id: "case_name",
-					label: proseText("Name"),
-					caseWrite: { caseType: "respondent", property: "case_name" },
-				},
-				{
-					kind: "text",
-					id: "village",
-					label: proseText("Village"),
-					caseWrite: { caseType: "respondent", property: "village" },
-				},
-			],
-		});
-		expect("ok" in out.result).toBe(true);
+		expectAdmittedDoc(h.currentDoc());
 	});
 
 	it("updateModule setting a BRAND-NEW case_type declares it so the seeded Name column resolves", async () => {

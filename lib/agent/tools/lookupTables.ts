@@ -18,12 +18,10 @@ import {
 	lookupTagSchema,
 	lookupWireNameSchema,
 } from "@/lib/lookup/schema";
-import type {
-	LookupAgentWriteScope,
-	LookupAuthoringBatchReceipt,
-} from "@/lib/lookup/types";
+import type { LookupAuthoringBatchReceipt } from "@/lib/lookup/types";
 import type { ToolInvocationContext } from "../workspace/types";
-import { type ReadToolResult, requireInvocationAppId } from "./common";
+import type { ReadToolResult } from "./common";
+import { lookupAgentScope } from "./shared/lookupScope";
 
 const authoringKeySchema = z
 	.string()
@@ -85,21 +83,6 @@ function receiptWouldOverflow(
 			};
 }
 
-function writeScope(ctx: ToolInvocationContext): LookupAgentWriteScope {
-	return {
-		...(ctx.authoringSessionId
-			? { designSessionId: ctx.authoringSessionId }
-			: { appId: requireInvocationAppId(ctx) }),
-		projectId: ctx.projectId,
-		actorId: ctx.userId,
-		runId: ctx.runId,
-		requestId: ctx.invocation.requestId,
-		...(ctx.chatRunHolder === undefined
-			? {}
-			: { chatRunHolder: ctx.chatRunHolder }),
-	};
-}
-
 type LookupToolFailure = {
 	error: string;
 	code?: string;
@@ -135,7 +118,10 @@ async function author(
 	input: Parameters<typeof applyAuthorizedLookupAuthoringBatch>[1],
 ): Promise<LookupAuthoringBatchReceipt | LookupToolFailure> {
 	try {
-		return await applyAuthorizedLookupAuthoringBatch(writeScope(ctx), input);
+		return await applyAuthorizedLookupAuthoringBatch(
+			lookupAgentScope(ctx),
+			input,
+		);
 	} catch (error) {
 		if (error instanceof LookupError) return lookupFailure(error);
 		throw error;
@@ -175,7 +161,10 @@ export const getLookupTableRowsTool = {
 		ctx: ToolInvocationContext,
 	): Promise<ReadToolResult<unknown>> {
 		try {
-			const page = await readAuthorizedLookupRowsPage(writeScope(ctx), input);
+			const page = await readAuthorizedLookupRowsPage(
+				lookupAgentScope(ctx),
+				input,
+			);
 			return {
 				kind: "read",
 				data: {

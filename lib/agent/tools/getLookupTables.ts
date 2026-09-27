@@ -2,9 +2,10 @@ import { z } from "zod";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { readAuthorizedLookupCatalog } from "@/lib/lookup/agentService";
 import { LookupError } from "@/lib/lookup/errors";
-import type { LookupAgentWriteScope, LookupDataType } from "@/lib/lookup/types";
+import type { LookupDataType } from "@/lib/lookup/types";
 import type { ToolInvocationContext } from "../workspace/types";
-import { type ReadToolResult, requireInvocationAppId } from "./common";
+import type { ReadToolResult } from "./common";
+import { lookupAgentScope } from "./shared/lookupScope";
 
 /** Leaves ample room for the shared MCP result envelope below its 100k cap. */
 export const LOOKUP_CATALOG_PAGE_MAX_BYTES = 70_000;
@@ -51,24 +52,13 @@ export type GetLookupTablesResult =
 	  }
 	| { readonly error: string; readonly code?: string };
 
-function readScope(ctx: ToolInvocationContext): LookupAgentWriteScope {
-	return {
-		...(ctx.authoringSessionId
-			? { designSessionId: ctx.authoringSessionId }
-			: { appId: requireInvocationAppId(ctx) }),
-		projectId: ctx.projectId,
-		actorId: ctx.userId,
-		runId: ctx.runId,
-		requestId: ctx.invocation.requestId,
-		...(ctx.chatRunHolder === undefined
-			? {}
-			: { chatRunHolder: ctx.chatRunHolder }),
-	};
-}
-
 async function readCatalog(ctx: ToolInvocationContext) {
-	if (ctx.appId !== null || ctx.authoringSessionId !== undefined) {
-		return readAuthorizedLookupCatalog(readScope(ctx));
+	if (
+		ctx.appId !== null ||
+		ctx.authoringSessionId !== undefined ||
+		ctx.ordinaryAuthoring !== undefined
+	) {
+		return readAuthorizedLookupCatalog(lookupAgentScope(ctx));
 	}
 	if (ctx.lookupCatalog === undefined) {
 		throw new Error(

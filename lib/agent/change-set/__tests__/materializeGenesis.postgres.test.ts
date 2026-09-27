@@ -41,7 +41,10 @@ import {
 import { commitDesignChangeSet } from "../commit";
 import { evaluateOverlayFindings, findingFingerprint } from "../diagnostics";
 import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
-import { ChangeSetScopeLostError } from "../errors";
+import {
+	ChangeSetScopeLostError,
+	ChangeSetWorkspaceRevisionStaleError,
+} from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
 import {
 	beginAppEditChangeSet,
@@ -147,7 +150,8 @@ async function persistPrivateMutation(
 ): Promise<void> {
 	const admitted = admitMutationBatch(mutations);
 	const changeSet = await loadChangeSet(changeSetId);
-	if (!changeSet?.proposedAppId) throw new Error("missing genesis change set");
+	if (!changeSet?.proposedAppId || !changeSet.designSessionId)
+		throw new Error("missing genesis change set");
 	const candidate = prepareGenesisCandidate({
 		appId: changeSet.proposedAppId,
 		projectId: PROJECT,
@@ -266,32 +270,40 @@ describe("materializeAppFromGenesis", () => {
 				},
 				fixture.changeSetId,
 			);
+			const moduleUuid = crypto.randomUUID();
+			const formUuid = crypto.randomUUID();
 			await workspace.stageDispatch({
 				toolName: "createModule",
+				requestId: "intake",
+				input: { moduleUuid, name: "Intake" },
+			});
+			await workspace.stageDispatch({
+				toolName: "createForm",
 				requestId: "choose-item",
+				input: { moduleUuid, formUuid, name: "Choose item", type: "survey" },
+			});
+			await workspace.stageDispatch({
+				toolName: "addFields",
+				requestId: "item-question",
 				input: {
-					name: "Intake",
-					forms: [
+					moduleUuid,
+					formUuid,
+					fields: [
 						{
-							name: "Choose item",
-							type: "survey",
-							fields: [
-								{
-									id: "item",
-									kind: "single_select",
-									label: "Item",
-									optionsSource: {
-										kind: "lookup",
-										tableId: table.tableId,
-										valueColumnId: column.id,
-										labelColumnId: column.id,
-									},
-								},
-							],
+							id: "item",
+							kind: "single_select",
+							label: "Item",
+							optionsSource: {
+								kind: "lookup",
+								tableId: table.tableId,
+								valueColumnId: column.id,
+								labelColumnId: column.id,
+							},
 						},
 					],
 				},
 			});
+
 			expect((await workspace.inspect()).canCommit).toBe(true);
 			await applyAuthorizedLookupAuthoringBatch(
 				{ ...scope, requestId: "catalog-change" },
@@ -321,7 +333,10 @@ describe("materializeAppFromGenesis", () => {
 			if (change === "deleted") {
 				expect((await workspace.inspect()).canCommit).toBe(false);
 				expect(
-					await materializeAppFromGenesis(materializeArgs(fixture)),
+					await materializeAppFromGenesis({
+						...materializeArgs(fixture),
+						expectedRevision: workspace.current().revision,
+					}),
 				).toMatchObject({ kind: "gate-rejected" });
 				expect(await h.readAppRow(fixture.proposedAppId)).toBeUndefined();
 				await workspace.stageDispatch({
@@ -793,7 +808,7 @@ describe("materializeAppFromGenesis", () => {
 				...materializeArgs(fixture),
 				expectedRevision: 0,
 			}),
-		).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+		).rejects.toBeInstanceOf(ChangeSetWorkspaceRevisionStaleError);
 		expect(await h.readAppRow(fixture.proposedAppId)).toBeUndefined();
 	});
 });

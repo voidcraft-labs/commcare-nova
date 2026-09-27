@@ -20,26 +20,49 @@ it("the worker readings returned to authors execute in their stated scopes and f
 	const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
 	const { data } = await harness.runTool(getUsersTool, {});
 	const readings = { ...data.builtInIdentity, ...data.builtInPlaces };
-	const doc = await createEvaluationApp({
-		name: "Approvals",
-		case_type: "approval",
-		forms: [
+	const doc = await createEvaluationApp(
+		[
 			{
-				name: "Approve",
-				type: "registration",
-				recordName: "'Approval'",
-				fields: [
-					{ kind: "text", id: "note", label: "Note" },
-					...Object.entries(readings).map(([id, reading]) => ({
-						kind: "hidden",
-						id,
-						calculate: reading.formExpression,
-						caseWrite: { caseType: "approval", property: id },
-					})),
-				],
+				name: "Approvals",
+				caseType: "approval",
+				forms: [{ name: "Approve", type: "registration" }],
 			},
 		],
-	});
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Approvals",
+					formUuid: "Approve",
+					fields: [
+						{ kind: "text", id: "note", label: "Note" },
+						...Object.entries(readings).map(([id, reading]) => ({
+							kind: "hidden",
+							id,
+							calculate: reading.formExpression,
+							caseWrite: { caseType: "approval", property: id },
+						})),
+					],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Approvals",
+					formUuid: "Approve",
+					recordName: "'Approval'",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Approvals",
+					formUuid: "Approve",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
 	const actor = {
 		id: "nova-member",
 		name: "Amina Diallo",

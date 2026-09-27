@@ -260,11 +260,13 @@ case schemas (every type in `buildCaseTypeMap`, including the built-in worker
 case for survey-only apps; `applySchemaChangePhaseA` at synced seq 1; concurrent index
 work drains post-commit off `index_pending_seq`), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
-`createExplicitBlankApp` (the builder action + MCP `create_app`) births the
-canonical survey starter `complete`; the design-slice arm is
-`lib/agent/change-set/materializeGenesis.ts`, which replays the genesis
-change set's committed steps and transfers the design session's holder +
-reservation onto the app row in that same transaction. Every
+`createExplicitBlankApp` (the Builder blank-app action) births the canonical
+survey starter `complete`. Agent authoring, including MCP `begin_work`, stays
+private until its first valid `saveWork` checkpoint. The design-slice arm is
+`lib/agent/change-set/materializeGenesis.ts`, which replays the genesis change
+set and creates its app atomically. Reviewed builds also transfer their design
+session's holder and reservation onto the app row in that transaction. Ordinary
+MCP work records its app activation under its authoring-session owner. Every
 `commitGuardedBatch`, `appendSyntheticBatch`, and `commitAppProjectMove`
 transaction declares lookup writer v1 from the shared runtime manifest. Ordinary
 commits lock the app, compare the caller's required `expectedProjectId`, check

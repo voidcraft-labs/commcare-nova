@@ -4,48 +4,57 @@ import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
 import { appOverview } from "../appOverview";
 import { makeAuthoringHarness } from "./authoringHarness";
+import { namedFormFixture } from "./namedFormFixture";
 
 it("reads implicit lifecycle metadata and explains the starting values the production engine uses", async () => {
-	const h = makeAuthoringHarness();
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Equipment",
+				caseType: "equipment",
+				forms: [{ name: "Inspect", type: "followup" }],
+			},
+		]),
+	);
 	expect(
-		await h.call("createModule", {
-			name: "Equipment",
-			case_type: "equipment",
-			forms: [
+		await h.call("addFields", {
+			moduleUuid: "Equipment",
+			formUuid: "Inspect",
+			fields: [
 				{
-					name: "Inspect",
-					type: "followup",
-					fields: [
-						{
-							kind: "text",
-							id: "condition",
-							label: "Condition",
-							default_value: "'new'",
-							caseWrite: { caseType: "equipment", property: "condition" },
-						},
-						{
-							kind: "text",
-							id: "note",
-							label: "Note",
-							default_value: "'Check the label'",
-						},
-						{ kind: "hidden", id: "once", default_value: "'entry value'" },
-						{
-							kind: "hidden",
-							id: "computed",
-							calculate: "concat(#form/condition, '!')",
-						},
-						{
-							kind: "hidden",
-							id: "saved",
-							default_value: "'fallback'",
-							caseWrite: { caseType: "equipment", property: "saved" },
-						},
-					],
+					kind: "text",
+					id: "condition",
+					label: "Condition",
+					default_value: "'new'",
+					caseWrite: { caseType: "equipment", property: "condition" },
+				},
+				{
+					kind: "text",
+					id: "note",
+					label: "Note",
+					default_value: "'Check the label'",
+				},
+				{ kind: "hidden", id: "once", default_value: "'entry value'" },
+				{
+					kind: "hidden",
+					id: "computed",
+					calculate: "concat(#form/condition, '!')",
+				},
+				{
+					kind: "hidden",
+					id: "saved",
+					default_value: "'fallback'",
+					caseWrite: { caseType: "equipment", property: "saved" },
 				},
 			],
 		}),
 	).toMatchObject({ ok: true });
+	await h.call("removeField", {
+		moduleUuid: "Equipment",
+		formUuid: "Inspect",
+		fieldUuid: "fixture_placeholder",
+	});
 	expect(
 		await h.call("getCaseProperty", {
 			caseType: "equipment",
@@ -192,32 +201,36 @@ it("makes missing role identities visible and reports inherited worker values wi
 });
 
 it("authors a business stage without letting an ordinary answer overwrite case closure", async () => {
-	const h = makeAuthoringHarness();
-	const module = (property: string) => ({
-		name: "Requests",
-		case_type: "request",
-		forms: [
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
 			{
-				name: "Review",
-				type: "followup",
-				fields: [
-					{
-						kind: "text",
-						id: "stage",
-						label: "Review stage",
-						caseWrite: { caseType: "request", property },
-					},
-				],
+				name: "Requests",
+				caseType: "request",
+				forms: [{ name: "Review", type: "followup" }],
+			},
+		]),
+	);
+	const question = (property: string) => ({
+		formUuid: "Review",
+		fields: [
+			{
+				kind: "text",
+				id: "stage",
+				label: "Review stage",
+				caseWrite: { caseType: "request", property },
 			},
 		],
 	});
 	const before = h.currentDoc();
-	expect(await h.call("createModule", module("status"))).toHaveProperty(
-		"error",
-	);
+	expect(await h.call("addFields", question("status"))).toHaveProperty("error");
 	expect(h.currentDoc()).toEqual(before);
-	expect(await h.call("createModule", module("current_status"))).toMatchObject({
+	expect(await h.call("addFields", question("current_status"))).toMatchObject({
 		ok: true,
+	});
+	await h.call("removeField", {
+		formUuid: "Review",
+		fieldUuid: "fixture_placeholder",
 	});
 	expect(
 		await h.call("getCaseProperty", {

@@ -1,4 +1,5 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
 /** Finite, seeded construction sequences through the actual shared commands,
@@ -14,17 +15,13 @@ import * as fc from "fast-check";
 import { describe, expect, it } from "vitest";
 import type { z } from "zod";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import {
-	mutationCommitVerdict,
-	type PreparedMutationCandidate,
-} from "@/lib/doc/commitVerdicts";
+import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type AdmittedMutationStages,
 	isAdmittedMutationBatch,
 } from "@/lib/doc/mutationAdmission";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -46,7 +43,6 @@ import { configureConnectTool } from "../configureConnect";
 import { createFormTool } from "../createForm";
 import { createModuleTool } from "../createModule";
 import { editFieldTool } from "../editField";
-import { generateSchemaTool } from "../generateSchema";
 import { moveFieldTool } from "../moveField";
 import { removeFieldTool } from "../removeField";
 import { removeFormTool } from "../removeForm";
@@ -89,37 +85,6 @@ function makeCtx(): FuzzHost {
 			samples: [],
 		}),
 	};
-}
-
-/** The exact shared canonical starter the explicit blank-app path uses. */
-function birthDoc(name = "Fuzz Clinic"): BlueprintDoc {
-	const empty: BlueprintDoc = {
-		appId: "app-fuzz",
-		appName: "",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-	const genesis = canonicalAppGenesis(empty, name);
-	const verdict = mutationCommitVerdict(
-		empty,
-		genesis.mutations,
-		LOOKUP_CONTEXT_UNAVAILABLE,
-	);
-	if (!verdict.ok) {
-		throw new Error(
-			`canonical app genesis failed its own commit gate: ${verdict.findings
-				.map((finding) => `${finding.code}: ${finding.message}`)
-				.join("; ")}`,
-		);
-	}
-	return verdict.nextDoc;
 }
 
 // ── Input pools — valid values interleaved with the exact garbage the
@@ -691,22 +656,6 @@ async function runRequired<I>(
 /** The standard registration-unit field pair: the case_name writer plus a
  *  second property writer (a registration form must capture something
  *  about its new case beyond the name). */
-function registrationUnitFields(caseType: string): FieldItem[] {
-	return [
-		{
-			kind: "text",
-			id: "case_name",
-			label: proseText("Name"),
-			caseWrite: { caseType, property: "case_name" },
-		},
-		{
-			kind: "text",
-			id: "village",
-			label: proseText("Village"),
-			caseWrite: { caseType, property: "village" },
-		},
-	];
-}
 
 /** Apply one fuzz op through the REAL tool (schema first — see
  *  {@link runParsed}). The tool either commits (and returns the new doc)
@@ -718,100 +667,31 @@ async function applyOp(
 	op: FuzzOp,
 ): Promise<BlueprintDoc> {
 	switch (op.type) {
-		case "createModule": {
-			/* Mirror how the SA composes a case-managing creation: when the
-			 * module declares a (clean) case type and carries forms, the
-			 * first form is a registration unit opening with the case_name
-			 * + village writers — the rest of the generated fields (garbage
-			 * included) ride along, and a NEW case type's record lands
-			 * FIRST via generateSchema (the data-model tool — the only way
-			 * a record reaches the doc), exactly the SA's real sequence.
-			 * The gate still adjudicates everything; this steering only
-			 * keeps the generator from producing exclusively incoherent
-			 * births. */
-			const coherentType =
-				op.caseType && /^[a-z][a-z0-9_-]*$/.test(op.caseType)
-					? op.caseType
-					: undefined;
-			const generated = resolveOwnCaseBindings(op.fields, coherentType);
-			const formFields = coherentType
-				? [
-						...registrationUnitFields(coherentType),
-						...generated.filter(
-							(fl) => fl.id !== "case_name" && fl.id !== "village",
-						),
-					]
-				: generated;
-			const needsRecord =
-				coherentType !== undefined &&
-				!doc.caseTypes?.some((ct) => ct.name === coherentType);
-			if (needsRecord) {
-				doc = await runParsed(
-					generateSchemaTool,
-					{
-						caseTypes: [
-							{
-								name: coherentType,
-								properties: [{ name: "village", label: proseText("Village") }],
-							},
-						],
-					},
-					ctx,
-					doc,
-				);
-			}
+		case "createModule":
 			return runParsed(
 				createModuleTool,
 				{
 					name: op.name,
-					...(op.caseType && { case_type: op.caseType }),
-					...(op.withForms && {
-						forms: [
-							{
-								name: "First form",
-								type: coherentType ? "registration" : op.formType,
-								fields: formFields,
-							},
-						],
-					}),
-					...(op.withColumns && {
-						case_list_columns: [
-							{ kind: "plain", field: "case_name", header: "Name" },
-						],
-					}),
+					case_type: op.caseType,
+					case_list_only: op.withColumns,
 				},
 				ctx,
 				doc,
 			);
-		}
-		case "createForm": {
-			/* Same steering for a registration form: it must open its case
-			 * with the registration unit bound to the module's type — when
-			 * the target module has one. */
-			const moduleUuid = moduleUuidAt(doc, op.moduleIndex);
-			const moduleType = doc.modules[moduleUuid]?.caseType;
-			const generated = resolveOwnCaseBindings(op.fields, moduleType);
-			const fields =
-				op.formType === "registration" && moduleType
-					? [
-							...registrationUnitFields(moduleType),
-							...generated.filter(
-								(fl) => fl.id !== "case_name" && fl.id !== "village",
-							),
-						]
-					: generated;
+		// Empty form creation belongs to private construction. At the canonical
+		// boundary it must refuse without persisting an incomplete form.
+		case "createForm":
 			return runParsed(
 				createFormTool,
 				{
-					moduleUuid,
+					moduleUuid: moduleUuidAt(doc, op.moduleIndex),
 					name: op.name,
 					type: op.formType,
-					fields,
 				},
 				ctx,
 				doc,
 			);
-		}
+
 		case "addFields": {
 			const address = formAddressAt(doc, op.moduleIndex, op.formIndex);
 			return runParsed(
@@ -1220,111 +1100,104 @@ function assertIndexParity(doc: BlueprintDoc, context: string): void {
 	).toEqual(buildReferenceIndex(doc));
 }
 
-// ── Preludes — the fixture state, GROWN through the real tools ──────────
-//
-// Each property starts from canonical genesis and builds its baseline with
-// real accepted calls, so the invariant covers the doc's whole persisted life:
-// the starter is refined into one patient module
-// carrying a registration unit AND a standing close-type form (a close
-// condition can only commit on one — without it, the close op's commits
-// would depend on the sequence first creating a close form, starving the
-// acceptance floor below). The same standing-target rationale gives the
-// prelude module a SECOND case-list column and one search input (grown
-// through the real config tools): the update/remove/reorder config ops
-// always have an addressable entry from op #0, instead of depending on
-// the sequence first landing an add.
+// Domain fixtures provide standing targets for canonical refinement. Private
+// structural construction and checkpoint isolation are exercised by the
+// durable iterative-creation suite. Configuration calls below still exercise
+// real tool admission before the generated edit sequence begins.
+
+function refinementFixture(
+	caseType: string,
+	moduleName: string,
+	registrationName: string,
+	closeName: string,
+	auxiliary = false,
+): BlueprintDoc {
+	return buildDoc({
+		appId: "app-fuzz",
+		appName: "Fuzz Clinic",
+		caseTypes: [
+			{
+				name: caseType,
+				properties: [
+					{ name: "village", label: "Village" },
+					{ name: "notes", label: "Notes" },
+					{ name: "closure_reason", label: "Closure reason" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: moduleName,
+				caseType,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: registrationName,
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "case_name",
+								caseWrite: { caseType, property: "case_name" },
+							}),
+							f({
+								kind: "text",
+								id: "village",
+								caseWrite: { caseType, property: "village" },
+							}),
+							f({
+								kind: "text",
+								id: "notes",
+								caseWrite: { caseType, property: "notes" },
+							}),
+						],
+					},
+					{
+						name: closeName,
+						type: "close",
+						fields: [
+							f({
+								kind: "text",
+								id: "closure_reason",
+								caseWrite: { caseType, property: "closure_reason" },
+							}),
+						],
+					},
+					...(auxiliary
+						? [
+								{
+									name: "Reference sheet",
+									type: "survey" as const,
+									fields: [f({ kind: "text", id: "tips" })],
+								},
+							]
+						: []),
+				],
+			},
+			{
+				name: "Feedback",
+				forms: [
+					{
+						name: "Feedback survey",
+						type: "survey",
+						fields: [f({ kind: "text", id: "comments" })],
+					},
+				],
+			},
+		],
+	});
+}
 
 async function growStandardPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
-	let doc = birthDoc();
-	const starterModuleUuid = doc.moduleOrder[0];
-	/* Canonical genesis already authored the real app name and starter. The
-	 * data-model tool writes the case-type record, then a module references it
-	 * by name. Once that replacement exists, removing the starter is itself an
-	 * ordinary gated refinement — no empty intermediate state is possible. */
-	doc = await runRequired(
-		generateSchemaTool,
-		{
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "village", label: proseText("Village") }],
-				},
-			],
-		},
-		ctx,
-		doc,
+	let doc = refinementFixture(
+		"patient",
+		"Patients",
+		"Register patient",
+		"Close case",
 	);
-	doc = await runRequired(
-		createModuleTool,
-		{
-			name: "Patients",
-			case_type: "patient",
-			case_list_columns: [
-				{ kind: "plain", field: "case_name", header: "Name" },
-			],
-			forms: [
-				{
-					name: "Register patient",
-					type: "registration",
-					/* A spare writer as the standing removeField target — a removable
-					 * field whose removal leaves the registration form valid, so
-					 * prelude-form removals don't bounce. */
-					fields: [
-						...registrationUnitFields("patient"),
-						{
-							kind: "text",
-							id: "notes",
-							label: proseText("Notes"),
-							caseWrite: { caseType: "patient", property: "notes" },
-						},
-					],
-				},
-				{
-					name: "Close case",
-					type: "close",
-					fields: [
-						{
-							kind: "text",
-							id: "closure_reason",
-							label: proseText("Closure reason"),
-							caseWrite: {
-								caseType: "patient",
-								property: "closure_reason",
-							},
-						},
-					],
-				},
-			],
-		},
-		ctx,
-		doc,
-	);
-	doc = await runRequired(
-		removeModuleTool,
-		{ moduleUuid: starterModuleUuid },
-		ctx,
-		doc,
-	);
-	/* A second, caseless module is the standing removeModule target:
-	 * removing the ONLY module bounces on NO_MODULES, so without one the
-	 * op's commits would depend on a sequence creating a module first. */
-	doc = await runRequired(
-		createModuleTool,
-		{
-			name: "Feedback",
-			forms: [
-				{
-					name: "Feedback survey",
-					type: "survey",
-					fields: [
-						{ kind: "text", id: "comments", label: proseText("Comments") },
-					],
-				},
-			],
-		},
-		ctx,
-		doc,
-	);
+
 	doc = await runRequired(
 		addCaseListColumnsTool,
 		{
@@ -1366,117 +1239,15 @@ async function growStandardPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 }
 
 async function growConnectPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
-	let doc = birthDoc("Fuzz Training");
-	const starterModuleUuid = doc.moduleOrder[0];
-	/* Connect is not a mode flag with independently authored form blocks.
-	 * Grow the ordinary target topology first; once every participating form
-	 * has a stable UUID, configureConnect installs the complete app-wide
-	 * target in one gated batch and clears anything unlisted. */
-	doc = await runRequired(
-		generateSchemaTool,
-		{
-			caseTypes: [
-				{
-					name: "trainee",
-					properties: [{ name: "village", label: proseText("Village") }],
-				},
-			],
-		},
-		ctx,
-		doc,
+	let doc = refinementFixture(
+		"trainee",
+		"Lessons",
+		"Enroll trainee",
+		"Close enrollment",
+		true,
 	);
-	doc = await runRequired(
-		createModuleTool,
-		{
-			name: "Lessons",
-			case_type: "trainee",
-			case_list_columns: [
-				{ kind: "plain", field: "case_name", header: "Name" },
-			],
-			forms: [
-				{
-					name: "Enroll trainee",
-					type: "registration",
-					/* Third writer = standing removeField target — see the
-					 * standard prelude. */
-					fields: [
-						...registrationUnitFields("trainee"),
-						{
-							kind: "text",
-							id: "notes",
-							label: proseText("Notes"),
-							caseWrite: { caseType: "trainee", property: "notes" },
-						},
-					],
-				},
-				{
-					name: "Close enrollment",
-					type: "close",
-					fields: [
-						{
-							kind: "text",
-							id: "closure_reason",
-							label: proseText("Closure reason"),
-							caseWrite: {
-								caseType: "trainee",
-								property: "closure_reason",
-							},
-						},
-					],
-				},
-			],
-		},
-		ctx,
-		doc,
-	);
-	const lessonsModuleUuid = doc.moduleOrder.find(
-		(uuid) => doc.modules[uuid]?.name === "Lessons",
-	);
-	if (!lessonsModuleUuid) throw new Error("Connect prelude lost Lessons");
-	doc = await runRequired(
-		removeModuleTool,
-		{ moduleUuid: starterModuleUuid },
-		ctx,
-		doc,
-	);
-	/* This form is deliberately absent from configureConnect's target and is
-	 * therefore auxiliary. The exact-target call below proves that a mixed
-	 * participating + auxiliary app is a legal committed state. */
-	doc = await runRequired(
-		createFormTool,
-		{
-			moduleUuid: lessonsModuleUuid,
-			name: "Reference sheet",
-			type: "survey",
-			fields: [{ kind: "text", id: "tips", label: proseText("Tips") }],
-		},
-		ctx,
-		doc,
-	);
-	expect(
-		doc.formOrder[lessonsModuleUuid],
-		"the blockless auxiliary form must exist before the exact Connect target lands",
-	).toHaveLength(3);
-	/* Standing removeModule target — see the standard prelude. Its form
-	 * participates after the exact-target call, so removing the module is a
-	 * legal commit whenever the Lessons module still participates. */
-	doc = await runRequired(
-		createModuleTool,
-		{
-			name: "Feedback",
-			forms: [
-				{
-					name: "Feedback survey",
-					type: "survey",
-					fields: [
-						{ kind: "text", id: "comments", label: proseText("Comments") },
-					],
-				},
-			],
-		},
-		ctx,
-		doc,
-	);
+	const lessonsModuleUuid = doc.moduleOrder[0];
+
 	const feedbackModuleUuid = doc.moduleOrder.find(
 		(uuid) => doc.modules[uuid]?.name === "Feedback",
 	);
@@ -1594,7 +1365,6 @@ async function growConnectPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 
 const OP_TYPES = [
 	"createModule",
-	"createForm",
 	"addFields",
 	"editField",
 	"moveField",
@@ -1689,7 +1459,7 @@ function tallyRetirementArms(
 	}
 }
 
-describe("seeded construction sequences preserve admitted state", () => {
+describe("seeded refinement sequences preserve admitted canonical state", () => {
 	it("standard app: sampled sequences preserve validation and real writer boundaries", async () => {
 		const tally = newCommitTally();
 		const refusals = new Map<FuzzOp["type"], Set<string>>();
@@ -1770,13 +1540,11 @@ describe("seeded construction sequences preserve admitted state", () => {
 		).toBeGreaterThan(0);
 	}, 30_000);
 
-	it("Connect learn app: auxiliary structural creations hold the same invariant", async () => {
+	it("Connect learn app: sampled refinements hold the same invariant", async () => {
 		const tally = newCommitTally();
 		const refusals = new Map<FuzzOp["type"], Set<string>>();
-		/* `growConnectPrelude` proves the exact participant-set tool can enable
-		 * a mixed participating + auxiliary app. Every generated structural
-		 * creation after that is necessarily auxiliary; the commit floor proves
-		 * those createForm/createModule paths remain live on a Connect app. */
+		// The exact participant-set tool enables a mixed participating and
+		// auxiliary app. Incomplete form creation must still refuse canonically.
 		await fc.assert(
 			fc.asyncProperty(
 				fc.array(opArb, { minLength: 1, maxLength: 14 }),

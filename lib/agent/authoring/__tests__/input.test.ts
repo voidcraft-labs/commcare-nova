@@ -1,22 +1,28 @@
 import { v7 as uuidv7 } from "uuid";
 import { expect, it, vi } from "vitest";
 import { z } from "zod";
-import { testUuid } from "@/__tests__/helpers/uuid";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import {
 	echoLookupDefinitions,
 	type MakeToolWorkspaceHarnessOptions,
 } from "@/lib/agent/__tests__/fixtures";
-import { orderedCaseOperations, translationUnitsById } from "@/lib/domain";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import {
+	type BlueprintDoc,
+	orderedCaseOperations,
+	translationUnitsById,
+} from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
-import { FormEngine } from "@/lib/preview/engine/formEngine";
 
-function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
-	const harness = makeAuthoringHarness(options);
+function authoring(
+	options: MakeToolWorkspaceHarnessOptions = {},
+	initialDoc?: BlueprintDoc,
+) {
+	const harness = makeAuthoringHarness(options, initialDoc);
 	async function call(name: string, input: unknown) {
 		const result = await harness.call(name, input);
 		expect(result, name).not.toHaveProperty("error");
@@ -25,146 +31,52 @@ function authoring(options: MakeToolWorkspaceHarnessOptions = {}) {
 	return { ...harness, call };
 }
 
-it("creates and edits record names without making the author construct name writers or declare the type twice", async () => {
-	const h = authoring();
-	await h.call("createModule", {
-		name: "Loans",
-		case_type: "loan",
-		case_list_columns: [{ kind: "plain", field: "case_name", header: "Loan" }],
-		forms: [
-			{
-				name: "Lend",
-				type: "registration",
-				recordName: "concat(#form/borrower, ' - ', #form/tool)",
-				fields: [
-					{
-						kind: "text",
-						id: "borrower",
-						label: "Borrower",
-						caseWrite: { caseType: "loan", property: "borrower" },
-					},
-					{
-						kind: "text",
-						id: "tool",
-						label: "Tool",
-						caseWrite: { caseType: "loan", property: "tool" },
-					},
-				],
-			},
-		],
-	});
-	const form = Object.values(h.currentDoc().forms).find(
-		(form) => form.name === "Lend",
-	);
-	if (!form) throw new Error("The form was not created.");
-	const submission = () => {
-		const doc = h.currentDoc();
-		const engine = new FormEngine(
-			{
-				form: doc.forms[form.uuid],
-				formUuid: form.uuid,
-				fields: doc.fields,
-				fieldOrder: doc.fieldOrder,
-				caseTypes: doc.caseTypes ?? [],
-			},
-			"loan",
-		);
-		engine.setValue("/data/borrower", "Ada");
-		engine.setValue("/data/tool", "Drill");
-		return engine.computeSubmissionMutation({
-			entryKey: "11111111-1111-4111-8111-111111111111",
-		});
-	};
-	expect(submission()).toMatchObject({
-		kind: "registration",
-		primary: {
-			caseName: "Ada - Drill",
-			properties: { borrower: "Ada", tool: "Drill" },
-		},
-	});
-	const read = z
-		.object({ recordName: z.string() })
-		.parse(await h.call("getForm", { formUuid: "Lend", moduleUuid: "Loans" }));
-	const before = h.currentDoc();
-	await h.call("updateForm", {
-		formUuid: "Lend",
-		moduleUuid: "Loans",
-		recordName: read.recordName,
-	});
-	expect(h.currentDoc()).toEqual(before);
-	await h.call("updateForm", {
-		formUuid: "Lend",
-		moduleUuid: "Loans",
-		recordName: "#form/borrower",
-	});
-	expect(submission()).toMatchObject({
-		kind: "registration",
-		primary: {
-			caseName: "Ada",
-			properties: { borrower: "Ada", tool: "Drill" },
-		},
-	});
-	await h.call("createForm", {
-		moduleUuid: "Loans",
-		name: "Quick lend",
-		type: "registration",
-		recordName: "#form/name",
-		fields: [{ kind: "text", id: "name", label: "Loan name" }],
-	});
-	const quick = Object.values(h.currentDoc().forms).find(
-		(form) => form.name === "Quick lend",
-	);
-	if (!quick) throw new Error("The quick form was not created.");
-	const doc = h.currentDoc();
-	const engine = new FormEngine(
-		{
-			form: quick,
-			formUuid: quick.uuid,
-			fields: doc.fields,
-			fieldOrder: doc.fieldOrder,
-			caseTypes: doc.caseTypes ?? [],
-		},
-		"loan",
-	);
-	engine.setValue("/data/name", "Saw for Bea");
-	expect(
-		engine.computeSubmissionMutation({
-			entryKey: "11111111-1111-4111-8111-111111111111",
-		}),
-	).toMatchObject({ primary: { caseName: "Saw for Bea" } });
-	expect(doc.fieldOrder[quick.uuid]).toHaveLength(1);
-});
-
 it("uses scoped short names for nested questions, wording, conditions, edits and insertion anchors", async () => {
-	const h = authoring();
-	await h.call("createModule", {
-		name: "Garden",
-		forms: [
+	const h = authoring(
+		{},
+		namedFormFixture([
 			{
-				name: "Weekly check",
-				type: "survey",
-				fields: [
-					{ kind: "group", id: "details", label: "Check details" },
-					{
-						kind: "date",
-						id: "check_date",
-						parentUuid: "details",
-						label: "Check date",
-					},
-					{
-						kind: "label",
-						id: "confirmation",
-						label: "Checked on {{check_date}}",
-						relevant: "#form/check_date != ''",
-					},
+				name: "Garden",
+				forms: [
+					{ name: "Weekly check", type: "survey" },
+					{ name: "Other check", type: "survey" },
 				],
 			},
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fields: [
+			{ kind: "group", id: "details", label: "Check details" },
 			{
-				name: "Other check",
-				type: "survey",
-				fields: [{ kind: "date", id: "check_date", label: "Other date" }],
+				kind: "date",
+				id: "check_date",
+				parentUuid: "details",
+				label: "Check date",
+			},
+			{
+				kind: "label",
+				id: "confirmation",
+				label: "Checked on {{check_date}}",
+				relevant: "#form/check_date != ''",
 			},
 		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Garden",
+		formUuid: "Weekly check",
+		fieldUuid: "fixture_placeholder",
+	});
+	await h.call("addFields", {
+		moduleUuid: "Garden",
+		formUuid: "Other check",
+		fields: [{ kind: "date", id: "check_date", label: "Other date" }],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Garden",
+		formUuid: "Other check",
+		fieldUuid: "fixture_placeholder",
 	});
 	const doc = h.currentDoc();
 	const form = Object.values(doc.forms).find(
@@ -263,7 +175,16 @@ it("uses scoped short names for nested questions, wording, conditions, edits and
 });
 
 it("binds new questions, case operations, and case-list order without predeclared identities", async () => {
-	const h = authoring();
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{
+				name: "Clients",
+				caseType: "client",
+				forms: [{ name: "Visit", type: "close" }],
+			},
+		]),
+	);
 	await h.call("generateSchema", {
 		caseTypes: [
 			{
@@ -276,34 +197,36 @@ it("binds new questions, case operations, and case-list order without predeclare
 			},
 		],
 	});
-	await h.call("createModule", {
-		name: "Clients",
-		case_type: "client",
-		case_list_columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-		forms: [
+	await h.call("addFields", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		fields: [
+			{ kind: "text", id: "name", label: "Visit name" },
+			{ kind: "group", id: "confirmation", label: "Confirmation" },
 			{
-				name: "Visit",
-				type: "close",
-				close_condition: { fieldUuid: "done", answer: "yes" },
-				fields: [
-					{ kind: "text", id: "name", label: "Visit name" },
-					{ kind: "group", id: "confirmation", label: "Confirmation" },
-					{
-						kind: "single_select",
-						id: "done",
-						parentUuid: "confirmation",
-						label: "Finished?",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{ value: "yes", label: "Yes" },
-								{ value: "no", label: "No" },
-							],
-						},
-					},
-				],
+				kind: "single_select",
+				id: "done",
+				parentUuid: "confirmation",
+				label: "Finished?",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "yes", label: "Yes" },
+						{ value: "no", label: "No" },
+					],
+				},
 			},
 		],
+	});
+	await h.call("updateForm", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		close_condition: { fieldUuid: "done", answer: "yes" },
+	});
+	await h.call("removeField", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		fieldUuid: "fixture_placeholder",
 	});
 	const form = Object.values(h.currentDoc().forms).find(
 		(item) => item.name === "Visit",
@@ -429,29 +352,34 @@ it("resolves sibling organization levels before admitting a complete hierarchy",
 });
 
 it("edits named fields after creation and preserves authored wording through read and rename", async () => {
-	const h = authoring();
-	await h.call("createModule", {
-		name: "Visit",
-		forms: [
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Visit", forms: [{ name: "Survey", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fields: [
 			{
-				name: "Survey",
-				type: "survey",
-				fields: [
-					{
-						kind: "int",
-						id: "age",
-						label: "Age",
-						validate: { expr: ". >= 0", msg: "Age cannot be negative." },
-					},
-					{
-						kind: "label",
-						id: "summary",
-						label: "Age: {{age}}",
-						relevant: "#form/age >= 18",
-					},
-				],
+				kind: "int",
+				id: "age",
+				label: "Age",
+				validate: { expr: ". >= 0", msg: "Age cannot be negative." },
+			},
+			{
+				kind: "label",
+				id: "summary",
+				label: "Age: {{age}}",
+				relevant: "#form/age >= 18",
 			},
 		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "fixture_placeholder",
 	});
 	const age = Object.values(h.currentDoc().fields).find(
 		(field) => field.id === "age",
@@ -522,32 +450,37 @@ it("loads the table scope for a lookup filter even when the condition uses no ro
 		projectRevision: parseLookupRevision("1"),
 		definitions: [table],
 	}));
-	const h = authoring({
-		lookupCatalog,
-		lookupDefinitions: echoLookupDefinitions([table]),
-	});
-	await h.call("createModule", {
-		name: "Services",
-		forms: [
+	const h = authoring(
+		{
+			lookupCatalog,
+			lookupDefinitions: echoLookupDefinitions([table]),
+		},
+		namedFormFixture([
+			{ name: "Services", forms: [{ name: "Survey", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Services",
+		formUuid: "Survey",
+		fields: [
 			{
-				name: "Survey",
-				type: "survey",
-				fields: [
-					{
-						kind: "single_select",
-						id: "service",
-						label: "Service",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{ value: "one", label: "One" },
-								{ value: "two", label: "Two" },
-							],
-						},
-					},
-				],
+				kind: "single_select",
+				id: "service",
+				label: "Service",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "one", label: "One" },
+						{ value: "two", label: "Two" },
+					],
+				},
 			},
 		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Services",
+		formUuid: "Survey",
+		fieldUuid: "fixture_placeholder",
 	});
 	for (const filter of [true, "session('username') = 'ada@example.org'"]) {
 		await h.call("setFieldOptionsSource", {
@@ -573,25 +506,30 @@ it("loads the table scope for a lookup filter even when the condition uses no ro
 it.each(["outer", "outer/inner"])(
 	"binds full parent path %s when descendants share its leaf name",
 	async (parentPath) => {
-		const h = authoring();
-		await h.call("createModule", {
-			name: "Visit",
-			forms: [
+		const h = authoring(
+			{},
+			namedFormFixture([
+				{ name: "Visit", forms: [{ name: "Survey", type: "survey" }] },
+			]),
+		);
+		await h.call("addFields", {
+			moduleUuid: "Visit",
+			formUuid: "Survey",
+			fields: [
+				{ kind: "group", id: "outer", label: "Outer" },
+				{ kind: "group", id: "inner", label: "Inner", parentUuid: "outer" },
 				{
-					name: "Survey",
-					type: "survey",
-					fields: [
-						{ kind: "group", id: "outer", label: "Outer" },
-						{ kind: "group", id: "inner", label: "Inner", parentUuid: "outer" },
-						{
-							kind: "text",
-							id: "name",
-							label: "Name",
-							parentUuid: "outer/inner",
-						},
-					],
+					kind: "text",
+					id: "name",
+					label: "Name",
+					parentUuid: "outer/inner",
 				},
 			],
+		});
+		await h.call("removeField", {
+			moduleUuid: "Visit",
+			formUuid: "Survey",
+			fieldUuid: "fixture_placeholder",
 		});
 		const leaf = parentPath.split("/").at(-1);
 		await h.call("addFields", {
@@ -629,15 +567,28 @@ it.each(["outer", "outer/inner"])(
 );
 
 it("binds named Connect participants and their score expressions to each form", async () => {
-	const h = authoring();
-	await h.call("createModule", {
-		name: "Learning",
-		forms: ["First assessment", "Second assessment"].map((name) => ({
-			name,
-			type: "survey",
+	const formNames = ["First assessment", "Second assessment"];
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{
+				name: "Learning",
+				forms: formNames.map((name) => ({ name, type: "survey" })),
+			},
+		]),
+	);
+	for (const formUuid of formNames) {
+		await h.call("addFields", {
+			moduleUuid: "Learning",
+			formUuid,
 			fields: [{ kind: "int", id: "score", label: "Score" }],
-		})),
-	});
+		});
+		await h.call("removeField", {
+			moduleUuid: "Learning",
+			formUuid,
+			fieldUuid: "fixture_placeholder",
+		});
+	}
 	await h.call("configureConnect", {
 		mode: "learn",
 		participants: ["First assessment", "Second assessment"].map((formUuid) => ({
@@ -659,19 +610,24 @@ it("binds named Connect participants and their score expressions to each form", 
 });
 
 it("uses each translation unit's own form and preserves inserted identities", async () => {
-	const h = authoring();
-	await h.call("createModule", {
-		name: "Visit",
-		forms: [
-			{
-				name: "Survey",
-				type: "survey",
-				fields: [
-					{ kind: "text", id: "name", label: "Name" },
-					{ kind: "label", id: "hello", label: "Hello {{name}}" },
-				],
-			},
+	const h = authoring(
+		{},
+		namedFormFixture([
+			{ name: "Visit", forms: [{ name: "Survey", type: "survey" }] },
+		]),
+	);
+	await h.call("addFields", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fields: [
+			{ kind: "text", id: "name", label: "Name" },
+			{ kind: "label", id: "hello", label: "Hello {{name}}" },
 		],
+	});
+	await h.call("removeField", {
+		moduleUuid: "Visit",
+		formUuid: "Survey",
+		fieldUuid: "fixture_placeholder",
 	});
 	const unit = [...translationUnitsById(h.currentDoc()).values()].find(
 		(unit) => unit.role === "field-label" && unit.context.fieldId === "hello",
@@ -810,111 +766,5 @@ it("uses each translation unit's own form and preserves inserted identities", as
 		}),
 	).toMatchObject({
 		items: [{ status: "ready", effective: "Salut {{name}}" }],
-	});
-});
-
-it("binds Search rules to renamed answers and seeds a new no-matches form from them", async () => {
-	const h = authoring();
-	await h.call("generateSchema", {
-		caseTypes: [
-			{
-				name: "client",
-				properties: [
-					{ name: "case_name", label: "Client name", data_type: "text" },
-				],
-			},
-		],
-	});
-	await h.call("createModule", {
-		name: "Clients",
-		case_type: "client",
-		case_list_columns: [{ kind: "plain", field: "case_name", header: "Name" }],
-		forms: [
-			{
-				name: "Review",
-				type: "followup",
-				fields: [{ kind: "label", id: "name", label: "{{#case/case_name}}" }],
-			},
-		],
-	});
-	await h.call("addSearchInputs", {
-		moduleUuid: "Clients",
-		searchInputs: [
-			{
-				name: "name",
-				kind: "simple",
-				type: "text",
-				label: "Name",
-				property: "case_name",
-			},
-		],
-	});
-	const module = Object.values(h.currentDoc().modules).find(
-		(module) => module.name === "Clients",
-	);
-	const input = module?.caseListConfig?.searchInputs[0];
-	if (!input) throw new Error("Missing Search input.");
-	await h.call("updateSearchInput", {
-		moduleUuid: "Clients",
-		searchInputUuid: "name",
-		searchInput: {
-			name: "name",
-			kind: "simple",
-			type: "text",
-			label: "Name",
-			property: "case_name",
-			validation: { rule: "#search/name != ''", message: "Enter a name." },
-		},
-	});
-	await h.call("updateSearchInput", {
-		moduleUuid: "Clients",
-		searchInputUuid: "name",
-		searchInput: {
-			name: "client_name",
-			kind: "simple",
-			type: "text",
-			label: "Client name",
-			property: "case_name",
-			validation: {
-				rule: "#search/client_name != ''",
-				message: "Enter a name.",
-			},
-		},
-	});
-	await h.call("createForm", {
-		moduleUuid: "Clients",
-		name: "Add after search",
-		formUuid: testUuid("authored-search-registration"),
-		type: "registration",
-		entry: { kind: "search-no-matches" },
-		fields: [
-			{
-				kind: "text",
-				id: "name",
-				caseWrite: { caseType: "client", property: "case_name" },
-				default_value: "#search/client_name",
-			},
-		],
-	});
-	const seeded = Object.values(h.currentDoc().forms).find(
-		(form) => form.name === "Add after search",
-	);
-	if (!seeded) throw new Error("Missing no-matches form.");
-	const fieldId = h.currentDoc().fieldOrder[seeded.uuid][0];
-	expect(h.currentDoc().fields[fieldId]).toMatchObject({
-		default_value: {
-			parts: [{ kind: "search-answer-ref", searchInputUuid: input.uuid }],
-		},
-	});
-	const result = await h.call("getModule", { moduleUuid: "Clients" });
-	expect(result).toMatchObject({
-		case_list_config: {
-			searchInputs: [
-				{
-					name: "client_name",
-					validation: { rule: "(#search/client_name != '')" },
-				},
-			],
-		},
 	});
 });

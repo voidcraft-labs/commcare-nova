@@ -37,7 +37,7 @@ export interface DeriveRunIdInput {
 	/**
 	 * Epoch-ms of the app's last write (i.e. `updated_at.getTime()`). Null
 	 * when the app has never been written — shouldn't happen in practice
-	 * (create_app always seeds both fields) but the null case is handled
+	 * (saved apps normally have both fields) but the null case is handled
 	 * defensively so the derivation doesn't crash on a malformed row.
 	 */
 	lastActiveMs: number | null;

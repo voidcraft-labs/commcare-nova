@@ -6,7 +6,7 @@
  * gate, deliberately: the list exposes nothing beyond the caller's own
  * memberships — roughly what floor-scoped `list_apps` already reveals by
  * enumerating across those same Projects — and default-scope OAuth clients
- * need it to resolve a `project_id` for `create_app`. The Project WRITE
+ * need it to resolve a `project_id` for `begin_work`. The Project WRITE
  * tools (`create_project`, `invite_member`, `update_member_role`,
  * `move_app`) and the member-PII read (`list_members`) carry the orthogonal
  * `nova.projects.*` scopes instead.
@@ -49,7 +49,7 @@ export function registerListProjects(
 		"list_projects",
 		{
 			description:
-				"List every Nova Project the user belongs to, with the user's role in each (viewer, editor, admin, or owner) and whether it's their personal Project. Projects are Nova's sharing unit: every app lives in exactly one Project, and every member of that Project can see the app plus its case data and media. Use the returned project_id values to target create_app, move_app, invite_member, list_members, and update_member_role. The personal Project can't be shared; when other people need access, create a shared Project with create_project and build there.",
+				"List every Nova Project the user belongs to, with the user's role in each (viewer, editor, admin, or owner) and whether it's their personal Project. Projects are Nova's sharing unit: every app lives in exactly one Project, and every member of that Project can see the app plus its case data and media. Use the returned project_id values to target begin_work, move_app, invite_member, list_members, and update_member_role. The personal Project can't be shared; when other people need access, create a shared Project with create_project and build there.",
 		},
 		async (): Promise<McpToolSuccessResult | McpToolErrorResult> => {
 			try {

@@ -1,140 +1,24 @@
-import type { Mutation } from "@/lib/doc/types";
-/**
- * SA tool: `createModule` — add a new module to the app, together with
- * everything that makes it sound and complete, in one gated batch.
- *
- * Creation is ATOMIC. EVERY module is only valid WITH its forms
- * (NO_FORMS_OR_CASE_LIST — a formless menu is a hard CommCare build
- * error, the sole exception being a `case_list_only` viewer), and a
- * case-managing one additionally WITH its case-list columns
- * (MISSING_CASE_LIST_COLUMNS — completeness, gated like everything
- * else). So the tool accepts `forms` (each with its `fields`) and
- * `case_list_columns`, and emits one batch: addModule + addForm × N +
- * addField × M + the case-list config — the gate evaluates the whole
- * thing as one candidate, and a rejection's findings are all
- * satisfiable by adjusting THIS call.
- *
- * The module's CASE TYPE references the app's case-type catalog by
- * NAME — the record itself lands earlier, via `generateSchema` (the
- * data-model tool), so the model is stated once and the field assembly's
- * catalog defaulting (`applyDefaults`) seeds intrinsic type, canonical label,
- * and choice catalog. Form-context hint, requiredness, and validation remain
- * explicit on each field. An unrecorded `case_type` is rejected with the
- * generateSchema pointer.
- *
- * Follow-up case-list refinement (sort, filter, search inputs) still
- * goes through the case-list-config tools once the module exists; this
- * tool's `case_list_columns` and optional several-case `selection` exist so
- * the module can BE BORN complete. Selection is accepted only with a case
- * type and a follow-up or close form that consumes it in this same call.
- * Optional `parentModuleUuid` creates the module in an existing top-level
- * menu. Nova supports one child-menu tier, and the document gate proves
- * parentage, preorder, and content validity atomically.
- *
- * New forms are auxiliary on a Connect app. After their final UUIDs exist,
- * `configureConnect` can replace the complete participant set atomically;
- * module creation cannot become a second owner of participation.
- *
- * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolInvocationContext` interface. Exit branches:
- *
- *   1. A `case_type` with no record in the app's catalog → `{ error }`
- *      pointing at generateSchema, no mutations.
- *   2. Identifier guard rejection in any form's fields → `{ error }`
- *      naming every failing item, nothing persisted.
- *   3. Commit-gate rejection → `{ error }` listing each finding,
- *      nothing persisted.
- *   4. Unexpected runtime error → `{ error }`, no mutations.
- *   5. Success → a human-readable `message` (+ a UI `summary`) carrying
- *      the new module's index + structure counts, stage `module:create`.
- */
-
+/** Create a module in the private candidate; forms and list refinements are separate operations. */
 import { z } from "zod";
-import { formRecordNameMutations } from "@/lib/doc/formRecordName";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
-	CASE_LOADING_FORM_TYPES,
-	type CaseSelection,
-	caseSelectionSchema,
 	childModuleUuids,
-	FORM_TYPES,
 	findAuthoredBlueprintIdentity,
-	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
-import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
-import { addFormMutations, addModuleMutations } from "../blueprintHelpers";
-import { closeConditionInputSchema } from "../planningSchemas";
-import { addFieldsItemSchema } from "../toolSchemas";
+import { addModuleMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
+import { newUuid, stampColumnUuid } from "./case-list-config/shared";
 import {
-	columnInputSchema,
-	newUuid,
-	stampColumnUuid,
-} from "./case-list-config/shared";
-import {
-	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
-import {
-	assembleFieldMutations,
-	type CreatedFieldIdentity,
-	describeRejectedFields,
-	resolveCloseCondition,
-} from "./shared/fieldAssembly";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
 } from "./shared/toolCallSummary";
-
-const createModuleFormSchema = z.strictObject({
-	formUuid: uuidSchema
-		.optional()
-		.describe(
-			"Stable UUID for this new form. Omit when nothing in the call references it.",
-		),
-	name: z.string().min(1).describe("Form display name"),
-	recordName: xpathExpressionSchema
-		.optional()
-		.describe(
-			"Name of the record this form creates or updates, using an answer or an expression.",
-		),
-
-	type: z
-		.enum(FORM_TYPES)
-		.describe(
-			'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
-		),
-	fields: z
-		.array(addFieldsItemSchema)
-		.min(1)
-		.describe(
-			"The form's fields, in order (same per-field shape as addFields). Set recordName for registration.",
-		),
-	purpose: z
-		.string()
-		.min(1)
-		.nullable()
-		.optional()
-		.describe(
-			"Brief description of what this form collects and why. null when there's nothing to add.",
-		),
-	post_submit: z
-		.enum(POST_SUBMIT_DESTINATIONS)
-		.nullable()
-		.optional()
-		.describe(
-			'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
-		),
-	close_condition: closeConditionInputSchema
-		.nullable()
-		.optional()
-		.describe(
-			"Close the case when this form's answer matches. Close forms only; null makes closing unconditional.",
-		),
-});
 
 export const createModuleInputSchema = z
 	.strictObject({
@@ -170,20 +54,6 @@ export const createModuleInputSchema = z
 			.describe(
 				"Brief description of this module's role in the app. null when there's nothing to add.",
 			),
-		forms: z
-			.array(createModuleFormSchema)
-			.nullable()
-			.optional()
-			.describe(
-				"Forms to include, with their questions. Include at least one unless the module contains a case list alone.",
-			),
-		case_list_columns: z
-			.array(columnInputSchema)
-			.nullable()
-			.optional()
-			.describe(
-				"Columns in display order. Record modules default to a Name column. A survey-only module has none.",
-			),
 		case_list_only: z
 			.boolean()
 			.nullable()
@@ -191,26 +61,8 @@ export const createModuleInputSchema = z
 			.describe(
 				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
 			),
-		selection: caseSelectionSchema
-			.nullable()
-			.optional()
-			.describe(
-				'How workers choose cases from Results when this module is created. Pass `{ kind: "multiple", maximum: N }` only when the module has a case type and at least one follow-up or close form. N is an integer from 1 through 100. Omit or pass null for one case at a time.',
-			),
 	})
 	.superRefine((input, ctx) => {
-		if (
-			input.case_type != null &&
-			input.case_list_columns != null &&
-			!input.case_list_columns.some((column) => column.visibleInList !== false)
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["case_list_columns"],
-				message:
-					"Keep at least one visible Results column, or omit columns to use Name.",
-			});
-		}
 		if (input.case_list_only === true && input.case_type == null) {
 			ctx.addIssue({
 				code: "custom",
@@ -219,27 +71,7 @@ export const createModuleInputSchema = z
 					"A case-list-only module must name the case_type whose records it shows.",
 			});
 		}
-		if (input.selection != null && input.case_type == null) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["case_type"],
-				message:
-					"Several-case selection requires the case_type whose records workers choose.",
-			});
-		}
-		if (
-			input.selection != null &&
-			!input.forms?.some((form) => CASE_LOADING_FORM_TYPES.has(form.type))
-		) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["forms"],
-				message:
-					"Several-case selection requires at least one follow-up or close form in this module. Add that form in this call, or omit selection until the workflow exists.",
-			});
-		}
 	});
-
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
 
 /** Human-readable success string or an error record. */
@@ -249,19 +81,13 @@ export type CreateModuleResult =
 			parentModuleUuid: string | null;
 			childModuleUuids: string[];
 			moduleOrder: string[];
-			forms: Array<{
-				uuid: string;
-				name: string;
-				fields: CreatedFieldIdentity[];
-			}>;
 			columns: Array<{ uuid: string }>;
-			selection: CaseSelection | null;
 	  })
 	| { error: string };
 
 export const createModuleTool = {
 	description:
-		"Create a complete module, including its forms and any case list.",
+		"Create a module. Add its forms separately; record modules start with a Name column.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
@@ -275,10 +101,7 @@ export const createModuleTool = {
 			name,
 			case_type,
 			purpose,
-			forms,
-			case_list_columns,
 			case_list_only,
-			selection,
 		} = input;
 		try {
 			// Stage tag `module:create` — a positional index isn't available
@@ -295,21 +118,14 @@ export const createModuleTool = {
 					},
 				};
 			}
-			// Stamp each born column with a uuid. Position is the array they sit
-			// in, so writing them in order is all it takes.
-			const columnInputs =
-				case_list_columns ??
-				(case_type
-					? [{ kind: "plain" as const, field: "case_name", header: "Name" }]
-					: []);
-			const columns = columnInputs.map((column) =>
-				stampColumnUuid(
-					column,
-					column.columnUuid === undefined
-						? newUuid()
-						: asUuid(column.columnUuid),
-				),
-			);
+			const columns = case_type
+				? [
+						stampColumnUuid(
+							{ kind: "plain", field: "case_name", header: "Name" },
+							newUuid(),
+						),
+					]
+				: [];
 			const mutations: Mutation[] = [
 				...(case_type && !doc.caseTypes?.some((type) => type.name === case_type)
 					? [{ kind: "declareCaseType" as const, caseType: case_type }]
@@ -328,141 +144,10 @@ export const createModuleTool = {
 							listColumnOrder: columns.map((column) => column.uuid),
 							detailColumnOrder: columns.map((column) => column.uuid),
 							searchInputs: [],
-							...(selection != null && { selection }),
 						},
 					}),
 				}),
 			];
-
-			const createdForms: Array<{
-				uuid: string;
-				name: string;
-				fields: CreatedFieldIdentity[];
-			}> = [];
-			const callEntityUuids = new Set([
-				moduleUuid,
-				...columns.map((column) => column.uuid),
-				...(forms ?? [])
-					.map((form) => form.formUuid)
-					.filter(
-						(uuid): uuid is NonNullable<typeof uuid> => uuid !== undefined,
-					),
-			]);
-			if (
-				callEntityUuids.size !==
-				1 +
-					columns.length +
-					(forms ?? []).filter((form) => form.formUuid !== undefined).length
-			) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error:
-							"moduleUuid, formUuid, and column UUID declarations in this call must be unique.",
-					},
-				};
-			}
-			const existingCollision = [...callEntityUuids].find(
-				(uuid) => findAuthoredBlueprintIdentity(doc, uuid) !== undefined,
-			);
-			if (existingCollision !== undefined) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: `UUID ${existingCollision} already belongs to an authored object in this app.`,
-					},
-				};
-			}
-			// The module + all its forms land in ONE batch. Each `addForm`
-			// appends, so emitting them in order is what orders them — they no
-			// longer need to derive keys off each other.
-			for (const formInput of forms ?? []) {
-				const formUuid = formInput.formUuid ?? asUuid(crypto.randomUUID());
-				if (
-					(callEntityUuids.has(formUuid) && formInput.formUuid === undefined) ||
-					findAuthoredBlueprintIdentity(doc, formUuid) !== undefined
-				) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error: `minted form UUID ${formUuid} collided with another identity in this call.`,
-						},
-					};
-				}
-				callEntityUuids.add(formUuid);
-				const formBase = applyToDoc(doc, mutations);
-				const assembly = assembleFieldMutations({
-					doc: formBase,
-					formUuid,
-					items: formInput.fields,
-					occupiedUuids: callEntityUuids,
-				});
-				if (!assembly.ok) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error: describeRejectedFields(
-								formInput.name,
-								formInput.fields.length,
-								assembly.rejected,
-							),
-						},
-					};
-				}
-				if (
-					formInput.close_condition &&
-					!assembly.created.some(
-						(field) => field.uuid === formInput.close_condition?.fieldUuid,
-					)
-				) {
-					return {
-						kind: "mutate" as const,
-						mutations: [],
-						result: {
-							error: `Module "${name}" wasn't created — close-condition fieldUuid ${formInput.close_condition.fieldUuid} is not a field created in form "${formInput.name}".`,
-						},
-					};
-				}
-				const closeCondition = resolveCloseCondition(formInput.close_condition);
-				mutations.push(
-					...addFormMutations(formBase, moduleUuid, {
-						uuid: formUuid,
-						name: formInput.name,
-						type: formInput.type,
-						...(formInput.purpose != null && {
-							purpose: formInput.purpose,
-						}),
-						...(formInput.post_submit && {
-							postSubmit: formInput.post_submit,
-						}),
-						...(closeCondition && { closeCondition }),
-					}),
-				);
-				mutations.push(...assembly.mutations);
-				if (formInput.recordName !== undefined)
-					mutations.push(
-						...formRecordNameMutations(
-							applyToDoc(doc, mutations),
-							formUuid,
-							formInput.recordName,
-						),
-					);
-				createdForms.push({
-					uuid: formUuid,
-					name: formInput.name,
-					fields: assembly.created,
-				});
-				for (const field of assembly.created) {
-					callEntityUuids.add(field.uuid);
-					for (const option of field.options) {
-						callEntityUuids.add(option.uuid);
-					}
-				}
-			}
 
 			const commit = await guardedMutate(ctx, mutations, "module:create");
 			if (!commit.ok) {
@@ -484,9 +169,7 @@ export const createModuleTool = {
 						newDoc.modules[moduleUuid]?.parentModuleUuid ?? null,
 					childModuleUuids: childModuleUuids(newDoc, moduleUuid),
 					moduleOrder: [...newDoc.moduleOrder],
-					forms: createdForms,
 					columns: columns.map((column) => ({ uuid: column.uuid })),
-					selection: selection ?? null,
 					summary: { subject: name } satisfies ToolCallSummary,
 				},
 			};

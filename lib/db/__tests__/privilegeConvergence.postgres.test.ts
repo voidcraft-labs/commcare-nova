@@ -642,6 +642,35 @@ describe("database privilege convergence", () => {
 				{ status: "complete", name: "Runtime genesis" },
 			).finally(() => runtimeCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
+			const workId = crypto.randomUUID();
+			await sql`INSERT INTO authoring_sessions(id,actor_user_id,project_id,origin,app_id,app_name,begin_request_id,begin_input_digest)
+    VALUES (${workId}::uuid,${probeUserId},${probeProjectId},'mcp',${genesis.appId},'Runtime work','begin',repeat('a',64))`.execute(
+				runtime.db,
+			);
+			await sql`SELECT id FROM authoring_sessions WHERE id=${workId}::uuid FOR UPDATE`.execute(
+				runtime.db,
+			);
+			await sql`INSERT INTO authoring_session_requests(ordinary_session_id,request_id,operation,input_digest)
+    VALUES (${workId}::uuid,'save','saveWork',repeat('b',64))`.execute(
+				runtime.db,
+			);
+			await sql`UPDATE authoring_session_requests SET result_json='{"saved":false}'::jsonb WHERE ordinary_session_id=${workId}::uuid AND request_id='save'`.execute(
+				runtime.db,
+			);
+			expect(
+				(
+					await sql<{
+						result_json: { saved: boolean };
+					}>`SELECT result_json FROM authoring_session_requests WHERE ordinary_session_id=${workId}::uuid AND request_id='save'`.execute(
+						runtime.db,
+					)
+				).rows,
+			).toEqual([{ result_json: { saved: false } }]);
+			await expect(
+				sql`DELETE FROM authoring_session_requests WHERE ordinary_session_id=${workId}::uuid`.execute(
+					runtime.db,
+				),
+			).rejects.toMatchObject({ code: "42501" });
 			// The acknowledgement trigger must execute under the restricted runtime
 			// role after convergence has revoked direct access to internal routines.
 			const target = await sql<{ id: string }>`INSERT INTO app_deployments

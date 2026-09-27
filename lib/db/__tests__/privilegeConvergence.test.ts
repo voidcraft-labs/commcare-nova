@@ -175,6 +175,10 @@ describe("database privilege convergence contract", () => {
 			new Set(PUBLIC_TABLE_POLICIES.map((policy) => policy.name)).size,
 		).toBe(PUBLIC_TABLE_POLICIES.length);
 		expect(runtimeTableCapability("apps")).toBe("read-write");
+		expect(runtimeTableCapability("authoring_sessions")).toBe("read-write");
+		expect(runtimeTableCapability("authoring_session_requests")).toBe(
+			"insert-update",
+		);
 		expect(runtimeTableCapability("app_changes")).toBe("append-only");
 		expect(runtimeTableCapability("design_identity_handles")).toBe(
 			"insert-update",

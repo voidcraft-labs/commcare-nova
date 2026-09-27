@@ -8,8 +8,6 @@ import {
 	type UIMessageStreamWriter,
 } from "ai";
 import {
-	buildAppStateMessage,
-	buildTurnRetryContinuation,
 	type ClassifiedError,
 	classifyError,
 	countDocumentsNeedingRead,
@@ -23,6 +21,8 @@ import {
 	turnRetryDelayMs,
 	turnRetryMessage,
 } from "@/lib/agent";
+import { openChatWork } from "@/lib/agent/authoring/chatWork";
+import { buildWorkStateMessage } from "@/lib/agent/authoring/workMessages";
 import { isTerminalOrchestrationKind } from "@/lib/agent/build/orchestrationKinds";
 import { runBuildOrchestration } from "@/lib/agent/build/orchestrator";
 import {
@@ -2562,7 +2562,6 @@ export async function POST(req: Request) {
 						"Chat session has no authorized app snapshot to edit.",
 					);
 				}
-				const sessionCanonicalSeq = loadedApp.mutation_seq;
 				const sessionDoc: BlueprintDoc = hydratePersistedBlueprint(
 					persistedSessionBlueprint as PersistableDoc,
 				);
@@ -2692,11 +2691,8 @@ export async function POST(req: Request) {
 						moduleCount: sessionDoc.moduleOrder.length,
 					});
 
-					const sa = createSolutionsArchitect(
-						ctx,
-						sessionDoc,
-						sessionCanonicalSeq,
-					);
+					const work = await openChatWork(ctx, threadId);
+					const sa = createSolutionsArchitect(ctx, work);
 
 					/* Start the wall-clock run-lease heartbeat now the run is live, an
 					 * edit refreshes its `run_lock` lease, a build re-arms its `updated_at`
@@ -2782,21 +2778,10 @@ export async function POST(req: Request) {
 					const validated = projected.validated;
 					const baseModelMessages = projected.modelMessages;
 
-					/* Every turn delivers the CURRENT blueprint summary as a per-turn
-					 * message at the END of the prompt, not inside the system prompt:
-					 * the summary changes on every doc mutation and provider caching
-					 * is exact-prefix, so a volatile summary in the prompt would
-					 * re-bill the static tail + the tool rendering + the history on
-					 * every doc-mutating turn. Appended after the full history, the
-					 * cached prefix survives through the previous user turn; the
-					 * re-billed suffix is the prior turn's response, which replay
-					 * re-bills regardless, since history drops its reasoning items:
-					 * plus this snapshot. Rendered from the same doc the SA booted
-					 * with, so it reflects builder-side and co-member edits the
-					 * conversation never saw. Ephemeral by construction: a
-					 * ModelMessage appended past `validated` never reaches the thread
-					 * transcript, so each turn carries exactly one fresh snapshot. */
-					const appStateMessage = buildAppStateMessage(sessionDoc);
+					/* Keep the volatile private-work status after the stable conversation
+					 * prefix. It includes preserved pending edits on resume and never
+					 * enters the stored transcript as a second source of app state. */
+					const appStateMessage = buildWorkStateMessage(await work.status());
 
 					/* Record the input-context composition for the per-run finalize
 					 * log: how many messages were actually sent (after the sanitizer's
@@ -2837,7 +2822,7 @@ export async function POST(req: Request) {
 					 * dropped provider connection) re-drives the SAME turn: same POST,
 					 * same claim + lease + charge, same open stream: instead of failing
 					 * the run and making the user retry by hand. This is safe because it
-					 * IS the manual retry, performed early: every tool batch committed
+					 * IS the manual retry, performed early: every tool batch persisted
 					 * inline before the failure (nothing is lost or replayed), the SA
 					 * continues against that committed doc, and the validity gate rejects
 					 * duplicate structural work at commit: the same guarantees a user's
@@ -2869,24 +2854,12 @@ export async function POST(req: Request) {
 						 * wire is byte-identical to before. */
 						let heldFinish: Parameters<typeof writer.write>[0] | undefined;
 
-						/* A RE-DRIVE gets the retry continuation on its FIRST attempt too:
-						 * the dead run's committed work is already in the doc (its tool
-						 * transcript died with it), so without the committed-state message
-						 * the SA re-plans from the conversation and burns its early calls
-						 * re-creating work the validity gate then rejects. Same recovery
-						 * shape as the in-route retry: attempt-N's retry continuation
-						 * (built from the run's own latest commit) supersedes it. */
+						/* Every retry replaces the volatile tail with current private work.
+						 * Completed checkpoints and pending edits both survive interruption. */
 						const continuation =
-							turnRetries > 0
-								? (() => {
-										const committed = ctx.latestPersistedDoc();
-										return committed
-											? buildTurnRetryContinuation(committed)
-											: null;
-									})()
-								: parsed.data.redrive
-									? buildTurnRetryContinuation(sessionDoc, "redrive")
-									: null;
+							turnRetries > 0 || parsed.data.redrive
+								? buildWorkStateMessage(await work.status(), true)
+								: null;
 						const result = await sa.stream({
 							prompt: continuation
 								? [...baseModelMessages, continuation]
@@ -3011,15 +2984,26 @@ export async function POST(req: Request) {
 							!ctx.batchIdCollisionError() &&
 							!ctx.pausedOnInput()
 						) {
+							const pending = await work.status();
 							const steps = await result.steps;
 							// Hosted discovery can accompany a complete final answer. Only
 							// client-executed calls require another step to consume results.
-							if (
+							const reachedLimit =
 								steps.length >= SOLUTIONS_ARCHITECT_MAX_STEPS &&
 								steps
 									.at(-1)
-									?.toolCalls.some((call) => call.providerExecuted !== true)
-							) {
+									?.toolCalls.some((call) => call.providerExecuted !== true);
+							if (pending.pendingChanges > 0 && !reachedLimit) {
+								const text = pending.stale
+									? "These changes are still pending because the saved app changed. You can restart from the latest saved app or discard the pending changes."
+									: "These changes are still pending. You can continue to finish and save them, or discard them.";
+								const id = `${responseMessageId}:pending-work`;
+								writer.write({ type: "text-start", id });
+								writer.write({ type: "text-delta", id, delta: text });
+								writer.write({ type: "text-end", id });
+								ctx.emitConversation({ type: "assistant-text", text });
+							}
+							if (reachedLimit) {
 								const id = `${responseMessageId}:turn-limit`;
 								writer.write({ type: "text-start", id });
 								writer.write({

@@ -45,17 +45,18 @@ traffic-split controllers.
 
 **Valid by construction.** An invalid app cannot exist. Every mutation batch is
 gated before it commits, identically on the chat SA, the visual builder, and the
-MCP API. There is no save/validate/release cycle and no draft state. New
-mutations follow the fold rules in `lib/doc/CLAUDE.md`: mutation-bearing app
+MCP API. Private agent work may be incomplete; only valid checkpoints become saved
+apps. Builder commits remain immediate, and Preview and export read saved state.
+New mutations follow the fold rules in `lib/doc/CLAUDE.md`: mutation-bearing app
 changes after the active baseline must always replay. When a stored
 shape changes incompatibly, the same release either migrates the replayable
 suffix or atomically establishes an explicit fold horizon whose earlier rows
 remain opaque audit history. A horizon expected to support later replay owns an
 immutable, complete Project-bearing persisted baseline keyed to its exact app
 sequence; a reload boundary by itself is never treated as reconstructable
-state. App birth is a CLOSED two-owner vocabulary — `explicit-blank |
-design-slice` — and both owners share one genesis writer with identical
-admission: the construction batch reduces from the canonical empty Blueprint,
+state. App birth comes from the Builder's explicit blank action, a reviewed
+architect checkpoint, or an ordinary authoring session's first valid checkpoint.
+All three use one genesis writer with identical admission: the construction batch reduces from the canonical empty Blueprint,
 passes the absolute gate and full export readiness, and its complete
 immutable result is recorded atomically as the sequence-`1` genesis baseline
 beside the app root, entities, exact lookup/media edges, runtime case-schema
@@ -63,12 +64,15 @@ rows, and an intentionally empty attributed `fold-baseline` app change. The
 runtime catalog includes the built-in worker case even when the app declares
 no case types. The
 construction batch is not replay history. `explicit-blank` (the builder's
-"blank app" action and MCP `create_app`) is born as the canonical starter: a
+"blank app" action) is born as the canonical starter: a
 real nonblank name (`Untitled` when none was supplied), one survey module,
 one survey form, and one text question. `design-slice` is a chat build's
 materialization: the app is born as its design's first meaningful reviewed
 workflow, with the run's holder and credit reservation transferred from the
-design session onto the app row in the same transaction. Every birth hands
+design session onto the app row in the same transaction. An ordinary session
+materializes its complete candidate without fabricating a design plan or build
+run; its session-to-app mapping and exact checkpoint receipt commit with the
+app. Every birth hands
 its surface the one strict activation receipt (identity, Project capability,
 the exact sequence-`1` blueprint, its canonical digest, and — on the blank
 path only — the starter UUIDs); a persisted empty app, optional seed path,
@@ -383,16 +387,22 @@ judgment, not a claim of formal completeness.
 Planning and review are read-only for app and Project data. Construction uses
 the shared authoring tools in a private workspace. The first complete,
 export-ready workflow creates the app atomically; later valid checkpoints use
-the same canonical mutation kernel. Ordinary Builder and MCP edits require no
-plan metadata. Preview, export, deployment, and collaboration consume only
+the same canonical mutation kernel. Ordinary chat and MCP app edits use the
+same private-work lifecycle without plan metadata. Builder edits remain
+immediate valid canonical commits. Preview, export, deployment, and
+collaboration consume only
 canonical Blueprint revisions.
 
 Every holder-owned write proves the exact live run and nonce, actor, Project,
 and edit membership in its owning transaction. Before app birth the session is
 the authority carrier; afterward authority follows its immutable app mapping.
 A peer holding the plan pauses construction. Publication resolves current
-resources under lock, preserves compatible canonical edits, and refuses
-conflicts without discarding private work.
+resources under lock, requires the exact original canonical sequence, and
+refuses any intervening saved change without discarding private work. There is
+no implicit rebase. Explicit discard abandons the pending candidate while
+preserving its work
+identity and earlier saved checkpoints. The next edit creates a candidate from
+the latest saved base; reads do not create one.
 
 Project data changes are immediate, separately authorized operations with exact
 request and revision receipts. Drafting cannot create tables. Reusing a table

@@ -1,60 +1,17 @@
-/**
- * SA tool: `createForm` — add a new form to a module, together with its
- * fields, in one gated batch.
- *
- * Creation is ATOMIC: a form lands with the content that makes it sound
- * and complete (the validity gate evaluates the whole batch — on a
- * complete app, an empty form would introduce EMPTY_FORM and a
- * registration form without a `case_name` writer would introduce
- * CASE_CREATE_NAME_MISSING, both rejected at this call with the validator's
- * own repair guidance, all satisfiable by adjusting THIS call's
- * `fields`). The field items ride the same shared per-kind schema
- * `addFields` uses, through the same assembly pipeline
- * (`shared/fieldAssembly.ts`), so groups + nested children compose
- * identically on both tools.
- *
- * A new form is auxiliary on a Connect app. App-wide participation is
- * configured afterward through `configureConnect`, once the form's final UUID
- * exists; creation cannot become a second participant-set writer.
- *
- * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolInvocationContext` interface. Exit branches:
- *
- *   1. Parent module UUID address does not resolve → `{ error }`, no mutations.
- *   2. Identifier guard rejection (any field id illegal / reserved /
- *      over-long / batch-conflicting) → `{ error }` naming EVERY failing
- *      item, nothing persisted.
- *   3. Commit-gate rejection (the batch would introduce a validator
- *      finding) → `{ error }` listing each finding, nothing persisted.
- *   4. Success → human-readable summary with the new form's positional
- *      index + field count, tagged under `module:M` so the event log
- *      groups this creation with the rest of that module's activity.
- */
-
+/** Create an empty form in the private candidate. Questions are authored through addFields. */
 import { z } from "zod";
-import { formRecordNameMutations } from "@/lib/doc/formRecordName";
-import { declareCaseTypeForField } from "@/lib/doc/scaffolds";
-import {
-	searchAnswerFields,
-	searchFirstOnMutations,
-} from "@/lib/doc/searchNoMatchesForm";
-import type { Mutation } from "@/lib/doc/types";
+import { searchFirstOnMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { FormEntry, FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
-	fieldCaseWrite,
 	findAuthoredBlueprintIdentity,
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
 } from "@/lib/domain";
-import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
 import { addFormMutations } from "../blueprintHelpers";
-import { closeConditionInputSchema } from "../planningSchemas";
-import { addFieldsItemSchema } from "../toolSchemas";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
-	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
@@ -63,12 +20,6 @@ import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
-import {
-	assembleFieldMutations,
-	type CreatedFieldIdentity,
-	describeRejectedFields,
-	resolveCloseCondition,
-} from "./shared/fieldAssembly";
 import {
 	FORM_ENTRY_DESCRIPTION,
 	formEntryInputSchema,
@@ -86,22 +37,10 @@ export const createFormInputSchema = moduleAddressSchema
 				"Stable UUID for the new form. Omit when nothing in this call references the form.",
 			),
 		name: z.string().min(1).describe("Form display name"),
-		recordName: xpathExpressionSchema
-			.optional()
-			.describe(
-				"Name of the record this form creates or updates, using an answer or an expression.",
-			),
-
 		type: z
 			.enum(FORM_TYPES)
 			.describe(
 				'"registration" creates a new case. "followup" updates an existing case. "close" loads and closes an existing case. "survey" is standalone.',
-			),
-		fields: z
-			.array(addFieldsItemSchema)
-			.min(1)
-			.describe(
-				"The form's fields, in order — a form is created together with its content in one call (set recordName for registration). Use parentUuid to place a field inside a group, repeat, or section.",
 			),
 		purpose: z
 			.string()
@@ -118,23 +57,10 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override. With entry search-no-matches, omission returns to Results and explicit app_home returns home; multiple-selection modules require app_home.',
 			),
-		close_condition: closeConditionInputSchema
-			.nullable()
-			.optional()
-			.describe(
-				"Close the case when this form's answer matches. Close forms only; null makes closing unconditional.",
-			),
 		entry: formEntryInputSchema
 			.nullable()
 			.optional()
 			.describe(FORM_ENTRY_DESCRIPTION),
-		carry_search_answers: z
-			.boolean()
-			.nullable()
-			.optional()
-			.describe(
-				"With entry search-no-matches: append one field per Search prompt, seeded from #search/<prompt name> and saving to the prompt's property (a hidden prompt under its own name when that is a legal property name); a prompt whose property your fields already write is skipped.",
-			),
 	})
 	.strict();
 
@@ -144,12 +70,12 @@ export type CreateFormInput = z.infer<typeof createFormInputSchema>;
 export type CreateFormResult =
 	| (MutationSuccess & {
 			formUuid: string;
-			fields: CreatedFieldIdentity[];
 	  })
 	| { error: string };
 
 export const createFormTool = {
-	description: "Create a form with its questions in one atomic change.",
+	description:
+		"Create a form. Add its questions separately, then configure answer-dependent naming or closing rules.",
 	inputSchema: createFormInputSchema,
 	async execute(
 		input: CreateFormInput,
@@ -160,14 +86,10 @@ export const createFormTool = {
 			moduleUuid: rawModuleUuid,
 			formUuid: requestedFormUuid,
 			name,
-			recordName,
 			type,
-			fields,
 			purpose,
 			post_submit,
-			close_condition,
 			entry,
-			carry_search_answers,
 		} = input;
 		try {
 			const address = resolveModuleAddress(doc, {
@@ -182,10 +104,6 @@ export const createFormTool = {
 			}
 			const { moduleUuid } = address;
 
-			// Mint the form's uuid here so the field assembly can target it —
-			// the form only exists once the addForm mutation applies, but the
-			// assembly's sibling scans correctly read an absent `fieldOrder`
-			// entry as "no existing siblings".
 			const formUuid = requestedFormUuid ?? asUuid(crypto.randomUUID());
 			if (findAuthoredBlueprintIdentity(doc, formUuid) !== undefined) {
 				return {
@@ -197,56 +115,12 @@ export const createFormTool = {
 				};
 			}
 
-			// Assemble every field into the same atomic form-creation batch.
-			const assembly = assembleFieldMutations({
-				doc,
-				formUuid,
-				items: fields,
-				occupiedUuids: new Set([formUuid]),
-			});
-			if (!assembly.ok) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: describeRejectedFields(
-							name,
-							fields.length,
-							assembly.rejected,
-						),
-					},
-				};
-			}
-			if (
-				close_condition &&
-				!assembly.created.some(
-					(field) => field.uuid === close_condition.fieldUuid,
-				)
-			) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: `Close-condition fieldUuid ${close_condition.fieldUuid} is not a field created in form "${name}".`,
-					},
-				};
-			}
-			const closeCondition = resolveCloseCondition(close_condition);
 			if (entry != null && post_submit != null && post_submit !== "app_home") {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
 						error: `Form "${name}" can return to Results or App home after an empty-search registration. Leave post_submit out to return to Results, or set post_submit to app_home.`,
-					},
-				};
-			}
-			if (carry_search_answers === true && entry == null) {
-				return {
-					kind: "mutate" as const,
-					mutations: [],
-					result: {
-						error: `carry_search_answers needs entry { kind: "search-no-matches" }: only that form can read the search answers.`,
 					},
 				};
 			}
@@ -265,32 +139,8 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
-				...(closeCondition && { closeCondition }),
 				...(formEntry && { entry: formEntry }),
 			});
-			const carried: Mutation[] = [];
-			if (carry_search_answers === true) {
-				const occupied = new Set(assembly.created.map((field) => field.id));
-				const written = new Set(
-					assembly.mutations.flatMap((mutation) => {
-						const write =
-							mutation.kind === "addField"
-								? fieldCaseWrite(mutation.field)
-								: undefined;
-						return write === undefined ? [] : [write.property];
-					}),
-				);
-				for (const field of searchAnswerFields(
-					doc,
-					moduleUuid,
-					occupied,
-					written,
-				)) {
-					carried.push(...declareCaseTypeForField(doc, field));
-					carried.push({ kind: "addField", parentUuid: formUuid, field });
-				}
-			}
-
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
 			// lifecycle UI renders "forms added to Patient module" as one
@@ -298,17 +148,7 @@ export const createFormTool = {
 			const mutations = [
 				...(formEntry ? searchFirstOnMutations(doc, moduleUuid) : []),
 				...formMutations,
-				...assembly.mutations,
-				...carried,
 			];
-			if (recordName !== undefined)
-				mutations.push(
-					...formRecordNameMutations(
-						applyToDoc(doc, mutations),
-						formUuid,
-						recordName,
-					),
-				);
 			const commit = await guardedMutate(
 				ctx,
 				mutations,
@@ -330,7 +170,6 @@ export const createFormTool = {
 				result: {
 					ok: true,
 					formUuid,
-					fields: assembly.created,
 					summary: {
 						location: mod?.name,
 						subject: name,

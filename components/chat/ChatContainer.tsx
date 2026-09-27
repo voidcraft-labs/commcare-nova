@@ -73,6 +73,7 @@ import {
 import {
 	deriveChatAppReady,
 	useAccessPhase,
+	useAppId,
 	useBuildUnfinished,
 	useProjectCanEdit,
 	useProjectScopeEpoch,
@@ -118,6 +119,7 @@ import {
 	trailingDesignWaitsForInput,
 	trailingTypedDesignWaitContinuation,
 } from "./chatLifecycle";
+import { PendingChatWork } from "./PendingChatWork";
 
 /** The active thread as the Chat instance sees it: the id doubles as the
  *  transport's reconnect handle. */
@@ -684,6 +686,7 @@ export function ChatContainer({
 	const reconcilerCtx = useReconcilerContext();
 	const projectToast = useProjectToast();
 	const accessPhase = useAccessPhase();
+	const appId = useAppId();
 	const scopeEpoch = useProjectScopeEpoch();
 	/* Viewers (view-only Project members) get a read-only conversation, the
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
@@ -1982,6 +1985,22 @@ export function ChatContainer({
 									onAction: resumeAcceptedBuild,
 								}
 							: undefined
+			}
+			pendingWorkRecovery={
+				appId &&
+				canEdit &&
+				!readOnly &&
+				!threadScopeReloading &&
+				!buildUnfinished ? (
+					<PendingChatWork
+						key={`${appId}:${chat.id}:${scopeEpoch}`}
+						appId={appId}
+						threadId={chat.id}
+						status={status}
+						revisions={reconcilerCtx?.reconciler}
+						onContinue={(text) => handleSend({ text })}
+					/>
+				) : undefined
 			}
 			messages={messages}
 			status={status}

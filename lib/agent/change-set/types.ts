@@ -1,3 +1,4 @@
+import type { MigrationOutcome } from "@/lib/db/migrationOutcome";
 /**
  * The change-set runtime's parsed row and protocol types.
  *
@@ -12,12 +13,13 @@ import type { StageRequestReceipt } from "./schemas";
 
 export type ChangeSetKind = "genesis" | "app-edit";
 export type ChangeSetStatus = "open" | "committed" | "abandoned" | "superseded";
-export type ChangeSetExclusiveKind = "renameCaseProperties" | "retireCaseType";
+export type ChangeSetExclusiveKind = "renameCaseProperties";
 
 /** The plan used to author these exact canonical mutations. */
 export interface ChangeSetLineage {
-	readonly designSessionId: string;
-	readonly planRevision: number;
+	readonly designSessionId: string | null;
+	readonly planRevision: number | null;
+	readonly authoringSessionId?: string | null;
 }
 
 /** The parsed authority row. */
@@ -36,7 +38,7 @@ export interface DesignChangeSet extends ChangeSetLineage {
 	readonly nextOrdinal: number;
 	readonly exclusiveKind: ChangeSetExclusiveKind | null;
 	readonly ownerUserId: string;
-	readonly ownerRunId: string;
+	readonly ownerRunId: string | null;
 	readonly status: ChangeSetStatus;
 	readonly committedSeq: number | null;
 	readonly committedBatchId: string | null;
@@ -77,6 +79,7 @@ export interface StoredStageRequest {
 
 /** The immutable committed-slice receipt (`authoring_checkpoints`). */
 export interface CheckpointReceipt extends ChangeSetLineage {
+	readonly migration?: MigrationOutcome;
 	readonly id: string;
 	readonly changeSetId: string;
 	readonly appId: string;
@@ -97,20 +100,16 @@ export function designChangeSetBatchId(args: {
 	return `design-change-set:${args.changeSetId}:r${args.revision}:${args.mutationDigest.slice(0, 24)}`;
 }
 
-/** The batch-exclusive mutation kinds — a staged batch carrying one of these
+/** The batch-exclusive property rename — a staged batch carrying it
  *  must own its change set alone (the change-set admission fence; mutation
  *  admission separately keeps `renameCaseProperties` alone in its batch). */
-export const BATCH_EXCLUSIVE_MUTATION_KINDS = [
-	"renameCaseProperties",
-	"retireCaseType",
-] as const;
+export const BATCH_EXCLUSIVE_MUTATION_KINDS = ["renameCaseProperties"] as const;
 
 export function batchExclusiveKind(
 	mutations: AdmittedMutationBatch,
 ): ChangeSetExclusiveKind | null {
 	for (const mutation of mutations) {
 		if (mutation.kind === "renameCaseProperties") return "renameCaseProperties";
-		if (mutation.kind === "retireCaseType") return "retireCaseType";
 	}
 	return null;
 }

@@ -3,6 +3,7 @@ import "server-only";
 import type { Transaction } from "kysely";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
 import { lockPlanForBuild } from "@/lib/db/authoringPlanGuard";
+import { assertAuthoringSessionAuthorityInTransaction } from "@/lib/db/authoringSessions";
 import {
 	AppProjectChangedError,
 	CommitReauthError,
@@ -75,6 +76,26 @@ async function authorizeAgentScopeInTransaction(
 	scope: LookupAgentWriteScope,
 	capability: AppCapability,
 ): Promise<{ projectId: string; role: string }> {
+	if (scope.ordinaryAuthoring !== undefined) {
+		const authority = scope.ordinaryAuthoring;
+		const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
+			sessionId: authority.sessionId,
+			actorUserId: scope.actorId,
+			expectedProjectId: scope.projectId,
+			origin: authority.origin,
+			threadId: authority.origin === "chat" ? authority.threadId : undefined,
+			chatRunHolder: scope.chatRunHolder,
+			allowIdleChat: capability === "view",
+		});
+		const role = await projectRoleForInTransaction(
+			tx,
+			scope.actorId,
+			session.projectId,
+		);
+		if (role === null || !roleAllowsApp(role, capability))
+			throw new CommitReauthError("You no longer have access to this Project.");
+		return { projectId: session.projectId, role };
+	}
 	if (scope.designSessionId !== undefined) {
 		if (scope.chatRunHolder?.mode !== "build")
 			throw new RunHolderLostError("released");
@@ -169,9 +190,11 @@ async function applyAuthorized(
 			"edit",
 		);
 		const targetKey =
-			scope.designSessionId !== undefined
-				? `session:${scope.designSessionId}`
-				: `app:${scope.appId}`;
+			scope.ordinaryAuthoring !== undefined
+				? `work:${scope.ordinaryAuthoring.sessionId}`
+				: scope.designSessionId !== undefined
+					? `session:${scope.designSessionId}`
+					: `app:${scope.appId}`;
 		const inputDigest = canonicalJsonDigest(input);
 		const prior = await tx
 			.selectFrom("lookup_authoring_receipts")

@@ -58,7 +58,7 @@ it("delivers current prompt and compatibility inputs to clients", () => {
 	expect(
 		tool("check_project_space_compatibility").inputSchema.required,
 	).toEqual(expect.arrayContaining(["app_id", "domain"]));
-	expect(tool("get_app_hq_feature_flags").inputSchema.required).toContain(
-		"app_id",
-	);
+	expect(
+		listed.some((entry) => entry.name === "get_app_hq_feature_flags"),
+	).toBe(false);
 });

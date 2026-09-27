@@ -257,14 +257,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createFormTool.description,
 		schema: createFormTool.inputSchema,
 		prompt:
-			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a followup form named "Visit" with two fields: visit_date (a date labeled "Visit date" with caseWrite {caseType: "patient", property: "visit_date"}) and visit_notes (a text labeled "Notes").',
+			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a followup form named "Visit", with the purpose "Record the latest visit". Questions will be added separately.',
 	},
 	{
 		name: "createModule",
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			'Use createModule to add a module named "Households" with case type household, one registration form named "Register household" whose fields are household_name (text labeled "Household name" with caseWrite {caseType: "household", property: "case_name"}) and head_name (text labeled "Head of household" with caseWrite {caseType: "household", property: "head_name"}), and one plain case-list column on case property household.case_name with header Name.',
+			'Use createModule to add a module named "Households" with case type household and the purpose "Manage household registrations and visits". Forms and case-list refinements will be added separately.',
 	},
 	{
 		name: "renameCaseProperties",

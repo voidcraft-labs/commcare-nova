@@ -1,16 +1,19 @@
 /**
  * Read-only access to what local runs recorded: design sessions, their
  * model contexts, items, and completed steps; local apps with their newest
- * thread. Plain selects only. Nothing here takes run authority, opens a
+ * thread. Nothing here takes run authority, opens a
  * context, or resolves an attachment.
  *
  * Append keys supply display categories. Unrecognized items remain visible.
  */
 
+import { getWork } from "@/lib/agent/authoring/session";
 import { rehydrateModelMessage } from "@/lib/agent/modelMessagePersistence";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { modelMessagesContainCompaction } from "@/lib/chat/compaction";
 import { loadAppForInspection } from "@/lib/db/apps";
+import { AuthoringAuthorityError } from "@/lib/db/authoringSessions";
+import { CommitReauthError } from "@/lib/db/commitGuard";
 import { getAppDb } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
@@ -364,8 +367,36 @@ export async function readAppInput(appId: string): Promise<AppInput | null> {
 		.where("app_id", "=", appId)
 		.orderBy("updated_at", "desc")
 		.executeTakeFirst();
+	const workOwner = thread
+		? await db
+				.selectFrom("authoring_sessions")
+				.select(["id", "actor_user_id"])
+				.where("origin", "=", "chat")
+				.where("app_id", "=", appId)
+				.where("thread_id", "=", thread.thread_id)
+				.orderBy("updated_at", "desc")
+				.executeTakeFirst()
+		: undefined;
+	// Read-only inspection uses the recorded owner. It never begins work,
+	// acquires a run holder, stages a change, or creates a candidate.
+	const work =
+		workOwner && thread
+			? await getWork({
+					actorUserId: workOwner.actor_user_id,
+					workId: workOwner.id,
+					host: { kind: "chat", threadId: thread.thread_id },
+				}).catch((error: unknown) => {
+					if (
+						error instanceof AuthoringAuthorityError ||
+						error instanceof CommitReauthError
+					)
+						return undefined;
+					throw error;
+				})
+			: undefined;
 	return {
 		appId,
+		...(work && { work }),
 		appName: loaded.app_name,
 		doc,
 		...(thread !== undefined && {

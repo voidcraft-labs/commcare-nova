@@ -12,7 +12,6 @@ import { updateCaseListColumnTool } from "../tools/case-list-config/updateCaseLi
 import { updateSearchInputTool } from "../tools/case-list-config/updateSearchInput";
 import { setCaseSearchAdvancedTool } from "../tools/case-search-config/setCaseSearchAdvanced";
 import { setCaseSearchDisplayTool } from "../tools/case-search-config/setCaseSearchDisplay";
-import { createModuleTool } from "../tools/createModule";
 import { setFieldOptionsSourceTool } from "../tools/setFieldOptionsSource";
 import { updateFormTool } from "../tools/updateForm";
 import { updateModuleTool } from "../tools/updateModule";
@@ -95,30 +94,6 @@ interface ToolBoundaryCase {
 }
 
 const TOOL_CASES: readonly ToolBoundaryCase[] = [
-	{
-		name: "createModule",
-		schema: createModuleTool.inputSchema,
-		canonicalInput: {
-			name: "Patients",
-			case_list_columns: [
-				{
-					kind: "calculated",
-					header: "Region",
-					expression: lookupExpression,
-				},
-			],
-		},
-		legacyInput: {
-			name: "Patients",
-			case_list_columns: [
-				{
-					kind: "calculated",
-					header: "Region",
-					expression: legacyLookupExpression,
-				},
-			],
-		},
-	},
 	{
 		name: "updateModule",
 		schema: updateModuleTool.inputSchema,

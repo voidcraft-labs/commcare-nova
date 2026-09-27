@@ -3,8 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
-import { proseText } from "@/lib/domain";
-import { createFormTool } from "../createForm";
+
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
 
@@ -50,22 +49,42 @@ describe("navigation through authoring reads", () => {
 				fallback: { screen: "results", withSelectedRecord: "menu" },
 			},
 		});
-		const added = await harness.runTool(createFormTool, {
-			moduleUuid: MODULE,
-			name: "Register",
-			type: "registration",
-			fields: [
+		const menuDoc = buildDoc({
+			caseTypes: [{ name: "loan", properties: [] }],
+			modules: [
 				{
-					id: "name",
-					kind: "text",
-					label: proseText("Loan name"),
-					caseWrite: { caseType: "loan", property: "case_name" },
+					uuid: "loans",
+					name: "Loans",
+					caseType: "loan",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Loan" },
+					]),
+					forms: [
+						{
+							uuid: "return",
+							name: "Return",
+							type: "close",
+							postSubmit: "module",
+							fields: [f({ id: "note", kind: "text" })],
+						},
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									id: "name",
+									kind: "text",
+									caseWrite: { caseType: "loan", property: "case_name" },
+								}),
+							],
+						},
+					],
 				},
 			],
 		});
-		if ("error" in added.result) throw new Error(added.result.error);
-		expectAdmittedDoc(harness.currentDoc());
-		const after = await harness.runTool(getFormTool, {
+		const menuHarness = makeToolWorkspaceHarness(expectAdmittedDoc(menuDoc));
+
+		const after = await menuHarness.runTool(getFormTool, {
 			formUuid: RETURN,
 			moduleUuid: MODULE,
 		});
@@ -75,7 +94,9 @@ describe("navigation through authoring reads", () => {
 			moduleUuid: MODULE,
 			name: "Loans",
 		});
-		const module = await harness.runTool(getModuleTool, { moduleUuid: MODULE });
+		const module = await menuHarness.runTool(getModuleTool, {
+			moduleUuid: MODULE,
+		});
 		if ("error" in module.data) throw new Error(module.data.error);
 		expect(module.data.opening).toEqual(
 			after.data.navigation?.afterSubmit.fallback,

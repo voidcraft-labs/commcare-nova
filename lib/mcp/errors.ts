@@ -47,9 +47,16 @@ import {
 	AuthoringInputError,
 	ReadProjectionError,
 } from "@/lib/agent/authoring/errors";
+import {
+	ChangeSetRequestIdCollisionError,
+	ChangeSetScopeLostError,
+	ChangeSetStagingRejectedError,
+	ChangeSetWorkspaceRevisionStaleError,
+} from "@/lib/agent/change-set/errors";
 import type { ErrorType as AgentErrorType } from "@/lib/agent/errorClassifier";
 import { classifyError } from "@/lib/agent/errorClassifier";
 import { AppPaginationError } from "@/lib/db/appPagination";
+import { AuthoringAuthorityError } from "@/lib/db/authoringSessions";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -310,6 +317,41 @@ export function toMcpErrorResult(
 			appId: ctx?.appId ?? null,
 			message: err.message,
 		});
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(payload("invalid_input", err.message)),
+				},
+			],
+		};
+	}
+
+	if (
+		err instanceof ChangeSetScopeLostError ||
+		err instanceof AuthoringAuthorityError
+	) {
+		return {
+			isError: true,
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify(
+						payload(
+							"not_found",
+							"Private work not found or no longer accessible.",
+						),
+					),
+				},
+			],
+		};
+	}
+	if (
+		err instanceof ChangeSetRequestIdCollisionError ||
+		err instanceof ChangeSetStagingRejectedError ||
+		err instanceof ChangeSetWorkspaceRevisionStaleError
+	) {
 		return {
 			isError: true,
 			content: [

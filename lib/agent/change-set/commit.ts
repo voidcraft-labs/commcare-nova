@@ -12,8 +12,8 @@
  * (`lib/db/canonicalCommitSidecars.ts`). No success path performs a second
  * transaction to mark the change set committed.
  *
- * A rejected commit RETAINS every step for amendment and classifies the
- * conflict as a structured rebase report — never a name/position retarget.
+ * A rejected commit retains every step. Any change to the canonical base
+ * refuses publication; the author can inspect, discard and restart.
  * A retry of a committed set returns the stored receipt: the sidecar wrote
  * it atomically, so a canonical batch without it is corruption, never a new
  * commit.
@@ -22,7 +22,7 @@
  * genesis kernel's separate unit, and this module refuses them loudly.
  */
 
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import {
 	applyBlueprintChange,
 	type MigrationOutcome,
@@ -35,16 +35,13 @@ import {
 	BlueprintCommitRejectedError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
-import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
-import { parsePersistedMutationBatchText } from "@/lib/db/persistedJson";
+import { migrationOutcomeSchema } from "@/lib/db/migrationOutcome";
+import {
+	parsePersistedJsonText,
+	parsePersistedMutationBatchText,
+} from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
 import type { ClientAppChangeKind } from "@/lib/db/types";
-import {
-	evaluatePreparedMutationCandidate,
-	prepareMutationCandidate,
-} from "@/lib/doc/commitVerdicts";
-import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
@@ -53,38 +50,12 @@ import {
 	ChangeSetScopeLostError,
 	ChangeSetWorkspaceRevisionStaleError,
 } from "./errors";
-import { loadChangeSet, loadChangeSetSteps } from "./store";
+import { authorizeChangeSet, loadChangeSet, loadChangeSetSteps } from "./store";
 import {
-	type ChangeSetStep,
 	type CheckpointReceipt,
 	type DesignChangeSet,
 	designChangeSetBatchId,
 } from "./types";
-
-// ── Rebase reports ─────────────────────────────────────────────────
-
-export type RebaseConflictCode =
-	| "TARGET_REMOVED"
-	| "TARGET_KIND_CHANGED"
-	| "ANCHOR_REMOVED"
-	| "IDENTITY_COLLISION"
-	| "EXCLUSIVE_BASE_CHANGED"
-	| "PROJECT_CHANGED"
-	| "DESIGN_SUPERSEDED";
-
-export interface ChangeSetRebaseConflict {
-	readonly code: RebaseConflictCode;
-	readonly stepOrdinal?: number;
-	readonly mutationIndex?: number;
-	readonly message: string;
-}
-
-export interface ChangeSetRebaseReport {
-	readonly kind: "rebase-conflict";
-	readonly baseSeq: number;
-	readonly currentSeq: number;
-	readonly conflicts: readonly ChangeSetRebaseConflict[];
-}
 
 export type CommitDesignChangeSetOutcome =
 	| {
@@ -95,7 +66,12 @@ export type CommitDesignChangeSetOutcome =
 			 * revision (dedup replay — nothing written). */
 			readonly replayed: boolean;
 	  }
-	| { readonly kind: "rebase-conflict"; readonly report: ChangeSetRebaseReport }
+	| {
+			readonly kind: "stale-base";
+			readonly baseSeq: number;
+			readonly currentSeq: number;
+			readonly message: string;
+	  }
 	| {
 			/** The fresh whole-document gate rejected the candidate. Steps are
 			 * retained; append corrections and retry. */
@@ -109,7 +85,7 @@ export interface CommitDesignChangeSetArgs {
 	readonly requestId?: string;
 	readonly actorUserId: string;
 	readonly runId: string;
-	readonly chatRunHolder: ChatRunHolderCapability;
+	readonly chatRunHolder?: ChatRunHolderCapability;
 	readonly kind: ClientAppChangeKind;
 	readonly expectedRevision: number;
 	/** Absolute run wall-clock deadline; direct callers omit it. */
@@ -124,7 +100,11 @@ export async function commitDesignChangeSet(
 	args: CommitDesignChangeSetArgs,
 ): Promise<CommitDesignChangeSetOutcome> {
 	if (deadlineExpired(args.deadlineAt)) return deadlineRejection(0);
-	const changeSet = await loadChangeSet(args.changeSetId);
+	const { changeSet, steps } = await withAppTx(async (tx) => {
+		const changeSet = await authorizeChangeSet(args, tx);
+		const steps = await loadChangeSetSteps(args.changeSetId, tx);
+		return { changeSet, steps };
+	});
 	if (changeSet === undefined) {
 		throw new ChangeSetScopeLostError("This change set no longer exists.");
 	}
@@ -135,22 +115,11 @@ export async function commitDesignChangeSet(
 	}
 	if (
 		changeSet.ownerUserId !== args.actorUserId ||
-		changeSet.ownerRunId !== args.runId
+		(changeSet.authoringSessionId == null &&
+			changeSet.ownerRunId !== args.runId)
 	) {
 		throw new ChangeSetScopeLostError(
 			"This change set belongs to a different run.",
-		);
-	}
-	if (changeSet.status === "committed") {
-		return {
-			kind: "committed",
-			receipt: await requireAuthorizedCommittedReceipt(changeSet, args),
-			replayed: true,
-		};
-	}
-	if (changeSet.status !== "open") {
-		throw new ChangeSetScopeLostError(
-			`This change set is ${changeSet.status} and can no longer commit.`,
 		);
 	}
 	if (changeSet.revision !== args.expectedRevision) {
@@ -159,7 +128,17 @@ export async function commitDesignChangeSet(
 			changeSet.revision,
 		);
 	}
-	const steps = await loadChangeSetSteps(args.changeSetId);
+	if (changeSet.status === "committed")
+		return committedOutcome(
+			await requireAuthorizedCommittedReceipt(changeSet, args),
+			true,
+		);
+
+	if (changeSet.status !== "open") {
+		throw new ChangeSetScopeLostError(
+			`This change set is ${changeSet.status} and can no longer commit.`,
+		);
+	}
 	if (deadlineExpired(args.deadlineAt)) {
 		return deadlineRejection(changeSet.baseSeq ?? 0);
 	}
@@ -195,20 +174,9 @@ export async function commitDesignChangeSet(
 		mutationDigest,
 	});
 
-	/* The organization fence: the LATEST captured revision across steps —
-	 * later steps observed newer state; the kernel requires exact equality
-	 * with the current clock at commit. */
-	/* Preflight classification against a fresh (unlocked) snapshot: the
-	 * structured report the architect amends from. The kernel's own locked
-	 * replay remains the authority — a race between this read and the
-	 * transaction reclassifies below. A conflict is reported only when the
-	 * change set is STILL open: a concurrent duplicate commit makes the
-	 * replay collide with its own already-committed work, and the honest
-	 * answer there is the stored receipt, not an amendment demand. */
-	const preflight = await classifyAgainstFreshState({
-		changeSet,
-		steps,
-	});
+	/* Preflight gives an actionable stale-base result. The kernel repeats
+	 * exact equality under the app lock before reducing any mutation. */
+	const preflight = await staleBaseOutcome(changeSet);
 	if (deadlineExpired(args.deadlineAt)) {
 		return deadlineRejection(changeSet.baseSeq ?? 0);
 	}
@@ -219,7 +187,7 @@ export async function commitDesignChangeSet(
 
 	const receiptId = crypto.randomUUID();
 	try {
-		const result = await applyBlueprintChange({
+		await applyBlueprintChange({
 			appId: changeSet.appId,
 			userId: args.actorUserId,
 			expectedProjectId: changeSet.baseProjectId,
@@ -242,7 +210,9 @@ export async function commitDesignChangeSet(
 					planRevision: changeSet.planRevision,
 					actorUserId: args.actorUserId,
 					runId: args.runId,
-					holderNonce: args.chatRunHolder.nonce,
+					holderNonce: args.chatRunHolder?.nonce,
+					authoringSessionId: changeSet.authoringSessionId ?? null,
+					baseSeq: changeSet.baseSeq,
 					projectId: changeSet.baseProjectId,
 					mutationCount: batch.length,
 				},
@@ -257,7 +227,7 @@ export async function commitDesignChangeSet(
 		return {
 			kind: "committed",
 			receipt,
-			...(result.migration !== undefined && { migration: result.migration }),
+			...(receipt.migration !== undefined && { migration: receipt.migration }),
 			replayed: receipt.id !== receiptId,
 		};
 	} catch (error) {
@@ -272,19 +242,20 @@ export async function commitDesignChangeSet(
 			if (fresh === undefined) {
 				throw new ChangeSetScopeLostError("This change set no longer exists.");
 			}
-			if (fresh.status === "committed") {
-				return {
-					kind: "committed",
-					receipt: await requireAuthorizedCommittedReceipt(fresh, args),
-					replayed: true,
-				};
-			}
+			if (fresh.status === "committed")
+				return committedOutcome(
+					await requireAuthorizedCommittedReceipt(fresh, args),
+					true,
+				);
+
 			if (fresh.revision !== args.expectedRevision) {
 				throw new ChangeSetWorkspaceRevisionStaleError(
 					args.expectedRevision,
 					fresh.revision,
 				);
 			}
+			const stale = await staleBaseOutcome(changeSet);
+			if (stale) return stale;
 			throw new ChangeSetIntegrityError(error.message);
 		}
 		if (error instanceof AppProjectChangedError) {
@@ -302,15 +273,11 @@ export async function commitDesignChangeSet(
 			);
 		}
 		if (!(error instanceof BlueprintCommitRejectedError)) throw error;
-		/* The kernel rejected a batch the preflight passed — a narrow race.
-		 * Reclassify on fresh state for the structured report; the gate
-		 * message is the fallback when the fresh state has since healed. */
+		/* A competing commit may have advanced after the advisory check.
+		 * A duplicate of this checkpoint still returns its exact receipt. */
 		const committed = await committedReplayIfWon(changeSet, args);
 		if (committed !== undefined) return committed;
-		const reclassified = await classifyAgainstFreshState({
-			changeSet,
-			steps,
-		});
+		const reclassified = await staleBaseOutcome(changeSet);
 		if (reclassified !== undefined) return reclassified;
 		return {
 			kind: "gate-rejected",
@@ -343,11 +310,10 @@ async function committedReplayIfWon(
 > {
 	const fresh = await loadChangeSet(changeSet.id);
 	if (fresh === undefined || fresh.status !== "committed") return undefined;
-	return {
-		kind: "committed",
-		receipt: await requireAuthorizedCommittedReceipt(fresh, args),
-		replayed: true,
-	};
+	return committedOutcome(
+		await requireAuthorizedCommittedReceipt(fresh, args),
+		true,
+	);
 }
 
 /** A lost response still belongs to its exact owner/run and current Project
@@ -356,31 +322,24 @@ async function requireAuthorizedCommittedReceipt(
 	changeSet: DesignChangeSet,
 	args: CommitDesignChangeSetArgs,
 ): Promise<CheckpointReceipt> {
+	if (changeSet.revision !== args.expectedRevision)
+		throw new ChangeSetWorkspaceRevisionStaleError(
+			args.expectedRevision,
+			changeSet.revision,
+		);
 	const appId = changeSet.appId;
 	if (
 		appId === null ||
 		changeSet.ownerUserId !== args.actorUserId ||
-		changeSet.ownerRunId !== args.runId
+		(changeSet.authoringSessionId == null &&
+			changeSet.ownerRunId !== args.runId)
 	) {
 		throw new ChangeSetScopeLostError(
 			"This change set belongs to a different run.",
 		);
 	}
-	return withAppTx(async (tx) => {
-		if (args.chatRunHolder.runId !== args.runId)
-			throw new ChangeSetScopeLostError(
-				"This receipt belongs to a different run.",
-			);
-		const authority = await assertDesignSessionRunAuthorityInTransaction(tx, {
-			designSessionId: changeSet.designSessionId,
-			actorUserId: args.actorUserId,
-			expectedProjectId: changeSet.baseProjectId,
-			holder: args.chatRunHolder,
-		});
-		if (authority.appId !== appId)
-			throw new ChangeSetScopeLostError("This receipt belongs to another app.");
-		return requireStoredReceipt(changeSet, tx);
-	});
+	await authorizeChangeSet(args);
+	return requireStoredReceipt(changeSet);
 }
 
 // ── Internals ──────────────────────────────────────────────────────
@@ -395,6 +354,7 @@ async function requireStoredReceipt(
 		.select([
 			"id",
 			"design_session_id",
+			"authoring_session_id",
 			"plan_revision",
 			"change_set_id",
 			"app_id",
@@ -404,6 +364,11 @@ async function requireStoredReceipt(
 			"mutation_count",
 			"committed_at",
 		])
+		.select(
+			sql<string | null>`${sql.ref("migration_report")}::text`.as(
+				"migration_report_text",
+			),
+		)
 		.where("change_set_id", "=", changeSet.id)
 		.executeTakeFirst();
 	if (row === undefined) {
@@ -414,10 +379,11 @@ async function requireStoredReceipt(
 	return {
 		id: row.id,
 		designSessionId: row.design_session_id,
-		planRevision: safePersistedSequence(
-			row.plan_revision,
-			"checkpoint plan revision",
-		),
+		authoringSessionId: row.authoring_session_id,
+		planRevision:
+			row.plan_revision === null
+				? null
+				: safePersistedSequence(row.plan_revision, "checkpoint plan revision"),
 		changeSetId: row.change_set_id,
 		appId: row.app_id,
 		seq: safePersistedSequence(row.seq, "authoring_checkpoints.seq"),
@@ -425,6 +391,16 @@ async function requireStoredReceipt(
 		committedSnapshotDigest: row.committed_snapshot_digest,
 		mutationCount: row.mutation_count,
 		committedAt: row.committed_at,
+		...(row.migration_report_text === null
+			? {}
+			: {
+					migration: migrationOutcomeSchema.parse(
+						parsePersistedJsonText(
+							row.migration_report_text,
+							"checkpoint migration outcome",
+						),
+					),
+				}),
 	};
 }
 
@@ -451,6 +427,7 @@ export async function readCheckpointsForSession(
 		.select([
 			"id",
 			"design_session_id",
+			"authoring_session_id",
 			"plan_revision",
 			"change_set_id",
 			"app_id",
@@ -460,16 +437,22 @@ export async function readCheckpointsForSession(
 			"mutation_count",
 			"committed_at",
 		])
+		.select(
+			sql<string | null>`${sql.ref("migration_report")}::text`.as(
+				"migration_report_text",
+			),
+		)
 		.where("design_session_id", "=", designSessionId)
 		.orderBy("seq", "asc")
 		.execute();
 	return rows.map((row) => ({
 		id: row.id,
 		designSessionId: row.design_session_id,
-		planRevision: safePersistedSequence(
-			row.plan_revision,
-			"checkpoint plan revision",
-		),
+		authoringSessionId: row.authoring_session_id,
+		planRevision:
+			row.plan_revision === null
+				? null
+				: safePersistedSequence(row.plan_revision, "checkpoint plan revision"),
 		changeSetId: row.change_set_id,
 		appId: row.app_id,
 		seq: safePersistedSequence(row.seq, "authoring_checkpoints.seq"),
@@ -477,6 +460,16 @@ export async function readCheckpointsForSession(
 		committedSnapshotDigest: row.committed_snapshot_digest,
 		mutationCount: row.mutation_count,
 		committedAt: row.committed_at,
+		...(row.migration_report_text === null
+			? {}
+			: {
+					migration: migrationOutcomeSchema.parse(
+						parsePersistedJsonText(
+							row.migration_report_text,
+							"checkpoint migration outcome",
+						),
+					),
+				}),
 	}));
 }
 
@@ -485,101 +478,42 @@ async function currentAppSeq(appId: string): Promise<number> {
 	return app === null ? 0 : app.mutation_seq;
 }
 
-/**
- * Classify the steps' replay against a fresh app snapshot into a structured
- * report — per step, so the architect knows exactly which staged boundary to
- * amend. Returns undefined when the replay is clean and the gate passes
- * (the authoritative commit may proceed).
- */
-async function classifyAgainstFreshState(args: {
-	readonly changeSet: DesignChangeSet;
-	readonly steps: readonly ChangeSetStep[];
-}): Promise<
-	| { kind: "rebase-conflict"; report: ChangeSetRebaseReport }
-	| { kind: "gate-rejected"; message: string; currentSeq: number }
-	| undefined
+/** Advisory check; publication repeats exact base equality under the app lock. */
+async function staleBaseOutcome(
+	changeSet: DesignChangeSet,
+): Promise<
+	Extract<CommitDesignChangeSetOutcome, { kind: "stale-base" }> | undefined
 > {
-	const { changeSet, steps } = args;
-	if (changeSet.appId === null || changeSet.baseSeq === null) {
+	if (!changeSet.appId || changeSet.baseSeq === null)
 		throw new ChangeSetIntegrityError(
-			`Change set ${changeSet.id} lost its app identity between reads.`,
+			"This candidate lost its saved base identity.",
 		);
-	}
 	const app = await loadApp(changeSet.appId);
-	if (app === null || app.deleted_at !== null) {
+	if (!app || app.deleted_at || app.project_id !== changeSet.baseProjectId)
 		throw new ChangeSetScopeLostError(
-			"This change set's app is no longer available.",
+			"This app is no longer available in the work's Project.",
 		);
-	}
-	if (app.project_id !== changeSet.baseProjectId) {
-		throw new ChangeSetScopeLostError(
-			"This app moved to a different Project after the change set opened; the change set cannot commit across tenant scope.",
-		);
-	}
-	const currentSeq = app.mutation_seq;
-	const conflicts: ChangeSetRebaseConflict[] = [];
-
-	/* Per-step replay over the fresh document: an admission failure names
-	 * the exact staged boundary; later steps still replay over the candidate
-	 * so one report can carry several independent conflicts. The WHOLE
-	 * gate stays the kernel's judgment — a gate-only rejection surfaces as
-	 * `gate-rejected` off the authoritative attempt. */
-	let current = hydratePersistedBlueprint(app.blueprint);
-	for (const step of steps) {
-		const prepared = prepareMutationCandidate(current, step.mutations);
-		const conflictCode: RebaseConflictCode | undefined =
-			prepared.identityAdmissionIssue !== undefined
-				? "IDENTITY_COLLISION"
-				: prepared.sequenceAdmissionIssue !== undefined
-					? "ANCHOR_REMOVED"
-					: prepared.targetAdmissionIssue === true
-						? "TARGET_REMOVED"
-						: prepared.renamePlanIssue !== undefined
-							? "EXCLUSIVE_BASE_CHANGED"
-							: undefined;
-		if (conflictCode !== undefined) {
-			const verdict = evaluatePreparedMutationCandidate(
-				prepared,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			);
-			conflicts.push({
-				code: conflictCode,
-				stepOrdinal: step.ordinal,
-				...(mutationIndexOf(prepared) !== undefined && {
-					mutationIndex: mutationIndexOf(prepared),
-				}),
-				message: verdict.ok
-					? "This staged step no longer replays over the current app."
-					: verdict.findings.map((finding) => finding.message).join("\n"),
-			});
-			// The failed step contributed nothing; later steps replay over the
-			// unchanged candidate.
-			continue;
-		}
-		current = prepared.nextDoc;
-	}
-	if (conflicts.length > 0) {
+	if (app.mutation_seq !== changeSet.baseSeq)
 		return {
-			kind: "rebase-conflict",
-			report: {
-				kind: "rebase-conflict",
-				baseSeq: changeSet.baseSeq,
-				currentSeq,
-				conflicts,
-			},
+			kind: "stale-base",
+			baseSeq: changeSet.baseSeq,
+			currentSeq: app.mutation_seq,
+			message:
+				"The saved app changed after this work began. Your pending work is preserved. Inspect it, then discard and restart from the current app.",
 		};
-	}
 	return undefined;
 }
 
-function mutationIndexOf(
-	prepared: ReturnType<typeof prepareMutationCandidate>,
-): number | undefined {
-	const index =
-		prepared.identityAdmissionIssue?.mutationIndex ??
-		prepared.sequenceAdmissionIssue?.mutationIndex ??
-		(prepared.renamePlanIssue === undefined
-			? undefined
-			: prepared.renamePlanIssue.mutationIndex);
-	return typeof index === "number" ? index : undefined;
+function committedOutcome(
+	receipt: CheckpointReceipt,
+	replayed: boolean,
+): Extract<CommitDesignChangeSetOutcome, { kind: "committed" }> {
+	return {
+		kind: "committed",
+		receipt,
+		replayed,
+		...(receipt.migration === undefined
+			? {}
+			: { migration: receipt.migration }),
+	};
 }

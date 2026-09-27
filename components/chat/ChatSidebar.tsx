@@ -116,6 +116,7 @@ interface ChatSidebarProps {
 	onNewChat?: () => void;
 	/** Reviewed-design and planned-work cards. They scroll with the transcript. */
 	designProgressDetails?: ReactNode;
+	pendingWorkRecovery?: ReactNode;
 	/** The design stage line. Like every live activity row, it stays directly
 	 * above the composer instead of moving upward as transcript cards arrive. */
 	designProgressStatus?: ReactNode;
@@ -153,6 +154,7 @@ export function ChatSidebar({
 	onSelectThread,
 	onNewChat,
 	designProgressDetails,
+	pendingWorkRecovery,
 	designProgressStatus,
 	initialBuildLocked = false,
 	awaitingTypedInput = false,
@@ -647,6 +649,7 @@ export function ChatSidebar({
 
 				{/* Resting chat has no status chrome. Work in progress uses one compact,
 				 * plain-language row that yields entirely in a short inspector dock. */}
+				{!shortChatFallback && pendingWorkRecovery}
 				{interactionBlockedRecovery && !shortChatFallback && (
 					<div
 						role="alert"

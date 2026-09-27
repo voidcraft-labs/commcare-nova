@@ -87,13 +87,8 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 	startAppTest: [spec(["places", "*", "uuid"], "location")],
 	/* Shared structural creation tools. */
 	addEntryPoint: [spec(["entryPointUuid"], "entry_point")],
-	createModule: [
-		spec(["moduleUuid"], "module"),
-		spec(["forms", "*", "formUuid"], "form"),
-		...FIELD_SPECS(["forms", "*", "fields", "*"]),
-		spec(["case_list_columns", "*", "columnUuid"], "case_list_column"),
-	],
-	createForm: [spec(["formUuid"], "form"), ...FIELD_SPECS(["fields", "*"])],
+	createModule: [spec(["moduleUuid"], "module")],
+	createForm: [spec(["formUuid"], "form")],
 	addFields: FIELD_SPECS(["fields", "*"]),
 	addCaseListColumns: [
 		spec(["columns", "*", "columnUuid"], "case_list_column"),

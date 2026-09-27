@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe } from "@/lib/preview/engine/identity";
@@ -7,7 +8,16 @@ import { previewAsMe } from "@/lib/preview/engine/identity";
 it.each([false, true])(
 	"authors retained query-row identities without rebuilding membership after answers change (default: %s)",
 	async (useDefault) => {
-		const h = makeAuthoringHarness();
+		const h = makeAuthoringHarness(
+			{},
+			namedFormFixture([
+				{
+					name: "Assets",
+					caseType: "asset",
+					forms: [{ name: "Check assets", type: "survey" }],
+				},
+			]),
+		);
 		const call = async (name: string, input: unknown) => {
 			const result = await h.call(name, input);
 			expect(result).not.toHaveProperty("error");
@@ -21,54 +31,53 @@ it.each([false, true])(
 				},
 			],
 		});
-		await call("createModule", {
-			name: "Assets",
-			case_type: "asset",
-			forms: [
+		await call("addFields", {
+			moduleUuid: "Assets",
+			formUuid: "Check assets",
+			fields: [
 				{
-					name: "Check assets",
-					type: "survey",
-					fields: [
-						{
-							kind: "text",
-							id: "zone",
-							label: "Zone",
-							...(useDefault ? { default_value: "'north'" } : {}),
-						},
-						{
-							kind: "repeat",
-							id: "assets",
-							label: "Assets",
-							fieldUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
-							repeat: {
-								mode: "query_bound",
-								ids_query: useDefault
-									? "instance('casedb')/casedb/case[@case_type = 'asset'][zone = #form/zone]/@case_id"
-									: "instance('casedb')/casedb/case[@case_type = 'asset'][zone = 'north'][#form/zone != 'south']/@case_id",
-							},
-						},
-						{
-							kind: "hidden",
-							parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
-							id: "row_id",
-							calculate: "current()/../@id",
-						},
-						{
-							kind: "hidden",
-							parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
-							id: "asset_name",
-							calculate:
-								"instance('casedb')/casedb/case[@case_id = current()/../@id]/case_name",
-						},
-						{
-							kind: "text",
-							parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
-							id: "note",
-							label: "Condition of {{asset_name}}",
-						},
-					],
+					kind: "text",
+					id: "zone",
+					label: "Zone",
+					...(useDefault ? { default_value: "'north'" } : {}),
+				},
+				{
+					kind: "repeat",
+					id: "assets",
+					label: "Assets",
+					fieldUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
+					repeat: {
+						mode: "query_bound",
+						ids_query: useDefault
+							? "instance('casedb')/casedb/case[@case_type = 'asset'][zone = #form/zone]/@case_id"
+							: "instance('casedb')/casedb/case[@case_type = 'asset'][zone = 'north'][#form/zone != 'south']/@case_id",
+					},
+				},
+				{
+					kind: "hidden",
+					parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
+					id: "row_id",
+					calculate: "current()/../@id",
+				},
+				{
+					kind: "hidden",
+					parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
+					id: "asset_name",
+					calculate:
+						"instance('casedb')/casedb/case[@case_id = current()/../@id]/case_name",
+				},
+				{
+					kind: "text",
+					parentUuid: "b7aba25c-8b1b-4882-bfe2-7bced9f36fe9",
+					id: "note",
+					label: "Condition of {{asset_name}}",
 				},
 			],
+		});
+		await call("removeField", {
+			moduleUuid: "Assets",
+			formUuid: "Check assets",
+			fieldUuid: "fixture_placeholder",
 		});
 		const doc = h.currentDoc();
 		const formUuid = Object.values(doc.forms).find(

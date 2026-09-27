@@ -33,12 +33,14 @@ To create a child while working with its parent, use a parent follow-up form wit
 
 A several-case form applies one shared answer to each selected record. Questions start blank rather than borrowing one record's value, even if the worker selects just one case. Blank preserves each record's existing value; a configured starting value or calculation is shared. Never choose a representative record to fill the form.
 
-Search-first workflows begin with Search. Their registration form is offered after no matches; it can use that Search's answers as starting values. A form opened on an existing record does not inherit Search answers. Results and Details serve different purposes: show the information needed to choose a record in Results, and supporting context in Details.
+Search-first workflows begin with Search. A registration offered only after no matches can use that Search's answers as starting values. Use that restriction only when a match truly rules out a new record. Names are not unique identities; keep ordinary registration reachable when different people or items can match the same search. A form opened on an existing record does not inherit Search answers. Results and Details serve different purposes: show the information needed to choose a record in Results, and supporting context in Details.
 
 After-submit navigation happens after answers leave form scope. Save a needed answer before using it in a later route. An entry point is a durable external address for a destination; changing that address can break distributed links. Generating an HQ link requires a verified deployment. Opening it can claim cases, so it is not a harmless verification probe.`,
 	fields,
 	forms:
 		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Worker values use {{#user/property}}. Bare hashtags in wording stay literal; expression slots use #form/name or #case/property without braces. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.
+
+Create a form before adding its questions. Set recordName and answer-dependent closing conditions after the referenced questions exist. For a registration offered when Search finds no matches, set entry to search-no-matches, then add fields whose default_value reads #search/<prompt name>. Give each carried answer an explicit caseWrite destination if it should be saved. A hidden field can carry an answer without asking it again.
 
 Use relevant to decide whether a question participates in the form, required for an answer requirement, and validate: {expr, msg} for a rule and its explanation. Relevance also affects data: a non-relevant answer is omitted from submission and can read as blank in expressions. To carry a value without displaying a question, use a hidden field rather than a question with relevant: false(). In validation, . is the current answer: . >= 0 rejects negative ages. A hidden field calculates a value as answers change; default_value sets a starting value once at form load.
 

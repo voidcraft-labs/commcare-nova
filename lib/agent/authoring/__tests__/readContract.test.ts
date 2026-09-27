@@ -5,6 +5,7 @@ import {
 	LOOKUP_SELECT_DOC,
 	lookupSelectDoc,
 } from "@/lib/agent/__tests__/fixtures";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -16,11 +17,24 @@ import { projectAuthoringReadInContext, type ReadToolName } from "../output";
 /**
  * The read contract: every registered read tool, called the way a client calls
  * it, answers for an app that uses the features authors actually reach for, and
- * answers in authored form. The app is built through the same authored tool
- * calls, so the commit gate has admitted every value a read then has to print.
+ * answers in authored form. Named forms start from production canonical scaffolds; authored
+ * field and configuration calls then pass the commit gate before reads.
  */
 async function populatedApp() {
-	const h = makeAuthoringHarness();
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Clients",
+				caseType: "client",
+				forms: [
+					{ name: "Register", type: "registration" },
+					{ name: "Visit", type: "followup" },
+				],
+			},
+			{ name: "Learning", forms: [{ name: "Assessment", type: "survey" }] },
+		]),
+	);
 	const ok = async (name: string, input: unknown) => {
 		const result = await h.call(name, input);
 		expect(result, name).not.toHaveProperty("error");
@@ -43,75 +57,82 @@ async function populatedApp() {
 			},
 		],
 	});
-	await ok("createModule", {
-		name: "Clients",
-		case_type: "client",
-		case_list_columns: [
-			{ kind: "plain", field: "case_name", header: "Name" },
-			{ kind: "plain", field: "age", header: "Age" },
-		],
-		forms: [
+	await ok("addFields", {
+		moduleUuid: "Clients",
+		formUuid: "Register",
+		fields: [
 			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [
-					{
-						kind: "text",
-						id: "name",
-						label: "Name",
-						hint: "As written on their card",
-						required: true,
-						caseWrite: { caseType: "client", property: "case_name" },
-					},
-					{
-						kind: "int",
-						id: "age",
-						label: "Age",
-						validate: { expr: ". >= 0", msg: "Enter an age of 0 or more." },
-						caseWrite: { caseType: "client", property: "age" },
-					},
-					{ kind: "date", id: "seen_on", label: "Seen on" },
-					{ kind: "group", id: "household", label: "Household" },
-					{
-						kind: "single_select",
-						id: "head",
-						parentUuid: "household",
-						label: "Head of household?",
-						relevant: "#form/age >= 18",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{ value: "yes", label: "Yes" },
-								{ value: "no", label: "No" },
-							],
-						},
-					},
-					{
-						kind: "multi_select",
-						id: "needs",
-						label: "Needs",
-						optionsSource: {
-							kind: "inline",
-							options: [
-								{ value: "food", label: "Food" },
-								{ value: "water", label: "Water" },
-							],
-						},
-					},
-					{ kind: "hidden", id: "double_age", calculate: "#form/age * 2" },
-					{ kind: "label", id: "summary", label: "Registering {{name}}" },
-				],
+				kind: "text",
+				id: "name",
+				label: "Name",
+				hint: "As written on their card",
+				required: true,
 			},
 			{
-				name: "Visit",
-				type: "followup",
-				fields: [
-					{ kind: "label", id: "who", label: "{{#case/case_name}}" },
-					{ kind: "text", id: "note", label: "Visit note" },
-				],
+				kind: "int",
+				id: "age",
+				label: "Age",
+				validate: { expr: ". >= 0", msg: "Enter an age of 0 or more." },
+				caseWrite: { caseType: "client", property: "age" },
 			},
+			{ kind: "date", id: "seen_on", label: "Seen on" },
+			{ kind: "group", id: "household", label: "Household" },
+			{
+				kind: "single_select",
+				id: "head",
+				parentUuid: "household",
+				label: "Head of household?",
+				relevant: "#form/age >= 18",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "yes", label: "Yes" },
+						{ value: "no", label: "No" },
+					],
+				},
+			},
+			{
+				kind: "multi_select",
+				id: "needs",
+				label: "Needs",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "food", label: "Food" },
+						{ value: "water", label: "Water" },
+					],
+				},
+			},
+			{ kind: "hidden", id: "double_age", calculate: "#form/age * 2" },
+			{ kind: "label", id: "summary", label: "Registering {{name}}" },
 		],
+	});
+	await ok("updateForm", {
+		moduleUuid: "Clients",
+		formUuid: "Register",
+		recordName: "#form/name",
+	});
+	await ok("removeField", {
+		moduleUuid: "Clients",
+		formUuid: "Register",
+		fieldUuid: "fixture_placeholder",
+	});
+	await ok("addFields", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		fields: [
+			{ kind: "label", id: "who", label: "{{#case/case_name}}" },
+			{ kind: "text", id: "note", label: "Visit note" },
+		],
+	});
+	await ok("removeField", {
+		moduleUuid: "Clients",
+		formUuid: "Visit",
+		fieldUuid: "fixture_placeholder",
+	});
+	await ok("addCaseListColumns", {
+		moduleUuid: "Clients",
+		columns: [{ kind: "plain", field: "age", header: "Age" }],
 	});
 	await ok("addSearchInputs", {
 		moduleUuid: "Clients",
@@ -150,15 +171,15 @@ async function populatedApp() {
 			},
 		],
 	});
-	await ok("createModule", {
-		name: "Learning",
-		forms: [
-			{
-				name: "Assessment",
-				type: "survey",
-				fields: [{ kind: "int", id: "score", label: "Score" }],
-			},
-		],
+	await ok("addFields", {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fields: [{ kind: "int", id: "score", label: "Score" }],
+	});
+	await ok("removeField", {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fieldUuid: "fixture_placeholder",
 	});
 	await ok("configureConnect", {
 		mode: "learn",

@@ -4,6 +4,7 @@
 import type { ModelMessage } from "ai";
 import { describe, expect, it, vi } from "vitest";
 import { MODEL_ROLES } from "@/lib/models";
+import { appOverview } from "../appOverview";
 import { buildAppStateMessage, markStablePrefixBoundary } from "../prompts";
 import { createSolutionsArchitect } from "../solutionsArchitect";
 import { expectAdmittedDoc, surveyFixture } from "./admittedFixture";
@@ -96,7 +97,31 @@ async function captureEditTurns(): Promise<CapturedBody[]> {
 				if (!appState) throw new Error("Admitted app has no state message");
 				const { ctx, usage } = makeTestContext({ appId: "a-probe", transport });
 				try {
-					const agent = createSolutionsArchitect(ctx, doc, 0);
+					const agent = createSolutionsArchitect(ctx, {
+						invoke: async () => {
+							throw new Error(
+								"This provider-wire check does not invoke tools.",
+							);
+						},
+						snapshot: async () => ({
+							mode: "canonical",
+							doc,
+							revision: 0,
+							canonicalSeq: 0,
+							projectId: ctx.projectId,
+						}),
+						status: async () => ({
+							workId: "wire-check",
+							appId: doc.appId,
+							projectId: ctx.projectId,
+							revision: null,
+							pendingChanges: 0,
+							stale: false,
+							savedRevision: 0,
+							app: appOverview(doc),
+							diagnostics: null,
+						}),
+					});
 					const result = await agent.generate({
 						messages: [...markStablePrefixBoundary(history), appState],
 					});

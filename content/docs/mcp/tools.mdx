@@ -10,16 +10,59 @@ These are the tools the Commcare Nova MCP server exposes. You don't call them di
 `get_agent_prompt` returns current Nova guidance for `build`, `autonomous_build`,
 or `edit`. It takes only `mode` and returns one complete text response ending
 with `NOVA-PROMPT-END`. App state is read separately with `get_app`; detailed
-reference material is available through `get_authoring_guide`.
+reference material is available through `get_authoring_guide` after opening
+private work or selecting an existing app.
 
 `get_app` gives an overview of the workflows, record model, languages and
 configured capabilities. Read individual modules, forms or fields when their
 content matters to the task. This keeps a large app's question text out of
 every startup prompt.
 
-Clients using the former prompt-page protocol should refresh their Nova plugin
-or integration. The current interface has no `app_id` or `cursor` argument on
-`get_agent_prompt`; app reads still require Project access.
+## Private work and saving
+
+App edits use a private workspace. Open one with `begin_work`, supplying a
+unique `request_id` and exactly one target:
+
+```json
+{
+  "request_id": "start-household-app",
+  "new_app": { "name": "Household visits", "project_id": "project-id" }
+}
+```
+
+For an existing app, replace `new_app` with `app_id`. Keep the returned `work_id`.
+Shared editing tools take `work_id` and a unique `request_id` alongside their
+ordinary inputs. Shared reads take exactly one of `work_id` for the candidate or
+`app_id` for the saved app. `get_app` always reads the saved app; `get_work` reads
+the candidate overview and its diagnostics.
+
+| Tool | What it does |
+|---|---|
+| `begin_work` | Start private work with `app_id` or `new_app: { name, project_id? }`. Omit the new app's Project to use your personal Project. |
+| `list_work` | Find your retained MCP work, optionally filtering by `app_id` or `project_id`, with `limit` and `offset` for paging. |
+| `get_work` | Read candidate state with `work_id`, including its revision, diagnostics, pending changes and whether the saved app has changed underneath it. |
+| `save_work` | Save the complete candidate with `work_id`, `request_id` and `expected_revision` copied from the latest candidate result. The first save creates the new app; later saves commit one valid batch. |
+| `discard_work` | Discard pending changes with `work_id`, `request_id` and `expected_revision`. The work ID remains available; the next edit starts from current saved state. This does not undo an earlier save or an external service effect. |
+
+Candidate results expose `revision`, an opaque token, and `diagnostics`.
+With no pending candidate, `revision` is null. Reading work does not create a
+candidate; the next edit does.
+Staged mutation results say `saved: false`; accepting an edit does not save the
+app. Reuse a request ID only to retry the same request after a lost response.
+Changing its input requires a new ID.
+
+Save checks both the complete candidate and its exact saved-app base. If another
+editor changed the saved app, the save refuses and keeps your candidate. Inspect
+both versions, then explicitly discard and restart the changes from the current
+saved app. Nova never silently merges or overwrites that concurrent work.
+Incomplete candidates remain private and can be resumed through `list_work` and
+`get_work`; Preview, compilation, deployment and isolated journey tests use saved
+revisions.
+
+Project data tables, real organization records and media services have their own
+transactions. Their writes take effect immediately and cannot be undone by
+`discard_work`. Deployment is a separate effect too. A private app workspace is
+not a transaction around those services.
 
 ## Authoring and stable identities
 
@@ -41,13 +84,13 @@ operation that uses its result.
 
 Every successful creation result returns the final identities it created in
 input order, including identities Commcare Nova minted. Field receipts nest their inline
-choice UUIDs in source order; `create_form` nests all field and choice receipts
-under its form, and `create_module` nests forms, fields, choices, and born
-case-list columns under its module. Continue from that result: no read-after-write
+choice UUIDs in source order. `create_form` returns the new form identity;
+`create_module` returns the module identity and its initial Name column identity
+for a record module. Continue from that result: no read-after-write
 is required just to discover a new UUID.
 
 A new record module declares its record type and starts with a Name column
-unless you supply other Results columns. Set a form's `recordName` to an answer
+that you can refine with the case-list tools. After adding questions, use `update_form` to set `recordName` to an answer
 or expression, such as `#form/name` or `concat(#form/borrower, ' - ', #form/tool)`.
 Nova creates the underlying writer and preserves other saved answers. Advanced
 create operations use their `name` expression for the same purpose.
@@ -133,7 +176,9 @@ operations remain unevaluated. Media capture and the submission transaction
 need the running app; evaluation does not prove deployment or successful storage.
 
 For a complete observed journey, `start_app_test` opens the saved app at its
-entry screen with disposable records. `continue_app_test` chooses a saved
+entry screen with disposable records. `start_app_test` and `continue_app_test`
+take exactly one of `app_id` or `work_id`, plus a stable `request_id` for each
+action. A work target needs a saved checkpoint with no pending app changes. `continue_app_test` chooses a saved
 Preview identity, navigates visible menus, selects records, answers questions,
 submits into test storage, and observes the next task. A selected record opens
 Details when configured; `continue` follows its Continue action and `back`
@@ -264,7 +309,7 @@ destination later with `check_project_space_compatibility`.
 
 | Tool | What it does |
 |---|---|
-| `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. Pass `project_id` (from `list_projects`) to create the app in a shared Project; omit it and the app lands in your personal Project. |
+| `begin_work` | Start private work for a new app or an existing app and return its work identity. A new app is created by its first successful `save_work`. |
 | `delete_app` | Soft-delete an app. It becomes unavailable to active app tools and routes until restored, and remains recoverable within the returned window. |
 
 ## Projects and sharing
@@ -292,25 +337,29 @@ A Nova Project is not a CommCare HQ project space. The Nova Project decides whic
 
 ## Building a new app from a description
 
-`create_app` accepts `app_name`; omitting it uses `Untitled`. The app already
-contains one survey module, survey form, and text question. Design the requested
-app first, then refine that starter or replace it after its valid replacement
-exists. When
-the design uses custom worker information, `add_user_properties` declares it
-next, before `generate_schema`, modules, forms, conditions, or calculations can
-refer to it. `generate_schema` then commits the data model, and each
-`create_module` call lands one complete module, every call checked as it
-lands. Commcare Nova supports one submenu tier: create a top-level parent first,
-then pass its UUID as the child's `parentModuleUuid`. After a Connect build's
-forms exist, `configure_connect` sets the mode and complete
-participant set in one call. Roles and personas can follow the app structure;
-the referenced worker information cannot.
+Start private work with `begin_work` and `new_app: { name: "Household visits" }`.
+Include `project_id` inside `new_app` for a shared Project, or omit it for your
+personal Project. There is no starter module or placeholder app to replace.
+
+Create a module with `create_module`, a form with `create_form`, and questions
+with `add_fields`. Read and refine those pieces in the same workspace. A new
+record module declares its record type and starts with a Name column; use
+`generate_schema` when the record catalog needs more definition. Declare custom
+worker information before referring to it in conditions or calculations.
+Commcare Nova supports one submenu tier: create the top-level parent first,
+then pass its UUID as the child's `parentModuleUuid`. Configure selection,
+Search, naming rules and Connect after their referenced objects exist.
+
+An incomplete module or empty form can remain private while you work.
+`save_work` creates the app only when the complete candidate passes validation.
+Later saves extend that same app. Preview, isolated journey tests and deployment
+use the saved revision.
 
 | Tool | What it does |
 |---|---|
 | `update_app` | Set the app's name. |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
-| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A real write, `create_module` references the recorded types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
+| `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A private app edit; modules reference types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
 
 ### Configuring CommCare Connect
 
@@ -322,7 +371,8 @@ on it is cleared.
 
 ```json
 {
-  "app_id": "app-id",
+  "work_id": "work-id",
+  "request_id": "unique-request-id",
   "mode": "learn",
   "participants": [
     {
@@ -351,7 +401,8 @@ To disable Connect and clear every form's Connect block in the same change:
 
 ```json
 {
-  "app_id": "app-id",
+  "work_id": "work-id",
+  "request_id": "unique-request-id",
   "mode": null
 }
 ```
@@ -623,7 +674,7 @@ the same cases, use case-list filters and design the menu structure deliberately
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add a new module together with its forms (each with fields) and its case-list columns, in one call. Omit `parentModuleUuid` for top-level, or pass an existing top-level parent's UUID for a child. Its case type must already be recorded on the app (`generate_schema`). When the new module is born with a follow-up or close form that applies once to several chosen cases, `selection: { kind: "multiple", maximum: N }` creates that workflow atomically. A module lands complete or not at all. It returns every created UUID; field expressions and parents may use same-call names. Refine the case list afterward via the case-list tools below. |
+| `create_module` | Add one module to the private candidate. Omit `parentModuleUuid` for top-level, or name an existing top-level parent for a child. `case_type` declares a new record type when needed; record modules start with a Name column. The result returns its module and initial column identities. Add forms, selection and list refinements through their focused tools. |
 | `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. |
 | `remove_module` | Delete a module by `moduleUuid`. A parent must have no child modules before it can be removed. |
 | `move_module` | Reorder or reparent a module without changing its identity. `after` is always required and names a sibling in the destination menu, or is `null` for first. Omit `parentModuleUuid` to reorder within the current menu, pass `null` to make the module top-level, or pass a top-level module UUID to place it inside that menu. |
@@ -701,8 +752,8 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add a new form to `moduleUuid` together with its fields, in one call. It returns the form plus every field and inline-choice UUID; field expressions and parents may use same-call names. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing, and `carry_search_answers: true` appends one field per Search prompt seeded from `#search/<prompt name>`. |
-| `update_form` | Rename, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
+| `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then configure answer-dependent naming or closing rules with `update_form`. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing. To reuse Search answers, add fields with defaults that read `#search/<prompt name>`. |
+| `update_form` | Rename, set or clear `recordName` after its questions exist, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
 | `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
 
@@ -849,7 +900,7 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 | `get_case_property` | Read one record property's type, wording, choices, and catalog rules by `caseType` and `property`. |
 | `update_case_property` | Change that property's wording, choices, or catalog rules with an `updates` object. Omit a setting to keep it; use `null` to clear an optional setting. Existing form questions retain their own content. |
 
-A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so a new sectioned form is best authored in one `add_fields` call (each question with `parentUuid` naming its section; Nova assigns identities and orders parents before children), and an existing form is re-paged with `set_form_sections` rather than a run of `move_field` calls, which the commit gate would refuse half-way. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
+A `section` is a field kind of its own: a page of the form. On a phone each section is one screen, Next checks that screen before moving on, and an empty or fully hidden page is skipped. Once a form has a section, every top-level field is one, so group questions into sections before saving. `add_fields` can add sections and their questions together, with `parentUuid` naming the section; Nova assigns identities and orders parents before children. `set_form_sections` can re-page an existing form. Intermediate arrangements stay private until the complete form is valid. A worker-added repeat cannot sit on a page; fixed-count and case-query repeats can.
 
 ### Saving a field answer to a case
 
@@ -859,7 +910,8 @@ such as `#form/first_name`; it does not need to match the saved property:
 
 ```json
 {
-  "app_id": "app-id",
+  "work_id": "work-id",
+  "request_id": "unique-request-id",
   "moduleUuid": "01890f45-0000-7000-8000-000000000001",
   "formUuid": "01890f45-0000-7000-8000-000000000002",
   "fields": [
@@ -875,7 +927,7 @@ such as `#form/first_name`; it does not need to match the saved property:
 }
 ```
 
-The same field shape is used inside `create_form` and `create_module`. On
+`add_fields` owns question creation; modules and forms are created separately. On
 creation, omit `caseWrite` or pass `null` for a field that should not save to a
 case. In `edit_field.updates`, pass a complete pair to retarget the writer,
 pass `null` to stop writing a case property, or leave `caseWrite` out to keep
@@ -947,7 +999,8 @@ app-wide change:
 
 ```json
 {
-  "app_id": "app-id",
+  "work_id": "work-id",
+  "request_id": "unique-request-id",
   "renames": [
     {
       "caseType": "patient",
@@ -1114,7 +1167,12 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 </Callout>
 
 <Callout type="warn">
-Edits are checked as they happen, and publishing is checked again at the door. A tool call that would break the app, a bad expression, a duplicate name, a reference to something that doesn't exist, or a piece left unfinished (an empty form, a case list with no columns), fails with a message naming each problem, and nothing is saved. Structure always lands whole: `create_form` requires the form's fields, and `create_module` requires its forms and case-list columns (with its case type already recorded via `generate_schema`), so a rejection is always fixable by adjusting the same call. `compile_app` and `upload_app_to_hq` refuse (`invalid_input`) while the app still has unresolved findings, listing each one.
+Each tool checks its input and references before changing the private candidate.
+Incomplete structure can remain there while the agent works. `save_work` checks
+the complete candidate and commits the whole batch or nothing. A refusal names
+what needs attention and preserves private work for correction. The saved app
+always remains valid. `compile_app` and `upload_app_to_hq` read saved revisions
+and run their export checks again; they never publish an unfinished candidate.
 </Callout>
 
 For location questions, form checks and test-journey answers accept a coordinate

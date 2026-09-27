@@ -1,12 +1,31 @@
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe } from "@/lib/preview/engine/identity";
 
 it("uses the form's published ancestor reference to validate against the selected record's actual parent", async () => {
-	const h = makeAuthoringHarness();
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Visits",
+				caseType: "visit",
+				forms: [
+					{ name: "Record visit", type: "followup" },
+					{ name: "Register", type: "registration" },
+					{ name: "Visit survey", type: "survey" },
+				],
+			},
+			{
+				name: "Bulk visits",
+				caseType: "visit",
+				forms: [{ name: "Bulk note", type: "followup" }],
+			},
+		]),
+	);
 	const call = async (name: string, input: unknown) => {
 		const result = await h.call(name, input);
 		expect(result).not.toHaveProperty("error");
@@ -21,27 +40,40 @@ it("uses the form's published ancestor reference to validate against the selecte
 			{ name: "visit", parent_type: "household", properties: [] },
 		],
 	});
-	await call("createModule", {
-		name: "Visits",
-		case_type: "visit",
-		forms: [
-			{
-				name: "Record visit",
-				type: "followup",
-				fields: [{ kind: "int", id: "amount", label: "Amount" }],
-			},
-			{
-				name: "Register",
-				type: "registration",
-				recordName: "#form/name",
-				fields: [{ kind: "text", id: "name", label: "Name" }],
-			},
-			{
-				name: "Visit survey",
-				type: "survey",
-				fields: [{ kind: "text", id: "note", label: "Note" }],
-			},
-		],
+	await call("addFields", {
+		moduleUuid: "Visits",
+		formUuid: "Record visit",
+		fields: [{ kind: "int", id: "amount", label: "Amount" }],
+	});
+	await call("removeField", {
+		moduleUuid: "Visits",
+		formUuid: "Record visit",
+		fieldUuid: "fixture_placeholder",
+	});
+	await call("addFields", {
+		moduleUuid: "Visits",
+		formUuid: "Register",
+		fields: [{ kind: "text", id: "name", label: "Name" }],
+	});
+	await call("updateForm", {
+		moduleUuid: "Visits",
+		formUuid: "Register",
+		recordName: "#form/name",
+	});
+	await call("removeField", {
+		moduleUuid: "Visits",
+		formUuid: "Register",
+		fieldUuid: "fixture_placeholder",
+	});
+	await call("addFields", {
+		moduleUuid: "Visits",
+		formUuid: "Visit survey",
+		fields: [{ kind: "text", id: "note", label: "Note" }],
+	});
+	await call("removeField", {
+		moduleUuid: "Visits",
+		formUuid: "Visit survey",
+		fieldUuid: "fixture_placeholder",
 	});
 	const read = z
 		.object({
@@ -125,16 +157,15 @@ it("uses the form's published ancestor reference to validate against the selecte
 			recordContext: { selectedCaseType: null, readableRecords: [] },
 		});
 	}
-	await call("createModule", {
-		name: "Bulk visits",
-		case_type: "visit",
-		forms: [
-			{
-				name: "Bulk note",
-				type: "followup",
-				fields: [{ kind: "text", id: "note", label: "Note" }],
-			},
-		],
+	await call("addFields", {
+		moduleUuid: "Bulk visits",
+		formUuid: "Bulk note",
+		fields: [{ kind: "text", id: "note", label: "Note" }],
+	});
+	await call("removeField", {
+		moduleUuid: "Bulk visits",
+		formUuid: "Bulk note",
+		fieldUuid: "fixture_placeholder",
 	});
 	await call("configureCaseSelection", {
 		moduleUuid: "Bulk visits",

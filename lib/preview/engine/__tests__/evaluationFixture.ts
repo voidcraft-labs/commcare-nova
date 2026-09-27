@@ -1,32 +1,16 @@
 import { expect } from "vitest";
-import {
-	makeCanonicalGenesisDoc,
-	makeToolWorkspaceHarness,
-} from "@/lib/agent/__tests__/fixtures";
-import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
-import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
-import { createModuleTool } from "@/lib/agent/tools/createModule";
-export async function createEvaluationApp(input: unknown) {
-	const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
-	await harness.workspace.invoke({
-		toolName: "createModule",
-		async execute(ctx) {
-			const canonical = await prepareAuthoringInput({
-				toolName: "createModule",
-				schema: createModuleTool.inputSchema,
-				input: authoringToolSchema(
-					"createModule",
-					createModuleTool.inputSchema,
-				).authored.parse(input),
-				ctx,
-			});
-			const result = await createModuleTool.execute(
-				createModuleTool.inputSchema.parse(canonical),
-				ctx,
-			);
-			expect(result.result).not.toHaveProperty("error");
-			return result;
-		},
-	});
-	return harness.workspace.currentSnapshot().doc;
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+
+/** Runtime tests start with valid domain scaffolds and refine them through the
+ * current shared tool grammar. Private construction has separate SQL evidence. */
+export async function createEvaluationApp(
+	modules: Parameters<typeof namedFormFixture>[0],
+	setup: Array<{ toolName: string; input: unknown }>,
+) {
+	const harness = makeAuthoringHarness({}, namedFormFixture(modules));
+	for (const { toolName, input } of setup) {
+		expect(await harness.call(toolName, input)).not.toHaveProperty("error");
+	}
+	return harness.currentDoc();
 }

@@ -15,29 +15,24 @@ protocol error, never a silent overwrite.
   `ToolInvocationIdentity`, `ToolInvocationContext` (the ONLY context tool
   bodies see — it exposes no persistence methods), `WorkspaceMutationOutcome`,
   `ToolWorkspace`.
-- `canonicalHost.ts` — `CanonicalMutationHost`, the persistence seam behind
-  the canonical workspace. Two hosts implement it: `GenerationContext` (chat —
-  inline guarded commit, SSE/event emission after commit, terminal-error
-  latches, the authorized conflict reload) and `McpContext` (MCP — the
-  transactional guarded save; no reload, a rejection propagates to the wire
-  envelope).
-- `canonicalWorkspace.ts` — `CanonicalMutationWorkspace`, the one
-  implementation both canonical surfaces use. The private change-set
-  workspace (`lib/agent/change-set/workspace.ts`) implements the same
-  tool-facing contract over durable staged state; its nullable app identity and durable
-  request receipts stay inside that host. `WorkspaceSnapshot.mode` distinguishes
-  canonical from private operation explicitly. Shared tool bodies receive one
-  workspace contract and never supply design attribution.
+- The private change-set workspace (`lib/agent/change-set/workspace.ts`)
+  implements this contract over durable pending mutations. Architect builds,
+  ordinary chat and MCP app edits use it. Candidate and canonical identities,
+  session authorization and durable request receipts stay inside its host.
+- `canonicalHost.ts` and `canonicalWorkspace.ts` retain the immediate canonical
+  implementation for callers that intentionally use that boundary. Do not route
+  ordinary agent edits through it to bypass private work. Builder commits still
+  use the canonical mutation kernel.
+- `WorkspaceSnapshot.mode` distinguishes canonical from private operation.
+  Shared tool bodies receive the same contract and never supply build attribution.
 
 ## Invariants
 
-1. **The workspace owns its current document.** Every accepted commit adopts
-   the HOST's committed doc (a concurrent peer edit merged in); an
-   authoritative zero-diff proof adopts through
-   `ctx.adoptAuthoritativeSnapshot`; an authoritative commit conflict
-   (`BlueprintCommitRejectedError`) adopts one fresh AUTHORIZED snapshot via
-   the host's reload before the error surfaces. Nothing else replaces the
-   document.
+1. **The workspace owns its current document.** Every accepted operation adopts
+   its host's authoritative result. A canonical host may adopt an authorized
+   reload after a commit conflict or a proved zero-diff result through
+   `ctx.adoptAuthoritativeSnapshot`. Private save conflicts retain the candidate
+   and require explicit restart; they never adopt a newer base implicitly.
 2. **Ordering is explicit, synchronous, and asserted — at the dispatch
    boundary.** `invoke` allocates the invocation ordinal before any await
    and runs bodies strictly in that order; an out-of-order start throws
@@ -48,15 +43,15 @@ protocol error, never a silent overwrite.
    property it always was: an await inserted upstream of `invoke` reorders
    dispatch itself, which a dependent sibling call surfaces as a visible
    missing-target error, never as silent state corruption. Ordering-
-   dependent creation therefore rides one semantic creation call or the
-   architect's server-ordered native call sequence.
-3. **The optimistic gate lives in the workspace.** `applyBatch` /
-   `applyStages` run the whole-document verdict (with the unioned lookup
-   context) against the invocation's snapshot before anything reaches the
-   host; the host's canonical commit re-applies the admitted batch to fresh
-   locked state. A gate rejection returns `{ ok: false, error }`, persists
-   nothing, and advances nothing. A multi-stage sequence gates and persists
-   as ONE save — a rejection anywhere commits zero stages.
+   dependent creation therefore awaits its predecessor before dispatch; a form
+   creation cannot race the module whose returned identity it needs.
+3. **Admission and publication have distinct boundaries.** A private operation
+   admits the complete pending mutation batch against its original base and may
+   retain whole-app completeness findings. A saved checkpoint must pass the full
+   canonical gate under lock and match the exact original canonical sequence.
+   A rejected edit changes no candidate state; a rejected save retains the
+   candidate. There is no implicit merge after another editor saves. Immediate
+   canonical callers still gate their whole operation before persistence.
 4. **No persistence bypass.** `ToolInvocationContext` exposes no
    `recordMutations`/`recordMutationStages`;
    `lib/agent/__tests__/toolSourceGuards.test.ts` bans the canonical writers

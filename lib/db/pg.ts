@@ -698,10 +698,49 @@ export interface DesignChangeSetsTable {
 	updated_at: Timestamp;
 }
 
+export interface AuthoringSessionsTable {
+	id: string;
+	actor_user_id: string;
+	project_id: string;
+	origin: "chat" | "mcp";
+	thread_id: string | null;
+	app_id: string | null;
+	proposed_app_id: string | null;
+	app_name: string;
+	active_candidate_id: string | null;
+	begin_request_id: string;
+	begin_input_digest: string;
+	created_at: Timestamp;
+	updated_at: Timestamp;
+}
+export interface AuthoringSessionRequestsTable {
+	ordinary_session_id: string | null;
+	design_session_id: string | null;
+	request_id: string;
+	operation: string;
+	input_digest: string;
+	candidate_id: string | null;
+	result_json: JSONColumnType<
+		Record<string, unknown> | null,
+		string | null,
+		string | null
+	>;
+	created_at: Timestamp;
+}
+
 export interface AuthoringWorkspacesTable {
 	id: string;
-	design_session_id: string;
-	plan_revision: BigIntColumn;
+	design_session_id: string | null;
+	authoring_session_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	plan_revision: ColumnType<
+		string | number | null,
+		number | null,
+		number | null
+	>;
 	kind: string;
 	app_id: string | null;
 	proposed_app_id: string | null;
@@ -712,7 +751,7 @@ export interface AuthoringWorkspacesTable {
 	next_ordinal: ColumnType<string | number, number | undefined, number>;
 	exclusive_kind: string | null;
 	owner_user_id: string;
-	owner_run_id: string;
+	owner_run_id: string | null;
 	status: string;
 	committed_seq: ColumnType<string | number | null, number | null, number>;
 	committed_batch_id: string | null;
@@ -803,15 +842,29 @@ export interface DesignCommittedSlicesTable {
 
 export interface AuthoringCheckpointsTable {
 	id: string;
-	design_session_id: string;
+	design_session_id: string | null;
+	authoring_session_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	request_id: string;
-	plan_revision: BigIntColumn;
+	plan_revision: ColumnType<
+		string | number | null,
+		number | null,
+		number | null
+	>;
 	change_set_id: string;
 	app_id: string;
 	seq: BigIntColumn;
 	batch_id: string;
 	committed_snapshot_digest: string;
 	mutation_count: number;
+	migration_report: ColumnType<
+		import("./migrationOutcome").MigrationOutcome | null,
+		string | null | undefined,
+		never
+	>;
 	committed_at: Timestamp;
 }
 
@@ -1397,6 +1450,8 @@ export interface AppDatabase {
 	authoring_reviews: AuthoringReviewsTable;
 	authoring_plan_revisions: AuthoringPlanRevisionsTable;
 	design_change_sets: DesignChangeSetsTable;
+	authoring_sessions: AuthoringSessionsTable;
+	authoring_session_requests: AuthoringSessionRequestsTable;
 	authoring_workspaces: AuthoringWorkspacesTable;
 	organization_authoring_receipts: {
 		app_id: string;

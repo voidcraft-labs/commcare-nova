@@ -11,14 +11,13 @@
 
 import type { ModelMessage } from "ai";
 import { projectArchitectHistory } from "@/lib/agent/architectHistory";
+import { buildWorkStateMessage } from "@/lib/agent/authoring/workMessages";
 import { wrapAttachment } from "@/lib/agent/documentExtraction";
 import {
-	buildAppStateMessage,
 	buildSolutionsArchitectPrompt,
 	SOLUTIONS_ARCHITECT_SEGMENTS,
 } from "@/lib/agent/prompts";
 import { solutionsArchitectToolDefinitions } from "@/lib/agent/solutionsArchitect";
-import { buildTurnRetryContinuation } from "@/lib/agent/turnRetry";
 import type { NovaUIMessage } from "@/lib/chat/attachmentRefs";
 import { MODEL_ROLES } from "@/lib/models";
 import type {
@@ -56,21 +55,21 @@ const MOMENTS: readonly MomentSpec[] = [
 	{
 		id: "provider-retry",
 		label: "Retry after a provider fault",
-		why: "A mid-stream provider error re-drives the whole turn inside the same request. The app-state snapshot is replaced by one continuation that carries the committed state.",
+		why: "A mid-stream provider error re-drives the whole turn inside the same request. The app-state snapshot is replaced by one continuation that carries the preserved private state.",
 		needs: ["app"],
 		source: {
-			file: "lib/agent/turnRetry.ts",
-			symbol: "buildTurnRetryContinuation",
+			file: "lib/agent/authoring/workMessages.ts",
+			symbol: "buildWorkStateMessage",
 		},
 	},
 	{
 		id: "redrive",
 		label: "Redrive after the instance died",
-		why: "A fresh run over the same turn after a deploy or OOM. Same shape as a retry; the continuation names the interruption differently.",
+		why: "A fresh run over the same turn after a deploy or OOM. The same continuation carries preserved private work.",
 		needs: ["app"],
 		source: {
-			file: "lib/agent/turnRetry.ts",
-			symbol: "buildTurnRetryContinuation",
+			file: "lib/agent/authoring/workMessages.ts",
+			symbol: "buildWorkStateMessage",
 		},
 	},
 	{
@@ -173,36 +172,41 @@ async function threadItems(app: AppInput | undefined): Promise<ContextItem[]> {
 }
 
 function appStateItem(app: AppInput | undefined): ContextItem {
-	const message = app === undefined ? null : buildAppStateMessage(app.doc);
+	const message = app?.work ? buildWorkStateMessage(app.work) : null;
 	if (message === null) {
 		return missingItem({
 			id: "app-state",
-			label: "App state snapshot",
+			label: "Private work snapshot",
 			needs: "app",
 			explanation:
-				"Pick a local app to render the app overview the route appends after the history. Retry continuations and get_app use the same overview.",
-			source: { file: PROMPTS, symbol: "buildAppStateMessage" },
+				"Pick a local app whose newest conversation has private work. The inspection reads its recorded owner and never opens work or acquires a run holder.",
+			source: {
+				file: "lib/agent/authoring/workMessages.ts",
+				symbol: "buildWorkStateMessage",
+			},
 		});
 	}
 	return messageItem({
 		id: "app-state",
-		label: "App state snapshot",
+		label: "Private work snapshot",
 		message,
-		source: { file: PROMPTS, symbol: "buildAppStateMessage" },
+		source: {
+			file: "lib/agent/authoring/workMessages.ts",
+			symbol: "buildWorkStateMessage",
+		},
 		origin: "derived",
-		note: "Rendered fresh from the doc on every request and never stored in the thread, so each turn carries exactly one snapshot.",
+		note: "Read from private work on every request and never stored in the thread, so each turn carries exactly one snapshot.",
 	});
 }
 
 function continuationItem(
 	app: AppInput | undefined,
-	cause: "provider-retry" | "redrive",
+	_cause: "provider-retry" | "redrive",
 ): ContextItem {
-	const message =
-		app === undefined ? null : buildTurnRetryContinuation(app.doc, cause);
+	const message = app?.work ? buildWorkStateMessage(app.work, true) : null;
 	const source = {
-		file: "lib/agent/turnRetry.ts",
-		symbol: "buildTurnRetryContinuation",
+		file: "lib/agent/authoring/workMessages.ts",
+		symbol: "buildWorkStateMessage",
 	};
 	if (message === null) {
 		return missingItem({
@@ -211,8 +215,8 @@ function continuationItem(
 			needs: "app",
 			explanation:
 				app === undefined
-					? "Pick a local app to render the continuation: the committed-state summary plus the instruction to continue rather than restart."
-					: "This app has nothing committed, so a retry re-runs the base prompt with no continuation.",
+					? "Pick a local app to render the continuation: the private-work summary plus the instruction to continue rather than restart."
+					: "This conversation has no recorded private work yet. Inspection never opens it.",
 			source,
 		});
 	}

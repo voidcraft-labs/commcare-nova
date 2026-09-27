@@ -1,3 +1,5 @@
+import type { ChatRunHolderCapability } from "@/lib/db/apps";
+import { assertAuthoringSessionAuthorityInTransaction } from "@/lib/db/authoringSessions";
 /**
  * Design-slice materialization — the one transaction that turns a complete
  * genesis Atomic Change Set into a real app (§12.4): the app row plus its
@@ -60,8 +62,17 @@ import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
 } from "./baseLoader";
-import { ChangeSetIntegrityError, ChangeSetScopeLostError } from "./errors";
-import { loadChangeSet, loadChangeSetSteps, lockChangeSetRow } from "./store";
+import {
+	ChangeSetIntegrityError,
+	ChangeSetScopeLostError,
+	ChangeSetWorkspaceRevisionStaleError,
+} from "./errors";
+import {
+	authorizeChangeSet,
+	loadChangeSet,
+	loadChangeSetSteps,
+	lockChangeSetRow,
+} from "./store";
 import type { DesignChangeSet } from "./types";
 
 export type MaterializeGenesisOutcome =
@@ -110,7 +121,18 @@ export async function materializeAppFromGenesis(
 			"Only a genesis change set materializes an app; an app-edit change set commits through the app-edit path.",
 		);
 	}
+	if (!preRead.designSessionId || preRead.planRevision === null)
+		throw new ChangeSetScopeLostError(
+			"This candidate is not owned by a reviewed build.",
+		);
+	if (preRead.revision !== args.expectedRevision)
+		throw new ChangeSetWorkspaceRevisionStaleError(
+			args.expectedRevision,
+			preRead.revision,
+		);
 	const proposedAppId = preRead.proposedAppId;
+	const designSessionId = preRead.designSessionId;
+	const planRevision = preRead.planRevision;
 
 	/* Idempotent replay before any lock: a session already materialized onto
 	 * this proposed app means a prior attempt committed and only the response
@@ -142,18 +164,14 @@ export async function materializeAppFromGenesis(
 		const receipt = await withAppTx(
 			async (tx) => {
 				await lockActorGenerationGate(tx, args.actorUserId);
-				const session = await lockSessionRow(tx, preRead.designSessionId);
+				const session = await lockSessionRow(tx, designSessionId);
 				if (session === undefined) {
 					throw new ChangeSetScopeLostError(
 						"This design session no longer exists.",
 					);
 				}
 				verifySessionForTransfer(session, args, holder, proposedAppId);
-				await lockPlanForBuild(
-					tx,
-					preRead.designSessionId,
-					preRead.planRevision,
-				);
+				await lockPlanForBuild(tx, designSessionId, planRevision);
 
 				const changeSet = await lockChangeSetRow(tx, args.changeSetId);
 				if (changeSet === undefined) {
@@ -499,7 +517,7 @@ function verifyOpenGenesisSet(
 }
 
 function buildReceipt(args: {
-	designSessionId: string;
+	designSessionId: string | null;
 	appId: string;
 	projectId: string;
 	role: string;
@@ -522,4 +540,173 @@ function buildReceipt(args: {
 		blueprint: args.blueprint,
 		starter: null,
 	};
+}
+
+/** The ordinary-authoring genesis uses the same absolute gate and write tail,
+ * without a build reservation or a pretend reviewed plan. */
+export async function materializeSessionGenesis(args: {
+	changeSetId: string;
+	requestId: string;
+	actorUserId: string;
+	runId: string;
+	expectedProjectId: string;
+	expectedRevision: number;
+	chatRunHolder?: ChatRunHolderCapability;
+}): Promise<MaterializeGenesisOutcome> {
+	const prior = await authorizeChangeSet(args);
+	if (
+		!prior.authoringSessionId ||
+		prior.kind !== "genesis" ||
+		!prior.proposedAppId
+	)
+		throw new ChangeSetScopeLostError(
+			"This candidate is not an ordinary new-app workspace.",
+		);
+	if (prior.revision !== args.expectedRevision)
+		throw new ChangeSetWorkspaceRevisionStaleError(
+			args.expectedRevision,
+			prior.revision,
+		);
+	if (prior.status === "committed")
+		return {
+			kind: "materialized",
+			receipt: await materializedReceipt(prior, args.actorUserId),
+			replayed: true,
+		};
+	const receiptId = crypto.randomUUID();
+	const authoringSessionId = prior.authoringSessionId;
+	try {
+		const outcome = await withAppTx(async (tx) => {
+			const session = await assertAuthoringSessionAuthorityInTransaction(tx, {
+				sessionId: authoringSessionId,
+				actorUserId: args.actorUserId,
+				expectedProjectId: args.expectedProjectId,
+				chatRunHolder: args.chatRunHolder,
+			});
+			const workspace = await lockChangeSetRow(tx, prior.id);
+			if (!workspace)
+				throw new ChangeSetScopeLostError("This candidate is unavailable.");
+			if (workspace.status === "committed") return { replayed: true as const };
+			if (workspace.revision !== args.expectedRevision)
+				throw new ChangeSetWorkspaceRevisionStaleError(
+					args.expectedRevision,
+					workspace.revision,
+				);
+			if (
+				workspace.status !== "open" ||
+				workspace.authoringSessionId !== session.id ||
+				session.activeCandidateId !== workspace.id ||
+				workspace.baseProjectId !== args.expectedProjectId ||
+				workspace.ownerUserId !== args.actorUserId ||
+				workspace.proposedAppId !== session.proposedAppId ||
+				session.appId !== null
+			)
+				throw new ChangeSetScopeLostError(
+					"This private candidate changed before its first save.",
+				);
+			const appId = workspace.proposedAppId;
+			if (!appId)
+				throw new ChangeSetIntegrityError(
+					"The new app identity is unavailable.",
+				);
+			const steps = await loadChangeSetSteps(workspace.id, tx);
+			if (steps.length !== workspace.nextOrdinal)
+				throw new ChangeSetIntegrityError(
+					"The candidate's operation history is incomplete.",
+				);
+			if (!steps.length)
+				return { rejected: "There are no app changes to save." };
+			if (emptyGenesisBase(appId).digest !== workspace.baseSnapshotDigest)
+				throw new ChangeSetIntegrityError("The new app's empty base changed.");
+			const batch = parsePersistedMutationBatchText(
+				encodeAdmittedMutationEnvelope(steps.flatMap((s) => [...s.mutations]))
+					.json,
+				"authoring genesis",
+			);
+			const candidate = prepareGenesisCandidate({
+				appId,
+				projectId: args.expectedProjectId,
+				mutations: batch,
+			});
+			await writePreparedGenesisInTransaction(tx, {
+				candidate,
+				actorUserId: args.actorUserId,
+				runId: args.runId,
+				status: "complete",
+			});
+			const batchId = genesisBatchId(appId);
+			await executeCanonicalCommitSidecars(tx, {
+				appId,
+				seq: 1,
+				batchId,
+				committedSnapshot: candidate.persistable,
+				sidecars: [
+					{
+						kind: "commit-authoring-workspace",
+						changeSetId: workspace.id,
+						requestId: args.requestId,
+						expectedRevision: workspace.revision,
+						receiptId,
+						designSessionId: null,
+						planRevision: null,
+						authoringSessionId: session.id,
+						actorUserId: args.actorUserId,
+						runId: args.runId,
+						projectId: args.expectedProjectId,
+						mutationCount: batch.length,
+					},
+				],
+			});
+			await tx
+				.updateTable("authoring_sessions")
+				.set({
+					app_id: appId,
+					active_candidate_id: null,
+					updated_at: new Date(),
+				})
+				.where("id", "=", session.id)
+				.execute();
+			const role = await projectRoleForInTransaction(
+				tx,
+				args.actorUserId,
+				args.expectedProjectId,
+			);
+			if (!role)
+				throw new ChangeSetScopeLostError("This Project is unavailable.");
+			return {
+				receipt: buildReceipt({
+					designSessionId: null,
+					appId,
+					projectId: args.expectedProjectId,
+					role,
+					batchId,
+					changeSetId: workspace.id,
+					snapshotDigest: candidate.candidateDigest,
+					blueprint: candidate.persistable,
+				}),
+			};
+		});
+		if ("replayed" in outcome)
+			return {
+				kind: "materialized",
+				receipt: await materializedReceipt(prior, args.actorUserId),
+				replayed: true,
+			};
+		if (outcome.rejected !== undefined)
+			return { kind: "gate-rejected", message: outcome.rejected };
+		await drainPendingCaseSchemaIndexes(prior.proposedAppId).catch((error) =>
+			log.warn("[materializeGenesis] pending index drain failed", {
+				appId: prior.proposedAppId,
+				error: String(error),
+			}),
+		);
+		return { kind: "materialized", receipt: outcome.receipt, replayed: false };
+	} catch (error) {
+		if (
+			error instanceof GenesisGateRejectedError ||
+			error instanceof BlueprintCommitRejectedError
+		)
+			return { kind: "gate-rejected", message: error.message };
+		throw error;
+	}
 }

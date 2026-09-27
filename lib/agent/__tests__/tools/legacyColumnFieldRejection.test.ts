@@ -10,10 +10,9 @@
  * through the case-list-config tools — a follow-up `updateModule`
  * for an unrelated rename would silently flatten it back to plain.
  *
- * Both module tools now accept the canonical kind-discriminated Column
- * projection only where validity requires a same-call seed. Ongoing case-list
- * authoring remains on the case-list-config tools. These tests pin that a stale
- * flat payload fails instead of reaching a compatibility mapping.
+ * Both module tools refuse these composite keys. Case-list authoring has one
+ * owner in the case-list configuration tools; strict parsing prevents stale
+ * calls from silently dropping their columns.
  */
 
 import { describe, expect, it } from "vitest";
@@ -82,8 +81,7 @@ describe("updateModule legacy column field rejection", () => {
 
 describe("createModule legacy column field rejection", () => {
 	it("input schema rejects the legacy undiscriminated column shape", () => {
-		// The key is current, but the old flat entry is not. Creation accepts
-		// only a canonical discriminated Column and never maps this shape.
+		// Creation does not accept column configuration in any shape.
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",
@@ -92,7 +90,7 @@ describe("createModule legacy column field rejection", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("accepts the canonical visible Results seed", () => {
+	it("rejects even a kind-discriminated Results seed", () => {
 		const result = createModuleInputSchema.safeParse({
 			name: "Patients",
 			case_type: "patient",
@@ -105,6 +103,6 @@ describe("createModule legacy column field rejection", () => {
 				},
 			],
 		});
-		expect(result.success).toBe(true);
+		expect(result.success).toBe(false);
 	});
 });
