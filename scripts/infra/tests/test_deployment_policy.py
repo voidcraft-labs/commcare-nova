@@ -285,6 +285,33 @@ class ServicePolicyTests(unittest.TestCase):
         service["traffic"] = [{"revision": "new", "percent": 100}]
         deploy.assert_candidate_traffic(service, CANDIDATE)
 
+    def test_observed_latest_traffic_is_owned_by_the_revision_it_names(self):
+        # Cloud Run's observed status names the revision serving a LATEST target.
+        service = service_fixture(CANDIDATE)
+        service["traffic"] = [{"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", "percent": 100}]
+        service["trafficStatuses"] = [
+            {"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", "revision": "new", "percent": 100},
+        ]
+        deploy.assert_candidate_traffic(service, CANDIDATE)
+        # Observed traffic still on the previous revision is not the candidate's,
+        # even while latestReadyRevision already names the candidate.
+        service["trafficStatuses"] = [
+            {"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", "revision": "old", "percent": 100},
+        ]
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy.assert_candidate_traffic(service, CANDIDATE)
+
+    def test_traffic_targets_with_unknown_types_or_malformed_revisions_are_refused(self):
+        for target in (
+            {"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_SPLIT", "revision": "new", "percent": 100},
+            {"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_REVISION", "percent": 100},
+            {"type": "TRAFFIC_TARGET_ALLOCATION_TYPE_LATEST", "revision": 7, "percent": 100},
+        ):
+            service = service_fixture(CANDIDATE)
+            service["trafficStatuses"] = [target]
+            with self.subTest(target=target), self.assertRaises(deploy.DeploymentPolicyError):
+                deploy.assert_candidate_traffic(service, CANDIDATE)
+
     def test_both_desired_and_observed_traffic_must_fully_belong_to_untagged_candidate(self):
         for field in ("traffic", "trafficStatuses"):
             for targets in (
