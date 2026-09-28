@@ -7,7 +7,7 @@ and how Nova proves each step. Research date 2026-09-26.
 Every CommCare fact here was read in, or executed against, the source at:
 commcare-hq `f57e85e02913` (2026-09-25), formplayer `24383ac71bfb`,
 commcare-core `8e9ba8d908e9`, commcare-android `fd79cac4a0f1`, Vellum
-`01215f251c57`, and Nova `main` at `f3642b34`. Execution means HQ's own Python
+`01215f251c57`, commcare-connect `4a200c9d9` (for Connect block ids), and Nova `main` at `f3642b34`. Execution means HQ's own Python
 (booted offline under its test settings), CommCare Core and Formplayer (their own
 test harnesses), and HQ's vendored Vellum build (headless), run against HQ test
 apps and Nova exports. CommCare citations use `file::symbol`. This document names
@@ -92,7 +92,7 @@ granting `access_api`
 (`api/resources/__init__.py::HqBaseResource.dispatch`,
 `users/models.py::_AuthorizableMixin.has_permission`); reading the space's
 feature flags also needs the credential's user to be a member (below). Without API
-access Nova cannot learn the app's real form ids, and import refuses with that
+access Nova cannot learn every form's real id, and import refuses with that
 reason.
 
 ### The bar
@@ -158,7 +158,8 @@ So Nova holds one floor: the highest version any feature it holds needs, of
 either kind, which is 2.57 today (document upload). Nothing in Nova's vocabulary
 varies by version, and Nova raises the floor only when it adopts a feature that
 needs a newer one. Raising it stops publishes to every target app below it until
-the person raises that app's CommCare version, as below. This floor is a
+the person raises that app's CommCare version, as below, and phones running an
+older CommCare can no longer install Nova's local `.ccz`. This floor is a
 requirement on the target app, not a gate on rolling out Nova. The floor is the same bar as the rest of this document, apps
 that CommCare can build today with every feature Nova holds, rather than every
 app CommCare ever built. Nova cannot set an app's version through HQ's API:
@@ -187,7 +188,7 @@ and Web Apps geocoding needs `geocoder`. No HQ API returns a project space's
 privileges to an ordinary credential (the accounting resources in `api/accounting.py`, open only to superusers and
 contractors, which expose
 plan roles, are admin tools Nova does not use). So from step 2 publish lists every privilege the app
-needs, including the three HQ's build enforces, with the plans that carry each
+needs, including the four behind the three checks HQ's build makes (`lookup_tables`, `custom_intents` with `templated_intents`, `user_case`; `helpers/validators.py`), with the plans that carry each
 (`accounting/bootstrap/features.py`), the person confirms each privilege once
 for each app and project space, the deployment ledger records it on that
 deployment record (the person can revisit it from that target's settings), and
@@ -207,19 +208,23 @@ import needs, does not take such an app. Three privileges an app can need,
 by a legacy privilege flag (`FrozenPrivilegeToggle`, tagged GA path rather than
 frozen; `toggles.domain_has_privilege_from_toggle`), which the flag probe cannot
 read (`user_domains` answers 400 for its slug, since `all_toggle_slugs` leaves
-it out; executed), so the per-privilege confirmation covers it. Likewise an app that declares Web Apps
+it out; executed), so the per-privilege confirmation covers it. Likewise, from step 4, an app that declares Web Apps
 needs `cloudcare`, which the current Pro plan lacks, so publishing a new app,
 which declares both platforms, or an existing app whose declaration includes Web
 Apps, to such a project space stops at this confirmation until the person
 narrows the declaration to Android only, which first needs removing whatever
 Android cannot run; the builder names each. A plan never shapes what Nova builds:
 the agent, builder and MCP see one vocabulary, and the plan is a fact publish
-checks. Feature flags are read directly (`user_domains?feature_flag=`,
+checks. This document names flags by their constants in `corehq/toggles/__init__.py`; the probe takes each flag's slug from the same definition (`CSQL_FIXTURE` is `module_badges`, `TRAINING_MODULE` is `training-module`). Feature flags are read directly (`user_domains?feature_flag=`,
 `api/resources/v0_5.py::UserDomainsResource`), which answers only for project
 spaces the credential's user belongs to, and also counts a flag enabled for that
 user alone (`toggles.toggles_dict`). So import and publish read a project
-space's flags only with a member's credential, and otherwise stop, naming the
-space, with the next step to join it; and since Nova cannot tell a flag enabled
+space's flags with the publisher's credential where its user is a member, and
+otherwise in the order the step 2 cutover uses (the stored credential of the
+person who created the deployment, then of other current members of the Project
+in the order they joined), each read with another member's key recorded and
+shown to that member; where no credential's user is a member, they stop, naming
+the space, with the next step to join it; and since Nova cannot tell a flag enabled
 for the person alone from the space's own, publish names each flag it relies
 on. These checks run at publish, never at commit, because
 the commit gate may read only the document (`docs/architecture/contracts.md` §
@@ -320,10 +325,13 @@ and a basic subcase `reference_id` other than empty or `parent` (the
 `custom-parent-ref` flag). A module with no `unique_id`, which has no stable identity: HQ's build gives
 such a module a random id only in the build it makes (`make_build` runs
 `Application.validate_app` on its copy), a different id each build, and the app
-itself keeps no id until App Preview runs it (`views/cli.py::get_direct_ccz`
-validates the current app, which gives every menu an id and saves), a menu that
-already has an id is opened (`views/modules.py::get_module_view_context`), or a
-menu is added. HQ's menu list links a menu with no id to `/module/None/`, which
+itself keeps no id until HQ gives its menus ids and saves: App Preview runs it
+(`views/cli.py::get_direct_ccz` validates the current app), a menu's page opens
+(`views/modules.py::get_module_view_context`, reached from a menu with an id, from
+adding a menu, or through the legacy `/modules-<index>/` address, which also
+ids that menu, `view_generic.py::_get_module_and_form`), or an edit that looks a
+menu up by id saves (`Application.get_module_by_unique_id` ids every menu it
+passes). HQ's menu list links a menu with no id to `/module/None/`, which
 is "Page not found" (`view_generic.py::_get_module_and_form`; executed). So
 opening App Preview once in HQ fixes it. And every other state
 "Nova's exports stay inside HQ's editable envelope" lists as producible by no
@@ -469,8 +477,8 @@ reads, are therefore part of what Nova holds for a form, like a question's path.
 Naming rules follow from the same fact: a correct model represents the customer's
 data exactly, so each rule is set by what the name must hold and what every
 consumer can carry. Hyphenated question ids (ordinary XPath names), case types
-with a leading digit, and case properties with Unicode letters after an ASCII
-first letter (HQ's build requires that first letter,
+with a leading digit, and case properties with cased Unicode letters after an
+ASCII first letter (HQ's build requires that first letter,
 `helpers/validators.py::validate_property`) are sound end to end, and Nova's
 grammars widen to admit them, with the reference syntax, the XPath editor and the
 emitter all handling them. HQ's lookup tag and field grammar is any XML name
@@ -479,8 +487,13 @@ without a colon that does not start with lowercase `xml`
 characters for a tag; Nova's lookup grammar widens to it (today
 `^[A-Za-z_][A-Za-z0-9_]*$`, `lib/lookup/constants.ts`), except tags containing
 the `casedb` and `ledgerdb` substrings above and, where an expression reads
-them, names holding a letter without case, which Core's XPath cannot read
-(`Lexer.isAlpha`). A language keeps its meaning (Nova's ISO 639-3 identity, for the
+them, names holding a letter without case, a titlecase letter, a combining mark or `·`,
+which Core's XPath cannot read (`Lexer.isAlpha`, `matchQName`); a table tagged `types` can be referenced but not adopted, since a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`). The same limit
+refuses a case property holding a letter without case (such as `名字` or `محل`), a
+titlecase letter or a digit other than a decimal one (such as `½`):
+`validate_property`'s Unicode `\w` accepts each, but the bind HQ writes for the
+update does not parse in Core, which Formplayer's `validate_form` runs during the
+build, and any expression reading the property breaks (executed). A language keeps its meaning (Nova's ISO 639-3 identity, for the
 registry and translation) apart from its wire code (the HQ code, held exactly).
 A name form that breaks a consumer is refused, because renaming it would change
 data.
@@ -496,7 +509,7 @@ Every field on the surface has exactly one disposition:
   `practice_mobile_worker_id`, `custom_base_url`, `features.credentials`, the
   media map). Nova writes only the target's own value for it: HQ's overlay merge
   and Nova's profile overlay keep a project-space setting at the target's value,
-  and the ledger's identities, below, are written back as recorded. Target-owned also covers the identities each project space gives the
+  and, from step 2, the ledger's identities, below, are written back as recorded. Target-owned also covers the identities each project space gives the
   app: its app id, menu and form ids, each form's `xmlns` there (the document
   holds `Form.xmlns`, the one a new project space takes), and a case search
   endpoint's id. From step 2 the deployment ledger records those per target (today Nova mints
@@ -524,8 +537,8 @@ Every field on the surface has exactly one disposition:
   `load_from_form` (HQ's App Summary reads it until the next form builder
   save clears it), `task_list` when not shown, `filter`-format columns, orphan
   XForm attachments of deleted forms and disabled profile settings. Nova does
-  not hold them; the proof confirms that nothing a runtime or HQ's servers read
-  changes (a disabled setting or a `filter` column can still leave bytes, such as
+  not hold them; the proof confirms that nothing a runtime or HQ's servers act on
+  changes (pages that only describe the app, such as App Summary, do not count; a disabled setting or a `filter` column can still leave bytes, such as
   a stored profile value or an unread header string). Some still get a
   written value on export, such as the add-ons that make HQ's editors show the
   pages that own Nova's content.
@@ -581,7 +594,7 @@ Every field on the surface has exactly one disposition:
   materialized in Project storage through the governed Project-data path
   atomically with sequence 1. The HQ app itself is recorded in the deployment
   ledger as explicitly adopted; today only lookup tables and locations can be
-  adopted (`lib/deployment/preflight.ts::adoptResourceIds`).
+  adopted (the `adoptResourceIds` input in `lib/deployment/preflight.ts`).
 - A feature becomes readable only when it is also editable in the builder, the
   SA and MCP, as the contracts require of every vocabulary.
 - Import never changes an app to make it readable. It refuses, with the place and
@@ -621,7 +634,7 @@ the app uses them.
 - **Update** (`overwrite_app_from_source` → `_merge_source_into_app`) writes every
   id verbatim, replaces each top-level key present in the upload, keeps absent
   keys, never changes `build_spec`, `multimedia_map`, `build_profiles`,
-  `custom_base_url` or `practice_mobile_worker_id` (`Application._update_excluded_fields`,
+  `custom_base_url` or `practice_mobile_worker_id` (`ApplicationBase._update_excluded_fields`,
   plus `build_spec` in `_merge_source_into_app`), deletes form-source blobs it
   replaces, and answers 400 for a doc-type mismatch or a deleted app. `name` is
   excluded from the source merge, but the update's `app_name` parameter renames
@@ -651,7 +664,7 @@ sequence).
   ids for lookup tables, and every publish to that target writes them back. From
   then no target's ids change on a republish, apart from the one-time changes
   the step 2 cutover names below.
-- Nova will keep one `xmlns` per form (`Form.xmlns`), minted inside the
+- Nova keeps one `xmlns` per form (`Form.xmlns`), minted inside the
   creating mutation, or read from HQ on import. A project space Nova creates the app in
   takes it, because HQ's create keeps `xmlns`. HQ's create re-mints form ids, so
   the create is followed at once, inside the same publish and before any build
@@ -678,12 +691,17 @@ sequence).
   API access). It matches each HQ form to the Nova form whose question paths, in Nova's
   emission of the pre-step document, share the most with it, requiring more than
   half of the HQ form's paths, one to one: pairs are taken in descending order
-  of shared paths, then by equal position, and a form already taken is skipped.
-  Each Nova menu takes the id of the HQ menu holding most of its matched forms,
-  position breaking ties; a menu with no forms (a case list menu item alone, or
-  a hidden search-no-matches menu) takes the HQ menu at its position with the
-  same case type and no forms. The cutover records them, so that space keeps its
-  ids. A form edited in Nova or in HQ since its last publish still matches while
+  of shared paths, then by equal position, then by HQ form position, and a form
+  already taken is skipped. Menus are matched one to one the same way, over the
+  menus of that emission (the hidden menu the emitter inserts for a
+  search-no-matches form is one, holding that form): each pair counts the Nova
+  menu's matched forms the HQ menu holds, pairs are taken in descending order of
+  that count, then by equal position, then by HQ menu position, and a menu
+  already taken is skipped; a menu with no forms (a case list menu item alone)
+  pairs with an untaken HQ menu at its position with the same case type and no
+  forms. The cutover records them, so that space keeps its ids; a Nova menu left
+  without a pair takes a Nova-minted id, so its id changes once more at its next
+  publish, and the notice names it. A form edited in Nova or in HQ since its last publish still matches while
   most of its questions remain. Where the space lacks API
   access, the cutover records Nova-minted form ids, so its form ids change once
   more at its next publish; anything that does not align likewise takes
@@ -843,11 +861,11 @@ it, with the publisher's credential where it reaches that space, and otherwise
 with that of the member who imported the reference, then of other current
 members of the Project in the order they joined; each read with another
 member's key is recorded and shown to that member, as in the step 2 cutover.
-Where none reads it, publish stops, naming the table and the project space: a change to what the app reads (its fields, properties or attributes) stops
+Where none reads it, publish stops, naming the table and the project space. Where the read succeeds, a change to what the app reads (its fields, properties or attributes) stops
 the publish, naming the table and each app of the Project that reads a changed
 field, and offers to take the new definition into the Project copy, which it
 applies only when no app of the Project reads a field or property HQ removed or
-renamed; a change to its rows refreshes the Project copy, still with no write
+renamed, and otherwise names each such read, whose removal is the next step; a change to its rows refreshes the Project copy, still with no write
 to HQ. Publishing to another project space creates the table there from
 that copy, as a table Nova created. Adoption belongs to
 a Project table and a target together, so once a person adopts a table for a
@@ -891,7 +909,12 @@ Prompts and default filters alike are sent as named parameters: a ProjectDB
 endpoint binds each to a same-named `:name` SQL parameter with no check
 (`get_project_db_fixture`; an unmatched key is ignored and an unmatched or
 empty parameter becomes NULL), and an Elasticsearch endpoint drops the conditions
-whose parameters were not supplied. `_xpath_query`, sort and related-case
+whose parameters were not supplied. HQ changed the ProjectDB binding after the
+pinned commit (`project_db/user_sql.py::UserSQL._clean_parameters` at
+`525becc2963`, 2026-09-28): a sent key the query does not name fails the search,
+an unsent parameter becomes NULL and an empty one stays empty. Nova cannot read
+the query, so the builder, SA and MCP say, where an input is added to a menu that
+searches through an endpoint, that the endpoint's query must name it. `_xpath_query`, sort and related-case
 settings do not apply, while claiming still works. The list and detail read each
 result's fields by name. Both Web Apps and Android send the search through
 `/phone/search/`, online only.
@@ -1029,8 +1052,8 @@ A non-select writer makes the property text and drops the catalog.
   images and H.264 High video; Preview shows a stand-in for a file only Android
   plays. Every platform plays PNG, JPEG, GIF, WebP and BMP; MP3, PCM WAV, M4A
   (AAC-LC, brand `M4A ` or `M4B `), FLAC and Ogg Vorbis or Opus; and MP4 (H.264
-  Baseline or Main) and WebM (VP8 or VP9). Refused: TIFF, HEIF, AV1, MOV, AVI
-  and Ogg Theora, which no platform plays everywhere, and audio 3GP or M4A with
+  Baseline or Main) and WebM (VP8 or VP9). Refused: TIFF, HEIF, AV1, MOV, AVI,
+  Ogg Theora and H.263, which neither platform plays on every device or browser it runs on, and audio 3GP or M4A with
   another brand, which HQ types as video. These facts come from the vendors'
   documentation (Google's supported media formats at Android 6.0, CommCare's
   minimum; Chromium's codec list; MDN's format guides; Apple's Safari media
@@ -1041,7 +1064,7 @@ A non-select writer makes the property text and drops the catalog.
   language, as HQ holds it. Each media reference holds its `jr://file` path: an imported
   reference keeps HQ's path, and a Nova-born one takes the path derived from its
   asset's bytes when it is made (`lib/commcare/multimedia/assetWirePath.ts`);
-  Nova derives every path today and stores none; the migration stores each
+  Nova derives every path today and stores none; step 7's migration stores each
   existing reference's derived path, so no published path changes. Choosing
   another asset gives the reference that asset's path, a new file HQ receives
   through its multimedia upload. Logos differ: HQ holds them only through its
@@ -1072,7 +1095,10 @@ type (the selection HQ's build itself treats as the form's case for a visit
 schedule, `xform.py::_create_casexml_advanced`), or, in a form HQ counts as a registration
 (`AdvancedForm.is_registration_form` for the module's case type), the case its
 one open action outside any repeat creates, which wins where both name a
-case; that selection's close, and that open action's open and close
+case (HQ also counts a form whose one open action is unlinked and inside a
+repeat as a registration, but only when it loads nothing that is not
+auto-selected, so that form has no own case and the action is an ordinary
+create); that selection's close, and that open action's open and close
 conditions, are the form's. A field's "saves to"
 setting (`caseWrite`) is that field's view of a write in the operation on its
 case, so the builder, SA and MCP keep offering it on the field, and HQ's three
@@ -1095,7 +1121,11 @@ question to make one fit:
   true).
 - An advanced action, in an advanced form, when the operation writes to or
   closes a case the form selects, or creates a case with indices, on the same
-  terms for values and conditions; and an advanced open action for a new case
+  terms for values and conditions, where HQ builds the result faithfully: a link
+  whose relationship is chosen per submission names a selected case (toward a
+  case the form creates, HQ writes its binds on that case's block), and a repeat
+  holds one advanced create, or at least two that carry indices (otherwise HQ
+  writes their blocks at one path, `xform.py` `get_action_path`); and an advanced open action for a new case
   that no basic slot can hold (an extension, or a child of a case other than the
   form's own) and that after-submit navigation carries into a form of its case
   type, which needs the session datum only a form action provides
@@ -1119,7 +1149,11 @@ which the newly held placement cannot express, is refused as a conflict, as an
 edit a peer's earlier change invalidates is, and its tab shows the move for the
 author to apply again. From then the placement is kept; an
 operation that has never been published takes the simplest placement at every
-export. An edit the held placement cannot express, an undo included, moves the
+export, unless the person accepts a move publish offers, which a
+`publish-placement` change records at once as a held placement. Only a publish
+records placements: HQ's import file and Nova's `.ccz` carry the placements the
+document holds, or the simplest, and an HQ app made from the import file keeps
+no continuity with them. An edit the held placement cannot express, an undo included, moves the
 operation to one that can, and, as with every identity edit, the builder, SA and
 MCP say so before it commits. An imported operation keeps the placement it arrived with.
 A placement holds
@@ -1141,7 +1175,8 @@ offers only `child` for a child case, except that one whose new case after-submi
 navigation carries takes an advanced open action, which makes its module
 advanced (above). A module is emitted as an advanced module exactly
 when one of its forms holds case selections or an operation placed on an
-advanced action, and every form in it is then an advanced form: each form in it
+advanced action, or its case list or detail holds a state only an advanced
+module builds ("Menus and case lists" names each), and every form in it is then an advanced form: each form in it
 that loads a case holds that case as a selection from the module's own list,
 tagged as HQ's editor tags a first load (`load_<case type>0`,
 `advanced/case_config_ui.js::addFormAction`). HQ's advanced modules
@@ -1149,7 +1184,11 @@ have no parent selection, so a parent selection there becomes each form's
 chained case selections (`caseSelections[].childOf`), which renames the session
 datums its forms read. An edit that turns a
 basic module advanced moves the published placements of every form in it, so it
-is an identity edit for each of those forms.
+is an identity edit for each of those forms. An edit that would make a module
+advanced where HQ's advanced-module rules forbid it is refused, naming the rule:
+registration from the case list unless every form loads the same one or more
+cases, the last of the module's case type (`helpers/validators.py::AdvancedModuleValidator`),
+or a multi-select case list, which advanced modules do not carry.
 
 A capture reaches a case as a link write: a hidden value, `nova_url_<question
 id>` (today `__nova_url_<id>`, which defect 13 renames), whose calculate builds HQ's form-attachment address from the submission's
@@ -1176,7 +1215,9 @@ property a Save to Case block writes, exactly as Vellum computes it.
   conjunction held as the condition that applies once the item is back on the
   menu (it must still be a valid expression), and the emitter writes
   `false() and (<rest>)`, or `false()` when there is no rest. Nova refuses a display condition that simplifies
-  to false today (`DISPLAY_CONDITION_ALWAYS_FALSE`).
+  to false today (`DISPLAY_CONDITION_ALWAYS_FALSE`); from step 2 any other
+  condition false in every context is an ordinary condition, held as written,
+  on import and in authoring alike, and that rule retires.
 - **After-submit links follow CommCare's semantics.** HQ turns each form link
   into its own conditional stack frame from the raw condition
   (`suite_xml/post_process/workflow.py::_get_link_frame`), and Core pushes every
@@ -1225,7 +1266,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 222 held menu, case list and search rows in the inventory
 that apply to both platforms, 74 are marked as differing on at least one (1 of them only in a case the cell names), and of
-the 160 held question rows that apply to both, 79 are. In Nova,
+the 163 held question rows that apply to both, 79 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -1282,9 +1323,9 @@ rather than choosing for it; the author may change the app, such as replacing a
 date-and-time question to keep Web Apps. An app it declares Android only has
 Web Apps turned off in the app at its next publish, which asks the person first,
 as above, and for its users at the next release. An app whose
-content runs on neither (inline search beside a date-and-time question, the
-only such combination, since the date-and-time question is the one held feature
-Web Apps cannot run today) is already broken on both. The migration declares it for Web Apps, which HQ turned on
+content runs on neither (a date-and-time question beside anything Android
+cannot run, such as inline search or a multi-select case list; the date-and-time
+question is the one held feature Web Apps cannot run today) is already broken on both. The migration declares it for Web Apps, which HQ turned on
 for every app Nova created where the plan carries `cloudcare`, and splits each date-and-time question: the date question keeps the
 original id and label, a new time question `<id>_time` (with a numeric suffix
 on a collision) follows it with the same label and copies the original's
@@ -1414,7 +1455,7 @@ blank per-language itext
 (filled from the default language), an empty `case_references_data.save`
 (rewritten to Vellum's computation), non-writing followups (a Case Management save
 adds a no-op case update to every submission), `search_button_label`, the
-classic search workflow (becomes Search First in apps with Web Apps), single-date prompts without
+classic search workflow (becomes Search First on a Case List save where HQ shows its workflow selector and CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST is off), single-date prompts without
 `CASE_SEARCH_ADVANCED`, custom tiles where `CASE_LIST_TILE` is on without
 `CASE_LIST_TILE_CUSTOM`, tile cells
 without a font size and unplaced tile columns, extension `OpenSubCaseAction`s
@@ -1564,7 +1605,7 @@ a case write's placement, including the position of a numbered child case
 block that an earlier removal or reorder shifts, an index relationship, a group
 turned into a repeat, an entry point id, a worker-data slug,
 menu and form order, lookup table tag, field or field-property name, location
-type code, language code) breaks HQ data continuity. The builder, SA and MCP say so before the change
+type code, language code, or an emitted node's name, which a question id an author gives takes, moving the node to a numeric suffix) breaks HQ data continuity. The builder, SA and MCP say so before the change
 commits; the contracts already allow external-contract names to require
 confirmation.
 
@@ -1725,8 +1766,8 @@ cutover contract as it stands.
 | contracts.md: "Nova emits one wire flavor: the maximal subset Web Apps supports, faithfully." | Nova emits for the platforms each app declares: Web Apps, Android, or both ("Platforms"). | 4 |
 | `lib/commcare/CLAUDE.md`: "Each multiplicity scope gets a reserved `__nova_operations` container" | Nova reserves no names: each node its emitter adds is named `nova_<purpose>…` and recognized by its name pattern with its exact calculate or structure ("Nova's exports stay inside HQ's editable envelope"). Step 2 renames every such node but the repeat-count snapshots, which step 5 removes. | 2, 5 |
 | `lib/commcare/CLAUDE.md`: "The expander requests `location_fixture_restore: "both_fixtures"`" | Nova emits `project_default`, and publish asks the person to confirm the flat location fixture still syncs ("Application settings"). | 2 |
-| `lib/commcare/CLAUDE.md`: "HQ re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not modules, so the expander pre-generates every form unique id before the module map." | HQ re-ids forms only when it creates an app; every menu and form id comes from the deployment ledger per project space ("Identity", defect 1). | 2 |
-| `lib/media/CLAUDE.md`: "**audio is `audio/mpeg` (`.mp3`) and `audio/wav` (`.wav`) ONLY.**" | A file is accepted when every platform the app declares plays it and HQ types it as the same kind, from the vendors' documentation ("Questions", defect 11). | 2 |
+| `lib/commcare/CLAUDE.md`: "HQ re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not modules, so the expander pre-generates every form unique id before the module map." | HQ changes stored form ids only when it creates an app (its app-source export gives fresh form ids on every read, so drift matches forms by position); every menu and form id comes from the deployment ledger per project space ("Identity", defect 1). | 2 |
+| `lib/media/CLAUDE.md`: "**audio is `audio/mpeg` (`.mp3`) and `audio/wav` (`.wav`) ONLY.**" | A file is accepted when every platform the app declares plays it and HQ types it as the same kind, from the vendors' documentation ("Questions", defect 11); until step 4 every app counts as declaring both platforms. | 2, 4 |
 | `lib/lookup/CLAUDE.md`: "A tag is capped at 32 characters here, one past what a CommCare HQ data sheet can be named for, so the export boundary refuses the 32-character case by name" | HQ's upload reads a 32-character sheet name, so a 32-character tag pushes (defect 5). | 2 |
 | `lib/commcare/CLAUDE.md`: "All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`." | Markdown is a property of each display text (defect 29). | 5 |
 | `lib/commcare/CLAUDE.md` (Exclusive guards): "Core executes EVERY true `<create>` and lands on the LAST one" | Form links follow CommCare's semantics, with no exclusivity guards ("Navigation and after-submit links"). | 5 |
@@ -1779,7 +1820,10 @@ mechanisms within the decisions and constraints this document states.
    Defects 1 to 16. The additions are `Form.xmlns` with the deployment ledger's
    per-project-space menu and form ids, explicit settings for saved and incomplete forms, the first-menu and
    parent-menu after-submit destinations, the always-false display condition
-   holding its rest, a hidden value with neither a calculate nor a default, UI string overrides and `uiStringCatalogKeys`, a sort
+   holding its rest, a hidden value with neither a calculate nor a default (every
+   `HIDDEN_INERT_VALUE` default of `''` migrates to it and the constant retires;
+   one that writes a case property writes it blank on each submission, which the
+   builder, SA and MCP say where the author sets it), `localization.wireCodes`, UI string overrides and `uiStringCatalogKeys`, a sort
    column for lookup-backed prompts, and the accepted media set. Publish gains
    the version floor, per-privilege confirmation, and the drift check with its
    baseline, for the app and for the lookup tables and locations it pushes,
@@ -1800,7 +1844,7 @@ mechanisms within the decisions and constraints this document states.
    expression orders it or does arithmetic on it), and names each. Defect 17. *Exit:* no Nova expression slot
    stores a reference as text, and the corpus stays green.
 4. **Platforms.** The declaration, its wire form, its default at birth, the
-   gating of features by platform, Preview per platform, and the migration of
+   gating of features by platform (media formats only one platform plays among them), Preview per platform, and the migration of
    existing apps. Defects 18 to 20. *Exit:* every held feature carries its
    platform behavior; no app holds a feature unavailable on a platform it
    declares; and every platform cell that differs has a Preview test exercising
@@ -1852,8 +1896,13 @@ continuity before it reaches HQ.
    form exports, detaches UCR form data sources and form forwarding filtered by
    form, breaks SMS surveys at the next release, and stops Android from reopening incomplete
    forms. Nova's comments saying "HQ re-ids forms on import" are true only for
-   creation. *Fix:* per-project-space ids in the deployment ledger and
-   `Form.xmlns`, as under "Identity". *Migration:* the step 2 cutover reads and
+   creation. Adding a language whose code collides with an existing one's renames
+   the existing language's code (`lib/commcare/languageWire.ts::planLanguageWire`
+   recomputes every code from the whole set), which moves its device locale,
+   build profiles and UI strings. *Fix:* per-project-space ids in the deployment ledger and
+   `Form.xmlns`, as under "Identity", and `localization.wireCodes`, storing a
+   language's code when it is added (the migration stores each existing
+   language's current code). *Migration:* the step 2 cutover reads and
    records each project space's current ids and source, as under "Identity". A
    space without API access has its form ids change once more at its next
    publish, as does any menu or form that does not align; a deployment whose HQ
@@ -1962,7 +2011,8 @@ continuity before it reaches HQ.
    their deployments' HQ builds show (`no` where the deployment sets none), or
    HQ's default `no` where they disagree, under "Identity", so users of a local
    `.ccz` see what users of the HQ build see; an app with no deployment the
-   cutover reads takes `yes`, what users of its local `.ccz` see today.
+   cutover reads takes `yes`, what users of its local `.ccz` see today. A new app
+   takes HQ's default, `no`, for both.
 8. **Barcode and secret validation is admitted, then dropped.** The gate admits
    `validate` (`lib/commcare/validator/rules/field.ts::KINDS_SUPPORTING_VALIDATION`),
    but the emitter gates constraints on `lib/commcare/constants.ts::supportsValidation`,
@@ -2004,18 +2054,18 @@ continuity before it reaches HQ.
     removes each mapping entry whose value holds one of those characters, which
     HQ's ID Mapping cannot hold, so that value then shows nothing, and names
     each.
-11. **Media acceptance is wrong both ways.** Nova refuses BMP, M4A, FLAC and
-    WebM, which every runtime plays, with a wrong rationale for M4A
+11. **Media acceptance is wrong both ways.** Nova refuses BMP, M4A, FLAC,
+    WebM and Ogg Vorbis or Opus audio, which every runtime plays, with a wrong rationale for M4A
     (`lib/domain/multimedia.ts`), and accepts MP4 of any codec and WAV of any
     encoding.
     `lib/commcare/multimedia/mediaSuiteXml.ts` claims an unbundled media file
     fails install, which holds for exploded-directory installs, as Android
     installs a `.ccz`, but not for Core's or Formplayer's archive installs, and
     `MediaRuntimeTest` tests file-system behavior rather than archive installs.
-    *Fix:* the per-platform set under "Questions", and the corrected comment and test.
-    The migration removes each reference to an existing asset no platform the
-    app declares plays (an MP4 outside the codecs above, and a WAV that is not 8-
-    or 16-bit PCM), so the app stays export-ready, and names each for its author
+    *Fix:* the set every platform plays under "Questions" (every app counts as declaring both platforms until step 4, which adds per-platform acceptance), and the corrected comment and test.
+    The migration removes each reference to an existing asset some platform
+    does not play (an MP4 outside the codecs above, and a WAV that is not 8- or
+    16-bit PCM; until step 4 every app counts as declaring both platforms), so the app stays export-ready, and names each for its author
     to replace.
 12. **Publish checks miss gates Nova's content needs.**
     `lib/commcare/projectSpaceCompatibility.ts::moduleRequiresAdvancedCaseSearch`
@@ -2099,7 +2149,8 @@ continuity before it reaches HQ.
       calculate, which then follows the answer instead of copying it once,
       unless that closes a dependency cycle, where the default is removed and the
       hidden value holds neither, which step 2 admits (the inventory's Hidden
-      Value with neither); it
+      Value with neither), so a case property it writes is written blank on each
+      submission; it
       removes each one from a visible question; it names each.
     - A reference to another block's `case/@case_id` is an unknown question to
       Vellum. *Fix:* the id is held in a hidden value that both read.
@@ -2143,25 +2194,34 @@ continuity before it reaches HQ.
       by default, so existing prompts list their options in that column's string
       order (`String.compareTo` of the sort value) instead
       of in row order.
-        - A search input named like a default filter blocks every Case List save
+    - A search input named like a default filter blocks every Case List save
       (`case_claim.js::commonProperties`); Nova writes default filters only as
       `_xpath_query` rows today, so only an input named `_xpath_query` does, and
-      it searches nothing, since Nova sends it with `exclude`. An input that
-      reaches HQ as its own key (a simple exact or range input named for the
-      non-attribute property it searches; Nova sends every other input with
+      Core sends no key for it, since Nova sends it with `exclude`. An input that
+      reaches HQ as its own key (a simple exact input on a non-date,
+      non-attribute property, or a range input, named for the property it
+      searches, reached through the case itself; Nova sends every other input with
       `exclude`, `searchPrompts.ts::searchInputSuppressesAutoMatch`, and Core
       then sends no key for it, `RemoteQuerySessionManager.getRawQueryParams`)
-      sets a search control instead of searching when its name is a
-      `CONFIG_KEYS_MAPPING` key or value, `include_closed`,
-      `commcare_blacklisted_owner_ids`, `commcare_project` or a
-      `CASE_SEARCH_TAGS_MAPPING` key (`case_search/utils.py::_apply_filter`);
-      HQ searches `owner_id` as an owner filter. *Fix:* the validator refuses
+            does not search when its name is a `CONFIG_KEYS_MAPPING` key or a
+      `CASE_SEARCH_TAGS_MAPPING` key (taken as request configuration,
+      `case_search/models.py::extract_search_request_config`), a
+      `CONFIG_KEYS_MAPPING` value or `include_closed` (ignored,
+      `models.py::UNSEARCHABLE_KEYS`), or `commcare_blacklisted_owner_ids` or
+      `commcare_project` (applied as owner and project space filters,
+      `case_search/utils.py::_apply_filter`); HQ searches `owner_id` as an owner
+      filter and `case_id` as a case id filter. *Fix:* the validator refuses
       an input named like one of the module's default filters, and a name in
-      that control set on an input that reaches HQ as its own key. The migration
+      that set on an input that reaches HQ as its own key. The migration
       renames each existing input that blocks the save, with a numeric suffix,
-      and removes each that sets a control, which Nova cannot type; each
+      and removes each named in that set, which Nova cannot type; each
       input-presence clause over a removed input takes its absent branch, each
       read of it becomes the empty string, and the migration names each.
+    - A menu whose forms are all surveys and which lists no cases publishes with
+      case type `''`, dropping the one it holds
+      (`formLinkProjection.ts::moduleCaseTypeForActions`). *Fix:* the emitter
+      writes the held case type; each such menu's case type in HQ changes at its
+      next publish, and the migration names each.
     - Tile cells without a font size and tile columns without a position are
       rewritten on save. *Fix:* a position for every tile column, with sort
       carriers kept out of the tile, and `medium` (the size HQ's editor writes)
@@ -2207,7 +2267,8 @@ continuity before it reaches HQ.
       with the equivalent spelling the inventory gives: `case_preload`, `open_case.external_id`,
       registration `update never`, `no_vellum`, the `calculate` column format
       (as `plain`), a `date_format` outside HQ's five, such as `%Y-%m-%d` and Nova's
-      preset `%B %e, %Y` (as a calculated `format-date`
+      preset `%B %e, %Y` (a new date column takes `%b %d, %Y`, the one of HQ's five
+      nearest that preset; an existing one becomes a calculated `format-date`
       column with the same display, plus a sort on the raw property wherever
       the column was a sort key or the first column of a list with no sort, so
       the order is unchanged, since a calculated column sorts on its text,
@@ -2247,7 +2308,7 @@ continuity before it reaches HQ.
     keep refusing blank and multi-token values until step 7 holds them
     (the inventory's ID-mapping key row); and
     `lib/commcare/xform/captureUpload.ts` says Android's `WidgetFactory` has no
-    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`. Nova also offers
+    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while a Default Value that reads the Hidden Value sees it; `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only, while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
     label media on groups and repeats (`containerFieldBase.label_media`) and hint
     media (`hint_media`), which neither runtime shows and Vellum does not offer,
     and validation-message media (`validate_msg_media`), which Vellum offers and
@@ -2289,7 +2350,8 @@ continuity before it reaches HQ.
     Existing apps take the declaration their content runs on ("Platforms"), and
     publishing one that declares Web Apps to a project space whose plan lacks
     `cloudcare` (the current Pro plan) stops at the privilege confirmation until
-    the person narrows it to Android only.
+    the person narrows it to Android only, which first needs removing what Android
+    cannot run, such as a multi-select case list or a date search input.
 20. **Project-space case search configuration is unchecked.** A project space whose
     case search config syncs cases on form entry adds a claim to the
     case-requiring entries of every module that offers search, and those forms
@@ -2306,8 +2368,10 @@ continuity before it reaches HQ.
 
 21. **List-first search in apps on Web Apps.** Nova emits `auto_launch: false`
     for list-first modules (`lib/commcare/hqJson/caseList.ts`), which HQ is
-    retiring for apps with Web Apps and rewrites to Search First on any Case List
-    save. *Fix:* the search workflow setting, with list first offered only in
+    retiring (CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST) and rewrites to Search First
+    on any Case List save where its workflow selector shows (`cloudcare_enabled`,
+    the `cloudcare` privilege and SYNC_SEARCH_CASE_CLAIM, `views/modules.py`) and
+    that flag is off, since the selector offers no list-first option then. *Fix:* the search workflow setting, with list first offered only in
     Android-only apps. In an app whose stored declaration includes Web Apps, the
     step 5 migration moves each list-first module to the non-inline search first,
     which changes what its users see first and adds none of the inline shape's
@@ -2323,9 +2387,11 @@ continuity before it reaches HQ.
     *Migration:* each field write becomes a write in its form's operation for
     that case, in the placement it is published in today (a basic slot, or the
     Save to Case block a multi-select form uses). In an app the deployment ledger shows as published (a deployment that reached
-    `uploaded` and is not ended), the migration records every operation's current placement as its
-    published placement, except extension child cases, which defect 24 changes; in any other app, operations take the
-    simplest placement. An app that keeps a Save to Case
+    `uploaded` and is not ended), the migration records the current placement of each
+    operation the source last pushed to one of its deployments carries as its
+    published placement, except extension child cases, which defect 24 changes, and
+    every form of a module defect 24 turns advanced, whose placements move there;
+    other operations, and those in any other app, take the simplest placement. An app that keeps a Save to Case
     placement still needs `save_to_case`, so republishing it to a Pro project
     space stops at the privilege confirmation until the person moves those
     operations, which publish offers where a basic slot can express them, as an
@@ -2368,7 +2434,10 @@ continuity before it reaches HQ.
     case after-submit navigation carries moves to an advanced open action, which
     makes its module advanced, an identity edit for every form there (a parent
     selection in that module becomes chained case selections, renaming the
-    session datums its forms read); the migration names each. Such apps already need `save_to_case`, from step 2's
+    session datums its forms read), except where HQ's advanced-module rules forbid
+    that module becoming advanced ("Case writes"), where it keeps its Save to Case
+    block and each form link that carried its new case into a form targets that
+    form's menu instead, where the user picks the case; the migration names each. Such apps already need `save_to_case`, from step 2's
     privilege confirmation.
 25. **Repeat counts are snapshots no HQ editor accepts.** Nova copies every
     authored count into a reserved `__nova_count_<fieldId>` node set once by a
