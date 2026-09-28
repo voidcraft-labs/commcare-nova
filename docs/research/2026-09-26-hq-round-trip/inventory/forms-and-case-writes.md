@@ -1,0 +1,259 @@
+# Forms and case writes
+
+Part of the surface inventory of the HQ round-trip research. Section names in quotes and defect numbers refer to the main document, [`../README.md`](../README.md). Rows that point elsewhere with `→` name the section that owns the item; the inventory [`README.md`](README.md) says which file holds each section.
+
+## Form types
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| `Form`, `requires: none` + `open_case` active, `close_case` inactive | **HELD**: `Form.type: registration` | RUNS / RUNS | `form_type: module_form`, `requires: none`, `open_case.condition: always` |
+| `Form`, `requires: none` + `open_case.condition: if` | **HELD-NEW**: `Form.openCondition` (conditional registration) | RUNS / RUNS | `open_case.condition {type: if, question, answer, operator}`; add-on `conditional_form_actions` |
+| `Form`, `requires: none` + `open_case` + `close_case` active | **HELD-NEW**: `Form.closeCondition` on a registration, which closes the case it creates (HQ's Case Management tab offers the close card for every action type, and the build writes `<create>` then `<close/>` in one block, `xform.py::_create_casexml`) | RUNS / RUNS | `open_case` + `close_case.condition` |
+| `Form`, `requires: none` with `update_case` active and no open | **REFUSED**: not HQ-buildable: `_create_casexml` raises `CaseError` ("To update a case you must either open a case or require a case to begin with") | — | — |
+| `Form`, `requires: case`, no close | **HELD**: `Form.type: followup` | RUNS / RUNS | `requires: case`, `update_case.condition: always` |
+| `Form`, `requires: case` + `close_case` | **HELD**: `Form.type: close` (+ `closeCondition`) | RUNS / RUNS | `close_case.condition` |
+| `Form`, `requires: none`, no case action | **HELD**: `Form.type: survey` | RUNS / RUNS | `requires: none` |
+| `Form`, `requires: none` with child cases but no open | **REFUSED**: not HQ-editable: no editor produces it, since the Case Management tab offers only open and update (`caseConfigViewModel.actionType`) and an open writes its condition as `always` (`case_config_ui.js`) | — | — |
+| `Form`, `requires: none` with `close_case` active and no open, in a module with a case type | **HELD**: same state as `Form.type: survey`: HQ's build makes no case block (`xform.py::XForm._create_casexml`) and the suite never reads `close_case` (executed: byte-identical to a survey's XForm and suite) | RUNS / RUNS | `requires: none` |
+| `Form`, `requires: none` with `close_case` active and no open, in a module with no case type | **REFUSED**: not HQ-buildable: `no case type` (`Form.requires_case_type` reads `close_case`, `helpers/validators.py::FormValidator.validate_for_module`) | — | — |
+| `Form`, `requires: referral` | **REFUSED**: not HQ-editable: removed from the Case Management select | — | — |
+| `AdvancedForm` | **HELD-NEW**: derived: every form of a module emitted as advanced ("Case writes"), its selected cases held as `Form.caseSelections` (Advanced form actions) | RUNS / RUNS | `doc_type: AdvancedForm`, `form_type: advanced_form` |
+| `ShadowForm` | **HELD-NEW**: `Form.shadowOf` (Shadow forms) | RUNS / RUNS | `doc_type: ShadowForm` |
+| unknown form `doc_type` | **REFUSED**: in an advanced module, not HQ-buildable (`FormBase.wrap` raises); in a basic module, not HQ-editable: it wraps as a `Form` still carrying the unknown `doc_type`, which no editor writes (`Module.forms` is `SchemaListProperty(Form)`) | — | — |
+| blank source, or no non-group question | **REFUSED**: not HQ-buildable: `blank form` | — | — |
+| two non-shadow forms sharing an `xmlns` | **REFUSED**: not HQ-buildable: `duplicate xmlns` | — | — |
+
+## Form fields (`FormBase`, `Form`)
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| `name{lang}` | **HELD**: `Form.name` (+ localization) | RUNS / RUNS | `name` |
+| `unique_id` | **TARGET-OWNED**: HQ's id for the form in each project space, recorded in the deployment ledger and read from `ApplicationResource` where the project space has API access (`app_source` scrubs it on every read) | n/a | the target's recorded id, written back on every update (keeping HQ's validation-cache key and SMS keyword bindings); for a project space Nova creates the app in, Nova-minted ids written by an update right after the create |
+| `xmlns` (form JSON and XForm data node) | **HELD-NEW**: `Form.xmlns`, the submission identity a new project space and the local `.ccz` take (exports, UCR, repeaters and forwarders key on it); the deployment ledger records each project space's `xmlns`, and a project space that already has its own keeps it | RUNS / RUNS | the target's recorded `xmlns`, or `Form.xmlns` (today re-minted per expansion) |
+| `version` | **TARGET-OWNED**: set on the build copy | n/a | `null` |
+| `source` | → the XForm: Question types through XPath functions and structure | — | — |
+| `validation_cache` | **INERT**: cache, popped on wrap | n/a | omit |
+| `show_count: false` | **INERT**: default | n/a | omit |
+| `show_count: true` | **REFUSED**: not HQ-editable: no UI (raw `edit_form_attr` only) | — | — |
+| `comment` | **INERT**: builder note | n/a | omit |
+| `media_image`, `media_audio` (same asset every language) | **HELD**: `Form.icon`, `Form.audioLabel` | RUNS (on a grid menu, audio IGNORED: no audio control) / RUNS | per-language dict, same path |
+| `media_image`, `media_audio` differing by language | **HELD-NEW**: `localizedMedia` | RUNS / RUNS | per-language paths |
+| `use_default_image_for_all`, `use_default_audio_for_all` | **HELD**: folded into the media slot | RUNS / RUNS | `false` + explicit paths |
+| `custom_icons[0]` | **HELD-NEW**: `Form.badge` | RUNS / DIFFERENT (hides `0`; shows text longer than 3 characters as `999+` when it parses as an integer and otherwise as its first 3 characters and `..`, `MenuAdapter.updateBadgeView`) | `custom_icons[0]`; privilege `custom_icon_badges` |
+| `form_filter` lifting into Predicate (a direct own-case property in a case-first module, session data) | **HELD**: `Form.displayCondition` | RUNS / RUNS | `#case/<property>` spelling; add-on `display_conditions` |
+| `form_filter` outside Predicate (`#parent/…`, `#host/…`, `#user/…` usercase reads, casedb queries in a module where every form requires a case, any XPath HQ's validator accepts) | **HELD-NEW**: typed expression model in `Form.displayCondition` | RUNS / RUNS | printed with HQ hashtags |
+| `form_filter` reading `#case/@status`, `@case_id`, `@case_type`, `@owner_id` | **REFUSED**: not HQ-buildable: HQ's parser rejects `@` after `#case/` ("Expecting 'QNAME', got 'AT'"; `form filter has xpath error`) | — | — (Nova emits `#case/@status` today; in-envelope: `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/<datum>]/@status`) |
+| `form_filter` referencing the case database other than through `#user` (`instance('casedb')`, `session/data/case_id`, `#case`, `#parent`, `#host`: `util.py::CASE_XPATH_SUBSTRING_MATCHES`) when not every form in the module requires a case, or in a display-only-forms module whose parent does not require the same case | **REFUSED**: not HQ-buildable: `invalid case xpath reference` (`suite_xml/sections/menus.py::_get_commands`) | — | — |
+| `form_filter` using `$fixture_value` | **REFUSED**: retiring (FIXTURE_CASE_SELECTION) | — | — |
+| `post_form_workflow: default` | **HELD**: `postSubmit: app_home` | DIFFERENT (app root menu) / DIFFERENT (CommCare home screen) | `default` |
+| `post_form_workflow: root` | **HELD-NEW**: `postSubmit: firstMenu` | RUNS / RUNS | `root` |
+| `post_form_workflow: module` | **HELD**: `postSubmit: module` | RUNS / RUNS | `module` |
+| `post_form_workflow: previous_screen` | **HELD**: `postSubmit: previous` | RUNS / RUNS | `previous_screen` |
+| `post_form_workflow: parent_module` | **HELD-NEW**: `postSubmit: parentMenu` | RUNS / RUNS | `parent_module` |
+| `post_form_workflow: form` | **HELD**: `Form.formLinks` | RUNS / RUNS | `form`; privilege `form_link_workflow` |
+| `post_form_workflow` HQ's build refuses (`module` in a `put_in_root` module or `parent_module` to a `put_in_root` root: `form link to display only forms`; `parent_module` with no root: `form link to missing root`; `previous_screen` where exactly one of the module and its root is multi-select: `mismatch multi select form links`; `previous_screen` on a case-requiring form in an inline-search module: `workflow previous inline search`) | **REFUSED**: not HQ-buildable (`helpers/validators.py::FormBaseValidator.validate_for_module`) | — | — (Nova emits `previous_screen` in some of these today, which HQ's build refuses: defect 14) |
+| any other `post_form_workflow` outside the offered set (`previous_screen` in a multi-select module at the top level or under a multi-select root; `module` or `parent_module` under a multi-select root; `previous_screen` in an inline-search module on a form that does not require a case, which HQ's build accepts; `views/forms.py`) | **REFUSED**: not HQ-editable: the settings save posts `error` → `BadValueError` (`form_workflow.js`) | — | — (Nova emits `previous_screen` there today: save-breaking) |
+| `post_form_workflow_fallback` `module` or `previous_screen`, offered in that menu, where some form link has a condition | **HELD**: `postSubmit` after the conditional links | RUNS / RUNS | the value |
+| `post_form_workflow_fallback` `root` or `parent_module`, offered in that menu, where some form link has a condition | **HELD-NEW**: `postSubmit: firstMenu` / `parentMenu` after the conditional links | RUNS / RUNS | the value |
+| `post_form_workflow_fallback` outside the offered set | **REFUSED**: not HQ-editable: cleared to `''` on save | — | — |
+| `post_form_workflow_fallback: null` / `''` / `default` | **INERT**: no fallback frame | n/a | `''` |
+| `post_form_workflow_fallback` offered in that menu, set where no form link has a condition | **INERT**: HQ reads the fallback only when some link has a non-blank condition (`workflow.py::_get_fallback_frame`) | n/a | omit |
+| `form_links[]` target a form (any suite form) | **HELD**: `formLinks[].target {type: form}` | RUNS / RUNS | `{xpath, form_id, form_module_id, datums}` |
+| `form_links[]` target the current form, or a link cycle | **HELD-NEW**: self and cyclic links (today refused: `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`; HQ's picker offers the current form) | RUNS / RUNS | same |
+| `form_links[]` target a top-level or child-matched module that does not show its forms in its parent (`views/forms.py::_get_linkable_forms_context` never offers a display-only-forms menu) | **HELD**: `formLinks[].target {type: module}` | RUNS / RUNS | `{xpath, module_unique_id}` |
+| `form_links[]` target any other module | **REFUSED**: retiring (FORM_LINK_ADVANCED_MODE) for a child menu HQ does not match; not HQ-editable for a display-only-forms menu, which HQ never offers | — | — |
+| `form_links[].xpath` | **HELD**: `formLinks[].condition` (`XPathExpression`, session profile) | RUNS / RUNS | `xpath` |
+| two or more `form_links` conditions true at once | **HELD-NEW**: link-chain semantics: every true link pushes a frame, last created runs first (`CommCareSession::createFrame`); Nova emits exclusive guards today | RUNS / RUNS | each link's own condition, no exclusivity guards |
+| `form_links[].datums` on a form target, names among the target's selection datums, the only ones HQ offers (`views/forms.py::_get_form_datums`) | **HELD**: `formLinks[].datums` | RUNS / RUNS | `datums[]` |
+| `form_links[].datums` that leave the target's case id empty | **REFUSED**: broken at runtime: the target form opens with no case, and its case reads and writes fail | — | — |
+| `form_links[].datums` with other names, or on a module target | **REFUSED**: retiring (FORM_LINK_ADVANCED_MODE) | — | — |
+| `form_links[].form_module_id` | **HELD**: the target form's module, or a shadow module that mirrors it (`FormBaseValidator.validate_for_module`) | n/a | the module's id |
+| `form_links` failing HQ's link checks (`no form links` and `bad form link`, `helpers/validators.py::FormBaseValidator.validate_for_module`; "Unable to link form … missing variable", `suite_xml/post_process/workflow.py`) | **REFUSED**: not HQ-buildable | — | — |
+| `form_links` present while `post_form_workflow` ≠ `form` | **INERT**: not read | n/a | omit |
+| `auto_gps_capture` (form) | **HELD-NEW**: `Form.autoCaptureLocation` (effective = form OR app, `FormBase.get_auto_gps_capture`) | IGNORED / RUNS | `auto_gps_capture` |
+| `submit_label` = default | **INERT**: default | n/a | omit |
+| `submit_label` non-default | **HELD-NEW**: `Form.submitLabel` (editor: Bulk App Translations edits the existing string) | RUNS / IGNORED | `submit_label{lang}` |
+| `submit_notification_label` | **INERT**: HQ emits it as an app string (`app_strings.py::_create_forms_app_strings`) that no runtime reads | n/a | omit |
+| `is_release_notes_form` true (with or without `enable_release_notes`, which has no effect alone) | **REFUSED**: retiring (TRAINING_MODULE) | — | — |
+| `is_release_notes_form` false (with `enable_release_notes` either way) | **INERT**: its only reader is `is_a_disabled_release_form`, which needs both | n/a | omit |
+| `schedule_form_id` set | **REFUSED**: retiring (VISIT_SCHEDULER) | — | — |
+| `custom_assertions` (form) | **REFUSED**: freeform + retiring (CUSTOM_ASSERTIONS) | — | — |
+| `custom_instances` | **REFUSED**: freeform (arbitrary suite `<instance>` ids and srcs) | — | — |
+| `case_references_data.load` | **INERT**: editor metadata, recomputed by every Vellum save; no wire | n/a | Vellum's own `_logicManager.caseReferences()` output |
+| `case_references_data.save` equal to Vellum's computation from the form's SaveToCase blocks | **HELD**: derived (HQ's case-property inventory, case exports and the data dictionary read it; no device wire) | n/a | Vellum's computation for each SaveToCase (Nova writes `{}`: save-breaking, since the next Vellum save writes its computation) |
+| `case_references_data.save` differing from that computation | **REFUSED**: not HQ-editable: the next Vellum save of the form rewrites it (opening and saving the form once in HQ's form builder fixes it) | — | — |
+| `session_endpoint_id` | **HELD**: `Form.entryPoint.id`; narrow to `slugify(id) == id`, unique across module and form ids | DIFFERENT / DIFFERENT (Module fields) | `session_endpoint_id`; SESSION_ENDPOINTS |
+| `session_endpoint_id` not a slug fixed point, or duplicated | **REFUSED**: not HQ-editable: under SESSION_ENDPOINTS, which every endpoint needs, a form-settings save fails (`views/utils.py::set_session_endpoint`), or strips surrounding whitespace (`get_cleaned_session_endpoint_id`); a duplicate is also broken at runtime (Module fields) | — | — |
+| `respect_relevancy: false` | **HELD**: `entryPoint.ignoreDisplayConditions` | RUNS / DIFFERENT (never read: every endpoint opens hidden forms) | `respect_relevancy` |
+| `function_datum_endpoints[]` | **HELD-NEW**: `entryPoint.computedDatumArguments` | RUNS / RUNS | list; SESSION_ENDPOINTS |
+| `actions` | → Basic form actions (Form) / Advanced form actions (AdvancedForm) / Shadow forms (ShadowForm) | — | — |
+| `put_in_root` on a form (dynamic key) | **INERT**: not a model field; ignored | n/a | omit |
+| `no_vellum` (removed field, dynamic key) | **INERT**: no reader | n/a | omit (Nova writes `false`: unproducible) |
+| `form_type` | **HELD**: implied by the form kind | n/a | per kind |
+
+## Basic form actions (`FormActions`, `models/form_actions.py`)
+
+HQ renders these into the XForm at build (`xform.py::XForm._create_casexml`); the element paths they produce (`/data/case`, `/data/subcase_<i>/case`, `/data/commcare_usercase/case`) are submission identity, so every HELD row keeps its HQ wire slot. `Field.caseWrite` in these rows is the field's view of a case-operation write placed in a basic form action slot. Every row that holds a case write, name, preload or condition holds one on a question the Case Management picker offers; one it does not offer is refused (the rows "a case write, name or preload on a question the picker does not offer" and "a subcase or advanced action condition on a question the picker does not offer").
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| `open_case` active (`always`) | **HELD**: `Form.type: registration` | RUNS / RUNS | `open_case {condition: always}` |
+| `open_case.condition: if` | **HELD-NEW**: `Form.openCondition` (Form types) | RUNS / RUNS | `if` + question/answer/operator |
+| `open_case.name_update.question_path` | **HELD**: the `case_name` writer (`Field.caseWrite`) | RUNS / RUNS | `name_update` |
+| `open_case.external_id` on a form whose `open_case` is active | **HELD**: the `external_id` writer (its build output is `update_case.update.external_id`'s apart from the position of `<external_id/>` and its bind among the update's children, which no reader orders: the same-state rule; HQ's case-property inventory and data dictionary read only `update_case.update` keys, `app_manager/tasks.py::_refresh_data_dictionary_from_app`, so the editor's spelling adds `external_id` there, as HQ's own editor does) | RUNS / RUNS | `update_case.update.external_id` (no editor sets `open_case.external_id`, and Nova writes it on registrations today, `lib/commcare/formActions.ts`: unproducible) |
+| `open_case.external_id` on any other form | **INERT**: not read (`xform.py::_create_casexml` reads it only when the form opens its case) | n/a | omit |
+| a non-empty `open_case.conflicts` list, or an `update_case.conflicts` entry holding a non-empty list | **REFUSED**: not HQ-buildable: `conflicting questions` / `conflicting delete` | — | — |
+| `update_case.update{property: question}` | **HELD**: `Field.caseWrite` | RUNS / RUNS | `update{prop: {question_path, update_mode: always}}` |
+| `update_case.update` value as a bare string (legacy pre-`ConditionalCaseUpdate`) | **REFUSED**: not HQ-buildable: `wrap_app` raises `BadValueError` (`UpdateCaseAction.update` is `SchemaDictProperty(ConditionalCaseUpdate)`), so HQ cannot load the app | — | — |
+| `ConditionalCaseUpdate.update_mode: edit` | **HELD-NEW**: the write's `onlyIfChanged` | RUNS / RUNS | `update_mode: edit`; SAVE_ONLY_EDITED_FORM_FIELDS (emission and editor both need it) |
+| `update_case.condition: always` | **HELD**: the form updates its case | RUNS / RUNS | `always` |
+| `update_case.condition: if` whose question exists | **HELD**: read as `always`: only activeness is applied (`_create_casexml`) | RUNS / RUNS | `always` |
+| `update_case.condition: if` whose question is gone | **REFUSED**: not HQ-buildable: its question is still path-checked, `path error` | — | — |
+| `update_case.condition: never` on a follow-up with any other entry in `Form.active_actions()` (close, preload, child case, usercase write or preload, or `load_from_form`): the build then writes the same primary block | **HELD**: same state as `always` with an empty update | RUNS / RUNS | `always` |
+| `update_case.condition: never` on a registration form | **HELD**: same state as `always` with an empty update: an empty update adds nothing to the build (`xform.py::XForm._add_case_updates`), and the open action writes the case | RUNS / RUNS | `always` (Nova writes `never` when a registration writes nothing but the name and `external_id` today: unproducible, since the Case Management save writes `always`) |
+| `update_case.condition: never` on a follow-up with no other active action, outside a multi-select or data-registry-loading module | **REFUSED**: not HQ-editable: the Case Management save writes `always` and HQ then adds a NOOP case touch | — | — (Nova emits this today: save-breaking; in-envelope: `always`, with HQ's touch block: defect 14) |
+| `update_case.condition: never` on a follow-up in a multi-select or data-registry-loading module | **HELD**: same state as `always`: HQ writes no primary case block there either way (`default_case_management` false, `xform.py::_create_casexml`; executed) | RUNS / RUNS | `always` (Nova writes `never` for every multi-select follow-up today, `formActions.ts`: unproducible) |
+| update key `name` | **HELD**: `case_name` writer | RUNS / RUNS | `name` |
+| a case write, name or preload on a question the picker does not offer: a label, a repeat question for the form's own case, the usercase or an advanced load, or a question in a repeat other than a child case's or advanced open action's own | **REFUSED**: not HQ-editable: the picker omits labels and, where the transaction takes no repeat, repeat questions (`case_config_utils.js::getQuestions`), marks a stored one "Unidentified Question" (`case_knockout_bindings.js::questionsSelect`), and gives "Inside the wrong repeat!" for a question outside the transaction's repeat (`case_config_ui.js`, `advanced/case_properties.js`); Nova refuses the own-case and usercase repeat halves already (`PRIMARY_CASE_FIELD_IN_REPEAT`, `USERCASE_FIELD_IN_REPEAT`) | — | — |
+| update key whose index segments are each `parent` or `host` (`parent/p`, `host/p`, `parent/parent/p`), on a form that loads its case | **HELD-NEW**: the write's `via` (ancestor case writes; today only own or direct-child types) | RUNS / RUNS | `parent/p` key → `/data/parents/…/case` |
+| an update key with an index segment on a form that opens its case | **REFUSED**: broken at runtime: the ancestor's id reads an index of the case being created, which is not in the case database during entry, so the block's `case_id` is empty and Core rejects the submission (`CaseXmlParserUtil.validateMandatoryProperty`); HQ builds it | — | — |
+| update key whose index segments include `user`, each `parent`, `host` or `user` (`user/p`, `parent/user/p`), where the project space has usercase access, on a form that loads its case | **HELD-NEW**: the write's `via` through the loaded case's indices, `user` naming an index called `user`: HQ's build writes through `index/user` (`xform.py::get_case_parent_id_xpath`), not to the usercase, so where the case has no such index the block's `case_id` is empty and Core rejects the submission | RUNS / RUNS | `user/p` key |
+| update key with any other index segment, or `user` where the project space has no usercase access | **REFUSED**: not HQ-editable: the Case Management tab marks it an error ("Property uses unrecognized prefix", `case_config_ui.js::caseProperty.validate`, which accepts `parent`, `host` and, with usercase access, `user`) | — | — |
+| update from a date-and-time question through a hidden sibling `nova_datetime_<question>` whose calculate is `if(p = '', '', format-date(coalesce(p, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))` | **HELD**: a datetime writer (the reader recognizes exactly that calculate) | UNAVAILABLE (the question has no Web Apps entry: defect 18) / RUNS | the sibling (today `__nova_datetime_<id>`: unproducible, defect 13) |
+| update through the date-and-time join of a date and a time question (`nova_datetime_<question>` joining them, as under "Platforms") | **HELD-NEW**: a datetime writer, arriving with step 4 (the reader recognizes exactly that calculate) | RUNS / RUNS | the sibling |
+| update key `owner_id` | **HELD-NEW**: an operation's owner write in the basic update slot (`caseOperations[].owner` holds it today, emitted only as Save to Case; Nova forbids `owner_id` field writes; HQ suppresses owner autoset: `autoset_owner_id_for_open_case`) | RUNS / RUNS | `update.owner_id` |
+| update keys `location_id`, `hq_user_id`, `category`, `state` | **HELD**: `Field.caseWrite`; widen: remove them from `FORBIDDEN_CASE_WRITE_PROPERTIES` (HQ's reserved list omits them) | RUNS / RUNS | the key |
+| update key failing HQ's grammar or in `case-reserved-words.json` | **REFUSED**: not HQ-buildable: `update_case word illegal` / `update_case uses reserved word` | — | — |
+| update key with non-ASCII letters after the first (`validate_property` uses Unicode `\w`) | **HELD**: `Field.caseWrite.property`; widen the property grammar to HQ's | RUNS / RUNS | the key |
+| update from an `upload` question (attachment mode) | **REFUSED**: retiring (MM_CASE_PROPERTIES; a capture reaches a case as a link to the submitted file instead) | — | — |
+| capture link write: a hidden value whose calculate builds HQ's form-attachment address from `meta/instanceID` and the file's name, written by `update_case` | **HELD**: a case-operation write whose value is the capture's link (the reader matches exactly that calculate, with any server and project space) | RUNS / RUNS | hidden value `nova_url_<question id>` with the publish target's address (today `__nova_url_<id>`: unproducible) |
+| update path naming no question in the form, in an active action (an inactive one is not read) | **REFUSED**: not HQ-buildable: `path error` | — | — |
+| `close_case.condition: always` on a `requires: case` form | **HELD**: `Form.type: close` | RUNS / RUNS | `always` |
+| `close_case.condition: if`, operator `=` or `selected`, on a select/hidden/label question outside repeats on a `requires: case` form | **HELD**: `Form.closeCondition {field, answer, operator}` | RUNS / RUNS | `if`; add-on `conditional_form_actions` |
+| `close_case.condition: if`, operator `boolean_true` on a `requires: case` form | **HELD-NEW**: `closeCondition.operator: isTrue` | RUNS / RUNS | `boolean_true` |
+| a basic form's own case's close or open condition on another question kind, a repeat question, or an answer with surrounding quotes | **REFUSED**: not HQ-editable: the question picker offers select/select1/hidden/label outside repeats, and saves strip quotes (`edit_form_actions`) | — | — |
+| a subcase or advanced action condition on a question the picker does not offer (other than a select, hidden value or label; or, for an advanced load, a repeat question) | **REFUSED**: not HQ-editable: the condition picker offers select, select1, hidden and label questions only, and repeat questions only where the transaction takes them (`case_config_ko_templates.html` `case-config:condition`, `advanced/actions.js`), marking any other "Unidentified Question"; a quoted answer, which only a basic form's own case's save strips (`views/forms.py::edit_form_actions`), and an advanced open action's repeat question are held | — | — |
+| a writer question with no `case_preload` (update-only) | **HELD-NEW**: preload as a default value that reads the case, so a writer can have none (Nova preloads every own-type writer implicitly today: defect 29) | RUNS / RUNS | no default value on the question |
+| `case_preload{question: property}` into a question outside any repeat, where no other default value in the form reads the loaded question | **HELD**: the question's default value reading `#case/<property>`: HQ appends each load as an `xforms-ready` setvalue after every default value in the form (`XForm.add_case_preloads`), so the load replaces any default of the question's own, and with nothing else reading the question at load its position changes nothing | RUNS / RUNS | Vellum default value `#case/<prop>` in the XForm (for `name`, `#case/case_name`; for `owner_id`, the expanded casedb path ending in `/@owner_id`, since HQ loads those from `case_name` and the `@owner_id` attribute, `XForm.add_case_preloads`), not `case_preload` (no editor writes basic `case_preload`: unproducible) |
+| `case_preload` whose loaded question another default value in the form reads | **REFUSED**: not HQ-editable: no editor writes basic `case_preload` (the basic Case Management page has no load section), and that default reads the question before HQ's load runs, which no default value an editor writes reproduces | — | — |
+| `case_preload` from `parent/…` paths into a question outside any repeat | **HELD**: default value reading the ancestor property (`#case/parent/<prop>`, and `#case/grandparent/<prop>` for `parent/parent/…`), under the same condition | RUNS / RUNS | Vellum default value |
+| `case_preload` from `host/…`, or from deeper than `parent/parent/…`, into a question outside any repeat | **HELD-NEW**: a default value reading that ancestor's property through the expanded casedb path (typed expression model), since Vellum's `#case/` names only `parent` and `grandparent` (`app_schemas/casedb_schema.py`) | RUNS / RUNS | Vellum default value with the expanded path |
+| `case_preload` into a question inside a repeat | **INERT**: HQ loads it with an `xforms-ready` setvalue (`XForm.add_case_preloads`; executed), which runs before any row exists and fills none, in a user-added or a counted repeat (executed in Core) | n/a | omit |
+| `usercase_update` | **HELD**: `Field.caseWrite` to `commcare-user` | RUNS / RUNS | `usercase_update {condition: always}`; privilege `user_case` |
+| `usercase_preload` | **REFUSED**: not HQ-editable: the User Properties editor only saves (`partials/forms/usercase_config.html`); its `usercase_id` datum and assertion differ from a `#user/` default | — | — |
+| `load_from_form` whose paths the form still has | **INERT**: never put in the XForm; App Summary falls back to it and the next Vellum save clears it | n/a | omit |
+| `load_from_form` naming a path the form no longer has, on a form that requires a case | **REFUSED**: not HQ-buildable: `path error` (`FormValidator.check_actions`) | — | — |
+| `load_from_form` on a form that does not require a case | **INERT**: not read (`Form.active_actions` includes it only on a form that requires a case) | n/a | omit |
+| `open_referral`, `update_referral` or `close_referral` active in a module with a case type, or `referral_preload` active | **INERT**: `Form.active_actions` excludes them, so the build is unchanged; only `Form.requires_case_type` reads the first three | n/a | omit |
+| `open_referral`, `update_referral` or `close_referral` active in a module with no case type | **REFUSED**: not HQ-buildable: `no case type` | — | — |
+| referral actions inactive | **INERT**: defaults | n/a | omit |
+| `update_case`/`close_case`/`subcases` on a form that does not open a case, in a multi-select or data-registry-loading module | **INERT**: not emitted, though its `update` keys still reach the data dictionary, which no submission then fills (`tasks.py::_refresh_data_dictionary_from_app`) (`default_case_management` false; a form that opens a case turns it on, `xform.py::_create_casexml`) | n/a | omit |
+| `open_case` active on a `requires: case` form | **INERT**: `Form.active_actions` omits `open_case` for `requires: case`, and the Case Management save writes `never` | n/a | omit |
+| `case_preload` active on a `requires: none` form, naming valid properties | **INERT**: not in `Form.active_actions`, so never built | n/a | omit |
+| `case_preload` on a `requires: none` form naming a reserved or illegal property | **REFUSED**: not HQ-buildable: `FormActions.all_property_names` includes it, and `check_case_properties` fails the build | — | — |
+| `subcases[]` child case (`relationship: child`, type = a module case type) | **HELD**: `Field.caseWrite` to the child type | RUNS / RUNS | `OpenSubCaseAction {condition: always}`; add-on `subcases`, privilege `child_cases` |
+| `subcases[].relationship: extension` | **REFUSED**: not HQ-editable: no Case Management path sets it, and a save resets it to `child` (`case_config_ui.js` omits it), which changes HQ's form export schema (the index path `case/index/host/…` becomes `case/index/parent/…`, and the `@relationship` column disappears, `export/models/new.py`); the build itself ignores it | — | — |
+| `subcases[].condition: if` | **HELD-NEW**: a child case's condition in its basic subcase placement (the create operation's `condition` holds it today, emitted only as Save to Case, `lib/commcare/xform/caseOps.ts`) | RUNS / RUNS | `condition {type: if}`; add-on `conditional_form_actions` |
+| `subcases[].condition: never` | **REFUSED**: not HQ-editable: no UI path to `never` for a child case | — | — (Nova writes an inert `never` placeholder beside each extension child's Save to Case block today: save-breaking; defect 24 removes it) |
+| `subcases[].close_condition` active | **HELD-NEW**: a child case's close in its basic subcase placement (a close operation on an earlier create holds it today, emitted only as Save to Case) | RUNS / RUNS | `close_condition` |
+| `subcases[].reference_id` ∈ {`''`, `null`, `parent`} | **HELD**: default index name | RUNS / RUNS | `null`, as HQ's editor writes it (`HQOpenSubCaseAction`) |
+| `subcases[].reference_id` any other value | **REFUSED**: not HQ-editable: the `custom-parent-ref` flag that offered it was removed | — | — |
+| `subcases[].repeat_context` | **HELD**: writer inside a repeat (`subcase_<i>` nesting when several share it) | RUNS / RUNS | recomputed from the name question |
+| `subcases[].repeat_context` other than the name question's innermost repeat | **REFUSED**: not HQ-editable: the Case Management save recomputes it from the name question (`case_config_ui.js`, `get_repeat_context`) | — | — |
+| `subcases[].case_properties`, `name_update` | **HELD**: writes to the child | RUNS / RUNS | as keys |
+| subcase type not any module's case type (and not `commcare-user` where the project has usercase access) | **REFUSED**: not HQ-buildable: "Case type … does not exist" | — | — |
+| subcase of the module's own case type, in a project space with DONT_INDEX_SAME_CASETYPE on | **REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it | — | — |
+| `update_multi`, `name_update_multi` | **INERT**: UI-only shapes, never stored | n/a | omit |
+
+### Case-property typing (across writers; derived, since HQ apps carry no property types)
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| data dictionary `CaseProperty.data_type` | **TARGET-OWNED**: project metadata, never in the app | n/a | n/a |
+| writers of one property with one type | **HELD**: `caseTypes[].properties[].data_type` | n/a | n/a |
+| writers `int` ⊔ `decimal` | **HELD-NEW**: writer-type join `decimal` (Nova's field rule refuses mixed writers today) | n/a | n/a |
+| writers `single_select` ⊔ `multi_select` | **HELD-NEW**: join `multi_select` | n/a | n/a |
+| any other mixed writer pair | **HELD-NEW**: join `text` | n/a | n/a |
+| a `now()` hidden value saved straight to a case | **HELD**: a `date` writer: the untyped update node stores the date only (Core's `Recalculate.wrapData`) | n/a | untyped bind as HQ writes it |
+| a DateTime question saved straight to a case | **HELD-NEW**: a date-and-time question writing its date to a `date` property (Nova routes every date-and-time writer through the `__nova_datetime_<id>` sibling, which stores the full instant, and its validator refuses a date-and-time field writing a `date` property, `FIELD_KIND_PROPERTY_TYPE_MISMATCH`) | n/a | untyped bind as HQ writes it |
+| select writers with differing option catalogs | **HELD**: merged property catalog (union, first-appearance order, first label wins) | n/a | n/a |
+| a Long (`xsd:long`) writer | → Question types, Long (refused) | — | — |
+
+## Advanced form actions (`AdvancedFormActions`)
+
+`Form.caseSelections` is one HELD-NEW concept: the ordered selected-case datums of a form (tag, case type, source list, chaining, auto-selection), whose preloads are default values reading the selected case, wired as `case_id_<tag>`. An advanced form's own case is its last selection that is not auto-selected and has the module's case type (the selection HQ's build itself treats as the form's case for a visit schedule, `xform.py::_create_casexml_advanced` `last_real_action`), or, in a form HQ counts as a registration (`AdvancedForm.is_registration_form` for the module's case type), the case its one open action outside any repeat creates, which wins where both name a case ("Case writes"); that selection's close and that open action's open and close conditions are the form's (`Form.type`, `Form.openCondition`, `Form.closeCondition`). Writes to the own case, and every other selection's writes and close and every other opened case, are `caseOperations` whose placement is the advanced action and its tag (`/data/case_<tag>/case`, or `<repeat>/case` for an open action alone in its repeat, `xform.py` `get_action_path`).
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| `load_update_cases[]` (`LoadUpdateAction`) | **HELD-NEW**: `Form.caseSelections[]` | RUNS / RUNS | `load_update_cases[]` |
+| `LoadUpdateAction.case_tag` | **HELD-NEW**: `caseSelections[].tag` (session var `case_id_<tag>`, which HQ renames in child modules, `entries.py::add_parent_datums`; wrapper element `case_<tag>`, which is submission identity) | RUNS / RUNS | `case_tag` |
+| `case_tag` blank on a non-auto-select action | **REFUSED**: not HQ-editable: the editor marks any blank tag "Case Tag required" (`actions.js::actionBase.validate`), whatever the retiring ALLOW_BLANK_CASE_TAGS says | — | — |
+| `case_tag` of a non-auto-select action failing `actions.js::actionBase.validate` (format, uniqueness; the editor does not check auto-select actions' tags) | **REFUSED**: not HQ-editable: the advanced Case Management page marks it an error, though its save posts it | — | — |
+| `LoadUpdateAction.case_type` | **HELD-NEW**: `caseSelections[].caseType` | RUNS / RUNS | `case_type` |
+| `LoadUpdateAction.details_module` | **HELD-NEW**: `caseSelections[].listModule` | RUNS / RUNS | `details_module` |
+| `details_module` naming another module of a different case type, or no module (the form's own module is not checked) | **REFUSED**: not HQ-buildable: `ParentModuleReferenceError` (`entries.py::get_target_module`) | — | — |
+| `LoadUpdateAction.preload{question: property}` | **HELD-NEW**: a default value reading the selected case's property (preload as a default value), emitted as the advanced action's preload | RUNS / RUNS | `preload` |
+| `LoadUpdateAction.case_properties` | **HELD-NEW**: a `caseOperations` update targeting the selection, placement the load action | RUNS / RUNS | `case_properties` |
+| `LoadUpdateAction.close_condition` on the form's own selection | **HELD-NEW**: the form's close in an advanced form: `Form.type: close` with its `closeCondition` | RUNS / RUNS | `close_condition` |
+| `LoadUpdateAction.close_condition` on any other selection | **HELD-NEW**: a `caseOperations` close targeting the selection, placement the load action | RUNS / RUNS | `close_condition` |
+| `LoadUpdateAction.case_index {tag, reference_id, relationship}` (selection filter only) | **HELD-NEW**: `caseSelections[].childOf {selection, index}`, the selection being the one before (the editor links a load only to the previous load) | RUNS / RUNS | `case_index` |
+| `case_index.tag` naming no action | **REFUSED**: not HQ-buildable: `missing parent tag` | — | — |
+| `LoadUpdateAction.case_index.tag` naming a load other than the one before, or an open action | **REFUSED**: not HQ-editable: the editor links a load only to the load before it (`advanced/actions.js` `subcase.write`) | — | — |
+| `auto_select {mode: raw, value_key}` | **HELD-NEW**: `caseSelections[].autoSelect {kind: expression}` | RUNS / RUNS | `raw` |
+| `auto_select {mode: user}` | **HELD-NEW**: `autoSelect {kind: userData, key}` | RUNS / RUNS | `user` |
+| `auto_select {mode: fixture}` | **HELD-NEW**: `autoSelect {kind: lookupRow, table, column}` | RUNS / RUNS | `fixture`; privilege `lookup_tables` |
+| `auto_select {mode: usercase}` | **HELD-NEW**: `autoSelect {kind: usercase}` | RUNS / RUNS | `usercase`; privilege `user_case` |
+| `auto_select {mode: case}` (index of another action) | **HELD-NEW**: `autoSelect {kind: index, selection, index}` | RUNS / RUNS | `case` |
+| `auto_select` missing its key, source or referenced tag | **REFUSED**: not HQ-buildable: `auto select key` / `auto select source` / `auto select case ref` | — | — |
+| `load_case_from_fixture` (`LoadCaseFromFixture`, all fields) | **REFUSED**: broken at runtime: its case datum has no `detail-select`, so Web Apps shows "Can't handle entity selection with blank detail definition" and Android crashes unless one case auto-selects; its datum id is the bare tag while its preloads read `case_id_<tag>` | — | — |
+| `show_product_stock: true` or a non-empty `product_program` | **REFUSED**: retiring (COMMTRACK) | — | — |
+| `show_product_stock: false` and `product_program: ''` | **INERT**: what HQ writes on every load action (`advanced/case_config_ui.js::addFormAction`) | n/a | the same |
+| `supply_point_id` datum HQ injects under `commtrack_enabled` into any form whose source reads `session/data/supply_point_id` | **TARGET-OWNED**: target emission (`entries.py::entry_for_module`) | n/a | n/a |
+| `open_cases[]` (`AdvancedOpenCaseAction`), the one open action of a registration form | **HELD-NEW**: the registration's own case, with its open and close conditions on the form | RUNS / RUNS | `open_cases[]` |
+| `open_cases[]` (`AdvancedOpenCaseAction`), any other | **HELD-NEW**: a `caseOperations` create, placement the open action and its tag | RUNS / RUNS | `open_cases[]` |
+| `AdvancedOpenCaseAction.name_update` | **HELD-NEW**: the create's name | RUNS / RUNS | `name_update` |
+| `AdvancedOpenCaseAction.case_properties` | **HELD-NEW**: the create's writes | RUNS / RUNS | `case_properties` |
+| `AdvancedOpenCaseAction.close_condition` | **HELD-NEW**: on a registration's own case, `Form.closeCondition`; on any other opened case, a `caseOperations` close targeting that create, placement the open action | RUNS / RUNS | `close_condition` |
+| `AdvancedOpenCaseAction.repeat_context` equal to the name question's innermost repeat | **HELD-NEW**: the create's `forEach` | RUNS / RUNS | `repeat_context` |
+| `AdvancedOpenCaseAction.repeat_context` other than the name question's innermost repeat | **REFUSED**: not HQ-editable: the advanced save recomputes it from the name question (`advanced/actions.js` `openCaseAction.unwrap`) | — | — |
+| `AdvancedOpenCaseAction.open_condition` | **HELD-NEW**: on a registration's own case, `Form.openCondition`; on any other, the create's condition | RUNS / RUNS | `open_condition` |
+| `AdvancedOpenCaseAction.case_indices[]` `child` / `extension`, one or many | **HELD-NEW**: the create's links | RUNS / RUNS | `case_indices` |
+| `CaseIndex.relationship: question` + `relationship_question` | **HELD-NEW**: a case-operation link whose relationship is chosen per submission | RUNS / RUNS | `question` |
+| `relationship: question` without `relationship_question` | **REFUSED**: not HQ-buildable: `missing relationship question` | — | — |
+| an advanced open action indexed to an open action that has a `repeat_context` | **REFUSED**: not HQ-editable where the child's repeat is the parent's or inside it (`advanced/actions.js` `validate_subcase`: "Subcase must be in same repeat context as parent"), and not HQ-buildable otherwise (`subcase repeat context`, `AdvancedFormValidator.check_actions`), so every such index fails one or the other | — | — |
+| open case type not any module's case type (and not `commcare-user` where the project has usercase access) | **REFUSED**: not HQ-buildable: "Case type … does not exist" | — | — |
+| `arbitrary_datums[] {datum_id, datum_function}` | **HELD-NEW**: `Form.computedDatums[] {id, expression}` | RUNS / RUNS | `arbitrary_datums` |
+| `AdvancedForm.schedule` with `enabled: true` (visits, transition/termination) | **REFUSED**: retiring (VISIT_SCHEDULER) | — | — |
+| `AdvancedForm.schedule` with `enabled: false` | **INERT**: HQ writes it on every new advanced and shadow form (`AdvancedModule.new_form`, `new_shadow_form`), and every reader checks `enabled`, apart from the build's path check of its transition and termination conditions (`AdvancedFormValidator.check_actions`), which the empty default passes | n/a | omit |
+| a display condition reading `#case`/`#user`/casedb with no non-auto-select load | **REFUSED**: not HQ-buildable: `filtering without case` | — | — |
+| advanced forms, in a module whose case list offers a registration form (`case_list_form`), breaking the case-list-module rules (same loads, require a case, parent chains only, matching tags, own details, the module's case type) | **REFUSED**: not HQ-buildable (`AdvancedModuleValidator.validate_with_raise`) | — | — |
+
+## Shadow forms (`ShadowForm`)
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| `shadow_parent_form_id` naming an AdvancedForm that is not a ShadowForm | **HELD-NEW**: `Form.shadowOf` (runs the parent's XForm and xmlns under its own entry) | RUNS / RUNS | `shadow_parent_form_id` |
+| `shadow_parent_form_id` naming a basic `Form` or another `ShadowForm` | **REFUSED**: not HQ-editable: `ShadowForm.get_shadow_parent_options` offers advanced forms only, and no shadow | — | — |
+| `shadow_parent_form_id` missing or dangling | **REFUSED**: not HQ-buildable: `missing shadow parent`, `shadow parent does not exist` | — | — |
+| shadow own fields (`name`, media, `custom_icons`, `form_filter`, `post_form_workflow`, `form_links`, `session_endpoint_id`, `respect_relevancy`, `function_datum_endpoints`, `submit_label`, `post_form_workflow_fallback`, `arbitrary_datums`) | **HELD**: as Form fields on the shadow `Form` | as Form fields | as Form fields |
+| `auto_gps_capture` on a ShadowForm | **INERT**: its only readers render a form's XForm (`xform.py::add_meta_2`), which HQ never does for a shadow, and the parent's XForm uses the parent's setting | n/a | omit |
+| `extra_actions.load_update_cases[]` repeating a parent tag (overrides `case_type`, `details_module`, `auto_select`, `case_index`; it also overrides `load_case_from_fixture`, `show_product_stock` and `product_program`, which are refused) | **HELD-NEW**: `shadowOf.selectionOverrides[]` | RUNS / RUNS | `extra_actions` |
+| `extra_actions.load_update_cases[]` with a tag absent from the parent | **HELD-NEW**: `shadowOf.extraSelections[]` (datum only; the parent XForm never reads it) | RUNS / RUNS | `extra_actions` |
+| a parent load tag not repeated in `extra_actions`, where the parent XForm reads or writes through it (preloads, `case_properties`, a close, or an open action's index) | **REFUSED**: broken at runtime: the shadow's entry has no `case_id_<tag>` datum (`ShadowForm._merge_actions`; `ShadowFormValidator.check_actions` is never called), so its preloads read nothing and a case block keyed on the tag is submitted with an empty `case_id`, which Core rejects (`CaseXmlParserUtil.validateMandatoryProperty`); HQ builds it, since it never renders a shadow's own XForm (`_get_form_files`, `exclude_form`) | — | — |
+| `extra_actions.open_cases` non-empty | **INERT**: `ShadowForm._merge_actions` always takes the parent's open actions and discards these, though HQ's form export schema still lists their properties (`export/models/new.py`); no editor produces them (`forms/advanced/case_config_ui.js` omits "Open a Case" for a shadow form) | n/a | `[]` |
+| a shadow's own `extra_actions.load_update_cases[].case_properties`, `preload` and `close_condition` | **INERT**: `ShadowForm._merge_actions` keeps the parent's and discards these, though HQ's form export schema still lists them (`export/models/new.py`) | n/a | omit |
+| `extra_actions.load_update_cases[].show_product_stock: true` or a non-empty `product_program` | **REFUSED**: retiring (COMMTRACK) | — | — |
+
+## Usercase
+
+| HQ item | Disposition | Web Apps / Android | Emission |
+|---|---|---|---|
+| privilege `user_case` | → Privileges (a plan gate; missing it fails the build) | — | — |
+| usercase creation and sync (`hq_user_id`) | **TARGET-OWNED**: server-side (`callcenter/sync_usercase`) | n/a | n/a |
+| `#user/<prop>` in XForm expressions | **HELD**: `user-ref` / `user-property-ref` leaves | RUNS / RUNS | `#user/<prop>` hashtag + expanded casedb path |
+| `#user/<prop>` in `module_filter` / `form_filter` / case-list slots (the usercase row) | **HELD-NEW**: usercase term in Predicate (Predicate `session-user` reads session user data, a different source) | RUNS / RUNS | `#user/<prop>`; privilege `user_case` (without it HQ's build fails `invalid user property xpath reference` for a `form_filter`, and the other slots read nothing) |
+| usercase datum `usercase_id` + assertion `case_autoload.usercase.case_missing` | **HELD**: derived by HQ for a basic form with `usercase_update` or `usercase_preload` (`entries.py::get_extra_case_id_datums`); a `#user/` read adds neither the datum nor the assertion | DIFFERENT (banner, back to root) / DIFFERENT (dialog, back one screen) | nothing (HQ generates) |
+| `usercase_update`, `usercase_preload` | → Basic form actions | — | — |
+| `commcare-user` module case type (advanced) | → Module fields | — | — |
+| usercase auto-select | → Advanced form actions | — | — |
+| `user/<prop>` detail field | → Column field paths | — | — |
