@@ -3920,7 +3920,7 @@ describe("FormEngine", () => {
 							{
 								id: "derived",
 								kind: "hidden",
-								calculate: formXp("#form/parents/size"),
+								calculate: formXp("#form/parents/size + 0.7"),
 							},
 							{
 								id: "rows",
@@ -3980,6 +3980,102 @@ describe("FormEngine", () => {
 				}
 			},
 		);
+
+		it.each([
+			["2.7", 2],
+			["true()", 1],
+			["false()", 0],
+			["'2'", 2],
+			["''", 0],
+			["number('')", 0],
+			["'2.7'", null],
+		] as const)(
+			"preserves hidden count result types for %s",
+			async (source, expected) => {
+				const input = dTree([
+					{ id: "derived", kind: "hidden", calculate: xp(source) },
+					{ id: "copy", kind: "hidden", calculate: formXp("#form/derived") },
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: formXp("#form/copy"),
+						children: [],
+					},
+				]);
+				if (expected === null)
+					expect(() => new FormEngine(input)).toThrow(/exact base-10 integer/);
+				else
+					expect(new FormEngine(input).getRepeatCount("/data/members")).toBe(
+						expected,
+					);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync: true },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"hidden-types",
+				);
+				try {
+					if (expected === null)
+						await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
+							/exact base-10 integer/,
+						);
+					else {
+						await engine.initializeAsync(evaluateAsync);
+						expect(engine.getRepeatCount("/data/members")).toBe(expected);
+					}
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
+		it("updates the worker when a hidden type changes without changing its text", async () => {
+			const input = dTree([
+				{ id: "n", kind: "int", default_value: xp("1") },
+				{
+					id: "derived",
+					kind: "hidden",
+					calculate: formXp("if(#form/n = 1, true(), 'true')"),
+				},
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: formXp("#form/derived"),
+					children: [],
+				},
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true },
+			);
+			const { evaluateAsync, runtime } = fixedWorldEvaluator(
+				engine,
+				"hidden-type-change",
+			);
+			try {
+				await engine.initializeAsync(evaluateAsync);
+				expect(engine.getRepeatCount("/data/members")).toBe(1);
+				await expect(
+					engine.setValueAsync("/data/n", "2", evaluateAsync),
+				).rejects.toThrow(/exact base-10 integer/);
+			} finally {
+				runtime.dispose();
+			}
+		});
 
 		it("retains xsd:int coercion for a hoisted non-path repeat count", async () => {
 			const input = dTree([

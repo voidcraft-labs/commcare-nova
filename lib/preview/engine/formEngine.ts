@@ -365,7 +365,7 @@ export interface FormEngineEntryCheckpoint {
 export interface FormEngineWorkerWorld {
 	readonly key: string;
 	initialized: boolean;
-	values: Map<string, string>;
+	values: Map<string, string | number | boolean>;
 	relevance: Map<string, boolean>;
 	repeatCounts: Map<string, number>;
 }
@@ -1078,6 +1078,29 @@ export class FormEngine {
 			return value.time.toISOString();
 		}
 		return xpathToString(result);
+	}
+
+	/** Store the result once. Hidden calculations have no numeric question bind;
+	 * Core keeps their numeric/boolean runtime type for later node references. */
+	private storeCalculatedValue(
+		field: Field,
+		path: string,
+		result: XPathValue,
+	): string {
+		const value =
+			typeof result === "number" && Number.isNaN(result)
+				? ""
+				: this.computedFieldValue(field, result);
+		this.instance.set(
+			path,
+			value,
+			field.kind === "hidden" &&
+				(typeof result === "boolean" ||
+					(typeof result === "number" && !Number.isNaN(result)))
+				? result
+				: undefined,
+		);
+		return value;
 	}
 
 	/** Evaluate a field's `default_value` for one concrete path. Returns
@@ -2987,11 +3010,11 @@ export class FormEngine {
 				case "calculate": {
 					const field = this.findField(path);
 					if (field === undefined) break;
-					const next = this.computedFieldValue(
+					const next = this.storeCalculatedValue(
 						field,
+						path,
 						await evaluateAsync(expr, path),
 					);
-					this.instance.set(path, next);
 					if (next !== value) {
 						value = next;
 						changed = true;
@@ -3184,8 +3207,7 @@ export class FormEngine {
 					const result = evaluate(expr, ctx);
 					const field = this.findField(path);
 					if (field === undefined) break;
-					const v = this.computedFieldValue(field, result);
-					this.instance.set(path, v);
+					const v = this.storeCalculatedValue(field, path, result);
 					if (v !== value) {
 						value = v;
 						changed = true;
@@ -4200,8 +4222,7 @@ export class FormEngine {
 			const value = yield { source, path };
 			if (isAsyncNodesetValues(value))
 				throw new Error("Expected a scalar initialization value.");
-			if (type === "calculate")
-				this.instance.set(path, this.computedFieldValue(field, value));
+			if (type === "calculate") this.storeCalculatedValue(field, path, value);
 			else if (this.initializationStates)
 				this.initializationStates[path] = {
 					...(this.initializationStates[path] ?? DEFAULT_ENGINE_STATE),

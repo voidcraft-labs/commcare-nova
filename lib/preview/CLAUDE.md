@@ -18,6 +18,10 @@ capability tables keep independent runtime evidence, but they do not authorize
 an authorable Preview subset. Adding an authorable capability therefore adds
 its Preview implementation and its CommCare proof in the same change.
 
+Hidden calculations retain their evaluated numeric and boolean types in the live
+instance, entry checkpoints, and worker updates. UI/submission values remain text;
+counts reading those nodes use Core's typed conversion without replaying calculations.
+
 Calculated/default datetime answers retain the XPath Date's instant, including
 hidden writers whose effective destination is datetime. Both synchronous and
 worker evaluation use `FormEngine.computedFieldValue`; generic XPath string(Date)
