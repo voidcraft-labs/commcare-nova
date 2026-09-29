@@ -1089,14 +1089,15 @@ A non-select writer makes the property text and drops the catalog.
   multi-token appearance as the ordered list of its typed tokens, emitted in the
   order and spelling HQ stores; a string holding a token no runtime reads is
   refused, since dropping that token would change what Android matches in the
-  whole string, except after a label's leading `floating-` token, which Android
-  reads alone. So `fuzzy combobox` is fuzzy on Android and a plain
+  whole string, except the tokens after a label's leading `floating-` token, since Android
+  reads only that prefix and hides the label. So `fuzzy combobox` is fuzzy on Android and a plain
   combobox on Web Apps, and `minimal hint-as-placeholder` falls back to the
   default widget on Android.
 - **Single-option selects**, refused today by `options.min(2)`.
 - **Media**, brought into Nova's validated asset storage, never referenced
-  unchecked; a reference whose path HQ holds with no file is held as that state
-  (the inventory's Media section). Nova holds a file when every platform the app declares plays it and
+  unchecked; a reference whose path HQ holds with no file is held as that state, on a
+  slot Nova holds, unless Android's install verification can reach it in an app
+  with media validation on, which is refused (the inventory's Media section). Nova holds a file when every platform the app declares plays it and
   HQ types it as the same kind, so an Android-only app keeps AMR, MIDI or raw AAC
   audio and HEVC or MKV video, and a Web-Apps-only app keeps ICO, SVG or AVIF
   images and H.264 High video; Preview shows a stand-in for a file only Android
