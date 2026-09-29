@@ -272,7 +272,7 @@ refuses nothing. The exact refused content:
 | `CASE_LIST_LAZY` | `Module.lazy_load_case_list_fields` true (column-level lazy loading under `CASE_LIST_OPTIMIZATIONS` stays) |
 | `CASE_LIST_MAP` | detail columns with format `address-popup` |
 | `NON_PARENT_MENU_SELECTION` | `parent_select` active with `relationship` null ("Other"), and the `#case:<slug>` references it enables |
-| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference |
+| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference; a read of the `supply_point_id` session datum, which only CommTrack supplies |
 | `CSQL_FIXTURE` | any `case-search-fixture:*` instance reference |
 | `FORM_LINK_ADVANCED_MODE` | form links to modules that are not auto-linkable, datums on module-target links, and datums on form-target links whose name is not one HQ derives for the target |
 | `MOBILE_UCR` (parent `USER_CONFIGURABLE_REPORTS`) | `ReportModule`; `report_context_tile`; `reports`, `commcare:reports`, `commcare-reports:*`, `commcare-reports-filters:*` references; `mobile_ucr_restore_version` other than `2.0` |
@@ -473,7 +473,7 @@ Android `FormEntryInstanceState.java::getFormDefIdForRecord`):
 | `case_references_data` | HQ's case-export schema and data dictionary |
 | Case type and case property names; case index identifiers and relationships | existing cases, exports, rules, repeaters, case search config |
 | Lookup table tags, field names and field-property names; location type codes; worker-data slugs | fixtures and restore data read by name |
-| Multimedia paths (soft) | a changed path is a new file HQ must receive through its multimedia upload; the update does not write the uploaded map, but after the merge, for an app whose forms in media-using menus all pass HQ's form validation, HQ drops every map entry the app no longer references and saves again (`_update_valid_domains_for_media` → `remove_unused_mappings`, which returns early when one fails `validate_form`, `check_media_state`, `all_media`; executed) |
+| Multimedia paths (soft) | a changed path is a new file HQ must receive through its multimedia upload; the update does not write the uploaded map, but after the merge, for an app whose forms all pass HQ's form validation, HQ drops every map entry the app no longer references and saves again (`_update_valid_domains_for_media` → `remove_unused_mappings`, which returns early when one fails `validate_form`, `check_media_state`, `all_media`; executed) |
 | Language codes | build profiles, which an update keeps: a profile whose languages were all renamed fails to build ("Form does not contain any translations for any of the build languages"); a partly renamed profile builds silently without the renamed language. Also device and Web Apps language choice, mobile worker language, and HQ's built-in UI strings (shipped for `en`, `hat`, `hin`, `por`, `sw`) |
 | Menu and form order (soft) | Web Apps URLs select menus by position |
 
@@ -658,7 +658,7 @@ the app uses them.
   id verbatim, replaces each top-level key present in the upload, keeps absent
   keys, never writes the uploaded `build_spec`, `multimedia_map`, `build_profiles`,
   `custom_base_url` or `practice_mobile_worker_id` (`ApplicationBase._update_excluded_fields`,
-  plus `build_spec` in `_merge_source_into_app`), though it then prunes the stored `multimedia_map` to the paths the app references (for an app whose forms in media-using menus all pass HQ's form validation), deletes form-source blobs it
+  plus `build_spec` in `_merge_source_into_app`), though it then prunes the stored `multimedia_map` to the paths the app references (for an app whose forms all pass HQ's form validation), deletes form-source blobs it
   replaces, and answers 400 for a doc-type mismatch or a deleted app. `name` is
   excluded from the source merge, but the update's `app_name` parameter renames
   the app (`views/app_import_api.py::_handle_import_app` passes it as an extra
@@ -1022,26 +1022,38 @@ A non-select writer makes the property text and drops the catalog.
   image, audio, video, signature, face capture, document upload, Android app
   callout, save-to-case, and Connect blocks. Print callouts and ledger questions
   are retiring.
+- **Load-time values.** When a form opens, Core runs its load-time setvalues in
+  the built form's order (`FormDef.initialize`). Vellum writes its own (each
+  default value, a root create id, a model-iteration repeat's) in data-tree
+  order (`writer.js::createSetValues`), and HQ's build appends its own after all
+  of them, such as case and usercase preloads, advanced `preload`s and the
+  `meta` values (`xform.py::XForm.add_setvalue`). Each setvalue recomputes every
+  calculate that depends on the value it sets (`FormDef.setValue` →
+  `triggerTriggerables`). An answer's load-time value at a point of that
+  sequence is the value those steps have given it by then, and blank otherwise:
+  the other calculates first run after the load (`FormDef.initialize` →
+  `initAllTriggerables`), and nothing has been entered. Executed in Core: a
+  root create id `concat(/data/key, '-')` gives `abc-` after a default of `abc`
+  and `-` when that default comes after it, and one reading a calculate of
+  `concat(/data/key, '-')` gives `abc-` after the default and blank without it.
 - **Query repeats** have a placement. Vellum's model iteration sets the
   repeat's ids and count once, by setvalues that run when the form loads, or
   when the parent row is added. Run in Core at Formplayer's commit on
   Vellum-saved forms, that shape behaves as follows:
-  - Its query reads each form answer as it stands then: the value a load-time
-    default set before those setvalues, and otherwise blank, since calculates
-    are not yet computed and nothing has been entered. Its rows never follow a
+  - Its query reads each form answer at its load-time value where those
+    setvalues run (above). Its rows never follow a
     later change.
   - Nested in another repeat of any kind, it breaks once an earlier outer row
     has inner rows:
     Vellum's absolute `@current_index` counts the inner rows of every outer row,
     so form entry throws, or first gives rows the wrong case ids.
-  - Under an ancestor whose relevance reads an answer a load-time default sets
-    before those setvalues, it stays empty whenever those defaults leave the
+  - Under an ancestor whose relevance reads an answer given a load-time value
+    before those setvalues, it stays empty whenever those values leave the
     ancestor not relevant at load, even after the ancestor becomes relevant.
-    Without such a default, its rows are built.
+    Without such a value, its rows are built.
 
   Import refuses a model-iteration repeat that is nested in any repeat, sits
-  under such an ancestor, or has a query reading a form answer no earlier load-time default
-  sets. A count repeat whose count and row ids are calculated from the same
+  under such an ancestor, or has a query reading a form answer that is blank where its setvalues run. A count repeat whose count and row ids are calculated from the same
   query nests and follows relevance, and HQ's editor produces and keeps it. A
   new query repeat takes model iteration only when its query reads no form
   answer, it is not nested in another, and no ancestor's relevance reads form
@@ -1055,11 +1067,10 @@ A non-select writer makes the property text and drops the catalog.
   operation's. The model-iteration placement is valid only in the shapes import
   admits, so any edit that leaves a model-iteration repeat outside them, wherever
   in the form it is made (nesting it, placing it under an ancestor whose
-  relevance reads an answer a load-time default sets before its setvalues,
-  adding to its query a read of a form answer no earlier load-time default
-  sets, or
-  changing an ancestor's relevance or a load-time default its query or an
-  ancestor's relevance reads), moves it to the count-repeat placement, as an
+  relevance reads an answer given a load-time value before its setvalues,
+  adding to its query a read of a form answer that is blank where its
+  setvalues run, or changing an ancestor's relevance or a load-time value its
+  query or an ancestor's relevance reads), moves it to the count-repeat placement, as an
   identity edit the builder, SA and MCP state before it commits.
 - **Repeat counts** follow CommCare's semantics: Core rereads `jr:count` during
   entry, so the count is live upward. Raising it adds rows; lowering it removes no
@@ -2067,10 +2078,10 @@ continuity before it reaches HQ.
    Nova also prints a blank check (`is-blank`) as `<property> = ''`
    (`lib/commcare/predicate/csqlEmitter.ts::emitAbsenceSegments`), and HQ raises
    `CaseFilterError` for any comparison between `date_opened`, `closed_on` or
-   `last_modified` and a value that is not a date or datetime, `''` included,
-   and fails with an uncaught `TypeError` for a number
-   (`comparison.py::_create_system_datetime_query`, which parses the value
-   before it reads the operator; executed), so such a search fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
+   `last_modified` and a value that is not a date or datetime, `''` included
+   ("Malformed search query" for a number, `filter_dsl.py::build_filter_from_xpath`)
+   (`comparison.py::_create_system_datetime_query`, which parses the value the
+   same way whatever the operator; executed), so such a search fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
    three properties and a comparison between them and a value that is not a date
    or datetime, or a runtime value with no guard against blank; the migration
    replaces each such term that compares a fixed value, a blank check included,
@@ -2291,7 +2302,7 @@ continuity before it reaches HQ.
       an input named like one of the module's default filters, and a name in
       that set on an input that reaches HQ as its own key. The migration
       renames each existing input that blocks the save, with a numeric suffix,
-      and removes each named in that set, which HQ does not search; each
+      and removes each named in that set, which HQ never searches as the property it names; each
       input-presence clause over a removed input takes its absent branch, each
       read of it becomes the empty string, and the migration names each.
     - A menu whose forms are all surveys and which lists no cases publishes with
@@ -2458,8 +2469,9 @@ continuity before it reaches HQ.
     (`Domain.commtrack_enabled`), HQ gives the case list menu item of an advanced
     module a `product_id` datum after its case that asks the worker for a
     product (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`),
-    and gives any form whose source reads `session/data/supply_point_id` a
-    datum from the worker's `commtrack-supply-point` user data, with assertions
+    and gives any form whose source contains the text
+    `instance('commcaresession')/session/data/supply_point_id` (a substring
+    test) a datum from the worker's `commtrack-supply-point` user data, with assertions
     that it and its case exist (`get_userdata_autoselect`), so a worker without
     one cannot open the form (executed), both COMMTRACK content Nova refuses as
     retiring. Nova reads neither setting
@@ -2468,7 +2480,7 @@ continuity before it reaches HQ.
     publish of an app that declares Android and has a module that offers search
     asks the person to confirm sync on form entry is off, and publish and import of an
     app with an advanced module whose case list menu item is on, or with a form
-    whose source reads `session/data/supply_point_id`, ask the person
+    whose source contains that text, ask the person
     to confirm CommTrack is off, once for each app and project space, recorded beside the privileges; without the sync confirmation
     publish stops, with the next step to change that setting in the project
     space's case search settings, or to narrow the declaration to Web Apps, and

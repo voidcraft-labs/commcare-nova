@@ -11,6 +11,7 @@ Runtime dispatch is by `src`, in order ledgerdb → casedb → fixture → sessi
 | `casedb` (`jr://instance/casedb`) | **HELD**: casedb reads (typed `#<type>/prop` leaves today; queries become typed case-database references) | RUNS / RUNS | `instance('casedb')` |
 | `commcaresession` (`jr://instance/session`) | **HELD**: session reads (`session-user`/`session-context` terms; datum names as held identity, and datum reads in the typed session reference below) | DIFFERENT (context fields below) / RUNS | `instance('commcaresession')` |
 | session `data/<datum>` | **HELD-NEW**: typed session reference | RUNS / RUNS | path |
+| session `data/supply_point_id` | **REFUSED**: retiring (COMMTRACK): HQ supplies that datum only in a CommTrack project space (`entries.py::entry_for_module`) | — | — |
 | session `data/stringquery` | **HELD-NEW**: typed session reference | UNAVAILABLE (node absent) / RUNS | path |
 | session `data/fingerprintquery` | **HELD-NEW**: typed session reference | UNAVAILABLE / RUNS | path |
 | session `context/userid`, `context/username` | **HELD**: `session-context` | RUNS / RUNS | path |

@@ -84,11 +84,11 @@ the gates over the other files' rows and are not counted.
 | Binds, actions, model and head content | 13 | 1 | 0 | 16 | 18 | 48 |
 | Appearances | 0 | 52 | 0 | 9 | 4 | 65 |
 | Itext, markdown and label text | 17 | 7 | 0 | 9 | 9 | 42 |
-| Secondary instances | 11 | 12 | 0 | 2 | 16 | 41 |
+| Secondary instances | 11 | 12 | 0 | 2 | 17 | 42 |
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 7 | 20 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **270** | **407** | **26** | **151** | **314** | **1168** |
+| **Total** | **270** | **407** | **26** | **151** | **315** | **1169** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 
