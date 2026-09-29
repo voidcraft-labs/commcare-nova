@@ -1073,8 +1073,9 @@ A non-select writer makes the property text and drops the catalog.
   author builds in Vellum, which writes `jr:count` as entered
   (`mugs/types/group.js`).
 - **Appearances:** a typed vocabulary holding exactly the values each runtime
-  reads, with their per-platform behavior. Web Apps matches space-separated
-  tokens, but takes a combobox's match type only from its second token.
+  reads, with their per-platform behavior. Web Apps matches a question's tokens
+  split on plain spaces and a group's collapse and border values split on any
+  whitespace, but takes a combobox's match type only from its second token.
     Android matches `compact` inside a select's appearance (and as the whole
   string, ignoring case, on a group, `FormEntryController.isHostWithAppearance`),
   `combobox` (and within a combobox, `multiword` or
@@ -1084,12 +1085,14 @@ A non-select writer makes the property text and drops the catalog.
   appearance and `floating-` at the start of a label's; and every other value
   (`minimal`, `quick`, `list`, `label`, `ethiopian`, `nepali`, `numbers` and the
   rest)
-  only as the whole string, a few of them ignoring case (`WidgetFactory.java`, `ImageWidget.java`, `BarcodeWidget.java`, `TriggerWidget.java`, `DatePrototypeFactory.java`, `VideoWidget.java`; audio `acquire` has no reader, since Android builds `AudioWidget` only for `legacy`). Both
+  only as the whole string, a few of them ignoring case (`WidgetFactory.java`, `ImageWidget.java`, `BarcodeWidget.java`, `TriggerWidget.java`, `DatePrototypeFactory.java`, `VideoWidget.java`; audio `acquire` has no reader, since Android builds `AudioWidget` only for `legacy`). An appearance with whitespace other than single plain spaces
+  is held as its single-spaced form where every runtime reads both alike, and
+  refused otherwise. Both
   runtimes read an appearance's token order and spelling, so Nova holds a
   multi-token appearance as the ordered list of its typed tokens, emitted in the
   order and spelling HQ stores (a label's leading `floating-` token as
   `floating-hidden`, with the later tokens no runtime reads there dropped, and a
-  per-row token as `<k>-per-row`); a string holding a token no runtime reads is
+  per-row token as `<k>-per-row` or `<k>-per-row-repeat`); a string holding a token no runtime reads is
   refused, since dropping that token would change what Android matches in the
   whole string, except the tokens after a label's leading `floating-` token, since Android
   reads only that prefix and hides the label. Web Apps reads a per-row token through its pattern and the

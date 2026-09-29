@@ -81,13 +81,13 @@ the gates over the other files' rows and are not counted.
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
 | Question types | 50 | 24 | 0 | 4 | 47 | 125 |
 | Binds, actions, model and head content | 14 | 1 | 0 | 16 | 20 | 51 |
-| Appearances | 0 | 54 | 0 | 9 | 6 | 69 |
+| Appearances | 0 | 54 | 0 | 9 | 7 | 70 |
 | Itext, markdown and label text | 17 | 9 | 0 | 10 | 10 | 46 |
 | Secondary instances | 11 | 13 | 0 | 2 | 17 | 43 |
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 8 | 21 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **271** | **412** | **26** | **157** | **332** | **1198** |
+| **Total** | **271** | **412** | **26** | **157** | **333** | **1199** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 
