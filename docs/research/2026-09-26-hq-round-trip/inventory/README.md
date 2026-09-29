@@ -77,7 +77,7 @@ the gates over the other files' rows and are not counted.
 | Form types | 5 | 4 | 0 | 0 | 7 | 16 |
 | Form fields | 18 | 12 | 2 | 12 | 17 | 61 |
 | Basic form actions | 24 | 14 | 1 | 11 | 24 | 74 |
-| Advanced form actions | 0 | 25 | 1 | 2 | 21 | 49 |
+| Advanced form actions | 0 | 26 | 1 | 2 | 21 | 50 |
 | Shadow forms | 1 | 3 | 0 | 3 | 4 | 11 |
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
 | Question types | 51 | 24 | 0 | 4 | 44 | 123 |
@@ -88,7 +88,7 @@ the gates over the other files' rows and are not counted.
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 6 | 19 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **272** | **407** | **26** | **148** | **303** | **1156** |
+| **Total** | **272** | **408** | **26** | **148** | **303** | **1157** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 

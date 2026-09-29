@@ -92,7 +92,7 @@ granting `access_api`
 (`api/resources/__init__.py::HqBaseResource.dispatch`,
 `users/models.py::_AuthorizableMixin.has_permission`); reading the space's
 feature flags also needs the credential's user to be a member (below). Without API
-access Nova cannot learn every form's real id (HQ's case summary download names only forms that load or save a case property), and import refuses with that
+access Nova cannot learn every form's real id (HQ's case summary download, which an API key reaches without API access, `views/app_summary.py::DownloadCaseSummaryView`, names only forms that load or save a case property), and import refuses with that
 reason.
 
 ### The bar
@@ -496,11 +496,11 @@ characters for a tag; Nova's lookup grammar widens to it (today
 `^[A-Za-z_][A-Za-z0-9_]*$`, `lib/lookup/constants.ts`), except tags containing
 the `casedb` and `ledgerdb` substrings above and, where an expression reads
 them, names holding a character other than Core's name characters (such as a
-letter without case, a titlecase letter, a combining mark, `·`, `‿` or `€`, all
-of which lxml admits), which Core's XPath cannot read; a table tagged `types` can be referenced but not adopted, since a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`). The same limit
+letter without case, a titlecase letter, most combining marks, `·`, `‿` or `€`,
+all of which lxml admits), which Core's XPath cannot read; a table tagged `types` can be referenced but not adopted, since a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`). The same limit
 refuses a case property holding any other character `validate_property`'s
 Unicode `\w` accepts (a letter without case such as `名字` or `محل`, a titlecase
-letter, a digit other than a decimal one such as `½` or `⁴`, or a character
+letter, most numbers other than decimal digits, such as `½`, `⁴` or `〇`, or a character
 outside the Basic Multilingual Plane such as `𐐀`): but the bind HQ writes for the
 update does not parse in Core, which Formplayer's `validate_form` runs during the
 build, and any expression reading the property breaks (executed). A language keeps its meaning (Nova's ISO 639-3 identity, for the
@@ -926,9 +926,16 @@ a default filter, `_xpath_query` and the search-only owner exclusion's key
 included (`models.py::extract_search_request_config` removes only the
 configuration keys), an unsent parameter becomes NULL and an empty one stays
 empty. Nova cannot read the query, so on a menu that searches through an
-endpoint a default filter is sent as its own named parameter, never as
-`_xpath_query`, and the builder, SA and MCP say, wherever an input or default
-filter is added there, that the endpoint's query must name it. Sort and
+endpoint a default filter Nova adds is sent as its own named parameter, never
+as `_xpath_query`, and the builder, SA and MCP say, wherever an input or default
+filter is added there, that the endpoint's query must name it. The same holds
+for the two keys HQ sends from menu settings rather than inputs, the search-only
+owner exclusion (`commcare_blacklisted_owner_ids`) and the `_xpath_query` it
+sends for inline search whose parent selection has the `parent` relationship
+(`remote_requests.py::_remote_request_query_datums`): the builder, SA and MCP
+say, where either is set on such a menu, that the query must name its key. An
+imported endpoint default filter keyed `_xpath_query` is held as a parameter of
+that name, so only a default filter Nova adds takes its own name. Sort and
 related-case settings do not apply, while claiming still works. The list and detail read each
 result's fields by name. Both Web Apps and Android send the search through
 `/phone/search/`, online only.
@@ -1839,8 +1846,8 @@ mechanisms within the decisions and constraints this document states.
    holding its rest, a hidden value with neither a calculate nor a default (every
    `HIDDEN_INERT_VALUE` default of `''` migrates to it and the constant retires;
    one that writes a case property writes it blank on each submission unless the
-   form preloads that property into it, as Nova does today for every writer of a
-   follow-up form's own case (defect 29), which the builder, SA and MCP say where
+   form preloads that property into it, as Nova does today for every scalar writer
+   of the form's own case in a form that loads one case (defect 29), which the builder, SA and MCP say where
    the author sets it), `localization.wireCodes`, UI string overrides and `uiStringCatalogKeys`, a sort
    column for lookup-backed prompts, and the accepted media set. Publish gains
    the version floor, per-privilege confirmation, and the drift check with its
@@ -2301,7 +2308,10 @@ continuity before it reaches HQ.
     entry-point ids that are not `slugify` fixed points (a leading or trailing
     underscore or hyphen, or repeated hyphens), which make every settings save
     of that menu or form fail under `SESSION_ENDPOINTS`
-    (`views/utils.py::set_session_endpoint`). *Fix:* the validator narrows both.
+    (`views/utils.py::set_session_endpoint`). Nova's Connect block ids
+    (`lib/domain/forms.ts::connectIdSchema`) admit the same three question-id
+    forms, and Vellum applies its question-id rule to them (executed). *Fix:* the
+    validator narrows all three.
     Existing ids are renamed: leading underscores are dropped, `q` is prepended
     when what remains is empty, starts with `XML` or does not start with a
     letter, and `meta` in any case becomes `q_` followed by it; endpoint ids are slugified, and one that
@@ -2309,8 +2319,12 @@ continuity before it reaches HQ.
     References through identity leaves follow the rename, and the migration also
     rewrites each relative path in form logic that names a renamed question,
     reading it through Nova's XPath grammar.
-    That moves those questions' submission paths and breaks entry-point links
-    already shared.
+    Connect block ids are renamed by the question-id rule. That moves those
+    questions' and blocks' submission paths, breaks entry-point links already
+    shared, and makes each renamed block a new one in Connect, which keys learn
+    modules and deliver units by their id (`LearnModule.objects.update_or_create`
+    and `DeliverUnit.objects.get_or_create` by `slug`, `opportunity/tasks.py`),
+    leaving what was recorded against the old id with it.
 16. **Inaccurate or dead code.** `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES`
     says HQ rejects `owner_id` updates (HQ's `xform.py::autoset_owner_id_for_open_case`
     supports them); `lib/commcare/hqShells.ts` and `lib/commcare/types.ts` call

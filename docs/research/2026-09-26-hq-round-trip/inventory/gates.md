@@ -101,7 +101,7 @@ Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTAC
 | Privilege | Gate · content | Web Apps / Android | Preflight / refusal |
 |---|---|---|---|
 | `user_case` | TARGET-OWNED · HELD (Basic form actions, Usercase) | n/a | build fails without it; confirmed at publish |
-| `lookup_tables` | TARGET-OWNED · HELD (Question types, Secondary instances, Lookup tables) | n/a | build fails without it when a form reads a lookup table; confirmed at publish |
+| `lookup_tables` | TARGET-OWNED · HELD (Question types, Secondary instances, Lookup tables) | n/a | build fails without it when a form reads a lookup table, and HQ's lookup table upload, which every push uses, refuses without it (`fixtures/dispatcher.py::require_can_edit_fixtures`); confirmed at publish |
 | `templated_intents`, `custom_intents` | TARGET-OWNED · HELD-NEW (Question types callouts) | n/a | the build fails where an intent needs one the space lacks (`helpers/validators.py::_validate_intents`: `custom_intents` covers every intent, `templated_intents` only template ids); confirmed at publish |
 | `child_cases` | TARGET-OWNED · HELD (Basic form actions child cases) | n/a | editor gate, confirmed at publish |
 | `case_sharing_groups` | TARGET-OWNED · HELD-NEW (Settings and profile, `case_sharing`) | n/a | confirmed at publish |
