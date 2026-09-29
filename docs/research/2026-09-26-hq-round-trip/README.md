@@ -94,8 +94,8 @@ granting `access_api`
 `users/models.py::_AuthorizableMixin.has_permission`); reading the space's
 feature flags also needs the credential's user to be a member (below). Without API
 access, HQ's REST API gives Nova no form's real id (`ApplicationResource` needs
-it), and import refuses with that reason: import reads only through HQ's API and the media files it names,
-by choice.
+it), and import refuses with that reason: import reads only through HQ's API and the media files the app source's
+media map names, by choice.
 
 ### The bar
 
@@ -634,7 +634,7 @@ Every field on the surface has exactly one disposition:
 | Real form ids | `api/resources/v0_4.py::ApplicationResource`, aligned to the app source by module `unique_id` and form position and confirmed by `xmlns` (`dehydrate_module`); matched to Nova forms as under "Identity" at the migration | API access |
 | Lookup table definitions and rows | `fixtures/resources/v0_1.py::LookupTableResource`, `v0_6.py::LookupTableItemResource` | API access |
 | Locations and levels | `locations/resources` (already read by `lib/deployment`) | API access, the locations privilege, and the account's Edit Locations permission (`locations/resources/v0_5.py`, `v0_6.py`) |
-| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | the credential Nova already stores, as for the app source |
+| Media bytes | the URL HQ derives from each media map item's type and id (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | Nova reads it with the credential it already stores, as for the app source |
 | Toggles | Nova's existing probe (`user_domains?feature_flag=`) | membership of the credential's user in the project space |
 
 A module that fails HQ's own summary (`ApplicationResource.dehydrate_module`
