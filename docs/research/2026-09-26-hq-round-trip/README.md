@@ -1089,7 +1089,8 @@ A non-select writer makes the property text and drops the catalog.
   multi-token appearance as the ordered list of its typed tokens, emitted in the
   order and spelling HQ stores; a string holding a token no runtime reads is
   refused, since dropping that token would change what Android matches in the
-  whole string. So `fuzzy combobox` is fuzzy on Android and a plain
+  whole string, except after a label's leading `floating-` token, which Android
+  reads alone. So `fuzzy combobox` is fuzzy on Android and a plain
   combobox on Web Apps, and `minimal hint-as-placeholder` falls back to the
   default widget on Android.
 - **Single-option selects**, refused today by `options.min(2)`.
