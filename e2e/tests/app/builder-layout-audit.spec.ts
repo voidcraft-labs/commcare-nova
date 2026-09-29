@@ -196,6 +196,51 @@ test("native Builder flanks preserve the actual composer across Preview, respons
 	).toBe(true);
 });
 
+test("native field dragging scrolls the edit canvas near its lower edge", {
+	tag: "@seed:workspace",
+}, async ({ scenario, page }) => {
+	const seed = seedFor(scenario, "workspace");
+	await page.setViewportSize({ width: 1440, height: 600 });
+	await page.goto(seed.caseWorkspace.routes.tileForm);
+	const canvas = page.locator(
+		"[data-preview-scroll-container] [data-preview-scroll-container]",
+	);
+	await expect(canvas).toBeVisible({ timeout: 20_000 });
+	const first = canvas.locator("[data-field-uuid]").first();
+	await expect(first).toBeInViewport();
+	await expect
+		.poll(() => canvas.evaluate((el) => el.scrollHeight - el.clientHeight))
+		.toBeGreaterThan(100);
+	const source = await first.boundingBox();
+	const bounds = await canvas.boundingBox();
+	if (!source || !bounds) throw new Error("Missing native drag geometry");
+	const before = await canvas.evaluate((el) => el.scrollTop);
+	try {
+		// Stay inside the library's edge region, away from the browser's own
+		// edge scrolling. This needs auto-scroll and the row adapter to share
+		// one drag registry; a second core package silently disconnects them.
+		await page.mouse.move(source.x + 8, source.y + 20);
+		await page.mouse.down();
+		await page.mouse.move(
+			bounds.x + bounds.width / 2,
+			bounds.y + bounds.height * 0.85,
+			{ steps: 12 },
+		);
+		await expect
+			.poll(() => page.evaluate(() => document.body.style.cursor))
+			.toBe("grabbing");
+		await expect
+			.poll(() => canvas.evaluate((el) => el.scrollTop))
+			.toBeGreaterThan(before + 50);
+	} finally {
+		await page.keyboard.press("Escape");
+		await page.mouse.up();
+	}
+	await expect
+		.poll(() => page.evaluate(() => document.body.style.cursor))
+		.not.toBe("grabbing");
+});
+
 test("native AppTree field selection primes the real canvas scroll before URL selection and returns to an already mounted field", {
 	tag: "@seed:workspace",
 }, async ({ scenario, page }) => {
