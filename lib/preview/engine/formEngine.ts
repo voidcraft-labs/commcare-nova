@@ -3915,7 +3915,11 @@ export class FormEngine {
 		const result = yield { source, path, carrier: { parentPath, name } };
 		if (isAsyncNodesetValues(result))
 			throw new Error("Expected a scalar count.");
-		const direct = directRepeatCountReference(field.repeat_count) !== undefined;
+		const direct =
+			directRepeatCountReference(
+				field.repeat_count,
+				this.caseWriteDoc.fields,
+			) !== undefined;
 		// Numeric inputs retain incomplete keystrokes until blur. Core only sees
 		// committed integer answers; do not turn a draft such as "-" into a crash.
 		if (direct && !readNumericAnswer("int", xpathToString(result)).ok) return 0;

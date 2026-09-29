@@ -167,7 +167,7 @@ public class ContainerRuntimeTest {
  }
 
  @Test public void liveCountsGrowButKeepCreatedRowsAndAnswers()throws Exception {
-  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression"}) {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression","hidden-count"}) {
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,false);
    answer(form,"/data/items[1]/answer","retained");
    form.setValue(new org.javarosa.core.model.data.IntegerData(5),ref(form,"/data/size"));enter(parsed,false);

@@ -461,7 +461,10 @@ function emptyRepeatXPath(field: Field, ctx: FieldContext): ValidationError[] {
 				),
 			);
 		}
-		const target = directRepeatCountReference(field.repeat_count);
+		const target = directRepeatCountReference(
+			field.repeat_count,
+			ctx.doc.fields,
+		);
 		if (target !== undefined && ctx.doc.fields[target]?.kind !== "int") {
 			errors.push(
 				validationError(

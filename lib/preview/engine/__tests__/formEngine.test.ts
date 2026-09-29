@@ -3900,7 +3900,10 @@ describe("FormEngine", () => {
 
 		it.each(
 			[false, true].flatMap((stagedAsync) =>
-				[false, true].map((calculated) => ({ stagedAsync, calculated })),
+				[false, true, "hidden"].map((calculated) => ({
+					stagedAsync,
+					calculated,
+				})),
 			),
 		)(
 			"grows per-parent counts and retains answers after decreases (worker: $stagedAsync, calculated: $calculated)",
@@ -3915,13 +3918,20 @@ describe("FormEngine", () => {
 						children: [
 							{ id: "size", kind: "int" },
 							{
+								id: "derived",
+								kind: "hidden",
+								calculate: formXp("#form/parents/size"),
+							},
+							{
 								id: "rows",
 								kind: "repeat",
 								repeat_mode: "count_bound",
 								repeat_count: formXp(
-									calculated
-										? "#form/parents/size + 0.7"
-										: "#form/parents/size",
+									calculated === "hidden"
+										? "#form/parents/derived"
+										: calculated
+											? "#form/parents/size + 0.7"
+											: "#form/parents/size",
 								),
 								children: [{ id: "answer", kind: "text" }],
 							},
