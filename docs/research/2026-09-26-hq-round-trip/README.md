@@ -1088,13 +1088,15 @@ A non-select writer makes the property text and drops the catalog.
   runtimes read an appearance's token order and spelling, so Nova holds a
   multi-token appearance as the ordered list of its typed tokens, emitted in the
   order and spelling HQ stores (a label's leading `floating-` token as
-  `floating-hidden`, with the later tokens no runtime reads there dropped); a string holding a token no runtime reads is
+  `floating-hidden`, with the later tokens no runtime reads there dropped, and a
+  per-row token as `<k>-per-row`); a string holding a token no runtime reads is
   refused, since dropping that token would change what Android matches in the
   whole string, except the tokens after a label's leading `floating-` token, since Android
-  reads only that prefix and hides the label. Web Apps reads a per-row token's width from the text before
-  its first `-`, so Nova holds one only as `<n>-per-row` or `<n>-per-row-repeat`
-  with n all digits and refuses any other spelling Web Apps reads as one, by
-  choice. So `fuzzy combobox` is fuzzy on Android and a plain
+  reads only that prefix and hides the label. Web Apps reads a per-row token through its pattern and the
+  integer `parseInt` takes from the text before its first `-`, so Nova holds one
+  as `<k>-per-row` or `<k>-per-row-repeat` with k those digits, and refuses one
+  from which `parseInt` takes no number (Web Apps gives it a width class no rule
+  defines) or that holds a value another reader reads. So `fuzzy combobox` is fuzzy on Android and a plain
   combobox on Web Apps, and `minimal hint-as-placeholder` falls back to the
   default widget on Android.
 - **Single-option selects**, refused today by `options.min(2)`.
@@ -1392,7 +1394,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 225 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 161 held question rows that apply to both, 79 are. In Nova,
+the 162 held question rows that apply to both, 80 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
