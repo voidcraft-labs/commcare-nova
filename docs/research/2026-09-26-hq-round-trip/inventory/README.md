@@ -46,7 +46,7 @@ the gates over the other files' rows and are not counted.
    output; output that differs only in attribute order, XPath whitespace, or the
    order of `<update>` children and their binds, which no reader orders; an
    attribute whose absence Core reads as that value; `null`, `''` and absent
-   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded, for every opening, and once each repeat row is added, for every opening and every answer entered before it (README, "Load-time values"), except a Hidden Value's default beside its calculate, which is always held (questions.md); markup Core walks into the same
+   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded, for every opening, and once each repeat row is added, for every opening and every answer entered before it (README, "Load-time values"), except a Hidden Value's default beside its calculate, which is always held ([`questions.md`](questions.md)); markup Core walks into the same
    event sequence; and a setting that changes only restore content no held
    app reads.
 3. **Expressions.** A slot holding XPath or CSQL gets one row per value class:
