@@ -1642,7 +1642,7 @@ describe("runValidation deep XPath on repeat fields", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "hidden", id: "desired_count", calculate: "5" }),
+								f({ kind: "int", id: "desired_count", default_value: "5" }),
 								repeat,
 							],
 						},

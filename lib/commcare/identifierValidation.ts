@@ -45,8 +45,7 @@ export function isReservedProperty(name: string): boolean {
 /**
  * Returns true if the XForm node name falls under Nova's reserved
  * synthetic-node namespace (the `__nova_` prefix). The XForm emitter
- * generates nodes under this prefix (e.g. the hidden counter a hoisted
- * `count_bound` repeat needs), so an authored field id here would collide
+ * generates nodes under this prefix (e.g. case-operation and capture nodes), so an authored field id here would collide
  * with a synthesized node. Parallel to `isReservedProperty`, but for the
  * XForm element-name namespace rather than the case-property namespace.
  */

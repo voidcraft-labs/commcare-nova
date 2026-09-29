@@ -871,17 +871,34 @@ export class EngineController {
 		const entryKey = this.currentEntryKey;
 		if (engine === undefined || entryKey === undefined) return;
 		const changedPaths = [...this.pendingValuePaths];
-		await engine.settleValueChangesAsync(
-			changedPaths,
-			this.evaluatorFor(engine, entryKey, revision, generation, signal),
-		);
-		await this.initializePendingSectionRows(
-			engine,
-			entryKey,
-			revision,
-			generation,
-			signal,
-		);
+		// Promote this revision only when a live count actually inserts rows.
+		// Ordinary answer evaluation remains supersedable; insertion/defaults
+		// must finish together before another action can address those rows.
+		let inserting = false;
+		try {
+			await engine.settleValueChangesAsync(
+				changedPaths,
+				this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				() => {
+					if (inserting) return;
+					inserting = true;
+					this.atomicRevisionsPending += 1;
+					this.publishEntryState();
+				},
+			);
+			await this.initializePendingSectionRows(
+				engine,
+				entryKey,
+				revision,
+				generation,
+				signal,
+			);
+		} finally {
+			if (inserting) {
+				this.atomicRevisionsPending -= 1;
+				this.publishEntryState();
+			}
+		}
 		if (
 			engine !== this.engine ||
 			entryKey !== this.currentEntryKey ||
@@ -2170,8 +2187,8 @@ export class EngineController {
 	 * slot) when the call is rejected.
 	 *
 	 * Only `user_controlled` repeats accept add/remove at runtime —
-	 * `count_bound` and `query_bound` repeats freeze their cardinality
-	 * at form load (JavaRosa spec). The preview UI hides the Add button
+	 * `count_bound` grows from its live count; `query_bound` retains its
+	 * initial membership. Neither offers manual row changes. The preview UI hides the Add button
 	 * for those modes (`RepeatField.tsx` gates on `isUserControlled`),
 	 * but this method is the authoritative second gate: tests, console
 	 * invocations, replay, and any future caller can't mutate

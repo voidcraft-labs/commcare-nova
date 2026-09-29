@@ -347,6 +347,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	INVALID_FIELD_ID: "soundness",
 	RESERVED_FIELD_ID_PREFIX: "soundness",
 	VALIDATION_ON_NON_INPUT_KIND: "shape",
+	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
 	FIXTURE_REFERENCE_NOT_MODELED: "soundness",

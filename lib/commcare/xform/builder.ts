@@ -1,4 +1,4 @@
-import { repeatCountSnapshotName } from "./repeatCountSnapshot";
+import { repeatCountNodeName } from "./repeatCountNode";
 /**
  * XForm XML emitter.
  *
@@ -92,7 +92,6 @@ import {
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
 import { planConstraintCollections } from "@/lib/commcare/xform/constraintCollections";
-import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import {
 	descendFormPathIntoField,
@@ -121,6 +120,7 @@ import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
+import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { xpathPrintContext } from "@/lib/domain/xpath/print";
 import {
 	datetimeCaseValueCalculate,
@@ -785,13 +785,6 @@ export function buildXForm(
 			false,
 			addItext,
 			instances,
-			// At the top level the form-root arrays ARE the "top" arrays.
-			// Inside containers these stay pointed at the root arrays (passed
-			// through unchanged) so non-repeating count snapshots can land at
-			// /data. Nested count snapshots stay in their parent row. See `dataElements`
-			// vs `topDataElements` in `buildFieldParts`.
-			dataElements,
-			binds,
 			expand,
 			shorthand,
 			opts.assets,
@@ -977,22 +970,8 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  * emit nested parts, then build their parent data element + container bind
  * from the children that were collected.
  *
- * `topDataElements` / `topBinds` always reference the FORM-ROOT data and
- * bind arrays, threaded through every recursion unchanged. They are the
- * landing site for synthetic nodes that must live at `/data` regardless of
- * how deeply the emitting field is nested. Count snapshots outside repeats
- * use these root arrays; snapshots inside repeats use their local parent
- * instance instead. All setvalues remain model-level actions.
- *
- * The data + bind placeholders are recorded by ARRAY SLOT (`dataSlot` /
- * `bindSlot`) and rewritten in place for containers, NOT `pop()`-ed after
- * recursion: a descendant repeat can append a hoisted synthetic count node to
- * this same array (the `topDataElements` thread aliases `dataElements` at form
- * root), so a blind `pop()` would remove that synthetic node instead of this
- * field's placeholder. Storing element refs (not strings) in the slot arrays
- * makes the in-place swap a plain index assignment; parents are assigned only
- * at final assembly under `<h:html>`, so the orphaned elements in these arrays
- * can be freely replaced by index during the walk.
+ * Generated count values are siblings of their repeat. Data and bind slots
+ * are rewritten in place after children are assembled.
  *
  * `itextKeyPrefix` is the ancestry prefix every itext id this field emits is
  * built from: `itextKey = itextKeyPrefix + field.id`, and children recurse
@@ -1027,8 +1006,6 @@ function buildFieldParts(
 		force?: boolean,
 	) => boolean,
 	instances: InstanceTracker,
-	topDataElements: Element[],
-	topBinds: Element[],
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
@@ -1099,12 +1076,7 @@ function buildFieldParts(
 		if (expr) instances.scanXPath(expr);
 	}
 
-	// One `<instance>` data node per field. Replaced IN PLACE for containers
-	// once children have been emitted below. We record the slot index now
-	// rather than `pop()`-ing after recursion, because a descendant repeat
-	// can append a hoisted synthetic count node to this same array (the
-	// `topDataElements` thread aliases `dataElements` at form root) — a blind
-	// `pop()` would remove that synthetic node instead of this placeholder.
+	// Containers replace this placeholder after assembling their children.
 	const dataSlot = dataElements.length;
 	dataElements.push(el(field.id, {}));
 
@@ -1214,7 +1186,7 @@ function buildFieldParts(
 
 	// Record this leaf bind's slot so a container can rewrite it IN PLACE after
 	// recursion — same reasoning as `dataSlot`: a descendant repeat may append
-	// a hoisted count node's bind to this same array, so a blind `pop()` would
+	// a generated sibling's bind to this same array, so a blind `pop()` would
 	// remove the wrong entry.
 	const bindSlot = binds.length;
 	binds.push(el("bind", bindAttribs));
@@ -1317,8 +1289,6 @@ function buildFieldParts(
 			bodyElements,
 			addItext,
 			instances,
-			topDataElements,
-			topBinds,
 			expand,
 			shorthand,
 			assets,
@@ -1534,12 +1504,12 @@ function buildLeafControl(
  * parent data element + bind to wrap them, and emit the `<h:body>` control.
  *
  * Extracted from `buildFieldParts` because the container path is the bulk of
- * the per-kind logic (three repeat modes, the count-hoist machinery, the
+ * the per-kind logic (three repeat modes, calculated count values, the
  * model-iteration setvalue setup) and keeping it inline made the field walk
  * unreadable. The slot-rewrite contract is preserved exactly: the data
  * placeholder at `dataSlot` and the bind placeholder at `bindSlot` are
  * replaced in place (never `pop()`-ed), because a descendant repeat may have
- * appended a hoisted count node after them.
+ * appended generated siblings after them.
  */
 function buildContainer(
 	doc: BlueprintDoc,
@@ -1563,8 +1533,6 @@ function buildContainer(
 		force?: boolean,
 	) => boolean,
 	instances: InstanceTracker,
-	topDataElements: Element[],
-	topBinds: Element[],
 	expand: (expr: string) => string,
 	shorthand: (expr: string) => string | undefined,
 	assets: AssetManifest | undefined,
@@ -1609,11 +1577,6 @@ function buildContainer(
 			childInsideRepeat,
 			addItext,
 			instances,
-			// Pass the form-root arrays through unchanged — synthetic nodes
-			// always land at /data, never in this container's childData/childBinds
-			// scope.
-			topDataElements,
-			topBinds,
 			expand,
 			shorthand,
 			assets,
@@ -1640,8 +1603,7 @@ function buildContainer(
 	//     position 0).
 	//   - `vellum:role="Repeat"` is the round-trip metadata Vellum uses to
 	//     recognize a model-iteration container on import.
-	// Replace the placeholder at its recorded slot (NOT `pop()` — a descendant
-	// repeat may have appended a hoisted count node after it).
+	// Replace the container placeholder after assembling its children.
 	if (isQueryBoundRepeat) {
 		dataElements[dataSlot] = el(
 			field.id,
@@ -1705,8 +1667,6 @@ function buildContainer(
 				setvalues,
 				binds,
 				dataElements,
-				topDataElements,
-				topBinds,
 				instances,
 				expand,
 			),
@@ -1752,8 +1712,8 @@ function buildContainer(
  *     removes instances via UI; no jr:count, no setvalues.
  *
  *   count_bound: `<repeat nodeset="${nodePath}" jr:count="..."
- *     jr:noAddRemove="true()">`. Nova snapshots the authored count at form load
- *     in a hidden form-root node. Core reads that snapshot during entry traversal.
+ *     jr:noAddRemove="true()">`. Core reads the question directly or a sibling calculated
+ *     integer value during entry. Counts grow rows but never delete them.
  *
  *   query_bound: `<repeat nodeset="${nodePath}/item"
  *     jr:count="${nodePath}/@count" jr:noAddRemove="true()">` plus three
@@ -1776,8 +1736,6 @@ function buildRepeatBody(
 	setvalues: Element[],
 	binds: Element[],
 	scopeDataElements: Element[],
-	topDataElements: Element[],
-	topBinds: Element[],
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
 ): Element {
@@ -1801,37 +1759,32 @@ function buildRepeatBody(
 		// `jr:count` must point at a node — never a literal, arithmetic, or
 		// function call.
 		//
-		// Every authored count is a snapshot of form initialization, including a
-		// direct field path. Core reads jr:count again during entry traversal, so
-		// pointing it at a live answer would violate Nova's fixed-count contract.
-		// Preserve the two native coercion boundaries: path values retain their
-		// lexical value for IntegerData.cast; expression results are stored as int.
-		const directReference = isCountReferencePath(expandedCount);
-		const snapshotData = insideRepeat ? scopeDataElements : topDataElements;
-		const snapshotBinds = insideRepeat ? binds : topBinds;
-		const snapshotParent = insideRepeat ? nodePath.parent() : FormPath.root();
-		const countNodeName = repeatCountSnapshotName(
-			field.id,
-			new Set(snapshotData.map((e) => e.name)),
-		);
-		const countNodeXPath = snapshotParent.child(countNodeName).toXPath();
-		snapshotData.push(el(countNodeName, {}));
-		snapshotBinds.push(
-			el("bind", {
-				nodeset: countNodeXPath,
-				type: directReference ? "xsd:string" : "xsd:int",
-			}),
-		);
-		setvalues.push(
-			el("setvalue", {
-				event: insideRepeat ? "jr-insert" : "xforms-ready",
-				ref: countNodeXPath,
-				value: directReference ? `string(${expandedCount})` : expandedCount,
-			}),
-		);
-		// A raw-expression editor shadow would rewrite the runtime count on
-		// resave. The snapshot node is the complete executable count reference.
-		repeatAttribs["jr:count"] = countNodeXPath;
+		const directReference = directRepeatCountReference(field.repeat_count);
+		let countPath = expandedCount;
+		let countShadow = repeatCount;
+		if (directReference === undefined) {
+			const parent = nodePath.parent();
+			const names = new Set(scopeDataElements.map((element) => element.name));
+			const parentUuid = doc.fieldParent[field.uuid];
+			for (const uuid of orderedFieldUuids(doc, parentUuid))
+				names.add(doc.fields[uuid].id);
+			const name = repeatCountNodeName(field.id, names);
+			const target = parent.child(name);
+			countPath = target.toXPath();
+			countShadow = target.toVellum();
+			scopeDataElements.push(el(name, {}));
+			binds.push(
+				el("bind", {
+					nodeset: countPath,
+					"vellum:nodeset": countShadow,
+					type: "xsd:int",
+					calculate: expandedCount,
+				}),
+			);
+		}
+		// The editor shadow must name the same location as Core's reference.
+		repeatAttribs["jr:count"] = countPath;
+		repeatAttribs["vellum:jr__count"] = countShadow;
 		repeatAttribs["jr:noAddRemove"] = "true()";
 	} else if (field.repeat_mode === "query_bound") {
 		const itemPath = nodePath.queryBoundIteration();

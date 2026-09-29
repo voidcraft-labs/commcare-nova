@@ -346,7 +346,7 @@ Node conditions as the other producers, then use that directory as
 The relevance check covers intermediate visibility and a hidden group's effect
 on calculations before a query snapshots its rows, at initialization and Add.
 The identity check compares named form references with raw `current()` ancestry in two
-query rows, including an empty inner query and a count snapshot inside a group.
+query rows, including an empty inner query and a live calculated count inside a group.
 The insertion check uses the real entry controller to add rows before and after changing
 a question; it checks earlier membership and answers remain intact. These checks
 passed on the pinned Core revision above. They do not establish delayed entry
@@ -370,3 +370,25 @@ modification date on a selected record and a closed parent. Native Case storage
 supplies the records; this is not synthetic casedb XML. The paired Preview test
 uses the production casedb projection and FormEngine. Dates are calendar values
 in both form runtimes. This does not prove device sync or HQ regeneration.
+
+
+## Live repeat counts (#692)
+
+Regenerate the container corpus with `emit-container-evidence.ts`, run the HQ
+`container-emission-proof.py` against that output directory, then run
+`nova.compatibility.ContainerRuntimeTest` with the bounded Gradle command above.
+The corpus includes direct and calculated live counts, nested per-parent counts,
+blank initialization, increases and decreases, earlier-page answers, sibling
+name collisions, and retained submitted answers and case-create transactions.
+Private wire counterexamples establish direct decimal/text conversion failures;
+Nova admission requires integer questions for direct references. Calculated
+non-integers narrow through the generated integer bind.
+
+The #692 verification also loaded and saved the emitted path, expression, and
+live-count-entry source forms in HQ's actual Vellum bundle. All three had no
+parse warnings or field errors, and preserved the runtime count paths. Vellum
+added canonical editor shadows to calculated values; the repeat shadow continued
+to name the question/helper, never its underlying arithmetic expression. The
+saved forms were then passed through native HQ case/meta regeneration and
+editor-attribute stripping before native Core entry. This is editor and
+runtime evidence, not an HQ upload or physical Android UI test.

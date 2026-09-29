@@ -1138,3 +1138,29 @@ describe("Connect participant admission", () => {
 		);
 	});
 });
+
+describe("count source admission", () => {
+	it.each(["int", "decimal", "text"] as const)(
+		"requires an integer direct source: %s",
+		(kind) => {
+			const fields: FieldSpec[] = [
+				{ id: "size", kind },
+				{
+					id: "rows",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "#form/size",
+					children: [{ id: "note", kind: "text" }],
+				},
+			];
+			const errors = runValidation(survey(fields), LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(errors.filter((e) => e.code === "REPEAT_COUNT_TYPE")).toHaveLength(
+				kind === "int" ? 0 : 1,
+			);
+			fields[1] = { ...fields[1], repeat_count: "int(number(#form/size))" };
+			expect(runValidation(survey(fields), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
+				[],
+			);
+		},
+	);
+});

@@ -27,6 +27,7 @@ export const containerScenarios = [
 	"literal",
 	"expression",
 	"cousins",
+	"count-collision",
 	"query",
 	"nested-query",
 	"path-late",
@@ -186,6 +187,17 @@ export function containerWireFixture(scenario: ContainerScenario) {
 					default_value: "2",
 				}),
 				count("items", "#form/size + 2"),
+			];
+			break;
+		case "count-collision":
+			fields = [
+				count("items", "3"),
+				f({ kind: "hidden", id: "nova_count_items", calculate: "'authored'" }),
+				f({
+					kind: "hidden",
+					id: "nova_count_items_1",
+					calculate: "'also authored'",
+				}),
 			];
 			break;
 		case "cousins":

@@ -19,10 +19,8 @@
 //
 // 2. **`count_bound`** — `repeat_count` is an XPath expression
 //    (typically referencing another field on the form, e.g.
-//    `#form/desired_count`). Nova fixes the count when the repeat's
-//    enclosing instance initializes. The emitter snapshots the expression
-//    before passing it to `jr:count`; JavaRosa itself can recalculate an
-//    unsnapshotted count. `jr:noAddRemove="true()"` suppresses Add/Remove.
+//    `#form/desired_count`). The count is read live during entry. Increasing it adds
+//    rows; decreasing it retains created rows, answers, and case operations. `jr:noAddRemove="true()"` suppresses Add/Remove.
 //
 // 3. **`query_bound`** — iterates over case-database query results.
 //    `data_source.ids_query` is an XPath that resolves to a list of
@@ -85,9 +83,9 @@ export const userControlledRepeatSchema = repeatBase.extend({
 /**
  * Count-bound repeat — `repeat_count` is an XPath that the runtime
  * snapshots when its enclosing instance initializes. Common pattern:
- * bind to a numeric field elsewhere on the form (`#form/desired_count`).
- * The fixed count is Nova's contract, implemented in its preview and
- * emitted snapshot; it is not a general JavaRosa restriction.
+ * bind to an integer question elsewhere on the form (`#form/desired_count`).
+ * Increasing the count adds rows during entry; decreasing it retains
+ * created rows, answers, and case operations in the submission.
  */
 export const countBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("count_bound"),
@@ -138,6 +136,6 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a fixed count from another XPath (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). count_bound and query_bound snapshot their count or query when the enclosing instance initializes. Changing dependencies later does not rebuild those instances. A new enclosing repeat instance initializes its own snapshot.',
+		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a live count from an integer question or expression (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). Increasing a count_bound count adds rows; decreasing it keeps created rows and their answers and case operations in the submission. query_bound snapshots its query when the enclosing instance initializes; changing dependencies does not rebuild those rows. A new enclosing repeat instance initializes its own query snapshot.',
 	convertTargets: ["group"],
 };
