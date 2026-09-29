@@ -6,6 +6,7 @@ import {
 	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { walkTerms } from "@/lib/domain/predicate";
+import { countDependencies } from "../xpath/countDependencies";
 import { extractPathRefs } from "../xpath/dependencies";
 import type { FieldTreeNode } from "./fieldTree";
 import { stripIndices } from "./instancePaths";
@@ -114,6 +115,7 @@ export class TriggerDag {
 	/** True only while `reportCycles` collects: the authoring proof draws
 	 *  exactly the edges the device orders (see `registerExpressions`). */
 	private cycleProof = false;
+	private countProof = false;
 	/** The re-evaluation edges the device does NOT order, collected by
 	 *  `registerExpressions` during a runtime build and added to the graph
 	 *  only where they close no loop (`addSettleFreeEdges`). */
@@ -480,7 +482,10 @@ export class TriggerDag {
 		this.nodes.set(path, { path, expressions });
 
 		for (const expr of triggerExprs) {
-			for (const ref of extractPathRefs(expr, path)) this.addEdge(ref, path);
+			for (const ref of this.countProof
+				? countDependencies(expr, path, this.fieldPaths.values())
+				: extractPathRefs(expr, path))
+				this.addEdge(ref, path);
 		}
 		if (this.cycleProof) return;
 		for (const expr of settleFreeExprs) {
@@ -626,7 +631,12 @@ export class TriggerDag {
 						"repeat_count",
 						this.doc,
 					);
-					for (const ref of extractPathRefs(source ?? "", path)) {
+					const carrier = `${prefix}/__count_dependency_${field.uuid}`;
+					for (const ref of countDependencies(
+						source ?? "",
+						carrier,
+						this.fieldPaths.values(),
+					)) {
 						// Unlike scalar self references, a count of its own rows
 						// changes the structure and must remain in this proof.
 						if (ref === path) {
@@ -660,6 +670,20 @@ export class TriggerDag {
 		doc: XPathPrintableDoc,
 		prefix = "/data",
 	): CycleReport[] {
+		return [
+			...this.reportGraphCycles(tree, doc, prefix, false),
+			...this.reportGraphCycles(tree, doc, prefix, true).filter(
+				(cycle) => cycle.countFeedback !== undefined,
+			),
+		];
+	}
+
+	private reportGraphCycles(
+		tree: FieldTreeNode[],
+		doc: XPathPrintableDoc,
+		prefix: string,
+		countFeedback: boolean,
+	): CycleReport[] {
 		this.doc = doc;
 		// Build a fresh graph for cycle detection without mutating the instance
 		const nodes = new Map<string, DagNode>();
@@ -674,17 +698,23 @@ export class TriggerDag {
 		const savedFieldPaths = this.fieldPaths;
 		const savedInspectionMode = this.inspectionMode;
 		const savedCycleProof = this.cycleProof;
+		const savedCountProof = this.countProof;
 		this.nodes = nodes;
 		this.dependedOnBy = dependedOnBy;
 		this.repeatPaths = new Set();
 		try {
 			this.inspectionMode = true;
 			this.cycleProof = true;
+			this.countProof = countFeedback;
 			this.fieldPaths = collectFieldPaths(tree, prefix);
 			this.collectExpressions(tree, prefix);
-			this.collectValidationOnlyDependencies(tree, prefix);
+			// Root defaults execute once, so they cannot feed live counts back.
+			// Defaults inside new rows are covered by cardinality-to-descendant
+			// edges: creating the row creates its initialized answers.
+			if (!countFeedback) this.collectValidationOnlyDependencies(tree, prefix);
 			this.collectRelevanceCascadeDependencies(tree, prefix, cascadeEdges);
-			this.collectCountDependencies(tree, prefix, countEdges);
+			if (countFeedback)
+				this.collectCountDependencies(tree, prefix, countEdges);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
@@ -692,6 +722,7 @@ export class TriggerDag {
 			this.fieldPaths = savedFieldPaths;
 			this.inspectionMode = savedInspectionMode;
 			this.cycleProof = savedCycleProof;
+			this.countProof = savedCountProof;
 		}
 
 		const WHITE = 0,

@@ -1889,7 +1889,152 @@ describe("INVALID_REF stored-reference classification", () => {
 });
 
 describe("live repeat cardinality feedback", () => {
+	it.each(["../n", "current()/../n", "number(/data/n)"])(
+		"admits sibling count %s in its calculated carrier scope",
+		(count) => {
+			const doc = buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								fields: [
+									f({ id: "n", kind: "int", default_value: "2" }),
+									f({
+										id: "rows",
+										kind: "repeat",
+										repeat_mode: "count_bound",
+										repeat_count: count,
+										children: [f({ id: "answer", kind: "text" })],
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			assertAdmitted(doc);
+		},
+	);
 	it.each([
+		"count(../rows) + 1",
+		"count(current()/../rows) + 1",
+
+		"count(/data/rows[n = 1]) + 1",
+	])("rejects feedback through %s", (count) => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									id: "rows",
+									kind: "repeat",
+									repeat_mode: "count_bound",
+									repeat_count: count,
+									children: [f({ id: "n", kind: "int", default_value: "1" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(error) =>
+					error.code === "CYCLE" &&
+					error.message.includes("depends on rows it creates"),
+			),
+		).toBe(true);
+	});
+	it("follows relative feedback through a calculated answer", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									id: "target",
+									kind: "hidden",
+									calculate: "count(../rows) + 1",
+								}),
+								f({
+									id: "rows",
+									kind: "repeat",
+									repeat_mode: "count_bound",
+									repeat_count: "number(../target)",
+									children: [f({ id: "answer", kind: "text" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+				(error) =>
+					error.code === "CYCLE" &&
+					error.message.includes("depends on rows it creates"),
+			),
+		).toBe(true);
+	});
+
+	it("admits a count initialized once from the still-empty repeat", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									id: "n",
+									kind: "int",
+									default_value: "count(#form/rows) + 1",
+								}),
+								f({
+									id: "rows",
+									kind: "repeat",
+									repeat_mode: "count_bound",
+									repeat_count: "#form/n",
+									children: [f({ id: "answer", kind: "text" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmitted(doc);
+	});
+
+	it.each([
+		{
+			name: "defaults in created rows",
+			fields: [
+				f({
+					id: "rows",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "sum(#form/rows/n) + 1",
+					children: [f({ id: "n", kind: "int", default_value: "1" })],
+				}),
+			],
+		},
 		{
 			name: "own rows",
 			fields: [
