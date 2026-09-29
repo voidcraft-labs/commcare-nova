@@ -46,7 +46,7 @@ the gates over the other files' rows and are not counted.
    output; output that differs only in attribute order, XPath whitespace, or the
    order of `<update>` children and their binds, which no reader orders; an
    attribute whose absence Core reads as that value; `null`, `''` and absent
-   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded and once each repeat row is added, for every opening (README, "Load-time values"); markup Core walks into the same
+   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded, for every opening, and once each repeat row is added, for every opening and every answer entered before it (README, "Load-time values"); markup Core walks into the same
    event sequence; and a setting that changes only restore content no held
    app reads.
 3. **Expressions.** A slot holding XPath or CSQL gets one row per value class:
@@ -79,7 +79,7 @@ the gates over the other files' rows and are not counted.
 | Advanced form actions | 0 | 26 | 1 | 2 | 24 | 53 |
 | Shadow forms | 1 | 3 | 0 | 3 | 4 | 11 |
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
-| Question types | 51 | 24 | 0 | 4 | 47 | 126 |
+| Question types | 50 | 24 | 0 | 4 | 47 | 125 |
 | Binds, actions, model and head content | 13 | 1 | 0 | 16 | 18 | 48 |
 | Appearances | 0 | 52 | 0 | 9 | 4 | 65 |
 | Itext, markdown and label text | 17 | 7 | 0 | 9 | 9 | 42 |
@@ -87,7 +87,7 @@ the gates over the other files' rows and are not counted.
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 7 | 20 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **270** | **407** | **26** | **151** | **315** | **1169** |
+| **Total** | **269** | **407** | **26** | **151** | **315** | **1168** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 

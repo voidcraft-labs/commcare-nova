@@ -1027,7 +1027,8 @@ A non-select writer makes the property text and drops the catalog.
   preloads, or about the order of setvalues, is stated as what Core's own
   load gives (`FormDef.initialize` for the form, `FormDef.createNewRepeat` for
   a row), for every value the opening data can give (session, case, lookup and
-  location data, the date and time, `uuid()`, `random()`). A node's load-time
+  location data, the date and time, `uuid()`, `random()`) and, for a row,
+  every answer entered before it is added. A node's load-time
   value at a point of that load is the value an expression evaluated there
   reads. How Core gets there, read at the pinned commit and executed:
   - It runs the load-time setvalues in the built form's order. Vellum writes
@@ -1054,11 +1055,12 @@ A non-select writer makes the property text and drops the catalog.
     runs, a node is relevant, except one whose relevance is written as exactly
     `false()`, which the parser applies before the load
     (`XFormParser::processStandardBindAttributes`, `attachBind`). Nothing has
-    been entered.
-  - Formplayer rebuilds the form on every request, and Android does when it
-    resumes a saved incomplete form, with `FormDef.initialize(false, …)`
-    (`FormSession`, `FormLoaderTask`), which runs every calculate and condition
-    again and no setvalue.
+    been entered when the form loads.
+  - On every request after the first, Formplayer loads the saved instance
+    into the form and reinitializes it, and Android does when it resumes a
+    saved incomplete form, with `FormDef.initialize(false, …)` (`FormSession`,
+    `FormLoaderTask`), which runs every calculate and condition again and no
+    setvalue.
   - Executed in Core: a root create id `concat(/data/key, '-')` gives `abc-`
     after a default of `abc` and `-` when that default comes after it; one
     reading a calculate of `concat(/data/key, '-')` gives `abc-` after the
@@ -1069,10 +1071,7 @@ A non-select writer makes the property text and drops the catalog.
     `@ids`, leaves the repeat empty under a group an earlier setvalue makes not
     relevant; a default of `'B'` on `/data/y` and a default on `/data/x`, which
     `/data/y`'s calculate reads, give a later default reading `/data/y` `B` or
-    the calculated value by their order; and in a repeat row, a Hidden Value's
-    insert default `D` outlasts its calculate of `concat(../x, '!')` when the
-    row's default on `x` runs first, and gives way to it when it runs after,
-    until the form is next reinitialized, which replaces it with the calculate.
+    the calculated value by their order.
 - **Query repeats** have a placement. Vellum's model iteration sets the
   repeat's ids and count once, by setvalues that run when the form loads, or
   when the parent row is added. Run in Core at Formplayer's commit on
@@ -1092,8 +1091,9 @@ A non-select writer makes the property text and drops the catalog.
 
   Import refuses a model-iteration repeat that is nested in any repeat, sits
   under an ancestor that Core's load can leave not relevant where its
-  setvalues run on an opening where that ancestor can become relevant later,
-  or has a query reading a form answer that is blank there on every opening
+  setvalues run, on an opening where that ancestor can become relevant later
+  in that opening (by a later default or an answer), or has a query reading a
+  form answer that is blank where its setvalues run, on every opening
   ("Load-time values"). A count repeat whose count and row ids are calculated from the same
   query nests and follows relevance, and HQ's editor produces and keeps it. A
   new query repeat takes model iteration only when its query reads no form
@@ -1108,8 +1108,10 @@ A non-select writer makes the property text and drops the catalog.
   operation's. The model-iteration placement is valid only in the shapes import
   admits, so any edit that leaves a model-iteration repeat outside them, wherever
   in the form it is made (nesting it, placing it under an ancestor that Core's
-  load can leave not relevant where its setvalues run, adding to its query a
-  read of a form answer that is blank there on every opening, or changing an
+  load can leave not relevant where its setvalues run, on an opening where
+  that ancestor can become relevant later in that opening, adding to its query
+  a read of a form answer that is blank where its setvalues run, on every
+  opening, or changing an
   ancestor's relevance or a load-time value its query or an ancestor's
   relevance reads), moves it to the count-repeat placement, as an
   identity edit the builder, SA and MCP state before it commits.
@@ -1376,7 +1378,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 224 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (1 of them only in a case the cell names), and of
-the 158 held question rows that apply to both, 76 are. In Nova,
+the 157 held question rows that apply to both, 75 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -2455,7 +2457,7 @@ continuity before it reaches HQ.
     keep refusing blank and multi-token values until step 7 holds them
     (the inventory's ID-mapping key row); and
     `lib/commcare/xform/captureUpload.ts` says Android's `WidgetFactory` has no
-    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it, and in a repeat row on Android can keep it past the calculate until the form is reinitialized ("Load-time values"); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
+    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it ("Load-time values"); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
     label media on groups and repeats (`containerFieldBase.label_media`) and hint
     media (`hint_media`), which neither runtime shows and Vellum does not offer,
     and validation-message media (`validate_msg_media`), which Vellum offers and
