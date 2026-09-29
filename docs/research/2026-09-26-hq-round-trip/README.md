@@ -481,7 +481,8 @@ fills questions in that order, `sms/handlers/keyword.py`), label and itext text,
 expression spelling, setvalue placement, XML formatting, body-only groups,
 `<h:title>`, data-node `@name` and `@version`. Itext ids are free unless form
 logic references them through `jr:itext('…')` or the id is a pragma key the
-runtimes read (the inventory's pragma rows).
+runtimes read, which HQ's build keeps only while no identical entry's id sorts
+before it (the inventory's pragma rows).
 
 Each case transaction's submission placement, and each datum name form logic
 reads, are therefore part of what Nova holds for a form, like a question's path.
@@ -1088,10 +1089,13 @@ A non-select writer makes the property text and drops the catalog.
   multi-token appearance as the ordered list of its typed tokens, emitted in the
   order and spelling HQ stores (a label's leading `floating-` token, other
   than `floating-good`, `floating-caution` or `floating-bad` as the whole
-  string, as `floating-hidden`, with the later tokens no runtime reads there dropped, and a
-  per-row token as `<k>-per-row` or `<k>-per-row-repeat`); a string holding a token no runtime reads is
-  refused, since dropping that token would change what Android matches in the
-  whole string, except the tokens after a label's leading `floating-` token, since Android
+  string, as `floating-hidden`, with the later tokens no runtime reads there dropped, a per-row
+  token as `<k>-per-row` or `<k>-per-row-repeat`, and unread tokens whose
+  dropping changes no reading dropped); a string holding a token no runtime reads is
+  held without it where dropping it changes no runtime's reading, and refused
+  where it does (the rest becomes a whole-string value Android reads, a dropped
+  token holds a value Android matches inside the string, or a position a runtime
+  reads moves), except the tokens after a label's leading `floating-` token, since Android
   reads only that prefix and hides the label. Web Apps reads a per-row token through its pattern and the
   integer `parseInt` takes from the text before its first `-`, so Nova holds one
   as `<k>-per-row` or `<k>-per-row-repeat` with k those digits, and refuses one
@@ -1404,7 +1408,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 227 held menu, case list and search rows in the inventory
 that apply to both platforms, 77 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 162 held question rows that apply to both, 80 are. In Nova,
+the 164 held question rows that apply to both, 82 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
