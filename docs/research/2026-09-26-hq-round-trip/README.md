@@ -1092,7 +1092,7 @@ A non-select writer makes the property text and drops the catalog.
   Import refuses a model-iteration repeat that is nested in any repeat, sits
   under an ancestor that Core's load can leave not relevant where its
   setvalues run, on an opening where that ancestor can become relevant later
-  in that opening (by a later default or an answer), or has a query reading a
+  in that opening, or has a query reading a
   form answer that is blank where its setvalues run, on every opening
   ("Load-time values"). A count repeat whose count and row ids are calculated from the same
   query nests and follows relevance, and HQ's editor produces and keeps it. A
@@ -1107,13 +1107,12 @@ A non-select writer makes the property text and drops the catalog.
   its case operations run only while its id is not blank. The placement is kept once published, like a case
   operation's. The model-iteration placement is valid only in the shapes import
   admits, so any edit that leaves a model-iteration repeat outside them, wherever
-  in the form it is made (nesting it, placing it under an ancestor that Core's
+  in the form it is made (nesting it; placing it under an ancestor that Core's
   load can leave not relevant where its setvalues run, on an opening where
-  that ancestor can become relevant later in that opening, adding to its query
+  that ancestor can become relevant later in that opening; adding to its query
   a read of a form answer that is blank where its setvalues run, on every
-  opening, or changing an
-  ancestor's relevance or a load-time value its query or an ancestor's
-  relevance reads), moves it to the count-repeat placement, as an
+  opening; or changing an ancestor's relevance or a load-time value its query
+  or an ancestor's relevance reads), moves it to the count-repeat placement, as an
   identity edit the builder, SA and MCP state before it commits.
 - **Repeat counts** follow CommCare's semantics: Core rereads `jr:count` during
   entry, so the count is live upward. Raising it adds rows; lowering it removes no
@@ -1378,7 +1377,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 224 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (1 of them only in a case the cell names), and of
-the 157 held question rows that apply to both, 75 are. In Nova,
+the 157 held question rows that apply to both, 76 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -1902,6 +1901,7 @@ cutover contract as it stands.
 | `lib/deployment/CLAUDE.md`: "There is deliberately no arm for 'matched by name'" | Still no arm matches by name implicitly; import records each table an app only reads, and the person has not adopted, as referenced in its source project space, by its tag, and never writes it there ("Reference targets"). | 6 |
 | `lib/deployment/CLAUDE.md`: "A publish creates afresh only when there is no active mapping, or when a persisted upload failure says the mapped app is gone" | A publish also creates afresh after the person ends a deployment whose HQ app no longer reads, or the step 2 cutover ends one whose HQ app HQ reports deleted ("Identity", "Living with HQ after import"). | 2, 6 |
 | root `CLAUDE.md` (`lib/lookup`): "every export mode carries the data" | Every export mode carries every table the app reads, except that the HQ import file, which the person uploads where they choose, leaves out and names each table referenced in a project space. A table referenced in a project space is never written there; a local `.ccz` embeds Nova's copy, and publishing to another project space creates the table there from it ("Reference targets"). | 6 |
+| `lib/domain/CLAUDE.md`: "A `hidden` field carries exactly ONE value source" | A Hidden Value may keep its default beside its calculate, and `HIDDEN_VALUE_BOTH_SOURCES` retires ([the inventory's question rows](inventory/questions.md)). | 7 |
 | contracts.md: "Long-detail tiles are out of scope." | The case detail tile is held, because HQ apps carry it ([the inventory's case list rows](inventory/menus-and-case-lists.md)). | 7 |
 | contracts.md: "Smart-link authoring does not ship before Nova models data-registry search." | Smart links belong to data registries, which are retiring, so they never ship. | 1 |
 
@@ -2457,7 +2457,7 @@ continuity before it reaches HQ.
     keep refusing blank and multi-token values until step 7 holds them
     (the inventory's ID-mapping key row); and
     `lib/commcare/xform/captureUpload.ts` says Android's `WidgetFactory` has no
-    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it ("Load-time values"); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
+    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it, and in a repeat row on Android can keep it past the calculate into the submission ("Load-time values"); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
     label media on groups and repeats (`containerFieldBase.label_media`) and hint
     media (`hint_media`), which neither runtime shows and Vellum does not offer,
     and validation-message media (`validate_msg_media`), which Vellum offers and
