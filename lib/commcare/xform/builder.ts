@@ -1759,7 +1759,10 @@ function buildRepeatBody(
 		// `jr:count` must point at a node — never a literal, arithmetic, or
 		// function call.
 		//
-		const directReference = directRepeatCountReference(field.repeat_count);
+		const directReference = directRepeatCountReference(
+			field.repeat_count,
+			doc.fields,
+		);
 		let countPath = expandedCount;
 		let countShadow = repeatCount;
 		if (directReference === undefined) {

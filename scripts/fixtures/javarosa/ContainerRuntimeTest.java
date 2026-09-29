@@ -167,7 +167,7 @@ public class ContainerRuntimeTest {
  }
 
  @Test public void liveCountsGrowButKeepCreatedRowsAndAnswers()throws Exception {
-  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression"}) {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression","hidden-count"}) {
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,false);
    answer(form,"/data/items[1]/answer","retained");
    form.setValue(new org.javarosa.core.model.data.IntegerData(5),ref(form,"/data/size"));enter(parsed,false);
@@ -308,5 +308,28 @@ public class ContainerRuntimeTest {
   controller.jumpToIndex(secondPage);
   second=controller.getQuestionPrompts();
   assertEquals(1,second.length);assertEquals("retained",second[0].getAnswerText());
+ }
+ @Test public void hiddenCalculationCountTypes()throws Exception {
+  String[][] cases={{"2.7","2.0"},{"true()","1.0"},{"false()","0.0"},{"'2.7'","invalid"},{"'2'","2.0"},{"''","0.0"},{"number('')","0.0"}};
+  for(String[] item:cases) {
+   String calculate=item[0];
+   javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+   org.w3c.dom.Document document;
+   try(java.io.InputStream stream=getClass().getResourceAsStream("/container-hidden-count.xml")){document=factory.newDocumentBuilder().parse(stream);}
+   org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");
+   for(int n=0;n<nodes.getLength();n++) {
+    org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+    if("bind".equals(element.getLocalName())&&"/data/desired".equals(element.getAttribute("nodeset")))element.setAttribute("calculate",calculate);
+   }
+   java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+   javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+   try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+    FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+    String actual;
+    try {enter(new FormParseInit(form),false);actual=eval(form,"count(/data/items)").toString();}
+    catch(org.javarosa.xpath.XPathTypeMismatchException error){actual="invalid";}
+    assertEquals(calculate,item[1],actual);
+   }
+  }
  }
 }

@@ -18,6 +18,10 @@ capability tables keep independent runtime evidence, but they do not authorize
 an authorable Preview subset. Adding an authorable capability therefore adds
 its Preview implementation and its CommCare proof in the same change.
 
+Hidden calculations retain their evaluated numeric and boolean types in the live
+instance, entry checkpoints, and worker updates. UI/submission values remain text;
+counts reading those nodes use Core's typed conversion without replaying calculations.
+
 Calculated/default datetime answers retain the XPath Date's instant, including
 hidden writers whose effective destination is datetime. Both synchronous and
 worker evaluation use `FormEngine.computedFieldValue`; generic XPath string(Date)
@@ -604,7 +608,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   no loop (`addSettleFreeEdges`), so a loop through one of them drops that
   edge and never a calculate or relevance edge.
 - **Instance counts are explicit.** `DataInstance` tracks cardinality in its own map, keyed by concrete repeat path — never derived from which value keys happen to exist (a repeat with only structural children still counts 1). `set` auto-extends counts from indexed path segments so restore/rename flows stay consistent. A new instance seeds the AUTHORED template shape — nested repeats restart at one instance, matching what the deployed form's `jr:template` produces — not `[0]`'s live shape.
-- **Count-bound repeats follow the emitted carrier.** A bare integer question reference in `jr:count` is read from that node through JavaRosa's `IntegerData.cast`: blank means zero, while every nonblank value must be an exact base-10 Java `int` lexical value (`2.0` and `2.5` are errors, not two rows). Every other expression is different because the emitter calculates it in Nova's generated `xsd:int` node; Preview retains that node's numeric coercion before materializing the count. Both synchronous and worker execution use this same split.
+- **Count-bound repeats follow the emitted carrier.** A bare integer question reference in `jr:count` is read from that node through JavaRosa's `IntegerData.cast`: blank means zero, while every nonblank value must be an exact base-10 Java `int` lexical value (`2.0` and `2.5` are errors, not two rows). Hidden-value references and other expressions are different because the emitter calculates it in Nova's generated `xsd:int` node; Preview retains that node's numeric coercion before materializing the count. Both synchronous and worker execution use this same split.
 - **The runtime store is dual-keyed.** Every field keeps its uuid key (edit-mode rows); every path with an `[N]` segment ALSO gets a path key — the interactive renderer subscribes via `useEngineStateAt(uuid, path)` and writes through `controller.setValueAt(path, …)` / `touchAt(path)`, so two instances of one field hold independent value/visibility/validity. Uuid-keyed flows (`onValueChange`) address the `[0]` template only.
 - **Doc mutations land on every live instance.** The controller's incremental handlers (field added / removed / retyped / expression edited during live preview) route through the engine's instance-aware ops. Authored topology is reconciled once per committed batch from complete pre/post path maps, so two independent renames or a cross-parent subtree move cannot observe a half-updated map. `materializePaths` expands the uuid map's `[0]` template path over the live counts, and `renamePaths` moves all values/states in one call (materialize-before-move, since renaming or moving a repeat container relocates the count its descendants materialize through). A repeat→group conversion keeps only instance 0; the other instances' values are dropped with their states unplugged.
 

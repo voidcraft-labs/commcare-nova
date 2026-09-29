@@ -26,6 +26,7 @@ export const containerScenarios = [
 	"path",
 	"literal",
 	"expression",
+	"hidden-count",
 	"cousins",
 	"count-collision",
 	"query",
@@ -187,6 +188,18 @@ export function containerWireFixture(scenario: ContainerScenario) {
 					default_value: "2",
 				}),
 				count("items", "#form/size + 2"),
+			];
+			break;
+		case "hidden-count":
+			fields = [
+				f({
+					kind: "int",
+					id: "size",
+					label: proseText("Size"),
+					default_value: "2",
+				}),
+				f({ kind: "hidden", id: "desired", calculate: "#form/size + 2" }),
+				count("items", "#form/desired"),
 			];
 			break;
 		case "count-collision":

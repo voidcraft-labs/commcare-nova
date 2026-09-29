@@ -7,27 +7,44 @@ describe("direct count identity", () => {
 	it("recognizes either identity spelling with surrounding whitespace", () => {
 		for (const kind of ["field-ref", "path-ref"] as const)
 			expect(
-				directRepeatCountReference({
-					parts: [
-						{ kind: "text", text: " " },
-						{ kind, uuid: id },
-					],
-				}),
+				directRepeatCountReference(
+					{
+						parts: [
+							{ kind: "text", text: " " },
+							{ kind, uuid: id },
+						],
+					},
+					{ [id]: { kind: "int" } },
+				),
 			).toBe(id);
+	});
+	it("routes hidden references through an integer carrier", () => {
+		expect(
+			directRepeatCountReference(
+				{ parts: [{ kind: "field-ref", uuid: id }] },
+				{ [id]: { kind: "hidden" } },
+			),
+		).toBeUndefined();
 	});
 	it("keeps expressions and secondary instances behind a calculated value", () => {
 		expect(
-			directRepeatCountReference({
-				parts: [
-					{ kind: "field-ref", uuid: id },
-					{ kind: "text", text: " + 1" },
-				],
-			}),
+			directRepeatCountReference(
+				{
+					parts: [
+						{ kind: "field-ref", uuid: id },
+						{ kind: "text", text: " + 1" },
+					],
+				},
+				{ [id]: { kind: "int" } },
+			),
 		).toBeUndefined();
 		expect(
-			directRepeatCountReference({
-				parts: [{ kind: "text", text: "instance('casedb')/casedb/case/n" }],
-			}),
+			directRepeatCountReference(
+				{
+					parts: [{ kind: "text", text: "instance('casedb')/casedb/case/n" }],
+				},
+				{ [id]: { kind: "int" } },
+			),
 		).toBeUndefined();
 	});
 });

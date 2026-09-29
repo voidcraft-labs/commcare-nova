@@ -53,6 +53,7 @@ interface XPathTemplateNode {
 export interface DataInstanceSnapshot {
 	readonly values: readonly (readonly [string, string])[];
 	readonly counts: readonly (readonly [string, number])[];
+	readonly calculatedScalars: readonly (readonly [string, number | boolean])[];
 	readonly attributes: readonly (readonly [
 		string,
 		Readonly<Record<string, string>>,
@@ -62,6 +63,9 @@ export interface DataInstanceSnapshot {
 export class DataInstance {
 	private data = new Map<string, string>();
 	private counts = new Map<string, number>();
+	/** Hidden calculations retain Core's numeric/boolean answer type even though
+	 * the UI and submission answer store use text. */
+	private calculatedScalars = new Map<string, number | boolean>();
 	/** Per-occurrence attributes absent from Nova's authored field tree. Query-
 	 * bound repeats use these for the JavaRosa-created `@id` and `@index`
 	 * values on each materialized iteration. */
@@ -83,6 +87,7 @@ export class DataInstance {
 	checkpoint(): DataInstanceSnapshot {
 		return structuredClone({
 			values: [...this.data],
+			calculatedScalars: [...this.calculatedScalars],
 			counts: [...this.counts],
 			attributes: [...this.elementAttributes],
 		});
@@ -90,6 +95,7 @@ export class DataInstance {
 
 	restoreCheckpoint(snapshot: DataInstanceSnapshot): void {
 		this.data = new Map(snapshot.values);
+		this.calculatedScalars = new Map(snapshot.calculatedScalars);
 		this.counts = new Map(snapshot.counts);
 		this.elementAttributes = new Map(structuredClone(snapshot.attributes));
 	}
@@ -121,7 +127,7 @@ export class DataInstance {
 				if (node.children) this.initFromFields(node.children, `${path}[0]`);
 			} else {
 				// Leaf field — empty string initial value
-				this.data.set(path, "");
+				this.set(path, "");
 			}
 		}
 	}
@@ -142,9 +148,15 @@ export class DataInstance {
 		return this.data.get(path);
 	}
 
-	set(path: string, value: string): void {
+	set(path: string, value: string, calculatedScalar?: number | boolean): void {
 		this.data.set(path, value);
+		if (calculatedScalar === undefined) this.calculatedScalars.delete(path);
+		else this.calculatedScalars.set(path, calculatedScalar);
 		this.extendCountsFor(path);
+	}
+
+	calculatedScalar(path: string): number | boolean | undefined {
+		return this.calculatedScalars.get(path);
 	}
 
 	has(path: string): boolean {
@@ -157,6 +169,7 @@ export class DataInstance {
 	 *  same path starts empty rather than resurfacing the old answer. */
 	delete(path: string): void {
 		this.data.delete(path);
+		this.calculatedScalars.delete(path);
 		this.counts.delete(path);
 		this.elementAttributes.delete(path);
 	}
@@ -199,7 +212,7 @@ export class DataInstance {
 			const suffix = key.slice(templatePrefix.length);
 			// Skip keys inside nested instances >= 1 — template shape only.
 			if (/\[[1-9]\d*\]/.test(suffix)) continue;
-			this.data.set(`${repeatPath}[${newIndex}]/${suffix}`, "");
+			this.set(`${repeatPath}[${newIndex}]/${suffix}`, "");
 		}
 		// Nested repeat containers restart at one instance in the new copy.
 		for (const key of [...this.counts.keys()]) {
@@ -221,7 +234,10 @@ export class DataInstance {
 		// Remove value + nested-count keys for this index
 		const prefix = `${repeatPath}[${index}]/`;
 		for (const key of [...this.data.keys()]) {
-			if (key.startsWith(prefix)) this.data.delete(key);
+			if (key.startsWith(prefix)) {
+				this.data.delete(key);
+				this.calculatedScalars.delete(key);
+			}
 		}
 		for (const key of [...this.counts.keys()]) {
 			if (key.startsWith(prefix)) this.counts.delete(key);
@@ -240,8 +256,10 @@ export class DataInstance {
 				if (key.startsWith(oldPrefix)) {
 					const suffix = key.slice(oldPrefix.length);
 					const value = this.data.get(key) ?? "";
+					const scalar = this.calculatedScalars.get(key);
 					this.data.delete(key);
-					this.data.set(newPrefix + suffix, value);
+					this.calculatedScalars.delete(key);
+					this.set(newPrefix + suffix, value, scalar);
 				}
 			}
 			for (const key of [...this.counts.keys()]) {
@@ -283,6 +301,7 @@ export class DataInstance {
 			const firstPrefix = `${repeatPath}[0]/`;
 			for (const key of [...this.data.keys()]) {
 				if (!key.startsWith(`${repeatPath}[`)) continue;
+				this.calculatedScalars.delete(key);
 				if (key.startsWith(firstPrefix)) this.data.set(key, "");
 				else this.data.delete(key);
 			}
@@ -329,17 +348,19 @@ export class DataInstance {
 			to,
 			hasData: this.data.has(from),
 			value: this.data.get(from) ?? "",
+			scalar: this.calculatedScalars.get(from),
 			count: this.counts.get(from),
 			attributes: this.elementAttributes.get(from),
 		}));
 		for (const { from } of snapshots) {
 			this.data.delete(from);
+			this.calculatedScalars.delete(from);
 			this.counts.delete(from);
 			this.elementAttributes.delete(from);
 		}
-		for (const { to, hasData, value, count, attributes } of snapshots) {
+		for (const { to, hasData, value, scalar, count, attributes } of snapshots) {
 			if (to === null) continue;
-			if (hasData) this.set(to, value);
+			if (hasData) this.set(to, value, scalar);
 			if (count !== undefined) this.counts.set(to, count);
 			if (attributes !== undefined) {
 				this.elementAttributes.set(to, attributes);
@@ -353,9 +374,14 @@ export class DataInstance {
 	}
 
 	/** Values addressable by the XPath worker, including runtime attributes. */
-	xpathValueEntries(): [string, string][] {
+	xpathValueEntries(): [string, string | number | boolean][] {
 		return [
-			...this.data.entries(),
+			...[...this.data].map(
+				([path, raw]): [string, string | number | boolean] => [
+					path,
+					this.calculatedScalars.get(path) ?? raw,
+				],
+			),
 			...[...this.elementAttributes.entries()].flatMap(([path, attributes]) =>
 				Object.entries(attributes).map(
 					([name, value]) => [`${path}/@${name}`, value] as [string, string],
@@ -475,7 +501,10 @@ class FormXPathNode implements XPathNode {
 		if (this.template === undefined || this.childTemplates.length > 0)
 			return "";
 		const raw = this.instance.data.get(this.path) ?? "";
-		return formAnswerXPathValue(this.template.kind, raw);
+		return (
+			this.instance.data.calculatedScalar(this.path) ??
+			formAnswerXPathValue(this.template.kind, raw)
+		);
 	}
 
 	parent(): XPathNode | undefined {
