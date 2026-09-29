@@ -39,7 +39,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | SYNC_SEARCH_CASE_CLAIM (`search_claim`) [frozen] | TARGET-OWNED · HELD (Case search) | n/a | precondition (+ `CaseSearchConfig.enabled`) |
 | VALIDATE_APP_TRANSLATIONS [frozen] | INERT · no content | n/a | none |
 | ADD_ROW_INDEX_TO_MOBILE_UCRS [deprecated] | RETIRING · refuses nothing (everything it touches is MOBILE_UCR's) | n/a | none |
-| ALLOW_BLANK_CASE_TAGS [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
+| ALLOW_BLANK_CASE_TAGS [deprecated] | RETIRING · refuses nothing (HQ's editor marks a blank case tag an error with or without it; the blank tag is refused as not HQ-editable, Advanced form actions) | n/a | none |
 | APP_DEPENDENCIES (toggle) [deprecated] | RETIRING · refuses nothing (dead; the privilege gates `features.dependencies`) | n/a | none |
 | CACHE_AND_INDEX [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | CASE_LIST_CUSTOM_VARIABLES [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
@@ -58,7 +58,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | TRAINING_MODULE [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | USER_CONFIGURABLE_REPORTS [deprecated] | RETIRING · refuses nothing (everything it touches is MOBILE_UCR's) | n/a | none |
 | V1_SHADOW_MODULES [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
-| VELLUM_DATA_IN_SETVALUE [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
+| VELLUM_DATA_IN_SETVALUE [deprecated] | RETIRING · refuses nothing (a `#form/` read in a default value is the same state as the relative read HQ's editors produce without it, Binds) | n/a | none |
 | VELLUM_PRINTING [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | VISIT_SCHEDULER [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | CUSTOM_ICON_BADGES [GA path, frozen privilege] | TARGET-OWNED · HELD-NEW (badges Module fields, Form fields) | n/a | privilege `custom_icon_badges` |
@@ -81,7 +81,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | FACE_CAPTURE [release] | TARGET-OWNED · HELD-NEW (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |
 | COMMCARE_CONNECT [connect division] | TARGET-OWNED · HELD / HELD-NEW (Question types Connect blocks) | n/a | precondition |
 
-Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android and has a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile).
+Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android and has a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile); and, at import and publish, by asking the person to confirm, that CommTrack is off in the project space (defect 20).
 
 ### Removed toggles with document residue
 
