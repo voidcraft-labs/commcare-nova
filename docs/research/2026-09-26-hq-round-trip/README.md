@@ -1090,14 +1090,16 @@ A non-select writer makes the property text and drops the catalog.
   order and spelling HQ stores; a string holding a token no runtime reads is
   refused, since dropping that token would change what Android matches in the
   whole string, except the tokens after a label's leading `floating-` token, since Android
-  reads only that prefix and hides the label. So `fuzzy combobox` is fuzzy on Android and a plain
+  reads only that prefix and hides the label. A token ending in a digit followed
+  by `-per-row` whose text before its first `-` does not start with a digit is refused, since
+  Web Apps tiles it with no width. So `fuzzy combobox` is fuzzy on Android and a plain
   combobox on Web Apps, and `minimal hint-as-placeholder` falls back to the
   default widget on Android.
 - **Single-option selects**, refused today by `options.min(2)`.
 - **Media**, brought into Nova's validated asset storage, never referenced
   unchecked; a reference whose path HQ holds with no file is held as that state, on a
   slot Nova holds, unless Android's install verification can reach it in an app
-  with media validation on, which is refused (the inventory's Media section). Nova holds a file when every platform the app declares plays it and
+  that declares Android with media validation on, which is refused (the inventory's Media section). Nova holds a file when every platform the app declares plays it and
   HQ types it as the same kind, so an Android-only app keeps AMR, MIDI or raw AAC
   audio and HEVC or MKV video, and a Web-Apps-only app keeps ICO, SVG or AVIF
   images and H.264 High video; Preview shows a stand-in for a file only Android
@@ -1388,7 +1390,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 225 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 161 held question rows that apply to both, 79 are. In Nova,
+the 162 held question rows that apply to both, 80 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
