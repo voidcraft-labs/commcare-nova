@@ -76,11 +76,12 @@ with the platform model.
 
 ### Source: HQ's API, only
 
-Apps come from CommCare HQ, so Nova imports only through HQ's API. A `.ccz` is a
+Apps come from CommCare HQ, so Nova imports only through HQ's API and the media URLs the app source it returns records. A `.ccz` is a
 build HQ already made from the app; it lacks the authored source, and anything
 built elsewhere is rarely valid. The API gives Nova the authored application JSON
-and XForm sources, the real identities, and the project space's lookup tables and
-locations, over the credential Nova already stores.
+and XForm sources, the real identities, the project space's lookup tables and
+locations, and the media map whose URLs Nova then reads each file's bytes from,
+over the credential Nova already stores.
 
 Nova is used by Dimagi staff, and import requires the project space's API access:
 the `API_ACCESS` plan privilege (Pro plans and above, plus the grandfathered
@@ -269,7 +270,7 @@ refuses nothing. The exact refused content:
 | `CASE_LIST_LAZY` | `Module.lazy_load_case_list_fields` true (column-level lazy loading under `CASE_LIST_OPTIMIZATIONS` stays) |
 | `CASE_LIST_MAP` | detail columns with format `address-popup` |
 | `NON_PARENT_MENU_SELECTION` | `parent_select` active with `relationship` null ("Other"), and the `#case:<slug>` references it enables |
-| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference; a read of the `supply_point_id` session datum in a form that defines no computed datum of that id, where only CommTrack supplies it |
+| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference; a read of the `supply_point_id` session datum anywhere except in an advanced form whose computed datum has that id, since only CommTrack supplies it otherwise |
 | `CSQL_FIXTURE` | any `case-search-fixture:*` instance reference |
 | `FORM_LINK_ADVANCED_MODE` | form links to modules that are not auto-linkable, datums on module-target links, and datums on form-target links whose name is not one HQ derives for the target |
 | `MOBILE_UCR` (parent `USER_CONFIGURABLE_REPORTS`) | `ReportModule`; `report_context_tile`; `reports`, `commcare:reports`, `commcare-reports:*`, `commcare-reports-filters:*` references; `mobile_ucr_restore_version` other than `2.0` |
@@ -479,7 +480,8 @@ question order is held, because a structured-SMS keyword without named arguments
 fills questions in that order, `sms/handlers/keyword.py`), label and itext text,
 expression spelling, setvalue placement, XML formatting, body-only groups, `uiVersion`,
 `<h:title>`, data-node `@name` and `@version`. Itext ids are free unless form
-logic references them through `jr:itext('…')`.
+logic references them through `jr:itext('…')` or the id is a pragma key the
+runtimes read (the inventory's pragma rows).
 
 Each case transaction's submission placement, and each datum name form logic
 reads, are therefore part of what Nova holds for a form, like a question's path.
@@ -632,7 +634,7 @@ Every field on the surface has exactly one disposition:
 | Real form ids | `api/resources/v0_4.py::ApplicationResource`, aligned to the app source by module `unique_id` and form position and confirmed by `xmlns` (`dehydrate_module`); matched to Nova forms as under "Identity" at the migration | API access |
 | Lookup table definitions and rows | `fixtures/resources/v0_1.py::LookupTableResource`, `v0_6.py::LookupTableItemResource` | API access |
 | Locations and levels | `locations/resources` (already read by `lib/deployment`) | API access, the locations privilege, and the account's Edit Locations permission (`locations/resources/v0_5.py`, `v0_6.py`) |
-| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | read as HQ's own apps read it: the one read outside HQ's API, since HQ serves media bytes nowhere else |
+| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | the item's media map entry, read from the app source |
 | Toggles | Nova's existing probe (`user_domains?feature_flag=`) | membership of the credential's user in the project space |
 
 A module that fails HQ's own summary (`ApplicationResource.dehydrate_module`
@@ -888,8 +890,8 @@ a referenced table, identified by its tag in that project space, which Nova
 never writes and does not let anyone edit until it is adopted. Before each
 publish of an app that reads it, Nova reads it in the project space that holds
 it, with the publisher's credential where it reaches that space, and otherwise
-with that of the member who imported the reference, then of other current
-members of the Project in the order they joined; each read with another
+with that of the member who imported the reference, while a current member of
+the Project, then of other current members of the Project in the order they joined; each read with another
 member's key is recorded and shown to that member, as in the step 2 cutover.
 Where none reads it, publish stops, naming the table and the project space. Where the read succeeds, a change to what the app reads (its fields, properties or attributes) stops
 the publish, naming the table and each app of the Project that reads a changed
@@ -1220,11 +1222,11 @@ question to make one fit:
   a new child of the form's case; every value it writes is a question in the
   form; and each condition is one the Case Management tab offers (a select, hidden
   value or label question outside any repeat, where a child case in a repeat may
-  also use that repeat's questions; equal to or having selected an answer, or
-  true).
+  also use that repeat's questions; equal to or having selected an answer that holds
+  no `'`, or true).
 - An advanced action, in an advanced form, when the operation writes to or
   closes a case the form selects, or creates a case with indices, on the same
-  terms for values and conditions, where HQ builds the result faithfully: a link
+  terms for values and conditions (an answer holding no `'`), where HQ builds the result faithfully: a link
   whose relationship is chosen per submission names a selected case, and no link
   before it on that create names a case the form creates (otherwise HQ writes its
   binds on that case's block), and a repeat
@@ -1300,9 +1302,9 @@ is an identity edit for each of those forms. An edit that needs a basic module,
 such as a multi-select case list, moves a module that only its held kind keeps
 advanced back to basic, which clears that kind and moves those placements back,
 so it is an identity edit too, as is turning chained case selections back into
-the parent selection, which renames the session datums back; an unpublished
-module's forms return to basic form types once nothing else needs the advanced
-kind. Any other edit that would make or keep a module
+the parent selection, which renames the session datums back; the forms of a module
+whose kind is not held (one neither published nor imported) return to basic
+form types once nothing else needs the advanced kind. Any other edit that would make or keep a module
 advanced where HQ's advanced-module rules forbid it is refused, naming the rule:
 registration from the case list unless every form loads the same one or more
 cases, the last of the module's case type (`helpers/validators.py::AdvancedModuleValidator`),
@@ -1382,9 +1384,9 @@ the case list, into which Nova's search-no-matches form entry migrates.
 ### Platforms
 
 CommCare Classic never says which features run where, and many do not run the
-same on both: of the 224 held menu, case list and search rows in the inventory
+same on both: of the 225 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 158 held question rows that apply to both, 77 are. In Nova,
+the 159 held question rows that apply to both, 78 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -2040,24 +2042,13 @@ continuity before it reaches HQ.
    the first publish after the cutover of each deployment it read overwrites
    HQ-side edits made before it, as publishes do today; and the migration names
    every deployment in each case.
-2. **Conditions HQ cannot build, or builds broken.**
+2. **Form display conditions HQ cannot build.**
    `lib/commcare/suite/displayConditions.ts::emitFormDisplayConditionForHq`
    writes `#case/@status` (and `@case_id`, `@case_type`, `@owner_id`), which HQ's
    XPath parser, also its build check, rejects ("Expecting 'QNAME', got 'AT'"),
       so such an app does not build in HQ. *Fix:* emit the expanded
    `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/<datum>]/@status`.
-   No visible change. Nova also writes a close form's condition answer into
-   HQ's `close_case` action as entered (`lib/commcare/formActions.ts`), which
-   HQ builds unescaped (`xform.py::XForm.action_relevance`), so an answer
-   containing `'` gives a form Core's parser rejects while HQ's build passes
-   (executed). *Fix:* the validator refuses a close-condition answer
-   containing `'`, which HQ cannot write, and the builder, SA and MCP say so;
-   the migration adds to each such form a hidden value `close_condition_met`
-   (with a numeric suffix on a collision) whose calculate is the comparison,
-   `if(<field> = "<answer>", 'yes', 'no')`, or `selected(…)` for a `selected`
-   condition, printed with the answer in double quotes, and makes the close
-   condition that hidden value equal to `yes`, so the form closes the case
-   exactly when it meant to and now parses; the migration names each.
+   No visible change.
 3. **HQ does not learn the case properties Nova's case operations write.**
    `case_references_data.save` is always `{}` (`lib/commcare/hqShells.ts`), so
    HQ's case-property inventory, case exports, the data dictionary and Vellum's
@@ -2327,8 +2318,12 @@ continuity before it reaches HQ.
       makes. Each submission of such a form then updates its case's
       `modified_on`, which case update rules, repeaters and data forwarding see.
     - A close condition on a question other than a select, hidden value or label,
-      or inside a repeat (`lib/commcare/formActions.ts`), is not something the
-      Case Management tab can set. *Fix:* the close moves to a Save to Case
+      or inside a repeat, is not something the Case Management tab can set, and
+      one whose answer contains `'` is one HQ cannot write: Nova writes the
+      answer into HQ's `close_case` action as entered
+      (`lib/commcare/formActions.ts`), and HQ builds it unescaped
+      (`xform.py::XForm.action_relevance`), which Core's parser rejects or reads
+      as a different condition, while HQ's build passes (executed). *Fix:* the close moves to a Save to Case
       block, the placement for a condition that tab cannot state, while the
       case's writes stay in the Case Management slot, so the app needs
       `save_to_case` and the close's block moves in HQ exports; from step 5 that
@@ -2543,7 +2538,8 @@ continuity before it reaches HQ.
     test) a datum from the worker's `commtrack-supply-point` user data, with assertions
     that it and its case exist (`get_userdata_autoselect`), so a worker without
     one cannot open the form (executed), both COMMTRACK content Nova refuses as
-    retiring. Nova reads neither setting
+    retiring, except where a form's own computed datum of that id supplies it,
+    which is held. Nova reads neither setting
     through any API it uses; whether case search is on it already probes
     (`lib/commcare/client.ts::probeCaseSearchRuntime`). *Fix:*
     publish of an app that declares Android and has a module that offers search

@@ -69,25 +69,25 @@ the gates over the other files' rows and are not counted.
 | Settings and profile | 3 | 26 | 6 | 16 | 12 | 63 |
 | Add-ons | 0 | 0 | 0 | 13 | 0 | 13 |
 | Module types | 3 | 3 | 0 | 0 | 10 | 16 |
-| Module fields | 11 | 14 | 1 | 12 | 15 | 53 |
-| Case list and case detail | 44 | 55 | 0 | 19 | 46 | 164 |
-| Case selection extras | 4 | 6 | 0 | 3 | 6 | 19 |
-| Case search | 41 | 46 | 1 | 8 | 26 | 122 |
+| Module fields | 11 | 14 | 1 | 12 | 16 | 54 |
+| Case list and case detail | 44 | 55 | 0 | 20 | 47 | 166 |
+| Case selection extras | 4 | 6 | 0 | 3 | 8 | 21 |
+| Case search | 42 | 46 | 1 | 8 | 26 | 123 |
 | Form types | 5 | 4 | 0 | 0 | 7 | 16 |
 | Form fields | 18 | 12 | 2 | 13 | 17 | 62 |
-| Basic form actions | 25 | 14 | 1 | 10 | 28 | 78 |
-| Advanced form actions | 0 | 26 | 1 | 2 | 25 | 54 |
+| Basic form actions | 25 | 14 | 1 | 11 | 28 | 79 |
+| Advanced form actions | 0 | 26 | 1 | 2 | 26 | 55 |
 | Shadow forms | 1 | 3 | 0 | 3 | 4 | 11 |
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
 | Question types | 50 | 24 | 0 | 4 | 47 | 125 |
-| Binds, actions, model and head content | 13 | 1 | 0 | 16 | 19 | 49 |
+| Binds, actions, model and head content | 13 | 1 | 0 | 16 | 20 | 50 |
 | Appearances | 0 | 53 | 0 | 9 | 4 | 66 |
-| Itext, markdown and label text | 17 | 7 | 0 | 9 | 10 | 43 |
+| Itext, markdown and label text | 17 | 8 | 0 | 9 | 10 | 44 |
 | Secondary instances | 11 | 13 | 0 | 2 | 17 | 43 |
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
-| Media | 6 | 7 | 0 | 0 | 7 | 20 |
+| Media | 6 | 7 | 0 | 0 | 8 | 21 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **269** | **409** | **26** | **152** | **323** | **1179** |
+| **Total** | **270** | **410** | **26** | **154** | **330** | **1190** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 
@@ -100,7 +100,7 @@ Case list and case detail sums its seven sections, from Detail screens to Case l
 - **Case list and detail:** `caseListConfig.detailTabs` (plain, child-case and expression rows; displayCondition) · `detailTile` · `persistentContext` · `emptyText` · `selectButtonText` · `callout` (action, name, icon, autoLaunch, extras, responses, resultsColumn) · `optimizations` + `column.optimization` · `selection.autoSelect` · `tile.template` + `column.tileSlot` · a hidden or address column's cell in a custom tile · `tile.persistFrom` · `tile.pullDown` · column kinds `address`, `distance`, `markdown`, `mapLayer` (boundary, boundaryColor, points, pointColors), `clickableIcon`, `conditionalText`, `translatedExpression`, `ownerName` · `interval` widening (optional threshold, until, threshold ≤ 0) · `image-map` equality keys, condition keys and `altText` · ID-mapping keys that are blank or hold several tokens · a plain column showing a select property's raw value · several address columns and a detail tile row across tabs, in an advanced module · a hidden sort of a data tab's rows · `column.via` · usercase column · `sort.comparator` / `blanks` / `label` / `expression` · row-context `here()`.
 - **Case search:** `caseSearchConfig.workflow` (listFirst, searchFirst, skipToResults) + `inline`, replacing today's `searchFirst` flag · `resultSort` · `resultsInstanceName` · `caseListConfig.additionalCaseTypes` · `requestCaseTypes` (a `case_type` default filter) · several `_xpath_query` default filter rows, each kept as its own row · search-only owner exclusion · no search title · `includeRelatedCases: false` · a hidden input without a value · a hidden input with a widget · typed default filters (a property, an ancestor property, `owner_id`, `case_id`, `commcare_project` or a reverse index equal to a device-computed value, from a default filter or a hidden prompt without `exclude`) · `relatedCaseProperty` · `includeRelatedCases` · `searchOnClear` · `searchEndpoint` · `geocoder` input + `receiveFrom` · `checkbox` widget · `allowBlank` · `searchInputGroups` · CSQL: `closed_on`, case-type term, project-timezone dates, epoch coercions, list literals, runtime `selected*` values, distance unit tokens, runtime distance operands, case/datum/context value terms.
 - **Forms and case management:** `Form.xmlns` · `Form.openCondition` · `Form.closeCondition` on a registration · `Form.autoCaptureLocation` · `Form.submitLabel` · `Form.caseSelections` (tag, caseType, listModule, childOf, autoSelect: expression/userData/lookupRow/usercase/index) · `Module.autoSelectSingle` · case-operation placement (basic form action slot, advanced action tag or Save to Case path; derived for a new operation, held once published) · a selected case as an operation target, and a link relationship chosen per submission · a label's value as an advanced write or name source, and a preload into a label · `Form.plainText` (Vellum's text formatting off) · `Form.computedDatums` · `Form.shadowOf` (selectionOverrides, extraSelections) · a write's `via` and `onlyIfChanged` · preload as a default value that reads the case · an operation's owner write in the basic update slot · a child case's condition and close in its basic subcase placement · `closeCondition.operator: isTrue` · writer-type joins (decimal, multi_select, text) · the date-and-time join writer · a date-and-time question writing its date to a `date` property · an advanced form's own case (its close, open and close conditions on the form).
-- **XForm:** `label.acknowledge` · `faceCapture` · `callout` field kind · `image.maxDimension` · `repeat.addLabel` / `addFirstLabel` · `group.fieldList` · `Field.dataParent` · `Field.lockedInHq` · `optionsSource: query` · `sortColumn` on a lookup options source (a question's `optionsSource`, a search input's `options`) · query-repeat placement (model iteration or count repeat; derived for a new query repeat, held once published) · a Hidden Value's data-node namespace · a Hidden Value's default kept beside its calculate · a Save to Case owner-write condition and a close sharing its block with a create or update · lookup carriers over attributes and field properties · `caseOperations` case-type expression and authored create id · `connect.work_area_update` · `labelForms.long` / `qrcode` / `speech` · `label_media.videoInline` · `ProseTemplate.markdown` · prose expression part · `jr:itext` / `jr:choice-name` lookups.
+- **XForm:** `label.acknowledge` · a label's pragma itext id (the form's pragma settings) · `faceCapture` · `callout` field kind · `image.maxDimension` · `repeat.addLabel` / `addFirstLabel` · `group.fieldList` · `Field.dataParent` · `Field.lockedInHq` · `optionsSource: query` · `sortColumn` on a lookup options source (a question's `optionsSource`, a search input's `options`) · query-repeat placement (model iteration or count repeat; derived for a new query repeat, held once published) · a Hidden Value's data-node namespace · a Hidden Value's default kept beside its calculate · a Save to Case owner-write condition and a close sharing its block with a create or update · lookup carriers over attributes and field properties · `caseOperations` case-type expression and authored create id · `connect.work_area_update` · `labelForms.long` / `qrcode` / `speech` · `label_media.videoInline` · `ProseTemplate.markdown` · prose expression part · `jr:itext` / `jr:choice-name` lookups.
 - **Media and lookup data:** held media paths · a media reference holding its path with no file · media formats only one platform plays, for an app that declares only that platform · import-sized media · `LookupColumn.properties` + multi-valued cells · `LookupTable.rowAttributes` · `LookupTable.ownership` · `LookupColumn.indexed` · cell absence states (no element, empty element) · a `types` table, referenced only · import-sized tables.
 
 ---
