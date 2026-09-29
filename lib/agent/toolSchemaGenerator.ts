@@ -111,7 +111,7 @@ const FIELD_DOCS = {
 	caseWrite:
 		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. Capture fields save URLs with mode url; other fields omit mode. Use recordName for the primary record's name.",
 	repeat_mode:
-		"Worker-added rows, a fixed count, or rows from a record query. A top-level count or query is captured at form load; a nested one when its enclosing repeat row is created. Later answers do not rebuild rows.",
+		"Worker-added rows, rows counted from an integer question or expression, or rows from a record query. Counts grow live during entry; decreasing a count retains created rows, answers, and case operations. A query is captured at form load or when its enclosing repeat row is created.",
 	repeat_count: "Row count for a count-bound repeat.",
 	ids_query:
 		"Query returning record IDs. In a hidden field directly inside each row, current()/../@id reads that row’s retained record ID.",
@@ -322,7 +322,7 @@ function repeatConfigDiscriminated() {
 					count: xpathExpressionSchema.describe(FIELD_DOCS.repeat_count),
 				})
 				.describe(
-					"Count is fixed when the enclosing instance opens. Use user_controlled for rows added while answering.",
+					"The count is live: increasing it adds rows; decreasing it retains created rows and their submitted answers and case operations. A direct count needs an integer question; other sources need an explicit numeric expression. Use user_controlled for rows the worker adds freely.",
 				),
 			z
 				.object({

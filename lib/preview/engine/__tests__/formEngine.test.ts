@@ -3843,23 +3843,15 @@ describe("FormEngine", () => {
 			);
 		});
 
-		it.each([
-			{ starting: "2.0", loaded: "3", expected: "invalid" },
-			{ starting: "2.5", loaded: "3", expected: "invalid" },
-			{ starting: "٣", loaded: "5", expected: 3 },
-			{ starting: "1", loaded: "3", expected: 1 },
-			{ starting: undefined, loaded: "3", expected: 0 },
-		])(
-			"captures count $starting before late preload $loaded",
-			async ({ starting, loaded, expected }) => {
+		it.each([false, true])(
+			"reads the final preload for a live count (worker: %s)",
+			async (stagedAsync) => {
 				const input = dTree(
 					[
 						{
 							id: "desired_count",
-							kind: "text",
-							...(starting === undefined
-								? {}
-								: { default_value: xp(`'${starting}'`) }),
+							kind: "int",
+							default_value: xp("1"),
 							caseWrite: { caseType: "patient", property: "desired_count" },
 						},
 						{
@@ -3875,44 +3867,104 @@ describe("FormEngine", () => {
 						{
 							name: "patient",
 							properties: [
-								{ name: "desired_count", label: proseText("Desired count") },
+								{
+									name: "desired_count",
+									label: proseText("Desired count"),
+									data_type: "int",
+								},
 							],
 						},
 					],
 				);
-				const caseData = caseDataFor("patient", [["desired_count", loaded]]);
-				if (expected === "invalid") {
-					expect(() => new FormEngine(input, "patient", caseData)).toThrow(
-						/exact base-10 integer/,
-					);
-				} else {
-					const engine = new FormEngine(input, "patient", caseData);
-					expect(engine.getRepeatCount("/data/members")).toBe(expected);
-					expect(engine.getState("/data/desired_count").value).toBe(loaded);
-				}
 				const engine = new FormEngine(
 					input,
 					"patient",
-					caseData,
+					caseDataFor("patient", [["desired_count", "3"]]),
 					undefined,
 					undefined,
 					undefined,
-					{ stagedAsync: true },
+					{ stagedAsync },
 				);
 				const { evaluateAsync, runtime } = fixedWorldEvaluator(
 					engine,
-					"count-action-order",
+					"live-preload",
 				);
 				try {
-					if (expected === "invalid") {
-						await expect(engine.initializeAsync(evaluateAsync)).rejects.toThrow(
-							/exact base-10 integer/,
-						);
-					} else {
-						await engine.initializeAsync(evaluateAsync);
-						expect(engine.getRepeatCount("/data/members")).toBe(expected);
-						expect(engine.getState("/data/desired_count").value).toBe(loaded);
-					}
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getRepeatCount("/data/members")).toBe(3);
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
+
+		it.each(
+			[false, true].flatMap((stagedAsync) =>
+				[false, true].map((calculated) => ({ stagedAsync, calculated })),
+			),
+		)(
+			"grows per-parent counts and retains answers after decreases (worker: $stagedAsync, calculated: $calculated)",
+			async ({ stagedAsync, calculated }) => {
+				const input = dTree([
+					{ id: "n", kind: "int" },
+					{
+						id: "parents",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: formXp("#form/n"),
+						children: [
+							{ id: "size", kind: "int" },
+							{
+								id: "rows",
+								kind: "repeat",
+								repeat_mode: "count_bound",
+								repeat_count: formXp(
+									calculated
+										? "#form/parents/size + 0.7"
+										: "#form/parents/size",
+								),
+								children: [{ id: "answer", kind: "text" }],
+							},
+						],
+					},
+				]);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"live-nested",
+				);
+				const answer = async (path: string, value: string) => {
+					if (stagedAsync)
+						await engine.setValueAsync(path, value, evaluateAsync);
+					else engine.setValue(path, value);
+				};
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					expect(engine.getRepeatCount("/data/parents")).toBe(0);
+					await answer("/data/n", "2");
+					await answer("/data/parents[0]/size", "2");
+					await answer("/data/parents[1]/size", "3");
+					expect(engine.getRepeatCount("/data/parents[0]/rows")).toBe(2);
+					expect(engine.getRepeatCount("/data/parents[1]/rows")).toBe(3);
+					await answer("/data/parents[0]/rows[1]/answer", "Keep this");
+					await answer("/data/parents[0]/size", "4");
+					await answer("/data/parents[0]/size", "1");
+					await answer("/data/n", "-");
+					await answer("/data/n", "");
+					expect(engine.getRepeatCount("/data/parents")).toBe(2);
+					expect(engine.getRepeatCount("/data/parents[0]/rows")).toBe(4);
+					expect(engine.getState("/data/parents[0]/rows[1]/answer").value).toBe(
+						"Keep this",
+					);
+					expect(engine.getState("/data/parents[0]/rows").repeatCount).toBe(4);
 				} finally {
 					runtime.dispose();
 				}
@@ -3960,7 +4012,7 @@ describe("FormEngine", () => {
 			["false()", 0],
 			["'٣'", 3],
 		] as const)(
-			"matches SetValueAction xsd:int coercion for hoisted %s",
+			"matches calculated xsd:int coercion for hoisted %s",
 			async (source, expected) => {
 				const input = dTree([
 					{
@@ -5401,6 +5453,71 @@ describe("sections on submission", () => {
 
 describe("section entry initializes later rows", () => {
 	it.each([false, true])(
+		"rereads a pending count when a hidden repeat becomes visible (worker: %s)",
+		async (stagedAsync) => {
+			const engine = new FormEngine(
+				dTree([
+					{
+						id: "first",
+						kind: "section",
+						children: [{ id: "n", kind: "int", default_value: xp("5") }],
+					},
+					{
+						id: "second",
+						kind: "section",
+						children: [
+							{ id: "show", kind: "int", default_value: xp("0") },
+							{
+								id: "rows",
+								kind: "repeat",
+								repeat_mode: "count_bound",
+								repeat_count: formXp("#form/first/n"),
+								relevant: formXp("#form/second/show = 1"),
+								children: [{ id: "answer", kind: "text" }],
+							},
+						],
+					},
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync },
+			);
+			const worker = fixedWorldEvaluator(engine, `hidden-count-${stagedAsync}`);
+			try {
+				if (stagedAsync) await engine.initializeAsync(worker.evaluateAsync);
+				const second = engine.sectionPages()[1];
+				if (!second) throw new Error("Missing second page");
+				if (stagedAsync) {
+					await engine.setValueAsync(
+						"/data/first/n",
+						"2",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+					await engine.setValueAsync(
+						"/data/second/show",
+						"1",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+				} else {
+					engine.setValue("/data/first/n", "2");
+					engine.enterSection(second.uuid);
+					engine.setValue("/data/second/show", "1");
+					engine.enterSection(second.uuid);
+				}
+				expect(engine.getRepeatCount("/data/second/rows")).toBe(2);
+				expect(engine.hasPendingSectionInitialization()).toBe(false);
+			} finally {
+				worker.runtime.dispose();
+			}
+		},
+	);
+
+	it.each([false, true])(
 		"captures nested membership on page entry and retains it on return (worker: %s)",
 		async (stagedAsync) => {
 			const input = dTree([
@@ -5582,3 +5699,54 @@ it("inserts newly relevant rows on the current page and resolves a later page wi
 		needsEntry: false,
 	});
 });
+
+it.each([false, true])(
+	"grows dependent counts after removing a user row (worker: %s)",
+	async (stagedAsync) => {
+		const engine = new FormEngine(
+			dTree([
+				{ id: "n", kind: "int", default_value: xp("0") },
+				{
+					id: "a",
+					kind: "repeat",
+					repeat_mode: "user_controlled",
+					children: [{ id: "answer", kind: "text" }],
+				},
+				{
+					id: "b",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: formXp("if(count(#form/a) = 2, 0, number(#form/n))"),
+					children: [{ id: "answer", kind: "text" }],
+				},
+			]),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ stagedAsync },
+		);
+		const worker = fixedWorldEvaluator(
+			engine,
+			`remove-live-count-${stagedAsync}`,
+		);
+		try {
+			if (stagedAsync) {
+				await engine.initializeAsync(worker.evaluateAsync);
+				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
+				await engine.setValueAsync("/data/n", "3", worker.evaluateAsync);
+			} else {
+				engine.addRepeat("/data/a");
+				engine.setValue("/data/n", "3");
+			}
+			expect(engine.getRepeatCount("/data/b")).toBe(0);
+			if (stagedAsync)
+				await engine.removeRepeatAsync("/data/a", 1, worker.evaluateAsync);
+			else engine.removeRepeat("/data/a", 1);
+			expect(engine.getRepeatCount("/data/b")).toBe(3);
+		} finally {
+			worker.runtime.dispose();
+		}
+	},
+);

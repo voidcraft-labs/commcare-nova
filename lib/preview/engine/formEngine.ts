@@ -29,16 +29,10 @@ import {
 	type ProjectedCaseWriteInventory,
 } from "@/lib/commcare/caseWriteAdmission";
 import {
-	caseTypeDepthMap,
-	expandHashtagsInContext,
-} from "@/lib/commcare/hashtags/formContext";
-import {
 	type XFormDataRootRuntimeAttributes,
 	xformDataRootRuntimeAttributes,
 } from "@/lib/commcare/xform/dataRootAttributes";
-import { isPathExpression } from "@/lib/commcare/xform/pathExpression";
-import { repeatCountSnapshotName } from "@/lib/commcare/xform/repeatCountSnapshot";
-import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
+import { repeatCountNodeName } from "@/lib/commcare/xform/repeatCountNode";
 import type {
 	BlueprintDoc,
 	CaseProperty,
@@ -78,6 +72,7 @@ import {
 	compilerBugMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
+import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
@@ -167,7 +162,7 @@ function javaIntegerLexical(
 /** Materialize the count through the same carrier JavaRosa receives. A direct
  * node is cast by `IntegerData.cast`, which accepts blank as zero at the repeat
  * boundary and otherwise requires an exact base-10 int lexical value. A
- * non-path expression is first stored by `SetValueAction` in Nova's generated
+ * expression is first stored by a calculate in Nova's generated
  * `xsd:int` node: blank/NaN becomes null, doubles use Java's narrowing int
  * conversion, booleans round-trip through `BooleanData`'s `1`/`0` lexical,
  * and strings retain `IntegerData.cast`'s exact lexical validation. */
@@ -783,7 +778,7 @@ export class FormEngine {
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
-		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+		await this.settleAsync(evaluateAsync);
 		await this.enterFirstSectionAsync(evaluateAsync);
 	}
 
@@ -804,6 +799,7 @@ export class FormEngine {
 	async settleValueChangesAsync(
 		paths: readonly string[],
 		evaluateAsync: FormEngineAsyncEvaluator,
+		beforeInsertion?: () => void,
 	): Promise<void> {
 		await this.evaluatePathsIntoAsync(
 			this.dag.getAffectedMany(paths, this.repeatCounts),
@@ -821,6 +817,7 @@ export class FormEngine {
 			);
 		}
 		if (Object.keys(updates).length > 0) this.store.setState(updates);
+		await this.settleLiveRepeatsAsync(evaluateAsync, beforeInsertion);
 	}
 
 	async touchAsync(
@@ -859,6 +856,7 @@ export class FormEngine {
 
 	async settleAsync(evaluateAsync: FormEngineAsyncEvaluator): Promise<void> {
 		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
+		await this.settleLiveRepeatsAsync(evaluateAsync);
 	}
 
 	async addRepeatAsync(
@@ -925,6 +923,7 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+		this.settleLiveRepeats();
 		if (!this.asyncRuntime && this.activeSectionUuid)
 			this.enterSection(this.activeSectionUuid);
 	}
@@ -956,6 +955,7 @@ export class FormEngine {
 		/* Existing instances can depend on cardinality, but their one-time
 		 * defaults and membership snapshots remain intact. */
 		this.evaluateRepeatCascade(`${repeatPath}[`, newLeafPaths);
+		this.settleLiveRepeats();
 
 		return newIndex;
 	}
@@ -1039,6 +1039,7 @@ export class FormEngine {
 			if (key.startsWith(`${repeatPath}[`)) survivingLeaves.push(key);
 		}
 		this.evaluateRepeatCascade(`${repeatPath}[`, survivingLeaves);
+		this.settleLiveRepeats();
 	}
 
 	/**
@@ -3348,6 +3349,7 @@ export class FormEngine {
 		if (Object.keys(updates).length > 0) {
 			this.store.setState(updates);
 		}
+		this.settleLiveRepeats();
 	}
 
 	// ── Private: validation ──────────────────────────────────────────
@@ -3744,23 +3746,8 @@ export class FormEngine {
 		return context;
 	}
 
-	/** Reproduce the emitter's `jr:count` carrier decision against fully
-	 * projected JavaRosa text. Classifying raw Nova hashtag text would miss a
-	 * path-shaped reference once the hashtag appears inside a longer location
-	 * path or predicate. */
-	private isDirectRepeatCountReference(source: string): boolean {
-		const expanded = expandHashtagsInContext(source, {
-			formType: this.formType,
-			caseTypeDepths: caseTypeDepthMap(
-				this.moduleCaseType,
-				this.caseWriteDoc.caseTypes ?? [],
-			),
-		});
-		return isPathExpression(lowerXPathForJavaRosa(expanded));
-	}
-
-	/** Defaults and query snapshots retain authored action order. Count
-	 * snapshots follow those actions; primary case preloads are appended last
+	/** Defaults and query snapshots retain authored action order. Live counts
+	 * follow settled calculations and primary case preloads, appended last
 	 * by the export boundary. Calculation writes cascade between actions.
 	 * This program is shared by synchronous and worker-backed execution. */
 	private *initializeScope(
@@ -3844,32 +3831,6 @@ export class FormEngine {
 				snapshots.set(path, { count: ids.length, ids });
 			}
 		}
-		const snapshotNames = new Map<string, Set<string>>();
-		for (const { node, path } of fields) {
-			if (
-				node.field.kind !== "repeat" ||
-				node.field.repeat_mode !== "count_bound" ||
-				(healing && !this.pendingSectionRepeats.has(path))
-			)
-				continue;
-			const source =
-				expressionSource(node.field, "repeat_count", this.printDoc) ?? "0";
-			const parentPath =
-				prefix === "/data" ? "/data" : path.slice(0, path.lastIndexOf("/"));
-			const names = snapshotNames.get(parentPath) ?? new Set<string>();
-			const name = repeatCountSnapshotName(node.field.id, names);
-			names.add(name);
-			snapshotNames.set(parentPath, names);
-			const result = yield { source, path, carrier: { parentPath, name } };
-			if (isAsyncNodesetValues(result))
-				throw new Error("Expected a scalar count.");
-			snapshots.set(path, {
-				count: materializedRepeatCount(
-					this.isDirectRepeatCountReference(source),
-					result,
-				),
-			});
-		}
 		if (prefix === "/data") {
 			const seeded = this.seededWriters();
 			const own = this.ownCaseData();
@@ -3920,7 +3881,12 @@ export class FormEngine {
 				}
 				continue;
 			}
-			const snapshot = snapshots.get(path) ?? { count: 1 };
+			const snapshot = snapshots.get(path) ?? {
+				count:
+					node.field.repeat_mode === "count_bound"
+						? yield* this.readLiveRepeatCount(node.field, path)
+						: 1,
+			};
 			if (
 				prefix === "/data" &&
 				this.tree.some(
@@ -3930,7 +3896,126 @@ export class FormEngine {
 				)
 			) {
 				this.pendingSectionRepeats.set(path, snapshot);
-			} else yield* this.materializeInitializedRepeat(node, path, snapshot);
+			} else {
+				yield* this.materializeInitializedRepeat(node, path, snapshot);
+			}
+		}
+	}
+
+	/** The calculation's context is a sibling of the repeat, including when
+	 * that repeat has no rows. Direct references retain the same parent row. */
+	private *readLiveRepeatCount(
+		field: Field & { kind: "repeat"; repeat_mode: "count_bound" },
+		path: string,
+	): Generator<InitializationRead, number, InitializationValue> {
+		const source =
+			expressionSource(field, "repeat_count", this.printDoc) ?? "0";
+		const parentPath = path.slice(0, path.lastIndexOf("/"));
+		const name = repeatCountNodeName(field.id, new Set());
+		const result = yield { source, path, carrier: { parentPath, name } };
+		if (isAsyncNodesetValues(result))
+			throw new Error("Expected a scalar count.");
+		const direct = directRepeatCountReference(field.repeat_count) !== undefined;
+		// Numeric inputs retain incomplete keystrokes until blur. Core only sees
+		// committed integer answers; do not turn a draft such as "-" into a crash.
+		if (direct && !readNumericAnswer("int", xpathToString(result)).ok) return 0;
+		return materializedRepeatCount(direct, result);
+	}
+
+	/** Visit only the current page. Existing rows are never replayed or removed.
+	 * Newly inserted rows run the ordinary scoped initialization program. */
+	private *growLiveRepeats(
+		tree: readonly FieldTreeNode[] = this.tree,
+		prefix = "/data",
+		entered = true,
+		visible: ReadonlySet<string> = this.effectivelyVisiblePaths(
+			this.initializationStates,
+		),
+		beforeInsertion?: () => void,
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		let grew = false;
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			const inEnteredScope =
+				entered &&
+				(field.kind !== "section" || field.uuid === this.activeSectionUuid);
+			if (!visible.has(path)) continue;
+			if (field.kind === "repeat") {
+				if (field.repeat_mode === "count_bound") {
+					const count = yield* this.readLiveRepeatCount(field, path);
+					if (!inEnteredScope) {
+						if (count > this.instance.getRepeatCount(path))
+							this.pendingSectionRepeats.set(path, { count });
+						else this.pendingSectionRepeats.delete(path);
+					} else {
+						this.pendingSectionRepeats.delete(path);
+						if (count > this.instance.getRepeatCount(path)) {
+							beforeInsertion?.();
+							yield* this.materializeInitializedRepeat(node, path, { count });
+							grew = true;
+						}
+					}
+				}
+				for (
+					let index = 0;
+					index < this.instance.getRepeatCount(path);
+					index++
+				) {
+					grew =
+						(yield* this.growLiveRepeats(
+							node.children ?? [],
+							`${path}[${index}]`,
+							inEnteredScope,
+							visible,
+							beforeInsertion,
+						)) || grew;
+				}
+			} else if (node.children)
+				grew =
+					(yield* this.growLiveRepeats(
+						node.children,
+						path,
+						inEnteredScope,
+						visible,
+						beforeInsertion,
+					)) || grew;
+		}
+		return grew;
+	}
+
+	private growingLiveRepeats = false;
+	private settleLiveRepeats(): void {
+		if (this.asyncRuntime || this.growingLiveRepeats) return;
+		this.growingLiveRepeats = true;
+		try {
+			while (this.runInitialization(this.growLiveRepeats())) {
+				this.publishInitializedSections();
+				this.evaluateAllInto();
+			}
+		} finally {
+			this.growingLiveRepeats = false;
+		}
+	}
+
+	private async settleLiveRepeatsAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+		beforeInsertion?: () => void,
+	): Promise<void> {
+		while (
+			await this.runInitializationAsync(
+				this.growLiveRepeats(
+					this.tree,
+					"/data",
+					true,
+					undefined,
+					beforeInsertion,
+				),
+				evaluateAsync,
+			)
+		) {
+			this.publishInitializedSections();
+			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 		}
 	}
 
@@ -3939,7 +4024,11 @@ export class FormEngine {
 		path: string,
 		snapshot: RepeatInitializationSnapshot,
 	): Generator<InitializationRead, void, InitializationValue> {
-		for (let index = 0; index < snapshot.count; index++) {
+		for (
+			let index = this.instance.getRepeatCount(path);
+			index < snapshot.count;
+			index++
+		) {
 			this.instance.setRepeatCount(path, index + 1);
 			yield* this.initializeScope(
 				node.children ?? [],
@@ -3952,7 +4041,7 @@ export class FormEngine {
 		}
 	}
 
-	/** Form-start actions already captured these outer counts/IDs. Only row
+	/** Query membership is captured at form start; count targets are live. Row
 	 * insertion is delayed until the section is visited; its nested actions
 	 * then see answers entered on previous pages. */
 	private *initializeSection(
@@ -3973,7 +4062,11 @@ export class FormEngine {
 				continue;
 			const node = this.findTreeNode(path);
 			if (!node) throw new Error("Section repeat is unavailable.");
-			yield* this.materializeInitializedRepeat(node, path, snapshot);
+			const current =
+				node.field.kind === "repeat" && node.field.repeat_mode === "count_bound"
+					? { count: yield* this.readLiveRepeatCount(node.field, path) }
+					: snapshot;
+			yield* this.materializeInitializedRepeat(node, path, current);
 			this.pendingSectionRepeats.delete(path);
 		}
 	}
@@ -4025,6 +4118,7 @@ export class FormEngine {
 			this.publishInitializedSections();
 			this.evaluateAllInto();
 		}
+		this.settleLiveRepeats();
 		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
@@ -4043,6 +4137,7 @@ export class FormEngine {
 			this.publishInitializedSections();
 			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 		}
+		await this.settleLiveRepeatsAsync(evaluateAsync);
 		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid)
@@ -4128,10 +4223,10 @@ export class FormEngine {
 		);
 	}
 
-	private runInitialization(
-		steps: Generator<InitializationRead, void, InitializationValue>,
+	private runInitialization<T>(
+		steps: Generator<InitializationRead, T, InitializationValue>,
 		fresh = false,
-	): void {
+	): T {
 		this.initializationStates = fresh ? {} : { ...this.store.getState() };
 		try {
 			let step = steps.next();
@@ -4153,6 +4248,7 @@ export class FormEngine {
 					);
 				} else step = steps.next(evaluate(source, context));
 			}
+			return step.value;
 		} finally {
 			this.initializationStates = undefined;
 			this.initializationContext = undefined;
@@ -4176,11 +4272,11 @@ export class FormEngine {
 		);
 	}
 
-	private async runInitializationAsync(
-		steps: Generator<InitializationRead, void, InitializationValue>,
+	private async runInitializationAsync<T>(
+		steps: Generator<InitializationRead, T, InitializationValue>,
 		evaluateAsync: FormEngineAsyncEvaluator,
 		fresh = false,
-	): Promise<void> {
+	): Promise<T> {
 		this.initializationStates = fresh ? {} : { ...this.store.getState() };
 		try {
 			let step = steps.next();
@@ -4193,6 +4289,7 @@ export class FormEngine {
 						: await evaluateAsync(source, path),
 				);
 			}
+			return step.value;
 		} finally {
 			this.initializationStates = undefined;
 			this.initializationContext = undefined;

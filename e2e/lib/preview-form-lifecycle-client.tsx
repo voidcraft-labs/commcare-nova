@@ -8,7 +8,10 @@ import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
-import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
+import {
+	liveCountEntryDoc,
+	sectionEntryDoc,
+} from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	BuilderFormEngineProvider,
@@ -26,82 +29,84 @@ const numbers = new URLSearchParams(location.search).has("numbers");
 const drafts = new URLSearchParams(location.search).has("drafts");
 const sections = new URLSearchParams(location.search).has("sections");
 const doc = admittedControllerDoc(
-	sections
-		? sectionEntryDoc()
-		: buildDoc({
-				appId: "native-form",
-				appName: "Form lifecycle",
-				caseTypes: drafts ? [{ name: "visit", properties: [] }] : undefined,
-				modules: [
-					{
-						uuid: MODULE,
-						name: "Visits",
-						caseType: drafts ? "visit" : undefined,
-						caseListConfig: drafts
-							? caseListConfig([{ field: "case_name", header: "Name" }])
-							: undefined,
-						forms: [
-							{
-								uuid: FORM,
-								name: "Visit",
-								type: drafts ? "registration" : "survey",
-								fields: [
-									{
-										uuid: NAME,
-										id: "name",
-										kind: "text",
-										label: "Name",
-										required: "true()",
+	new URLSearchParams(location.search).has("live-counts")
+		? liveCountEntryDoc()
+		: sections
+			? sectionEntryDoc()
+			: buildDoc({
+					appId: "native-form",
+					appName: "Form lifecycle",
+					caseTypes: drafts ? [{ name: "visit", properties: [] }] : undefined,
+					modules: [
+						{
+							uuid: MODULE,
+							name: "Visits",
+							caseType: drafts ? "visit" : undefined,
+							caseListConfig: drafts
+								? caseListConfig([{ field: "case_name", header: "Name" }])
+								: undefined,
+							forms: [
+								{
+									uuid: FORM,
+									name: "Visit",
+									type: drafts ? "registration" : "survey",
+									fields: [
+										{
+											uuid: NAME,
+											id: "name",
+											kind: "text",
+											label: "Name",
+											required: "true()",
+											...(drafts
+												? {
+														caseWrite: {
+															caseType: "visit",
+															property: "case_name",
+														},
+													}
+												: {}),
+										},
+										{ uuid: PHOTO, id: "photo", kind: "image", label: "Photo" },
 										...(drafts
-											? {
-													caseWrite: {
-														caseType: "visit",
-														property: "case_name",
+											? [
+													{
+														uuid: testUuid("native-form-place"),
+														id: "place",
+														kind: "geopoint" as const,
+														label: "Location",
+														caseWrite: { caseType: "visit", property: "place" },
 													},
-												}
-											: {}),
-									},
-									{ uuid: PHOTO, id: "photo", kind: "image", label: "Photo" },
-									...(drafts
-										? [
-												{
-													uuid: testUuid("native-form-place"),
-													id: "place",
-													kind: "geopoint" as const,
-													label: "Location",
-													caseWrite: { caseType: "visit", property: "place" },
-												},
-												{
-													uuid: testUuid("native-form-clock"),
-													id: "clock",
-													kind: "time" as const,
-													label: "Time",
-													caseWrite: { caseType: "visit", property: "clock" },
-												},
-											]
-										: []),
-									...(numbers
-										? [
-												{
-													uuid: testUuid("native-form-count"),
-													id: "count",
-													kind: "int" as const,
-													label: "Count",
-												},
-												{
-													uuid: testUuid("native-form-quantity"),
-													id: "quantity",
-													kind: "decimal" as const,
-													label: "Quantity",
-												},
-											]
-										: []),
-								],
-							},
-						],
-					},
-				],
-			}),
+													{
+														uuid: testUuid("native-form-clock"),
+														id: "clock",
+														kind: "time" as const,
+														label: "Time",
+														caseWrite: { caseType: "visit", property: "clock" },
+													},
+												]
+											: []),
+										...(numbers
+											? [
+													{
+														uuid: testUuid("native-form-count"),
+														id: "count",
+														kind: "int" as const,
+														label: "Count",
+													},
+													{
+														uuid: testUuid("native-form-quantity"),
+														id: "quantity",
+														kind: "decimal" as const,
+														label: "Quantity",
+													},
+												]
+											: []),
+									],
+								},
+							],
+						},
+					],
+				}),
 );
 const activeModule = doc.moduleOrder[0];
 const activeForm = doc.formOrder[activeModule][0];

@@ -2609,3 +2609,14 @@ clock in observations. This is not a geographic timezone inferred from a place.
 The Postgres regression uses independent Intl calendar projections in zones
 25 hours apart and non-UTC connection settings, so it exposes the midnight
 disagreement at any test execution time.
+
+### Live counted repeats
+
+Count-bound repeats follow CommCare entry semantics: increasing a count adds
+rows, while decreasing it retains created rows, their answers, and their case
+operations in the submission. A direct reference requires an integer question;
+other sources use an explicit numeric expression. Expressions emit through a
+calculated integer beside the repeat, preserving each enclosing row's context.
+Query-bound membership remains a separate initialization snapshot. Republishing
+removes old `__nova_count_*` paths and their HQ export columns; expression counts
+introduce `nova_count_*` columns. No blueprint migration is needed.

@@ -760,6 +760,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} looks like plain text. If you meant the words ${q(det(e, "bareWord", ""))}, put quotes around them.`,
 	VALIDATION_ON_NON_INPUT_KIND: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} can't have a validation rule, only fields people answer can. Remove it, or change the field's type.`,
+	REPEAT_COUNT_TYPE: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} needs an integer question for its count. Choose an integer question, or use an explicit numeric expression such as int(number(...)).`,
 	EMPTY_REPEAT_COUNT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>

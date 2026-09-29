@@ -234,7 +234,7 @@ for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
 				nodeset: scope,
 				...(mode === "count_bound"
 					? {
-							"jr:count": "/data/__nova_count_children",
+							"jr:count": "/data/nova_count_children",
 							"jr:noAddRemove": "true()",
 						}
 					: mode === "query_bound"
@@ -245,20 +245,13 @@ for (const mode of ["user_controlled", "count_bound", "query_bound"] as const) {
 						: {}),
 			});
 			if (mode === "count_bound") {
-				expect(child(output.data, "__nova_count_children").children).toEqual(
-					[],
-				);
-				expect(output.binds("/data/__nova_count_children")).toEqual({
-					nodeset: "/data/__nova_count_children",
+				expect(child(output.data, "nova_count_children").children).toEqual([]);
+				expect(output.binds("/data/nova_count_children")).toEqual({
+					nodeset: "/data/nova_count_children",
 					type: "xsd:int",
+					calculate: "2",
 				});
-				expect(output.setvalues("/data/__nova_count_children")).toEqual([
-					{
-						event: "xforms-ready",
-						ref: "/data/__nova_count_children",
-						value: "2",
-					},
-				]);
+				expect(output.setvalues("/data/nova_count_children")).toEqual([]);
 			}
 			expect(output.datums).toEqual([
 				{ id: "case_id_new_household_0", function: "uuid()" },

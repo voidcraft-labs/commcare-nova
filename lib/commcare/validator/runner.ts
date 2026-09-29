@@ -431,6 +431,20 @@ function runDeepValidation(
 				 * display condition changes, so that step is named by its
 				 * containment instead of sending the author hunting for a
 				 * reference that is not written anywhere. */
+				if (deep.countFeedback !== undefined) {
+					return validationError(
+						"CYCLE",
+						"form",
+						`The count for ${deep.countFeedback} depends on rows it creates (${deep.cycle.join(" → ")}). This can keep adding rows during entry. Use a count that is independent of those rows.`,
+						{
+							moduleUuid: deep.moduleUuid,
+							moduleName: deep.moduleName,
+							formUuid: deep.formUuid,
+							formName: deep.formName,
+						},
+						{ loop: deep.cycle.join(" → ") },
+					);
+				}
 				const cascade = deep.cascade;
 				const steps: string[] = [];
 				for (let i = 0; i + 1 < deep.cycle.length; i++) {

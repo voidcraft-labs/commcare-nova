@@ -7,17 +7,29 @@ import {
 } from "../../../lib/commcare/__tests__/containerWireFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
-import { sectionEntryDoc } from "../../../lib/preview/engine/__tests__/fixtures/sectionEntry";
+import {
+	liveCountEntryDoc,
+	sectionEntryDoc,
+} from "../../../lib/preview/engine/__tests__/fixtures/sectionEntry";
 
 const output = process.argv[2];
 if (!output)
 	throw new Error("Usage: emit-container-evidence.ts OUTPUT_DIRECTORY");
 mkdirSync(output, { recursive: true });
-for (const scenario of [...containerScenarios, "section-entry"] as const) {
+for (const scenario of [
+	...containerScenarios,
+	"section-entry",
+	"live-count-entry",
+	"live-count-effects",
+] as const) {
 	const doc =
-		scenario === "section-entry"
-			? sectionEntryDoc()
-			: containerWireFixture(scenario);
+		scenario === "live-count-effects"
+			? liveCountEntryDoc(true)
+			: scenario === "live-count-entry"
+				? liveCountEntryDoc()
+				: scenario === "section-entry"
+					? sectionEntryDoc()
+					: containerWireFixture(scenario);
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
 	const form = Object.values(hq._attachments)[0];

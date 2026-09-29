@@ -319,3 +319,48 @@ test("page entry initializes dependent repeat rows and Back preserves their answ
 		}
 	}
 });
+
+test("an earlier-page count grows repeats and lowering it retains answers", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-form-lifecycle-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+		},
+	);
+	try {
+		await page.goto(`${peer.origin}/?live-counts`);
+		const count = page.getByRole("textbox", { name: /Number of activities/ });
+		await expect(count).toBeVisible();
+		await count.fill("2");
+		await page.getByRole("button", { name: "Next", exact: true }).click();
+		const notes = page.getByRole("textbox", { name: /Activity note/ });
+		await expect(notes).toHaveCount(2);
+		await notes.nth(1).fill("Retain this answer");
+		for (const [value, expected] of [
+			["4", 4],
+			["1", 4],
+		] as const) {
+			await page.getByRole("button", { name: "Back", exact: true }).click();
+			await count.fill(value);
+			await page.getByRole("button", { name: "Next", exact: true }).click();
+			await expect(notes).toHaveCount(expected);
+			await expect(notes.nth(1)).toHaveValue("Retain this answer");
+		}
+	} finally {
+		try {
+			if (!page.isClosed())
+				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
+		} finally {
+			await page.close();
+			await peer.close();
+		}
+	}
+});

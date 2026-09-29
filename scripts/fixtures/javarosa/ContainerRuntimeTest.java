@@ -135,7 +135,7 @@ public class ContainerRuntimeTest {
   }
  }
  @Test public void actualEntryCreatesIndependentCountsAndQueryIdentities()throws Exception{
-  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"user","path","literal","expression","cousins","query","nested-query","path-late","nested-count"}){
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"user","path","literal","expression","cousins","query","nested-query","path-late","nested-count","count-collision"}){
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,"user".equals(scenario));
    switch(scenario){
     case "user":assertEquals(1.0,eval(form,"count(/data/items)"));break;
@@ -144,6 +144,7 @@ public class ContainerRuntimeTest {
     case "literal":
      assertEquals(3.0,eval(form,"count(/data/items)"));
      referenceCount(form,"items",3.0);break;
+    case "count-collision":assertEquals(3.0,eval(form,"count(/data/items)"));assertEquals("authored",eval(form,"string(/data/nova_count_items)"));break;
     case "expression":assertEquals(4.0,eval(form,"count(/data/items)"));break;
     case "cousins":assertEquals(3.0,eval(form,"count(/data/one/items)"));assertEquals(5.0,eval(form,"count(/data/two/items)"));break;
     case "query":
@@ -164,13 +165,44 @@ public class ContainerRuntimeTest {
    }
   }
  }
- @Test public void allCountsKeepTheirInitialValueWhenAnswersChange()throws Exception {
+
+ @Test public void liveCountsGrowButKeepCreatedRowsAndAnswers()throws Exception {
   for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"path","expression"}) {
+   FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   answer(form,"/data/items[1]/answer","retained");
+   form.setValue(new org.javarosa.core.model.data.IntegerData(5),ref(form,"/data/size"));enter(parsed,false);
+   double count="path".equals(scenario)?5.0:7.0;
+   assertEquals(count,eval(form,"count(/data/items)"));
+   form.setValue(new org.javarosa.core.model.data.IntegerData(1),ref(form,"/data/size"));enter(parsed,false);
+   assertEquals(count,eval(form,"count(/data/items)"));assertEquals("retained",eval(form,"string(/data/items[1]/answer)"));
+  }
+ }
+
+ @Test public void earlierPageAnswerCreatesLiveRowsWithIndependentNestedCounts()throws Exception {
+  for(boolean source:new boolean[]{false,true})for(String scenario:new String[]{"live-count-entry","live-count-effects"}) {
    FormParseInit parsed=load(scenario,source);FormDef form=parsed.getFormDef();
-   org.javarosa.xpath.XPathNodeset size=(org.javarosa.xpath.XPathNodeset)org.javarosa.xpath.XPathParseTool.parseXPath("/data/size").eval(form.getMainInstance(),form.getEvaluationContext());
-   form.setValue(new org.javarosa.core.model.data.IntegerData(5),size.getRefAt(0));
+   FormEntryController controller=parsed.getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());
+   var prompts=controller.getQuestionPrompts();assertEquals(1,prompts.length);
+   assertEquals(0.0,eval(form,"count(/data/second/items)"));
+   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(prompts[0].getIndex(),new org.javarosa.core.model.data.IntegerData(2)));
+   controller.jumpToIndex(prompts[0].getIndex());assertEquals(FormEntryController.EVENT_GROUP,controller.stepToNextEvent());controller.getQuestionPrompts();
+   assertEquals(2.0,eval(form,"count(/data/second/items)"));
+   for(int i=1;i<=2;i++) form.setValue(new org.javarosa.core.model.data.IntegerData(i+1),ref(form,"/data/second/items["+i+"]/size"));
    enter(parsed,false);
-   assertEquals("path".equals(scenario)?2.0:4.0,eval(form,"count(/data/items)"));
+   for(String child:new String[]{"direct","computed"}) {
+    assertEquals(2.0,eval(form,"count(/data/second/items[1]/"+child+")"));
+    assertEquals(3.0,eval(form,"count(/data/second/items[2]/"+child+")"));
+   }
+   answer(form,"/data/second/items[2]/answer","retained after decrease");
+   form.setValue(new org.javarosa.core.model.data.IntegerData(4),ref(form,"/data/first/size"));enter(parsed,false);
+   form.setValue(new org.javarosa.core.model.data.IntegerData(1),ref(form,"/data/first/size"));enter(parsed,false);
+   assertEquals(4.0,eval(form,"count(/data/second/items)"));
+   String xml=new String(new org.javarosa.model.xform.XFormSerializingVisitor().serializeInstance(form.getMainInstance()),java.nio.charset.StandardCharsets.UTF_8);
+   assertTrue(xml.contains("retained after decrease"));
+   javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+   org.w3c.dom.Document submitted=factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(xml.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+   assertEquals(scenario.equals("live-count-effects")?4:0,submitted.getElementsByTagNameNS("http://commcarehq.org/case/transaction/v2","create").getLength());
   }
  }
 
@@ -196,19 +228,19 @@ public class ContainerRuntimeTest {
   }
  }
 
- @Test public void directSnapshotPreservesStrictLexicalCountConversion()throws Exception {
-  String[] values={"", "0", "2", "2.0", " 2 ", "-1", "٢", "NaN", "2147483648"};
-  String[] expected={"0.0", "0.0", "2.0", "invalid", "invalid", "0.0", "2.0", "invalid", "invalid"};
-  for(int i=0;i<values.length;i++)for(boolean direct:new boolean[]{false,true}) {
+ /** Deliberate wire probes isolate native typing; decimal/text direct counts
+  * are refused by Nova's admission rule, so these are not admitted apps. */
+ @Test public void nativeCountTypesAndCalculatedNarrowing()throws Exception {
+  String[][] cases={{"int","","0.0"},{"int","2","2.0"},{"decimal","","0.0"},{"decimal","2","invalid"},{"decimal","2.7","invalid"},{"string","","0.0"},{"string","2","2.0"},{"string","2.0","invalid"},{"string"," 2 ","invalid"}};
+  for(String[] item:cases) {
    javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
    org.w3c.dom.Document document;
    try(java.io.InputStream stream=getClass().getResourceAsStream("/container-path.xml")){document=factory.newDocumentBuilder().parse(stream);}
    org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");
    for(int n=0;n<nodes.getLength();n++) {
     org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
-    if("bind".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("nodeset")))element.setAttribute("type","xsd:string");
-    if("setvalue".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("ref")))element.setAttribute("value","'"+values[i]+"'");
-    if(direct&&"repeat".equals(element.getLocalName()))element.setAttributeNS("http://openrosa.org/javarosa","jr:count","/data/size");
+    if("bind".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("nodeset")))element.setAttribute("type","xsd:"+item[0]);
+    if("setvalue".equals(element.getLocalName())&&"/data/size".equals(element.getAttribute("ref")))element.setAttribute("value","'"+item[1]+"'");
    }
    java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
    javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
@@ -217,15 +249,40 @@ public class ContainerRuntimeTest {
     FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
     enter(new FormParseInit(form),false);actual=eval(form,"count(/data/items)").toString();
    }catch(org.javarosa.xpath.XPathTypeMismatchException error){actual="invalid";}
-   assertEquals("lexical="+values[i]+", originalDirect="+direct,expected[i],actual);
+   assertEquals(item[0]+" lexical="+item[1],item[2],actual);
   }
  }
 
- @Test public void laterAuthoredDefaultsExistBeforeCountSnapshot()throws Exception {
+ /** Deliberately invalid Nova count: Core parses it but every new row raises
+  * the target again. Admission must reject this cardinality feedback. */
+ @Test public void countFeedbackKeepsCreatingRowsDuringEntry()throws Exception {
+  javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+  org.w3c.dom.Document document;
+  try(java.io.InputStream stream=getClass().getResourceAsStream("/container-literal.xml")){document=factory.newDocumentBuilder().parse(stream);}
+  org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");boolean changed=false;
+  for(int n=0;n<nodes.getLength();n++) {
+   org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+   if("bind".equals(element.getLocalName())&&"/data/nova_count_items".equals(element.getAttribute("nodeset"))) {
+    element.setAttribute("calculate","count(/data/items) + 1");changed=true;
+   }
+  }
+  assertTrue(changed);
+  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+  javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+  try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+   FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+   FormEntryController controller=new FormParseInit(form).getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   for(int step=0;step<12;step++) assertNotEquals(FormEntryController.EVENT_END_OF_FORM,controller.stepToNextEvent());
+   assertEquals(6.0,eval(form,"count(/data/items)"));
+   assertEquals(7.0,eval(form,"number(/data/nova_count_items)"));
+  }
+ }
+
+ @Test public void laterAuthoredDefaultsExistBeforeCountEntry()throws Exception {
   FormParseInit parsed=load("path-late",false);enter(parsed,false);
   assertEquals(2.0,eval(parsed.getFormDef(),"count(/data/items)"));
  }
- @Test public void countSnapshotsUseEachEnclosingRepeatRow()throws Exception {
+ @Test public void countCalculationsUseEachEnclosingRepeatRow()throws Exception {
   FormParseInit parsed=load("nested-count",false);enter(parsed,false);
   assertEquals(2.0,eval(parsed.getFormDef(),"count(/data/parents/item[1]/items)"));
   assertEquals(3.0,eval(parsed.getFormDef(),"count(/data/parents/item[2]/items)"));

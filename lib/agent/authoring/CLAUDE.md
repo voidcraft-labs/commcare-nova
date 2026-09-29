@@ -190,9 +190,11 @@ does not combine test records with stored rows or save them. Lookup data stays
 authorized and real. Results identify scenario evaluation and project ordinary
 case values; they do not prove storage, additional case operations or device behavior.
 
-The fields guide distinguishes form-start count/ID snapshots from nested
-snapshots on row insertion. Section rows are inserted on first entry in Preview
-and disposable journeys; returning to a page retains those rows and answers.
+The fields guide describes live counts: increases add rows; decreases retain
+created rows, answers, and case operations. Query ID snapshots remain captured
+at form start or nested row insertion. Section rows are inserted on first entry
+in Preview and disposable journeys; returning to a page retains those rows and
+answers.
 Journey observations expose available sections and refuse answers on another
 page. Forward navigation validates intervening pages. A standalone form check
 visits supplied answers in order, then remaining pages, and does not establish

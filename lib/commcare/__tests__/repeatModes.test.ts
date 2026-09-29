@@ -14,60 +14,75 @@ describe("repeat wire structure (actual entry and row identities checked by Cont
 		).toEqual([]);
 	});
 	it.each(["path", "literal", "expression", "cousins"] as const)(
-		"emits independently addressed count nodes for %s",
+		"emits live count locations for %s",
 		(scenario) => {
 			const { elements } = containerXml(scenario);
-			const repeats = elements("repeat");
 			const counts =
-				scenario === "cousins"
-					? ["/data/__nova_count_items", "/data/__nova_count_items_1"]
-					: ["/data/__nova_count_items"];
-			expect(repeats.map((e) => e.attribs["jr:count"])).toEqual(counts);
-			expect(repeats.map((e) => e.attribs["jr:noAddRemove"])).toEqual(
-				counts.map(() => "true()"),
-			);
-			expect(repeats.map((e) => e.attribs.nodeset)).toEqual(
-				scenario === "cousins"
-					? ["/data/one/items", "/data/two/items"]
-					: ["/data/items"],
-			);
-			expect(repeats.map((e) => e.attribs["vellum:jr__count"])).toEqual(
-				counts.map(() => undefined),
+				scenario === "path"
+					? ["/data/size"]
+					: scenario === "cousins"
+						? ["/data/one/nova_count_items", "/data/two/nova_count_items"]
+						: ["/data/nova_count_items"];
+			expect(elements("repeat").map((e) => e.attribs["jr:count"])).toEqual(
+				counts,
 			);
 			expect(
-				elements("setvalue")
-					.filter((e) => counts.includes(e.attribs.ref))
-					.map((e) => e.attribs),
+				elements("repeat").map((e) => e.attribs["jr:noAddRemove"]),
+			).toEqual(counts.map(() => "true()"));
+			expect(
+				elements("repeat").map((e) => e.attribs["vellum:jr__count"]),
+			).toEqual(counts.map((path) => path.replace("/data/", "#form/")));
+			expect(
+				elements("setvalue").filter((e) => counts.includes(e.attribs.ref)),
 			).toEqual(
-				counts.map((ref, i) => ({
-					event: "xforms-ready",
-					ref,
-					value:
-						scenario === "path"
-							? "string(/data/size)"
-							: scenario === "expression"
+				scenario === "path"
+					? [
+							expect.objectContaining({
+								attribs: expect.objectContaining({ ref: "/data/size" }),
+							}),
+						]
+					: [],
+			);
+			expect(
+				elements("bind").filter((e) =>
+					e.attribs.nodeset.includes("__nova_count_"),
+				),
+			).toEqual([]);
+			if (scenario !== "path")
+				for (const [index, path] of counts.entries()) {
+					expect(
+						elements("bind").find((e) => e.attribs.nodeset === path)?.attribs,
+					).toMatchObject({
+						type: "xsd:int",
+						calculate:
+							scenario === "expression"
 								? "/data/size + 2"
-								: scenario === "cousins" && i === 1
+								: scenario === "cousins" && index === 1
 									? "5"
 									: "3",
-				})),
-			);
-			for (const path of counts) {
-				const node = elements(path.slice(6))[0];
-				expect(node.parent).toMatchObject({ type: "tag", name: "data" });
-				expect(
-					elements("bind").find((e) => e.attribs.nodeset === path)?.attribs,
-				).toEqual({
-					nodeset: path,
-					type: scenario === "path" ? "xsd:string" : "xsd:int",
-				});
-			}
-			if (scenario === "cousins")
-				expect(
-					elements("text")
-						.filter((e) => e.attribs.id.endsWith("items-label"))
-						.map((e) => e.attribs.id),
-				).toEqual(["one-items-label", "two-items-label"]);
+					});
+				}
 		},
 	);
+	it("allocates around all authored sibling names, including later fields", () => {
+		const { elements } = containerXml("count-collision");
+		expect(elements("repeat")[0].attribs["jr:count"]).toBe(
+			"/data/nova_count_items_2",
+		);
+		expect(
+			elements("bind").find(
+				(e) => e.attribs.nodeset === "/data/nova_count_items",
+			)?.attribs.calculate,
+		).toBe("'authored'");
+		expect(
+			elements("bind").find(
+				(e) => e.attribs.nodeset === "/data/nova_count_items_1",
+			)?.attribs.calculate,
+		).toBe("'also authored'");
+		expect(
+			elements("bind").find(
+				(e) => e.attribs.nodeset === "/data/nova_count_items_2",
+			)?.attribs.calculate,
+		).toBe("3");
+	});
 });
