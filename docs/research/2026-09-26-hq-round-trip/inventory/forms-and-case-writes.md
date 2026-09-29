@@ -215,7 +215,7 @@ HQ renders these into the XForm at build (`xform.py::XForm._create_casexml`); th
 | `load_case_from_fixture` (`LoadCaseFromFixture`, all fields) | **REFUSED**: broken at runtime: its case datum has no `detail-select`, so Web Apps shows "Can't handle entity selection with blank detail definition" and Android crashes unless one case auto-selects; its datum id is the bare tag while its preloads read `case_id_<tag>` | — | — |
 | `show_product_stock: true` or a non-empty `product_program` | **REFUSED**: retiring (COMMTRACK) | — | — |
 | `show_product_stock: false` and `product_program: ''` | **INERT**: what HQ writes on every load action (`advanced/case_config_ui.js::addFormAction`) | n/a | the same |
-| `supply_point_id` datum HQ injects under `commtrack_enabled` into any form whose source reads `session/data/supply_point_id` | **TARGET-OWNED**: target emission (`entries.py::entry_for_module`) | n/a | n/a |
+| `supply_point_id` datum HQ injects under `commtrack_enabled` into any form whose source reads `session/data/supply_point_id` | **TARGET-OWNED**: target emission (`entries.py::entry_for_module`), which defect 20's confirmation covers | n/a | n/a |
 | `open_cases[]` (`AdvancedOpenCaseAction`), the one open action outside any repeat, of the module's case type, in a form HQ counts as a registration | **HELD-NEW**: the registration's own case, with its open and close conditions on the form | RUNS / RUNS | `open_cases[]` |
 | `open_cases[]` (`AdvancedOpenCaseAction`), any other | **HELD-NEW**: a `caseOperations` create, placement the open action and its tag | RUNS / RUNS | `open_cases[]` |
 | `AdvancedOpenCaseAction.name_update` | **HELD-NEW**: the create's name | RUNS / RUNS | `name_update` |

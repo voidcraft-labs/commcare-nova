@@ -473,7 +473,7 @@ Android `FormEntryInstanceState.java::getFormDefIdForRecord`):
 | `case_references_data` | HQ's case-export schema and data dictionary |
 | Case type and case property names; case index identifiers and relationships | existing cases, exports, rules, repeaters, case search config |
 | Lookup table tags, field names and field-property names; location type codes; worker-data slugs | fixtures and restore data read by name |
-| Multimedia paths (soft) | a changed path is a new file HQ must receive through its multimedia upload; the update does not write the uploaded map, but after the merge, for an app whose forms all parse, HQ drops every map entry the app no longer references and saves again (`_update_valid_domains_for_media` → `remove_unused_mappings`, which returns early on a form error, `check_media_state`; executed) |
+| Multimedia paths (soft) | a changed path is a new file HQ must receive through its multimedia upload; the update does not write the uploaded map, but after the merge, for an app whose forms in media-using menus all pass HQ's form validation, HQ drops every map entry the app no longer references and saves again (`_update_valid_domains_for_media` → `remove_unused_mappings`, which returns early when one fails `validate_form`, `check_media_state`, `all_media`; executed) |
 | Language codes | build profiles, which an update keeps: a profile whose languages were all renamed fails to build ("Form does not contain any translations for any of the build languages"); a partly renamed profile builds silently without the renamed language. Also device and Web Apps language choice, mobile worker language, and HQ's built-in UI strings (shipped for `en`, `hat`, `hin`, `por`, `sw`) |
 | Menu and form order (soft) | Web Apps URLs select menus by position |
 
@@ -658,7 +658,7 @@ the app uses them.
   id verbatim, replaces each top-level key present in the upload, keeps absent
   keys, never writes the uploaded `build_spec`, `multimedia_map`, `build_profiles`,
   `custom_base_url` or `practice_mobile_worker_id` (`ApplicationBase._update_excluded_fields`,
-  plus `build_spec` in `_merge_source_into_app`), though it then prunes the stored `multimedia_map` to the paths the app references (for an app whose forms all parse), deletes form-source blobs it
+  plus `build_spec` in `_merge_source_into_app`), though it then prunes the stored `multimedia_map` to the paths the app references (for an app whose forms in media-using menus all pass HQ's form validation), deletes form-source blobs it
   replaces, and answers 400 for a doc-type mismatch or a deleted app. `name` is
   excluded from the source merge, but the update's `app_name` parameter renames
   the app (`views/app_import_api.py::_handle_import_app` passes it as an extra
@@ -2066,11 +2066,12 @@ continuity before it reaches HQ.
    step 2 adds; any other stays an ordinary condition. The migration names each.
    Nova also prints a blank check (`is-blank`) as `<property> = ''`
    (`lib/commcare/predicate/csqlEmitter.ts::emitAbsenceSegments`), and HQ raises
-   `CaseFilterError` for `=` or `!=` between `date_opened`, `closed_on` or
-   `last_modified` and a value that is not a date or datetime, `''` included
-   (`comparison.py::_create_system_datetime_query`; executed), so such a search
-   fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
-   three properties and an equality between them and a value that is not a date
+   `CaseFilterError` for any comparison between `date_opened`, `closed_on` or
+   `last_modified` and a value that is not a date or datetime, `''` included,
+   and fails with an uncaught `TypeError` for a number
+   (`comparison.py::_create_system_datetime_query`, which parses the value
+   before it reads the operator; executed), so such a search fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
+   three properties and a comparison between them and a value that is not a date
    or datetime, or a runtime value with no guard against blank; the migration
    replaces each such term that compares a fixed value, a blank check included,
    by `match-none`, as above, puts each that compares a runtime value under a
@@ -2211,8 +2212,9 @@ continuity before it reaches HQ.
     - A create id computed live from an authored key outside a repeat becomes a
       load-time value, computed before the key is answered. There is no spelling
       HQ's editor keeps at the form root. *Fix:* creates keyed by a form answer
-      (`idFrom`) are offered only inside a repeat, where Vellum keeps the id
-      live. An existing root-level one takes a generated id, so repeated submissions with one key
+      (`idFrom`), whose id follows the answer, are offered only inside a repeat,
+      where Vellum keeps the id live; at the form root an authored create id is
+      a load-time value (the inventory's SaveToCase create rows). An existing root-level one takes a generated id, so repeated submissions with one key
       stop merging into one case, and updates elsewhere that compute the same key
       no longer find it; the migration names each.
     - A default value that reads another form answer by its absolute path
@@ -2289,7 +2291,7 @@ continuity before it reaches HQ.
       an input named like one of the module's default filters, and a name in
       that set on an input that reaches HQ as its own key. The migration
       renames each existing input that blocks the save, with a numeric suffix,
-      and removes each named in that set, which Nova cannot type; each
+      and removes each named in that set, which HQ does not search; each
       input-presence clause over a removed input takes its absent branch, each
       read of it becomes the empty string, and the migration names each.
     - A menu whose forms are all surveys and which lists no cases publishes with
@@ -2384,8 +2386,7 @@ continuity before it reaches HQ.
     stays counted, so a worker who had not completed it cannot finish learning
     (`OpportunityAccess.learn_progress`, `update_completed_learn_date`); and a
     renamed task matches no task type (`process_task_modules`). The migration
-    names each renamed block, with its old and new id, for the app's
-    opportunity managers.
+    names each renamed block, with its old and new id.
 16. **Inaccurate or dead code.** `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES`
     says HQ rejects `owner_id` updates (HQ's `xform.py::autoset_owner_id_for_open_case`
     supports them); `lib/commcare/hqShells.ts` and `lib/commcare/types.ts` call
@@ -2457,12 +2458,17 @@ continuity before it reaches HQ.
     (`Domain.commtrack_enabled`), HQ gives the case list menu item of an advanced
     module a `product_id` datum after its case that asks the worker for a
     product (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`),
-    COMMTRACK content Nova refuses as retiring. Nova reads neither setting
+    and gives any form whose source reads `session/data/supply_point_id` a
+    datum from the worker's `commtrack-supply-point` user data, with assertions
+    that it and its case exist (`get_userdata_autoselect`), so a worker without
+    one cannot open the form (executed), both COMMTRACK content Nova refuses as
+    retiring. Nova reads neither setting
     through any API it uses; whether case search is on it already probes
     (`lib/commcare/client.ts::probeCaseSearchRuntime`). *Fix:*
     publish of an app that declares Android and has a module that offers search
     asks the person to confirm sync on form entry is off, and publish and import of an
-    app with an advanced module whose case list menu item is on ask the person
+    app with an advanced module whose case list menu item is on, or with a form
+    whose source reads `session/data/supply_point_id`, ask the person
     to confirm CommTrack is off, once for each app and project space, recorded beside the privileges; without the sync confirmation
     publish stops, with the next step to change that setting in the project
     space's case search settings, or to narrow the declaration to Web Apps, and
