@@ -92,12 +92,9 @@ granting `access_api`
 (`api/resources/__init__.py::HqBaseResource.dispatch`,
 `users/models.py::_AuthorizableMixin.has_permission`); reading the space's
 feature flags also needs the credential's user to be a member (below). Without API
-access Nova reads no form's real id through HQ's API, and import refuses with
-that reason. (HQ also serves the current app's `suite.xml`, whose xform resource
-ids are the real ids of every form but shadow forms and turned-off release-notes forms, to a caller with no
-credential, `views/download.py::download_suite`,
-`suite_xml/sections/resources.py::FormResourceContributor`; import reads only
-through HQ's API, so Nova does not use it.)
+access, HQ's REST API gives Nova no form's real id (`ApplicationResource` needs
+it), and import refuses with that reason: import reads only through HQ's API,
+by choice.
 
 ### The bar
 
@@ -191,7 +188,7 @@ gate HQ's editors, silently drop content, or gate a runtime service:
 without them, but an HQ user on a plan without one cannot edit that content, a
 Vellum save without `save_to_case` drops every case attribute bind, Web Apps
 refuses mobile workers without `cloudcare` (`cloudcare/views.py::FormplayerMain`),
-and Web Apps geocoding needs `geocoder`. No HQ API returns a project space's
+and Web Apps geocoding needs `geocoder` together with the CASE_SEARCH_ADVANCED flag (`cloudcare/views.py::has_geocoder_privs`). No HQ API returns a project space's
 privileges to an ordinary credential (the accounting resources in `api/accounting.py`, open only to superusers and
 contractors, which expose
 plan roles, are admin tools Nova does not use). So from step 2 publish lists every privilege the app
@@ -228,7 +225,7 @@ spaces the credential's user belongs to, and also counts a flag enabled for that
 user alone (`toggles.toggles_dict`). So import and publish read a project
 space's flags with the importing or publishing person's credential where its user is a member, and,
 for a publish, otherwise in the order the step 2 cutover uses (the stored credential of the
-person who created the deployment, then of other current members of the Project
+person who created the deployment, while a current member of the Project, then of other current members of the Project
 in the order they joined), each read with another member's key recorded and
 shown to that member; where no credential's user is a member, they stop, naming
 the space, with the next step to join it; and since Nova cannot tell a flag enabled
@@ -272,7 +269,7 @@ refuses nothing. The exact refused content:
 | `CASE_LIST_LAZY` | `Module.lazy_load_case_list_fields` true (column-level lazy loading under `CASE_LIST_OPTIMIZATIONS` stays) |
 | `CASE_LIST_MAP` | detail columns with format `address-popup` |
 | `NON_PARENT_MENU_SELECTION` | `parent_select` active with `relationship` null ("Other"), and the `#case:<slug>` references it enables |
-| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference; a read of the `supply_point_id` session datum, which only CommTrack supplies |
+| `COMMTRACK` | advanced load actions with `show_product_stock` and `product_program`; a non-default `AdvancedModule.product_details`; `model: product` detail columns; ledger questions (Balance, Transfer, Dispense, Receive) and `ledger:section` detail fields; any `commtrack:products`, `commtrack:programs` or `ledgerdb` instance reference; a read of the `supply_point_id` session datum in a form that defines no computed datum of that id, where only CommTrack supplies it |
 | `CSQL_FIXTURE` | any `case-search-fixture:*` instance reference |
 | `FORM_LINK_ADVANCED_MODE` | form links to modules that are not auto-linkable, datums on module-target links, and datums on form-target links whose name is not one HQ derives for the target |
 | `MOBILE_UCR` (parent `USER_CONFIGURABLE_REPORTS`) | `ReportModule`; `report_context_tile`; `reports`, `commcare:reports`, `commcare-reports:*`, `commcare-reports-filters:*` references; `mobile_ucr_restore_version` other than `2.0` |
@@ -375,7 +372,7 @@ discloses.
   (`helpers/validators.py`). The build fails, and "Make new version" lists the build error "Unable to
   connect to Formplayer", only when it must re-validate a form carried from the
   previous build with unchanged build profiles and no cached verdict
-  (`set_form_versions`); a form new since the last build is then never validated. The verdict is cached for 7 days by
+  (`set_form_versions`); a form new since the last build, every form in an app's first build, and every form after a build-profile change are then never validated. The verdict is cached for 7 days by
   `(app_id, form unique_id)`. An in-place update writes form
   sources through `save_attachments`, which never clears that cache, so HQ's App
   Preview can serve a stale verdict in both directions: an invalid form served as
@@ -440,7 +437,7 @@ which reads form actions plus the SaveToCase list in `case_references_data.save`
 (`models/forms.py::FormBase.get_save_to_case_updates`); that list feeds
 case-export schemas and, where the project space has `save_to_case`, the data
 dictionary (`app_manager/tasks.py`). Several build behaviors apply only
-to form-action case blocks (the usercase subscription check, "save only if
+to form-action case blocks (the usercase subscription check, which reads form actions and a menu's case type but never Save to Case blocks, `Module.uses_usercase`, "save only if
 edited", case-sharing owner assignment, multimedia case properties,
 `DONT_INDEX_SAME_CASETYPE`).
 
@@ -635,7 +632,7 @@ Every field on the surface has exactly one disposition:
 | Real form ids | `api/resources/v0_4.py::ApplicationResource`, aligned to the app source by module `unique_id` and form position and confirmed by `xmlns` (`dehydrate_module`); matched to Nova forms as under "Identity" at the migration | API access |
 | Lookup table definitions and rows | `fixtures/resources/v0_1.py::LookupTableResource`, `v0_6.py::LookupTableItemResource` | API access |
 | Locations and levels | `locations/resources` (already read by `lib/deployment`) | API access, the locations privilege, and the account's Edit Locations permission (`locations/resources/v0_5.py`, `v0_6.py`) |
-| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | the media map entry |
+| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | read as HQ's own apps read it: the one read outside HQ's API, since HQ serves media bytes nowhere else |
 | Toggles | Nova's existing probe (`user_domains?feature_flag=`) | membership of the credential's user in the project space |
 
 A module that fails HQ's own summary (`ApplicationResource.dehydrate_module`
@@ -711,8 +708,8 @@ sequence).
   ("Reference targets").
 - Existing apps get `Form.xmlns` minted locally, with no call to HQ. The step 2
   cutover then reads every existing deployment from HQ, with the stored
-  credential of the person who created that deployment or, failing that, of
-  another current member of the app's Project whose credential reaches that
+  credential of the person who created that deployment, while a current member
+  of the app's Project, or, failing that, of another current member of the app's Project whose credential reaches that
   project space, taken in the order members joined the Project, each read
   falling back separately in that order: the space's current menu ids and `xmlns` from its app source (edit
   permission is enough) and its form ids from `ApplicationResource` (which needs
@@ -1022,64 +1019,12 @@ A non-select writer makes the property text and drops the catalog.
   image, audio, video, signature, face capture, document upload, Android app
   callout, save-to-case, and Connect blocks. Print callouts and ledger questions
   are retiring.
-- **Load-time values.** Every rule in this document about what a form reads
-  while it opens or while a repeat row is added, about default values and
-  preloads, or about the order of setvalues, is stated as what Core's own
-  load gives (`FormDef.initialize` for the form, `FormDef.createNewRepeat` for
-  a row), for every value the opening data can give (session, case, lookup and
-  location data, the date and time, `uuid()`, `random()`) and, for a row,
-  every answer entered before it is added. A node's load-time
-  value at a point of that load is the value an expression evaluated there
-  reads. How Core gets there, read at the pinned commit and executed:
-  - It runs the load-time setvalues in the built form's order. Vellum writes
-    its own (each default value outside a repeat, a root create id, a
-    model-iteration repeat's) in data-tree order, after any form-level
-    setvalue, which import refuses (`writer.js::createSetValues`); HQ's build
-    appends its own after all of them, such as case and usercase preloads,
-    advanced `preload`s and the load-time `meta` values
-    (`xform.py::XForm.add_setvalue`). A row's insert setvalues (Vellum writes a
-    default inside a repeat as one, `defaultOptions.js::getSetValues`) run when
-    the row is added; the calculates and conditions that depend on the new
-    row's node itself then run (`triggerTriggerables`, as for `position(..)` or
-    a `count` of the repeat), and then the row's calculates and conditions, except
-    those that read a node one of those setvalues set directly, which ran when
-    it was set; one that reads such a node only through another calculate or
-    condition runs again (`FormDef.createNewRepeat` →
-    `initTriggerablesRootedBy`, `processResultOfAction`).
-  - Each setvalue sets its node, relevant or not (`TreeElement.setAnswer`), and
-    then recomputes the calculates and relevance conditions that depend on that
-    node, directly, through one another, or by reading a node under one whose
-    relevance it recomputes (`FormDef.setValue` → `triggerTriggerables`,
-    `fillTriggeredElements`); every other one first runs after the load
-    (`initAllTriggerables`).
-  - A read gives blank for a node that is not relevant, or has an ancestor that
-    is not (`XPathPathExpr.getRefValue`). Until its relevance condition first
-    runs, a node is relevant, except one whose relevance is written as exactly
-    `false()`, which the parser applies before the load
-    (`XFormParser::processStandardBindAttributes`, `attachBind`). Nothing has
-    been entered when the form loads.
-  - On every request after the first, Formplayer loads the saved instance
-    into the form and reinitializes it, and Android does when it resumes a
-    saved incomplete form, with `FormDef.initialize(false, …)` (`FormSession`,
-    `FormLoaderTask`), which runs every calculate and condition again and no
-    setvalue.
-  - Executed in Core: a root create id `concat(/data/key, '-')` gives `abc-`
-    after a default of `abc` and `-` when that default comes after it; one
-    reading a calculate of `concat(/data/key, '-')` gives `abc-` after the
-    default and blank without it; a default reading `/data/g/q` gives `-` when a default that makes
-    `/data/g` not relevant runs before it and `abc-` when that one runs after
-    it, and `abc-` where `/data/g`'s condition has not run, but `-` under
-    `false()`; a model-iteration repeat's `@count` setvalue, which reads its
-    `@ids`, leaves the repeat empty under a group an earlier setvalue makes not
-    relevant; a default of `'B'` on `/data/y` and a default on `/data/x`, which
-    `/data/y`'s calculate reads, give a later default reading `/data/y` `B` or
-    the calculated value by their order.
 - **Query repeats** have a placement. Vellum's model iteration sets the
   repeat's ids and count once, by setvalues that run when the form loads, or
   when the parent row is added. Run in Core at Formplayer's commit on
   Vellum-saved forms, that shape behaves as follows:
   - Its query reads each form answer at its load-time value where those
-    setvalues run (above). Its rows never follow a
+    setvalues run ("Load-time values"). Its rows never follow a
     later change.
   - Nested in another repeat of any kind, it breaks once an earlier outer row
     has inner rows:
@@ -1175,6 +1120,62 @@ A non-select writer makes the property text and drops the catalog.
   existing logos; that path appears only in Nova's local `.ccz`, since publish
   never sends a logo.
 
+#### Load-time values
+
+Every rule in this document about what a form reads
+while it opens or while a repeat row is added, about default values and
+preloads, or about the order of setvalues, is stated as what Core's own
+load gives (`FormDef.initialize` for the form, `FormDef.createNewRepeat` for
+a row), for every value the opening data can give (session, case, lookup and
+location data, the date and time, `uuid()`, `random()`) and, for a row,
+every answer entered before it is added. A node's load-time
+value at a point of that load is the value an expression evaluated there
+reads. How Core gets there, read at the pinned commit and executed:
+
+- It runs the load-time setvalues in the built form's order. Vellum writes
+  its own (each default value outside a repeat, a root create id, a
+  model-iteration repeat's) in data-tree order, after any form-level
+  setvalue, which import refuses (`writer.js::createSetValues`); HQ's build
+  appends its own after all of them, such as case and usercase preloads,
+  advanced `preload`s and the load-time `meta` values
+  (`xform.py::XForm.add_setvalue`). A row's insert setvalues (Vellum writes a
+  default inside a repeat as one, `defaultOptions.js::getSetValues`) run when
+  the row is added; the calculates and conditions that depend on the new
+  row's node itself then run (`triggerTriggerables`, as for `position(..)` or
+  a `count` of the repeat), and then the row's calculates and conditions, except
+  those that read a node one of those setvalues set directly, which ran when
+  it was set; one that reads such a node only through another calculate or
+  condition runs again (`FormDef.createNewRepeat` →
+  `initTriggerablesRootedBy`, `processResultOfAction`).
+- Each setvalue sets its node, relevant or not (`TreeElement.setAnswer`), and
+  then recomputes the calculates and relevance conditions that depend on that
+  node, directly, through one another, or by reading a node under one whose
+  relevance it recomputes (`FormDef.setValue` → `triggerTriggerables`,
+  `fillTriggeredElements`); every other one first runs after the load
+  (`initAllTriggerables`).
+- A read gives blank for a node that is not relevant, or has an ancestor that
+  is not (`XPathPathExpr.getRefValue`). Until its relevance condition first
+  runs, a node is relevant, except one whose relevance is written as exactly
+  `false()`, which the parser applies before the load
+  (`XFormParser::processStandardBindAttributes`, `attachBind`). Nothing has
+  been entered when the form loads.
+- On every request after the first, Formplayer loads the saved instance
+  into the form and reinitializes it, and Android does when it resumes a
+  saved incomplete form, with `FormDef.initialize(false, …)` (`FormSession`,
+  `FormLoaderTask`), which runs every calculate and condition again and no
+  setvalue.
+- Executed in Core: a root create id `concat(/data/key, '-')` gives `abc-`
+  after a default of `abc` and `-` when that default comes after it; one
+  reading a calculate of `concat(/data/key, '-')` gives `abc-` after the
+  default and blank without it; a default reading `/data/g/q` gives `-` when a default that makes
+  `/data/g` not relevant runs before it and `abc-` when that one runs after
+  it, and `abc-` where `/data/g`'s condition has not run, but `-` under
+  `false()`; a model-iteration repeat's `@count` setvalue, which reads its
+  `@ids`, leaves the repeat empty under a group an earlier setvalue makes not
+  relevant; a default of `'B'` on `/data/y` and a default on `/data/x`, which
+  `/data/y`'s calculate reads, give a later default reading `/data/y` `B` or
+  the calculated value by their order.
+
 ### Case writes
 
 Authors and the agent say only what a form saves and where: this answer goes to
@@ -1254,8 +1255,8 @@ edit a peer's earlier change invalidates is, and its tab shows the move for the
 author to apply again. From then the placement is kept, apart from a move
 publish offers that the person accepts, which a `publish-placement` change
 records at once as a held placement, whether or not the operation was
-published; an operation that has never been published otherwise takes the
-simplest placement at every export. Only a publish
+published; an operation with no held placement takes the simplest placement at every
+export. Only a publish
 records placements: HQ's import file and Nova's `.ccz` carry the placements the
 document holds, or the simplest, and an HQ app made from the import file keeps
 no continuity with them. An edit the held placement cannot express, an undo included, moves the
@@ -1279,8 +1280,9 @@ advanced form and a Save to Case block in a basic form, whose Case Management ta
 offers only `child` for a child case, except that one whose new case after-submit
 navigation carries takes an advanced open action, which makes its module
 advanced (above). A module is emitted as an advanced module exactly
-when one of its forms holds case selections or an operation placed on an
-advanced action, its case list or detail holds a state only an advanced
+when one of its forms holds case selections beyond what a basic form expresses
+(its own case from the module's own list, chained after one parent selection
+from another module's list) or an operation placed on an advanced action, its case list or detail holds a state only an advanced
 module builds (the inventory's [AdvancedModule row](inventory/menus-and-case-lists.md)
 names each), its case type is `commcare-user` (the usercase list module), it
 holds `Module.autoSelectSingle`, or it was published or imported as advanced:
@@ -1297,7 +1299,10 @@ basic module advanced moves the published placements of every form in it, so it
 is an identity edit for each of those forms. An edit that needs a basic module,
 such as a multi-select case list, moves a module that only its held kind keeps
 advanced back to basic, which clears that kind and moves those placements back,
-so it is an identity edit too. Any other edit that would make or keep a module
+so it is an identity edit too, as is turning chained case selections back into
+the parent selection, which renames the session datums back; an unpublished
+module's forms return to basic form types once nothing else needs the advanced
+kind. Any other edit that would make or keep a module
 advanced where HQ's advanced-module rules forbid it is refused, naming the rule:
 registration from the case list unless every form loads the same one or more
 cases, the last of the module's case type (`helpers/validators.py::AdvancedModuleValidator`),
@@ -1379,7 +1384,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 224 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 157 held question rows that apply to both, 76 are. In Nova,
+the 158 held question rows that apply to both, 77 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -1431,14 +1436,15 @@ would rest on the device id Web Apps happens to report, which is undefined
 behavior.
 
 Existing Nova apps predate the declaration. The migration stores for each app
-the platforms its current content already runs on, which states what the app is
+the platforms its current content other than media already runs on, and
+defect 11's removal then drops each asset a declared platform does not play; which states what the app is
 rather than choosing for it; the author may change the app, such as replacing a
 date-and-time question to keep Web Apps. An app it declares Android only has
 Web Apps turned off in the app at its next publish, which asks the person first,
 as above, and for its users at the next release. An app whose
 content runs on neither (a date-and-time question beside anything Android
 cannot run, such as inline search or a multi-select case list; the date-and-time
-question is the one held feature Web Apps cannot run today) is already broken on both. The migration declares it for Web Apps, which HQ turned on
+question is the one held feature other than media that Web Apps cannot run today) is already broken on both. The migration declares it for Web Apps, which HQ turned on
 for every app Nova created where the plan carries `cloudcare`, and splits each date-and-time question: the date question keeps the
 original id and label, a new time question `<id>_time` (with a numeric suffix
 on a collision) follows it with the same label and copies the original's
@@ -1450,9 +1456,9 @@ recognizes this join as the second datetime-writer shape. An expression that rea
 and time questions combined into one datetime value, so its type and its meaning
 on Android are unchanged; the original's constraint and default value move to
 the date question when they compare only its date, and otherwise are removed; a
-default value that read a case property into the original becomes one reading
-the property's date into the date question and its time of day into the time
-question; the migration names each. HQ exports show a
+default value, or today's implicit preload, that read a case property into the
+original becomes one reading the property's date into the date question and
+its time of day into the time question; the migration names each. HQ exports show a
 date in the question's column and a new column for the time.
 
 The platform facts that shape the most apps:
@@ -1691,7 +1697,10 @@ because someone added something Nova cannot hold, the person chooses between
 discarding HQ's change and ending that deployment: the ledger keeps its HQ
 app id as history, the Nova app counts as unpublished there, and the
 deployment stays ended if HQ later restores a deleted app, which the person may
-import, or publish to as a new HQ app. This covers every
+import, or publish to as a new HQ app. For a deployment whose baseline Nova
+never pushed (the step 2 cutover's for a deployment no credential can read) or
+does not read (one published before step 2 or step 5 changed what Nova
+writes), publish offers only discarding HQ's change or ending the deployment. This covers every
 app Nova publishes, whether imported or born in Nova. Media bytes are not
 compared: publish writes Nova's file at each path Nova holds, so a file someone
 replaced in HQ at such a path is overwritten.
@@ -1931,7 +1940,7 @@ mechanisms within the decisions and constraints this document states.
    `config/commcare-hq-feature-flags.json`. *Exit:* every inventory entry is in
    the manifest with its disposition, and the harness reproduces the symptom of
    every defect visible in HQ's build, HQ's search, HQ's lookup upload, HQ's
-   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 21 and 23 to 28.
+   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 20, 21 and 23 to 28.
 2. **Emission and publish fixes, with the small model additions they need.**
    Defects 1 to 16. The additions are `Form.xmlns` with the deployment ledger's
    per-project-space menu and form ids, explicit settings for saved and incomplete forms, the first-menu and
@@ -2031,13 +2040,24 @@ continuity before it reaches HQ.
    the first publish after the cutover of each deployment it read overwrites
    HQ-side edits made before it, as publishes do today; and the migration names
    every deployment in each case.
-2. **Form display conditions HQ cannot build.**
+2. **Conditions HQ cannot build, or builds broken.**
    `lib/commcare/suite/displayConditions.ts::emitFormDisplayConditionForHq`
    writes `#case/@status` (and `@case_id`, `@case_type`, `@owner_id`), which HQ's
    XPath parser, also its build check, rejects ("Expecting 'QNAME', got 'AT'"),
-   so such an app does not build in HQ. *Fix:* emit the expanded
+      so such an app does not build in HQ. *Fix:* emit the expanded
    `instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/<datum>]/@status`.
-   No visible change.
+   No visible change. Nova also writes a close form's condition answer into
+   HQ's `close_case` action as entered (`lib/commcare/formActions.ts`), which
+   HQ builds unescaped (`xform.py::XForm.action_relevance`), so an answer
+   containing `'` gives a form Core's parser rejects while HQ's build passes
+   (executed). *Fix:* the validator refuses a close-condition answer
+   containing `'`, which HQ cannot write, and the builder, SA and MCP say so;
+   the migration adds to each such form a hidden value `close_condition_met`
+   (with a numeric suffix on a collision) whose calculate is the comparison,
+   `if(<field> = "<answer>", 'yes', 'no')`, or `selected(…)` for a `selected`
+   condition, printed with the answer in double quotes, and makes the close
+   condition that hidden value equal to `yes`, so the form closes the case
+   exactly when it meant to and now parses; the migration names each.
 3. **HQ does not learn the case properties Nova's case operations write.**
    `case_references_data.save` is always `{}` (`lib/commcare/hqShells.ts`), so
    HQ's case-property inventory, case exports, the data dictionary and Vellum's
@@ -2230,7 +2250,8 @@ continuity before it reaches HQ.
     block until the person moves it (defect 22). An existing deployment in a
     project space with `DONT_INDEX_SAME_CASETYPE` whose app creates a basic child
     case of its own menu's case type stops at publish, naming it, with the next
-    step, which publish offers, to place that child case in a Save to Case
+    step, which publish offers, to move that child case's writes from the field
+    into a case operation, which step 2's emitter places in a Save to Case
     block, an identity edit that moves its submission path in every project
     space the app publishes to and needs `save_to_case` in each.
 13. **HQ's form builder breaks or changes Nova's XForms.** Running HQ's Vellum
@@ -2461,7 +2482,7 @@ continuity before it reaches HQ.
     keep refusing blank and multi-token values until step 7 holds them
     (the inventory's ID-mapping key row); and
     `lib/commcare/xform/captureUpload.ts` says Android's `WidgetFactory` has no
-    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`), and with it `lib/domain/fields/hidden.ts`, `lib/domain/CLAUDE.md`, `lib/commcare/CLAUDE.md` ("Hidden fields carry one value source"), `lib/agent/tools/editField.ts`, `lib/agent/toolSchemaGenerator.ts::gateHiddenValueSources` with its SA and MCP message, the builder's message (`lib/doc/userFacingErrors.ts`), `lib/domain/effectiveCaseTypes.ts::inferHiddenWriterType`, `components/builder/editor/fields/hiddenValueModel.ts` and `lib/commcare/validator/gate.ts` ("contradictory"), say a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it ("Load-time values"), and in a repeat row on Android can keep it past the calculate into the submission while nothing the calculate depends on is set after the default's setvalue runs ([the inventory's question rows](inventory/questions.md)); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
+    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`), and with it `lib/domain/fields/hidden.ts`, `lib/domain/CLAUDE.md`, `lib/commcare/CLAUDE.md` ("Hidden fields carry one value source"), `lib/agent/tools/editField.ts`, `lib/agent/toolSchemaGenerator.ts::gateHiddenValueSources` with its SA and MCP message, the builder's message (`lib/doc/userFacingErrors.ts`), `lib/domain/effectiveCaseTypes.ts::inferHiddenWriterType`, `components/builder/editor/fields/hiddenValueModel.ts` and `lib/commcare/validator/gate.ts` ("contradictory"), say a Hidden Value's default is overwritten before anyone could read it, while Core's load can let a later setvalue read it ("Load-time values"), and in a repeat row on Android can keep it past the calculate into the submission while nothing the calculate depends on is set after the default's setvalue runs ([the inventory's question rows](inventory/questions.md)), so until step 7 holds the pair, the refusal says only that Nova does not yet write a Hidden Value's default beside its calculate; `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
     label media on groups and repeats (`containerFieldBase.label_media`) and hint
     media (`hint_media`), which neither runtime shows and Vellum does not offer,
     and validation-message media (`validate_msg_media`), which Vellum offers and
@@ -2652,9 +2673,13 @@ continuity before it reaches HQ.
     `views/forms.py::_get_linkable_forms_context`) and an otherwise to a
     destination HQ does not offer in that menu. Existing guards become each
     link's own condition, so existing apps behave the same; a terminal
-    unconditional link becomes "otherwise" to that form, and an after-submit
-    destination beside conditional links becomes "otherwise" to that menu where
-    no terminal unconditional link exists; where one does, the stored
+    unconditional link after at least one conditional link becomes "otherwise"
+    to that form, and a form's only link, when it is unconditional, stays an
+    unconditional destination; an after-submit destination beside conditional
+    links becomes "otherwise" to that menu where no terminal unconditional link
+    exists, except the app home, where the links keep no otherwise, since going
+    home when no link runs needs none (HQ builds no frame for it,
+    `workflow.py::_get_static_stack_frame`); where one does, the stored
     destination, which never runs today (`lib/doc/formLinkMutations.ts::afterSubmitPlan`),
     is dropped. The
     validator also refuses datums on a link to a menu, which only the retiring
@@ -2680,7 +2705,9 @@ continuity before it reaches HQ.
     reading the case, and markdown is a property of each display text. Each
     writer Nova preloads today (`lib/domain/casePreload.ts` names which) gets a
     default value reading its case property, replacing any default it had, since
-    the loaded value is what its users already see; a hidden writer with a
+    the loaded value is what its users already see; where a later load-time
+    value reads the writer ("Load-time values"), it now reads the case value
+    where it read the replaced default, and the migration names each; a hidden writer with a
     calculate keeps it and gets none, since its preload never took effect; and
     `lib/domain/casePreload.ts`, which says the running form seeds the first row
     of a repeat, is corrected: no valid document holds a preloaded writer inside

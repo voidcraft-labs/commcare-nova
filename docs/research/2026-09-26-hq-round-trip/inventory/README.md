@@ -46,7 +46,7 @@ the gates over the other files' rows and are not counted.
    output; output that differs only in attribute order, XPath whitespace, or the
    order of `<update>` children and their binds, which no reader orders; an
    attribute whose absence Core reads as that value; `null`, `''` and absent
-   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded, for every opening, and once each repeat row is added, for every opening and every answer entered before it (README, "Load-time values"), except a Hidden Value's default beside its calculate, which is always held ([`questions.md`](questions.md)); markup Core walks into the same
+   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same once the form has loaded, for every opening, and once each repeat row is added, for every opening and every answer entered before it (README, "Load-time values"), except a Hidden Value's default beside its calculate, which is always held unless a case preload into the Hidden Value replaces it ([`questions.md`](questions.md); the case preload rows of [`forms-and-case-writes.md`](forms-and-case-writes.md)); markup Core walks into the same
    event sequence; and a setting that changes only restore content no held
    app reads.
 3. **Expressions.** A slot holding XPath or CSQL gets one row per value class:
@@ -69,25 +69,25 @@ the gates over the other files' rows and are not counted.
 | Settings and profile | 3 | 26 | 6 | 16 | 12 | 63 |
 | Add-ons | 0 | 0 | 0 | 13 | 0 | 13 |
 | Module types | 3 | 3 | 0 | 0 | 10 | 16 |
-| Module fields | 11 | 14 | 1 | 11 | 15 | 52 |
-| Case list and case detail | 44 | 55 | 0 | 19 | 45 | 163 |
-| Case selection extras | 4 | 6 | 0 | 3 | 5 | 18 |
+| Module fields | 11 | 14 | 1 | 12 | 15 | 53 |
+| Case list and case detail | 44 | 55 | 0 | 19 | 46 | 164 |
+| Case selection extras | 4 | 6 | 0 | 3 | 6 | 19 |
 | Case search | 41 | 46 | 1 | 8 | 26 | 122 |
 | Form types | 5 | 4 | 0 | 0 | 7 | 16 |
 | Form fields | 18 | 12 | 2 | 13 | 17 | 62 |
-| Basic form actions | 25 | 14 | 1 | 10 | 25 | 75 |
-| Advanced form actions | 0 | 26 | 1 | 2 | 24 | 53 |
+| Basic form actions | 25 | 14 | 1 | 10 | 28 | 78 |
+| Advanced form actions | 0 | 26 | 1 | 2 | 25 | 54 |
 | Shadow forms | 1 | 3 | 0 | 3 | 4 | 11 |
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
 | Question types | 50 | 24 | 0 | 4 | 47 | 125 |
-| Binds, actions, model and head content | 13 | 1 | 0 | 16 | 18 | 48 |
-| Appearances | 0 | 52 | 0 | 9 | 4 | 65 |
-| Itext, markdown and label text | 17 | 7 | 0 | 9 | 9 | 42 |
-| Secondary instances | 11 | 12 | 0 | 2 | 17 | 42 |
+| Binds, actions, model and head content | 13 | 1 | 0 | 16 | 19 | 49 |
+| Appearances | 0 | 53 | 0 | 9 | 4 | 66 |
+| Itext, markdown and label text | 17 | 7 | 0 | 9 | 10 | 43 |
+| Secondary instances | 11 | 13 | 0 | 2 | 17 | 43 |
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 7 | 20 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **269** | **407** | **26** | **151** | **315** | **1168** |
+| **Total** | **269** | **409** | **26** | **152** | **323** | **1179** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 

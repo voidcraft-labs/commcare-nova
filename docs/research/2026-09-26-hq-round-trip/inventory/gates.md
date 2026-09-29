@@ -58,7 +58,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | TRAINING_MODULE [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | USER_CONFIGURABLE_REPORTS [deprecated] | RETIRING · refuses nothing (everything it touches is MOBILE_UCR's) | n/a | none |
 | V1_SHADOW_MODULES [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
-| VELLUM_DATA_IN_SETVALUE [deprecated] | RETIRING · refuses nothing (a `#form/` read in a default value is the same state as the relative read HQ's editors produce without it, Binds) | n/a | none |
+| VELLUM_DATA_IN_SETVALUE [deprecated] | RETIRING · refuses nothing (a `#form/` read in a default value is the same state as the relative read HQ's editors produce without it, questions.md, Binds, actions, model and head content) | n/a | none |
 | VELLUM_PRINTING [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | VISIT_SCHEDULER [deprecated] | RETIRING · REFUSED (see "What is refused") | n/a | refuse |
 | CUSTOM_ICON_BADGES [GA path, frozen privilege] | TARGET-OWNED · HELD-NEW (badges Module fields, Form fields) | n/a | privilege `custom_icon_badges` |
