@@ -28,7 +28,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { requireProjectAccess } from "../ownership";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 const listMembersInputSchema = z.strictObject({
@@ -64,6 +64,7 @@ export function registerListMembers(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
 		"list_members",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsRead),
 			description:
 				"List a Nova Project's members (member_id, name, email, role, join date) and its pending invitations (email, role, expiry). Any member of the Project can call this. member_id is the handle update_member_role takes. An invitation past its expires_at can no longer be accepted; re-invite with invite_member if it lapsed.",
 			inputSchema: listMembersInputSchema,

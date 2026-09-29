@@ -27,8 +27,8 @@ export type AuthKind = "oauth" | "api-key";
  * The route's verify layer checks the floor scopes (`nova.read`,
  * `nova.write`) before any handler runs; orthogonal scopes
  * (`nova.hq.read` / `nova.hq.write`, `nova.projects.read` /
- * `nova.projects.write`) layer on top via per-tool `assertScope`
- * calls inside their handlers. This context carries
+ * `nova.projects.write`) layer on top via OAuth HTTP scope challenges and per-tool
+ * `assertScope` calls inside their handlers. This context carries
  * the full scope set so those per-tool checks can read it without
  * re-parsing the credential, plus an `authKind` tag so
  * `McpScopeError` can land the user on the right "where do I fix

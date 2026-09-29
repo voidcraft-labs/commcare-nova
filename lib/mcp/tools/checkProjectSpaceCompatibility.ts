@@ -21,7 +21,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 export interface CheckProjectSpaceCompatibilityArgs {
@@ -55,6 +55,7 @@ export function registerCheckProjectSpaceCompatibility(
 	server.registerTool(
 		"check_project_space_compatibility",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"Read-only check of whether one explicitly selected CommCare HQ project space can run an owned app. Returns friendly required capabilities, their verification state, any blockers, non-blocking performance advisories, and next steps. It does not compile, upload, or change the app or project space. Call `get_hq_connection` first to list reachable project spaces, then pass the exact `domain` the user selected; never choose among several spaces for them. Required support that is missing or could not be verified blocks a later upload, while an advisory never does. This tool reports only what the app needs and whether the selected project space supports it.",
 			inputSchema: z.object({

@@ -102,7 +102,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -176,6 +176,7 @@ export function registerProvisionWorkers(
 	server.registerTool(
 		"provision_workers",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Create CommCare HQ mobile-worker accounts for this app's personas on a project space, or bring existing ones into step with what the app says. The app must already be published there. Each account this call creates comes back with a `password` that exists only in this answer — show every one of them to the user immediately, including when the call also reports an error, because Nova stores none of them and cannot show them again. Omit a worker's `username` to take Nova's suggestion from the persona's name. If a username already belongs to an account Nova didn't create, the call refuses with `hq_worker_conflict` and names each one; ask the user about that exact account and only then send its persona in `adopt_personas`. If CommCare HQ breaks off mid-create, the call refuses with `hq_worker_may_exist` and puts that account's password in `unconfirmed_workers`: show it to the user immediately, because the account may be real and that password is the only one it will ever have, and tell them to look for that username on the project space rather than saying it was not created. Nova never deletes or retires a worker, because CommCare HQ's own delete soft-deletes every case that worker owns.",
 			inputSchema: z.object({

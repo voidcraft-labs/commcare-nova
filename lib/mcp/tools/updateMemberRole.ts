@@ -32,7 +32,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { rethrowAsMcpProjectAccess } from "../ownership";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 const updateMemberRoleInputSchema = z.strictObject({
@@ -63,6 +63,7 @@ export function registerUpdateMemberRole(
 	server.registerTool(
 		"update_member_role",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Change a member's role in a shared Nova Project (viewer, editor, or admin). Requires an admin or owner role in the Project. Takes the member_id from list_members. The Project owner's role can't be changed, and setting the role a member already holds succeeds without a write.",
 			inputSchema: updateMemberRoleInputSchema,

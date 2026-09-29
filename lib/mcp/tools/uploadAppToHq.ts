@@ -127,7 +127,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { deriveRunId } from "../runId";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
 
@@ -271,6 +271,7 @@ export function registerUploadAppToHq(
 	server.registerTool(
 		"upload_app_to_hq",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
 				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
 			inputSchema: z.object({

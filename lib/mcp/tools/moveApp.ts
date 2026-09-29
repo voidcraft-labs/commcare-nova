@@ -53,7 +53,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { requireProjectAccess, rethrowAsMcpAccess } from "../ownership";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 const moveAppInputSchema = z.strictObject({
@@ -71,6 +71,7 @@ export function registerMoveApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
 		"move_app",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Move an app into another Nova Project, re-tenanting its case data, media, and chat history with it in one transaction. Requires an admin or owner role in both the source and destination Projects, and unless a source owner performs the move themselves, every owner of the source Project must already be a member of the destination. An app that references lookup tables or has captured form submissions can't move, so the primary flow is birth in the right Project via begin_work's new_app.project_id; moving is the recovery path for apps born elsewhere (for example in the personal Project). Targeting the Project the app is already in moves nothing — it verifies and repairs the app's case-data tenancy and reports `already_in_project`.",
 			inputSchema: moveAppInputSchema,

@@ -15,18 +15,22 @@
  * Fresh `McpServer` per request: the factory passed to
  * `createMcpHandler` runs once per incoming request, and the
  * `ToolContext` reaches tools only through the `registerNovaTools`
- * closure, never through SDK `authInfo`. Binding tools on every call
+ * closure. Verified OAuth `authInfo` separately enables SDK scope challenges.
+ * Binding tools on every call
  * is cheap (register* helpers just call `server.registerTool`) and
  * the alternative: a long-lived server, would leak the first
  * caller's identity into every subsequent request.
  */
 
 import {
+	type AuthInfo,
 	createMcpHandler,
 	isJsonContentType,
 	McpServer,
+	readRequestBody,
 } from "@modelcontextprotocol/server";
 import * as Sentry from "@sentry/nextjs";
+import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
 
@@ -47,9 +51,16 @@ import type { ToolContext } from "@/lib/mcp/types";
  */
 export const MCP_MAX_DURATION_SECONDS = 300;
 
+/** Base64 for the largest admitted asset, plus 1 MiB for the JSON envelope.
+ * Apply the same bound before pre-parsing and in the SDK's fallback reader. */
+export const MCP_MAX_REQUEST_BODY_BYTES =
+	Math.ceil(Math.max(...Object.values(ASSET_SIZE_CAPS_BYTES)) / 3) * 4 +
+	1024 * 1024;
+
 export async function dispatchMcpTools(
 	req: Request,
 	ctx: ToolContext,
+	authInfo?: AuthInfo,
 ): Promise<Response> {
 	/* Attribute every Sentry event from this verified MCP request to its
 	 * caller. Both auth paths (JWT, API key) converge here with a verified
@@ -58,11 +69,14 @@ export async function dispatchMcpTools(
 	 * id-only attribution; the first-party web surface sets the richer
 	 * name/email user in `lib/auth-utils.ts`. */
 	Sentry.setUser({ id: ctx.userId });
-	const handler = createMcpHandler(() => {
-		const server = new McpServer({ name: "nova", version: "1.0.0" });
-		registerNovaTools(server, ctx);
-		return server;
-	});
+	const handler = createMcpHandler(
+		() => {
+			const server = new McpServer({ name: "nova", version: "1.0.0" });
+			registerNovaTools(server, ctx);
+			return server;
+		},
+		{ maxRequestBodySize: MCP_MAX_REQUEST_BODY_BYTES },
+	);
 	/* No `handler.close()` after fetch: the Response body may still be
 	 * streaming (SSE) when fetch resolves, and the per-request handler
 	 * is released with the request scope anyway. */
@@ -75,7 +89,23 @@ export async function dispatchMcpTools(
 	) {
 		let text: string;
 		try {
-			text = await req.text();
+			const body = await readRequestBody(req, MCP_MAX_REQUEST_BODY_BYTES);
+			if (body.tooLarge) {
+				await req.body?.cancel();
+				return Response.json(
+					{
+						jsonrpc: "2.0",
+						error: {
+							code: -32000,
+							message:
+								"The request is too large. Send one media file or a smaller set of edits.",
+						},
+						id: null,
+					},
+					{ status: 413 },
+				);
+			}
+			text = body.text;
 		} catch {
 			return Response.json(
 				{
@@ -101,9 +131,10 @@ export async function dispatchMcpTools(
 					signal: req.signal,
 					body: text,
 				}),
+				{ authInfo },
 			);
 		}
-		return handler.fetch(req, { parsedBody });
+		return handler.fetch(req, { parsedBody, authInfo });
 	}
-	return handler.fetch(req);
+	return handler.fetch(req, { authInfo });
 }
