@@ -46,7 +46,7 @@ the gates over the other files' rows and are not counted.
    output; output that differs only in attribute order, XPath whitespace, or the
    order of `<update>` children and their binds, which no reader orders; an
    attribute whose absence Core reads as that value; `null`, `''` and absent
-   defaults; a default that a calculate on its node overrides and on which no later load-time setvalue depends; load-time setvalues in another order, where none depends on another and no two affect the same node (README, "Load-time values"); markup Core walks into the same
+   defaults; a default, or an order of load-time and insert setvalues, whose removal or reordering leaves every node's value and relevance the same at every point of Core's load and after it, for every opening (README, "Load-time values"); markup Core walks into the same
    event sequence; and a setting that changes only restore content no held
    app reads.
 3. **Expressions.** A slot holding XPath or CSQL gets one row per value class:
