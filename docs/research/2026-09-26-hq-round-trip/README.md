@@ -76,11 +76,11 @@ with the platform model.
 
 ### Source: HQ's API, only
 
-Apps come from CommCare HQ, so Nova imports only through HQ's API and the media URLs the app source it returns records. A `.ccz` is a
+Apps come from CommCare HQ, so Nova imports only through HQ's API and the media files its app source's media map names. A `.ccz` is a
 build HQ already made from the app; it lacks the authored source, and anything
 built elsewhere is rarely valid. The API gives Nova the authored application JSON
 and XForm sources, the real identities, the project space's lookup tables and
-locations, and the media map whose URLs Nova then reads each file's bytes from,
+locations, and the media map, whose entries name each file Nova then reads,
 over the credential Nova already stores.
 
 Nova is used by Dimagi staff, and import requires the project space's API access:
@@ -94,7 +94,7 @@ granting `access_api`
 `users/models.py::_AuthorizableMixin.has_permission`); reading the space's
 feature flags also needs the credential's user to be a member (below). Without API
 access, HQ's REST API gives Nova no form's real id (`ApplicationResource` needs
-it), and import refuses with that reason: import reads only through HQ's API,
+it), and import refuses with that reason: import reads only through HQ's API and the media files it names,
 by choice.
 
 ### The bar
@@ -478,7 +478,7 @@ Android `FormEntryInstanceState.java::getFormDefIdForRecord`):
 Free to differ in bytes: the order of instance nodes and binds (the body's
 question order is held, because a structured-SMS keyword without named arguments
 fills questions in that order, `sms/handlers/keyword.py`), label and itext text,
-expression spelling, setvalue placement, XML formatting, body-only groups, `uiVersion`,
+expression spelling, setvalue placement, XML formatting, body-only groups,
 `<h:title>`, data-node `@name` and `@version`. Itext ids are free unless form
 logic references them through `jr:itext('…')` or the id is a pragma key the
 runtimes read (the inventory's pragma rows).
@@ -634,7 +634,7 @@ Every field on the surface has exactly one disposition:
 | Real form ids | `api/resources/v0_4.py::ApplicationResource`, aligned to the app source by module `unique_id` and form position and confirmed by `xmlns` (`dehydrate_module`); matched to Nova forms as under "Identity" at the migration | API access |
 | Lookup table definitions and rows | `fixtures/resources/v0_1.py::LookupTableResource`, `v0_6.py::LookupTableItemResource` | API access |
 | Locations and levels | `locations/resources` (already read by `lib/deployment`) | API access, the locations privilege, and the account's Edit Locations permission (`locations/resources/v0_5.py`, `v0_6.py`) |
-| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | the item's media map entry, read from the app source |
+| Media bytes | the URL HQ's media map records for each item (`hqmedia/models.py::HQMediaMapItem.url` → `hqmedia_download`), the same URL HQ embeds in apps | the credential Nova already stores, as for the app source |
 | Toggles | Nova's existing probe (`user_domains?feature_flag=`) | membership of the credential's user in the project space |
 
 A module that fails HQ's own summary (`ApplicationResource.dehydrate_module`
@@ -1386,7 +1386,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 225 held menu, case list and search rows in the inventory
 that apply to both platforms, 76 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 159 held question rows that apply to both, 78 are. In Nova,
+the 161 held question rows that apply to both, 79 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -2538,8 +2538,8 @@ continuity before it reaches HQ.
     test) a datum from the worker's `commtrack-supply-point` user data, with assertions
     that it and its case exist (`get_userdata_autoselect`), so a worker without
     one cannot open the form (executed), both COMMTRACK content Nova refuses as
-    retiring, except where a form's own computed datum of that id supplies it,
-    which is held. Nova reads neither setting
+    retiring (a read of `supply_point_id` is held where an advanced form's own
+    computed datum of that id supplies it). Nova reads neither setting
     through any API it uses; whether case search is on it already probes
     (`lib/commcare/client.ts::probeCaseSearchRuntime`). *Fix:*
     publish of an app that declares Android and has a module that offers search

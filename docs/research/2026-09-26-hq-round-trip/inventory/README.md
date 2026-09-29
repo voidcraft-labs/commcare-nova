@@ -70,8 +70,8 @@ the gates over the other files' rows and are not counted.
 | Add-ons | 0 | 0 | 0 | 13 | 0 | 13 |
 | Module types | 3 | 3 | 0 | 0 | 10 | 16 |
 | Module fields | 11 | 14 | 1 | 12 | 16 | 54 |
-| Case list and case detail | 44 | 55 | 0 | 20 | 47 | 166 |
-| Case selection extras | 4 | 6 | 0 | 3 | 8 | 21 |
+| Case list and case detail | 44 | 55 | 0 | 21 | 47 | 167 |
+| Case selection extras | 4 | 6 | 0 | 4 | 8 | 22 |
 | Case search | 42 | 46 | 1 | 8 | 26 | 123 |
 | Form types | 5 | 4 | 0 | 0 | 7 | 16 |
 | Form fields | 18 | 12 | 2 | 13 | 17 | 62 |
@@ -80,14 +80,14 @@ the gates over the other files' rows and are not counted.
 | Shadow forms | 1 | 3 | 0 | 3 | 4 | 11 |
 | Usercase | 2 | 1 | 1 | 0 | 0 | 4 |
 | Question types | 50 | 24 | 0 | 4 | 47 | 125 |
-| Binds, actions, model and head content | 13 | 1 | 0 | 16 | 20 | 50 |
+| Binds, actions, model and head content | 14 | 1 | 0 | 16 | 20 | 51 |
 | Appearances | 0 | 53 | 0 | 9 | 4 | 66 |
-| Itext, markdown and label text | 17 | 8 | 0 | 9 | 10 | 44 |
+| Itext, markdown and label text | 17 | 9 | 0 | 9 | 10 | 45 |
 | Secondary instances | 11 | 13 | 0 | 2 | 17 | 43 |
 | XPath functions and structure | 3 | 82 | 0 | 0 | 12 | 97 |
 | Media | 6 | 7 | 0 | 0 | 8 | 21 |
 | Lookup tables | 4 | 7 | 2 | 1 | 2 | 16 |
-| **Total** | **270** | **410** | **26** | **154** | **330** | **1190** |
+| **Total** | **271** | **411** | **26** | **156** | **330** | **1194** |
 
 Case list and case detail sums its seven sections, from Detail screens to Case list callout; Case search sums its three; and Basic form actions includes Case-property typing.
 
