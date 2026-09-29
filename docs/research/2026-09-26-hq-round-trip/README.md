@@ -7,7 +7,7 @@ and how Nova proves each step. Research date 2026-09-26.
 Every CommCare fact here was read in, or executed against, the source at:
 commcare-hq `f57e85e02913` (2026-09-25), formplayer `24383ac71bfb`,
 commcare-core `8e9ba8d908e9`, commcare-android `fd79cac4a0f1`, Vellum
-`01215f251c57`, commcare-connect `4a200c9d9` (2026-09-28, for Connect block ids), and Nova `main` at `f3642b34`; one later HQ change, at `525becc2963` (2026-09-28), is named where it applies. Execution means HQ's own Python
+`01215f251c57`, commcare-connect `4a200c9d9` (2026-09-28, for Connect block ids), and Nova `main` at `982d2630`; one later HQ change, at `525becc2963` (2026-09-28), is named where it applies. Execution means HQ's own Python
 (booted offline under its test settings), CommCare Core and Formplayer (their own
 test harnesses), and HQ's vendored Vellum build (headless), run against HQ test
 apps and Nova exports. CommCare citations use `file::symbol`. This document names
@@ -696,7 +696,7 @@ sequence).
 - A `.ccz` Nova compiles for a project space it publishes to uses that space's
   recorded ids and `xmlns`; one compiled for no project space uses `Form.xmlns`
   and menu and form ids derived from the Nova entities' UUIDs, including the hidden menu the emitter inserts for a
-  search-no-matches form (a registration from the case list after defect 30).
+  search-no-matches form (a registration from the case list after defect 29).
   The HQ import file, which the person uploads where they choose, carries the
   same ids as a `.ccz` compiled for no project space. HQ's create sets
   `cloudcare_enabled` from the project space's plan whatever the file says
@@ -1060,15 +1060,27 @@ A non-select writer makes the property text and drops the catalog.
   opening; or changing an ancestor's relevance or a load-time value its query
   or an ancestor's relevance reads), moves it to the count-repeat placement, as an
   identity edit the builder, SA and MCP state before it commits.
-- **Repeat counts** follow CommCare's semantics: Core rereads `jr:count` during
-  entry, so the count is live upward. Raising it adds rows; lowering it removes no
-  row already created (`FormEntryModel.createModelIfBelowMaxCount` only creates,
-  and no runtime offers deleting a counted repeat's row), so those rows and their answers, with the case
-  operations in them, are still submitted. `jr:count` must be a path (`XFormParser` builds an
-  `XPathReference` from it), so a repeat names its count question directly, or a
-  hidden value whose calculate holds the count expression, the shape an HQ
-  author builds in Vellum, which writes `jr:count` as entered
-  (`mugs/types/group.js`).
+- **Repeat counts** follow CommCare's semantics, as Nova emits them today: Core
+  rereads `jr:count` during entry, so the count is live upward. Raising it adds
+  rows; lowering it removes no row already created
+  (`FormEntryModel.createModelIfBelowMaxCount` only creates, and no runtime
+  offers deleting a counted repeat's row), so those rows and their answers, with
+  the case operations in them, are still submitted. `jr:count` must be a path
+  (`XFormParser` builds an `XPathReference` from it), and Core parses the node's
+  text as an integer, stopping form entry on anything else
+  (`FormEntryModel.createModelForGroup`: "must be a number!"; executed). So
+  Nova names an integer question directly and writes every other count, a
+  hidden value included, into its `nova_count_<repeat>` hidden value with an
+  `xsd:int` calculate, which narrows a fraction (`lib/commcare/xform/builder.ts`,
+  `repeatCountNode.ts`; `Recalculate.wrapData`), and refuses a count that depends
+  on the rows it creates, which Core keeps adding (executed). An HQ author builds
+  a count in Vellum as a hidden value whose calculate holds the expression,
+  which Vellum writes into `jr:count` as entered (`mugs/types/group.js`); from
+  step 6 import holds such a count as naming its hidden value directly, emitted
+  so, since Core then reads the same node HQ's build names, and an edit to that
+  count moves it to Nova's integer value, as an identity edit the builder, SA and
+  MCP state before it commits (the count node gains a data path and an HQ export
+  column, and a fraction narrows where it stopped form entry).
 - **Appearances:** a typed vocabulary holding exactly the values each runtime
   reads, with their per-platform behavior. Web Apps matches a question's tokens
   split on plain spaces and a group's collapse and border values split on any
@@ -1408,7 +1420,7 @@ the case list, into which Nova's search-no-matches form entry migrates.
 CommCare Classic never says which features run where, and many do not run the
 same on both: of the 227 held menu, case list and search rows in the inventory
 that apply to both platforms, 77 are marked as differing on at least one (2 of them marked RUNS on both, the difference only in a case the cell names), and of
-the 164 held question rows that apply to both, 82 are. In Nova,
+the 166 held question rows that apply to both, 82 are. In Nova,
 where an app runs is a first-class fact of every app: Web Apps, Android, or both.
 Every feature carries, per platform, one of: runs; ignored without harm (with what
 the user sees instead); unavailable (with what happens); or different (with the
@@ -1644,16 +1656,15 @@ repeats that hold them, is one of these, named `nova_<purpose>`, then, where it
 has one, `_<owning id>` from the owning question, repeat or case operation's id
 (never a Nova UUID), then any ordinal or kind the entry names, with a numeric
 suffix when an author's question already has that name. Step 2 renames the nodes
-Nova emits today to these names, apart from the repeat-count snapshots, which
-step 5 removes (the others arrive with the steps that add them), with one case-type guard per operation, and names free of Nova UUIDs (today
+Nova emits today to these names (the others arrive with the steps that add them), with one case-type guard per operation, and names free of Nova UUIDs (today
 each expression-targeted link has its own guard, named with the operation's
 UUID, `caseOps.ts`):
 
 - `nova_url_<question>`: a capture's link write.
 - `nova_datetime_<question>`: a datetime case value, as a single answer or as a
   date-and-time join.
-- `nova_count_<repeat>`: a repeat count that is an expression rather than a
-  question.
+- `nova_count_<repeat>`: a repeat count other than an integer question named
+  directly, as Nova writes it today (`lib/commcare/xform/repeatCountNode.ts`).
 - `nova_query_count_<repeat>` and `nova_query_id_<repeat>`: a query repeat's
   count and each row's case id in the count-repeat placement.
 - `nova_constraint_<question>_<n>`: a count a constraint over a repeat's rows
@@ -1682,7 +1693,7 @@ suffix included, together with its exact calculate or structure, recognizes the 
 calculate written inline on a Save to Case leaf, and reads anything else, an
 author's `nova_` question included, as the author's own. An HQ app that still
 carries Nova's former `__nova_` names (from a publish before step 2, or a repeat
-count snapshot from a publish before step 5) fails Vellum's id rule and is
+count snapshot from a publish before Nova's live counts, PR #696) fails Vellum's id rule and is
 refused like any other invalid id; republishing it from Nova replaces them.
 
 ---
@@ -1915,11 +1926,10 @@ cutover contract as it stands.
 | `lib/commcare/CLAUDE.md`: "HQ re-ids forms on import (`update_form_unique_ids` rewrites `form_id`) and not modules, so the expander pre-generates every form unique id before the module map." | HQ changes stored form ids only when it creates an app (its app-source export gives fresh form ids on every read, so drift matches forms by position); every menu and form id comes from the deployment ledger per project space ("Identity", defect 1). | 2 |
 | `lib/media/CLAUDE.md`: "**audio is `audio/mpeg` (`.mp3`) and `audio/wav` (`.wav`) ONLY.**" and "SVG is excluded as an XSS script container." | From step 2 Nova also accepts the formats every platform plays; from step 4 a file is accepted when every platform the app declares plays it and HQ types it as the same kind, from the vendors' documentation ("Questions", defect 11), so SVG is held for an app that does not declare Android, and Nova serves every asset sandboxed (`app/api/media/[assetId]/route.ts`, `Content-Security-Policy: sandbox`). | 2, 4 |
 | `lib/lookup/CLAUDE.md`: "A tag is capped at 32 characters here, one past what a CommCare HQ data sheet can be named for, so the export boundary refuses the 32-character case by name" | HQ's upload reads a 32-character sheet name, so a 32-character tag pushes (defect 5). | 2 |
-| `lib/commcare/CLAUDE.md`: "All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`." | Markdown is a property of each display text (defect 29). | 5 |
+| `lib/commcare/CLAUDE.md`: "All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`." | Markdown is a property of each display text (defect 28). | 5 |
 | `lib/commcare/CLAUDE.md` (Exclusive guards): "Core executes EVERY true `<create>` and lands on the LAST one" | Form links follow CommCare's semantics, with no exclusivity guards ("Navigation and after-submit links"). | 5 |
 | `lib/commcare/CLAUDE.md`: "a deeply always-false condition is a soundness finding" | A display condition `false()` or `false() and <rest>` is the "not on the menu" concept, holding its rest; any other condition false in every context is an ordinary condition, and the soundness finding retires ("Navigation and after-submit links"). | 2 |
 | `lib/commcare/CLAUDE.md`: "target-owned settings and state — `cloudcare_enabled`, `case_sharing`, `secure_submissions`, the build/release metadata, and the rest of HQ's app Settings page — are never emitted by `hqShells.ts::applicationShell`, and `logo_refs` is emitted only when the app has a Nova-authored logo" | `cc-show-saved` and `cc-show-incomplete` (step 2), `cloudcare_enabled` (step 4), and `case_sharing` and every other held setting (step 7) are app content Nova writes as a key-level overlay ("Application settings"); publish writes no `logo_refs`, apart from defect 14's one cleanup of Nova's own entries. | 2, 4, 7 |
-| `lib/commcare/CLAUDE.md` (`count_bound`): "Nova promises an initial fixed count … They do not later track answer changes." | Repeat counts follow CommCare's semantics: raising the count adds rows, and lowering it removes none already created ("Questions"). | 5 |
 | `lib/commcare/CLAUDE.md` (`query_bound`): "The membership list is an initial snapshot." | A query repeat has a placement, model iteration or a count repeat, kept once published ("Questions"). | 5 |
 | `lib/commcare/CLAUDE.md`: "`subcaseWire.ts::hqCaseActions` therefore marks extension actions `never` while `xform/caseOps.ts` carries their active transactions in the source XForm, under a reserved `__nova_subcases` container" | Step 2 renames the container `nova_subcases` (defect 13); step 5 makes extension child cases case operations with an extension link, with no inert basic subcase beside them (defect 24). | 2, 5 |
 | `lib/db/CLAUDE.md`: "Its closed kind set is `autosave`, `mcp`, `chat`, `blueprint-migration`, `fold-baseline`, and `project-move`." | The set gains `publish-placement`, which a publish writes to record the case-operation and query-repeat placements and the advanced module kinds it first carries, and each placement move the person accepts at publish, and which feeds multiplayer like `autosave`, `mcp` and `chat` ("Case writes"). | 5 |
@@ -1928,8 +1938,8 @@ cutover contract as it stands.
 | root `CLAUDE.md`: "its mutation-bearing `autosave` / `mcp` / `chat` rows also feed multiplayer, while `blueprint-migration` / `fold-baseline` / `project-move` are server-only reload boundaries" | `publish-placement` rows also feed multiplayer ("Case writes"). | 5 |
 | contracts.md: "An eligible field writes case data only through `caseWrite: { caseType, property }`" | A form's case writes are its case operations; a field's `caseWrite` is that field's view of a write ("Case writes"). | 5 |
 | `lib/domain/CLAUDE.md`: "`registration` creates a case, `followup` updates one, `close` loads + closes (a superset of followup), `survey` touches no case." | A form's type is its own case's lifecycle; a registration may also close the case it creates, and its create and close each take a condition; every other case's create, update and close is a case operation ("Case writes"). | 5, 7 |
-| `lib/domain/CLAUDE.md`: "`casePreload.ts` is the ONE statement of which answers a form seeds from the case it opened" | A preload is an explicit default value reading the case (defect 29). | 5 |
-| `lib/domain/CLAUDE.md`: "A form's optional `entry` (`{ kind: "search-no-matches", label? }`) says how it is reached" | Registration from the case list is `Module.caseListRegistrationForm` (defect 30). | 5 |
+| `lib/domain/CLAUDE.md`: "`casePreload.ts` is the ONE statement of which answers a form seeds from the case it opened" | A preload is an explicit default value reading the case (defect 28). | 5 |
+| `lib/domain/CLAUDE.md`: "A form's optional `entry` (`{ kind: "search-no-matches", label? }`) says how it is reached" | Registration from the case list is `Module.caseListRegistrationForm` (defect 29). | 5 |
 | contracts.md: "Case attachment display is link-first. … The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit opt-in" | Attachment mode is gone; a capture reaches a case only as a link write ("Case writes"). | 5 |
 | contracts.md: "App birth is a CLOSED two-owner vocabulary — `explicit-blank \| design-slice`" | Three owners, adding `hq-import`, all through the one genesis writer ("How the reader works"). | 6 |
 | contracts.md: "A durable deployment record is keyed by Nova app, Project, HQ server, and HQ domain." | App records keep that key; a lookup table's adoption belongs to the Project table and the target together, so every app of the Project that reads it publishes it there ("Reference targets"). | 6 |
@@ -1964,7 +1974,7 @@ mechanisms within the decisions and constraints this document states.
    `config/commcare-hq-feature-flags.json`. *Exit:* every inventory entry is in
    the manifest with its disposition, and the harness reproduces the symptom of
    every defect visible in HQ's build, HQ's search, HQ's lookup upload, HQ's
-   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 20, 21 and 23 to 28.
+   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 20, 21 and 23 to 27.
 2. **Emission and publish fixes, with the small model additions they need.**
    Defects 1 to 16. The additions are `Form.xmlns` with the deployment ledger's
    per-project-space menu and form ids, explicit settings for saved and incomplete forms, the first-menu and
@@ -1973,7 +1983,7 @@ mechanisms within the decisions and constraints this document states.
    `HIDDEN_INERT_VALUE` default of `''` migrates to it and the constant retires;
    one that writes a case property writes it blank on each submission unless the
    form preloads that property into it, as Nova does today for every scalar writer
-   of the form's own case in a form that loads one case (defect 29), which the builder, SA and MCP say where
+   of the form's own case in a form that loads one case (defect 28), which the builder, SA and MCP say where
    the author sets it), `localization.wireCodes`, UI string overrides and `uiStringCatalogKeys`, a sort
    column for lookup-backed prompts, and the formats every platform plays added to the accepted media set. Publish gains
    the version floor, per-privilege confirmation, and the drift check with its
@@ -2003,10 +2013,10 @@ mechanisms within the decisions and constraints this document states.
 5. **Case writes, forms and navigation.** Case writes as one concept with
    derived placement, advanced-module emission for the placements that need it
    (with load actions carrying each form's existing case selection) and the
-   held advanced kind, query repeat placement, live repeat counts, the search
+   held advanced kind, query repeat placement, the search
    workflow setting, form links with CommCare's semantics and "otherwise",
    `group.fieldList`, explicit preloads and markdown, and the renamed menu
-   concepts. Defects 21 to 30. *Exit:* proofs 1 to 5 pass on every Nova export,
+   concepts. Defects 21 to 29. *Exit:* proofs 1 to 5 pass on every Nova export,
    including a republish after each migration.
 6. **Import.** The reader, the `hq-import` birth owner, referenced and adopted
    project-space data (the ledger records, adoption, and the checks before each
@@ -2014,8 +2024,8 @@ mechanisms within the decisions and constraints this document states.
    that merges each lookup table's per-app deployment records into one per
    Project table and project space (adopted where any app adopted it, Nova-created
    otherwise),
-   and every `widen:` grammar change a HELD row of the inventory names that no
-   earlier step builds, since the reader needs them. *Exit:* every feature-matrix app made only of held entries reads,
+   every `widen:` grammar change a HELD row of the inventory names that no
+   earlier step builds, and `repeat.countDirect`, since the reader needs them. *Exit:* every feature-matrix app made only of held entries reads,
    re-exports and passes the proof, and every other app is refused with the
    right reason.
 7. **The rest of the model.** Every HELD-NEW group in [the inventory's concept list](inventory/README.md) not built in steps 2 to 6, in the list's order (the cross-cutting
@@ -2287,9 +2297,7 @@ continuity before it reaches HQ.
       which Vellum refuses as a question id. *Fix:* the containers become groups
       and each such node is named as under "Nova's exports stay inside HQ's
       editable envelope" (`nova_<purpose>`, with the owning id where it has one). Every such node's data path
-      moves once, so the matching columns in HQ exports move; the count
-      snapshots (`__nova_count_*`) are left alone here, because defect 25
-      removes them.
+      moves once, so the matching columns in HQ exports move.
     - A conditional operation's wrapper relevance is dropped on save, so the
       operation always runs. *Fix:* a group carries the condition, and a create
       uses Save to Case's own create condition.
@@ -2652,23 +2660,9 @@ continuity before it reaches HQ.
     selection in that module becomes chained case selections, renaming the
     session datums its forms read), except where HQ's advanced-module rules forbid
     that module becoming advanced ("Case writes"), where it keeps its Save to Case
-    block and each form link that carried its new case into a form targets that form's menu instead, or, where HQ does not offer that menu as a link target (defect 27), the nearest menu above it that HQ offers, else the app home, where the user picks the case; the migration names each. Such apps already need `save_to_case`, from step 2's
+    block and each form link that carried its new case into a form targets that form's menu instead, or, where HQ does not offer that menu as a link target (defect 26), the nearest menu above it that HQ offers, else the app home, where the user picks the case; the migration names each. Such apps already need `save_to_case`, from step 2's
     privilege confirmation.
-25. **Repeat counts are snapshots no HQ editor accepts.** Nova copies every
-    authored count into a reserved `__nova_count_<fieldId>` node set once by a
-    default value (`lib/commcare/CLAUDE.md`, `count_bound`). Vellum refuses the
-    `__nova_` name, and a default value that reads other form nodes by absolute
-    path, as Nova writes it whenever the count does, is an error unless the
-    retiring `VELLUM_DATA_IN_SETVALUE` flag is on, and the snapshot fixes the count where
-    CommCare's repeats track it. *Fix:* live `jr:count`, as under "Questions". A
-    repeat whose count question changes after entry has started now follows it
-    upward: raising the count adds rows, and lowering it removes no row already
-    created, so those rows and their answers, with the case operations in them,
-    are still submitted. The snapshot
-    nodes go, and with them their data paths and HQ export columns; a count that
-    is an expression rather than a question takes a `nova_count_<repeat>`
-    hidden value, which adds its own export column.
-26. **Query repeats in shapes HQ's editor breaks.** Nova runs query repeats
+25. **Query repeats in shapes HQ's editor breaks.** Nova runs query repeats
     through a live `@count` calculate and wrapper relevance, which a Vellum save
     turns into Vellum's own model-iteration spelling (setvalues for `@count`,
     no wrapper relevance, an absolute `@current_index`); in that shape a nested query repeat
@@ -2682,7 +2676,7 @@ continuity before it reaches HQ.
     answer paths, and its rows then follow the query while the form is filled
     in instead of the snapshot taken when it loaded; every other takes model
     iteration; the migration names each moved repeat.
-27. **Form links are made exclusive, and hidden links vanish in HQ.**
+26. **Form links are made exclusive, and hidden links vanish in HQ.**
     `lib/commcare/formLinkProjection.ts::planFormLinkGuards` writes each link's
     exclusivity into guards, and HQ drops a hidden link beside a visible one on
     save, and clears a navigation fallback its settings page does not offer.
@@ -2711,7 +2705,7 @@ continuity before it reaches HQ.
     14), that HQ does not offer in that menu takes the nearest one HQ offers
     there: the form's menu, else its parent menu, else the first menu; the
     migration names each.
-28. **Every labelled group is a field list.** Nova emits `appearance="field-list"`
+27. **Every labelled group is a field list.** Nova emits `appearance="field-list"`
     on every labelled group (`lib/commcare/xform/builder.ts`), so a user repeat
     inside one is an error in Vellum ("Repeat Count is required."). *Fix:*
     `group.fieldList`, and the validator refuses a user repeat inside a field
@@ -2719,7 +2713,7 @@ continuity before it reaches HQ.
     `false`, as Nova emits them today, except every group or section that
     contains a user repeat at any depth, which takes `false`: on Android its
     questions then show one per screen instead of together.
-29. **Preload and markdown are implicit.** Nova preloads every scalar writer, in a single-case form, of the
+28. **Preload and markdown are implicit.** Nova preloads every scalar writer, in a single-case form, of the
     form's own case from the loaded case (`lib/domain/casePreload.ts::writerPreloadsFromLoadedCase`)
     and writes a markdown form for every display text (labels, hints, help,
     validation messages and options), which re-renders plain text containing
@@ -2737,7 +2731,7 @@ continuity before it reaches HQ.
     there (`PRIMARY_CASE_FIELD_IN_REPEAT`). The
     migration names each replaced default. Existing texts keep their markdown
     forms, so nothing changes on the wire.
-30. **Three concepts carry HQ's shape under other names.** The search-no-matches
+29. **Three concepts carry HQ's shape under other names.** The search-no-matches
     form entry, the case-list-only menu and the `searchFirst` flag become
     `Module.caseListRegistrationForm`, `Module.caseListMenuItem` and the search
     workflow setting. Nothing changes on the wire.
