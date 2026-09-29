@@ -1024,10 +1024,10 @@ A non-select writer makes the property text and drops the catalog.
   are retiring.
 - **Load-time values.** When a form opens, Core runs its load-time setvalues in
   the built form's order (`FormDef.initialize`). Vellum writes its own (each
-  default value, a root create id, a model-iteration repeat's) in data-tree
-  order (`writer.js::createSetValues`), and HQ's build appends its own after all
+  default value outside a repeat, a root create id, a model-iteration
+  repeat's) in data-tree order (`writer.js::createSetValues`), and HQ's build appends its own after all
   of them, such as case and usercase preloads, advanced `preload`s and the
-  `meta` values (`xform.py::XForm.add_setvalue`). Each setvalue recomputes every
+  load-time `meta` values (`xform.py::XForm.add_setvalue`). Each setvalue recomputes every
   calculate that depends on the value it sets (`FormDef.setValue` →
   `triggerTriggerables`). An answer's load-time value at a point of that
   sequence is the value those steps have given it by then, and blank otherwise:
@@ -1036,6 +1036,13 @@ A non-select writer makes the property text and drops the catalog.
   root create id `concat(/data/key, '-')` gives `abc-` after a default of `abc`
   and `-` when that default comes after it, and one reading a calculate of
   `concat(/data/key, '-')` gives `abc-` after the default and blank without it.
+  A value set at load reaches a later load-time setvalue when that setvalue
+  reads it, directly or through a calculate recomputed from it, or sets a node
+  under an ancestor whose relevance reads it the same way (executed: a
+  model-iteration repeat under a group whose relevance reads an answer set to
+  `'no'` before the repeat's setvalues, directly or through a calculate, stays
+  empty, and gets its rows when that value is set after them). Reordering two
+  load-time setvalues changes a value exactly when one reaches the other.
 - **Query repeats** have a placement. Vellum's model iteration sets the
   repeat's ids and count once, by setvalues that run when the form loads, or
   when the parent row is added. Run in Core at Formplayer's commit on
@@ -1053,7 +1060,8 @@ A non-select writer makes the property text and drops the catalog.
     Without such a value, its rows are built.
 
   Import refuses a model-iteration repeat that is nested in any repeat, sits
-  under such an ancestor, or has a query reading a form answer that is blank where its setvalues run. A count repeat whose count and row ids are calculated from the same
+  under such an ancestor, or has a query reading a form answer no load-time value reaches before its
+  setvalues run. A count repeat whose count and row ids are calculated from the same
   query nests and follows relevance, and HQ's editor produces and keeps it. A
   new query repeat takes model iteration only when its query reads no form
   answer, it is not nested in another, and no ancestor's relevance reads form
@@ -1068,8 +1076,8 @@ A non-select writer makes the property text and drops the catalog.
   admits, so any edit that leaves a model-iteration repeat outside them, wherever
   in the form it is made (nesting it, placing it under an ancestor whose
   relevance reads an answer given a load-time value before its setvalues,
-  adding to its query a read of a form answer that is blank where its
-  setvalues run, or changing an ancestor's relevance or a load-time value its
+  adding to its query a read of a form answer no load-time value reaches
+  before its setvalues run, or changing an ancestor's relevance or a load-time value its
   query or an ancestor's relevance reads), moves it to the count-repeat placement, as an
   identity edit the builder, SA and MCP state before it commits.
 - **Repeat counts** follow CommCare's semantics: Core rereads `jr:count` during
@@ -2078,10 +2086,11 @@ continuity before it reaches HQ.
    Nova also prints a blank check (`is-blank`) as `<property> = ''`
    (`lib/commcare/predicate/csqlEmitter.ts::emitAbsenceSegments`), and HQ raises
    `CaseFilterError` for any comparison between `date_opened`, `closed_on` or
-   `last_modified` and a value that is not a date or datetime, `''` included
-   ("Malformed search query" for a number, `filter_dsl.py::build_filter_from_xpath`)
+   `last_modified` and a value that is not a date or datetime, `''` included,
+   and "Malformed search query" for a number
    (`comparison.py::_create_system_datetime_query`, which parses the value the
-   same way whatever the operator; executed), so such a search fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
+   same way whatever the operator, and `filter_dsl.py::build_filter_from_xpath`;
+   executed), so such a search fails. *Fix:* the validator refuses, in a CSQL slot, a blank check on those
    three properties and a comparison between them and a value that is not a date
    or datetime, or a runtime value with no guard against blank; the migration
    replaces each such term that compares a fixed value, a blank check included,
@@ -2413,7 +2422,7 @@ continuity before it reaches HQ.
     keep refusing blank and multi-token values until step 7 holds them
     (the inventory's ID-mapping key row); and
     `lib/commcare/xform/captureUpload.ts` says Android's `WidgetFactory` has no
-    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while a Default Value after it in the form that reads the Hidden Value sees it; `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
+    `face` branch, while `WidgetFactory.java` builds a `FaceCaptureWidget`; `HIDDEN_VALUE_BOTH_SOURCES` (`lib/commcare/validator/rules/field.ts`) says a Hidden Value's default is overwritten before anyone could read it, while a later load-time setvalue it reaches sees it ("Load-time values"); `lib/domain/fields/file.ts` says Android has no document-upload handling and tells the SA a file question is Web Apps only (`saDocs`), as the public docs do (`content/docs/attachments.mdx`, "File attachments only work in the web app"), while `WidgetFactory.java` builds a `DocumentWidget`. Nova also offers
     label media on groups and repeats (`containerFieldBase.label_media`) and hint
     media (`hint_media`), which neither runtime shows and Vellum does not offer,
     and validation-message media (`validate_msg_media`), which Vellum offers and
@@ -2581,10 +2590,11 @@ continuity before it reaches HQ.
     through a live `@count` calculate and wrapper relevance, which a Vellum save
     turns into Vellum's own model-iteration spelling (setvalues for `@count`,
     no wrapper relevance, an absolute `@current_index`); in that shape a nested query repeat
-    breaks, and one under a group whose relevance reads answers load-time
-    defaults set stays empty whenever they leave the group not relevant at load;
-    and in either shape a query that reads a form answer no earlier load-time
-    default sets never reads it, since its rows are taken once ("Questions"). *Fix:* a query repeat has a placement, as under
+    breaks, and one under a group whose relevance reads answers given a load-time
+    value before its setvalues stays empty whenever they leave the group not
+    relevant at load; and in either shape a query that reads a form answer no
+    load-time value reaches before its setvalues run never reads it
+    ("Load-time values"), since its rows are taken once ("Questions"). *Fix:* a query repeat has a placement, as under
     "Questions". *Migration:* each existing query repeat takes the placement a
     new one would: the count repeat where it is nested, its query reads a form
     answer, or an ancestor's relevance reads form answers, which moves its
