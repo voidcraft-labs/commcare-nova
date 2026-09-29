@@ -61,7 +61,11 @@ export function countDependencies(
 					return parent(path) === base;
 				}),
 			);
-			return named(candidates, text(target));
+			const test = target.getChild("FunctionName");
+			return named(
+				candidates,
+				test && text(test) === "node" ? "*" : text(target),
+			);
 		}
 		return visit(node, context, false);
 	};

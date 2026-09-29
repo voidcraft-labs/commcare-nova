@@ -1889,38 +1889,44 @@ describe("INVALID_REF stored-reference classification", () => {
 });
 
 describe("live repeat cardinality feedback", () => {
-	it.each(["../n", "current()/../n", "number(/data/n)"])(
-		"admits sibling count %s in its calculated carrier scope",
-		(count) => {
-			const doc = buildDoc({
-				modules: [
-					{
-						name: "Visits",
-						forms: [
-							{
-								name: "Visit",
-								type: "survey",
-								fields: [
-									f({ id: "n", kind: "int", default_value: "2" }),
-									f({
-										id: "rows",
-										kind: "repeat",
-										repeat_mode: "count_bound",
-										repeat_count: count,
-										children: [f({ id: "answer", kind: "text" })],
-									}),
-								],
-							},
-						],
-					},
-				],
-			});
-			assertAdmitted(doc);
-		},
-	);
+	it.each([
+		"../n",
+		"current()/../n",
+		"number(/data/n)",
+		"parent::node()/n",
+		"self::node()/../n",
+	])("admits sibling count %s in its calculated carrier scope", (count) => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ id: "n", kind: "int", default_value: "2" }),
+								f({
+									id: "rows",
+									kind: "repeat",
+									repeat_mode: "count_bound",
+									repeat_count: count,
+									children: [f({ id: "answer", kind: "text" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmitted(doc);
+	});
 	it.each([
 		"count(../rows) + 1",
 		"count(current()/../rows) + 1",
+		"count(parent::node()/rows) + 1",
+		"count(current()/parent::node()/rows) + 1",
+		"count(self::node()/../rows) + 1",
 
 		"count(/data/rows[n = 1]) + 1",
 	])("rejects feedback through %s", (count) => {
