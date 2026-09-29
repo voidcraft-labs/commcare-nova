@@ -71,7 +71,7 @@ Case search as a whole needs SYNC_SEARCH_CASE_CLAIM plus the target's `CaseSearc
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
 | `name` (prompt key = case property) | **HELD**: `searchInputs[].property` (+ `name`); widen: `name` to HQ's key grammar (hyphens, `/` ancestor paths) | RUNS / RUNS | `name` |
-| a prompt that reaches HQ as its own key, named as a `CONFIG_KEYS_MAPPING` key or value, a `CASE_SEARCH_TAGS_MAPPING` key, `include_closed`, `commcare_blacklisted_owner_ids` or `commcare_project` | **REFUSED**: untypeable: HQ takes it as request configuration, a metrics tag, an ignored key, or an owner or project space filter instead of searching it (defect 14) | — | — |
+| a prompt that reaches HQ as its own key, named as a `CONFIG_KEYS_MAPPING` key or value, a `CASE_SEARCH_TAGS_MAPPING` key, `include_closed`, `commcare_blacklisted_owner_ids` or `commcare_project` | **REFUSED**: broken at runtime: HQ does not search it, taking it as request configuration, a metrics tag, an ignored key (`case_search/models.py` `UNSEARCHABLE_KEYS`), or an owner or project space filter instead (defect 14) | — | — |
 | `label{lang}` | **HELD**: `searchInputs[].label` | RUNS / RUNS | `label` |
 | `hint{lang}` | **HELD**: `searchInputs[].hint` | RUNS / IGNORED | `hint` |
 | text prompt (no `input_`) | **HELD**: scalar `text` | RUNS / RUNS | no `input_` |

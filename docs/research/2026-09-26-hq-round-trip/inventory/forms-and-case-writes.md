@@ -263,7 +263,7 @@ HQ renders these into the XForm at build (`xform.py::XForm._create_casexml`); th
 
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
-| privilege `user_case` | → Privileges (a plan gate; missing it fails the build of a form with usercase actions, and a Vellum save of a form reading `#user`) | — | — |
+| privilege `user_case` | → Privileges (a plan gate; missing it fails the build of a form with usercase actions, and a Vellum save of a form reading `#user` writes a form Core cannot parse, as the `#user/<prop>` row says) | — | — |
 | usercase creation and sync (`hq_user_id`) | **TARGET-OWNED**: server-side (`callcenter/sync_usercase`) | n/a | n/a |
 | `#user/<prop>` in XForm expressions | **HELD**: `user-ref` / `user-property-ref` leaves | RUNS / RUNS | `#user/<prop>` hashtag + expanded casedb path; privilege `user_case`, without which HQ's session schema has no `#user` (`app_schemas/session_schema.py`, `domain_has_usercase_access`) and a Vellum save writes the hashtag into the XForm unexpanded, which Core cannot parse, while HQ's build does not catch it (executed) |
 | `#user/<prop>` in `module_filter` / `form_filter` / case-list slots (the usercase row) | **HELD-NEW**: usercase term in Predicate (Predicate `session-user` reads session user data, a different source) | RUNS / RUNS | `#user/<prop>`; privilege `user_case` (without it HQ's build fails `invalid user property xpath reference` for a `form_filter`, and the other slots read nothing) |
