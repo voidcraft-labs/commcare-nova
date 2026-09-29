@@ -81,8 +81,8 @@ export const userControlledRepeatSchema = repeatBase.extend({
 });
 
 /**
- * Count-bound repeat — `repeat_count` is an XPath that the runtime
- * snapshots when its enclosing instance initializes. Common pattern:
+ * Count-bound repeat — `repeat_count` is an XPath read during entry.
+ * Common pattern:
  * bind to an integer question elsewhere on the form (`#form/desired_count`).
  * Increasing the count adds rows during entry; decreasing it retains
  * created rows, answers, and case operations in the submission.

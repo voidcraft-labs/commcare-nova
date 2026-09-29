@@ -5453,6 +5453,71 @@ describe("sections on submission", () => {
 
 describe("section entry initializes later rows", () => {
 	it.each([false, true])(
+		"rereads a pending count when a hidden repeat becomes visible (worker: %s)",
+		async (stagedAsync) => {
+			const engine = new FormEngine(
+				dTree([
+					{
+						id: "first",
+						kind: "section",
+						children: [{ id: "n", kind: "int", default_value: xp("5") }],
+					},
+					{
+						id: "second",
+						kind: "section",
+						children: [
+							{ id: "show", kind: "int", default_value: xp("0") },
+							{
+								id: "rows",
+								kind: "repeat",
+								repeat_mode: "count_bound",
+								repeat_count: formXp("#form/first/n"),
+								relevant: formXp("#form/second/show = 1"),
+								children: [{ id: "answer", kind: "text" }],
+							},
+						],
+					},
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync },
+			);
+			const worker = fixedWorldEvaluator(engine, `hidden-count-${stagedAsync}`);
+			try {
+				if (stagedAsync) await engine.initializeAsync(worker.evaluateAsync);
+				const second = engine.sectionPages()[1];
+				if (!second) throw new Error("Missing second page");
+				if (stagedAsync) {
+					await engine.setValueAsync(
+						"/data/first/n",
+						"2",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+					await engine.setValueAsync(
+						"/data/second/show",
+						"1",
+						worker.evaluateAsync,
+					);
+					await engine.enterSectionAsync(second.uuid, worker.evaluateAsync);
+				} else {
+					engine.setValue("/data/first/n", "2");
+					engine.enterSection(second.uuid);
+					engine.setValue("/data/second/show", "1");
+					engine.enterSection(second.uuid);
+				}
+				expect(engine.getRepeatCount("/data/second/rows")).toBe(2);
+				expect(engine.hasPendingSectionInitialization()).toBe(false);
+			} finally {
+				worker.runtime.dispose();
+			}
+		},
+	);
+
+	it.each([false, true])(
 		"captures nested membership on page entry and retains it on return (worker: %s)",
 		async (stagedAsync) => {
 			const input = dTree([
@@ -5634,3 +5699,54 @@ it("inserts newly relevant rows on the current page and resolves a later page wi
 		needsEntry: false,
 	});
 });
+
+it.each([false, true])(
+	"grows dependent counts after removing a user row (worker: %s)",
+	async (stagedAsync) => {
+		const engine = new FormEngine(
+			dTree([
+				{ id: "n", kind: "int", default_value: xp("0") },
+				{
+					id: "a",
+					kind: "repeat",
+					repeat_mode: "user_controlled",
+					children: [{ id: "answer", kind: "text" }],
+				},
+				{
+					id: "b",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: formXp("if(count(#form/a) = 2, 0, number(#form/n))"),
+					children: [{ id: "answer", kind: "text" }],
+				},
+			]),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ stagedAsync },
+		);
+		const worker = fixedWorldEvaluator(
+			engine,
+			`remove-live-count-${stagedAsync}`,
+		);
+		try {
+			if (stagedAsync) {
+				await engine.initializeAsync(worker.evaluateAsync);
+				await engine.addRepeatAsync("/data/a", worker.evaluateAsync);
+				await engine.setValueAsync("/data/n", "3", worker.evaluateAsync);
+			} else {
+				engine.addRepeat("/data/a");
+				engine.setValue("/data/n", "3");
+			}
+			expect(engine.getRepeatCount("/data/b")).toBe(0);
+			if (stagedAsync)
+				await engine.removeRepeatAsync("/data/a", 1, worker.evaluateAsync);
+			else engine.removeRepeat("/data/a", 1);
+			expect(engine.getRepeatCount("/data/b")).toBe(3);
+		} finally {
+			worker.runtime.dispose();
+		}
+	},
+);

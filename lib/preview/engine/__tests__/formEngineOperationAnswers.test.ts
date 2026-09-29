@@ -1,3 +1,5 @@
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { liveCountEntryDoc } from "./fixtures/sectionEntry";
 // Pure answer projection over schema-shaped fields and operations. This suite
 // does not execute or admit the synthetic session-target operation program.
 // The per-scope operation answer collector: complete-per-iteration
@@ -327,4 +329,37 @@ describe("computeOperationAnswers", () => {
 		});
 		expect(answers?.repeats).toEqual([]);
 	});
+});
+
+it("retains counted-row operation answers after the worker lowers the count", () => {
+	const doc = liveCountEntryDoc(true);
+	assertAdmittedDoc(doc);
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const engine = new FormEngine({
+		...doc,
+		caseTypes: doc.caseTypes ?? [],
+		formUuid,
+		form: doc.forms[formUuid],
+	});
+	const sections = doc.fieldOrder[formUuid];
+	engine.setValue("/data/first/size", "2");
+	engine.enterSection(sections[1]);
+	engine.setValue("/data/second/items[0]/answer", "First activity");
+	engine.setValue("/data/second/items[1]/answer", "Retained activity");
+	engine.enterSection(sections[0]);
+	engine.setValue("/data/first/size", "1");
+	engine.enterSection(sections[1]);
+	const repeat = Object.values(doc.fields).find(
+		(field) => field.id === "items",
+	);
+	const answer = Object.values(doc.fields).find(
+		(field) => field.id === "answer",
+	);
+	if (!repeat || !answer) throw new Error("Missing fixture fields");
+	const submitted = engine
+		.computeOperationAnswers()
+		?.repeats.find((scope) => scope.repeat === repeat.uuid);
+	expect(
+		submitted?.iterations.map(valuesOf).map((values) => values[answer.uuid]),
+	).toEqual(["First activity", "Retained activity"]);
 });

@@ -1039,6 +1039,7 @@ export class FormEngine {
 			if (key.startsWith(`${repeatPath}[`)) survivingLeaves.push(key);
 		}
 		this.evaluateRepeatCascade(`${repeatPath}[`, survivingLeaves);
+		this.settleLiveRepeats();
 	}
 
 	/**
@@ -3947,10 +3948,13 @@ export class FormEngine {
 						if (count > this.instance.getRepeatCount(path))
 							this.pendingSectionRepeats.set(path, { count });
 						else this.pendingSectionRepeats.delete(path);
-					} else if (count > this.instance.getRepeatCount(path)) {
-						beforeInsertion?.();
-						yield* this.materializeInitializedRepeat(node, path, { count });
-						grew = true;
+					} else {
+						this.pendingSectionRepeats.delete(path);
+						if (count > this.instance.getRepeatCount(path)) {
+							beforeInsertion?.();
+							yield* this.materializeInitializedRepeat(node, path, { count });
+							grew = true;
+						}
 					}
 				}
 				for (
@@ -4058,7 +4062,11 @@ export class FormEngine {
 				continue;
 			const node = this.findTreeNode(path);
 			if (!node) throw new Error("Section repeat is unavailable.");
-			yield* this.materializeInitializedRepeat(node, path, snapshot);
+			const current =
+				node.field.kind === "repeat" && node.field.repeat_mode === "count_bound"
+					? { count: yield* this.readLiveRepeatCount(node.field, path) }
+					: snapshot;
+			yield* this.materializeInitializedRepeat(node, path, current);
 			this.pendingSectionRepeats.delete(path);
 		}
 	}

@@ -253,6 +253,31 @@ public class ContainerRuntimeTest {
   }
  }
 
+ /** Deliberately invalid Nova count: Core parses it but every new row raises
+  * the target again. Admission must reject this cardinality feedback. */
+ @Test public void countFeedbackKeepsCreatingRowsDuringEntry()throws Exception {
+  javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();factory.setNamespaceAware(true);
+  org.w3c.dom.Document document;
+  try(java.io.InputStream stream=getClass().getResourceAsStream("/container-literal.xml")){document=factory.newDocumentBuilder().parse(stream);}
+  org.w3c.dom.NodeList nodes=document.getElementsByTagName("*");boolean changed=false;
+  for(int n=0;n<nodes.getLength();n++) {
+   org.w3c.dom.Element element=(org.w3c.dom.Element)nodes.item(n);
+   if("bind".equals(element.getLocalName())&&"/data/nova_count_items".equals(element.getAttribute("nodeset"))) {
+    element.setAttribute("calculate","count(/data/items) + 1");changed=true;
+   }
+  }
+  assertTrue(changed);
+  java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+  javax.xml.transform.TransformerFactory.newInstance().newTransformer().transform(new javax.xml.transform.dom.DOMSource(document),new javax.xml.transform.stream.StreamResult(bytes));
+  try(java.io.InputStream input=new java.io.ByteArrayInputStream(bytes.toByteArray())) {
+   FormDef form=org.javarosa.xform.util.XFormUtils.getFormFromInputStream(input);form.initialize(true,environment());
+   FormEntryController controller=new FormParseInit(form).getFormEntryController();controller.jumpToIndex(FormIndex.createBeginningOfFormIndex());
+   for(int step=0;step<12;step++) assertNotEquals(FormEntryController.EVENT_END_OF_FORM,controller.stepToNextEvent());
+   assertEquals(6.0,eval(form,"count(/data/items)"));
+   assertEquals(7.0,eval(form,"number(/data/nova_count_items)"));
+  }
+ }
+
  @Test public void laterAuthoredDefaultsExistBeforeCountEntry()throws Exception {
   FormParseInit parsed=load("path-late",false);enter(parsed,false);
   assertEquals(2.0,eval(parsed.getFormDef(),"count(/data/items)"));

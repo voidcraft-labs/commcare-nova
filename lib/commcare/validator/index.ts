@@ -187,6 +187,7 @@ export type DeepValidationError =
 			kind: "cycle";
 			cycle: readonly string[];
 			cascade?: CycleReport["cascade"];
+			countFeedback?: string;
 	  });
 
 /**
@@ -678,11 +679,15 @@ export function validateBlueprintDeep(
 			// changing Preview's incremental runtime DAG. The cycle (a list of
 			// generic paths) travels structured; the runner formats it.
 			const dag = new TriggerDag();
-			for (const { path, cascade } of dag.reportCycles(tree, doc)) {
+			for (const { path, cascade, countFeedback } of dag.reportCycles(
+				tree,
+				doc,
+			)) {
 				errors.push({
 					...loc,
 					kind: "cycle",
 					cycle: path,
+					...(countFeedback !== undefined && { countFeedback }),
 					...(cascade !== undefined && { cascade }),
 				});
 			}

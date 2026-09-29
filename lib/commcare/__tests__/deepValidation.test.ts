@@ -1887,3 +1887,78 @@ describe("INVALID_REF stored-reference classification", () => {
 		expect(rendered?.message).toContain("Check for a typo");
 	});
 });
+
+describe("live repeat cardinality feedback", () => {
+	it.each([
+		{
+			name: "own rows",
+			fields: [
+				f({
+					id: "rows",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "count(#form/rows) + 1",
+					children: [f({ id: "answer", kind: "text" })],
+				}),
+			],
+		},
+		{
+			name: "own answers",
+			fields: [
+				f({
+					id: "rows",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "count(#form/rows/answer) + 1",
+					children: [f({ id: "answer", kind: "text" })],
+				}),
+			],
+		},
+		{
+			name: "calculated feedback",
+			fields: [
+				f({ id: "target", kind: "hidden", calculate: "count(#form/rows) + 1" }),
+				f({
+					id: "rows",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "number(#form/target)",
+					children: [f({ id: "answer", kind: "text" })],
+				}),
+			],
+		},
+		{
+			name: "mutual repeats",
+			fields: [
+				f({
+					id: "a",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "count(#form/b) + 1",
+					children: [f({ id: "answer", kind: "text" })],
+				}),
+				f({
+					id: "b",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "count(#form/a) + 1",
+					children: [f({ id: "answer", kind: "text" })],
+				}),
+			],
+		},
+	])("rejects $name before Preview or export", ({ fields }) => {
+		const doc = buildDoc({
+			modules: [
+				{ name: "Visits", forms: [{ name: "Visit", type: "survey", fields }] },
+			],
+		});
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(
+			errors.some(
+				(error) =>
+					error.code === "CYCLE" &&
+					error.message.includes("depends on rows it creates"),
+			),
+		).toBe(true);
+	});
+});

@@ -41,6 +41,8 @@ interface DagNode {
  */
 export interface CycleReport {
 	readonly path: readonly string[];
+	/** Count whose target feeds back through rows it creates. */
+	readonly countFeedback?: string;
 	readonly cascade?: {
 		readonly container: string;
 		readonly containerKind: "group" | "repeat";
@@ -601,9 +603,51 @@ export class TriggerDag {
 		}
 	}
 
+	/** Live counts cannot depend on rows they create, including through
+	 * calculations or another counted repeat. Core accepts these forms but
+	 * keeps creating rows during entry, so they can never finish. */
+	private collectCountDependencies(
+		tree: readonly FieldTreeNode[],
+		prefix: string,
+		countEdges: Map<string, string>,
+	): void {
+		for (const node of tree) {
+			const field = node.field;
+			const path = `${prefix}/${field.id}`;
+			if (field.kind === "repeat") {
+				if (!this.nodes.has(path))
+					this.nodes.set(path, { path, expressions: [] });
+				for (const descendant of this.fieldPaths.values()) {
+					if (descendant.startsWith(`${path}/`)) this.addEdge(path, descendant);
+				}
+				if (field.repeat_mode === "count_bound") {
+					const source = expressionInspectionSource(
+						field,
+						"repeat_count",
+						this.doc,
+					);
+					for (const ref of extractPathRefs(source ?? "", path)) {
+						// Unlike scalar self references, a count of its own rows
+						// changes the structure and must remain in this proof.
+						if (ref === path) {
+							const dependents =
+								this.dependedOnBy.get(path) ?? new Set<string>();
+							dependents.add(path);
+							this.dependedOnBy.set(path, dependents);
+						} else this.addEdge(ref, path);
+						countEdges.set(`${ref}\u0000${path}`, path);
+					}
+				}
+			}
+			if (node.children)
+				this.collectCountDependencies(node.children, path, countEdges);
+		}
+	}
+
 	/**
 	 * Report all cycles without modifying the runtime graph. Builds a
-	 * temporary topology holding exactly the edges the device orders: the
+	 * temporary topology holding the edges the device orders, plus count
+	 * cardinality feedback (which parses but can make entry unfinishable): the
 	 * triggerable edges (relevant / required / calculate, plus the
 	 * lookup-choice filter edges), the authoring-only field-default edges, and
 	 * the relevance cascade that runtime also uses from a container to its
@@ -621,6 +665,7 @@ export class TriggerDag {
 		const nodes = new Map<string, DagNode>();
 		const dependedOnBy = new Map<string, Set<string>>();
 		const cascadeEdges = new Map<string, CycleReport["cascade"]>();
+		const countEdges = new Map<string, string>();
 
 		// Temporarily swap in fresh maps, collect, then swap back
 		const savedNodes = this.nodes;
@@ -639,6 +684,7 @@ export class TriggerDag {
 			this.collectExpressions(tree, prefix);
 			this.collectValidationOnlyDependencies(tree, prefix);
 			this.collectRelevanceCascadeDependencies(tree, prefix, cascadeEdges);
+			this.collectCountDependencies(tree, prefix, countEdges);
 		} finally {
 			this.nodes = savedNodes;
 			this.dependedOnBy = savedDeps;
@@ -660,6 +706,12 @@ export class TriggerDag {
 		}
 
 		const report = (cycle: readonly string[]): CycleReport => {
+			for (let i = 0; i + 1 < cycle.length; i++) {
+				const countFeedback = countEdges.get(
+					`${cycle[i]}\u0000${cycle[i + 1]}`,
+				);
+				if (countFeedback !== undefined) return { path: cycle, countFeedback };
+			}
 			for (let i = 0; i + 1 < cycle.length; i++) {
 				const cascade = cascadeEdges.get(`${cycle[i]}\u0000${cycle[i + 1]}`);
 				if (cascade !== undefined) return { path: cycle, cascade };
