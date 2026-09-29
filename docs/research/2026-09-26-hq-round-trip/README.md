@@ -1068,19 +1068,20 @@ A non-select writer makes the property text and drops the catalog.
   the case operations in them, are still submitted. `jr:count` must be a path
   (`XFormParser` builds an `XPathReference` from it), and Core parses the node's
   text as an integer, stopping form entry on anything else
-  (`FormEntryModel.createModelForGroup`: "must be a number!"; executed). So
-  Nova names an integer question directly and writes every other count, a
-  hidden value included, into its `nova_count_<repeat>` hidden value with an
-  `xsd:int` calculate, which narrows a fraction (`lib/commcare/xform/builder.ts`,
-  `repeatCountNode.ts`; `Recalculate.wrapData`), and refuses a count that depends
-  on the rows it creates, which Core keeps adding (executed). An HQ author builds
-  a count in Vellum as a hidden value whose calculate holds the expression,
-  which Vellum writes into `jr:count` as entered (`mugs/types/group.js`); from
-  step 6 import holds such a count as naming its hidden value directly, emitted
-  so, since Core then reads the same node HQ's build names, and an edit to that
-  count moves it to Nova's integer value, as an identity edit the builder, SA and
-  MCP state before it commits (the count node gains a data path and an HQ export
-  column, and a fraction narrows where it stopped form entry).
+  (`FormEntryModel.createModelForGroup`: "must be a number!"; executed). A repeat
+  count is therefore an integer in Nova's types, from step 5 (defect 30):
+  integer literals, integer questions, a single-select whose every choice
+  value is an integer, a hidden value whose calculate is an integer, `int`,
+  `round`, `floor`, `ceiling`, `count` and `string-length`, and `+`, `-`, `*`
+  and unary minus over integers. The builder, SA and MCP refuse any other count
+  when it is written, suggesting `int(…)`, and Core stores a whole-number
+  calculate as integer text whatever its node's type (`Recalculate.wrapData`),
+  so no count stops form entry. A count that names an integer question, or a
+  hidden value whose calculate is an integer, is written into `jr:count` directly, the shape an HQ author
+  builds in Vellum, which writes `jr:count` as entered (`mugs/types/group.js`),
+  and a count that is an expression is written into Nova's `nova_count_<repeat>`
+  node, which holds it (`lib/commcare/xform/repeatCountNode.ts`). A count that depends on the rows
+  it creates is refused, since Core keeps adding them (executed).
 - **Appearances:** a typed vocabulary holding exactly the values each runtime
   reads, with their per-platform behavior. Web Apps matches a question's tokens
   split on plain spaces and a group's collapse and border values split on any
@@ -1663,8 +1664,9 @@ UUID, `caseOps.ts`):
 - `nova_url_<question>`: a capture's link write.
 - `nova_datetime_<question>`: a datetime case value, as a single answer or as a
   date-and-time join.
-- `nova_count_<repeat>`: a repeat count other than an integer question named
-  directly, as Nova writes it today (`lib/commcare/xform/repeatCountNode.ts`).
+- `nova_count_<repeat>`: a repeat count that is an expression
+  (`lib/commcare/xform/repeatCountNode.ts`; today also a count that names a
+  hidden value, which defect 30 ends).
 - `nova_query_count_<repeat>` and `nova_query_id_<repeat>`: a query repeat's
   count and each row's case id in the count-repeat placement.
 - `nova_constraint_<question>_<n>`: a count a constraint over a repeat's rows
@@ -1930,6 +1932,7 @@ cutover contract as it stands.
 | `lib/commcare/CLAUDE.md` (Exclusive guards): "Core executes EVERY true `<create>` and lands on the LAST one" | Form links follow CommCare's semantics, with no exclusivity guards ("Navigation and after-submit links"). | 5 |
 | `lib/commcare/CLAUDE.md`: "a deeply always-false condition is a soundness finding" | A display condition `false()` or `false() and <rest>` is the "not on the menu" concept, holding its rest; any other condition false in every context is an ordinary condition, and the soundness finding retires ("Navigation and after-submit links"). | 2 |
 | `lib/commcare/CLAUDE.md`: "target-owned settings and state — `cloudcare_enabled`, `case_sharing`, `secure_submissions`, the build/release metadata, and the rest of HQ's app Settings page — are never emitted by `hqShells.ts::applicationShell`, and `logo_refs` is emitted only when the app has a Nova-authored logo" | `cc-show-saved` and `cc-show-incomplete` (step 2), `cloudcare_enabled` (step 4), and `case_sharing` and every other held setting (step 7) are app content Nova writes as a key-level overlay ("Application settings"); publish writes no `logo_refs`, apart from defect 14's one cleanup of Nova's own entries. | 2, 4, 7 |
+| `lib/commcare/CLAUDE.md` (`count_bound`): "A hidden-value reference or any other expression uses a sibling `nova_count_<repeatId>` hidden value with an `xsd:int` calculate" | A repeat count is an integer in Nova's types, refused otherwise when it is written; a count naming an integer question or a hidden value whose calculate is an integer is written into `jr:count` directly, and only an expression takes `nova_count_<repeatId>` ("Questions", defect 30). | 5 |
 | `lib/commcare/CLAUDE.md` (`query_bound`): "The membership list is an initial snapshot." | A query repeat has a placement, model iteration or a count repeat, kept once published ("Questions"). | 5 |
 | `lib/commcare/CLAUDE.md`: "`subcaseWire.ts::hqCaseActions` therefore marks extension actions `never` while `xform/caseOps.ts` carries their active transactions in the source XForm, under a reserved `__nova_subcases` container" | Step 2 renames the container `nova_subcases` (defect 13); step 5 makes extension child cases case operations with an extension link, with no inert basic subcase beside them (defect 24). | 2, 5 |
 | `lib/db/CLAUDE.md`: "Its closed kind set is `autosave`, `mcp`, `chat`, `blueprint-migration`, `fold-baseline`, and `project-move`." | The set gains `publish-placement`, which a publish writes to record the case-operation and query-repeat placements and the advanced module kinds it first carries, and each placement move the person accepts at publish, and which feeds multiplayer like `autosave`, `mcp` and `chat` ("Case writes"). | 5 |
@@ -1974,7 +1977,7 @@ mechanisms within the decisions and constraints this document states.
    `config/commcare-hq-feature-flags.json`. *Exit:* every inventory entry is in
    the manifest with its disposition, and the harness reproduces the symptom of
    every defect visible in HQ's build, HQ's search, HQ's lookup upload, HQ's
-   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 20, 21 and 23 to 27.
+   submission processing, Core's runtime or an HQ editor save: defects 1 to 10, 12 to 16, 20, 21, 23 to 27 and 30.
 2. **Emission and publish fixes, with the small model additions they need.**
    Defects 1 to 16. The additions are `Form.xmlns` with the deployment ledger's
    per-project-space menu and form ids, explicit settings for saved and incomplete forms, the first-menu and
@@ -2016,7 +2019,7 @@ mechanisms within the decisions and constraints this document states.
    held advanced kind, query repeat placement, the search
    workflow setting, form links with CommCare's semantics and "otherwise",
    `group.fieldList`, explicit preloads and markdown, and the renamed menu
-   concepts. Defects 21 to 29. *Exit:* proofs 1 to 5 pass on every Nova export,
+   concepts. Defects 21 to 30. *Exit:* proofs 1 to 5 pass on every Nova export,
    including a republish after each migration.
 6. **Import.** The reader, the `hq-import` birth owner, referenced and adopted
    project-space data (the ledger records, adoption, and the checks before each
@@ -2024,8 +2027,8 @@ mechanisms within the decisions and constraints this document states.
    that merges each lookup table's per-app deployment records into one per
    Project table and project space (adopted where any app adopted it, Nova-created
    otherwise),
-   every `widen:` grammar change a HELD row of the inventory names that no
-   earlier step builds, and `repeat.countDirect`, since the reader needs them. *Exit:* every feature-matrix app made only of held entries reads,
+   and every `widen:` grammar change a HELD row of the inventory names that no
+   earlier step builds, since the reader needs them. *Exit:* every feature-matrix app made only of held entries reads,
    re-exports and passes the proof, and every other app is refused with the
    right reason.
 7. **The rest of the model.** Every HELD-NEW group in [the inventory's concept list](inventory/README.md) not built in steps 2 to 6, in the list's order (the cross-cutting
@@ -2735,5 +2738,27 @@ continuity before it reaches HQ.
     form entry, the case-list-only menu and the `searchFirst` flag become
     `Module.caseListRegistrationForm`, `Module.caseListMenuItem` and the search
     workflow setting. Nothing changes on the wire.
+30. **A repeat count is copied into a second node and truncated at publish.**
+    Nova writes every repeat count other than an integer question into its
+    `nova_count_<repeat>` node with an `xsd:int` calculate
+    (`lib/commcare/xform/builder.ts`, `lib/domain/repeatCount.ts::directRepeatCountReference`).
+    So a count that names a hidden value gains a second node holding the same
+    value, with its own data path and HQ export column, and a count that can be
+    fractional is silently truncated there (`Recalculate.wrapData`), though the
+    author's form says nothing of it. The validator checks the type of a count
+    only where it names a question directly (`REPEAT_COUNT_TYPE`,
+    `lib/commcare/validator/rules/field.ts`), since Nova's expression types know a
+    number but not an integer (`lib/commcare/validator/typeChecker.ts`). *Fix:*
+    Nova's expression types gain an integer, and a repeat count must be one, as
+    under "Questions"; the builder, SA and MCP refuse any other count when it is
+    written, suggesting `int(…)`. A count that names an integer question, or a
+    hidden value whose calculate is an integer, is written into `jr:count`
+    directly, and only a count that is an expression takes the
+    `nova_count_<repeat>` node that holds it. *Migration:* each count that names a
+    hidden value whose calculate is an integer loses its `nova_count_<repeat>`
+    node, so that node's data path and HQ export column go; each other count
+    that is not an integer is wrapped in `int(…)`, which Core truncates exactly as
+    the `xsd:int` node does (`FunctionUtils.toInt`; executed), so every form
+    counts the same rows; the migration names each.
 
 ---
