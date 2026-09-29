@@ -1,3 +1,7 @@
+import {
+	requireScopes,
+	type ScopeChallengeHandler,
+} from "@modelcontextprotocol/server";
 import { NOVA_MCP_SCOPE_LABELS } from "@/lib/auth-public";
 import type { AuthKind } from "./types";
 
@@ -19,14 +23,16 @@ import type { AuthKind } from "./types";
  *      passing `permissions` to the plugin lets us emit a distinct
  *      "missing scope" error instead of the indistinguishable
  *      "key invalid" the plugin would otherwise return.
- *   2. **Per-tool (handler-internal).** `nova.hq.read` / `nova.hq.write`
+ *   2. **Per-tool.** `nova.hq.read` / `nova.hq.write`
  *      and `nova.projects.read` / `nova.projects.write` are *orthogonal*
  *      to read/write. The HQ pair gates access to a separate third-party
  *      system (CommCare HQ); the Projects pair gates Project membership
  *      and sharing (member lists, invitations, role changes,
  *      cross-Project app moves) — outward-facing acts that grant other
  *      people access, a materially different power than editing the
- *      caller's own apps. Tools in either family call `assertScope`
+ *      caller's own apps. OAuth HTTP calls first use the SDK scope challenge to request incremental
+ *      consent before execution. API keys keep the actionable tool error.
+ *      Tools in either family also call `assertScope`
  *      before any protected data read; a token lacking the scope
  *      produces a structured `scope_missing` envelope through the shared
  *      error serializer, but can still call the app tools.
@@ -175,4 +181,20 @@ export function assertScope(
 	if (!ctx.scopes.includes(required)) {
 		throw new McpScopeError(required, toolName, ctx.authKind);
 	}
+}
+
+/** OAuth clients can request the missing grant before a handler runs. Preserve
+ * existing grants in the challenge so incremental consent never narrows access.
+ * Static API keys retain the tool error directing their owner to settings.
+ * Handler guards also remain authoritative for non-HTTP SDK consumers. */
+export function oauthScopeChallenge(
+	ctx: { scopes: readonly string[]; authKind: AuthKind },
+	required: Scope,
+): ScopeChallengeHandler | undefined {
+	return ctx.authKind === "oauth"
+		? requireScopes(
+				required,
+				...ctx.scopes.filter((scope) => scope !== required),
+			)
+		: undefined;
 }

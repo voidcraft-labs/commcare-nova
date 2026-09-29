@@ -198,6 +198,15 @@ export const handleJwtMcp: (req: Request) => Promise<Response> =
 				scopes: parseScopes(claims.scope),
 				authKind: "oauth",
 			};
-			return dispatchMcpTools(req, ctx);
+			return dispatchMcpTools(req, ctx, {
+				token: (req.headers.get("authorization") ?? "").replace(
+					/^Bearer\s+/i,
+					"",
+				),
+				clientId,
+				scopes: [...ctx.scopes],
+				resource: new URL(MCP_RESOURCE_URL),
+				resourceMetadataUrl: MCP_RESOURCE_METADATA_URL,
+			});
 		},
 	);

@@ -28,7 +28,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /** A project space the key can upload to. */
@@ -72,6 +72,7 @@ export function registerGetHqConnection(
 	server.registerTool(
 		"get_hq_connection",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqRead),
 			description:
 				"Check the user's CommCare HQ connection: whether it's configured, which HQ deployment it lives on (`server`/`server_url`. US, India, and EU are separate CommCare servers), and every project space (domain) the API key can upload to (`available_domains`). Call this before `upload_app_to_hq` to confirm the target. When `available_domains` holds more than one space, ask the user which space and pass their choice to `upload_app_to_hq`, never choose for them; a multi-space key's target is always the user's per-upload decision.",
 		},

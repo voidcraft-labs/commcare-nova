@@ -29,7 +29,9 @@ If your client uses an [API key](./api-keys.mdx) instead of OAuth, it doesn't ap
 
 ## Reauthorizing
 
-If your client has the connection but is missing a permission you need (typically the HQ or Projects ones), tell your client to sign out and back in. The new sign-in shows the consent screen again, make sure every row you need is checked before you click Allow.
+When an OAuth tool call needs an HQ or Projects permission you have not granted, Nova sends your client a permission challenge before running the tool. Clients that support incremental consent can open the authorization screen for you, keeping your existing permissions.
+
+If your client does not open that screen, you can sign out and back in. The new sign-in shows the consent screen again, make sure every row you need is checked before you click Allow.
 
 When Nova adds a new permission, how a client picks it up depends on how the client identifies itself. An app that identifies itself by a web address (the consent screen shows it as **Identified by**) picks up newly added permissions on its own, the next time Nova re-reads the app's details. Signing out and back in is all you need.
 

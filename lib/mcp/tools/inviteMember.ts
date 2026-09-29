@@ -35,7 +35,7 @@ import {
 	toMcpErrorResult,
 } from "../errors";
 import { rethrowAsMcpProjectAccess } from "../ownership";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 /**
@@ -70,6 +70,7 @@ export function registerInviteMember(
 	server.registerTool(
 		"invite_member",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Invite an email address to a shared Nova Project at a chosen role (viewer, editor, or admin). Requires an admin or owner role in the Project. Personal Projects can't be shared. No email is sent: the invitee sees the invitation in commcare nova the next time they sign in and accepts it there, so tell the human to expect it. Invitations expire after 48 hours; a still-pending duplicate is rejected rather than re-issued.",
 			inputSchema: inviteMemberInputSchema,

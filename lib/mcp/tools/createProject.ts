@@ -25,7 +25,7 @@ import {
 	type McpToolSuccessResult,
 	toMcpErrorResult,
 } from "../errors";
-import { assertScope, SCOPES } from "../scopes";
+import { assertScope, oauthScopeChallenge, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 
 const createProjectInputSchema = z.strictObject({
@@ -50,6 +50,7 @@ export function registerCreateProject(
 	server.registerTool(
 		"create_project",
 		{
+			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.projectsWrite),
 			description:
 				"Create a shared Nova Project owned by the user and return its project_id. A shared Project is how other people get access to apps: every member sees the Project's apps plus their case data and media. Create one Project per program or team and reuse it across builds, never one per run or per app, because Project deletion is disabled and every Project created is permanent. Give apps to the Project at birth via begin_work's new_app.project_id (move_app is the recovery path for apps born elsewhere), and bring people in with invite_member.",
 			inputSchema: createProjectInputSchema,

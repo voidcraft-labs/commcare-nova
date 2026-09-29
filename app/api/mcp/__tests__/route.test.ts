@@ -6,6 +6,7 @@
 import type { McpServer } from "@modelcontextprotocol/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { oauthScopeChallenge, SCOPES } from "@/lib/mcp/scopes";
 import type { ToolContext } from "@/lib/mcp/types";
 
 const verifyApiKeyMock = vi.fn();
@@ -712,3 +713,28 @@ it.each(["", "{bad json"])(
 		});
 	},
 );
+
+it("passes verified OAuth authentication into SDK incremental-consent challenges", async () => {
+	registerNovaToolsMock.mockImplementationOnce((server, context) => {
+		server.registerTool(
+			"audit_context",
+			{
+				inputSchema: z.object({}),
+				scopeChallenge: oauthScopeChallenge(context, SCOPES.hqWrite),
+			},
+			async () => {
+				throw new Error("A missing grant must stop before execution");
+			},
+		);
+	});
+	const response = await dispatch(
+		buildRequest("Bearer opaque.jwt", "tools/call"),
+	);
+	expect(response.status).toBe(403);
+	expect(response.headers.get("www-authenticate")).toContain(
+		'error="insufficient_scope"',
+	);
+	expect(response.headers.get("www-authenticate")).toContain(
+		"resource_metadata=",
+	);
+});
