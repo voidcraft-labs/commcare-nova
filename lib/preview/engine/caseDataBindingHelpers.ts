@@ -924,7 +924,15 @@ function buildCaseStoreSortKeys(
 				column.kind === "calculated"
 					? column.expression
 					: term(prop(caseType, column.field));
-			return [{ direction: sortConfig.direction, expression }];
+			return [
+				{
+					direction: sortConfig.direction,
+					expression,
+					...(column.kind === "calculated"
+						? { portableCaseDates: true as const }
+						: {}),
+				},
+			];
 		}),
 		stablePageTieBreaker,
 	];

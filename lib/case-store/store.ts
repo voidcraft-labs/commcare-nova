@@ -178,6 +178,8 @@ export type CaseUpdateArgs = {
  * (e.g. `today() - opened_on` for a "days since opened" sort).
  */
 export interface SortKey {
+	/** A calculated Results/Details column uses the same portable reads to sort. */
+	portableCaseDates?: true;
 	direction: "asc" | "desc";
 	expression: ValueExpression;
 }

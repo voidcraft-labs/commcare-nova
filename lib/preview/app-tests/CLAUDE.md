@@ -131,3 +131,9 @@ Evidence reads have a fixed upper step, ten-step default/twenty-step maximum
 and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
 explicit bounded paths and offsets. The start/source/runtime provenance travels
 with every page. Builder pages these same rows rather than loading all history.
+
+Runtime version 8 also pins portable case-list metadata reads: Results/Details,
+calculated columns and calculated ordering expose built-in dates at native
+calendar precision, while custom datetime values keep their clocks. Retained
+older observations remain readable, but a fresh journey is needed to execute
+these semantics.

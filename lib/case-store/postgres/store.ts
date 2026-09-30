@@ -914,7 +914,10 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
-			const expr = compileExpression(column.expression, exprCtx);
+			const expr = compileExpression(column.expression, {
+				...exprCtx,
+				portableCaseDates: true,
+			});
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
 
@@ -946,7 +949,12 @@ export class PostgresCaseStore implements CaseStore {
 		// `count.where`).
 		if (args.sort !== undefined) {
 			for (const key of args.sort) {
-				const expr = compileExpression(key.expression, exprCtx);
+				const expr = compileExpression(key.expression, {
+					...exprCtx,
+					...(key.portableCaseDates
+						? { portableCaseDates: true as const }
+						: {}),
+				});
 				qb = qb.orderBy(expr, key.direction);
 			}
 		} else {
@@ -1238,7 +1246,7 @@ export class PostgresCaseStore implements CaseStore {
 				? [sql`c.opened_on asc`, sql`c.case_id asc`]
 				: args.sort.map(
 						(key) =>
-							sql`${compileExpression(key.expression, exprCtx)} ${key.direction === "desc" ? sql`desc` : sql`asc`}`,
+							sql`${compileExpression(key.expression, { ...exprCtx, ...(key.portableCaseDates ? { portableCaseDates: true as const } : {}) })} ${key.direction === "desc" ? sql`desc` : sql`asc`}`,
 					);
 		const rowOrdinal = sql<number>`row_number() over (order by ${sql.join(orderBy, sql`, `)})`;
 

@@ -57,11 +57,13 @@ import { resolveNumericExpressionType } from "@/lib/domain/predicate/numericType
 import {
 	asTemporalType,
 	inferStructuralTemporalType,
+	resolveCaseListTemporalType,
 	type TemporalType,
 } from "@/lib/domain/predicate/temporalType";
 import {
 	type CheckError,
 	checkExpression,
+	type TypeContext,
 } from "@/lib/domain/predicate/typeChecker";
 import type {
 	ArithOp,
@@ -90,6 +92,7 @@ import {
 } from "./compileTerm";
 import type { Database } from "./database";
 import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
+import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
 // Public types
@@ -295,19 +298,7 @@ function compileDatetimeCoerce(
 	return compilePinnedInstant(compileExpression(value, ctx), "UTC");
 }
 
-/**
- * Compile `arith` to `<left> <op> <right>`. Each side paren-wraps
- * uniformly so nested `arith` honors AST left-to-right associativity
- * rather than Postgres operator precedence; mixing precedence-aware
- * emission with paren-wrapping would surface arithmetic-priority
- * bugs only at runtime.
- */
-function compileArith(
-	op: ArithOp,
-	left: ValueExpression,
-	right: ValueExpression,
-	ctx: ExpressionCompileContext,
-): AliasableExpression<unknown> {
+function expressionTypeContext(ctx: ExpressionCompileContext): TypeContext {
 	const lookupTables = new Map(
 		[...(ctx.lookupTableSchemas ?? [])].map(([tableId, columns]) => [
 			tableId as LookupTableId,
@@ -321,18 +312,34 @@ function compileArith(
 	);
 	const tableId = ctx.lookupRowScope?.tableId as LookupTableId | undefined;
 	const columns = tableId === undefined ? undefined : lookupTables.get(tableId);
+	return {
+		caseTypes: caseTypesForTemporalTypeChecking(ctx.caseTypeSchemas),
+		currentCaseType: ctx.currentCaseType,
+		knownInputs: ctx.knownInputs ?? [],
+		formFields: ctx.formFieldTypes,
+		organizationLevels: ctx.organizationLevels,
+		lookupTables,
+		...(tableId !== undefined &&
+			columns !== undefined && { tableScope: { tableId, columns } }),
+	};
+}
+
+/**
+ * Compile `arith` to `<left> <op> <right>`. Each side paren-wraps
+ * uniformly so nested `arith` honors AST left-to-right associativity
+ * rather than Postgres operator precedence; mixing precedence-aware
+ * emission with paren-wrapping would surface arithmetic-priority
+ * bugs only at runtime.
+ */
+function compileArith(
+	op: ArithOp,
+	left: ValueExpression,
+	right: ValueExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
 	const type = resolveNumericExpressionType(
 		{ kind: "arith", op, left, right },
-		{
-			caseTypes: caseTypesForTemporalTypeChecking(ctx.caseTypeSchemas),
-			currentCaseType: ctx.currentCaseType,
-			knownInputs: ctx.knownInputs ?? [],
-			formFields: ctx.formFieldTypes,
-			organizationLevels: ctx.organizationLevels,
-			lookupTables,
-			...(tableId !== undefined &&
-				columns !== undefined && { tableScope: { tableId, columns } }),
-		},
+		expressionTypeContext(ctx),
 	);
 	// Explicit numeric casts prevent Postgres selecting text's pg_trgm `%`
 	// operator for bound answers. Numeric operands avoid imposing an int4 or
@@ -398,6 +405,11 @@ function resolveDateAddBaseType(
 	date: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType {
+	if (ctx.portableCaseDates) {
+		const portable = portableTemporalType(date, ctx);
+		if (portable !== undefined) return portable;
+	}
+
 	const structural = inferStructuralTemporalType(date);
 	if (structural === "date" || structural === "datetime") return structural;
 
@@ -545,14 +557,45 @@ function compileConcat(
 	return eb.fn<string>("concat", partExprs);
 }
 
+/** In a portable column, mixed date/datetime operands need an explicit
+ * viewer-midnight promotion. PostgreSQL's implicit date -> timestamptz cast
+ * otherwise uses the connection timezone and moves the worker's calendar day.
+ * Homogeneous calendar branches remain dates; raw server expressions are unchanged. */
+export function compileTemporalValues(
+	values: readonly ValueExpression[],
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown>[] {
+	const types = ctx.portableCaseDates
+		? values.map((value) => portableTemporalType(value, ctx))
+		: [];
+	const mixed = types.includes("date") && types.includes("datetime");
+	return values.map((value, index) => {
+		const compiled = compileExpression(value, ctx);
+		return mixed && types[index] === "date"
+			? compilePinnedInstant(
+					compiled,
+					resolveViewerTimeZone(ctx.bindings.viewerTimeZone),
+				)
+			: compiled;
+	});
+}
+
+function portableTemporalType(
+	value: ValueExpression,
+	ctx: ExpressionCompileContext,
+): TemporalType | undefined {
+	return resolveCaseListTemporalType(value, expressionTypeContext(ctx));
+}
+
 /** Skip blank values while preserving the result's SQL type. Casting only
  * the blank check avoids comparing numbers, dates or booleans with `''`. */
 function compileCoalesce(
 	values: ReadonlyArray<ValueExpression>,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
+	const branches = compileTemporalValues(values, ctx);
 	const valueExprs = values.map((v, index) => {
-		const value = compileExpression(v, ctx);
+		const value = branches[index];
 		// The last argument is the fallback, even when it is blank. Leave a
 		// literal null untyped so SQL can infer the other branches' result type.
 		if (
@@ -592,8 +635,10 @@ function compileIf(
 		);
 	}
 	const condExpr = compilePredicate(cond, ctx);
-	const thenExpr = compileExpression(thenBranch, ctx);
-	const elseExpr = compileExpression(elseBranch, ctx);
+	const [thenExpr, elseExpr] = compileTemporalValues(
+		[thenBranch, elseBranch],
+		ctx,
+	);
 	// Passing typed expressions (not raw values) to `.then` /
 	// `.else` keeps the parameter channel consistent — Kysely
 	// otherwise inlines numbers / booleans / null directly into the
@@ -613,14 +658,25 @@ function compileSwitch(
 	fallback: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const onExpr: Expression<unknown> = compileExpression(on, ctx);
-	const fallbackExpr = compileExpression(fallback, ctx);
+	const comparisonValues = compileTemporalValues(
+		[
+			on,
+			...cases.map((entry) => ({ kind: "term" as const, term: entry.when })),
+		],
+		ctx,
+	);
+	const onExpr: Expression<unknown> = comparisonValues[0];
+	const branches = compileTemporalValues(
+		[...cases.map((entry) => entry.then), fallback],
+		ctx,
+	);
+	const fallbackExpr = branches[cases.length];
 	// `as unknown as` per-iteration widens because TS can't
 	// enumerate the fluent chain's `O` accumulation.
 	let builder = eb.case(onExpr);
-	for (const c of cases) {
-		const whenExpr = compileExpression({ kind: "term", term: c.when }, ctx);
-		const thenExpr = compileExpression(c.then, ctx);
+	for (let index = 0; index < cases.length; index++) {
+		const whenExpr = comparisonValues[index + 1];
+		const thenExpr = branches[index];
 		builder = builder
 			.when(whenExpr)
 			.then(thenExpr) as unknown as typeof builder;
@@ -719,40 +775,6 @@ function compileCount(
 		.select(
 			eb.fn.countAll().as("n"),
 		) as unknown as AliasableExpression<unknown>;
-}
-
-/**
- * IANA `Area/Location` shape — at least one `/`-joined segment. Bare
- * numeric-offset spellings, abbreviations, and single-word names never
- * match.
- */
-const IANA_AREA_LOCATION_RE =
-	/^[A-Za-z_][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+$/;
-
-/**
- * Resolve the viewer timezone binding to a zone name safe to hand to
- * Postgres `timezone(...)`. The value is client-supplied; anything but a
- * recognized IANA `Area/Location` name (or literal `UTC`) falls back to
- * UTC — deterministic, never the unpinned session zone.
- *
- * Intl acceptance alone is NOT sufficient: ICU also accepts bare offset
- * spellings like `+05:30`, which Postgres `timezone(...)` reads with the
- * POSIX-inverted sign (5½ hours WEST), silently flipping every rendered
- * time. The shape gate rejects those before the Intl check. A shaped name
- * ICU knows but the server's Postgres tzdata doesn't would still error the
- * query — the two catalogs are independent — but browsers report canonical
- * IANA names, and Postgres tracks the same tzdata releases, so the shape +
- * Intl pair is the practical gate.
- */
-function resolveViewerTimeZone(viewerTimeZone: string | undefined): string {
-	if (viewerTimeZone === undefined || viewerTimeZone === "UTC") return "UTC";
-	if (!IANA_AREA_LOCATION_RE.test(viewerTimeZone)) return "UTC";
-	try {
-		new Intl.DateTimeFormat("en-US", { timeZone: viewerTimeZone });
-		return viewerTimeZone;
-	} catch {
-		return "UTC";
-	}
 }
 
 /**

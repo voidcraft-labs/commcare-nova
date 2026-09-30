@@ -1140,3 +1140,11 @@ the selected record and ancestors are ready. The authoring canvas remains
 available without a running entry; entering Preview supplies its selected record
 before one-time defaults or query membership run. Returning to Edit from an
 already initialized Preview retains that entry and its answers.
+
+Results/Details and their Quick Filter share `columnDisplay`'s portable read
+projection: built-in opening/modification timestamps show the worker's calendar
+date, including direct plain, date, mapping and interval columns. Raw row and
+form-preload accessors remain unchanged. Calculated columns use the same
+portable SQL context, and their display type follows value branches without
+changing authored admission. A custom datetime retains its clock; metadata
+columns cannot recover time by adding a clock pattern.

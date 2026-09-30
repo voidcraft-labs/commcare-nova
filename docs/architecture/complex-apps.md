@@ -2620,3 +2620,31 @@ calculated integer beside the repeat, preserving each enclosing row's context.
 Query-bound membership remains a separate initialization snapshot. Republishing
 removes old `__nova_count_*` paths and their HQ export columns; expression counts
 introduce `nova_count_*` columns. No blueprint migration is needed.
+
+### Native case timestamp columns
+
+Core's `CaseChildElement` exposes `date_opened` and `last_modified` with
+`DateData`, which rounds to a calendar date before suite Results/Details
+expressions read them. Nova retains real datetime storage and server-search
+semantics. Portable case-list reads use the worker timezone for calendar
+projection, shared by Preview, disposable journeys and calculated SQL columns.
+Calculated sorting uses the same context. A custom business-event datetime is
+required when a workflow needs visible time of day; changing a metadata
+column's format cannot recover a discarded clock.
+
+Primary source: `commcare-core/src/main/java/org/commcare/cases/instance/CaseChildElement.java`
+and `org/javarosa/core/model/data/DateData.java`. Native replay of exact suite
+Text templates confirmed date-only Results and Details despite retained
+nonmidnight case metadata. A separate custom-property transaction retained its
+full ISO timestamp and formatted clock. The full ISO pattern `%Y-%m-%dT%H:%M:%S.%3%Z` matches native datetime
+serialization. Current Core can retain the source calendar date when timezone
+conversion crosses midnight; Nova follows that existing custom-string parsing
+behavior. Full timestamp storage does not establish universal cross-timezone
+localization.
+
+The narrower metadata read does not establish generalized comparison parity:
+Core compares a raw DateData metadata value differently from an uncast custom
+timestamp string. Explicit native `date(custom_value)` changes that comparison.
+Nova's existing typed SQL comparisons retain their typed contract; mixed
+calendar/datetime operands are promoted in the worker timezone so the database
+connection timezone cannot introduce a new result difference.

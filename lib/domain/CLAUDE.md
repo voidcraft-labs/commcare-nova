@@ -253,6 +253,14 @@ The canonicalizers are TOTAL, and that is the reason a shape check is a separate
 
 Standard metadata has ONE Nova authoring name. `case_name`, `external_id`, and `date_opened` are the only accepted spellings; CCHQ's alternate detail names are rejected at every live schema and writer boundary, and only the frozen one-off migration recognizes historical bytes. `status` is the built-in open/closed case lifecycle value; the Predicate type checker rejects any direct literal comparison or membership value outside `open` / `closed`, while app-specific lifecycle words belong in a separate property. `current_status` is not its alias — CommCare Core treats that as an old fallback for the separate `state` data property, so Nova only shows it when an app explicitly declares it.
 
+`date_opened` and `last_modified` retain datetime storage and server-search
+semantics. Native casedb exposes them as calendar-only DateData, so form and
+Results/Details reads use the worker's calendar date. `isCalendarCaseProperty`
+identifies this narrower read contract without changing the stored catalog.
+`resolveCaseListTemporalType` preserves authored type admission and infers the
+portable result through value branches; mixed date/datetime results retain their
+authored datetime type. Custom event datetime properties retain clock values.
+
 ## Field identity, form paths, and case storage
 
 Every field carries a mutable **form `id`** (the XForm node name; unique among siblings) and an immutable **stable `uuid`** (assigned at creation, never changes on rename). Use the UUID for UI identity, every mutation/tool address, and every cross-entity reference that must survive a rename. Use the `id` only for the field's authored question path and project UUID-backed expression references to the current friendly path when text or CommCare wire needs one.
