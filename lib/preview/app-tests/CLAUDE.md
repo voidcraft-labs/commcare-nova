@@ -102,6 +102,9 @@ after receipt replay and immediately before execution. `service.ts` owns each
 action savepoint; explicit worker/input refusals stop with the persisted prefix,
 while unexpected failures roll back the call. `app_test_requests` owns the
 complete response receipt; individual action rows share its request identity.
+Pre-batch singular receipts retain their original UUID-normalized digest. On
+a digest mismatch only, the shared boundary retries that original preparation
+against the authorized pinned document, so a later rename cannot break replay.
 A 60-second transaction deadline covers the whole call, including lock waits.
 Caller disconnection is not propagated as a separate cancellation signal here.
 The 200-step bound still counts individual worker actions.
@@ -111,7 +114,8 @@ change only to a configured structured language identity. Form checkpoints
 reinitialize with retained answers/defaults/repeats exactly as browser language
 changes do. `runtimeMessages.ts` owns English/Spanish platform copy; every
 observation identifies catalog fallback. Authored translations remain separate.
-Results and Details share formatted cell projection, and route context exposes
+Results and Details share formatted cell projection, including the browser's
+localized record-choice labels. Route context exposes
 retained ancestor/record selections. Submission evidence proves isolated case
 commit only; serialized submissions and retained reports stay `not-observed`.
 

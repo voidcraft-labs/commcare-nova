@@ -17,8 +17,8 @@ import {
 	type ColumnDisplayContext,
 	resolveCalculatedTemporalType,
 } from "@/lib/preview/columnDisplay";
+import { projectLocalizedCaseProperties } from "@/lib/preview/localizedCaseProperties";
 import { useLocalCalendarDay } from "@/lib/ui/hooks/useLocalCalendarDay";
-import { projectLocalizedCaseProperties } from "./localizedCaseProperties";
 
 /**
  * `fallbackProperties` covers the window where the effective view has no

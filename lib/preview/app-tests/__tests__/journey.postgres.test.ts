@@ -1865,3 +1865,260 @@ it("uses selected worker language, preserves authored messages and retains page/
 	});
 	await advance([{ action: { kind: "finish" } }]);
 });
+
+it("replays a pre-batch named action against its pinned source after a deploy and app rename", async () => {
+	const doc = sectionEntryDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	const started = stepSchema.parse(
+		await call("startAppTest", { purpose: "Preserve predeploy evidence" }),
+	);
+	const moduleUuid = doc.moduleOrder[0];
+	// This is the old shared boundary's persisted canonical action and digest.
+	const first = await call(
+		"continueAppTest",
+		{
+			testId: started.testId,
+			expectedStep: 0,
+			action: { kind: "menu", moduleUuid },
+		},
+		"legacy-menu",
+	);
+	await h
+		.db()
+		.deleteFrom("app_test_requests")
+		.where("test_id", "=", started.testId)
+		.where("request_id", "=", "legacy-menu")
+		.execute();
+	await h
+		.db()
+		.updateTable("app_test_sessions")
+		.set({ runtime_version: 6 })
+		.where("id", "=", started.testId)
+		.execute();
+	await h
+		.db()
+		.updateTable("apps")
+		.set({ mutation_seq: 1 })
+		.where("id", "=", scope.appId)
+		.execute();
+	const renamed = structuredClone(doc);
+	renamed.modules[moduleUuid].name = "Renamed visits";
+	const retry = sharedJourneyCalls(renamed);
+	expect(
+		await retry(
+			"continueAppTest",
+			{
+				testId: started.testId,
+				expectedStep: 0,
+				action: { kind: "menu", moduleUuid: "Visits" },
+			},
+			"legacy-menu",
+		),
+	).toEqual(first);
+	await expect(
+		retry(
+			"continueAppTest",
+			{
+				testId: started.testId,
+				expectedStep: 1,
+				action: { kind: "menu", moduleUuid: "Visits" },
+			},
+			"legacy-menu",
+		),
+	).rejects.toThrow("different inputs");
+	await expect(
+		retry(
+			"continueAppTest",
+			{ testId: started.testId, expectedStep: 0, action: { kind: "home" } },
+			"legacy-menu",
+		),
+	).rejects.toThrow("different inputs");
+	expect(
+		(await readAppTestSteps({ ...scope, testId: started.testId })).steps,
+	).toHaveLength(2);
+});
+
+it("projects translated choice labels in Results and Details while preserving stored values", async () => {
+	const author = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Clients",
+				caseType: "client",
+				forms: [{ name: "Update", type: "followup" }],
+			},
+		]),
+	);
+	const ok = async (name: string, input: unknown) =>
+		expect(await author.call(name, input)).not.toHaveProperty("error");
+	await ok("addFields", {
+		moduleUuid: "Clients",
+		formUuid: "Update",
+		fields: [
+			{
+				id: "status",
+				kind: "single_select",
+				label: "Status",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "open", label: "Open" },
+						{ value: "closed", label: "Closed" },
+					],
+				},
+				caseWrite: { caseType: "client", property: "condition" },
+			},
+			{
+				id: "needs",
+				kind: "multi_select",
+				label: "Needs",
+				optionsSource: {
+					kind: "inline",
+					options: [
+						{ value: "food", label: "Food" },
+						{ value: "water", label: "Water" },
+					],
+				},
+				caseWrite: { caseType: "client", property: "needs" },
+			},
+		],
+	});
+	await ok("updateCaseProperty", {
+		caseType: "client",
+		property: "condition",
+		updates: {
+			options: [
+				{ value: "open", label: "Open" },
+				{ value: "closed", label: "Closed" },
+			],
+		},
+	});
+	await ok("updateCaseProperty", {
+		caseType: "client",
+		property: "needs",
+		updates: {
+			options: [
+				{ value: "food", label: "Food" },
+				{ value: "water", label: "Water" },
+			],
+		},
+	});
+	await ok("addCaseListColumns", {
+		moduleUuid: "Clients",
+		columns: [
+			{ kind: "plain", field: "condition", header: "Status" },
+			{ kind: "plain", field: "needs", header: "Needs" },
+		],
+	});
+	await ok("addLanguage", { language: { language: "spa" } });
+	const choices: Record<string, string> = {
+		open: "Abierto",
+		closed: "Cerrado",
+		food: "Comida",
+		water: "Agua",
+	};
+	const updates = collectTranslationUnits(author.currentDoc()).flatMap(
+		(unit) => {
+			const value =
+				unit.owner.kind === "case-property-option"
+					? choices[unit.owner.value]
+					: unit.role === "case-list-header"
+						? unit.source === "Status"
+							? "Estado"
+							: unit.source === "Needs"
+								? "Necesidades"
+								: undefined
+						: undefined;
+			return value === undefined
+				? []
+				: [
+						{
+							operation: "set",
+							unitId: unit.id,
+							expectedSourceFingerprint: authoringFingerprint(
+								unit.sourceFingerprint,
+							),
+							value,
+						},
+					];
+		},
+	);
+	expect(updates).toHaveLength(6);
+	await ok("updateTranslations", { language: { language: "spa" }, updates });
+	const doc = author.currentDoc();
+	const module = Object.values(doc.modules).find(
+		(module) => module.name === "Clients",
+	);
+	if (!module) throw new Error("Missing clients fixture");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "localized-cells",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Check the worker's translated record choices",
+			language: { language: "spa" },
+			scenario: {
+				records: [
+					{
+						id: "client-1",
+						caseType: "client",
+						name: "Maya",
+						properties: { condition: "open", needs: ["food", "water"] },
+					},
+				],
+			},
+		},
+	});
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `localized-cells-${current.step + 1}`,
+			expectedStep: current.step,
+			action,
+		});
+		expect(current.observation.error).toBeUndefined();
+		return current.observation;
+	};
+	const spanishCells = [
+		expect.objectContaining({ label: "Estado", text: "Abierto" }),
+		expect.objectContaining({ label: "Necesidades", text: "Comida Agua" }),
+	];
+	expect(await step({ kind: "menu", moduleUuid: module.uuid })).toMatchObject({
+		renderedResults: {
+			rows: [
+				{ recordId: "client-1", cells: expect.arrayContaining(spanishCells) },
+			],
+		},
+		results: {
+			rows: [
+				expect.objectContaining({
+					properties: { condition: "open", needs: ["food", "water"] },
+				}),
+			],
+		},
+	});
+	expect(await step({ kind: "select", caseIds: ["client-1"] })).toMatchObject({
+		screen: "details",
+		fields: expect.arrayContaining(spanishCells),
+	});
+	expect(
+		await step({ kind: "language", language: { language: "eng" } }),
+	).toMatchObject({
+		fields: expect.arrayContaining([
+			expect.objectContaining({ label: "Status", text: "Open" }),
+			expect.objectContaining({ label: "Needs", text: "Food Water" }),
+		]),
+	});
+	await step({ kind: "finish" });
+});

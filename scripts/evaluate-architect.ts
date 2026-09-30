@@ -38,7 +38,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { insertReadyAsset } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
-import { persistResponseSnapshot, upsertThreadTurn } from "@/lib/db/threads";
+import { upsertThreadTurn } from "@/lib/db/threads";
 import { UsageAccumulator } from "@/lib/db/usage";
 import { asMediaAssetId, gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { MODEL_ROLES } from "@/lib/models";
@@ -66,6 +66,7 @@ import {
 	priorTrialRuns,
 	remainingTrialBudget,
 } from "./lib/authoringTrialHistory";
+import { persistArchitectTrialResponse } from "./lib/authoringTrialThread";
 import {
 	answerTrialQuestion,
 	foldTrialChunks,
@@ -718,13 +719,13 @@ async function main() {
 							uiChunks,
 							responseSeed,
 						);
-						await persistResponseSnapshot({
+						await persistArchitectTrialResponse({
 							target: threadTarget,
 							threadId,
 							streamId,
 							expectedProjectId: project.id,
 							responseMessage,
-							clearMarker: true,
+							paused,
 						});
 						await save(
 							"conversation.json",

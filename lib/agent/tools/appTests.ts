@@ -1,8 +1,11 @@
 import { z } from "zod";
+import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
 import { listAppTests, readAppTestSteps } from "@/lib/db/appTests";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { appTestReadWindowSchema } from "@/lib/preview/app-tests/evidence";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
+	appTestActionSchema,
 	appTestActionsSchema,
 	appTestAuthoredActionSchema,
 	appTestStartSchema,
@@ -60,6 +63,15 @@ const continueSchema = z.strictObject({
 		),
 	actions: appTestActionsSchema.optional(),
 });
+// The pre-batch shared boundary normalized named references through this
+// UUID-shaped singular schema before hashing. Keep its exact preparation for
+// old receipt verification only, against the authorized pinned test document.
+const legacyContinueSchema = z.strictObject({
+	testId: testIdSchema,
+	expectedStep: z.number().int().min(0),
+	action: appTestActionSchema,
+});
+
 export const continueAppTestTool = {
 	description:
 		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. Form observations offer sections; use section to turn a page before answering its questions. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
@@ -73,6 +85,28 @@ export const continueAppTestTool = {
 			data: await continueAppTest(scope(ctx), {
 				...input,
 				requestId: ctx.invocation.requestId,
+				legacyAction:
+					input.action === undefined
+						? undefined
+						: async (snapshot) => {
+								const prepared = await prepareAuthoringInput({
+									toolName: "continueAppTest",
+									schema: legacyContinueSchema,
+									input: {
+										testId: input.testId,
+										expectedStep: input.expectedStep,
+										action: input.action,
+									},
+									ctx: {
+										...ctx,
+										snapshot: {
+											...ctx.snapshot,
+											doc: hydratePersistedBlueprint(snapshot.blueprint),
+										},
+									},
+								});
+								return prepared.action;
+							},
 			}),
 		};
 	},

@@ -18,6 +18,7 @@ import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { advanceAppTest, observeAppTest } from "./run";
 import { seedAppTest } from "./seed";
 import {
+	type AppTestAction,
 	type AppTestSnapshot,
 	type AppTestState,
 	appTestActionItemSchema,
@@ -164,6 +165,7 @@ export async function continueAppTest(
 		expectedStep: number;
 		action?: unknown;
 		actions?: unknown;
+		legacyAction?: (snapshot: AppTestSnapshot) => Promise<AppTestAction>;
 	},
 ) {
 	if ((args.action === undefined) === (args.actions === undefined))
@@ -176,6 +178,7 @@ export async function continueAppTest(
 		args.actions === undefined
 			? undefined
 			: appTestActionsSchema.parse(args.actions);
+	const legacyAction = args.legacyAction;
 	return advanceAppTestSession({
 		...scope,
 		testId: args.testId,
@@ -186,6 +189,16 @@ export async function continueAppTest(
 			expectedStep: args.expectedStep,
 		}),
 		expectedStep: args.expectedStep,
+		legacyRequestDigest:
+			action && legacyAction
+				? async (snapshot) =>
+						canonicalJsonDigest({
+							action: await legacyAction(
+								snapshot as unknown as AppTestSnapshot,
+							),
+							expectedStep: args.expectedStep,
+						})
+				: undefined,
 		action,
 		actions,
 		advance: async (tx, source, item) => {

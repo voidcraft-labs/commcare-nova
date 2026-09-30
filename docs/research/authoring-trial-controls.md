@@ -61,7 +61,9 @@ answer the pending question. There is no expert repair hidden in the evaluator.
 
 The harness persists real user messages and folds actual SDK output through the
 ordinary thread writer, retiring the terminal stream marker so a completed
-fixture can be opened in the Builder. This establishes the saved transcript and
+fixture can be opened in the Builder. A paused architect response retains its
+holder nonce so a reloaded thread can answer a question or continue its review.
+This establishes the saved transcript and
 fixture entry only. It does not exercise `/api/chat`, network reconnect, browser
 streaming, or the continuation control. Those need separate production-boundary
 acceptance, followed by ordinary browser, Postgres and exact native-export checks

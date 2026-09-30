@@ -1,5 +1,9 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { effectiveCaseTypes, orderedColumns } from "@/lib/domain";
+import {
+	collectLocalizedTranslationUnits,
+	effectiveCaseTypes,
+	orderedColumns,
+} from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
 import {
@@ -10,6 +14,7 @@ import {
 import { readCaseData } from "../engine/caseDataBindingHelpers";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
+import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
 import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
@@ -89,8 +94,15 @@ export function appTestCellProjector(
 		: [];
 	const caseTypes = effectiveCaseTypes(context.doc);
 	const display: ColumnDisplayContext = {
-		caseProperties:
+		caseProperties: projectLocalizedCaseProperties(
+			mod.caseType,
 			caseTypes.find((type) => type.name === mod.caseType)?.properties ?? [],
+			new Map(
+				collectLocalizedTranslationUnits(context.doc, context.language).map(
+					(unit) => [unit.id, unit.effective],
+				),
+			),
+		),
 		calculatedTemporalTypes: new Map(
 			columns.flatMap((column) => {
 				const type = resolveCalculatedTemporalType(column, {

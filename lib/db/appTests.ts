@@ -219,6 +219,8 @@ export async function advanceAppTestSession(
 		deadlineAt?: number;
 		requestId: string;
 		requestDigest: string;
+		/** Only pre-batch receipts used authoring-normalized UUIDs in the digest. */
+		legacyRequestDigest?: (snapshot: JsonRecord) => Promise<string>;
 		expectedStep: number;
 		/** Legacy singular callers share this executor and receipt owner. */
 		action?: JsonRecord;
@@ -282,7 +284,11 @@ export async function advanceAppTestSession(
 				.orderBy("step")
 				.executeTakeFirst();
 			if (legacy) {
-				if (legacy.request_digest !== args.requestDigest)
+				if (
+					legacy.request_digest !== args.requestDigest &&
+					legacy.request_digest !==
+						(await args.legacyRequestDigest?.(test.snapshot))
+				)
 					throw new AppTestUnavailableError(
 						"This test action was already used with different inputs.",
 					);
