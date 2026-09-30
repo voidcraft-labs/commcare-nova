@@ -39,6 +39,12 @@ links", "Case lists and search", and defects 21 to 30.
 12. **Renamed menu concepts** (defect 29): `Module.caseListRegistrationForm`,
     `Module.caseListMenuItem`, and the search workflow setting.
 
+Advanced-module emission also makes defect 20's CommTrack `product_id` datum
+reachable from a Nova export. Step 4's CommTrack confirmation already covers an
+app with an advanced module whose case list menu item is on, so this step's
+plan proves, under the harness's CommTrack seam, that publish asks for that
+confirmation before such an app reaches a CommTrack project space.
+
 ## Cutover and migration
 
 One cutover, carrying every migration defects 21 to 30 name: field writes into

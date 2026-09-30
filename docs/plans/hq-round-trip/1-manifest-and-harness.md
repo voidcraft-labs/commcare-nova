@@ -134,9 +134,12 @@ lookup upload, HQ's submission processing, Core's runtime or an HQ editor save
    item 9).
 8. **Gates are their own entry kind.** Each row of `inventory/gates.md` is a
    gate entry: the 70 app-building toggles, the removed toggles with document
-   residue, the plan-gated privileges and the build versions, plus the
-   project-space settings publish confirms (the case search configuration, sync
-   on form entry, CommTrack, the flat location fixture). A gate entry holds its
+   residue, the plan-gated privileges and the build versions, plus each gate
+   that `gates.md`'s closing paragraph names as a publish check outside those
+   flags: `VIEW_FORM_ATTACHMENT`, whether case search is on
+   (`CaseSearchConfig.enabled`), and the settings publish asks the person to
+   confirm (sync on form entry, the flat location fixture, CommTrack). A gate
+   entry holds its
    class as `gates.md` names it (target-owned, retiring, inert, removed with
    residue), the entries whose content it gates, the build output it changes,
    and its target preflight (none, precondition, confirmation, or refusal). The
@@ -233,9 +236,7 @@ lookup upload, HQ's submission processing, Core's runtime or an HQ editor save
 17. **Feature-matrix apps move to step 6.** They are HQ apps built through HQ's
     own models, and until the reader exists nothing but a harness self-check
     can consume them. Step 6 builds them with the reader, whose exit reads them.
-    Step 1's corpus is the rest of the research's list (work item 10), plus the
-    one HQ-built app a reproduction needs because no Nova export can show the
-    symptom (defect 20's advanced module, work item 12).
+    Step 1's corpus is the rest of the research's list (work item 10).
 18. **Android is cited, not run.** The exit names HQ and Core, not Android, and
     the Android classes involved (`HiddenPreferences`, `AppUtils`,
     `ProfileAndroidInstaller`, `HomeScreenBaseActivity`) run only inside a
@@ -247,6 +248,19 @@ lookup upload, HQ's submission processing, Core's runtime or an HQ editor save
     `isIncompleteFormsEnabled`, `AppUtils.getAppById`,
     `ProfileAndroidInstaller.checkDuplicate`,
     `HomeScreenBaseActivity.launchRemoteSync`).
+
+19. **A check runs only against a target Nova's publish accepts.** A symptom
+    that shows only under a configuration Nova's publish refuses cannot reach
+    a user, so it is not a defect. Each producer emits, beside a document's
+    upload bodies, Nova's own verdict on it: the flags and capabilities Nova's
+    publish check requires for it (today
+    `projectSpaceCompatibilityProbePlan`), and from step 2 the privileges and
+    confirmations publish asks for. A configuration that lacks any of them is
+    not checked, and a lookup table is uploaded only when Nova's push would
+    send it. So a defect Nova fixes by refusing at publish (defect 12's gates,
+    defect 5's adopted tables, defect 20's confirmations) leaves the register
+    when its fix lands, because the configuration that showed it is then one
+    Nova refuses.
 
 ## What it builds, in order
 
@@ -261,7 +275,9 @@ lookup upload, HQ's submission processing, Core's runtime or an HQ editor save
   records its test classpath; and installs Playwright's Chromium.
 - `npm run proof -- [selection]` runs the pinned image locally with the
   worktree mounted read-only, the Linux `node_modules` volume, and an output
-  directory mounted writable; the same command runs in CI.
+  directory mounted writable, beside a Postgres container it starts and
+  removes (`proof/compose.yaml`); CI runs the same image beside a Postgres
+  service.
 - An image self-test proves the boot (work item 2) comes up offline, that HQ,
   Core and Android are at their pins, and that HQ's vendored Vellum is the
   research's Vellum pin.
@@ -426,10 +442,10 @@ Each Python consumer in `scripts/fixtures/hq/` moves to `proof/native/` and
 imports the shared boot and seams in place of its own copy. Each Core test in
 `scripts/fixtures/javarosa/` moves to `proof/native/core/` and runs through the
 image's Core build. The producers keep emitting through Nova's real expander
-and compilers. Each moved proof is re-read against `docs/testing.md` as it
-moves: one that proves nothing the checks of work item 11 do not is removed,
-one that proves something they do not is kept, and the pull request records
-which and why. Their READMEs fold into `proof/README.md`, and the references
+and compilers. Once the checks of work item 11 exist, each moved proof is
+re-read against `docs/testing.md`: one that proves nothing those checks do not
+is removed, one that proves something they do not is kept, and the pull
+request records which and why. Their READMEs fold into `proof/README.md`, and the references
 `docs/testing.md` and the Core README make to evidence files that no longer
 exist (`native-core-arithmetic.json`, `native-{hq,core}-prompts.json`) are
 corrected. After this item every kept native proof runs in the proof lane.
@@ -475,7 +491,8 @@ regular expressions.
   ids), and its emission. A gate entry holds what decision 8 lists.
 - The entries are written from the inventory's rows, and only from them. A one-off script,
   `scripts/surface-from-inventory.ts`, parses the seven inventory files (every
-  row there has four cells, and the first cell is unique within its file) into
+  row there has four cells once an escaped `\|` is read as text, and the
+  first cell is unique within its file) into
   entries with every column; surface keys and value classes are then assigned
   per row. The 39 rows that list several items take several keys; the 57
   pointer rows are not entries. Every assignment is checked against the
@@ -717,9 +734,9 @@ editor-saved app is compared with B as proof 4 describes.
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`) | proof 4 | such ids, and such entry points |
 | 16, hidden columns | a case list search no longer matches a hidden column's values, because Nova drops the column (`EntitySortUtil.sortEntities`) | intent (Core) | a hidden column that sorts nothing |
 | 20, sync on form entry | HQ's build adds a claim with no condition to the entry, and Core's session asks for a sync on a form entry (`CommCareSession.getNeededData`) | configuration sensitivity; proof 3 under the seam | a module that offers search |
-| 20, CommTrack | HQ's build gives an advanced module's case list menu item a `product_id` datum, and gives a form whose source contains the session's `supply_point_id` path an autoselect datum whose assertion fails for a worker without one | configuration sensitivity; proof 3 under the seam | an HQ-built app with an advanced module whose case list menu item is on (decision 17); a Nova form whose label text contains that path |
+| 20, CommTrack | HQ's build gives a form whose source contains the session's `supply_point_id` path an autoselect datum whose assertion fails for a worker without one | configuration sensitivity; proof 3 under the seam | a Nova form whose label text contains that path |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 | a list-first module in an app with Web Apps on |
-| 23 | HQ's build gives an attachment-mode write no attachment path without `MM_CASE_PROPERTIES`, and a Vellum save drops the Save to Case attachment | configuration sensitivity; proof 4 | an attachment-mode capture |
+| 23 | a Vellum save drops the Save to Case attachment | proof 4 | an attachment-mode capture |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child | proof 4, then 2 | an extension child case |
 | 25 | a Vellum save rewrites a query repeat into model iteration, after which a nested one throws, one under a group that becomes relevant later stays empty, and one under a false condition gets rows | proof 4, then 3 | query repeats in those three places |
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 | those links and fallbacks |
@@ -733,8 +750,11 @@ exit names: defect 4's `add_ons` (only HQ's app-manager pages read them); defect
 keep without `CASE_SEARCH_ADVANCED` (the gate is in HQ's editor alone), and its
 `VIEW_FORM_ATTACHMENT` over-requirement (a Nova publish check); defect 14's
 logos (a linked-app pull) and `both_fixtures` (saves keep it); defect 16's
-comments, dead code, copy and media slots; defect 24's export columns; and
-defect 30's export column. Defect 15's harm in Connect is Connect's. Defect
+comments, dead code, copy and media slots; defect 20's `product_id` datum on
+an advanced module's case list menu item, since Nova emits no advanced module
+before step 5; defect 23's build without `MM_CASE_PROPERTIES`, a target Nova's
+publish already refuses for attachment mode (decision 19); defect 24's export
+columns; and defect 30's export column. Defect 15's harm in Connect is Connect's. Defect
 13's and 14's equivalent spellings are spelling rules, not defects (work item
 11).
 
@@ -743,8 +763,8 @@ defect 30's export column. Defect 15's harm in Connect is Connect's. Defect
 - `quality` gains the pins check (decision 4).
 - A `surface` job pulls the pinned image, regenerates the surface, and fails on
   any difference from the committed `surface.json`.
-- A `proof` matrix runs the proof lane in shards, with a Postgres service for
-  the lookup check and a `proofs-gate` fan-in, and uploads each shard's traces
+- A `proof` matrix runs the proof lane in shards, each with a Postgres service
+  for HQ's state (work item 2), and a `proofs-gate` fan-in, and uploads each shard's traces
   and difference sets as artifacts.
 - The manifest test runs in the ordinary test shards.
 
@@ -772,12 +792,16 @@ defect 30's export column. Defect 15's harm in Connect is Connect's. Defect
 One stack (`gh stack`), merged together:
 
 1. Pins, image, boot, seams, Core runner, editor driver, the moved native
-   proofs, and the proof lane in CI (work items 1 to 5, 13).
+   proofs, and the `proof` lane in CI running them (work items 1 to 5, and the
+   `proof` job of 13).
 2. The surface extractor, the manifest and its test, the probe reading gate
-   entries, the deletions, and the weekly pin pull request (work items 6 to 9).
-3. The corpus, the checks with the spelling rules, and the known-defect
-   register with its controls and targeted documents (work items 10 to 12),
-   together, so the proof lane is green at every pull request of the stack.
+   entries, the deletions, the weekly pin pull request, and the `surface` job
+   (work items 6 to 9, and the `surface` job of 13).
+3. The corpus, the checks with the spelling rules, the known-defect register
+   with its controls and targeted documents, and the review of each moved
+   native proof against those checks (work items 10 to 12, and the end of 5).
+Each pull request of the stack adds only the CI it can pass, so CI is green at
+every one.
 4. The documentation (work item 14).
 
 ## Tests and the boundaries they earn
