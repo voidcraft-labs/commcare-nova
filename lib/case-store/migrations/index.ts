@@ -20,6 +20,7 @@ import * as reviewFocus from "./20260921000000_review_focus";
 import * as sharedAuthoring from "./20260927000000_shared_authoring";
 import * as appTestRequests from "./20260930000000_app_test_requests";
 import * as authoringReviewContinuation from "./20260930010000_authoring_review_continuation";
+import * as appTestDisposalConstraints from "./20260930020000_app_test_disposal_constraints";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -102,6 +103,7 @@ export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 
 /** Migration name → module, in apply order (lexicographic by key). */
 export const caseStoreMigrations: Record<string, Migration> = {
+	"20260930020000_app_test_disposal_constraints": appTestDisposalConstraints,
 	"20260930010000_authoring_review_continuation": authoringReviewContinuation,
 	"20260930000000_app_test_requests": appTestRequests,
 	"20260927000000_shared_authoring": sharedAuthoring,

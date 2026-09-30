@@ -997,8 +997,8 @@ describe("database privilege convergence", () => {
 					case_name: string;
 				}>`SELECT case_name FROM ${sql.id(namespace, "cases")}`.execute(tx);
 				expect(isolated.rows).toEqual([{ case_name: "Pump" }]);
-			});
-			await asRole(h.db, config.runtimeRole, async (tx) => {
+				// Disposal in the inserting transaction must flush only its
+				// namespace's deferred FK events under the converged runtime role.
 				await sql`SELECT public.nova_drop_app_test_namespace(${appTestId}::uuid)`.execute(
 					tx,
 				);

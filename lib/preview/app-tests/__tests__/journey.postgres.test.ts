@@ -10,6 +10,7 @@ import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
+import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import {
 	HOST_MODULE,
 	noMatchesDoc,
@@ -35,6 +36,160 @@ const stepSchema = z.object({
 	step: z.number(),
 	observation: z.record(z.string(), z.unknown()),
 });
+
+it("commits a registration and finishes in one batch with replayable evidence and no retained test records", async () => {
+	const doc = await createEvaluationApp(
+		[
+			{
+				name: "Clients",
+				caseType: "client",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+		],
+		[
+			{
+				toolName: "addFields",
+				input: {
+					moduleUuid: "Clients",
+					formUuid: "Register",
+					fields: [{ id: "name", kind: "text", label: "Name", required: true }],
+				},
+			},
+			{
+				toolName: "updateForm",
+				input: {
+					moduleUuid: "Clients",
+					formUuid: "Register",
+					recordName: "#form/name",
+				},
+			},
+			{
+				toolName: "removeField",
+				input: {
+					moduleUuid: "Clients",
+					formUuid: "Register",
+					fieldUuid: "fixture_placeholder",
+				},
+			},
+		],
+	);
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	const started = stepSchema.parse(
+		await call("startAppTest", { purpose: "Register and finish atomically" }),
+	);
+	await call("continueAppTest", {
+		testId: started.testId,
+		expectedStep: 0,
+		actions: [
+			{ action: { kind: "menu", moduleUuid: "Clients" } },
+			{ action: { kind: "form", formUuid: "Register" } },
+		],
+	});
+	const input = {
+		testId: started.testId,
+		expectedStep: 2,
+		actions: [
+			{
+				action: { kind: "answer", answers: [{ path: "name", value: "Maya" }] },
+			},
+			{ action: { kind: "submit" }, expect: { submitted: true } },
+			{ action: { kind: "finish" } },
+		],
+	};
+	const beforeCases = (
+		await sql`SELECT * FROM ${sql.id(appTestNamespace(started.testId), "cases")}`.execute(
+			h.db(),
+		)
+	).rows;
+	// Fail after the namespace has been dropped but before its response receipt
+	// persists: the entire answer/submit/finish call must still roll back.
+	await sql`CREATE FUNCTION reject_disposal_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'receipt persistence failed'; END $$`.execute(
+		h.db(),
+	);
+	await sql`CREATE TRIGGER reject_disposal_receipt BEFORE INSERT ON app_test_requests
+  FOR EACH ROW WHEN (NEW.request_id = 'register-and-finish') EXECUTE FUNCTION reject_disposal_receipt()`.execute(
+		h.db(),
+	);
+	await expect(
+		call("continueAppTest", input, "register-and-finish"),
+	).rejects.toThrow("receipt persistence failed");
+	const rolledBack = await readAppTestSteps({
+		...scope,
+		testId: started.testId,
+	});
+	expect(rolledBack).toMatchObject({ step: 2, disposed_at: null });
+	expect(rolledBack.steps.map((step) => step.step)).toEqual([0, 1, 2]);
+	expect(
+		(
+			await sql`SELECT * FROM ${sql.id(appTestNamespace(started.testId), "cases")}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual(beforeCases);
+	expect(
+		(
+			await sql`SELECT 1 FROM ${sql.id(appTestNamespace(started.testId), "form_submission_intents")}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+	expect(
+		await h
+			.db()
+			.selectFrom("app_test_requests")
+			.select("request_id")
+			.where("test_id", "=", started.testId)
+			.where("request_id", "=", "register-and-finish")
+			.execute(),
+	).toEqual([]);
+	await sql`DROP TRIGGER reject_disposal_receipt ON app_test_requests`.execute(
+		h.db(),
+	);
+	const response = await call("continueAppTest", input, "register-and-finish");
+	expect(response).toMatchObject({
+		step: 5,
+		observation: { ended: true },
+		results: [
+			{ step: 3 },
+			{
+				step: 4,
+				observation: {
+					savedInTest: true,
+					evidence: { caseTransaction: "committed" },
+				},
+			},
+			{ step: 5, observation: { ended: true } },
+		],
+	});
+	expect(await call("continueAppTest", input, "register-and-finish")).toEqual(
+		response,
+	);
+	const history = await readAppTestSteps({ ...scope, testId: started.testId });
+	expect(history.disposed_at).not.toBeNull();
+	expect(history.steps.map((step) => step.step)).toEqual([0, 1, 2, 3, 4, 5]);
+	expect(history.steps[4].observation).toMatchObject({ savedInTest: true });
+	expect(
+		(
+			await sql`SELECT 1 FROM pg_namespace WHERE nspname = ${appTestNamespace(started.testId)}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+	expect(
+		(
+			await sql`SELECT 1 FROM public.cases WHERE app_id = ${scope.appId}`.execute(
+				h.db(),
+			)
+		).rows,
+	).toEqual([]);
+});
+
 function sharedJourneyCalls(doc: import("@/lib/domain").BlueprintDoc) {
 	const author = makeAuthoringHarness(
 		{

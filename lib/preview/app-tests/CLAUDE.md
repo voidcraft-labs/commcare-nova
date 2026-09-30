@@ -102,6 +102,9 @@ after receipt replay and immediately before execution. `service.ts` owns each
 action savepoint; explicit worker/input refusals stop with the persisted prefix,
 while unexpected failures roll back the call. `app_test_requests` owns the
 complete response receipt; individual action rows share its request identity.
+`finish` may follow submission in that same call: namespace disposal checks its
+deferred foreign keys before dropping the records, and the final evidence and
+whole-call receipt commit atomically with that disposal.
 Pre-batch singular receipts retain their original UUID-normalized digest. On
 a digest mismatch only, the shared boundary retries that original preparation
 against the authorized pinned document, so a later rename cannot break replay.
