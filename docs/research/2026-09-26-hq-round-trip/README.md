@@ -1786,8 +1786,13 @@ or that publish checks or asks the person to confirm (such as
 `VIEW_FORM_ATTACHMENT` and the project space's case search configuration),
 every JavaRosa function, bind type, control and event, every runtime parser's
 element and attribute vocabulary, the CSQL function set, each feature's platform
-behavior, and each item's disposition and in-envelope emission. CI fails when an
-entry has no disposition or when the regenerated surface differs from the
+behavior, and each entry's disposition and in-envelope emission. The entries are
+the inventory's rows. A surface item no entry names is refused wherever an app
+uses it, as the reader refuses anything it does not recognize: a schema field at
+any value other than HQ's default, and any other item wherever it occurs. Nova's
+own exports use only items an entry names, and a flag HQ reads while building one
+has a gate entry. CI fails when an entry has no disposition, when an export uses
+an item no entry names, or when the regenerated surface differs from the
 manifest, so a change in HQ becomes a classified diff (step 1 of "Order of
 work" sets when it runs). Coverage is a number: "N of
 M entries held." It replaces the existing flag audit
