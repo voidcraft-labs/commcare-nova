@@ -21,6 +21,11 @@ their call. Lost app membership or run authority remains terminal.
 `readAppTest` without an identity returns the same bounded recent-test list as
 Builder, so a reviewer can discover evidence created by another authoring role.
 List and detail timestamps are ISO strings usable in model JSON results.
+Before the app's first save, shared journey tools return an ordinary prerequisite
+refusal. Planning peers may discover history reads, and a retained unanswered
+read must settle with that refusal on recovery. Reading saved evidence remains
+available while private app edits are pending; starting or continuing a journey
+still requires those edits to be saved.
 
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach

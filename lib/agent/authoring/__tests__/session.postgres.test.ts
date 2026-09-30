@@ -1,9 +1,11 @@
 import { expect, it } from "vitest";
+import { z } from "zod";
 import { getAuthDb } from "@/lib/auth/db";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitGuardedBatch, loadApp } from "@/lib/db/apps";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { collectLocalizedTranslationUnits } from "@/lib/domain";
 import {
 	beginWork,
 	discardWork,
@@ -44,6 +46,146 @@ async function existing() {
 	});
 	return { appId: app.appId, args: { actorUserId, host, workId: work.workId } };
 }
+
+it("saves and reviews translations after persisted prose references cross workspace replay and canonical reads", async () => {
+	const { appId, args } = await existing();
+	let request = 0;
+	const call = async (toolName: string, input: unknown) => {
+		const result = await executeWorkTool({
+			...args,
+			requestId: `localization-${++request}`,
+			toolName,
+			input,
+		});
+		expect(result).toMatchObject({ kind: "mutate", result: { ok: true } });
+		return result;
+	};
+	const save = async () => {
+		const work = await getWork(args);
+		const result = await saveWork({
+			...args,
+			requestId: `save-${++request}`,
+			expectedRevision: pendingRevision(work),
+		});
+		expect(result).toMatchObject({ saved: true });
+	};
+	const read = async () => {
+		const result = await executeWorkTool({
+			...args,
+			requestId: `read-${++request}`,
+			toolName: "getTranslatableContent",
+			input: { language: { language: "spa" }, query: "Repairing", limit: 10 },
+		});
+		if (result.kind !== "read") throw new Error("Expected translation read");
+		const items = z
+			.object({
+				items: z.array(
+					z.object({
+						id: z.string(),
+						sourceFingerprint: z.string(),
+						revision: z.string(),
+					}),
+				),
+			})
+			.parse(result.data).items;
+		expect(items).toHaveLength(1);
+		return items[0];
+	};
+	await call("createModule", { name: "Repairs", case_type: "repair" });
+	await call("createForm", {
+		moduleUuid: "Repairs",
+		name: "Register",
+		type: "registration",
+	});
+	await call("addFields", {
+		formUuid: "Register",
+		fields: [{ kind: "text", id: "name", label: "Item" }],
+	});
+	await call("updateForm", { formUuid: "Register", recordName: "#form/name" });
+	await save();
+	// Introduce the reference in the retained mutation suffix, where JSONB key
+	// order used to survive workspace replay but change at canonical admission.
+	await call("createForm", {
+		moduleUuid: "Repairs",
+		name: "Repair",
+		type: "followup",
+	});
+	await call("addFields", {
+		formUuid: "Repair",
+		fields: [
+			{
+				kind: "label",
+				id: "context",
+				label: "Repairing **{{#case/case_name}}**.",
+			},
+		],
+	});
+	await save();
+	await call("addLanguage", { language: { language: "spa" } });
+	await save();
+	let snapshot = await getWorkSnapshot(args);
+	const copied = collectLocalizedTranslationUnits(snapshot.doc, "spa").find(
+		(unit) => unit.context?.fieldId === "context",
+	);
+	if (!copied?.explicit) throw new Error("Missing copied context label");
+	expect(copied.status).toBe("needs-review");
+	expect(copied.source).toMatchObject({
+		parts: expect.arrayContaining([
+			{ kind: "case-ref", caseType: "repair", property: "case_name" },
+		]),
+	});
+	const sourceRead = await read();
+	const translated = {
+		parts: [
+			{ kind: "text", text: "Reparando **" },
+			{ caseType: "repair", kind: "case-ref", property: "case_name" },
+			{ kind: "text", text: "**." },
+		],
+	};
+	await call("updateTranslations", {
+		language: { language: "spa" },
+		updates: [
+			{
+				operation: "set",
+				unitId: copied.id,
+				expectedSourceFingerprint: sourceRead.sourceFingerprint,
+				value: "Reparando **{{#case/case_name}}**.",
+			},
+		],
+	});
+	await save();
+	snapshot = await getWorkSnapshot(args);
+	const pending = collectLocalizedTranslationUnits(snapshot.doc, "spa").find(
+		(unit) => unit.id === copied.id,
+	);
+	if (!pending?.explicit) throw new Error("Missing translated context label");
+	const reviewRead = await read();
+	await call("updateTranslations", {
+		language: { language: "spa" },
+		updates: [
+			{
+				operation: "review",
+				unitId: pending.id,
+				revision: reviewRead.revision,
+			},
+		],
+	});
+	await save();
+	const saved = await loadApp(appId);
+	if (!saved) throw new Error("Missing saved app");
+	const final = collectLocalizedTranslationUnits(
+		(await getWorkSnapshot(args)).doc,
+		"spa",
+	).find((unit) => unit.id === pending.id);
+	expect(final).toMatchObject({
+		status: "ready",
+		effective: translated,
+		explicit: { review: "reviewed" },
+	});
+	expect(
+		saved.blueprint.localization?.translations.spa?.[pending.id],
+	).toMatchObject({ value: translated, review: "reviewed" });
+});
 
 it("constructs a named app privately through focused operations and publishes one valid first checkpoint", async () => {
 	await h.seedProjectMember(actorUserId, projectId, "owner");

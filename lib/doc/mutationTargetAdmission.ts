@@ -18,6 +18,7 @@ import {
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { assertNever } from "@/lib/utils/assertNever";
 
 /**
@@ -1127,7 +1128,10 @@ export function mutationTargetsInvalid(
 					m.language === sourceLanguage ||
 					unit === undefined ||
 					(m.entry !== null &&
-						(m.entry.sourceFingerprint !== unit.sourceFingerprint ||
+						(!translationSourceFingerprintsEqual(
+							m.entry.sourceFingerprint,
+							unit.sourceFingerprint,
+						) ||
 							translationValueIntegrityIssue(unit, m.entry.value) !==
 								undefined))
 				) {
@@ -1148,7 +1152,10 @@ export function mutationTargetsInvalid(
 				const unit = translationUnits.get(m.unitId);
 				if (
 					unit === undefined ||
-					m.sourceFingerprint !== unit.sourceFingerprint ||
+					!translationSourceFingerprintsEqual(
+						m.sourceFingerprint,
+						unit.sourceFingerprint,
+					) ||
 					translationValueIntegrityIssue(unit, m.value) !== undefined
 				) {
 					return true;
@@ -1158,7 +1165,10 @@ export function mutationTargetsInvalid(
 				if (
 					target === undefined ||
 					entry === undefined ||
-					entry.sourceFingerprint !== m.expectedSourceFingerprint ||
+					!translationSourceFingerprintsEqual(
+						entry.sourceFingerprint,
+						m.expectedSourceFingerprint,
+					) ||
 					!deepEqual(entry.value, m.value)
 				) {
 					return true;

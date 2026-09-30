@@ -6,6 +6,7 @@ import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
 import { useBlueprintDocEq } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	type BlueprintDoc,
+	expressionSurfaceReads,
 	materializableCaseTypes,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
@@ -78,6 +79,19 @@ export function caseDatabaseRequirements(
 			(xpathReferencesInstance(carrier.source, "casedb") ||
 				xpathReferencesCaseDatabaseHashtag(carrier.source)),
 	);
+	// Prose has typed references too, but deliberately is not an XPath carrier.
+	// Labels, hints, help and inline choices must load the same structural cases
+	// as calculations; literal text that resembles a hashtag is not a read.
+	const proseReference = Object.values(doc.fields).some((field) =>
+		expressionSurfaceReads(field, "prose", doc).some((read) =>
+			read.template?.parts.some(
+				(part) =>
+					part.kind === "case-ref" ||
+					part.kind === "user-ref" ||
+					part.kind === "user-property-ref",
+			),
+		),
+	);
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
@@ -90,7 +104,9 @@ export function caseDatabaseRequirements(
 		(module) => module.caseType !== undefined,
 	);
 	const required =
-		explicitReference || (hasAfterSubmitLink && hasCaseBearingModule);
+		explicitReference ||
+		proseReference ||
+		(hasAfterSubmitLink && hasCaseBearingModule);
 	const caseTypes = required
 		? [
 				...materializableCaseTypes(doc).map((caseType) => caseType.name),

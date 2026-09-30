@@ -68,8 +68,13 @@ later same-value occurrences add their stable same-value ordinal so no legal
 label silently aliases the first occurrence.
 Builder, tools, Preview, translation orchestration, and wire emission resolve
 language values through `resolveTranslationUnit(s)` rather than independently
-walking labels. Each target entry fingerprints the current source. Missing and
-out-of-date entries fall back to the canonical source; an out-of-date explicit
+walking labels. Each target entry fingerprints the current source.
+Source fingerprints serialize schema-canonical values. Semantic comparisons
+accept equivalent legacy `source-v1` JSON key orders after strict kind/value
+validation; malformed fingerprints never match. Text, reference identity and
+prose order remain significant. This leaves stored translations and review state
+intact without relaxing request, revision or receipt digests.
+Missing and out-of-date entries fall back to the canonical source; an out-of-date explicit
 value remains stored for review but is never emitted as current. Prose
 translations may reorder literal text and reference parts, but must preserve the
 exact multiset and identity of every protected reference part. A source edit

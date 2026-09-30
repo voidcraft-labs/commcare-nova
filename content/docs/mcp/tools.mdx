@@ -135,6 +135,9 @@ or moving a field preserves its references. Literal opening braces and backslash
 are escaped with a backslash. Read tools return the same wording and expression
 format accepted by edits.
 
+The running app resolves saved record and worker values in labels, hints, help
+and choices, including forms that use those values only in their wording.
+
 A module, form, or field target accepts its stable ID or an unambiguous name.
 Nested fields accept a unique short name or their full path. Exact paths take
 precedence, so a root field keeps its name when a nested field has the same name.
@@ -188,6 +191,10 @@ test worker's record set or finish the test. Each response returns the step
 number required by the next action. Omit `testId` from `read_app_test` to find recent
 tests by purpose and source revision. Supply a returned identity to read retained steps and
 their app revision. Builder's **Test journeys** presents those same observations.
+
+Before the app's first save, journey tools explain that a saved workflow is
+needed. Existing test history remains readable while private app edits are
+pending.
 
 A journey uses the app's default worker language, or a configured `language`
 identity such as `{language: "spa"}` supplied at start. A `language` action

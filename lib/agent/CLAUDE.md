@@ -55,8 +55,11 @@ staging eligibility, and external capabilities. Availability comes from those
 declarations and the current role, not a prompt prohibition. Once construction
 begins, its shared catalog remains stable across first save. Resource and journey
 operations are discoverable before birth but refuse with a save-first prerequisite
-at invocation; they cannot touch external state without a saved app. Project lookup
-authoring retains its existing pre-app boundary. Planning
+at invocation; they cannot touch external state without a saved app.
+Journey-history reads are also safe before birth: they return an ordinary
+prerequisite refusal, so a persisted pending read can settle on recovery.
+After birth, reading retained history remains available with private edits pending.
+Project lookup authoring retains its existing pre-app boundary. Planning
 and peer review cannot mutate app or Project data. The `exercise-app` effect
 permits disposable journey tests of a saved app, including during app review;
 it is forbidden in staging and never counts as an app change. Each action

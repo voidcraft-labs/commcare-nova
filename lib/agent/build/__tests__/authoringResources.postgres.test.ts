@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent/planning/store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
+import { type ArchitectLoopArgs, runArchitectLoop } from "../architectLoop";
 import { AuthoringSession } from "../authoringSession";
 import { architectToolDefinitions } from "../authoringTools";
 
@@ -70,6 +71,13 @@ it("discovers place creation before birth, refuses early effects, then creates a
 	expect(
 		await call("startAppTest", { purpose: "Enter the app" }, "test-too-early"),
 	).toMatchObject({ error: expect.any(String) });
+	for (const role of ["architect", "peer"] as const)
+		expect(
+			await session.shared(
+				{ toolName: "readAppTest", toolCallId: `history-${role}`, input: {} },
+				role,
+			),
+		).toMatchObject({ error: expect.any(String) });
 	expect(await call("createModule", { name: "Visits" })).not.toHaveProperty(
 		"error",
 	);
@@ -140,6 +148,8 @@ it("discovers place creation before birth, refuses early effects, then creates a
 		}),
 	).not.toHaveProperty("error");
 	const assignmentRevision = (await session.getWork()).revision;
+	// Reading retained evidence does not require the new private assignment to save.
+	expect(await call("readAppTest", {})).not.toHaveProperty("error");
 	if (!assignmentRevision)
 		throw new Error("Private assignment has no revision");
 	const assignment = await session.saveWork("assignment", assignmentRevision);
@@ -162,4 +172,129 @@ it("discovers place creation before birth, refuses early effects, then creates a
 			}),
 		],
 	});
+});
+
+it("settles a persisted prebirth journey read before buying another peer response", async () => {
+	const actorUserId = "reviewer";
+	const projectId = "prebirth-project";
+	const runId = "prebirth-run";
+	await h.seedProjectMember(actorUserId, projectId, "owner");
+	const claim = await createAndClaimDesignSessionRun({
+		projectId,
+		actorUserId,
+		runId,
+		cost: 1,
+	});
+	const authority = {
+		actorUserId,
+		projectId,
+		runId,
+		sessionId: claim.designSessionId,
+		holderNonce: claim.holderNonce,
+	};
+	let session = new AuthoringSession(authority, claim.proposedAppId, () => {});
+	let responses = 0;
+	let interrupt = true;
+	const args: ArchitectLoopArgs = {
+		spec: {
+			designSessionId: claim.designSessionId,
+			kind: "peer",
+			modelId: "test-peer",
+			promptVersion: "test-v1",
+			contextVersion: "plan-review",
+			toolsetDigest: "0".repeat(64),
+			authority: {
+				actorUserId,
+				expectedProjectId: projectId,
+				runId,
+				holderNonce: claim.holderNonce,
+			},
+		},
+		system: "Review the plan.",
+		turnId: "review",
+		maxSteps: 3,
+		signal: new AbortController().signal,
+		additions: [],
+		tools: () =>
+			architectToolDefinitions({
+				role: "peer",
+				building: false,
+				hasApp: false,
+			}),
+		modelStep: async ({ messages }) => {
+			responses++;
+			if (responses > 1) {
+				const receipts = messages.flatMap((message) =>
+					message.role === "tool"
+						? message.content.filter((part) => part.type === "tool-result")
+						: [],
+				);
+				expect(receipts).toHaveLength(1);
+				expect(receipts[0]).toMatchObject({
+					toolCallId: "prebirth-history",
+					toolName: "readAppTest",
+				});
+				const output = receipts[0]?.output;
+				if (output?.type !== "text") throw new Error("Missing history refusal");
+				expect(JSON.parse(output.value)).toMatchObject({
+					error: expect.any(String),
+				});
+			}
+			return {
+				text: responses === 1 ? "" : "The plan is ready to build.",
+				toolCalls: [],
+				usage: {
+					inputTokens: 1,
+					outputTokens: 1,
+					totalTokens: 2,
+					inputTokenDetails: {
+						noCacheTokens: 1,
+						cacheReadTokens: 0,
+						cacheWriteTokens: 0,
+					},
+					outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+				},
+				responseMessages:
+					responses === 1
+						? [
+								{
+									role: "assistant",
+									content: [
+										{
+											type: "tool-call",
+											toolCallId: "prebirth-history",
+											toolName: "readAppTest",
+											input: {},
+										},
+									],
+								},
+							]
+						: [{ role: "assistant", content: "The plan is ready to build." }],
+			};
+		},
+		dispatch: async (call) => ({
+			kind: "result",
+			output: await session.shared(call, "peer"),
+		}),
+		onStep: async () => {
+			if (interrupt) {
+				interrupt = false;
+				throw new Error("Process stopped after response persistence");
+			}
+		},
+		onRecoveredUsage: () => {},
+		onFinish: async () => ({ kind: "complete" }),
+	};
+	await expect(runArchitectLoop(args)).rejects.toThrow(
+		"Process stopped after response persistence",
+	);
+	expect(responses).toBe(1);
+	session = new AuthoringSession(authority, claim.proposedAppId, () => {});
+	await expect(runArchitectLoop(args)).resolves.toMatchObject({
+		kind: "complete",
+	});
+	expect(responses).toBe(2);
+	expect(
+		await h.db().selectFrom("app_test_sessions").select("id").execute(),
+	).toEqual([]);
 });

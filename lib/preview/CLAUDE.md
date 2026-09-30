@@ -189,7 +189,11 @@ text during either window.
 
 The casedb load signal is structural too: any admitted `#<case-type>/*` or
 `#user/*` carrier needs the same device snapshot as an explicit
-`instance('casedb')` reference. Query-bound repeats preserve each selected
+`instance('casedb')` reference. Typed case and worker references in prose labels,
+hints, help and inline choices also require that snapshot, even when no XPath
+slot reads a case. The scan uses the prose slot registry and typed parts;
+literal hashtag text and answer-only references do not trigger a case load.
+Query-bound repeats preserve each selected
 node's lexical value across the worker boundary and seed it as the flattened
 Preview row's `@id` (plus the zero-based model-iteration `@index`) before child
 calculations run. Keeping only nodeset cardinality breaks the canonical

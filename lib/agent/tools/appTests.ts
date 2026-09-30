@@ -13,14 +13,20 @@ import {
 import type { ToolInvocationContext } from "../workspace/types";
 
 function scope(ctx: ToolInvocationContext) {
-	if (!ctx.appId)
-		throw new Error("Save the app before testing its worker journey.");
+	if (!ctx.appId) return null;
 	return {
 		appId: ctx.appId,
 		actorUserId: ctx.userId,
 		projectId: ctx.projectId,
 	};
 }
+const unsavedApp = {
+	kind: "read" as const,
+	data: {
+		error:
+			"Worker journeys need a saved app. You can begin after saving the first complete workflow.",
+	},
+};
 const testIdSchema = z
 	.uuid()
 	.describe("The test identity returned when the journey began.");
@@ -34,6 +40,7 @@ export const startAppTestTool = {
 		ctx: ToolInvocationContext,
 	) {
 		const admitted = scope(ctx);
+		if (!admitted) return unsavedApp;
 		if (ctx.snapshot.canonicalSeq === null)
 			return {
 				kind: "read" as const,
@@ -80,9 +87,11 @@ export const continueAppTestTool = {
 		input: z.infer<typeof continueSchema>,
 		ctx: ToolInvocationContext,
 	) {
+		const admitted = scope(ctx);
+		if (!admitted) return unsavedApp;
 		return {
 			kind: "read" as const,
-			data: await continueAppTest(scope(ctx), {
+			data: await continueAppTest(admitted, {
 				...input,
 				requestId: ctx.invocation.requestId,
 				legacyAction:
@@ -119,13 +128,15 @@ export const readAppTestTool = {
 		"Omit testId to find this app's recent tests by purpose and source revision. Supply a returned identity to read a bounded page of actions and observations, including failures. Follow nextCursor with its fixed throughStep to keep the same evidence window. Oversized steps return an inspection address: use inspect with the returned step/path and nextOffset to read all retained evidence without truncation. Evidence remains after test records expire or are discarded. A completed test proves only its exercised behavior.",
 	inputSchema: readSchema,
 	async execute(input: z.infer<typeof readSchema>, ctx: ToolInvocationContext) {
+		const admitted = scope(ctx);
+		if (!admitted) return unsavedApp;
 		return {
 			kind: "read" as const,
 			data:
 				input.testId === undefined
-					? await listAppTests(scope(ctx))
+					? await listAppTests(admitted)
 					: await readAppTestSteps({
-							...scope(ctx),
+							...admitted,
 							...input,
 							testId: input.testId,
 						}),

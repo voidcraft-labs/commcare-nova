@@ -1,4 +1,5 @@
 import { entryPointIdSchema, entryPointInventory } from "@/lib/domain";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import { entryPointProjectionIssue } from "../../entryPointProjection";
 /**
  * App-level validation rules.
@@ -412,7 +413,10 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 			}
 			if (
 				issue === "protected-content" &&
-				entry.sourceFingerprint === unit.sourceFingerprint
+				translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					unit.sourceFingerprint,
+				)
 			) {
 				errors.push(
 					validationError(
@@ -426,7 +430,10 @@ function validTranslationOverlays(doc: BlueprintDoc): ValidationError[] {
 			}
 			if (
 				issue === undefined &&
-				entry.sourceFingerprint === unit.sourceFingerprint &&
+				translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					unit.sourceFingerprint,
+				) &&
 				translationUnitUsesLocaleFile(unit.role)
 			) {
 				flagLocaleValue(
