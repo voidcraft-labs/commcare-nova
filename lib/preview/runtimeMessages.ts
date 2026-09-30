@@ -4,6 +4,7 @@ import type { LanguageTag } from "@/lib/domain/localization";
  * small catalog client/worker safe; unsupported languages fall back honestly. */
 const english = {
 	required: "This field is required",
+	reviewHighlightedQuestion: "Review the highlighted question.",
 	searchRequired: "Fill in this answer before searching.",
 	invalid: "Invalid value",
 	wholeNumber: "This question needs a whole number.",
@@ -38,6 +39,7 @@ const english = {
 export type RuntimeMessage = keyof typeof english;
 const spanish: Record<RuntimeMessage, string> = {
 	required: "Este campo es obligatorio",
+	reviewHighlightedQuestion: "Revise la pregunta resaltada.",
 	searchRequired: "Complete esta respuesta antes de buscar.",
 	invalid: "Valor no válido",
 	wholeNumber: "Esta pregunta necesita un número entero.",

@@ -92,10 +92,12 @@ A journey starts in the configured default language unless a configured
 structured language identity is selected. Language changes retain entered
 answers, defaults and repeat identities. Authored labels and custom validation
 use the app's normal translation projection. The small platform catalog covers
-English and Spanish required/type fallback messages and core Back, Next,
-Submit, Clear, Continue, Search and Results controls. Other languages explicitly
-report English platform fallback. This is not complete localization of browser
-errors, capture components or record-search diagnostics.
+English and Spanish generic required/type/constraint fallback messages,
+“Review the highlighted question” feedback, section navigation, and core Back,
+Next, Submit, Clear, Continue, Search and Results controls. Other languages
+explicitly report English platform fallback. Other field-widget text, record
+metadata, accessibility labels, browser errors, capture components and
+record-search diagnostics remain outside this catalog.
 
 Results and Details use the production formatted-cell projector and identify
 route, selected records and ancestor selections. Submission evidence names the

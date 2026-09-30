@@ -2,12 +2,16 @@ import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
 import { __resetAttachmentCoordinatorForTests } from "@/components/preview/form/fields/attachment/attachmentClient";
 import { FormScreen } from "@/components/preview/screens/FormScreen";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import {
 	liveCountEntryDoc,
 	sectionEntryDoc,
@@ -113,6 +117,9 @@ const activeForm = doc.formOrder[activeModule][0];
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
 docStore.getState().startTracking();
+applyControllerEdit(docStore, [
+	{ kind: "addLanguage", language: { language: "spa" } },
+]);
 const session = createBuilderSessionStore({
 	appId: doc.appId,
 	projectId: "project-a",
@@ -141,6 +148,7 @@ root.render(
 	<BuilderSessionContext value={session}>
 		<BlueprintDocContext value={docStore}>
 			<BuilderLocalizationProvider>
+				<LanguageSelector />
 				<BuilderFormEngineProvider>
 					<Capture />
 					<FormScreen

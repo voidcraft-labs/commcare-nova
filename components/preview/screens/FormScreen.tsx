@@ -1847,7 +1847,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
 				// The focused question supplies the specific correction.
-				announce("Review the highlighted question.");
+				announce(
+					runtimeMessage(language.language, "reviewHighlightedQuestion"),
+				);
 				const firstInvalid = controller.firstInvalidFieldTarget();
 				if (firstInvalid !== undefined) showPageOf(firstInvalid);
 				revealAndFocusFirstInvalid();

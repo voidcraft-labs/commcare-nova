@@ -127,6 +127,13 @@ same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared
 value. Never defer the ownership mark until the validation Promise settles.
 
+The small `runtimeMessages.ts` platform catalog owns English/Spanish generic
+required/type/constraint fallback messages and core worker navigation. Invalid
+Submit and section Next/jump feedback both read `reviewHighlightedQuestion`
+from the selected worker language. Field widgets, record metadata, other
+accessibility labels and diagnostics remain outside this catalog; authored
+labels and custom validation continue through the app's translation projection.
+
 `useFormEngine` compares case-preload maps by their type/property/value content
 before rebuilding. A list row and the later full case read may be separate Map
 instances with identical values; that cold arrival must retain open controls,
