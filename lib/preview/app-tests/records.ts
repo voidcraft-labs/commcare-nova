@@ -6,7 +6,9 @@ import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
 import { previewMenuCaseContext } from "../menuProjection";
 import { noMatchesFormAdmission } from "../noMatchesForm";
+import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
+import { AppTestActionError } from "./errors";
 import type { AppTestState } from "./types";
 
 export async function appTestRecords(
@@ -16,13 +18,20 @@ export async function appTestRecords(
 	answers?: readonly { name: string; value: string }[],
 ) {
 	const screen = state.screen;
-	if (screen.kind !== "records") throw new Error("Open a record list first.");
-	const mod = context.doc.modules[screen.moduleUuid];
-	if (!mod.caseType) throw new Error("This menu has no record list.");
+	if (screen.kind !== "records")
+		throw new AppTestActionError("Open a record list first.");
+	const mod = projectWorkerModule(
+		context.doc,
+		context.language,
+		screen.moduleUuid,
+	);
+	if (!mod?.caseType)
+		throw new AppTestActionError("This menu has no record list.");
 	const search = await evaluateSearch(
 		context.doc,
 		{
 			moduleUuid: screen.moduleUuid,
+			language: context.language,
 			submitted: screen.searchAnswers,
 			entry: screen.searchEntry,
 			answers,
@@ -55,7 +64,7 @@ export async function appTestRecords(
 		state.selections,
 	);
 	if (caseContext.requiredParentCase)
-		throw new Error("Select the required parent record first.");
+		throw new AppTestActionError("Select the required parent record first.");
 	const result =
 		!resultVisible || Object.keys(search.errors).length > 0
 			? undefined

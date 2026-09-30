@@ -57,6 +57,72 @@ writes. The peer can inspect the saved app, evaluate forms and exercise disposab
 test journeys without submitting real cases. Questions are reserved for decisions the agent cannot reasonably
 make. A planning-only request can finish with a reviewed plan and no app.
 
+## Bounded reviews and continuation
+
+Each production peer review keeps its durable 80-request allowance. After 64
+started requests, one retained system message names the remaining allowance.
+It follows completed tool results at the conversation tail. The final two
+requests use the same tool catalog with provider `toolChoice: none` and request
+an unfinished checkpoint. Forced closing never completes a review, even when
+the model's wording sounds conclusive. If closing produces no usable summary,
+the checkpoint identifies the retained context and records summary unavailability.
+The plan stays peer-owned and the app remains unfinished.
+
+The ordinary run settles as awaiting input and displays **Continue**. A new
+user turn admits one deterministic successor review, bound to the current
+source, plan and saved app. Its predecessor link preserves the exhausted
+allowance; the peer inherits its actual prior conversation and evidence.
+Reconnect, a repeated request and replacement holders do not buy more review
+requests. Completing the successor settles the original architect tool call
+with that successor's identity, assessment and exact reviewed plan revision.
+An unfinished predecessor never acquires a completed revision. Legacy exhausted
+reviews derive their issuing user turn from immutable architect response/start
+pairs; absent provenance refuses continuation without rewriting history. The read-only
+`inspect-design-session <id> --json` inspection includes review lineage/checkpoints
+and the immutable model conversations needed to investigate a refusal. Any
+historical provenance repair is a separate, explicitly authorized scan-then-migrate
+operation against the exact identified rows; routine continuation does not repair
+or reset them.
+Local evaluation may inject a finite diagnostic allowance without reminders;
+production model roles and defaults remain fixed.
+
+## Journey observations and cost
+
+A journey starts in the configured default language unless a configured
+structured language identity is selected. Language changes retain entered
+answers, defaults and repeat identities. Authored labels and custom validation
+use the app's normal translation projection. The small platform catalog covers
+English and Spanish required/type fallback messages and core Back, Next,
+Submit, Clear, Continue, Search and Results controls. Other languages explicitly
+report English platform fallback. This is not complete localization of browser
+errors, capture components or record-search diagnostics.
+
+Results and Details use the production formatted-cell projector and identify
+route, selected records and ancestor selections. Submission evidence names the
+isolated case transaction separately from serialized submission and retained
+report evidence, which this surface does not observe.
+
+`continueAppTest` accepts one to eight ordered `actions`, each optionally paired
+with a screen/module/form/submission expectation. The legacy singular `action`
+uses the same executor. Each action retains its own step and observation. A
+refusal or unmet expectation commits the observed prefix and stops; an already
+completed submission stays completed even when its following screen was
+unexpected. Infrastructure failures roll back the entire call. A 60-second
+Postgres transaction deadline bounds locks and effects across the call; worker
+evaluations retain their own bound. Caller disconnect is not an independent
+cancellation signal on this shared tool. The 200-action journey bound is unchanged.
+Whole-call receipts replay before changed-source checks and alias binding,
+after current access is verified. Names and section paths bind against the
+pinned app and current screen for each action, including after earlier actions.
+
+Evidence reads default to ten steps, accept at most twenty, and cap response
+bytes at 64 KiB. `nextCursor` retains the original `throughStep`; each page
+includes source/runtime/start provenance. Oversized steps provide a bounded
+`inspect` address for complete retained JSON access, including string fragments
+with explicit offsets. Builder pages the same evidence and can open oversized
+observations. Paging never discards stored observations or asserts that a
+partial projection is complete.
+
 ## One authoring vocabulary
 
 The architect, ordinary chat editor, and MCP clients share the registry's

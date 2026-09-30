@@ -8,16 +8,21 @@ import {
 	createAppTestSession,
 	readAppTestStartReceipt,
 } from "@/lib/db/appTests";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
+import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
-import { withAppTestContext } from "./context";
+import { appTestLanguage, withAppTestContext } from "./context";
+import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { advanceAppTest, observeAppTest } from "./run";
 import { seedAppTest } from "./seed";
 import {
 	type AppTestSnapshot,
 	type AppTestState,
-	appTestActionSchema,
+	appTestActionItemSchema,
+	appTestActionsSchema,
+	appTestAuthoredActionSchema,
 	appTestStartSchema,
 } from "./types";
 
@@ -101,6 +106,7 @@ export async function startAppTest(
 				);
 			}
 			const initial: AppTestState = {
+				language: appTestLanguage(snapshot, input.language),
 				personaUuid: null,
 				screen: { kind: "home" },
 				history: [],
@@ -156,38 +162,56 @@ export async function continueAppTest(
 		testId: string;
 		requestId: string;
 		expectedStep: number;
-		action: unknown;
+		action?: unknown;
+		actions?: unknown;
 	},
 ) {
-	const action = appTestActionSchema.parse(args.action);
+	if ((args.action === undefined) === (args.actions === undefined))
+		throw new AppTestActionError("Supply either action or actions.");
+	const action =
+		args.action === undefined
+			? undefined
+			: appTestAuthoredActionSchema.parse(args.action);
+	const actions =
+		args.actions === undefined
+			? undefined
+			: appTestActionsSchema.parse(args.actions);
 	return advanceAppTestSession({
 		...scope,
 		testId: args.testId,
 		requestId: args.requestId,
+		// Bind the authored bytes, not names resolved against a later screen/source.
 		requestDigest: canonicalJsonDigest({
-			action,
+			...(action ? { action } : { actions }),
 			expectedStep: args.expectedStep,
 		}),
 		expectedStep: args.expectedStep,
 		action,
-		advance: async (tx, source) => {
+		actions,
+		advance: async (tx, source, item) => {
 			const snapshot = source.snapshot as unknown as AppTestSnapshot;
+			const doc = hydratePersistedBlueprint(snapshot.blueprint);
 			const state = restoreState(source.state);
-			const nextState: AppTestState =
-				action.kind === "identity"
-					? {
-							...state,
-							personaUuid: action.personaUuid,
-							screen: { kind: "home" },
-							history: [],
-							selections: {},
-							deviceCases: { rows: [], indices: [] },
-						}
-					: state;
-			// A rejected action has a durable observation without partial effects.
-			// In particular, a SQL rejection must be rolled back before saving it.
+			const authored = appTestActionItemSchema.parse(item);
 			await sql`SAVEPOINT app_test_action`.execute(tx);
 			try {
+				const bound = bindAppTestAction(doc, state, authored.action);
+				const nextState: AppTestState =
+					bound.kind === "identity"
+						? {
+								...state,
+								personaUuid: bound.personaUuid,
+								screen: { kind: "home" },
+								history: [],
+								selections: {},
+								deviceCases: { rows: [], indices: [] },
+							}
+						: bound.kind === "language"
+							? {
+									...state,
+									language: appTestLanguage(snapshot, bound.language),
+								}
+							: state;
 				const observed = await withAppTestContext(
 					tx as unknown as Transaction<Database>,
 					{ ...scope, testId: args.testId, blueprintSeq: source.blueprintSeq },
@@ -195,7 +219,7 @@ export async function continueAppTest(
 					nextState,
 					async (context) => {
 						const result =
-							action.kind === "identity"
+							bound.kind === "identity"
 								? await observeAppTest(context, scope, {
 										...nextState,
 										deviceCases: await context.store.readDeviceCaseDatabase({
@@ -212,7 +236,7 @@ export async function continueAppTest(
 											role: source.role,
 										},
 										nextState,
-										action,
+										bound,
 									);
 						const count = await sql<{
 							count: string;
@@ -221,9 +245,9 @@ export async function continueAppTest(
 						);
 						if (
 							Number(count.rows[0]?.count) > 2000 ||
-							JSON.stringify(result.state).length > 16 * 1024 * 1024
+							Buffer.byteLength(JSON.stringify(result.state)) > 16 * 1024 * 1024
 						)
-							throw new Error(
+							throw new AppTestActionError(
 								"This test exceeded its record or state limit. Start a smaller journey.",
 							);
 						return {
@@ -232,24 +256,53 @@ export async function continueAppTest(
 						};
 					},
 				);
+				// A guard is an observation AFTER the action, including any successful
+				// submission. A mismatch never undoes what the worker already completed.
+				let mismatch: string | undefined;
+				try {
+					mismatch = appTestExpectationMismatch(
+						doc,
+						observed.state,
+						observed.observation,
+						authored.expect,
+					);
+				} catch (error) {
+					if (!expectedAppTestRefusal(error)) throw error;
+					mismatch = error.message;
+				}
+				const observation: Record<string, unknown> = observed.observation;
+				const refused =
+					observation.completed === false ||
+					observation.savedInTest === false ||
+					observation.screen === "after-submit";
+				const stopReason =
+					mismatch ??
+					(refused
+						? "The action could not reach its requested result. Inspect this observation before continuing."
+						: undefined);
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
 				return {
 					state: { ...observed.state },
-					observation: observed.observation,
+					observation: {
+						...observed.observation,
+						...(mismatch
+							? { expectationMet: false, expectationError: mismatch }
+							: {}),
+					},
+					stopReason,
 				};
 			} catch (error) {
+				if (!expectedAppTestRefusal(error)) throw error;
 				await sql`ROLLBACK TO SAVEPOINT app_test_action`.execute(tx);
 				await sql`RELEASE SAVEPOINT app_test_action`.execute(tx);
 				return {
 					state: { ...state },
 					observation: {
-						action: action.kind,
+						action: authored.action.kind,
 						completed: false,
-						error:
-							error instanceof Error
-								? error.message
-								: "The test action could not be completed.",
+						error: error.message,
 					},
+					stopReason: error.message,
 				};
 			}
 		},

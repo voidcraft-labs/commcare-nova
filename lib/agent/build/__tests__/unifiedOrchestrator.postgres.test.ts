@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { expect, it, vi } from "vitest";
 import {
 	type ProviderOutput,
@@ -669,4 +669,260 @@ it.each([
 	// Complete SDK/HTTP, durable recovery and Preview-worker journeys take
 	// 3–6 seconds on shared CI runners. This is not a latency contract.
 	10_000,
+);
+
+it.each([false, true])(
+	"continues an unfinished review only on a new user turn and settles its original pending call (legacy provenance: %s)",
+	async (legacy) => {
+		const actorUserId = "reviewer";
+		const projectId = "review-project";
+		await h.seedProjectMember(actorUserId, projectId, "owner");
+		const claim = await createAndClaimDesignSessionRun({
+			projectId,
+			actorUserId,
+			runId: "first",
+			cost: 1,
+		});
+		const requests: ProviderRequest[] = [];
+		const failures: unknown[] = [];
+		const chunks: unknown[] = [];
+		let architectCalls = 0;
+		let peerCalls = 0;
+		await withResponsesPeer(
+			(request, response) => {
+				const bytes: Buffer[] = [];
+				request.on("data", (chunk: Buffer) => bytes.push(chunk));
+				request.on("end", () => {
+					try {
+						const input = JSON.parse(
+							Buffer.concat(bytes).toString(),
+						) as ProviderRequest;
+						requests.push(input);
+						let output: ProviderOutput[];
+						if (input.model === "gpt-6.1-sol") {
+							peerCalls++;
+							output =
+								peerCalls <= 4
+									? [
+											{
+												type: "tool",
+												name: "readPlan",
+												callId: `peer-read-${peerCalls}`,
+												input: {},
+											},
+										]
+									: [
+											{
+												type: "text",
+												text: "Reviewed the retained plan and the continuation request.",
+											},
+										];
+						} else {
+							architectCalls++;
+							output =
+								architectCalls === 1
+									? [
+											{
+												type: "tool",
+												name: "writePlan",
+												callId: "write-plan",
+												input: {
+													markdown:
+														"Retain every lending visit and its return.",
+												},
+											},
+										]
+									: architectCalls === 2
+										? [
+												{
+													type: "tool",
+													name: "reviewPlan",
+													callId: "original-review",
+													input: {},
+												},
+											]
+										: [
+												{
+													type: "text",
+													text: "The requested plan is ready for discussion.",
+												},
+											];
+						}
+						if (requests.length > 12)
+							throw new Error("Continuation repurchased work unexpectedly");
+						respondWithParts(response, output, requests.length);
+					} catch (error) {
+						failures.push(error);
+						response.writeHead(400).end();
+					}
+				});
+			},
+			async (provider) => {
+				const args: RunBuildOrchestrationArgs = {
+					designSessionId: claim.designSessionId,
+					proposedAppId: claim.proposedAppId,
+					projectId,
+					projectRole: "owner",
+					actorUserId,
+					runId: "first",
+					holderNonce: claim.holderNonce,
+					threadId: "thread",
+					messages: [
+						{
+							id: "request",
+							role: "user",
+							parts: [
+								{
+									type: "text",
+									text: "Only plan a lending app that retains every visit.",
+								},
+							],
+						},
+					],
+					responseMessageId: "first-response",
+					writer: { write: (chunk) => chunks.push(chunk) },
+					apiKey: "local-only",
+					meter: undefined,
+					signal: new AbortController().signal,
+					materializedAppId: null,
+					deps: {
+						reviewPolicy: {
+							kind: "diagnostic",
+							maxPeerRequests: 3,
+							maxArchitectRequests: 20,
+						},
+						modelStep: productionModelStep(
+							provider("gpt-6-luna"),
+							"medium",
+							"continue-test",
+						),
+						peerStep: productionModelStep(
+							provider("gpt-6.1-sol"),
+							"medium",
+							"continue-peer-test",
+						),
+						sourceDeps: {
+							loadAssets: async () => [],
+							readExtract: async () => {
+								throw new Error("No document expected");
+							},
+							loadImage: async () => {
+								throw new Error("No image expected");
+							},
+						},
+					},
+					finalizeCompletion: async () => {
+						throw new Error("A paused plan must not finalize an app");
+					},
+				};
+				expect(await runBuildOrchestration(args)).toEqual({
+					kind: "awaiting-input",
+					pauseOwned: true,
+				});
+				expect(peerCalls).toBe(3);
+				expect(chunks).toContainEqual(
+					expect.objectContaining({
+						type: "data-authoring-progress",
+						data: expect.objectContaining({ stage: "review-paused" }),
+					}),
+				);
+				const first = await h
+					.db()
+					.selectFrom("authoring_reviews")
+					.selectAll()
+					.executeTakeFirstOrThrow();
+				expect(first.completed_revision).toBeNull();
+				expect(first.paused_at).not.toBeNull();
+				const replacement = await claimAndReserveDesignSessionRun(
+					claim.designSessionId,
+					"replacement",
+					actorUserId,
+					1,
+					projectId,
+				);
+				expect(
+					await runBuildOrchestration({
+						...args,
+						runId: "replacement",
+						holderNonce: replacement.holderNonce,
+						responseMessageId: "replacement-response",
+					}),
+				).toEqual({ kind: "awaiting-input", pauseOwned: true });
+				expect(peerCalls).toBe(3);
+				expect(architectCalls).toBe(2);
+				if (legacy)
+					await sql`UPDATE authoring_reviews SET issuing_turn_id = NULL, paused_at = NULL, checkpoint_summary = NULL, checkpoint_context_id = NULL, summary_available = NULL WHERE id = ${first.id}`.execute(
+						h.db(),
+					);
+				const continuation = await claimAndReserveDesignSessionRun(
+					claim.designSessionId,
+					"continue",
+					actorUserId,
+					1,
+					projectId,
+				);
+				expect(
+					await runBuildOrchestration({
+						...args,
+						runId: "continue",
+						holderNonce: continuation.holderNonce,
+						responseMessageId: "continue-response",
+						messages: [
+							...args.messages,
+							{
+								id: "continue-request",
+								role: "user",
+								parts: [{ type: "text", text: "Please continue." }],
+							},
+						],
+					}),
+				).toEqual({ kind: "awaiting-input", pauseOwned: true });
+				const reviews = await h
+					.db()
+					.selectFrom("authoring_reviews")
+					.selectAll()
+					.orderBy("created_at")
+					.execute();
+				expect(reviews).toHaveLength(2);
+				expect(reviews[0]).toMatchObject({
+					id: first.id,
+					completed_revision: null,
+				});
+				expect(reviews[1]).toMatchObject({
+					predecessor_review_id: first.id,
+					completed_revision: "1",
+					summary: "Reviewed the retained plan and the continuation request.",
+				});
+				expect(reviews[1].source_digest).not.toBe(first.source_digest);
+				expect(reviews[1].issuing_turn_id).not.toBe(reviews[0].issuing_turn_id);
+				const resumedRequest = requests.filter(
+					(request) => request.model === "gpt-6.1-sol",
+				)[3];
+				expect(JSON.stringify(resumedRequest.input)).toContain("peer-read-1");
+				expect(JSON.stringify(resumedRequest.input)).toContain(
+					"Retain every lending visit",
+				);
+				expect(JSON.stringify(resumedRequest.input)).toContain(first.id);
+				const receipt = chunks.find(
+					(chunk) =>
+						typeof chunk === "object" &&
+						chunk !== null &&
+						"type" in chunk &&
+						chunk.type === "tool-output-available" &&
+						"toolCallId" in chunk &&
+						chunk.toolCallId === "original-review",
+				);
+				expect(receipt).toMatchObject({
+					output: {
+						reviewId: reviews[1].id,
+						predecessorReviewId: first.id,
+						review: reviews[1].summary,
+					},
+				});
+			},
+		);
+		expect(failures).toEqual([]);
+		expect(peerCalls).toBe(5);
+	},
+	15_000,
 );

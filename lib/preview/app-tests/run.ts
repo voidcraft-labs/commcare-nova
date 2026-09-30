@@ -4,12 +4,25 @@ import {
 	caseSelectionCardinality,
 	orderedColumns,
 } from "@/lib/domain";
+import { languageDirection } from "@/lib/domain/languageRegistry";
+import {
+	effectiveAppLocalization,
+	parseLanguageTag,
+} from "@/lib/domain/localization";
+import {
+	projectLocalizedAppName,
+	projectLocalizedForm,
+	projectLocalizedModule,
+} from "@/lib/domain/localizedBlueprintProjection";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
+import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
+import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
-import { appTestDetails } from "./details";
+import { appTestCellProjector, appTestDetails } from "./details";
+import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
 	appTestForms,
@@ -30,7 +43,7 @@ type Scope = AppTestScope & {
 };
 type Observation = Record<string, unknown>;
 
-export async function observeAppTest(
+async function observeScreen(
 	context: AppTestContext,
 	scope: AppTestScope,
 	state: AppTestState,
@@ -64,7 +77,7 @@ export async function observeAppTest(
 				state,
 				observation: {
 					screen: "home",
-					name: context.doc.appName,
+					name: projectLocalizedAppName(context.doc, context.language),
 					worker,
 					identities: Object.values(context.doc.personas ?? {}).map(
 						(persona) => ({ uuid: persona.uuid, name: persona.name }),
@@ -77,13 +90,21 @@ export async function observeAppTest(
 				state,
 				observation: {
 					screen: "menu",
-					name: context.doc.modules[screen.moduleUuid].name,
+					name: projectLocalizedModule(
+						context.doc,
+						context.language,
+						screen.moduleUuid,
+					)?.name,
 					worker,
 					menus: appTestMenus(context, screen.moduleUuid),
 					forms: appTestForms(context, state, screen.moduleUuid).map(
 						({ form, visibility }) => ({
 							uuid: form.uuid,
-							name: form.name,
+							name: projectLocalizedForm(
+								context.doc,
+								context.language,
+								form.uuid,
+							)?.name,
 							visibility,
 						}),
 					),
@@ -106,8 +127,14 @@ export async function observeAppTest(
 		case "records": {
 			const read = await appTestRecords(context, scope, state);
 			const search = read.search;
-			const mod = context.doc.modules[screen.moduleUuid];
+			const mod = projectWorkerModule(
+				context.doc,
+				context.language,
+				screen.moduleUuid,
+			);
+			if (!mod) throw new AppTestActionError("This menu is unavailable.");
 			const registration = read.registration;
+			const cells = appTestCellProjector(context, screen.moduleUuid, "list");
 			return {
 				state: read.state,
 				observation: {
@@ -133,6 +160,20 @@ export async function observeAppTest(
 							}
 						: undefined,
 					results: read.result,
+					renderedResults:
+						read.result?.kind === "rows"
+							? {
+									rows: read.result.rows.map((row) => ({
+										recordId: row.case_id,
+										cells: cells(row),
+									})),
+									groups: read.result.grouped?.groups.map((group) => ({
+										key: group.key,
+										selectedRecordId: group.rows[0]?.case_id,
+										recordIds: group.rows.map((row) => row.case_id),
+									})),
+								}
+							: undefined,
 					registration: registration
 						? { uuid: registration.uuid, name: registration.name }
 						: undefined,
@@ -146,7 +187,11 @@ export async function observeAppTest(
 				observation: {
 					screen: "details",
 					worker,
-					name: context.doc.modules[screen.moduleUuid].name,
+					name: projectLocalizedModule(
+						context.doc,
+						context.language,
+						screen.moduleUuid,
+					)?.name,
 					record: read.result.kind === "row" ? read.result.row : undefined,
 					unavailable: read.result.kind !== "row",
 					fields: read.fields,
@@ -166,6 +211,7 @@ export async function observeAppTest(
 				context.doc,
 				{
 					formUuid: screen.formUuid,
+					language: context.language,
 					caseIds: screen.caseIds,
 					answers: [],
 					searchAnswers: screen.searchAnswers,
@@ -183,7 +229,11 @@ export async function observeAppTest(
 				observation: {
 					screen: "form",
 					worker,
-					name: context.doc.forms[screen.formUuid].name,
+					name: projectLocalizedForm(
+						context.doc,
+						context.language,
+						screen.formUuid,
+					)?.name,
 					questions: evaluated.fields.filter((field) => field.onCurrentPage),
 					sections: evaluated.sections,
 					canSubmit: evaluated.canSubmit,
@@ -193,6 +243,94 @@ export async function observeAppTest(
 			};
 		}
 	}
+}
+
+/** Every screen states its language and current route without dumping a graph. */
+export async function observeAppTest(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestState,
+): Promise<{ state: AppTestState; observation: Observation }> {
+	const result = await observeScreen(context, scope, state);
+	const screen = result.state.screen;
+	const identity = parseLanguageTag(context.language);
+	const actions = [
+		"observe",
+		"identity",
+		"language",
+		"sync",
+		"finish",
+		...(screen.kind !== "home" ? ["home"] : []),
+		...(result.state.history.length ? ["back"] : []),
+	];
+	if (screen.kind === "home" || screen.kind === "menu") actions.push("menu");
+	if (screen.kind === "menu") {
+		if ((result.observation.forms as unknown[] | undefined)?.length)
+			actions.push("form");
+		if (result.observation.recordsAvailable) actions.push("records");
+	}
+	if (screen.kind === "records") {
+		if (result.observation.search) actions.push("search");
+		if (
+			result.observation.screen === "results" ||
+			result.observation.screen === "browse"
+		)
+			actions.push("select", "page");
+		if (result.observation.registration) actions.push("form");
+	}
+	if (screen.kind === "details" && result.observation.canContinue)
+		actions.push("continue");
+	if (screen.kind === "form") {
+		actions.push("answer", "section");
+		if (result.observation.canSubmit) actions.push("submit");
+	}
+
+	return {
+		...result,
+		observation: {
+			...result.observation,
+			actions,
+			controls: Object.fromEntries(
+				actions.flatMap((action) =>
+					action === "back" ||
+					action === "continue" ||
+					action === "submit" ||
+					action === "search"
+						? [[action, runtimeMessage(context.language, action)]]
+						: [],
+				),
+			),
+			language: {
+				selected: identity,
+				direction: languageDirection(identity),
+				runtime: runtimeLanguage(context.language),
+				available: effectiveAppLocalization(
+					context.doc.localization,
+				).languageOrder.map(parseLanguageTag),
+			},
+			route: {
+				kind: screen.kind,
+				...(screen.kind !== "home" ? { moduleUuid: screen.moduleUuid } : {}),
+				...(screen.kind === "form"
+					? { formUuid: screen.formUuid, selectedRecordIds: screen.caseIds }
+					: {}),
+				...(screen.kind === "details"
+					? { selectedRecordId: screen.caseId }
+					: {}),
+				canGoBack: result.state.history.length > 0,
+				ancestorSelections: Object.entries(result.state.selections).map(
+					([moduleUuid, selection]) => ({
+						moduleUuid,
+						caseType: selection.caseType,
+						records: selection.cases.map((row) => ({
+							id: row.caseId,
+							name: row.caseName,
+						})),
+					}),
+				),
+			},
+		},
+	};
 }
 
 /** Only actions available on the observed screen can advance this worker. */
@@ -206,11 +344,12 @@ export async function advanceAppTest(
 	let extra: Observation = {};
 	const screen = state.screen;
 	switch (action.kind) {
+		case "language":
 		case "observe":
 			break;
 		case "back": {
 			const prior = state.history.at(-1);
-			if (!prior) throw new Error("There is no previous screen.");
+			if (!prior) throw new AppTestActionError("There is no previous screen.");
 			next = {
 				...state,
 				screen:
@@ -226,10 +365,12 @@ export async function advanceAppTest(
 				screen.kind !== "details" ||
 				!appTestCanContinue(context, screen.source)
 			)
-				throw new Error("The current screen has no Continue action.");
+				throw new AppTestActionError(
+					"The current screen has no Continue action.",
+				);
 			const read = await appTestDetails(context, scope, state);
 			if (read.result.kind !== "row")
-				throw new Error("This record is no longer available.");
+				throw new AppTestActionError("This record is no longer available.");
 			next = selectAppTestRecords(
 				context,
 				{ ...state, screen: screen.source },
@@ -264,7 +405,9 @@ export async function advanceAppTest(
 			break;
 		case "menu": {
 			if (screen.kind !== "home" && screen.kind !== "menu")
-				throw new Error("Return to a menu before opening another menu.");
+				throw new AppTestActionError(
+					"Return to a menu before opening another menu.",
+				);
 			if (
 				!appTestMenus(
 					context,
@@ -274,7 +417,9 @@ export async function advanceAppTest(
 						menu.uuid === action.moduleUuid && menu.visibility === "shown",
 				)
 			)
-				throw new Error("This menu is not available on the current screen.");
+				throw new AppTestActionError(
+					"This menu is not available on the current screen.",
+				);
 			next = {
 				...state,
 				screen: enterAppTestMenu(context, state, action.moduleUuid),
@@ -287,7 +432,7 @@ export async function advanceAppTest(
 				screen.kind !== "menu" ||
 				!context.doc.modules[screen.moduleUuid].caseType
 			)
-				throw new Error("The current menu has no record list.");
+				throw new AppTestActionError("The current menu has no record list.");
 			next = {
 				...state,
 				screen: { kind: "records", moduleUuid: screen.moduleUuid },
@@ -297,7 +442,9 @@ export async function advanceAppTest(
 		}
 		case "page": {
 			if (screen.kind !== "records")
-				throw new Error("Open a record list before changing pages.");
+				throw new AppTestActionError(
+					"Open a record list before changing pages.",
+				);
 			next = { ...state, screen: { ...screen, offset: action.offset } };
 			break;
 		}
@@ -320,7 +467,7 @@ export async function advanceAppTest(
 			else if (screen.kind === "records") {
 				const read = await appTestRecords(context, scope, state);
 				if (read.registration?.uuid !== action.formUuid)
-					throw new Error(
+					throw new AppTestActionError(
 						"This registration is available only after a search finds no matches.",
 					);
 				next = {
@@ -335,7 +482,8 @@ export async function advanceAppTest(
 					},
 					history: [...state.history, read.state.screen],
 				};
-			} else throw new Error("Open a menu before choosing a form.");
+			} else
+				throw new AppTestActionError("Open a menu before choosing a form.");
 			break;
 		}
 		case "select": {
@@ -344,14 +492,18 @@ export async function advanceAppTest(
 				read.result?.kind !== "rows" ||
 				new Set(action.caseIds).size !== action.caseIds.length
 			)
-				throw new Error("Choose distinct records from the visible results.");
+				throw new AppTestActionError(
+					"Choose distinct records from the visible results.",
+				);
 			const rows = read.result.grouped
 				? read.result.grouped.groups.flatMap((group) => group.rows.slice(0, 1))
 				: read.result.rows;
 			const selected = action.caseIds.map((id) => {
 				const row = rows.find((row) => row.case_id === id);
 				if (!row)
-					throw new Error("A selected record is not on this page of results.");
+					throw new AppTestActionError(
+						"A selected record is not on this page of results.",
+					);
 				return row;
 			});
 			const recordsScreen = read.state.screen;
@@ -367,7 +519,7 @@ export async function advanceAppTest(
 				canContinue: appTestCanContinue(context, recordsScreen),
 			});
 			if (!multiple && selected.length !== 1)
-				throw new Error("Choose one record on this screen.");
+				throw new AppTestActionError("Choose one record on this screen.");
 			next =
 				!multiple && rowAction === "detail"
 					? {
@@ -393,16 +545,18 @@ export async function advanceAppTest(
 		case "search": {
 			const read = await appTestRecords(context, scope, state, action.answers);
 			next = read.state;
+			extra = { completed: Object.keys(read.search.errors).length === 0 };
 			break;
 		}
 		case "section":
 		case "answer": {
 			if (screen.kind !== "form")
-				throw new Error("Open a form before answering questions.");
+				throw new AppTestActionError("Open a form before answering questions.");
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
 					formUuid: screen.formUuid,
+					language: context.language,
 					caseIds: screen.caseIds,
 					answers: action.kind === "answer" ? action.answers : [],
 					repeats: action.kind === "answer" ? action.repeats : undefined,
@@ -419,6 +573,12 @@ export async function advanceAppTest(
 				},
 			);
 			next = { ...state, screen: { ...screen, entry: evaluated.entry } };
+			if (action.kind === "section")
+				extra = {
+					completed: evaluated.sections.some(
+						(section) => section.uuid === action.sectionUuid && section.current,
+					),
+				};
 			break;
 		}
 		case "submit": {
@@ -428,20 +588,35 @@ export async function advanceAppTest(
 			extra = {
 				savedInTest: saved.effects !== undefined,
 				effects: saved.effects,
+				evidence: {
+					caseTransaction:
+						saved.effects === undefined ? "not-committed" : "committed",
+					serializedSubmission: "not-observed",
+					retainedReport: "not-observed",
+				},
 				validation: saved.validation,
 			};
 			break;
 		}
 		case "identity":
-			throw new Error("Worker switching requires a fresh identity context.");
+			throw new AppTestActionError(
+				"Worker switching requires a fresh identity context.",
+			);
 		case "finish":
-			throw new Error("Finishing requires disposal of the test namespace.");
+			throw new AppTestActionError(
+				"Finishing requires disposal of the test namespace.",
+			);
 	}
 	try {
 		const observed = await observeAppTest(context, scope, next);
 		return { ...observed, observation: { ...observed.observation, ...extra } };
 	} catch (error) {
-		if (extra.savedInTest !== true || screen.kind !== "form") throw error;
+		if (
+			!expectedAppTestRefusal(error) ||
+			extra.savedInTest !== true ||
+			screen.kind !== "form"
+		)
+			throw error;
 		const message =
 			error instanceof Error
 				? error.message

@@ -23,7 +23,7 @@ export function authoringStage(
 		case "reviewing-app":
 			return state.kind;
 		case "awaiting-input":
-			return "needs-input";
+			return state.reviewCheckpoint ? "review-paused" : "needs-input";
 		case "finished":
 			return "ready";
 		case "failed":
@@ -37,7 +37,10 @@ export function deriveDesignBuildStage(
 	if (head?.state.kind === "finished") return "ready";
 	if (session.state === "abandoned" || session.state === "retired")
 		return "failed";
-	if (session.awaiting_input) return "needs-input";
+	if (session.awaiting_input)
+		return head?.state.kind === "awaiting-input"
+			? authoringStage(head.state)
+			: "needs-input";
 	if (
 		session.last_error_type !== null ||
 		designSessionLeaseState(session).reapableStaleRun
@@ -49,7 +52,9 @@ export function deriveInterruptedMaterializedBuildStage(
 	session: StageFoldSession,
 	head: OrchestrationHead | null,
 ): DesignBuildStage {
-	return head?.state.kind === "finished" || head?.state.kind === "failed"
+	return head?.state.kind === "finished" ||
+		head?.state.kind === "failed" ||
+		head?.state.kind === "awaiting-input"
 		? deriveDesignBuildStage(session, head)
 		: "incomplete";
 }

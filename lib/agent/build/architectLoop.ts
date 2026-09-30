@@ -114,6 +114,8 @@ export interface ArchitectLoopArgs {
 	readonly system: string;
 	readonly turnId: string;
 	readonly maxSteps: number;
+	/** Peer-only policy; the final two starts remain inside maxSteps. */
+	readonly reviewPolicy?: "production" | "diagnostic";
 	readonly signal: AbortSignal;
 	readonly modelStep: AgentModelStepFn;
 	/** On a process restart, answer outstanding calls before adding user input. */
@@ -151,7 +153,8 @@ export interface ArchitectLoopArgs {
  * exact receipt. No workflow graph or model-authored completion schema sits
  * between the conversation and those operations. */
 export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
-	kind: "complete" | "awaiting-input";
+	kind: "complete" | "awaiting-input" | "unfinished";
+	summaryAvailable?: boolean;
 	contextId: string;
 	text: string;
 }> {
@@ -160,6 +163,19 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 	const messages = [...opened.messages];
 	let revision = opened.revision;
 	const keys = new Set(opened.appendKeys);
+	let startedCount = opened.startedStepsByTurn.get(args.turnId) ?? 0;
+	const closingKey = `review-closing:${args.turnId}`;
+	const noticeKey = `review-notice:${args.turnId}`;
+	const hasKey = (key: string) =>
+		keys.has(key) || opened.lineageAppendKeys.has(key);
+	const unfinished = (text: string | null) => ({
+		contextId: opened.id,
+		kind: "unfinished" as const,
+		text:
+			text ??
+			`The peer review is unfinished. Its investigation is retained in review ${args.turnId}, context ${opened.id}. A closing summary is unavailable.`,
+		summaryAvailable: text !== null,
+	});
 	const base = {
 		designSessionId: args.spec.designSessionId,
 		contextId: opened.id,
@@ -197,7 +213,15 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 	const dispatchOutstanding = async (): Promise<boolean> => {
 		for (const call of unansweredToolCalls(messages)) {
 			args.signal.throwIfAborted();
-			const outcome = await args.dispatch(call);
+			const outcome = hasKey(closingKey)
+				? {
+						kind: "result" as const,
+						output: {
+							error:
+								"The review is closing without further tool execution. Describe the unfinished investigation from retained evidence.",
+						},
+					}
+				: await args.dispatch(call);
 			if (outcome.kind === "awaiting-input") return false;
 			await append(`tool:${call.toolCallId}`, [
 				{
@@ -233,6 +257,10 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 	for (;;) {
 		args.signal.throwIfAborted();
 		const text = finalText(messages);
+		if (args.reviewPolicy && hasKey(closingKey) && text !== null)
+			return unfinished(text);
+		if (args.reviewPolicy === "production" && startedCount >= args.maxSteps)
+			return unfinished(null);
 		if (text !== null) {
 			const finish = await args.onFinish(text, {
 				hasMessage: (key) => keys.has(key) || opened.lineageAppendKeys.has(key),
@@ -243,6 +271,29 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 				{ role: "user", content: finish.message },
 			]);
 		}
+		if (args.reviewPolicy) {
+			if (startedCount >= args.maxSteps) return unfinished(null);
+			if (args.reviewPolicy === "production") {
+				if (
+					startedCount >= Math.floor(args.maxSteps * 0.8) &&
+					!hasKey(noticeKey)
+				)
+					await append(noticeKey, [
+						{
+							role: "system",
+							content: `This review has ${args.maxSteps - startedCount} provider requests remaining, including two reserved for an unfinished checkpoint. Prioritize consequential uncertainties and the user's required outcomes. Keep the quality standard unchanged; untested assumptions are not evidence. Complete an assessment when the evidence supports one, or retain unresolved work honestly.`,
+						},
+					]);
+				if (startedCount >= args.maxSteps - 2 && !hasKey(closingKey))
+					await append(closingKey, [
+						{
+							role: "system",
+							content:
+								"The review has reached its closing reserve and remains unfinished. Tools are unavailable for these final requests. Give a concise checkpoint of what you observed, material concerns, and what remains to investigate. This checkpoint does not complete the review, regardless of your assessment.",
+						},
+					]);
+			}
+		}
 		const stateKey = `current-state:${args.spec.authority.runId}`;
 		if (
 			args.currentState &&
@@ -251,6 +302,9 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 		)
 			await append(stateKey, [await args.currentState()]);
 		const tools = args.tools();
+		const toolChoice = hasKey(closingKey)
+			? ("none" as const)
+			: ("auto" as const);
 		const toolDefinitions = await describeModelTools(tools);
 		// A repeated POST with the same holder cannot purchase the same missing
 		// response twice. A newly claimed holder may retry an interrupted call;
@@ -266,6 +320,7 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 					system: args.system,
 					messages,
 					tools: toolDefinitions,
+					toolChoice,
 					...(args.responseSchema && {
 						responseSchema: args.responseSchema.jsonSchema,
 					}),
@@ -280,12 +335,14 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 			throw new Error(
 				"This model step has already started. Its response is not yet available.",
 			);
+		startedCount++;
 		let step: AgentModelStep;
 		try {
 			step = await args.modelStep({
 				system: args.system,
 				messages,
 				tools,
+				toolChoice,
 				responseSchema: args.responseSchema,
 				maxOutputTokens: args.maxOutputTokens,
 				signal: args.signal,
@@ -303,6 +360,22 @@ export async function runArchitectLoop(args: ArchitectLoopArgs): Promise<{
 					usage: error.usage as unknown as Record<string, unknown>,
 					accountingOnly: true,
 				});
+			}
+			if (
+				toolChoice === "none" &&
+				error instanceof AgentModelStepError &&
+				!args.signal.aborted
+			) {
+				if (error.usage)
+					args.onRecoveredUsage(error.usage, { contextId: opened.id, stepKey });
+				await append(`review-closing-unavailable:${stepKey}`, [
+					{
+						role: "system",
+						content:
+							"The previous closing request produced no usable response. If a request remains, summarize the unfinished investigation from retained evidence without tools.",
+					},
+				]);
+				continue;
 			}
 			throw error;
 		}

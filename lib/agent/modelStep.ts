@@ -29,6 +29,7 @@ export interface AgentModelRequest {
 	readonly system: string;
 	readonly messages: ModelMessage[];
 	readonly tools: ToolSet;
+	readonly toolChoice?: "auto" | "none";
 	readonly signal: AbortSignal;
 	readonly responseSchema?: Schema<unknown>;
 	readonly maxOutputTokens?: number;
@@ -62,6 +63,7 @@ export function productionModelStep(
 		system,
 		messages,
 		tools,
+		toolChoice = "auto",
 		signal,
 		onReasoning,
 		responseSchema,
@@ -72,10 +74,15 @@ export function productionModelStep(
 		const result = streamText({
 			model,
 			instructions: system,
+			// Only this durable orchestrator supplies system messages in history.
+			// SDK 7 requires an explicit opt-in to preserve their tail position.
+			allowSystemInMessages: true,
 			messages: projectModelHistoryFromNewestCompaction(messages),
 			tools,
-			toolChoice: "auto",
+			toolChoice,
 			stopWhen: isStepCount(1),
+			// A durable start owns one provider attempt; recovery owns any retry.
+			maxRetries: 0,
 			abortSignal: signal,
 			...(responseSchema && {
 				output: Output.object({ schema: responseSchema }),

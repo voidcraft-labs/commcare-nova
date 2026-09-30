@@ -1,11 +1,14 @@
 import { expect, it } from "vitest";
+import { openDesignModelContext } from "@/lib/agent/build/modelContextStore";
 import { getAuthDb } from "@/lib/auth/db";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { PlanConflictError } from "../plan";
 import {
 	beginPlanReview,
 	finishPlanReview,
+	latestPlanReview,
 	type PlanningAuthority,
+	pausePlanReview,
 	readAppPlan,
 	writeAppPlan,
 } from "../store";
@@ -153,4 +156,109 @@ it("admits one competing revision and refuses stale, ambiguous and revoked edits
 	expect(
 		await h.db().selectFrom("authoring_plan_revisions").selectAll().execute(),
 	).toHaveLength(1);
+});
+
+it("preserves an unfinished review and admits exactly one successor on a new user turn, with an immutable original-call receipt", async () => {
+	const auth = await authority();
+	await writeAppPlan({
+		authority: auth,
+		writer: { editor: "architect" },
+		requestId: "plan",
+		change: { markdown: "Keep each lending visit." },
+	});
+	const open = (reviewId: string) =>
+		openDesignModelContext({
+			designSessionId: auth.sessionId,
+			kind: "peer",
+			contextVersion: reviewId,
+			modelId: "offline-peer",
+			promptVersion: "v1",
+			toolsetDigest: "0".repeat(64),
+			authority: {
+				actorUserId: auth.actorUserId,
+				expectedProjectId: auth.projectId,
+				runId: auth.runId,
+				holderNonce: auth.holderNonce,
+			},
+		});
+	const original = await beginPlanReview(auth, "original-call", {
+		sourceDigest: "source-a",
+		appSeq: null,
+		issuingTurnId: "user-a",
+	});
+	const context = await open(original.reviewId);
+	await pausePlanReview(auth, original.reviewId, {
+		contextId: context.id,
+		summary: "Return journey remains untested.",
+		summaryAvailable: true,
+	});
+	expect(await latestPlanReview(auth, "source-a", null)).toBeUndefined();
+	await expect(finishPlanReview(auth, original.reviewId)).rejects.toThrow(
+		"unfinished checkpoint",
+	);
+	expect(
+		(
+			await beginPlanReview(auth, "original-call", {
+				sourceDigest: "source-a",
+				appSeq: null,
+				issuingTurnId: "user-a",
+			})
+		).reviewId,
+	).toBe(original.reviewId);
+	const successor = await beginPlanReview(auth, "original-call", {
+		sourceDigest: "source-b",
+		appSeq: null,
+		issuingTurnId: "user-b",
+	});
+	expect(successor.review).toMatchObject({
+		predecessor_review_id: original.reviewId,
+		source_digest: "source-b",
+		issuing_turn_id: "user-b",
+		completed_revision: null,
+	});
+	expect(
+		(
+			await beginPlanReview(auth, "original-call", {
+				sourceDigest: "source-b",
+				appSeq: null,
+				issuingTurnId: "user-b",
+			})
+		).reviewId,
+	).toBe(successor.reviewId);
+	await expect(
+		writeAppPlan({
+			authority: auth,
+			writer: { editor: "peer", reviewId: original.reviewId },
+			requestId: "old-peer",
+			change: { markdown: "Old evidence" },
+		}),
+	).rejects.toBeInstanceOf(PlanConflictError);
+	const nextContext = await open(successor.reviewId);
+	await writeAppPlan({
+		authority: auth,
+		writer: { editor: "peer", reviewId: successor.reviewId },
+		requestId: "improve",
+		change: { markdown: "Keep each lending visit and its separate return." },
+	});
+	await finishPlanReview(auth, successor.reviewId, {
+		contextId: nextContext.id,
+		summary: "Exercised the return journey.",
+	});
+	const receipt = await beginPlanReview(auth, "original-call");
+	expect(receipt).toMatchObject({
+		complete: true,
+		reviewId: successor.reviewId,
+		plan: { revision: 2 },
+		review: { summary: "Exercised the return journey." },
+	});
+	await writeAppPlan({
+		authority: auth,
+		writer: { editor: "architect" },
+		requestId: "later",
+		change: { markdown: "Add a lost-tool workflow." },
+	});
+	expect(await beginPlanReview(auth, "original-call")).toEqual(receipt);
+	expect(
+		await h.db().selectFrom("authoring_reviews").selectAll().execute(),
+	).toHaveLength(2);
 });

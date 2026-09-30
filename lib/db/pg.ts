@@ -653,6 +653,29 @@ export interface AuthoringPlanRevisionsTable {
 }
 
 export interface AuthoringReviewsTable {
+	issuing_turn_id: ColumnType<string | null, string | null | undefined, string>;
+	predecessor_review_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		never
+	>;
+	paused_at: ColumnType<Date | null, Date | null | undefined, Date>;
+	checkpoint_summary: ColumnType<
+		string | null,
+		string | null | undefined,
+		string
+	>;
+	checkpoint_context_id: ColumnType<
+		string | null,
+		string | null | undefined,
+		string
+	>;
+	summary_available: ColumnType<
+		boolean | null,
+		boolean | null | undefined,
+		boolean
+	>;
+
 	focus: ColumnType<string | null, string | null | undefined, never>;
 	created_at: Timestamp;
 	id: string;
@@ -1413,9 +1436,18 @@ export interface AppTestStepsTable {
 	created_at: Timestamp;
 }
 
+export interface AppTestRequestsTable {
+	test_id: string;
+	request_id: string;
+	request_digest: string;
+	response: JSONColumnType<Record<string, unknown>>;
+	created_at: Timestamp;
+}
+
 export interface AppDatabase {
 	app_test_sessions: AppTestSessionsTable;
 	app_test_steps: AppTestStepsTable;
+	app_test_requests: AppTestRequestsTable;
 	apps: AppsTable;
 	blueprint_entities: BlueprintEntitiesTable;
 	app_changes: AppChangesTable;

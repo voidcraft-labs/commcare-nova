@@ -206,3 +206,11 @@ reference for operations. A property lookup inside a predicate uses
 `current()` to retain the originating row context; `#case` retains its selected-record
 meaning. The authoring-to-evaluator check exercises that expression through the
 shared tool grammar and production form worker.
+
+Journey continuations bind action names lazily inside the authorized test lock,
+against its pinned document/current screen, so ordered navigation can establish
+scope for a later section alias. Their public action schemas therefore retain
+plain authored references instead of generic UUID prebinding. Whole-call
+request digests cover authored inputs before resolution; retries return the
+original list receipt. Evidence paging/inspection is the same contract on SA,
+MCP and Builder; it never drops an oversized persisted observation.

@@ -17,6 +17,7 @@ import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { log } from "@/lib/logger";
+import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
 import { registerSharedTool } from "../adapters/sharedToolAdapter";
 import { registerWorkTools } from "../tools/work";
 import { withMcpClient } from "./client";
@@ -663,6 +664,61 @@ it("runs a saved worker journey through work-scoped MCP calls and refuses pendin
 		expect(JSON.parse(resultContentText(refused))).toMatchObject({
 			error_type: "invalid_input",
 			message: expect.stringContaining("Save the current app changes"),
+		});
+	});
+});
+
+it("serves ordered journey actions with deferred section names and bounded retained evidence over the real MCP transport", async () => {
+	const doc = await seedCanonical(sectionEntryDoc());
+	await withMcpClient(register, async (client) => {
+		const started = await call(client, "start_app_test", {
+			app_id: doc.appId,
+			request_id: "start",
+			purpose: "Inspect selected assets",
+		});
+		const input = {
+			app_id: doc.appId,
+			request_id: "journey",
+			testId: started.testId,
+			expectedStep: 0,
+			actions: [
+				{ action: { kind: "menu", moduleUuid: "Visits" } },
+				{ action: { kind: "form", formUuid: "Inspect" } },
+				{ action: { kind: "section", sectionUuid: "second" } },
+			],
+		};
+		const response = await call(client, "continue_app_test", input);
+		expect(response).toMatchObject({
+			step: 3,
+			results: [
+				{ step: 1 },
+				{ step: 2 },
+				{ step: 3, observation: { canSubmit: true } },
+			],
+		});
+		expect(await call(client, "continue_app_test", input)).toEqual(response);
+		const page = await call(client, "read_app_test", {
+			app_id: doc.appId,
+			testId: started.testId,
+			limit: 2,
+		});
+		expect(page).toMatchObject({
+			throughStep: 3,
+			steps: [{ step: 0 }, { step: 1 }],
+			nextCursor: { afterStep: 1, throughStep: 3 },
+		});
+		const rest = await call(client, "read_app_test", {
+			app_id: doc.appId,
+			testId: started.testId,
+			...page.nextCursor,
+		});
+		expect(rest.steps).toMatchObject([{ step: 2 }, { step: 3 }]);
+		await call(client, "continue_app_test", {
+			app_id: doc.appId,
+			request_id: "finish",
+			testId: started.testId,
+			expectedStep: 3,
+			actions: [{ action: { kind: "finish" } }],
 		});
 	});
 });

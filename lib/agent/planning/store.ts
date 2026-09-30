@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import type { Transaction } from "kysely";
+import { rehydrateModelMessage } from "@/lib/agent/modelMessagePersistence";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import {
 	assertDesignSessionRunAuthorityInTransaction,
@@ -233,6 +234,137 @@ export async function writeAppPlan(args: {
 	});
 }
 
+function reviewIdentity(sessionId: string, requestId: string) {
+	const digest = createHash("sha256")
+		.update(`${sessionId}:${requestId}`)
+		.digest("hex");
+	return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
+async function planAtRevision(
+	tx: DbReader,
+	sessionId: string,
+	revision: number,
+): Promise<AppPlan> {
+	const row = await tx
+		.selectFrom("authoring_plan_revisions")
+		.select(["markdown", "editor"])
+		.where("session_id", "=", sessionId)
+		.where("revision", "=", revision)
+		.executeTakeFirstOrThrow();
+	return {
+		sessionId,
+		revision,
+		markdown: row.markdown,
+		editor: row.editor as PlanEditor,
+		reviewedRevision: revision,
+	};
+}
+
+/** Recover only from immutable response/start pairs; current holder and time
+ * are deliberately not evidence of the user turn that requested a review. */
+async function originalReviewTurn(
+	tx: DbReader,
+	sessionId: string,
+	requestId: string,
+): Promise<string | null> {
+	const rows = await tx
+		.selectFrom("design_model_context_items as item")
+		.innerJoin(
+			"design_model_contexts as context",
+			"context.id",
+			"item.context_id",
+		)
+		.innerJoin("design_model_steps as completed", (join) =>
+			join
+				.onRef("completed.context_id", "=", "item.context_id")
+				.onRef("completed.response_append_key", "=", "item.append_key")
+				.on("completed.event_kind", "=", "completed"),
+		)
+		.innerJoin("design_model_steps as started", (join) =>
+			join
+				.onRef("started.context_id", "=", "completed.context_id")
+				.onRef("started.step_key", "=", "completed.step_key")
+				.on("started.event_kind", "=", "started"),
+		)
+		.select(["item.message", "item.item_digest", "started.turn_provenance_id"])
+		.where("context.design_session_id", "=", sessionId)
+		.where("context.context_kind", "=", "architect")
+		.execute();
+	const turns = new Set<string>();
+	for (const row of rows) {
+		if (!row.turn_provenance_id) continue;
+		if (canonicalJsonDigest(row.message) !== row.item_digest)
+			throw new PlanConflictError(
+				"The original review response no longer matches its retained evidence.",
+			);
+		const message = rehydrateModelMessage(row.message);
+		if (message.role !== "assistant") continue;
+		const callId = requestId.endsWith(":plan")
+			? requestId.slice(0, -5)
+			: requestId;
+		const matchingCall =
+			Array.isArray(message.content) &&
+			message.content.some(
+				(part) => part.type === "tool-call" && part.toolCallId === callId,
+			);
+		const matchingFinish = ["app", "planning"].some((kind) =>
+			requestId.startsWith(`${kind}-finish:${row.turn_provenance_id}:`),
+		);
+		if (matchingCall || matchingFinish) turns.add(row.turn_provenance_id);
+	}
+	return turns.size === 1 ? [...turns][0] : null;
+}
+
+export async function pausePlanReview(
+	authority: PlanningAuthority,
+	reviewId: string,
+	checkpoint: { contextId: string; summary: string; summaryAvailable: boolean },
+) {
+	return withAppTx(async (tx) => {
+		const head = await lockPlan(tx, authority);
+		const review = await tx
+			.selectFrom("authoring_reviews")
+			.selectAll()
+			.where("id", "=", reviewId)
+			.where("session_id", "=", authority.sessionId)
+			.executeTakeFirstOrThrow();
+		if (review.paused_at !== null) return review;
+		if (
+			head.review_id !== reviewId ||
+			head.review_complete ||
+			review.completed_revision !== null
+		)
+			throw new PlanConflictError("This review no longer owns the plan.");
+		const context = await tx
+			.selectFrom("design_model_contexts")
+			.select(["design_session_id", "context_kind", "context_version"])
+			.where("id", "=", checkpoint.contextId)
+			.executeTakeFirstOrThrow();
+		if (
+			context.design_session_id !== authority.sessionId ||
+			context.context_kind !== "peer" ||
+			context.context_version !== reviewId
+		)
+			throw new PlanConflictError("The checkpoint belongs to another review.");
+		const issuing =
+			review.issuing_turn_id ??
+			(await originalReviewTurn(tx, authority.sessionId, review.request_id));
+		return tx
+			.updateTable("authoring_reviews")
+			.set({
+				paused_at: new Date(),
+				checkpoint_summary: checkpoint.summary,
+				checkpoint_context_id: checkpoint.contextId,
+				summary_available: checkpoint.summaryAvailable,
+				...(issuing && { issuing_turn_id: issuing }),
+			})
+			.where("id", "=", reviewId)
+			.returningAll()
+			.executeTakeFirstOrThrow();
+	});
+}
+
 /** The review records which source and app the peer actually saw. Its prose
  * stays prose; only ownership, revisions and completion are database facts. */
 export async function beginPlanReview(
@@ -242,6 +374,7 @@ export async function beginPlanReview(
 		sourceDigest: string;
 		appSeq: number | null;
 		focus?: string;
+		issuingTurnId?: string;
 	} | null = null,
 ) {
 	return withAppTx(async (tx) => {
@@ -249,23 +382,59 @@ export async function beginPlanReview(
 		const plan = await currentPlan(tx, authority.sessionId);
 		if (!plan)
 			throw new PlanConflictError("Write the plan before asking for review.");
-		const digest = createHash("sha256")
-			.update(`${authority.sessionId}:${requestId}`)
-			.digest("hex");
-		const id = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-		const prior = await tx
+		let id = reviewIdentity(authority.sessionId, requestId);
+		let predecessor: string | null = null;
+		let effectiveRequestId = requestId;
+		let prior = await tx
 			.selectFrom("authoring_reviews")
 			.selectAll()
 			.where("id", "=", id)
 			.executeTakeFirst();
-		if (prior)
+		while (prior) {
+			const successor = await tx
+				.selectFrom("authoring_reviews")
+				.selectAll()
+				.where("predecessor_review_id", "=", prior.id)
+				.executeTakeFirst();
+			if (successor) {
+				prior = successor;
+				continue;
+			}
+			if (prior.paused_at !== null && snapshot?.issuingTurnId) {
+				const issuing =
+					prior.issuing_turn_id ??
+					(await originalReviewTurn(tx, authority.sessionId, prior.request_id));
+				if (!issuing)
+					throw new PlanConflictError(
+						"The unfinished review has no verifiable original user turn. Its evidence is preserved; this review needs an explicit provenance repair before it can continue.",
+					);
+				if (issuing !== snapshot.issuingTurnId) {
+					if (head.review_id !== prior.id || head.review_complete)
+						throw new PlanConflictError(
+							"This unfinished review no longer owns the plan.",
+						);
+					predecessor = prior.id;
+					effectiveRequestId = `continue:${prior.id}:${snapshot.issuingTurnId}`;
+					id = reviewIdentity(authority.sessionId, effectiveRequestId);
+					break;
+				}
+			}
+			const receiptPlan =
+				prior.completed_revision === null
+					? plan
+					: await planAtRevision(
+							tx,
+							authority.sessionId,
+							Number(prior.completed_revision),
+						);
 			return {
-				reviewId: id,
-				plan,
+				reviewId: prior.id,
+				plan: receiptPlan,
 				complete: prior.completed_revision !== null,
 				review: prior,
 			};
-		if (head.review_id && !head.review_complete)
+		}
+		if (!predecessor && head.review_id && !head.review_complete)
 			throw new PlanConflictError("A peer is already reviewing this plan.");
 		if (snapshot?.appSeq !== null && snapshot?.appSeq !== undefined) {
 			const session = await tx
@@ -291,7 +460,14 @@ export async function beginPlanReview(
 			.values({
 				id,
 				session_id: authority.sessionId,
-				request_id: requestId,
+				request_id: effectiveRequestId,
+				issuing_turn_id: snapshot?.issuingTurnId
+					? predecessor
+						? snapshot.issuingTurnId
+						: ((await originalReviewTurn(tx, authority.sessionId, requestId)) ??
+							snapshot.issuingTurnId)
+					: null,
+				predecessor_review_id: predecessor,
 				plan_revision: plan.revision,
 				source_digest: snapshot?.sourceDigest ?? null,
 				app_seq: snapshot?.appSeq ?? null,
@@ -321,6 +497,10 @@ export async function finishPlanReview(
 			.where("id", "=", reviewId)
 			.where("session_id", "=", authority.sessionId)
 			.executeTakeFirstOrThrow();
+		if (review.paused_at !== null)
+			throw new PlanConflictError(
+				"An unfinished checkpoint cannot complete a review.",
+			);
 		if (review.completed_revision === null) {
 			if (head.review_id !== reviewId)
 				throw new PlanConflictError("This review no longer owns the plan.");

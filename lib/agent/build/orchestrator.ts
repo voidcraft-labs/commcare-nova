@@ -26,6 +26,7 @@ import {
 	finishPlanReview,
 	latestPlanReview,
 	type PlanWriter,
+	pausePlanReview,
 	readAppPlan,
 	writeAppPlan,
 } from "@/lib/agent/planning/store";
@@ -81,6 +82,17 @@ import {
 } from "./orchestratorState";
 import { authoringStage } from "./progress";
 
+class ReviewPaused extends Error {
+	constructor(
+		readonly reviewId: string,
+		readonly contextId: string,
+		readonly summary: string,
+		readonly summaryAvailable: boolean,
+	) {
+		super("The peer review is unfinished.");
+	}
+}
+
 export interface OrchestratorStreamWriter {
 	write(
 		chunk:
@@ -104,6 +116,15 @@ export type BuildOrchestrationOutcome =
 			appId: string | null;
 	  };
 export interface BuildOrchestrationDeps {
+	/** Local evaluation can isolate interface quality from production reminders.
+	 * This is explicit dependency injection, never an environment override. */
+	readonly reviewPolicy?:
+		| { readonly kind: "production" }
+		| {
+				readonly kind: "diagnostic";
+				readonly maxPeerRequests: number;
+				readonly maxArchitectRequests?: number;
+		  };
 	readonly modelStep: AgentModelStepFn;
 	readonly peerStep: AgentModelStepFn;
 	readonly translationStep: AgentModelStepFn;
@@ -351,9 +372,14 @@ export async function runBuildOrchestration(
 			modelStep: modelSteps[role],
 			maxSteps:
 				role === "architect"
-					? ARCHITECT_MAX_STEPS
+					? args.deps?.reviewPolicy?.kind === "diagnostic"
+						? (args.deps.reviewPolicy.maxArchitectRequests ??
+							ARCHITECT_MAX_STEPS)
+						: ARCHITECT_MAX_STEPS
 					: role === "peer"
-						? PEER_MAX_STEPS
+						? args.deps?.reviewPolicy?.kind === "diagnostic"
+							? args.deps.reviewPolicy.maxPeerRequests
+							: PEER_MAX_STEPS
 						: TRANSLATOR_MAX_STEPS,
 			onReasoning: (
 				part: Parameters<
@@ -516,7 +542,13 @@ export async function runBuildOrchestration(
 			requestId: string,
 			app: boolean,
 			focus?: string,
-		) => {
+		): Promise<{
+			revision: number;
+			plan: string;
+			review: string | null;
+			reviewId: string;
+			predecessorReviewId: string | null;
+		}> => {
 			const active = await activePlanReview(authority);
 			if (
 				app &&
@@ -529,15 +561,26 @@ export async function runBuildOrchestration(
 			const current = await runtime.snapshot(true);
 			const review = await beginPlanReview(authority, requestId, {
 				sourceDigest: source.digest,
+				issuingTurnId: turnId,
 				appSeq: app ? current.canonicalSeq : null,
 				focus,
 			});
 			if (review.complete)
 				return {
-					revision: review.review.completed_revision,
+					revision: Number(review.review.completed_revision),
 					plan: review.plan.markdown,
 					review: review.review.summary,
+					reviewId: review.reviewId,
+					predecessorReviewId: review.review.predecessor_review_id,
 				};
+			if (review.review.paused_at !== null)
+				throw new ReviewPaused(
+					review.reviewId,
+					review.review.checkpoint_context_id ?? "",
+					review.review.checkpoint_summary ??
+						"The investigation is retained, but a closing summary is unavailable.",
+					review.review.summary_available ?? false,
+				);
 			await emitState(
 				app && current.canonicalSeq !== null
 					? {
@@ -550,17 +593,30 @@ export async function runBuildOrchestration(
 			const system = buildArchitectPeerPrompt();
 			const peer = await runArchitectLoop({
 				...commonLoop("peer"),
+				reviewPolicy: args.deps?.reviewPolicy?.kind ?? "production",
 				spec: await spec("peer", review.reviewId, system),
 				system,
 				turnId: review.reviewId,
 				additions: [
 					...sourceMessages,
+					...(review.review.predecessor_review_id
+						? [
+								{
+									key: `review-successor:${review.reviewId}`,
+									message: {
+										role: "system" as const,
+										content: `The user has asked to continue the unfinished investigation. Review ${review.reviewId} succeeds ${review.review.predecessor_review_id}; the previous closing restriction applied only to that previous review. The retained conversation contains its evidence and checkpoint. Tools are available again for this review. Reuse still-current evidence, examine changed requirements and app revisions, and continue the unresolved investigation without treating its checkpoint as a completed assessment.`,
+									},
+								},
+							]
+						: []),
 					{
 						key: `review-context:${review.reviewId}`,
 						message: {
 							role: "user",
 							content: JSON.stringify({
 								reviewId: review.reviewId,
+								predecessorReviewId: review.review.predecessor_review_id,
 								planRevision: review.plan.revision,
 								appRevision: current.canonicalSeq,
 								sourceDigest: source.digest,
@@ -598,6 +654,23 @@ export async function runBuildOrchestration(
 				},
 				onFinish: async () => ({ kind: "complete" }),
 			});
+			if (peer.kind === "unfinished") {
+				const paused = await pausePlanReview(authority, review.reviewId, {
+					contextId: peer.contextId,
+					summary: peer.text,
+					summaryAvailable: peer.summaryAvailable ?? false,
+				});
+				// An old exhausted allowance can first be classified during an
+				// already-authorized new user turn. Rebind once, never reset it.
+				if (paused.issuing_turn_id && paused.issuing_turn_id !== turnId)
+					return peerReview(requestId, app, focus);
+				throw new ReviewPaused(
+					review.reviewId,
+					peer.contextId,
+					peer.text,
+					peer.summaryAvailable ?? false,
+				);
+			}
 			const plan = await finishPlanReview(authority, review.reviewId, {
 				contextId: peer.contextId,
 				summary: peer.text,
@@ -612,6 +685,8 @@ export async function runBuildOrchestration(
 				revision: plan.revision,
 				plan: plan.markdown,
 				review: peer.text,
+				reviewId: review.reviewId,
+				predecessorReviewId: review.review.predecessor_review_id,
 			};
 		};
 		// An interrupted peer still owns the plan. Resume that conversation
@@ -850,6 +925,39 @@ export async function runBuildOrchestration(
 			finalBlueprint: finalized.blueprint,
 		};
 	} catch (error) {
+		if (error instanceof ReviewPaused) {
+			emitText(
+				`review-checkpoint:${error.reviewId}`,
+				`The peer review is unfinished. Your plan, app and investigation are saved. Continue when you are ready to resume the review.\n\n${error.summary}`,
+			);
+			await emitState({
+				kind: "awaiting-input",
+				reviewCheckpoint: {
+					reviewId: error.reviewId,
+					contextId: error.contextId,
+					summaryAvailable: error.summaryAvailable,
+				},
+			});
+			const pause = runtime.appId
+				? await setAwaitingInput(
+						runtime.appId,
+						args.runId,
+						args.holderNonce,
+						"build",
+						true,
+						args.actorUserId,
+						args.projectId,
+					)
+				: await setDesignSessionAwaitingInput(
+						args.designSessionId,
+						args.runId,
+						args.holderNonce,
+						true,
+						args.actorUserId,
+						args.projectId,
+					);
+			return { kind: "awaiting-input", pauseOwned: pause === "owned" };
+		}
 		const classified = classifyError(error);
 		const session = await loadDesignSession(args.designSessionId);
 		if (session?.app_id) runtime.appId = session.app_id;

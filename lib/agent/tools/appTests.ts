@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { listAppTests, readAppTestSteps } from "@/lib/db/appTests";
+import { appTestReadWindowSchema } from "@/lib/preview/app-tests/evidence";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import {
-	appTestActionSchema,
+	appTestActionsSchema,
+	appTestAuthoredActionSchema,
 	appTestStartSchema,
 } from "@/lib/preview/app-tests/types";
 import type { ToolInvocationContext } from "../workspace/types";
@@ -51,11 +53,16 @@ const continueSchema = z.strictObject({
 		.int()
 		.min(0)
 		.describe("The latest returned step; protects against competing actions."),
-	action: appTestActionSchema,
+	action: appTestAuthoredActionSchema
+		.optional()
+		.describe(
+			"Compatibility form for one action. Supply either action or actions.",
+		),
+	actions: appTestActionsSchema.optional(),
 });
 export const continueAppTestTool = {
 	description:
-		"Take one worker action in a disposable app test. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. Form observations offer sections; use section to turn a page before answering its questions. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
+		"Take up to eight ordered worker actions in a disposable app test using actions. Each returns its own step and observation; the call stops on a refusal or unmet optional expectation, retaining its completed prefix. Choose only identities and destinations the saved app offers. Selecting a record opens its Details when configured; use continue there to enter the task, or back to return. Form observations offer sections; use section to turn a page before answering its questions. Forward turns validate earlier pages. A submission applies ordinary and additional case effects to isolated records, then opens the next task. Finish releases test records while retaining observations. Changed source apps require a new test.",
 	inputSchema: continueSchema,
 	async execute(
 		input: z.infer<typeof continueSchema>,
@@ -70,10 +77,12 @@ export const continueAppTestTool = {
 		};
 	},
 };
-const readSchema = z.strictObject({ testId: testIdSchema.optional() });
+const readSchema = appTestReadWindowSchema.extend({
+	testId: testIdSchema.optional(),
+});
 export const readAppTestTool = {
 	description:
-		"Omit testId to find this app's recent tests by purpose and source revision. Supply a returned identity to read its worker actions and observed results, including failed actions. Evidence remains after test records expire or are discarded. A completed test proves only its exercised behavior.",
+		"Omit testId to find this app's recent tests by purpose and source revision. Supply a returned identity to read a bounded page of actions and observations, including failures. Follow nextCursor with its fixed throughStep to keep the same evidence window. Oversized steps return an inspection address: use inspect with the returned step/path and nextOffset to read all retained evidence without truncation. Evidence remains after test records expire or are discarded. A completed test proves only its exercised behavior.",
 	inputSchema: readSchema,
 	async execute(input: z.infer<typeof readSchema>, ctx: ToolInvocationContext) {
 		return {
@@ -81,7 +90,11 @@ export const readAppTestTool = {
 			data:
 				input.testId === undefined
 					? await listAppTests(scope(ctx))
-					: await readAppTestSteps({ ...scope(ctx), testId: input.testId }),
+					: await readAppTestSteps({
+							...scope(ctx),
+							...input,
+							testId: input.testId,
+						}),
 		};
 	},
 };

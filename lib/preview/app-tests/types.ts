@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { PersistableDoc, Uuid } from "@/lib/domain";
 import { uuidSchema } from "@/lib/domain";
+import {
+	appLanguageIdentitySchema,
+	type LanguageTag,
+} from "@/lib/domain/localization";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type {
 	LookupFixtureRow,
@@ -26,6 +30,11 @@ const testOwner = z.discriminatedUnion("kind", [
 ]);
 
 export const appTestStartSchema = z.strictObject({
+	language: appLanguageIdentitySchema
+		.optional()
+		.describe(
+			"A language configured in the saved app. Omit to use its default worker language.",
+		),
 	purpose: z
 		.string()
 		.min(1)
@@ -83,65 +92,127 @@ export const appTestStartSchema = z.strictObject({
 });
 export type AppTestStartInput = z.infer<typeof appTestStartSchema>;
 
-export const appTestActionSchema = z.discriminatedUnion("kind", [
-	z.strictObject({
-		kind: z.literal("section"),
-		sectionUuid: uuidSchema.describe(
-			"A section offered by the current form. Forward navigation validates earlier pages.",
-		),
-	}),
-	z.strictObject({ kind: z.literal("observe") }),
-	z.strictObject({ kind: z.literal("continue") }),
-	z.strictObject({ kind: z.literal("back") }),
-	z.strictObject({
-		kind: z.literal("identity"),
-		personaUuid: uuidSchema
-			.nullable()
-			.describe(
-				"A saved Preview identity, or null for yourself. Returns to app entry.",
+function actionSchema<R extends z.ZodType<string>>(reference: R) {
+	return z.discriminatedUnion("kind", [
+		z.strictObject({
+			kind: z.literal("language"),
+			language: appLanguageIdentitySchema,
+		}),
+		z.strictObject({
+			kind: z.literal("section"),
+			sectionUuid: reference.describe(
+				"A section offered by the current form. Forward navigation validates earlier pages.",
 			),
-	}),
-	z.strictObject({ kind: z.literal("menu"), moduleUuid: uuidSchema }),
-	z.strictObject({ kind: z.literal("records") }),
-	z.strictObject({
-		kind: z.literal("page"),
-		offset: z.number().int().min(0).max(2000),
-	}),
-	z.strictObject({ kind: z.literal("form"), formUuid: uuidSchema }),
-	z.strictObject({
-		kind: z.literal("select"),
-		caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
-	}),
-	z.strictObject({
-		kind: z.literal("search"),
-		answers: z
-			.array(
-				z.strictObject({
-					name: z.string().min(1).max(200),
-					value: z.string().max(1000),
-				}),
-			)
-			.max(100),
-	}),
-	z.strictObject({
-		kind: z.literal("answer"),
-		answers: z.array(answer).max(200),
-		repeats: z
-			.array(
-				z.strictObject({
-					path: z.string().min(1).max(1024),
-					count: z.number().int().min(1).max(100),
-				}),
-			)
-			.max(50)
-			.optional(),
-	}),
-	z.strictObject({ kind: z.literal("submit") }),
-	z.strictObject({ kind: z.literal("home") }),
-	z.strictObject({ kind: z.literal("sync") }),
-	z.strictObject({ kind: z.literal("finish") }),
-]);
+		}),
+		z.strictObject({ kind: z.literal("observe") }),
+		z.strictObject({ kind: z.literal("continue") }),
+		z.strictObject({ kind: z.literal("back") }),
+		z.strictObject({
+			kind: z.literal("identity"),
+			personaUuid: reference
+				.nullable()
+				.describe(
+					"A saved Preview identity, or null for yourself. Returns to app entry.",
+				),
+		}),
+		z.strictObject({ kind: z.literal("menu"), moduleUuid: reference }),
+		z.strictObject({ kind: z.literal("records") }),
+		z.strictObject({
+			kind: z.literal("page"),
+			offset: z.number().int().min(0).max(2000),
+		}),
+		z.strictObject({ kind: z.literal("form"), formUuid: reference }),
+		z.strictObject({
+			kind: z.literal("select"),
+			caseIds: z.array(z.string().min(1).max(255)).min(1).max(100),
+		}),
+		z.strictObject({
+			kind: z.literal("search"),
+			answers: z
+				.array(
+					z.strictObject({
+						name: z.string().min(1).max(200),
+						value: z.string().max(1000),
+					}),
+				)
+				.max(100),
+		}),
+		z.strictObject({
+			kind: z.literal("answer"),
+			answers: z.array(answer).max(200),
+			repeats: z
+				.array(
+					z.strictObject({
+						path: z.string().min(1).max(1024),
+						count: z.number().int().min(1).max(100),
+					}),
+				)
+				.max(50)
+				.optional(),
+		}),
+		z.strictObject({ kind: z.literal("submit") }),
+		z.strictObject({ kind: z.literal("home") }),
+		z.strictObject({ kind: z.literal("sync") }),
+		z.strictObject({ kind: z.literal("finish") }),
+	]);
+}
+export const appTestActionSchema = actionSchema(uuidSchema);
+export const appTestAuthoredActionSchema = actionSchema(
+	z
+		.string()
+		.min(1)
+		.max(1024)
+		.describe(
+			"Saved entity name or stable ID; sections also accept their full field path in the current form.",
+		),
+);
+export type AppTestAuthoredAction = z.infer<typeof appTestAuthoredActionSchema>;
 export type AppTestAction = z.infer<typeof appTestActionSchema>;
+
+export const appTestExpectationSchema = z.strictObject({
+	screen: z
+		.enum([
+			"home",
+			"menu",
+			"browse",
+			"search",
+			"results",
+			"details",
+			"form",
+			"after-submit",
+		])
+		.optional(),
+	moduleUuid: z
+		.string()
+		.min(1)
+		.max(1024)
+		.optional()
+		.describe("Expected menu name or stable ID."),
+	formUuid: z
+		.string()
+		.min(1)
+		.max(1024)
+		.optional()
+		.describe("Expected form name or stable ID."),
+	submitted: z
+		.boolean()
+		.optional()
+		.describe(
+			"Whether this action committed a form submission to test records.",
+		),
+});
+export const appTestActionItemSchema = z.strictObject({
+	action: appTestAuthoredActionSchema,
+	expect: appTestExpectationSchema.optional(),
+});
+export const appTestActionsSchema = z
+	.array(appTestActionItemSchema)
+	.min(1)
+	.max(8)
+	.describe(
+		"Ordered worker actions. Stops at the first refusal, failed forward validation, unavailable destination or unmet expectation. Each item consumes one of the journey's 200 steps.",
+	);
+export type AppTestExpectation = z.infer<typeof appTestExpectationSchema>;
 
 export interface AppTestSnapshot {
 	purpose: string;
@@ -193,6 +264,7 @@ export type AppTestScreen =
 			searchAnswers?: readonly { name: string; value: string }[];
 	  };
 export interface AppTestState {
+	language: LanguageTag;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
 	history: readonly AppTestScreen[];

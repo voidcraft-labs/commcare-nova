@@ -14,12 +14,34 @@ import {
 	personaUserData,
 	type Uuid,
 } from "@/lib/domain";
+import {
+	type AppLanguageIdentity,
+	effectiveAppLocalization,
+	languageTag,
+	resolveAppLanguage,
+} from "@/lib/domain/localization";
 import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
 import { viewerTimeZone } from "../engine/caseDataBindingClient";
 import { previewAsMe, previewAsPersona } from "../engine/identity";
 import { previewLookupData } from "../engine/lookupEvaluation";
 import { XPathDate } from "../xpath/types";
+import { AppTestActionError } from "./errors";
 import type { AppTestSnapshot, AppTestState } from "./types";
+
+export function appTestLanguage(
+	snapshot: AppTestSnapshot,
+	selected?: AppLanguageIdentity,
+) {
+	const tag = selected === undefined ? undefined : languageTag(selected);
+	if (
+		tag !== undefined &&
+		!effectiveAppLocalization(
+			snapshot.blueprint.localization,
+		).languageOrder.includes(tag)
+	)
+		throw new AppTestActionError("Choose a language configured in this app.");
+	return resolveAppLanguage(snapshot.blueprint.localization, tag);
+}
 
 export function appTestIdentity(
 	snapshot: AppTestSnapshot,
@@ -30,7 +52,9 @@ export function appTestIdentity(
 			? undefined
 			: ownRecordValue(snapshot.blueprint.personas ?? {}, personaUuid);
 	if (personaUuid !== null && !persona)
-		throw new Error("This Preview identity is no longer available.");
+		throw new AppTestActionError(
+			"This Preview identity is no longer available.",
+		);
 	const identity = persona
 		? previewAsPersona(
 				snapshot.user,
@@ -39,7 +63,8 @@ export function appTestIdentity(
 				snapshot.projectSpace,
 			)
 		: previewAsMe(snapshot.user, snapshot.blueprint, snapshot.projectSpace);
-	if (!identity) throw new Error("The signed-in author is unavailable.");
+	if (!identity)
+		throw new AppTestActionError("The signed-in author is unavailable.");
 	return identity;
 }
 
@@ -90,6 +115,7 @@ async function contextFor(
 		ensureOnly: true,
 	});
 	return {
+		language: resolveAppLanguage(doc.localization, state.language),
 		// FormEngine workers inherit this process's local timezone. SQL must
 		// use it too, independently of the database connection's timezone.
 		clock: {

@@ -189,6 +189,28 @@ number required by the next action. Omit `testId` from `read_app_test` to find r
 tests by purpose and source revision. Supply a returned identity to read retained steps and
 their app revision. Builder's **Test journeys** presents those same observations.
 
+A journey uses the app's default worker language, or a configured `language`
+identity such as `{language: "spa"}` supplied at start. A `language` action
+changes it without clearing answers or repeat rows. Observations show the chosen
+language and whether platform text falls back to English. Authored labels and
+messages use the app's translations. Results and Details include formatted cells
+and the current route context.
+
+`continue_app_test` accepts `actions: [{action, expect?}, ...]` with up to eight
+ordered actions. Each produces its own step. Optional expectations can name the
+screen, module, form or whether a submission occurred. The call stops on a
+refusal or unmet expectation and retains the completed prefix. A submission
+already completed remains completed. A retry with the same request ID and
+identical inputs returns the original response. The test still allows 200
+individual actions. A whole-call database timeout rolls back that call.
+
+Evidence reads return a bounded page. Pass `nextCursor` back with its fixed
+`throughStep` to continue the same window. A large step supplies an `inspect`
+address; its returned paths and offsets let the agent read all retained evidence.
+Every page identifies the source revision and starting records. Submission
+observations identify case effects separately from serialized form submissions
+and retained reports, which these tests do not inspect.
+
 Tests start empty unless fictional records are explicitly supplied; they never
 copy live cases. The first observation records supplied counts by case type.
 Starting with supplied records checks what happens after those records exist;

@@ -74,6 +74,18 @@ export function designProgressTracksBuildFailure(
 	);
 }
 
+/** Continue is a new durable user turn; reconnect never grants more review work. */
+export function designReviewCanContinue(
+	progress: Pick<DesignProgressState, "stage">,
+	status: ChatStatus,
+): boolean {
+	return (
+		progress.stage === "review-paused" &&
+		status !== "submitted" &&
+		status !== "streaming"
+	);
+}
+
 /** A sealed recoverable build failure has no live stream marker to re-drive
  * automatically, while the ordinary composer must stay frozen so a message
  * cannot revise the accepted contract. Offer one explicit continuation that

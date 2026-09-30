@@ -16,9 +16,12 @@
 
 "use client";
 import type { ReactNode } from "react";
+import type { LanguageTag } from "@/lib/domain/localization";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { SECTION_HEADER_HEIGHT_PX } from "../virtual/rowStyles";
 
 export interface SectionHeadingProps {
+	readonly language?: LanguageTag;
 	/** 0-based page number. */
 	readonly index: number;
 	/** Number of pages in the form. */
@@ -43,11 +46,16 @@ export interface SectionHeadingProps {
 }
 
 /** "Section k of n" for the kicker and the pager's announcement. */
-export function sectionKicker(index: number, count: number): string {
-	return `Section ${index + 1} of ${count}`;
+export function sectionKicker(
+	index: number,
+	count: number,
+	language?: LanguageTag,
+): string {
+	return runtimeMessage(language, "section", { position: index + 1, count });
 }
 
 export function SectionHeading({
+	language,
 	index,
 	count,
 	title,
@@ -72,7 +80,7 @@ export function SectionHeading({
 				/>
 			)}
 			<p className="text-xs leading-4 text-nova-text-muted">
-				{sectionKicker(index, count)}
+				{sectionKicker(index, count, language)}
 			</p>
 			<Title
 				id={id}

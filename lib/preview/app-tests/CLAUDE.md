@@ -95,3 +95,27 @@ and whether Submit is offered. A `section` action validates forward pages before
 entering the target; Back retains existing rows and answers. Future-page answers
 and early submissions cannot bypass this progression. These use the browser’s
 FormEngine insertion and paging projections, not a separate simulation.
+
+Ordered calls accept up to eight actions. `addresses.ts` resolves each authored
+name/section path against the authorized pinned snapshot and current screen,
+after receipt replay and immediately before execution. `service.ts` owns each
+action savepoint; explicit worker/input refusals stop with the persisted prefix,
+while unexpected failures roll back the call. `app_test_requests` owns the
+complete response receipt; individual action rows share its request identity.
+A 60-second transaction deadline covers the whole call, including lock waits.
+Caller disconnection is not propagated as a separate cancellation signal here.
+The 200-step bound still counts individual worker actions.
+
+Selected language belongs to test state, defaults to the app default and can
+change only to a configured structured language identity. Form checkpoints
+reinitialize with retained answers/defaults/repeats exactly as browser language
+changes do. `runtimeMessages.ts` owns English/Spanish platform copy; every
+observation identifies catalog fallback. Authored translations remain separate.
+Results and Details share formatted cell projection, and route context exposes
+retained ancestor/record selections. Submission evidence proves isolated case
+commit only; serialized submissions and retained reports stay `not-observed`.
+
+Evidence reads have a fixed upper step, ten-step default/twenty-step maximum
+and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
+explicit bounded paths and offsets. The start/source/runtime provenance travels
+with every page. Builder pages these same rows rather than loading all history.

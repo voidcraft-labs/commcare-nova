@@ -5,6 +5,7 @@ import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { makeDurableAuthoringHarness } from "@/lib/agent/__tests__/durableAuthoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import { authoringFingerprint } from "@/lib/agent/authoring/fingerprints";
 import { runSharedToolCall } from "@/lib/agent/authoring/sharedToolCall";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
@@ -16,6 +17,7 @@ import {
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { readAppTestSteps } from "@/lib/db/appTests";
+import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
 import { continueAppTest, startAppTest } from "../service";
@@ -311,9 +313,9 @@ it("starts at visible entry, preserves answers between calls and persists a clos
 	);
 	expect(live.rows[0].count).toBe("0");
 	await step({ kind: "finish" });
-	const evidence = await readAppTestSteps({ ...scope, testId });
+	const evidence = await readAppTestSteps({ ...scope, testId, limit: 20 });
 	expect(evidence.steps).toHaveLength(current.step + 1);
-	expect(evidence.steps[0].observation.suppliedRecords).toEqual([]);
+	expect(evidence.steps[0].observation?.suppliedRecords).toEqual([]);
 	// A recorded journey must be usable by the next real model step, including
 	// database timestamps after disposal. SDK JSON output rejects Date objects.
 	const listed = await call("readAppTest", {});
@@ -1185,6 +1187,7 @@ it.each([
 					{
 						uuid: expect.any(String),
 						label: "Condition",
+						format: "plain",
 						kind: "value",
 						text: "Broken",
 					},
@@ -1561,4 +1564,304 @@ it("visits form pages using retained entry state before allowing submission", {
 		]),
 	});
 	expect((await step({ kind: "submit" })).savedInTest).toBe(true);
+});
+
+it("binds ordered public section aliases after navigation, stops at failed forward validation, and replays the whole call", async () => {
+	const doc = sectionEntryDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	const started = stepSchema.parse(
+		await call("startAppTest", { purpose: "Inspect the chosen area's assets" }),
+	);
+	const input = {
+		testId: started.testId,
+		expectedStep: 0,
+		actions: [
+			{ action: { kind: "menu", moduleUuid: "Visits" } },
+			{
+				action: { kind: "form", formUuid: "Inspect" },
+				expect: { screen: "form" },
+			},
+			{
+				action: {
+					kind: "answer",
+					answers: [{ path: "first/zone", value: "" }],
+				},
+			},
+			{ action: { kind: "section", sectionUuid: "second" } },
+			{ action: { kind: "submit" } },
+		],
+	};
+	const failed = await call("continueAppTest", input, "ordered-failure");
+	expect(failed).toMatchObject({
+		step: 4,
+		stopped: { index: 3 },
+		results: [
+			{ step: 1 },
+			{ step: 2 },
+			{ step: 3 },
+			{
+				step: 4,
+				observation: {
+					completed: false,
+					questions: expect.arrayContaining([
+						expect.objectContaining({
+							path: "first/zone",
+							error: "This field is required",
+						}),
+					]),
+				},
+			},
+		],
+	});
+	const recovered = await call(
+		"continueAppTest",
+		{
+			testId: started.testId,
+			expectedStep: 4,
+			actions: [
+				{
+					action: {
+						kind: "answer",
+						answers: [{ path: "first/zone", value: "south" }],
+					},
+				},
+				{ action: { kind: "section", sectionUuid: "#form/second" } },
+				{
+					action: { kind: "submit" },
+					expect: { screen: "details", submitted: true },
+				},
+				{ action: { kind: "home" } },
+			],
+		},
+		"ordered-submit",
+	);
+	expect(recovered).toMatchObject({
+		step: 7,
+		stopped: { index: 2 },
+		observation: {
+			savedInTest: true,
+			expectationMet: false,
+			evidence: {
+				caseTransaction: "committed",
+				serializedSubmission: "not-observed",
+				retainedReport: "not-observed",
+			},
+		},
+	});
+	// Reauthorize, then return the original bytes before checking the later step
+	// or resolving section names against the now-different current screen.
+	expect(await call("continueAppTest", input, "ordered-failure")).toEqual(
+		failed,
+	);
+	const page = await readAppTestSteps({ ...scope, testId: started.testId });
+	expect(page.steps.map((step) => step.step)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+	await call("continueAppTest", {
+		testId: started.testId,
+		expectedStep: 7,
+		actions: [{ action: { kind: "finish" } }],
+	});
+});
+
+it("uses selected worker language, preserves authored messages and retains page/repeat answers through language changes", {
+	timeout: 15_000,
+}, async () => {
+	const author = makeAuthoringHarness({}, sectionEntryDoc());
+	expect(
+		await author.call("addFields", {
+			moduleUuid: "Visits",
+			formUuid: "Inspect",
+			parentUuid: "first",
+			fields: [
+				{ id: "count", kind: "int", label: "Count", required: true },
+				{
+					id: "code",
+					kind: "text",
+					label: "Code",
+					validate: {
+						expr: "#form/first/code = 'ok'",
+						msg: "Enter ok exactly",
+					},
+				},
+			],
+		}),
+	).not.toHaveProperty("error");
+	for (const language of ["spa", "fra"])
+		expect(
+			await author.call("addLanguage", { language: { language } }),
+		).not.toHaveProperty("error");
+	let doc = author.currentDoc();
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const count = Object.values(doc.fields).find((field) => field.id === "count");
+	if (!count) throw new Error("Missing count field");
+	const translated = new Map<string, string>([
+		[makeTranslationUnitId("module", moduleUuid, "name"), "Visitas"],
+		[makeTranslationUnitId("form", formUuid, "name"), "Inspeccionar"],
+		[makeTranslationUnitId("field", count.uuid, "label"), "Cantidad"],
+	]);
+	const updates = collectTranslationUnits(doc).flatMap((unit) => {
+		const value = translated.get(unit.id);
+		return value === undefined
+			? []
+			: [
+					{
+						operation: "set",
+						unitId: unit.id,
+						expectedSourceFingerprint: authoringFingerprint(
+							unit.sourceFingerprint,
+						),
+						value,
+					},
+				];
+	});
+	expect(updates).toHaveLength(3);
+	expect(
+		await author.call("updateTranslations", {
+			language: { language: "spa" },
+			updates,
+		}),
+	).not.toHaveProperty("error");
+	expect(
+		await author.call("updateLanguage", {
+			action: "set-default",
+			language: { language: "spa" },
+		}),
+	).not.toHaveProperty("error");
+	doc = author.currentDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Fill an inspection in the worker's language",
+		}),
+	);
+	expect(current.observation).toMatchObject({
+		language: {
+			selected: { language: "spa" },
+			runtime: { catalogLanguage: "spa", fallback: false },
+		},
+		menus: [expect.objectContaining({ name: "Visitas" })],
+	});
+	const advance = async (actions: unknown[]) => {
+		current = stepSchema.parse(
+			await call("continueAppTest", {
+				testId: current.testId,
+				expectedStep: current.step,
+				actions,
+			}),
+		);
+		return current.observation;
+	};
+	const opened = await advance([
+		{ action: { kind: "menu", moduleUuid: "Visitas" } },
+		{ action: { kind: "form", formUuid: "Inspeccionar" } },
+	]);
+	expect(opened).toMatchObject({
+		name: "Inspeccionar",
+		controls: { back: "Atrás" },
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "first/count",
+				label: "Cantidad",
+				error: "Este campo es obligatorio",
+			}),
+		]),
+	});
+	const invalid = await advance([
+		{
+			action: {
+				kind: "answer",
+				answers: [
+					{ path: "first/count", value: "1.5" },
+					{ path: "first/code", value: "no" },
+				],
+			},
+		},
+	]);
+	expect(invalid.questions).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				path: "first/count",
+				error: "Esta pregunta necesita un número entero.",
+			}),
+			expect.objectContaining({
+				path: "first/code",
+				error: "Enter ok exactly",
+			}),
+		]),
+	);
+	const english = await advance([
+		{ action: { kind: "language", language: { language: "eng" } } },
+	]);
+	expect(english.questions).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				path: "first/count",
+				value: "1.5",
+				label: "Count",
+				error: "This question needs a whole number.",
+			}),
+		]),
+	);
+	const retained = await advance([
+		{
+			action: {
+				kind: "answer",
+				answers: [
+					{ path: "first/count", value: "2" },
+					{ path: "first/code", value: "ok" },
+					{ path: "first/zone", value: "south" },
+				],
+			},
+		},
+		{ action: { kind: "section", sectionUuid: "second" } },
+		{
+			action: {
+				kind: "answer",
+				answers: [
+					{ path: "second/rounds[0]/assets[0]/note", value: "Checked tank" },
+				],
+			},
+		},
+		{ action: { kind: "language", language: { language: "spa" } } },
+	]);
+	expect(retained).toMatchObject({
+		controls: { submit: "Enviar" },
+		questions: expect.arrayContaining([
+			expect.objectContaining({
+				path: "second/rounds[0]/assets[0]/note",
+				value: "Checked tank",
+			}),
+		]),
+	});
+	expect(
+		await advance([
+			{ action: { kind: "language", language: { language: "fra" } } },
+		]),
+	).toMatchObject({
+		language: {
+			selected: { language: "fra" },
+			runtime: { catalogLanguage: "eng", fallback: true },
+		},
+	});
+	expect(
+		await advance([
+			{ action: { kind: "language", language: { language: "deu" } } },
+		]),
+	).toMatchObject({
+		completed: false,
+		error: "Choose a language configured in this app.",
+	});
+	await advance([{ action: { kind: "finish" } }]);
 });

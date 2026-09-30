@@ -11,7 +11,9 @@ import { readCaseData } from "../engine/caseDataBindingHelpers";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
 import { previewMenuCaseContext } from "../menuProjection";
+import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
+import { AppTestActionError } from "./errors";
 import type { AppTestState } from "./types";
 
 /** Details addresses the selected identity, not its old Results page/filter. */
@@ -21,16 +23,22 @@ export async function appTestDetails(
 	state: AppTestState,
 ) {
 	const screen = state.screen;
-	if (screen.kind !== "details") throw new Error("Open record details first.");
-	const mod = context.doc.modules[screen.moduleUuid];
-	if (!mod.caseType) throw new Error("This menu has no record type.");
+	if (screen.kind !== "details")
+		throw new AppTestActionError("Open record details first.");
+	const mod = projectWorkerModule(
+		context.doc,
+		context.language,
+		screen.moduleUuid,
+	);
+	if (!mod?.caseType)
+		throw new AppTestActionError("This menu has no record type.");
 	const selected = previewMenuCaseContext(
 		context.doc,
 		screen.moduleUuid,
 		state.selections,
 	);
 	if (selected.requiredParentCase)
-		throw new Error("Select the required parent record first.");
+		throw new AppTestActionError("Select the required parent record first.");
 	const result = await readCaseData(context.store, {
 		appId: scope.appId,
 		caseType: mod.caseType,
@@ -58,9 +66,25 @@ export async function appTestDetails(
 				}
 			: undefined,
 	});
+	const project = appTestCellProjector(context, screen.moduleUuid, "detail");
+	return {
+		result,
+		fields: result.kind === "row" ? project(result.row) : [],
+	};
+}
+
+export function appTestCellProjector(
+	context: AppTestContext,
+	moduleUuid: import("@/lib/domain").Uuid,
+	surface: "list" | "detail",
+) {
+	const mod = projectWorkerModule(context.doc, context.language, moduleUuid);
+	if (!mod) throw new AppTestActionError("This menu is unavailable.");
 	const columns = mod.caseListConfig
-		? orderedColumns(mod.caseListConfig, "detail").filter(
-				(column) => column.visibleInDetail !== false,
+		? orderedColumns(mod.caseListConfig, surface).filter((column) =>
+				surface === "list"
+					? column.visibleInList !== false
+					: column.visibleInDetail !== false,
 			)
 		: [];
 	const caseTypes = effectiveCaseTypes(context.doc);
@@ -81,19 +105,17 @@ export async function appTestDetails(
 		projectProse: (template) =>
 			projectProseTemplate(template, context.doc).text,
 	};
-	return {
-		result,
-		fields:
-			result.kind === "row"
-				? columns.map((column) => ({
-						uuid: column.uuid,
-						label: caseColumnLabel(
-							column,
-							display.caseProperties,
-							display.projectProse,
-						),
-						...projectColumnDisplay(column, result.row, display),
-					}))
-				: [],
-	};
+	return (
+		row: import("../engine/caseDataBindingTypes").CaseRowWithCalculated,
+	) =>
+		columns.map((column) => ({
+			uuid: column.uuid,
+			label: caseColumnLabel(
+				column,
+				display.caseProperties,
+				display.projectProse,
+			),
+			format: column.kind,
+			...projectColumnDisplay(column, row, display),
+		}));
 }

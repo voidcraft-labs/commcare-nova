@@ -193,6 +193,7 @@ const RUNTIME_READ_WRITE_TABLES = [
  * receipt row — retention is a future, separately-owned service path. */
 const RUNTIME_APPEND_ONLY_TABLES = [
 	"app_test_steps",
+	"app_test_requests",
 	"app_changes",
 	"design_change_set_requests",
 	"design_change_set_steps",

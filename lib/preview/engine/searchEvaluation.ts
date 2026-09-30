@@ -5,8 +5,11 @@ import {
 	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import type { LanguageTag } from "@/lib/domain/localization";
+import { resolveAppLanguage } from "@/lib/domain/localization";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { automaticallyLaunchesSearch } from "../caseListPhase";
+import { projectWorkerModule } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -34,6 +37,7 @@ import {
 import { commcareSessionXPathInstance } from "./xpathInstances";
 
 export interface SearchEvaluationInput {
+	language?: LanguageTag;
 	moduleUuid: Uuid;
 	/** A previous completed search, including its system-generated values. */
 	submitted?: readonly { name: string; value: string }[];
@@ -53,7 +57,8 @@ export async function evaluateSearchSnapshot(
 	input: SearchEvaluationInput,
 	context: FormEvaluationContext,
 ) {
-	const mod = doc.modules[input.moduleUuid];
+	const language = resolveAppLanguage(doc.localization, input.language);
+	const mod = projectWorkerModule(doc, language, input.moduleUuid);
 	if (!mod) throw new FormEvaluationInputError("Menu not found.");
 	const config = mod.caseListConfig;
 	const inputs = config?.searchInputs ?? [];
@@ -123,6 +128,7 @@ export async function evaluateSearchSnapshot(
 				},
 				{
 					lookupData: lookup,
+					language,
 					evaluateOnDevice: async (source) => {
 						const result = await runtime.request(
 							{

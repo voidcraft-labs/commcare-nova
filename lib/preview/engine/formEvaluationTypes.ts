@@ -32,6 +32,7 @@ export interface FormEvaluationInput {
 
 export interface FormEvaluationEntry {
 	readonly entryKey: string;
+	readonly language?: LanguageTag;
 	readonly checkpoint: import("./formEngine").FormEngineEntryCheckpoint;
 }
 
