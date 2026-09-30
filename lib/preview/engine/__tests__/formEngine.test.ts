@@ -205,6 +205,72 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 }
 
 describe("FormEngine", () => {
+	it.each(["phone", "email"])(
+		"saves only participating ordinary writers after switching to %s",
+		(method) => {
+			const engine = new FormEngine(
+				dTree(
+					[
+						{
+							id: "name",
+							kind: "hidden",
+							calculate: xp("'Contact'"),
+							caseWrite: { caseType: "contact", property: "case_name" },
+						},
+						{ id: "method", kind: "text" },
+						...(["phone", "email"] as const).map((kind) => ({
+							id: `${kind}_group`,
+							kind: "group" as const,
+							relevant: formXp(`#form/method = '${kind}'`),
+							children: [
+								{
+									id: kind,
+									kind: "text" as const,
+									caseWrite: { caseType: "contact", property: kind },
+								},
+							],
+						})),
+						{
+							id: "saved_method",
+							kind: "hidden",
+							calculate: formXp("#form/method"),
+							caseWrite: { caseType: "contact", property: "method" },
+						},
+					],
+					"registration",
+					[
+						{
+							name: "contact",
+							properties: ["phone", "email", "method"].map((name) => ({
+								name,
+								label: proseText(name),
+								data_type: "text" as const,
+							})),
+						},
+					],
+				),
+				"contact",
+			);
+			engine.setValue("/data/method", "phone");
+			engine.setValue("/data/phone_group/phone", "+1 202 555 0101");
+			engine.setValue("/data/method", "email");
+			engine.setValue("/data/email_group/email", "worker@example.org");
+			engine.setValue("/data/method", method);
+			const result = engine.computeSubmissionMutation({ entryKey: ENTRY_KEY });
+			if (result.kind !== "registration")
+				throw new Error("Expected registration");
+			expect(result.primary.properties).toEqual({
+				method,
+				[method]: method === "phone" ? "+1 202 555 0101" : "worker@example.org",
+			});
+			expect(engine.getState("/data/phone_group/phone").value).toBe(
+				"+1 202 555 0101",
+			);
+			expect(engine.getState("/data/email_group/email").value).toBe(
+				"worker@example.org",
+			);
+		},
+	);
 	it.each([false, true])(
 		"retains datetime calculations and defaults with staged worker %s",
 		async (stagedAsync) => {
@@ -3744,7 +3810,7 @@ describe("FormEngine", () => {
 				expect("notes" in mutation.primary.properties).toBe(false);
 			});
 
-			it("includes hidden fields with non-empty values (visibility is NOT consulted)", () => {
+			it("retains excluded answers without writing their custom properties", () => {
 				const input = boundInput([
 					{
 						id: "show",
@@ -3780,8 +3846,8 @@ describe("FormEngine", () => {
 				});
 				expect(mutation.kind).toBe("registration");
 				if (mutation.kind !== "registration") return;
-				// `notes` is hidden but the value is non-empty — it lands.
-				expect(mutation.primary.properties.notes).toBe("secret note");
+				expect(engine.getState("/data/notes").value).toBe("secret note");
+				expect(mutation.primary.properties).not.toHaveProperty("notes");
 			});
 
 			it("rejects a child case whose active case_name writer is blank", () => {

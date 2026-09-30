@@ -143,6 +143,12 @@ export type ModelPricingCard = {
 };
 
 export const MODEL_PRICING: Record<string, ModelPricingCard> = {
+	// Standard processing, verified September 29, 2026:
+	// https://developers.openai.com/api/docs/pricing
+	"gpt-6.1-sol": {
+		short: { input: 2, output: 10, cacheWrite: 2.5, cacheRead: 0.1 },
+		long: { input: 4, output: 15, cacheWrite: 5, cacheRead: 0.2 },
+	},
 	// Standard processing, verified September 22, 2026:
 	// https://developers.openai.com/api/docs/pricing
 	// Applies to newly recorded usage; persisted historical costs are unchanged.

@@ -74,6 +74,7 @@ import {
 } from "@/lib/domain/predicate/errors";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
+import { runtimeMessage } from "../runtimeMessages";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
 import {
@@ -2083,6 +2084,10 @@ export class FormEngine {
 				const isPrimary = bucket.kind === "primary";
 				const repeatInstanceKey = activeRepeat?.instanceKey ?? "";
 				const raw = this.instance.get(fieldPath);
+				// Relevance controls participation for every ordinary destination.
+				// Retained answers remain in the entry for a later change of mind,
+				// but must not become saved custom properties while excluded.
+				if (raw === undefined || !effectivelyVisible.has(fieldPath)) continue;
 
 				if (
 					writer.property === "case_name" ||
@@ -2092,7 +2097,6 @@ export class FormEngine {
 					// several-case form, a blank PRIMARY answer also means no write:
 					// one shared blank must not erase a value across every selected
 					// case. One-case external-id keeps its explicit-clear behavior.
-					if (raw === undefined || !effectivelyVisible.has(fieldPath)) continue;
 					const omitBlankPrimary =
 						isPrimary && this.caseSelectionCardinality === "multiple";
 					const blank =
@@ -2123,7 +2127,7 @@ export class FormEngine {
 					continue;
 				}
 
-				if (raw === undefined || raw === "") continue;
+				if (raw === "") continue;
 
 				const property = caseTypeLookup
 					.get(writer.caseType)
@@ -3408,11 +3412,15 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
 		if (state.required && !state.value) {
-			if (state.valid || state.errorMessage !== "This field is required") {
+			const requiredMessage = runtimeMessage(
+				this.presentationLanguage,
+				"required",
+			);
+			if (state.valid || state.errorMessage !== requiredMessage) {
 				updates[path] = {
 					...state,
 					valid: false,
-					errorMessage: "This field is required",
+					errorMessage: requiredMessage,
 				};
 			}
 			return;
@@ -3458,7 +3466,7 @@ export class FormEngine {
 							async (source) =>
 								xpathToString(await evaluateAsync(source, path)),
 						)) ?? expressionSource(field, "validate_msg", this.printDoc))
-					: undefined) ?? "Invalid value");
+					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
 		}
@@ -3470,11 +3478,15 @@ export class FormEngine {
 		updates: EngineStoreState,
 	): void {
 		if (state.required && !state.value) {
-			if (state.valid || state.errorMessage !== "This field is required") {
+			const requiredMessage = runtimeMessage(
+				this.presentationLanguage,
+				"required",
+			);
+			if (state.valid || state.errorMessage !== requiredMessage) {
 				updates[path] = {
 					...state,
 					valid: false,
-					errorMessage: "This field is required",
+					errorMessage: requiredMessage,
 				};
 			}
 			return;
@@ -3517,7 +3529,7 @@ export class FormEngine {
 							this.printDoc,
 							(source) => xpathToString(evaluate(source, ctx)),
 						) ?? expressionSource(field, "validate_msg", this.printDoc))
-					: undefined) ?? "Invalid value");
+					: undefined) ?? runtimeMessage(this.presentationLanguage, "invalid"));
 
 		if (valid !== state.valid || errorMessage !== state.errorMessage) {
 			updates[path] = { ...state, valid, errorMessage };
@@ -3533,7 +3545,7 @@ export class FormEngine {
 		if (value === "") return undefined;
 		const kind = this.findField(path)?.kind;
 		if (kind === "int" || kind === "decimal") {
-			const parsed = readNumericAnswer(kind, value);
+			const parsed = readNumericAnswer(kind, value, this.presentationLanguage);
 			return parsed.ok ? undefined : parsed.error;
 		}
 		if (kind !== "date" && kind !== "time" && kind !== "datetime") {
@@ -3542,11 +3554,11 @@ export class FormEngine {
 		if (isReadableTemporalValue(kind, value)) return undefined;
 		switch (kind) {
 			case "date":
-				return `“${value}” isn't a date. Pick one from the calendar.`;
+				return runtimeMessage(this.presentationLanguage, "date", { value });
 			case "time":
-				return clockShapeMessage(value);
+				return clockShapeMessage(value, this.presentationLanguage);
 			case "datetime":
-				return datetimeShapeMessage(value);
+				return datetimeShapeMessage(value, this.presentationLanguage);
 		}
 	}
 
@@ -4520,8 +4532,8 @@ interface ChildBucket {
  * carries the reasoning and the CommCare citations.
  */
 /** The one sentence a clock that isn't a clock gets, wherever it appears. */
-function clockShapeMessage(clock: string): string {
-	return `“${clock}” isn't a time yet. Enter a clock time like 2:30 PM.`;
+function clockShapeMessage(clock: string, language?: LanguageTag): string {
+	return runtimeMessage(language, "time", { value: clock });
 }
 
 /**
@@ -4533,31 +4545,32 @@ function clockShapeMessage(clock: string): string {
  * (`T09:15:00.000-04:00`) in front of them — internal punctuation they
  * never typed, about a field they can see is simply missing its date.
  */
-function datetimeShapeMessage(value: string): string {
+function datetimeShapeMessage(value: string, language?: LanguageTag): string {
 	const separator = value.indexOf("T");
 	const datePart = separator === -1 ? value : value.slice(0, separator);
 	const clock = separator === -1 ? "" : value.slice(separator + 1);
 	if (clock !== "" && !isReadableTemporalValue("time", clock)) {
-		return clockShapeMessage(clock);
+		return clockShapeMessage(clock, language);
 	}
-	if (clock === "") return "Enter a clock time: this question needs both.";
-	if (datePart === "") return "Pick a date: this question needs both.";
-	return `“${value}” isn't a date and time.`;
+	if (clock === "") return runtimeMessage(language, "missingTime");
+	if (datePart === "") return runtimeMessage(language, "missingDate");
+	return runtimeMessage(language, "dateTime", { value });
 }
 
 /** Numeric answers use decimal text, never JavaScript's prefix parsing. */
 function readNumericAnswer(
 	kind: "int" | "decimal",
 	raw: string,
+	language?: LanguageTag,
 ): { ok: true; value: number } | { ok: false; error: string } {
 	if (kind === "int" && !/^[+-]?\d+$/.test(raw)) {
-		return { ok: false, error: "This question needs a whole number." };
+		return { ok: false, error: runtimeMessage(language, "wholeNumber") };
 	}
 	if (
 		kind === "decimal" &&
 		!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw)
 	) {
-		return { ok: false, error: "This question needs a number." };
+		return { ok: false, error: runtimeMessage(language, "number") };
 	}
 	const value = Number(raw);
 	// IntegerData.cast reads a signed 32-bit integer on CommCare devices.
@@ -4567,11 +4580,11 @@ function readNumericAnswer(
 	) {
 		return {
 			ok: false,
-			error: "The number needs to be between -2,147,483,648 and 2,147,483,647.",
+			error: runtimeMessage(language, "integerRange"),
 		};
 	}
 	if (!Number.isFinite(value)) {
-		return { ok: false, error: "The number is too large to save." };
+		return { ok: false, error: runtimeMessage(language, "numberTooLarge") };
 	}
 	return { ok: true, value: value === 0 ? 0 : value };
 }

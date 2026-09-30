@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getSession } from "@/lib/auth-utils";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { listAppTests, readAppTestSteps } from "@/lib/db/appTests";
+import { type AppTestReadWindow, appTestReadWindowSchema } from "./evidence";
 
 async function scope(appId: string) {
 	z.string().min(1).max(255).parse(appId);
@@ -17,7 +18,15 @@ export async function listAppTestsAction(appId: string) {
 	return listAppTests(await scope(appId));
 }
 
-export async function readAppTestAction(appId: string, testId: string) {
+export async function readAppTestAction(
+	appId: string,
+	testId: string,
+	window: AppTestReadWindow = {},
+) {
 	z.uuid().parse(testId);
-	return readAppTestSteps({ ...(await scope(appId)), testId });
+	return readAppTestSteps({
+		...(await scope(appId)),
+		testId,
+		...appTestReadWindowSchema.parse(window),
+	});
 }

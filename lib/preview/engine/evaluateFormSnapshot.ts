@@ -81,6 +81,14 @@ export async function evaluateFormSnapshot(
 		context.cases,
 		{
 			stagedAsync: true,
+			...(context.entry && context.entry.language !== engineInput.language
+				? {
+						restoredEntry: {
+							checkpoint: context.entry.checkpoint,
+							preserveAllValues: true,
+						},
+					}
+				: {}),
 			searchAnswers: searchInputInstanceValues(
 				module.caseListConfig?.searchInputs ?? [],
 				new Map(
@@ -136,7 +144,8 @@ export async function evaluateFormSnapshot(
 	const fieldAt = (path: string) =>
 		fieldsByPath.get(path.replace(/\[\d+\]/g, ""));
 	try {
-		if (context.entry) engine.restoreEntryCheckpoint(context.entry.checkpoint);
+		if (context.entry && context.entry.language === engineInput.language)
+			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
 		if (input.sectionUuid) {
 			const pages = availablePages(engine.sectionPages());
@@ -315,7 +324,13 @@ export async function evaluateFormSnapshot(
 		);
 		return {
 			...(context.captureEntry
-				? { entry: { entryKey, checkpoint: engine.entryCheckpoint() } }
+				? {
+						entry: {
+							entryKey,
+							language: engineInput.language,
+							checkpoint: engine.entryCheckpoint(),
+						},
+					}
 				: {}),
 			valid,
 			fields,

@@ -1,7 +1,9 @@
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 /** Shared Solutions Architect / MCP language and translation tools. */
 
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type AppLanguageIdentity,
@@ -876,7 +878,12 @@ export const updateTranslationsTool = {
 				}
 				switch (update.operation) {
 					case "set": {
-						if (unit.sourceFingerprint !== update.expectedSourceFingerprint) {
+						if (
+							!translationSourceFingerprintsEqual(
+								unit.sourceFingerprint,
+								update.expectedSourceFingerprint,
+							)
+						) {
 							return mutationError(
 								`Translation unit ${unit.id} source content changed after it was read. Re-read getTranslatableContent before translating it.`,
 							);
@@ -927,11 +934,16 @@ export const updateTranslationsTool = {
 					case "review": {
 						const entry = entries[unit.id];
 						if (
-							unit.sourceFingerprint !==
-								update.expectedCurrentSourceFingerprint ||
+							!translationSourceFingerprintsEqual(
+								unit.sourceFingerprint,
+								update.expectedCurrentSourceFingerprint,
+							) ||
 							entry === undefined ||
-							entry.sourceFingerprint !== update.expectedSourceFingerprint ||
-							!exactJsonEqual(entry.value, update.expectedValue)
+							!translationSourceFingerprintsEqual(
+								entry.sourceFingerprint,
+								update.expectedSourceFingerprint,
+							) ||
+							!deepEqual(entry.value, update.expectedValue)
 						) {
 							return mutationError(
 								`Translation unit ${unit.id} or its source content changed after it was read. Re-read getTranslatableContent before reviewing it.`,

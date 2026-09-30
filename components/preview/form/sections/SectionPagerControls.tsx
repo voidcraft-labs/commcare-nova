@@ -11,10 +11,14 @@
  * with more pages than fit scrolls sideways.
  */
 "use client";
-import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/domain";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { selectableSegmentCls } from "@/lib/styles";
 import { sectionKicker } from "./SectionHeading";
 import type { SectionPaging } from "./useSectionPaging";
@@ -44,6 +48,7 @@ function SectionStep({
 	readonly disabled: boolean;
 	readonly onSelect: () => void;
 }) {
+	const { language } = useBuilderLanguage();
 	const title = useSectionTitle(uuid);
 	return (
 		<button
@@ -59,7 +64,7 @@ function SectionStep({
 			>
 				{index + 1}
 			</span>
-			<span className="sr-only">{sectionKicker(index, count)}</span>
+			<span className="sr-only">{sectionKicker(index, count, language)}</span>
 			{title !== undefined ? <span>{title}</span> : null}
 		</button>
 	);
@@ -74,8 +79,9 @@ function TurnAnnouncement({
 	readonly index: number;
 	readonly count: number;
 }) {
+	const { language } = useBuilderLanguage();
 	const title = useSectionTitle(uuid);
-	const kicker = sectionKicker(index, count);
+	const kicker = sectionKicker(index, count, language);
 	return <>{title === undefined ? kicker : `${kicker}: ${title}`}</>;
 }
 
@@ -88,12 +94,16 @@ export function SectionStepper({
 	 *  they are until the answer surface is live again. */
 	readonly disabled?: boolean;
 }) {
+	const { language } = useBuilderLanguage();
 	const announcedIndex =
 		paging.announced === null
 			? -1
 			: paging.pages.findIndex((page) => page.uuid === paging.announced?.uuid);
 	return (
-		<nav aria-label="Sections" className="px-6 pt-3">
+		<nav
+			aria-label={runtimeMessage(language, "sections")}
+			className="px-6 pt-3"
+		>
 			<ol className="flex gap-1 overflow-x-auto">
 				{paging.pages.map((page, index) => (
 					<li key={page.uuid} className="shrink-0">

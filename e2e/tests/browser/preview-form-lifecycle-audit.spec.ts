@@ -364,3 +364,90 @@ test("an earlier-page count grows repeats and lowering it retains answers", asyn
 		}
 	}
 });
+
+for (const sectioned of [false, true]) {
+	test(`worker language localizes ${sectioned ? "Next" : "Submit"} validation refusal and preserves answers`, async ({
+		page,
+	}) => {
+		const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+		const peer = await componentPeer(
+			"e2e/lib/preview-form-lifecycle-client.tsx",
+			[],
+			{
+				"@/lib/preview/engine/caseDataBinding": boundary,
+				"@/lib/preview/engine/lookupDataBinding": boundary,
+				"@/lib/preview/entryPointLaunchAction": boundary,
+				"@/lib/auth/hooks/useAuth": boundary,
+				"@/lib/lookup/actions": boundary,
+			},
+		);
+		const submissions: unknown[] = [];
+		await page.route(`${peer.origin}/submission`, async (route) => {
+			submissions.push(route.request().postDataJSON());
+			await route.fulfill({
+				json: { kind: "error", message: "Unexpected submission" },
+			});
+		});
+		try {
+			await page.goto(`${peer.origin}/${sectioned ? "?sections" : ""}`);
+			const answer = page.getByRole("textbox", {
+				name: sectioned ? /Area/ : /Question 1.*Name/,
+			});
+			await expect(answer).toBeVisible();
+			await page
+				.getByRole("button", { name: "Worker language: English" })
+				.click();
+			await page
+				.getByRole("menuitemradio", { name: "Español", exact: true })
+				.click();
+			await answer.fill("");
+			await page
+				.getByRole("button", {
+					name: sectioned ? "Siguiente" : "Enviar",
+					exact: true,
+				})
+				.click();
+			await expect(page.getByRole("alert")).toHaveText(
+				"Revise la pregunta resaltada.",
+			);
+			await expect(answer).toBeFocused();
+			await expect(
+				page.getByText("Este campo es obligatorio", { exact: true }),
+			).toBeVisible();
+			expect(submissions).toHaveLength(0);
+			await answer.fill("Retained answer");
+			await page
+				.getByRole("button", { name: "Worker language: Spanish" })
+				.click();
+			await page
+				.getByRole("menuitemradio", { name: "English", exact: true })
+				.click();
+			await expect(answer).toHaveValue("Retained answer");
+			await answer.fill("");
+			await page
+				.getByRole("button", {
+					name: sectioned ? "Next" : "Submit",
+					exact: true,
+				})
+				.click();
+			await expect(page.getByRole("alert")).toHaveText(
+				"Review the highlighted question.",
+			);
+			await expect(answer).toBeFocused();
+			await expect(
+				page.getByText("This field is required", { exact: true }),
+			).toBeVisible();
+			expect(submissions).toHaveLength(0);
+		} finally {
+			try {
+				if (!page.isClosed())
+					await page.evaluate(() =>
+						window.previewFormLifecycleAudit?.dispose(),
+					);
+			} finally {
+				await page.close();
+				await peer.close();
+			}
+		}
+	});
+}

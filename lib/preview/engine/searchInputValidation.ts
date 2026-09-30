@@ -39,6 +39,7 @@ const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 };
 
 interface RuntimeValidationOptions {
+	language?: import("@/lib/domain/localization").LanguageTag;
 	/**
 	 * Validate only rejection conditions that do not read authenticated
 	 * session data. Server actions use this pass before opening an authorized

@@ -11,6 +11,7 @@ import {
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
+import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
 import type { AppTestState } from "./types";
 
@@ -25,11 +26,14 @@ export async function submitAppTest(
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "form" || !screen.entry)
-		throw new Error("Open and answer a form before submitting it.");
+		throw new AppTestActionError(
+			"Open and answer a form before submitting it.",
+		);
 	const evaluated = await evaluateForm(
 		context.doc,
 		{
 			formUuid: screen.formUuid,
+			language: context.language,
 			caseIds: screen.caseIds,
 			answers: [],
 			searchAnswers: screen.searchAnswers,
@@ -52,7 +56,7 @@ export async function submitAppTest(
 	const mutation = evaluated.submission;
 	const projection = validateCaptureSubmissionProjection(mutation);
 	if (projection.attachmentRefs.length > 0)
-		throw new Error(
+		throw new AppTestActionError(
 			"Media capture needs a check in the running app. This test cannot submit attachment bytes.",
 		);
 	const built = await buildSubmissionOperationProgram({
@@ -135,7 +139,7 @@ export async function submitAppTest(
 		};
 		switch (next.route.kind) {
 			case "unresolvable":
-				throw new Error(next.route.reason);
+				throw new AppTestActionError(next.route.reason);
 			case "post-submit":
 				if (next.route.destination === "app_home")
 					nextState = { ...nextState, screen: { kind: "home" }, history: [] };
@@ -206,6 +210,7 @@ export async function submitAppTest(
 			validation: undefined,
 		};
 	} catch (error) {
+		if (!expectedAppTestRefusal(error)) throw error;
 		// Production saves first and reports a next-screen failure afterward.
 		// Preserve that distinction rather than rolling back a successful save.
 		return {

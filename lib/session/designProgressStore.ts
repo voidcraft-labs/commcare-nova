@@ -140,6 +140,7 @@ export function deriveDesignStage(
 ): DesignBuildStage | null {
 	if (!state.designSessionId) return null;
 	if (state.failure) return state.failure.recoverable ? "incomplete" : "failed";
+	if (state.stage === "review-paused") return "review-paused";
 	if (state.awaitingInput) return "needs-input";
 	return state.stage ?? "planning";
 }

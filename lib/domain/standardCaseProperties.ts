@@ -1,8 +1,8 @@
 // lib/domain/standardCaseProperties.ts
 //
 // The CommCare standard case properties — the closed set every case
-// carries implicitly (`case_name`, `date_opened`, …) with the wire-form
-// data type each one reads as. The blueprint's declared
+// carries implicitly (`case_name`, `date_opened`, …) with each stored property
+// type. Device XPath can expose a narrower value. The blueprint's declared
 // `caseTypes[].properties[]` need not list these; they exist on every
 // case regardless of what forms write. A declared entry may remain to
 // carry catalog metadata/order, but storage projections always route
@@ -16,8 +16,10 @@
 // properties. `lib/commcare/constants.ts` re-exports the three
 // symbols so wire-side consumers keep their import path.
 //
-// Type assignments follow the wire-form contracts in CommCare HQ's
-// detail screen + case search layers:
+// Type assignments describe stored values and server search. Core exposes
+// date_opened / last_modified as DateData in its case instance, so portable
+// form and detail expressions read calendar dates instead of these instants.
+// Other values follow the detail screen + case search contracts:
 //
 //   - `date_opened` / `last_modified` — datetime
 //     timestamps; emitted into `<sort type="...">` blocks as date-
@@ -39,10 +41,8 @@
 import type { CasePropertyDataType } from "./casePropertyTypes";
 
 /**
- * Implicit `data_type` for each standard case-list property — every
- * member of `STANDARD_CASE_LIST_PROPERTIES` carries a known wire-form
- * type that CommCare's runtime comparator and search-input emitter
- * read against.
+ * Stored `data_type` for each standard case property. Device case-instance
+ * reads use `isCalendarCaseProperty` to identify narrower calendar values.
  */
 export const STANDARD_CASE_LIST_PROPERTY_DATA_TYPES = {
 	case_id: "text",
@@ -72,9 +72,9 @@ export const STANDARD_CASE_PROPERTY_DESCRIPTIONS = {
 		"The record's stable, read-only identity. Use it to reference an existing record, including through a saved relationship. It is not a name or an identifier workers should have to type.",
 	case_name: "The record's display name.",
 	date_opened:
-		"When the record was opened. Ordinary later edits preserve this timestamp. Form expressions read its calendar date, matching the device; the stored value retains its time.",
+		"When the record was opened. Ordinary later edits preserve this timestamp. Forms and Results or Details columns read its calendar date, matching the device; the stored value retains its time. An event whose time of day must be visible needs its own saved datetime value.",
 	last_modified:
-		"The latest case modification timestamp, not the time it reached the server. Form expressions read its calendar date, matching the device. Later edits replace it; an approval or other business event that must survive edits needs its own saved value.",
+		"The latest case modification timestamp, not the time it reached the server. Forms and Results or Details columns read its calendar date, matching the device. Later edits replace it; an approval or other business event that must retain its time of day or survive edits needs its own saved datetime value.",
 	owner_id:
 		"The worker or case-sharing group that owns the record; a place can supply that group. Ownership and record relationships determine which workers sync the record. This is not its creator or latest editor, nor permission to access a Nova Project.",
 	external_id: "An external identifier for the record, when one is assigned.",
@@ -238,4 +238,9 @@ export function isWritableStandardCaseProperty(
 	property: string,
 ): property is "case_name" | "external_id" {
 	return WRITABLE_STANDARD_CASE_PROPERTIES.has(property);
+}
+
+/** Core exposes these stored instants as calendar-only DateData in casedb. */
+export function isCalendarCaseProperty(name: string): boolean {
+	return name === "date_opened" || name === "last_modified";
 }

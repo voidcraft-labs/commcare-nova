@@ -55,8 +55,11 @@ staging eligibility, and external capabilities. Availability comes from those
 declarations and the current role, not a prompt prohibition. Once construction
 begins, its shared catalog remains stable across first save. Resource and journey
 operations are discoverable before birth but refuse with a save-first prerequisite
-at invocation; they cannot touch external state without a saved app. Project lookup
-authoring retains its existing pre-app boundary. Planning
+at invocation; they cannot touch external state without a saved app.
+Journey-history reads are also safe before birth: they return an ordinary
+prerequisite refusal, so a persisted pending read can settle on recovery.
+After birth, reading retained history remains available with private edits pending.
+Project lookup authoring retains its existing pre-app boundary. Planning
 and peer review cannot mutate app or Project data. The `exercise-app` effect
 permits disposable journey tests of a saved app, including during app review;
 it is forbidden in staging and never counts as an app change. Each action
@@ -180,3 +183,11 @@ raw tool errors or ask the user to interpret internal identifiers.
 tool error pauses a run for user input; invalid calls remain SDK errors that the
 agent can repair. An empty question round is never a completion signal, and a
 historical empty card must leave the ordinary composer available.
+
+Peer review closing is runtime state, never a parsed model verdict. The durable
+80-request allowance includes two closing requests with fixed tools and
+`toolChoice: none`; one tail notice follows 64 starts. Forced closing pauses
+with a retained checkpoint even if its prose is optimistic. An ordinary new
+user turn can create one deterministic successor bound to current revisions;
+reconnect/holder replacement cannot. See `docs/architecture/agent-authoring.md`
+for lineage, immutable original-call receipts and the diagnostic evaluator policy.

@@ -50,7 +50,7 @@ import { ContentFrame } from "@/components/builder/ContentFrame";
 import { renderColumnCell } from "@/components/builder/case-list-config/columnCellRenderer";
 import { summarizeFilter } from "@/components/builder/case-list-config/predicateSummary";
 import {
-	useLocalizedModule,
+	useBuilderLanguage,
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
@@ -90,6 +90,7 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
+import { useWorkerModule } from "@/lib/doc/hooks/useWorkerModule";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	CASE_LOADING_FORM_TYPES,
@@ -176,6 +177,7 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
+
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
@@ -201,6 +203,7 @@ import {
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import { WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -311,7 +314,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
-	const mod = useLocalizedModule(moduleUuid);
+	const language = useBuilderLanguage();
+	const mod = useWorkerModule(language.language, moduleUuid);
 	const menuCaseContext = useMemo(
 		() =>
 			moduleUuid
@@ -1768,7 +1772,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				Back to results
+				<WorkerText message="backToResults" />
 			</Button>
 			<h1
 				data-case-detail-title
@@ -1812,7 +1816,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					onClick={() => proceedWithCase(displayedOpenCase)}
 					className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 				>
-					Continue
+					<WorkerText message="continue" />
 					<Icon icon={tablerArrowRight} width="15" height="15" />
 				</Button>
 			)}
@@ -1830,7 +1834,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
-					Back to results
+					<WorkerText message="backToResults" />
 				</Button>
 				{routeCaseState.kind === "missing" ? (
 					<CaseListEmptyNotice
@@ -1902,7 +1906,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				{displayedOpenCase !== null ? "Back" : "Back to results"}
+				<WorkerText
+					message={displayedOpenCase !== null ? "back" : "backToResults"}
+				/>
 			</Button>
 			<h1
 				data-form-menu-case-title
@@ -1990,7 +1996,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 			>
 				<Icon icon={tablerChevronLeft} width="15" height="15" />
-				Back to results
+				<WorkerText message="backToResults" />
 			</Button>
 			<h1 className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]">
 				{selectedChoices.length} cases selected
@@ -2274,7 +2280,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
 					<Icon icon={tablerChevronLeft} width="15" height="15" />
-					Back
+					<WorkerText message="back" />
 				</Button>
 			)}
 			<div
@@ -2634,7 +2640,7 @@ function MultiSelectionTray({
 						onClick={() => void onContinue()}
 						className="bg-pv-accent text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
 					>
-						{validating ? "Checking cases" : "Continue"}
+						<WorkerText message={validating ? "checkingCases" : "continue"} />
 					</Button>
 				</div>
 				{blocker !== undefined && (
@@ -2688,7 +2694,7 @@ function MultiSelectionTray({
 							variant="outline"
 							onClick={() => onReviewOpenChange(false)}
 						>
-							Back to results
+							<WorkerText message="backToResults" />
 						</Button>
 					</DialogFooter>
 				</DialogContent>

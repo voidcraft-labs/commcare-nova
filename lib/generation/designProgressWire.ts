@@ -8,6 +8,7 @@ export const DESIGN_BUILD_STAGES = [
 	"reviewing-app",
 	"ready",
 	"needs-input",
+	"review-paused",
 	"incomplete",
 	"failed",
 ] as const;
@@ -19,6 +20,7 @@ const STAGE_LABELS: Record<DesignBuildStage, string> = {
 	"reviewing-app": "Reviewing your app",
 	ready: "Your app is ready",
 	"needs-input": "Waiting for your reply",
+	"review-paused": "Review paused with work remaining",
 	incomplete: "Stopped before it finished",
 	failed: "Couldn't finish your app",
 };
@@ -26,7 +28,13 @@ export function designStageLabel(stage: DesignBuildStage) {
 	return STAGE_LABELS[stage];
 }
 export function designStageIsWorking(stage: DesignBuildStage) {
-	return !["ready", "needs-input", "incomplete", "failed"].includes(stage);
+	return ![
+		"ready",
+		"needs-input",
+		"review-paused",
+		"incomplete",
+		"failed",
+	].includes(stage);
 }
 export const appPlanProjectionSchema = z.object({
 	revision: z.number().int().positive(),

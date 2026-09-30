@@ -68,8 +68,13 @@ later same-value occurrences add their stable same-value ordinal so no legal
 label silently aliases the first occurrence.
 Builder, tools, Preview, translation orchestration, and wire emission resolve
 language values through `resolveTranslationUnit(s)` rather than independently
-walking labels. Each target entry fingerprints the current source. Missing and
-out-of-date entries fall back to the canonical source; an out-of-date explicit
+walking labels. Each target entry fingerprints the current source.
+Source fingerprints serialize schema-canonical values. Semantic comparisons
+accept equivalent legacy `source-v1` JSON key orders after strict kind/value
+validation; malformed fingerprints never match. Text, reference identity and
+prose order remain significant. This leaves stored translations and review state
+intact without relaxing request, revision or receipt digests.
+Missing and out-of-date entries fall back to the canonical source; an out-of-date explicit
 value remains stored for review but is never emitted as current. Prose
 translations may reorder literal text and reference parts, but must preserve the
 exact multiset and identity of every protected reference part. A source edit
@@ -247,6 +252,14 @@ Naive datetime answers use compatible instant disambiguation: a repeated local c
 The canonicalizers are TOTAL, and that is the reason a shape check is a separate export. Text the grammar cannot read comes back untouched — so `canonicalizer(v) === v` is true of `"sometime tuesday"` and is NOT a validity test. `isReadableTemporalValue(kind, value)` checks shape readability; `storedWallClock` separately recognizes a stored clock for display formatting. Neither proves calendar conformance, which remains the storage schema's responsibility. The grammar is range-bound for the same reason: an hour like `99:00` is text it cannot read, never a clock it pads into the canonical-LOOKING `99:00:00.000Z` that no schema accepts. Offsets normalize to RFC 3339's `±HH:MM`; imported ISO spellings such as `-05` and `-0530` are normalized before storage.
 
 Standard metadata has ONE Nova authoring name. `case_name`, `external_id`, and `date_opened` are the only accepted spellings; CCHQ's alternate detail names are rejected at every live schema and writer boundary, and only the frozen one-off migration recognizes historical bytes. `status` is the built-in open/closed case lifecycle value; the Predicate type checker rejects any direct literal comparison or membership value outside `open` / `closed`, while app-specific lifecycle words belong in a separate property. `current_status` is not its alias — CommCare Core treats that as an old fallback for the separate `state` data property, so Nova only shows it when an app explicitly declares it.
+
+`date_opened` and `last_modified` retain datetime storage and server-search
+semantics. Native casedb exposes them as calendar-only DateData, so form and
+Results/Details reads use the worker's calendar date. `isCalendarCaseProperty`
+identifies this narrower read contract without changing the stored catalog.
+`resolveCaseListTemporalType` preserves authored type admission and infers the
+portable result through value branches; mixed date/datetime results retain their
+authored datetime type. Custom event datetime properties retain clock values.
 
 ## Field identity, form paths, and case storage
 

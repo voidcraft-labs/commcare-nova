@@ -27,6 +27,7 @@
  */
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { Uuid } from "@/lib/domain";
 import type {
 	InvalidFieldTarget,
@@ -40,6 +41,7 @@ import {
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
 import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	useActiveSection,
 	useGetActiveSection,
@@ -83,8 +85,6 @@ export interface SectionPaging {
 	readonly takeFocusOnMount: () => boolean;
 }
 
-const REFUSAL = "Review the highlighted question.";
-
 export function useSectionPaging({
 	formUuid,
 	enabled,
@@ -92,6 +92,7 @@ export function useSectionPaging({
 	refuse,
 }: SectionPagingArgs): SectionPaging {
 	const controller = useEngineController();
+	const { language } = useBuilderLanguage();
 	const allPages = useSectionPages();
 	/* The engine is one per builder session and activates a form after its
 	 * screen mounts, so `enabled` alone would page this form with another
@@ -184,12 +185,12 @@ export function useSectionPaging({
 			const target = controller.firstInvalidFieldTarget({
 				withinSection: page.uuid,
 			});
-			refuse(REFUSAL);
+			refuse(runtimeMessage(language, "reviewHighlightedQuestion"));
 			if (page.uuid !== current?.uuid) showPage(page.uuid);
 			if (target !== undefined) revealInvalid(target);
 			return false;
 		},
-		[controller, current?.uuid, refuse, revealInvalid, showPage],
+		[controller, current?.uuid, language, refuse, revealInvalid, showPage],
 	);
 
 	const goNext = useCallback(async () => {

@@ -13,6 +13,7 @@ import {
 	mapCasePropertiesInXPath,
 	materializableCaseTypes,
 } from "@/lib/domain";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 import {
 	rewriteFieldReferenceSlots,
 	rewriteFormReferenceSlots,
@@ -272,7 +273,10 @@ export function rewriteCasePropertyCarriers(
 				const newUnit = translationUnitsAfter.get(newUnitId);
 				if (
 					newUnit !== undefined &&
-					entry.sourceFingerprint === oldUnit.sourceFingerprint
+					translationSourceFingerprintsEqual(
+						entry.sourceFingerprint,
+						oldUnit.sourceFingerprint,
+					)
 				) {
 					entry.sourceFingerprint = newUnit.sourceFingerprint;
 				}

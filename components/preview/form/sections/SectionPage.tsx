@@ -15,7 +15,10 @@
 "use client";
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useEffect, useId, useRef } from "react";
-import { useLocalizedField } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import { fpath } from "@/lib/doc/fieldPath";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import type { SectionPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
@@ -40,6 +43,7 @@ export function SectionPage({
 	count,
 	takeFocusOnMount,
 }: SectionPageProps) {
+	const { language } = useBuilderLanguage();
 	const field = useLocalizedField(page.uuid);
 	const state = useEngineState(page.uuid);
 	const headingId = useId();
@@ -75,6 +79,7 @@ export function SectionPage({
 			>
 				<div className="px-3">
 					<SectionHeading
+						language={language}
 						as="h2"
 						id={headingId}
 						tabIndex={-1}
@@ -94,7 +99,9 @@ export function SectionPage({
 								/* An untitled page shows only its kicker, the way the
 								 * device shows an untitled field-list; the heading still
 								 * needs a name, so the kicker is the name. */
-								<span className="sr-only">{sectionKicker(index, count)}</span>
+								<span className="sr-only">
+									{sectionKicker(index, count, language)}
+								</span>
 							)
 						}
 					/>

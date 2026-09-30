@@ -959,6 +959,23 @@ describe("database privilege convergence", () => {
 				},
 			});
 
+			await asRole(h.db, config.runtimeRole, async (tx) => {
+				// Exercise the new receipt INSERT/SELECT and additive review columns
+				// under the actual converged runtime role, without synthetic grants.
+				await sql`INSERT INTO public.app_test_requests(test_id, request_id, request_digest, response)
+				 SELECT id, 'grant-probe', 'digest', '{}'::jsonb FROM public.app_test_sessions WHERE false`.execute(
+					tx,
+				);
+				await sql`SELECT response FROM public.app_test_requests WHERE false`.execute(
+					tx,
+				);
+				await sql`UPDATE public.authoring_reviews SET issuing_turn_id = 'turn', paused_at = now(), checkpoint_summary = 'unfinished', summary_available = false WHERE false`.execute(
+					tx,
+				);
+				await sql`SELECT predecessor_review_id, checkpoint_context_id FROM public.authoring_reviews WHERE false`.execute(
+					tx,
+				);
+			});
 			const appTestId = crypto.randomUUID();
 			await asRole(h.db, config.runtimeRole, async (tx) => {
 				const testId = appTestId;
@@ -980,8 +997,8 @@ describe("database privilege convergence", () => {
 					case_name: string;
 				}>`SELECT case_name FROM ${sql.id(namespace, "cases")}`.execute(tx);
 				expect(isolated.rows).toEqual([{ case_name: "Pump" }]);
-			});
-			await asRole(h.db, config.runtimeRole, async (tx) => {
+				// Disposal in the inserting transaction must flush only its
+				// namespace's deferred FK events under the converged runtime role.
 				await sql`SELECT public.nova_drop_app_test_namespace(${appTestId}::uuid)`.execute(
 					tx,
 				);

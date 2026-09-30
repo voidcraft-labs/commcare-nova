@@ -3,6 +3,7 @@ import "dotenv/config";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import type { UIMessageChunk } from "ai";
 import { Command } from "commander";
 import { z } from "zod";
 import { readDesignSession } from "@/lib/agent/anatomy/recorded";
@@ -37,6 +38,7 @@ import {
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { insertReadyAsset } from "@/lib/db/mediaAssets";
 import { getAppDb } from "@/lib/db/pg";
+import { upsertThreadTurn } from "@/lib/db/threads";
 import { UsageAccumulator } from "@/lib/db/usage";
 import { asMediaAssetId, gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { MODEL_ROLES } from "@/lib/models";
@@ -53,11 +55,23 @@ import {
 	standardPilotTransport,
 	withPilotLedger,
 } from "./lib/authoringPilotLedger";
-
+import {
+	loadTrialConfig,
+	type TrialRole,
+	trialCodeIdentity,
+	verifyTrialResume,
+	verifyTrialWire,
+} from "./lib/authoringTrialConfig";
 import {
 	priorTrialRuns,
 	remainingTrialBudget,
 } from "./lib/authoringTrialHistory";
+import { persistArchitectTrialResponse } from "./lib/authoringTrialThread";
+import {
+	answerTrialQuestion,
+	foldTrialChunks,
+	trialConversationWithResponse,
+} from "./lib/authoringTrialTranscript";
 
 const options = new Command()
 	.description(
@@ -76,6 +90,10 @@ const options = new Command()
 		"ordinary answers to the prior pending question card",
 	)
 	.option("--feedback <file>", "independent observations to add when resuming")
+	.option(
+		"--trial-config <file>",
+		"Expected roles, bounded runtime, and review policy",
+	)
 	.option("--confirm-paid", "authorize this bounded trial")
 	.option(
 		"--dry-run",
@@ -90,16 +108,23 @@ const options = new Command()
 		feedback?: string;
 		answers?: string;
 		document?: string;
+		trialConfig?: string;
 		confirmPaid?: boolean;
 		dryRun?: boolean;
 	}>();
-const MAX_REQUESTS = 400;
 // Preserve the models' output capacity, including reasoning. Explicit production
 // limits (for example translation's 32k) pass through unchanged.
 const MAX_OUTPUT_TOKENS = 128_000;
 const TRIAL_CEILING_USD = 30;
 
 async function main() {
+	const config = await loadTrialConfig(options.trialConfig, "architect");
+	const trialIdentity = {
+		config,
+		code: await trialCodeIdentity(!options.dryRun),
+		ledger: resolve(options.ledger),
+	};
+	if (options.resume) await verifyTrialResume(options.resume, trialIdentity);
 	const url = new URL(process.env.NOVA_DB_LOCAL_URL ?? "");
 	if (!["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
 		throw new Error("A loopback local database is required.");
@@ -111,6 +136,7 @@ async function main() {
 		writeFile(resolve(output, name), JSON.stringify(value, null, 2), {
 			mode: 0o600,
 		});
+	await save("trial-config.json", trialIdentity);
 	const task = await readFile(resolve(options.task), "utf8");
 	if ((options.feedback || options.answers) && !options.resume)
 		throw new Error("Feedback or answers require a prior trial.");
@@ -134,6 +160,7 @@ async function main() {
 		"scripts/lib/authoringPilotLedger.ts",
 		"scripts/lib/authoringInputCount.ts",
 		"scripts/lib/authoringTrialHistory.ts",
+		"scripts/lib/authoringTrialConfig.ts",
 	];
 	await save(
 		"source.json",
@@ -157,7 +184,9 @@ async function main() {
 	if (options.dryRun) {
 		await save("dry-run.json", {
 			models: MODEL_ROLES,
-			maxRequests: MAX_REQUESTS,
+			maxRequests: config.maxRequests,
+			timeoutMinutes: config.timeoutMinutes,
+			reviewPolicy: config.reviewPolicy,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			trialCeilingUsd: TRIAL_CEILING_USD,
 		});
@@ -180,7 +209,12 @@ async function main() {
 		];
 		let resumedApp: Awaited<ReturnType<typeof loadApp>> = null;
 		let prior:
-			| { appId: string; designSessionId: string; projectId: string }
+			| {
+					appId: string;
+					designSessionId: string;
+					projectId: string;
+					threadId: string;
+			  }
 			| undefined;
 		if (options.resume) {
 			const previous = resolve(options.resume);
@@ -189,6 +223,7 @@ async function main() {
 					appId: z.uuid(),
 					designSessionId: z.uuid(),
 					projectId: z.string(),
+					threadId: z.uuid(),
 				})
 				.parse(
 					JSON.parse(await readFile(resolve(previous, "run.json"), "utf8")),
@@ -215,8 +250,8 @@ async function main() {
 					"Resume requires this actor's unfinished trial in its original Project.",
 				);
 			const saved = JSON.parse(
-				await readFile(resolve(previous, "run.json"), "utf8"),
-			) as { userMessages: UIMessage[] };
+				await readFile(resolve(previous, "conversation.json"), "utf8"),
+			) as UIMessage[];
 			trialRunIds.push(
 				...(await priorTrialRuns(previous, prior.appId, prior.designSessionId)),
 			);
@@ -234,7 +269,7 @@ async function main() {
 			trialRunIds.push(...recordedRuns.map((run) => run.run_id));
 			for (const authorityRun of [resumedApp?.run_id, session.run_id])
 				if (authorityRun) trialRunIds.push(authorityRun);
-			userMessages = saved.userMessages;
+			userMessages = saved;
 			if (
 				!userMessages.some(
 					(m) =>
@@ -269,19 +304,11 @@ async function main() {
 					)
 				)
 					throw new Error("Every question needs an ordinary user answer.");
-				userMessages.push({
-					id: randomUUID(),
-					role: "assistant",
-					parts: [
-						{
-							type: "tool-askQuestions",
-							toolCallId: question.toolCallId,
-							state: "output-available",
-							input: question.input,
-							output: answers,
-						},
-					],
-				});
+				userMessages = answerTrialQuestion(
+					userMessages,
+					question.toolCallId,
+					answers,
+				);
 				await save("answers.json", { question, answers });
 			}
 		}
@@ -354,7 +381,19 @@ async function main() {
 		let closeTransport: (() => Promise<void>) | undefined;
 		let requests = 0;
 		let currentCall: Record<string, unknown> | undefined;
+		let activeRole: TrialRole | undefined;
 		const events: unknown[] = [];
+		const uiChunks: UIMessageChunk[] = [];
+		const threadId = prior?.threadId ?? randomUUID();
+		const trailingMessage = userMessages.at(-1);
+		const responseSeed =
+			trailingMessage?.role === "assistant" ? trailingMessage : undefined;
+		const streamId = randomUUID();
+		const threadTarget = {
+			kind: "design-session" as const,
+			designSessionId: claim.designSessionId,
+		};
+		let threadStarted = false;
 		let completed = false;
 		let paused = false;
 		try {
@@ -362,7 +401,7 @@ async function main() {
 			closeTransport = () => transport.destroy();
 			deadline = setTimeout(
 				() => abort.abort(new Error("Trial time limit reached.")),
-				30 * 60_000,
+				config.timeoutMinutes * 60_000,
 			);
 			process.once("SIGINT", stop);
 			process.once("SIGTERM", stop);
@@ -370,9 +409,11 @@ async function main() {
 				runId,
 				appId: claim.proposedAppId,
 				designSessionId: claim.designSessionId,
+				threadId,
 				projectId: project.id,
 				actorUserId: actor.id,
 				models: MODEL_ROLES,
+				trialConfig: config,
 				startedAt: new Date().toISOString(),
 				trialRunIds,
 				startingSpend,
@@ -383,14 +424,15 @@ async function main() {
 				process.env.OPENAI_API_KEY ?? "",
 				standardPilotTransport(
 					captureModelRequests(transport.fetch, async (request) => {
-						if (requests >= MAX_REQUESTS)
+						if (requests >= config.maxRequests)
 							throw new Error("Trial request limit reached.");
-						const parsedRequest = z
-							.object({
-								model: z.string(),
-								max_output_tokens: z.number().int().positive().max(128_000),
-							})
-							.parse(JSON.parse(request.body));
+						if (!activeRole)
+							throw new Error("Model request has no semantic trial role.");
+						const parsedRequest = verifyTrialWire(
+							request.body,
+							config,
+							activeRole,
+						);
 						const outputCeiling = parsedRequest.max_output_tokens;
 						let reservedUsd = pilotReservation(
 							parsedRequest.model,
@@ -426,6 +468,8 @@ async function main() {
 							request: requests,
 							reservedUsd,
 							model: parsedRequest.model,
+							role: activeRole,
+							reasoningEffort: parsedRequest.reasoning.effort,
 							serviceTier: "default",
 							...(inputTokenCount === undefined ? {} : { inputTokenCount }),
 							status: "pending",
@@ -458,6 +502,7 @@ async function main() {
 					`nova:${role}:${claim.designSessionId}`,
 				);
 				return async (request) => {
+					activeRole = role;
 					currentCall = undefined;
 					const settle = async (
 						usage: { inputTokens?: number; outputTokens?: number } | undefined,
@@ -501,6 +546,7 @@ async function main() {
 			};
 			const condenser: AttachmentCondenser = {
 				async extractDocumentStructured(opts) {
+					activeRole = "documentExtractor";
 					currentCall = undefined;
 					const result = await streamObjectWith({
 						...opts,
@@ -586,6 +632,18 @@ async function main() {
 				);
 				await save("run.json", { ...run, userMessages });
 			}
+			threadStarted = await upsertThreadTurn({
+				target: threadTarget,
+				threadId,
+				streamId,
+				runId,
+				holderNonce: claim.holderNonce,
+				threadType: "build",
+				messages: userMessages,
+				expectedProjectId: project.id,
+			});
+			if (!threadStarted)
+				throw new Error("The trial thread could not be opened.");
 			const outcome = await runBuildOrchestration({
 				designSessionId: claim.designSessionId,
 				proposedAppId: claim.proposedAppId,
@@ -594,15 +652,23 @@ async function main() {
 				actorUserId: actor.id,
 				runId,
 				holderNonce: claim.holderNonce,
-				threadId: randomUUID(),
+				threadId,
 				messages: userMessages,
-				responseMessageId: randomUUID(),
-				writer: { write: (chunk) => events.push(chunk) },
+				responseMessageId: responseSeed?.id ?? randomUUID(),
+				writer: {
+					write: (chunk) => {
+						events.push(chunk);
+						// The orchestrator's data-event arm has a broad string type;
+						// the SDK fold validates its actual chunk vocabulary on read.
+						uiChunks.push(chunk as UIMessageChunk);
+					},
+				},
 				apiKey: process.env.OPENAI_API_KEY ?? "",
 				meter,
 				signal: abort.signal,
 				materializedAppId: resumedApp ? claim.proposedAppId : null,
 				deps: {
+					reviewPolicy: config.reviewPolicy,
 					sourceDeps: productionSourceMaterialDeps(condenser),
 					modelStep: stepFor("architect"),
 					peerStep: stepFor("peer"),
@@ -647,53 +713,74 @@ async function main() {
 			process.off("SIGINT", stop);
 			process.off("SIGTERM", stop);
 			try {
-				if (!completed && !paused) meter.markRunFailed();
-				await meter.flush();
-				if (!completed && !paused) {
-					const app = await loadApp(claim.proposedAppId);
-					if (app) {
-						const settled = await settleAndRelease(
-							claim.proposedAppId,
-							runId,
-							claim.holderNonce,
-							{ mode: "build" },
+				try {
+					if (threadStarted) {
+						const responseMessage = await foldTrialChunks(
+							uiChunks,
+							responseSeed,
 						);
-						if (settled.outcome === "owned" && settled.settled)
-							await failApp(
+						await persistArchitectTrialResponse({
+							target: threadTarget,
+							threadId,
+							streamId,
+							expectedProjectId: project.id,
+							responseMessage,
+							paused,
+						});
+						await save(
+							"conversation.json",
+							trialConversationWithResponse(userMessages, responseMessage),
+						);
+					}
+				} finally {
+					if (!completed && !paused) meter.markRunFailed();
+					await meter.flush();
+					if (!completed && !paused) {
+						const app = await loadApp(claim.proposedAppId);
+						if (app) {
+							const settled = await settleAndRelease(
 								claim.proposedAppId,
 								runId,
 								claim.holderNonce,
-								"internal",
+								{ mode: "build" },
 							);
-					} else
-						await failAndRefundDesignSessionRun(
-							claim.designSessionId,
-							runId,
-							claim.holderNonce,
-							"trial-stopped",
-						);
+							if (settled.outcome === "owned" && settled.settled)
+								await failApp(
+									claim.proposedAppId,
+									runId,
+									claim.holderNonce,
+									"internal",
+								);
+						} else
+							await failAndRefundDesignSessionRun(
+								claim.designSessionId,
+								runId,
+								claim.holderNonce,
+								"trial-stopped",
+							);
+					}
+					const db = await getAppDb();
+					await save("events.json", events);
+					await save(
+						"recorded.json",
+						await readDesignSession(claim.designSessionId),
+					);
+					await save(
+						"plan.json",
+						await db
+							.selectFrom("authoring_plan_revisions")
+							.selectAll()
+							.where("session_id", "=", claim.designSessionId)
+							.orderBy("revision")
+							.execute(),
+					);
+					await save("result.json", {
+						app: await loadApp(claim.proposedAppId),
+						usage: meter.snapshot(),
+						requests,
+						conservativeTrialUsd: ledger.estimatedSpentUsd - startingSpend,
+					});
 				}
-				const db = await getAppDb();
-				await save("events.json", events);
-				await save(
-					"recorded.json",
-					await readDesignSession(claim.designSessionId),
-				);
-				await save(
-					"plan.json",
-					await db
-						.selectFrom("authoring_plan_revisions")
-						.selectAll()
-						.where("session_id", "=", claim.designSessionId)
-						.orderBy("revision")
-						.execute(),
-				);
-				await save("result.json", {
-					app: await loadApp(claim.proposedAppId),
-					usage: meter.snapshot(),
-					requests,
-					conservativeTrialUsd: ledger.estimatedSpentUsd - startingSpend,
-				});
 			} finally {
 				await closeTransport?.();
 			}

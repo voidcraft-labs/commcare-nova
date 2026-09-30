@@ -16,6 +16,7 @@ import {
 	type TranslationEntry,
 	type TranslationUnitId,
 	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
 } from "./localization";
 import { collectAssetRefs } from "./mediaRefs";
 import {
@@ -886,7 +887,10 @@ export function localizeTranslationUnit(
 		};
 	}
 	const current =
-		explicit.sourceFingerprint === unitValue.sourceFingerprint &&
+		translationSourceFingerprintsEqual(
+			explicit.sourceFingerprint,
+			unitValue.sourceFingerprint,
+		) &&
 		translationValueIntegrityIssue(unitValue, explicit.value) === undefined;
 	if (!current) {
 		return {

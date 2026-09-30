@@ -19,7 +19,15 @@ import {
 	phoneColumn,
 	plainColumn,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import {
+	ancestorPath,
+	datetimeLiteral,
+	eq,
+	ifExpr,
+	prop,
+	relationStep,
+	term,
+} from "@/lib/domain/predicate";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
 import {
@@ -333,6 +341,115 @@ describe("case-list Preview cell formatting", () => {
 					"Preview can't calculate this interval because the value isn't a valid date",
 			});
 		});
+	});
+
+	it("renders built-in case dates at native calendar precision across Results, Details and Quick Filter", () => {
+		const instant = new Date("2026-09-30T06:57:00.123Z");
+		const row = {
+			...makeRow({ attempt_at: "2026-09-29T23:57:00.123-07:00" }),
+			opened_on: instant,
+			modified_on: instant,
+		};
+		for (const property of ["date_opened", "last_modified"]) {
+			const plain = plainColumn(COLUMN_UUID, property, "When");
+			expect(
+				rowMatchesFilterText([plain], row, "2026-09-29", EMPTY_CONTEXT),
+			).toBe(true);
+			expect(rowMatchesFilterText([plain], row, "23:57", EMPTY_CONTEXT)).toBe(
+				false,
+			);
+			expect(projectColumnDisplay(plain, row, EMPTY_CONTEXT)).toEqual({
+				kind: "value",
+				text: "2026-09-29",
+			});
+			const date = dateColumn(COLUMN_UUID, property, "When", "%Y-%m-%d %H:%M");
+			expect(projectColumnDisplay(date, row, EMPTY_CONTEXT)).toEqual({
+				kind: "value",
+				text: "2026-09-29 00:00",
+			});
+			const mapping = idMappingColumn(COLUMN_UUID, property, "When", [
+				idMappingEntry("2026-09-29", "Yesterday"),
+			]);
+			expect(projectColumnDisplay(mapping, row, EMPTY_CONTEXT)).toEqual({
+				kind: "value",
+				text: "Yesterday",
+			});
+		}
+		expect(
+			projectColumnDisplay(
+				plainColumn(COLUMN_UUID, "attempt_at", "Event time"),
+				row,
+				EMPTY_CONTEXT,
+			),
+		).toEqual({ kind: "value", text: "2026-09-29T23:57:00.123-07:00" });
+		expect(
+			projectColumnDisplay(
+				dateColumn(COLUMN_UUID, "attempt_at", "Event time", "%Y-%m-%d %H:%M"),
+				row,
+				EMPTY_CONTEXT,
+			),
+		).toEqual({ kind: "value", text: "2026-09-29 23:57" });
+		expect(row.opened_on).toEqual(instant);
+	});
+
+	it("infers calendar display for calculated metadata on this record and a parent, keeping custom datetimes distinct", () => {
+		const properties = ["date_opened", "last_modified", "attempt_at"].map(
+			(name) => ({
+				name,
+				label: proseText(name),
+				data_type: "datetime" as const,
+			}),
+		);
+		const context = {
+			caseTypes: [
+				{ name: "visit", parent_type: "household", properties },
+				{ name: "household", properties },
+			],
+			currentCaseType: "visit",
+			knownInputs: [],
+		};
+		const opened = term(prop("visit", "date_opened"));
+		const modified = term(prop("visit", "last_modified"));
+		const custom = term(prop("visit", "attempt_at"));
+		const condition = eq(opened, term(datetimeLiteral("2026-09-29T07:00:00Z")));
+		expect(
+			resolveCalculatedTemporalType(
+				calculatedColumn(
+					COLUMN_UUID,
+					"When",
+					ifExpr(condition, opened, modified),
+				),
+				context,
+			),
+		).toBe("date");
+		expect(
+			resolveCalculatedTemporalType(
+				calculatedColumn(
+					COLUMN_UUID,
+					"When",
+					ifExpr(condition, opened, custom),
+				),
+				context,
+			),
+		).toBe("datetime");
+
+		for (const path of [
+			undefined,
+			ancestorPath(relationStep("parent", "household")),
+		]) {
+			for (const property of ["date_opened", "last_modified", "attempt_at"]) {
+				expect(
+					resolveCalculatedTemporalType(
+						calculatedColumn(
+							COLUMN_UUID,
+							"When",
+							term(prop("visit", property, path)),
+						),
+						context,
+					),
+				).toBe(property === "attempt_at" ? "datetime" : "date");
+			}
+		}
 	});
 
 	it("renders calculated booleans as worker-facing answers and preserves zero", () => {

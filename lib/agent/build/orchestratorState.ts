@@ -50,7 +50,16 @@ export const buildOrchestratorStateSchema = z.discriminatedUnion("kind", [
 		reviewId: z.uuid(),
 		appSeq: z.number().int().positive(),
 	}),
-	z.strictObject({ kind: z.literal("awaiting-input") }),
+	z.strictObject({
+		kind: z.literal("awaiting-input"),
+		reviewCheckpoint: z
+			.strictObject({
+				reviewId: z.uuid(),
+				contextId: z.uuid(),
+				summaryAvailable: z.boolean(),
+			})
+			.optional(),
+	}),
 	z.strictObject({
 		kind: z.literal("finished"),
 		appId: z.string().min(1),

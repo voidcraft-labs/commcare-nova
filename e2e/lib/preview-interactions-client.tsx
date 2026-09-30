@@ -3,6 +3,7 @@ import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { TextEditable } from "@/components/preview/form/TextEditable";
 import { DropPlaceholderRow } from "@/components/preview/form/virtual/DropPlaceholderRow";
 import { makeDropFieldData } from "@/components/preview/form/virtual/dragData";
@@ -170,15 +171,17 @@ function App() {
 	return (
 		<BuilderSessionProvider>
 			<BlueprintDocContext value={store}>
-				<EditGuardProvider>
-					<ScreenNavButtons
-						canGoBack={backCount === 0}
-						onBack={() => setBackCount((n) => n + 1)}
-					/>
-					<output aria-label="Back activations">{backCount}</output>
-					{mounted && <DragCanvas />}
-					<EditorPair />
-				</EditGuardProvider>
+				<BuilderLocalizationProvider>
+					<EditGuardProvider>
+						<ScreenNavButtons
+							canGoBack={backCount === 0}
+							onBack={() => setBackCount((n) => n + 1)}
+						/>
+						<output aria-label="Back activations">{backCount}</output>
+						{mounted && <DragCanvas />}
+						<EditorPair />
+					</EditGuardProvider>
+				</BuilderLocalizationProvider>
 			</BlueprintDocContext>
 		</BuilderSessionProvider>
 	);

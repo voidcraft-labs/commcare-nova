@@ -7,6 +7,7 @@ import {
 	moduleDestination,
 	type Uuid,
 } from "@/lib/domain";
+import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import { formDisplayVisibility } from "../engine/displayConditionEvaluation";
@@ -20,6 +21,7 @@ import {
 	previewModuleVisibility,
 } from "../menuProjection";
 import type { AppTestContext } from "./context";
+import { AppTestActionError } from "./errors";
 import type { AppTestScreen, AppTestState } from "./types";
 
 export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
@@ -31,7 +33,7 @@ export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
 	});
 	return previewMenuModuleUuids(doc, parent).map((uuid) => ({
 		uuid,
-		name: doc.modules[uuid].name,
+		name: projectLocalizedModule(doc, context.language, uuid)?.name,
 		visibility: visibility.get(uuid) ?? "hidden",
 	}));
 }
@@ -108,10 +110,14 @@ export function enterAppTestMenu(
 	let onward = returnModules;
 	while (true) {
 		if (visited.has(current))
-			throw new Error("The record-selection path contains a cycle.");
+			throw new AppTestActionError(
+				"The record-selection path contains a cycle.",
+			);
 		visited.add(current);
 		if (visibility.get(current) !== "shown")
-			throw new Error("This worker cannot open the required menu.");
+			throw new AppTestActionError(
+				"This worker cannot open the required menu.",
+			);
 		const caseContext = previewMenuCaseContext(doc, current, state.selections);
 		if (caseContext.requiredParentCase) {
 			onward = [current, ...onward];
@@ -141,7 +147,9 @@ export function enterAppTestForm(
 		(item) => item.form.uuid === formUuid,
 	);
 	if (entry?.visibility !== "shown")
-		throw new Error("This form is not available on the current menu.");
+		throw new AppTestActionError(
+			"This form is not available on the current menu.",
+		);
 	const selection = appTestMenuSelection(context, state, moduleUuid);
 	const needsCase =
 		formLaunch({
@@ -165,14 +173,18 @@ export function selectAppTestRecords(
 ): AppTestState {
 	const screen = state.screen;
 	if (screen.kind !== "records")
-		throw new Error("Open a record list before selecting records.");
+		throw new AppTestActionError(
+			"Open a record list before selecting records.",
+		);
 	const mod = context.doc.modules[screen.moduleUuid];
 	if (
 		!mod.caseType ||
 		rows.length === 0 ||
 		rows.length > caseSelectionMaximum(mod)
 	)
-		throw new Error("Choose the number of records this menu allows.");
+		throw new AppTestActionError(
+			"Choose the number of records this menu allows.",
+		);
 	const selections = { ...state.selections };
 	const selectsForMenu =
 		!!screen.returnModules?.length ||
@@ -212,7 +224,8 @@ export function selectAppTestRecords(
 		};
 	}
 	const forms = appTestForms(context, next, screen.moduleUuid, true);
-	if (forms.length === 0) throw new Error("This record list has no next task.");
+	if (forms.length === 0)
+		throw new AppTestActionError("This record list has no next task.");
 	const automatic = previewAutomaticForm(forms, screen.formUuid);
 	return {
 		...next,

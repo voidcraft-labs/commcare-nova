@@ -15,6 +15,10 @@ namespace; runtime has no general schema-creation privilege. Internal foreign
 keys are rebuilt against cloned tables. No live rows, external foreign keys or
 live triggers are copied. Source authorization occurs before changing the local
 search path. Submission effects and the test-step receipt share one transaction.
+Disposal first checks the generated namespace's pending deferrable constraints
+using schema-qualified, quoted names, then drops it in that same transaction.
+It never changes public or other test namespaces' constraint timing. A failed
+constraint or later receipt write rolls back disposal and all preceding effects.
 See `lib/preview/app-tests/CLAUDE.md` for the lifecycle and external-effect limits.
 
 External consumers import from the `@/lib/case-store` barrel: the `CaseStore` / `SchemaCaseStore` interfaces, row/arg/result types, the two production constructors (`withProjectContext(projectId, actorUserId, ownerId)` — the tenant-bound reads/writes store with both identities explicit; `withSchemaContext()` — the actor-free, app-scoped schema-ops store with a dynamic current-Project fence), the typed error classes, and JSONB value types. The implementation, sample generator, and test harness stay package-private; tests reach them via subpath.

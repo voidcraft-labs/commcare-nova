@@ -6,7 +6,7 @@ import {
 	proseText,
 	type TranslationUnitId,
 } from "@/lib/domain";
-import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
+import { projectLocalizedCaseProperties } from "@/lib/preview/localizedCaseProperties";
 
 describe("projectLocalizedCaseProperties", () => {
 	it("keeps the effective structure while projecting localized option labels", () => {

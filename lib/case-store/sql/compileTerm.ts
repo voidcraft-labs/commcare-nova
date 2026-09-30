@@ -56,6 +56,7 @@ import {
 import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
+import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { compileLiteral } from "./compileLiteral";
 import {
 	compileLookupColumnTerm,
@@ -72,6 +73,7 @@ import {
 	POSTGRES_CAST_FOR_DATA_TYPE,
 	RESERVED_SCALAR_COLUMN_BY_PROPERTY,
 } from "./dataTypeTokens";
+import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
 // Public types
@@ -168,6 +170,9 @@ export interface TermBindings {
  * and forwards the rest unchanged into downstream calls.
  */
 export interface TermCompileContext {
+	/** Portable Results/Details calculations read built-in case dates like Core.
+	 * Absent for server filters, search and operation values. */
+	portableCaseDates?: true;
 	db: Kysely<Database>;
 	/** First half of the `(app_id, project_id)` tenant pair — forwarded to `compileRelationPath`. */
 	appId: string;
@@ -402,25 +407,25 @@ function compilePropertyRef(
 	const { caseType, property, via } = term;
 	const isSelfVia = via === undefined || via.kind === "self";
 
-	if (isSelfVia) {
-		return compileSelfViaPropertyRef({
-			anchorAlias: ctx.anchorAlias,
-			caseType,
-			property,
-			schemas: ctx.caseTypeSchemas,
-		});
-	}
-
-	// Non-self via: the destination case type is where the
-	// property's `data_type` (and so the cast / read operator)
-	// lives.
-	return compileNonSelfViaPropertyRef({
-		via,
-		anchorAlias: ctx.anchorAlias,
-		caseType,
-		property,
-		ctx,
-	});
+	const value = isSelfVia
+		? compileSelfViaPropertyRef({
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				schemas: ctx.caseTypeSchemas,
+			})
+		: compileNonSelfViaPropertyRef({
+				via,
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				ctx,
+			});
+	if (!ctx.portableCaseDates || !isCalendarCaseProperty(property)) return value;
+	// Convert the actual instant into the viewer's calendar BEFORE dropping the
+	// clock. Applying this outside the scalar subquery covers parent reads too.
+	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
+	return eb.cast(eb.fn<Date>("timezone", [eb.val(zone), value]), "date");
 }
 
 /**

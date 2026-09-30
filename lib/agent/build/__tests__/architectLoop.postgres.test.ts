@@ -709,3 +709,161 @@ it.each(["unchanged", "model", "prompt", "tools"] as const)(
 		}
 	},
 );
+
+it.each(["summary", "ignored-tools", "provider-error"])(
+	"closes a bounded peer as unfinished through the real provider adapter (%s)",
+	async (closing) => {
+		const ignoreClosing = closing !== "summary";
+		const { spec } = await fixture();
+		const requests: ProviderRequest[] = [];
+		const failures: unknown[] = [];
+		const dispatched: string[] = [];
+		const accounted = new Set<string>();
+		let finished = 0;
+		await withResponsesPeer(
+			(request, response) => {
+				const chunks: Buffer[] = [];
+				request.on("data", (chunk: Buffer) => chunks.push(chunk));
+				request.on("end", () => {
+					try {
+						const input = JSON.parse(
+							Buffer.concat(chunks).toString(),
+						) as ProviderRequest;
+						requests.push(input);
+						if (requests.length > 10)
+							throw new Error("The durable review allowance was exceeded");
+						if (input.tool_choice === "none" && closing === "provider-error") {
+							response
+								.writeHead(503, { "content-type": "application/json" })
+								.end(
+									JSON.stringify({
+										error: {
+											message: "Closing provider unavailable",
+											type: "server_error",
+										},
+									}),
+								);
+							return;
+						}
+						respondWithParts(
+							response,
+							input.tool_choice === "none" && !ignoreClosing
+								? [{ type: "text", text: "Everything is approved and ready." }]
+								: [
+										{
+											type: "tool",
+											name: "readPlan",
+											input: {},
+											callId: `read-${requests.length}`,
+										},
+									],
+							requests.length,
+						);
+					} catch (error) {
+						failures.push(error);
+						response.writeHead(400).end();
+					}
+				});
+			},
+			async (provider) => {
+				const args: ArchitectLoopArgs = {
+					spec: { ...spec, kind: "peer", contextVersion: "bounded-review" },
+					system:
+						"Investigate whether the worker can complete the requested work.",
+					turnId: "bounded-review",
+					maxSteps: 10,
+					reviewPolicy: "production",
+					signal: new AbortController().signal,
+					additions: [
+						{
+							key: "request",
+							message: { role: "user", content: "Review the app." },
+						},
+					],
+					tools: () => ({
+						readPlan: { inputSchema: z.strictObject({}), strict: false },
+					}),
+					modelStep: productionModelStep(
+						provider(spec.modelId),
+						"medium",
+						"bounded-review-test",
+					),
+					dispatch: async (call) => {
+						dispatched.push(call.toolCallId);
+						return { kind: "result", output: { observed: true } };
+					},
+					onStep: async (_step, identity) => {
+						accounted.add(identity.stepKey);
+					},
+					onRecoveredUsage: (_usage, identity) => {
+						accounted.add(identity.stepKey);
+					},
+					onFinish: async () => {
+						finished++;
+						return { kind: "complete" };
+					},
+				};
+				const result = await runArchitectLoop(args);
+				expect(result).toMatchObject({
+					kind: "unfinished",
+					summaryAvailable: !ignoreClosing,
+				});
+				expect(result.text).toContain(
+					ignoreClosing ? "summary is unavailable" : "approved",
+				);
+				expect(await runArchitectLoop(args)).toEqual(result);
+				expect(
+					(
+						await runArchitectLoop({
+							...args,
+							spec: { ...args.spec, promptVersion: "replacement-contract" },
+						})
+					).kind,
+				).toBe("unfinished");
+			},
+		);
+		expect(failures).toEqual([]);
+		expect(finished).toBe(0);
+		expect(dispatched).toHaveLength(8);
+		expect(requests).toHaveLength(ignoreClosing ? 10 : 9);
+		expect(accounted.size).toBe(
+			closing === "provider-error" ? 8 : requests.length,
+		);
+		for (const request of requests) {
+			expect(request.store).toBe(false);
+			expect(request.tools).toEqual(requests[0].tools);
+		}
+		expect(
+			requests.slice(0, 8).every((request) => request.tool_choice === "auto"),
+		).toBe(true);
+		expect(
+			requests.slice(8).every((request) => request.tool_choice === "none"),
+		).toBe(true);
+		const tail = requests[8].input ?? [];
+		const lastResult = tail.findLastIndex(
+			(item) => item.type === "function_call_output",
+		);
+		expect(tail.slice(lastResult + 1)).toHaveLength(2);
+		expect(
+			tail
+				.slice(lastResult + 1)
+				.every((item) => item.role === "developer" || item.role === "system"),
+		).toBe(true);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_model_context_items")
+				.select("append_key")
+				.where("append_key", "=", "review-notice:bounded-review")
+				.execute(),
+		).toHaveLength(1);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_model_steps")
+				.select("step_key")
+				.where("event_kind", "=", "started")
+				.execute(),
+		).toHaveLength(requests.length);
+	},
+);

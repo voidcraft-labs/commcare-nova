@@ -127,6 +127,13 @@ same-entry rebuild may retire that validation revision, but its snapshot must
 retain the answer the person just committed, including an intentionally cleared
 value. Never defer the ownership mark until the validation Promise settles.
 
+The small `runtimeMessages.ts` platform catalog owns English/Spanish generic
+required/type/constraint fallback messages and core worker navigation. Invalid
+Submit and section Next/jump feedback both read `reviewHighlightedQuestion`
+from the selected worker language. Field widgets, record metadata, other
+accessibility labels and diagnostics remain outside this catalog; authored
+labels and custom validation continue through the app's translation projection.
+
 `useFormEngine` compares case-preload maps by their type/property/value content
 before rebuilding. A list row and the later full case read may be separate Map
 instances with identical values; that cold arrival must retain open controls,
@@ -182,7 +189,11 @@ text during either window.
 
 The casedb load signal is structural too: any admitted `#<case-type>/*` or
 `#user/*` carrier needs the same device snapshot as an explicit
-`instance('casedb')` reference. Query-bound repeats preserve each selected
+`instance('casedb')` reference. Typed case and worker references in prose labels,
+hints, help and inline choices also require that snapshot, even when no XPath
+slot reads a case. The scan uses the prose slot registry and typed parts;
+literal hashtag text and answer-only references do not trigger a case load.
+Query-bound repeats preserve each selected
 node's lexical value across the worker boundary and seed it as the flattened
 Preview row's `@id` (plus the zero-based model-iteration `@index`) before child
 calculations run. Keeping only nodeset cardinality breaks the canonical
@@ -1129,3 +1140,11 @@ the selected record and ancestors are ready. The authoring canvas remains
 available without a running entry; entering Preview supplies its selected record
 before one-time defaults or query membership run. Returning to Edit from an
 already initialized Preview retains that entry and its answers.
+
+Results/Details and their Quick Filter share `columnDisplay`'s portable read
+projection: built-in opening/modification timestamps show the worker's calendar
+date, including direct plain, date, mapping and interval columns. Raw row and
+form-preload accessors remain unchanged. Calculated columns use the same
+portable SQL context, and their display type follows value branches without
+changing authored admission. A custom datetime retains its clock; metadata
+columns cannot recover time by adding a clock pattern.

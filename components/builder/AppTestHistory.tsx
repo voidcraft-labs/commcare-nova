@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Dialog,
@@ -49,6 +49,7 @@ function HistoryBody({ appId }: { appId: string }) {
 	const [selected, setSelected] = useState<string>();
 	const [evidence, setEvidence] = useState<Evidence>();
 	const [index, setIndex] = useState(0);
+	const throughStep = useRef<number | undefined>(undefined);
 	const [error, setError] = useState<string>();
 	useEffect(() => {
 		let current = true;
@@ -70,11 +71,15 @@ function HistoryBody({ appId }: { appId: string }) {
 	useEffect(() => {
 		if (!selected) return;
 		let current = true;
-		readAppTestAction(appId, selected).then(
+		readAppTestAction(appId, selected, {
+			afterStep: index - 1,
+			limit: 1,
+			throughStep: throughStep.current,
+		}).then(
 			(value) => {
 				if (current) {
 					setEvidence(value);
-					setIndex(0);
+					throughStep.current = value.throughStep;
 				}
 			},
 			() => {
@@ -87,9 +92,12 @@ function HistoryBody({ appId }: { appId: string }) {
 		return () => {
 			current = false;
 		};
-	}, [appId, selected]);
-	const active = evidence?.id === selected ? evidence : undefined;
-	const step = active?.steps[index];
+	}, [appId, selected, index]);
+	const active =
+		evidence && evidence.id === selected && evidence.steps[0]?.step === index
+			? evidence
+			: undefined;
+	const step = active?.steps[0];
 	return (
 		<>
 			<DialogBody className="space-y-4">
@@ -109,6 +117,8 @@ function HistoryBody({ appId }: { appId: string }) {
 										onClick={() => {
 											setError(undefined);
 											setSelected(test.id);
+											setIndex(0);
+											throughStep.current = undefined;
 										}}
 									>
 										<span className="space-y-1">
@@ -137,9 +147,19 @@ function HistoryBody({ appId }: { appId: string }) {
 							</p>
 						) : null}
 						<p className="text-xs text-nova-text-muted">
-							Recorded step {step.step} of {active.step}
+							Recorded step {step.step} of {active.throughStep}
 						</p>
-						<RecordedObservation observation={step.observation} />
+						{step.observation ? (
+							<RecordedObservation observation={step.observation} />
+						) : step.inspection ? (
+							<EvidenceInspector
+								key={`${selected}:${step.step}`}
+								appId={appId}
+								testId={active.id}
+								throughStep={active.throughStep}
+								step={step.step}
+							/>
+						) : null}
 					</>
 				)}
 			</DialogBody>
@@ -166,7 +186,7 @@ function HistoryBody({ appId }: { appId: string }) {
 						</Button>
 						<Button
 							variant="outline"
-							disabled={index >= active.steps.length - 1}
+							disabled={index >= active.throughStep}
 							onClick={() => setIndex(index + 1)}
 						>
 							Next step
@@ -212,6 +232,7 @@ function RecordedObservation({
 			text(answer.value),
 		]),
 	);
+	const rendered = items(record(o.renderedResults).rows);
 	const rows = items(record(o.results).rows);
 	const effects = items(record(record(o.effects).caseDatabasePatch).rows);
 	const menus = [...items(o.menus), ...items(o.forms)];
@@ -243,6 +264,12 @@ function RecordedObservation({
 				) : null}
 			</div>
 			{error ? <p role="alert">{error}</p> : null}
+			{o.language && record(record(o.language).runtime).fallback === true ? (
+				<p className="text-nova-text-muted">
+					App text uses the selected language. Standard controls and validation
+					use English.
+				</p>
+			) : null}
 			{o.boundary ? (
 				<p className="text-nova-text-muted">{text(o.boundary)}</p>
 			) : null}
@@ -311,7 +338,22 @@ function RecordedObservation({
 					))}
 				</dl>
 			) : null}
-			{rows.length ? (
+			{rendered.length ? (
+				<ul className="space-y-3">
+					{rendered.map((row) => (
+						<li key={text(row.recordId)}>
+							<dl>
+								{items(row.cells).map((cell) => (
+									<div key={text(cell.uuid)}>
+										<dt className="text-nova-text-muted">{text(cell.label)}</dt>
+										<dd>{text(cell.text)}</dd>
+									</div>
+								))}
+							</dl>
+						</li>
+					))}
+				</ul>
+			) : rows.length ? (
 				<ul className="space-y-2">
 					{rows.map((row) => (
 						<li key={text(row.case_id)}>
@@ -321,6 +363,19 @@ function RecordedObservation({
 				</ul>
 			) : o.results && record(o.results).kind === "empty" ? (
 				<p>No matching records.</p>
+			) : null}
+			{items(o.fields).length ? (
+				<dl className="space-y-2">
+					{items(o.fields).map((field) => (
+						<div key={text(field.uuid)}>
+							<dt>{text(field.label)}</dt>
+							<dd>{text(field.text)}</dd>
+						</div>
+					))}
+				</dl>
+			) : null}
+			{o.canContinue === false ? (
+				<p>This screen has no Continue action.</p>
 			) : null}
 			{effects.length ? (
 				<div>
@@ -348,6 +403,109 @@ function RecordedObservation({
 						))}
 					</ul>
 				</div>
+			) : null}
+		</div>
+	);
+}
+
+function EvidenceInspector({
+	appId,
+	testId,
+	throughStep,
+	step,
+}: {
+	appId: string;
+	testId: string;
+	throughStep: number;
+	step: number;
+}) {
+	const [address, setAddress] = useState<{
+		path: (string | number)[];
+		offset: number;
+	}>({ path: [], offset: 0 });
+	const [result, setResult] = useState<Evidence["inspection"]>();
+	const [error, setError] = useState<string>();
+	useEffect(() => {
+		let current = true;
+		setResult(undefined);
+		readAppTestAction(appId, testId, {
+			throughStep,
+			inspect: { step, ...address },
+		}).then(
+			(value) => {
+				if (current) setResult(value.inspection);
+			},
+			() => {
+				if (current)
+					setError(
+						"This part of the recorded step could not be loaded. Try opening it again.",
+					);
+			},
+		);
+		return () => {
+			current = false;
+		};
+	}, [appId, testId, throughStep, step, address]);
+	return (
+		<div className="space-y-3">
+			<p>
+				This recorded step is large. Open its parts to read the complete
+				evidence.
+			</p>
+			{error ? <p role="alert">{error}</p> : null}
+			{address.path.length > 0 ? (
+				<Button
+					variant="ghost"
+					onClick={() => {
+						setError(undefined);
+						setAddress({ path: address.path.slice(0, -1), offset: 0 });
+					}}
+				>
+					Back to containing part
+				</Button>
+			) : null}
+			{!result ? (
+				<p role="status">Loading recorded evidence</p>
+			) : result.kind === "value" ? (
+				<pre className="whitespace-pre-wrap break-words text-xs">
+					{JSON.stringify(result.value, null, 2)}
+				</pre>
+			) : result.kind === "string" ? (
+				<pre className="whitespace-pre-wrap break-words">{result.text}</pre>
+			) : (
+				<ul className="space-y-2">
+					{result.entries.map((entry) => (
+						<li key={entry.key}>
+							{entry.kind === "value" ? (
+								<>
+									<span className="font-medium">{entry.key}: </span>
+									<span>{JSON.stringify(entry.value)}</span>
+								</>
+							) : (
+								<Button
+									variant="outline"
+									onClick={() => {
+										setError(undefined);
+										setAddress({ path: [...entry.path], offset: 0 });
+									}}
+								>
+									Open {entry.key}
+								</Button>
+							)}
+						</li>
+					))}
+				</ul>
+			)}
+			{result && "nextOffset" in result && result.nextOffset !== null ? (
+				<Button
+					variant="outline"
+					onClick={() => {
+						if (typeof result.nextOffset === "number")
+							setAddress({ ...address, offset: result.nextOffset });
+					}}
+				>
+					Next part
+				</Button>
 			) : null}
 		</div>
 	);

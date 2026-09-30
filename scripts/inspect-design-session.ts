@@ -61,6 +61,7 @@ async function inspect(identifier: string) {
 		runs,
 		threads,
 		recorded,
+		reviews,
 	] = await Promise.all([
 		db
 			.selectFrom("design_sessions")
@@ -124,6 +125,12 @@ async function inspect(identifier: string) {
 			)
 			.execute(),
 		readDesignSession(id),
+		db
+			.selectFrom("authoring_reviews")
+			.selectAll()
+			.where("session_id", "=", id)
+			.orderBy("created_at")
+			.execute(),
 	]);
 	const full = options.full || options.json;
 	return {
@@ -144,6 +151,18 @@ async function inspect(identifier: string) {
 				},
 		workspaces,
 		checkpoints,
+		reviews: full
+			? reviews
+			: reviews.map((review) => ({
+					id: review.id,
+					requestId: review.request_id,
+					issuingTurnId: review.issuing_turn_id,
+					predecessorReviewId: review.predecessor_review_id,
+					paused: review.paused_at !== null,
+					completedRevision: review.completed_revision,
+					summaryAvailable: review.summary_available,
+					contextId: review.context_id ?? review.checkpoint_context_id,
+				})),
 		runs,
 		threads: full
 			? threads

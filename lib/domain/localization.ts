@@ -252,14 +252,51 @@ export function resolveAppLanguage(
 
 /**
  * One injective, synchronous proof of the exact canonical source value. It is
- * intentionally the canonical JSON itself rather than a lossy non-crypto hash:
- * equality cannot collide and every runtime (browser, Node, replay) agrees.
+ * intentionally schema-canonical JSON rather than a lossy non-crypto hash.
+ * PostgreSQL JSONB and mutation replay can reorder object keys; schema order
+ * preserves source identity across those boundaries without ignoring prose
+ * order, text, or reference identities.
  */
 export function translationSourceFingerprint(
 	kind: "text" | "prose",
 	value: LocalizedValue,
 ): string {
-	return `source-v1:${kind}:${JSON.stringify(value)}`;
+	const canonical =
+		kind === "text"
+			? z.string().parse(value)
+			: proseTemplateSchema.parse(value);
+	return `source-v1:${kind}:${JSON.stringify(canonical)}`;
+}
+
+/** Compare source values, including earlier v1 fingerprints whose JSON keys
+ * followed storage order. Invalid encodings fail closed, even when identical.
+ * This is only source-currentness; request and revision digests remain exact. */
+export function translationSourceFingerprintsEqual(
+	left: string,
+	right: string,
+): boolean {
+	const canonical = (fingerprint: string): string | undefined => {
+		const prefix = fingerprint.startsWith("source-v1:text:")
+			? "source-v1:text:"
+			: fingerprint.startsWith("source-v1:prose:")
+				? "source-v1:prose:"
+				: undefined;
+		if (prefix === undefined) return undefined;
+		try {
+			const value: unknown = JSON.parse(fingerprint.slice(prefix.length));
+			const parsed =
+				prefix === "source-v1:text:"
+					? z.string().safeParse(value)
+					: proseTemplateSchema.safeParse(value);
+			return parsed.success
+				? `${prefix}${JSON.stringify(parsed.data)}`
+				: undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const canonicalLeft = canonical(left);
+	return canonicalLeft !== undefined && canonicalLeft === canonical(right);
 }
 
 /**

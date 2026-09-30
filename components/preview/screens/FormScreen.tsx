@@ -110,6 +110,7 @@ import {
 	noMatchesPostSubmit,
 	noMatchesRefusalCopy,
 } from "@/lib/preview/noMatchesForm";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -1846,7 +1847,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			if (result === "invalid") {
 				settleAttempt({ kind: "idle" });
 				// The focused question supplies the specific correction.
-				announce("Review the highlighted question.");
+				announce(
+					runtimeMessage(language.language, "reviewHighlightedQuestion"),
+				);
 				const firstInvalid = controller.firstInvalidFieldTarget();
 				if (firstInvalid !== undefined) showPageOf(firstInvalid);
 				revealAndFocusFirstInvalid();
@@ -2412,7 +2415,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 											height="16"
 											aria-hidden="true"
 										/>
-										Back
+										{runtimeMessage(language.language, "back")}
 									</button>
 								) : null}
 								{paging.isLast ? (
@@ -2447,7 +2450,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 												aria-hidden="true"
 											/>
 										)}
-										{submitStatus.kind === "running" ? "Submitting" : "Submit"}
+										{runtimeMessage(
+											language.language,
+											submitStatus.kind === "running" ? "submitting" : "submit",
+										)}
 									</button>
 								) : (
 									<button
@@ -2456,7 +2462,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 										disabled={formFrozen}
 										className={FORM_PRIMARY_ACTION_CLS}
 									>
-										Next
+										{runtimeMessage(language.language, "next")}
 										<Icon
 											icon={tablerChevronRight}
 											width="16"
@@ -2483,7 +2489,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 									className={clearRunning ? "animate-spin" : undefined}
 									aria-hidden="true"
 								/>
-								{clearRunning ? "Starting fresh" : "Clear form"}
+								{runtimeMessage(
+									language.language,
+									clearRunning ? "startingFresh" : "clearForm",
+								)}
 							</button>
 						</div>
 					)}

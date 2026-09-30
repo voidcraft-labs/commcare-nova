@@ -1,4 +1,5 @@
 import type { Draft } from "immer";
+import { deepEqual } from "@/lib/doc/deepEqual";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
 	type AppLocalization,
@@ -6,6 +7,7 @@ import {
 	effectiveAppLocalization,
 	languageTag,
 } from "@/lib/domain";
+import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
 
 /**
  * App-level mutations: name, connect mode, case-type catalog, logo. The
@@ -118,8 +120,11 @@ export function applyAppMutation(
 			const entry = localization.translations[mut.language]?.[mut.unitId];
 			if (
 				entry === undefined ||
-				entry.sourceFingerprint !== mut.expectedSourceFingerprint ||
-				JSON.stringify(entry.value) !== JSON.stringify(mut.value)
+				!translationSourceFingerprintsEqual(
+					entry.sourceFingerprint,
+					mut.expectedSourceFingerprint,
+				) ||
+				!deepEqual(entry.value, mut.value)
 			) {
 				return;
 			}

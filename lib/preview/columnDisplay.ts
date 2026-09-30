@@ -1,5 +1,6 @@
 /** Shared worker-facing cell values for Preview and disposable app tests. */
 import type { ProseTemplate } from "@/lib/domain";
+import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 
 type ProseProjector = (template: ProseTemplate) => string;
 
@@ -8,11 +9,8 @@ import {
 	type Column,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
-import {
-	type CheckError,
-	checkExpression,
-	type TypeContext,
-} from "@/lib/domain/predicate";
+import type { TypeContext } from "@/lib/domain/predicate";
+import { resolveCaseListTemporalType } from "@/lib/domain/predicate/temporalType";
 import {
 	caseRowDisplaySourceValue,
 	caseRowDisplayValue,
@@ -52,11 +50,7 @@ export function resolveCalculatedTemporalType(
 	context: TypeContext,
 ): CalculatedTemporalType | undefined {
 	if (column.kind !== "calculated") return undefined;
-	const errors: CheckError[] = [];
-	const resolved = checkExpression(column.expression, context, errors, []);
-	return errors.length === 0 && (resolved === "date" || resolved === "datetime")
-		? resolved
-		: undefined;
+	return resolveCaseListTemporalType(column.expression, context);
 }
 
 /**
@@ -80,11 +74,11 @@ export function projectColumnDisplay(
 				context.projectProse,
 			);
 		case "phone":
-			return { kind: "value", text: caseRowDisplayValue(row, column.field) };
+			return { kind: "value", text: caseListDisplayValue(row, column.field) };
 		case "link": {
 			// Quick Filter follows the actual cell: authored wording for a web
 			// link, the visible raw fallback otherwise, and nothing for blank data.
-			const address = caseRowDisplayValue(row, column.field).trim();
+			const address = caseListDisplayValue(row, column.field).trim();
 			return {
 				kind: "value",
 				text: isOpenableAddress(address) ? column.linkText : address,
@@ -92,22 +86,22 @@ export function projectColumnDisplay(
 		}
 		case "date":
 			return formatDateForPreview(
-				caseRowDisplayValue(row, column.field),
+				caseListDisplayValue(row, column.field),
 				column.pattern,
 			);
 		case "interval":
 			return formatIntervalForPreview(
-				caseRowDisplayValue(row, column.field),
+				caseListDisplayValue(row, column.field),
 				column,
 				context.today,
 			);
 		case "id-mapping": {
-			const source = caseRowDisplaySourceValue(row, column.field);
+			const source = caseListDisplaySourceValue(row, column.field);
 			return projectMappedValue(source, column.mapping);
 		}
 		case "image-map":
 			return projectImageMappedValue(
-				caseRowDisplaySourceValue(row, column.field),
+				caseListDisplaySourceValue(row, column.field),
 				column.mapping,
 				context.caseProperties.find(
 					(property) => property.name === column.field,
@@ -122,13 +116,34 @@ export function projectColumnDisplay(
 	}
 }
 
+/** A column reads the same casedb calendar value as native Results/Details.
+ * Keep the raw row/preload accessor unchanged: it also serves stored data. */
+function caseListDisplaySourceValue(row: CaseRowWithCalculated, field: string) {
+	const source = caseRowDisplaySourceValue(row, field);
+	if (!isCalendarCaseProperty(field) || source === null || source === undefined)
+		return source;
+	const date = source instanceof Date ? source : new Date(String(source));
+	return Number.isNaN(date.getTime())
+		? source
+		: XPathDate.fromJSDateOnly(date).toISOString();
+}
+
+function caseListDisplayValue(
+	row: CaseRowWithCalculated,
+	field: string,
+): string {
+	if (!isCalendarCaseProperty(field)) return caseRowDisplayValue(row, field);
+	const source = caseListDisplaySourceValue(row, field);
+	return source === null || source === undefined ? "" : String(source);
+}
+
 function projectPlainValue(
 	row: CaseRowWithCalculated,
 	field: string,
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
 ): PreviewFormattedValue {
-	const source = caseRowDisplaySourceValue(row, field);
+	const source = caseListDisplaySourceValue(row, field);
 	if (
 		property?.data_type === "multi_select" &&
 		(Array.isArray(source) || typeof source === "string")

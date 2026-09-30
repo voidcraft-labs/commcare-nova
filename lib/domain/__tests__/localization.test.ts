@@ -20,6 +20,8 @@ import {
 	parseLanguageTag,
 	proseText,
 	simpleSearchInputDef,
+	translationSourceFingerprint,
+	translationSourceFingerprintsEqual,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -51,6 +53,90 @@ const lookupContext: LookupValidationContext = {
 };
 
 describe("app localization vocabulary", () => {
+	it("binds source identity to schema values across legacy JSON key orders", () => {
+		const source = {
+			parts: [
+				{ kind: "text" as const, text: "Repairing " },
+				{
+					kind: "case-ref" as const,
+					caseType: "repair",
+					property: "case_name",
+				},
+			],
+		};
+		const stored = {
+			parts: [
+				{ text: "Repairing ", kind: "text" as const },
+				{
+					caseType: "repair",
+					property: "case_name",
+					kind: "case-ref" as const,
+				},
+			],
+		};
+		const current = translationSourceFingerprint("prose", source);
+		const legacy = `source-v1:prose:${JSON.stringify(stored)}`;
+		expect(legacy).not.toBe(current);
+		expect(translationSourceFingerprint("prose", stored)).toBe(current);
+		expect(translationSourceFingerprintsEqual(legacy, current)).toBe(true);
+		for (const changed of [
+			{ parts: [...source.parts].reverse() },
+			{
+				parts: [
+					{ kind: "text" as const, text: "Collecting " },
+					source.parts[1],
+				],
+			},
+			{
+				parts: [
+					source.parts[0],
+					{
+						kind: "case-ref" as const,
+						caseType: "other",
+						property: "case_name",
+					},
+				],
+			},
+			{
+				parts: [
+					source.parts[0],
+					{
+						kind: "case-ref" as const,
+						caseType: "repair",
+						property: "external_id",
+					},
+				],
+			},
+		])
+			expect(
+				translationSourceFingerprintsEqual(
+					legacy,
+					`source-v1:prose:${JSON.stringify(changed)}`,
+				),
+			).toBe(false);
+		for (const invalid of [
+			"unknown",
+			'source-v2:text:"Hello"',
+			"source-v1:text:3",
+			'source-v1:prose:"Hello"',
+			"source-v1:prose:{",
+			'source-v1:prose:{"parts":[],"extra":true}',
+			'source-v1:prose:{"parts":[{"kind":"case-ref","caseType":"repair"}]}',
+		])
+			expect(translationSourceFingerprintsEqual(invalid, invalid)).toBe(false);
+		expect(
+			translationSourceFingerprintsEqual(
+				'source-v1:text:"Hello"',
+				'source-v1:text:"Hello"',
+			),
+		).toBe(true);
+		expect(
+			translationSourceFingerprintsEqual(
+				'source-v1:text:"Hello"',
+				'source-v1:text:"Hello "',
+			),
+		).toBe(false);
+	});
 	it("derives the absent English-only state without persisting a duplicate overlay", () => {
 		const state = effectiveAppLocalization(undefined);
 		expect(state).toMatchObject({
@@ -371,6 +457,43 @@ describe("translation unit inventory", () => {
 				candidate.role === "field-label",
 		);
 		if (!unit) throw new Error("Missing protected prose fixture");
+		const translated = {
+			parts: [
+				{ kind: "text" as const, text: "Hola " },
+				{ kind: "field-ref" as const, uuid: NAME },
+			],
+		};
+		doc.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "eng",
+			languageOrder: ["eng", "spa"],
+			translations: {
+				spa: {
+					[unit.id]: {
+						value: translated,
+						origin: "human",
+						review: "reviewed",
+						translatedFrom: "eng",
+						sourceFingerprint: `source-v1:prose:${JSON.stringify({
+							parts: [
+								{ text: "Hello ", kind: "text" },
+								{ uuid: NAME, kind: "field-ref" },
+							],
+						})}`,
+					},
+				},
+			},
+		};
+		expectAdmittedDoc(doc);
+		expect(
+			collectLocalizedTranslationUnits(doc, "spa").find(
+				(candidate) => candidate.id === unit.id,
+			),
+		).toMatchObject({
+			status: "ready",
+			effective: translated,
+			explicit: { review: "reviewed" },
+		});
 
 		expect(
 			translationValueIntegrityIssue(unit, {

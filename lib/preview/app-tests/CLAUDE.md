@@ -21,6 +21,11 @@ their call. Lost app membership or run authority remains terminal.
 `readAppTest` without an identity returns the same bounded recent-test list as
 Builder, so a reviewer can discover evidence created by another authoring role.
 List and detail timestamps are ISO strings usable in model JSON results.
+Before the app's first save, shared journey tools return an ordinary prerequisite
+refusal. Planning peers may discover history reads, and a retained unanswered
+read must settle with that refusal on recovery. Reading saved evidence remains
+available while private app edits are pending; starting or continuing a journey
+still requires those edits to be saved.
 
 `lib/case-store/appTestNamespace.ts` binds the production Postgres store to a
 generated namespace inside that transaction. Every table the store can reach
@@ -95,3 +100,40 @@ and whether Submit is offered. A `section` action validates forward pages before
 entering the target; Back retains existing rows and answers. Future-page answers
 and early submissions cannot bypass this progression. These use the browser’s
 FormEngine insertion and paging projections, not a separate simulation.
+
+Ordered calls accept up to eight actions. `addresses.ts` resolves each authored
+name/section path against the authorized pinned snapshot and current screen,
+after receipt replay and immediately before execution. `service.ts` owns each
+action savepoint; explicit worker/input refusals stop with the persisted prefix,
+while unexpected failures roll back the call. `app_test_requests` owns the
+complete response receipt; individual action rows share its request identity.
+`finish` may follow submission in that same call: namespace disposal checks its
+deferred foreign keys before dropping the records, and the final evidence and
+whole-call receipt commit atomically with that disposal.
+Pre-batch singular receipts retain their original UUID-normalized digest. On
+a digest mismatch only, the shared boundary retries that original preparation
+against the authorized pinned document, so a later rename cannot break replay.
+A 60-second transaction deadline covers the whole call, including lock waits.
+Caller disconnection is not propagated as a separate cancellation signal here.
+The 200-step bound still counts individual worker actions.
+
+Selected language belongs to test state, defaults to the app default and can
+change only to a configured structured language identity. Form checkpoints
+reinitialize with retained answers/defaults/repeats exactly as browser language
+changes do. `runtimeMessages.ts` owns English/Spanish platform copy; every
+observation identifies catalog fallback. Authored translations remain separate.
+Results and Details share formatted cell projection, including the browser's
+localized record-choice labels. Route context exposes
+retained ancestor/record selections. Submission evidence proves isolated case
+commit only; serialized submissions and retained reports stay `not-observed`.
+
+Evidence reads have a fixed upper step, ten-step default/twenty-step maximum
+and 64 KiB response budget. `evidence.ts` exposes oversized persisted values by
+explicit bounded paths and offsets. The start/source/runtime provenance travels
+with every page. Builder pages these same rows rather than loading all history.
+
+Runtime version 8 also pins portable case-list metadata reads: Results/Details,
+calculated columns and calculated ordering expose built-in dates at native
+calendar precision, while custom datetime values keep their clocks. Retained
+older observations remain readable, but a fresh journey is needed to execute
+these semantics.

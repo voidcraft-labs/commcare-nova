@@ -103,6 +103,7 @@ import {
 	designProgressLocksInitialBuild,
 	designProgressOwnsActivityStatus,
 	designProgressTracksBuildFailure,
+	designReviewCanContinue,
 	designSessionScopeTracksProgress,
 	expectedProjectIdForChatRequest,
 	type LoadedThreadDoc,
@@ -1743,6 +1744,21 @@ export function ChatContainer({
 		void sendMessage(undefined);
 	}, [clearError, projectToast, scopeEpoch, sendMessage, status]);
 
+	const continuePeerReview = useCallback(() => {
+		const session = sessionStoreRef.current?.getState();
+		if (
+			!chatGenerationCanWrite(
+				session,
+				scopeEpoch,
+				threadHydrationStateRef.current,
+			) ||
+			!designReviewCanContinue(designProgressStore.getState(), status)
+		)
+			return;
+		clearError();
+		void sendMessage({ text: "Please continue the unfinished peer review." });
+	}, [clearError, designProgressStore, scopeEpoch, sendMessage, status]);
+
 	const resumeAcceptedBuild = useCallback(() => {
 		const session = sessionStoreRef.current?.getState();
 		if (
@@ -1972,19 +1988,29 @@ export function ChatContainer({
 							}
 						: canEdit &&
 								!readOnly &&
-								designBuildCanResume(
-									designProgressStore.getState(),
-									isExistingApp && buildUnfinished,
-									status,
-								)
+								designReviewCanContinue(designProgressStore.getState(), status)
 							? {
-									title: "Build paused",
+									title: "Review paused",
 									message:
-										"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
-									actionLabel: "Resume build",
-									onAction: resumeAcceptedBuild,
+										"Your app and the review so far are saved. There is more to check before the app is ready.",
+									actionLabel: "Continue",
+									onAction: continuePeerReview,
 								}
-							: undefined
+							: canEdit &&
+									!readOnly &&
+									designBuildCanResume(
+										designProgressStore.getState(),
+										isExistingApp && buildUnfinished,
+										status,
+									)
+								? {
+										title: "Build paused",
+										message:
+											"Resume the same accepted plan from its last durable workflow. No design or completed work will be changed.",
+										actionLabel: "Resume build",
+										onAction: resumeAcceptedBuild,
+									}
+								: undefined
 			}
 			pendingWorkRecovery={
 				appId &&

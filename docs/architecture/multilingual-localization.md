@@ -321,6 +321,14 @@ fingerprint and the prior explicit entry's fingerprint/value. Either concurrent
 source or target change refuses the atomic batch instead of binding a
 translation or approval to content the caller did not inspect.
 
+Source fingerprints use schema-canonical JSON so persisted workspace replay and
+canonical app reads agree despite JSONB object-key ordering. Semantic source
+comparisons validate and recognize equivalent legacy `source-v1` payloads;
+existing translations keep their effective values and review status without a
+data migration. Invalid encodings and changes to source text, reference identity
+or prose order still fail the comparison. Request, revision and receipt digests
+retain their exact existing contracts.
+
 Status is derived per unit:
 
 - **Missing**: no explicit target entry exists.

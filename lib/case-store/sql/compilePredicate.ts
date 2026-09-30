@@ -64,6 +64,7 @@ import { walkPropertyRefs } from "@/lib/domain/predicate/walk";
 import {
 	type CompilePredicateThunk,
 	compileExpression,
+	compileTemporalValues,
 	type ExpressionCompileContext,
 } from "./compileExpression";
 import { compileRelationPath } from "./compileRelationPath";
@@ -319,11 +320,27 @@ function compileComparison(
 	pred: Extract<Predicate, { kind: ComparisonKind }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	return eb(
-		compileValueExprOperand(pred.left, ctx),
+	return compileOrderedComparison(
+		pred.left,
 		COMPARISON_OPS[pred.kind],
-		compileValueExprOperand(pred.right, ctx),
+		pred.right,
+		ctx,
 	);
+}
+
+/** Preserve the worker's midnight when typed SQL compares a portable calendar
+ * read with a datetime. The default server comparison retains its raw values. */
+function compileOrderedComparison(
+	left: ValueExpression,
+	operator: ComparisonOperator,
+	right: ValueExpression,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	const [a, b] = compileTemporalValues(
+		[left, right],
+		expressionContextFor(ctx),
+	);
+	return eb(a, operator, b);
 }
 
 /**
@@ -337,7 +354,12 @@ function compileIn(
 ): Expression<SqlBool> {
 	return eb.or(
 		pred.values.map((value) =>
-			eb(compileValueExprOperand(pred.left, ctx), "=", compileTerm(value, ctx)),
+			compileOrderedComparison(
+				pred.left,
+				"=",
+				{ kind: "term", term: value },
+				ctx,
+			),
 		),
 	);
 }
@@ -359,31 +381,15 @@ function compileBetween(
 		// Relation normalization deliberately splits related two-bound ranges into
 		// two independently quantified comparisons before this scalar helper runs.
 		return eb.and([
-			eb(
-				compileValueExprOperand(pred.left, ctx),
-				lowerOp,
-				compileValueExprOperand(pred.lower, ctx),
-			),
-			eb(
-				compileValueExprOperand(pred.left, ctx),
-				upperOp,
-				compileValueExprOperand(pred.upper, ctx),
-			),
+			compileOrderedComparison(pred.left, lowerOp, pred.lower, ctx),
+			compileOrderedComparison(pred.left, upperOp, pred.upper, ctx),
 		]);
 	}
 	if (pred.lower !== undefined) {
-		return eb(
-			compileValueExprOperand(pred.left, ctx),
-			lowerOp,
-			compileValueExprOperand(pred.lower, ctx),
-		);
+		return compileOrderedComparison(pred.left, lowerOp, pred.lower, ctx);
 	}
 	if (pred.upper !== undefined) {
-		return eb(
-			compileValueExprOperand(pred.left, ctx),
-			upperOp,
-			compileValueExprOperand(pred.upper, ctx),
-		);
+		return compileOrderedComparison(pred.left, upperOp, pred.upper, ctx);
 	}
 	// Schema's `.refine(...)` rejects this shape at parse; the
 	// runtime branch defends against a directly-constructed bypass.

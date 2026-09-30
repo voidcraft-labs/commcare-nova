@@ -29,6 +29,27 @@ The stack emits no `sql.raw`. `sql` tagged templates appear only in `compilePred
 
 A new arm needing an off-surface Postgres feature follows the same shape: find the function-call form that returns the typed value directly; never reach for `sql.raw`.
 
+## Portable case-list column reads
+
+Calculated Results/Details values set `TermCompileContext.portableCaseDates`.
+Only in that context, `date_opened` and `last_modified` read as the date of
+`timezone(viewerTimeZone, stored_timestamp)`, matching Core's casedb DateData.
+The flag follows self, parent and nested predicate reads. Calculated sort keys
+carry the same flag through ordinary and grouped ordering. Ordinary server
+filters, search, operations and stored row metadata retain datetime resolution.
+
+Portable temporal result inference does not revalidate an admitted expression
+against different property types. It follows value branches independently of
+conditions. Mixed date/datetime branches explicitly promote their calendar arm
+to midnight in the validated viewer timezone before PostgreSQL merges them;
+connection timezone must not decide that instant. Typed mixed temporal
+comparisons, membership, ranges and switch selectors apply the same promotion,
+including nested predicates. This preserves Nova's existing typed SQL comparison
+contract; native raw DateData-versus-string generalized comparisons have their
+own coercion behavior and are not proven equivalent by this date-read change.
+Calendar-only branches and
+custom datetime values retain their existing shapes.
+
 ## Numeric expressions
 
 Numeric and boolean literals carry their SQL type explicitly, so expressions such as

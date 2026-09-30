@@ -1,3 +1,5 @@
+import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
+import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { AppAccessError } from "../appAccess";
 import {
@@ -7,6 +9,7 @@ import {
 	listAppTests,
 	readAppTestSteps,
 } from "../appTests";
+import { __setAppDbForTests, type AppDatabase } from "../pg";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("app_test_sessions_");
@@ -297,4 +300,257 @@ describe("app test session authority and evidence", () => {
 			readAppTestSteps({ ...scope, testId: begun.testId }),
 		).rejects.toBeInstanceOf(AppAccessError);
 	});
+});
+
+it("commits a bounded batch prefix with an exact receipt and rolls every prefix effect back on infrastructure failure", async () => {
+	await setup();
+	const begun = await start();
+	const args = {
+		...scope,
+		testId: begun.testId,
+		requestId: "batch",
+		requestDigest: "batch-digest",
+		expectedStep: 0,
+		actions: [
+			{ action: { kind: "observe" } },
+			{ action: { kind: "observe" } },
+			{ action: { kind: "observe" } },
+		],
+	};
+	let count = 0;
+	await expect(
+		advanceAppTestSession({
+			...args,
+			advance: async () => {
+				count += 1;
+				if (count === 2) throw new Error("connection interrupted");
+				return { state: { count }, observation: { count } };
+			},
+		}),
+	).rejects.toThrow("connection interrupted");
+	expect(
+		(await readAppTestSteps({ ...scope, testId: begun.testId })).steps,
+	).toHaveLength(1);
+	expect(
+		await h.db().selectFrom("app_test_requests").selectAll().execute(),
+	).toEqual([]);
+	count = 0;
+	const response = await advanceAppTestSession({
+		...args,
+		advance: async () => {
+			count += 1;
+			return {
+				state: { count },
+				observation: { count },
+				...(count === 2
+					? { stopReason: "Worker validation stopped the next action." }
+					: {}),
+			};
+		},
+	});
+	expect(response).toMatchObject({
+		step: 2,
+		stopped: { index: 1 },
+		results: [{ step: 1 }, { step: 2 }],
+	});
+	await h
+		.db()
+		.updateTable("apps")
+		.set({ mutation_seq: 1 })
+		.where("id", "=", scope.appId)
+		.execute();
+	expect(
+		await advanceAppTestSession({
+			...args,
+			advance: async () => {
+				throw new Error("Receipt replay must not execute");
+			},
+		}),
+	).toEqual(response);
+	await expect(
+		advanceAppTestSession({
+			...args,
+			requestDigest: "different",
+			advance: async () => {
+				throw new Error("Must refuse");
+			},
+		}),
+	).rejects.toThrow("different inputs");
+	await h
+		.pool()
+		.query('DELETE FROM auth_member WHERE "userId" = $1', [scope.actorUserId]);
+	await expect(
+		advanceAppTestSession({
+			...args,
+			advance: async () => {
+				throw new Error("Must refuse");
+			},
+		}),
+	).rejects.toBeInstanceOf(AppAccessError);
+});
+
+it("counts every batch action at the 200-step boundary while keeping finish available", async () => {
+	await setup();
+	const begun = await start();
+	await h
+		.db()
+		.updateTable("app_test_sessions")
+		.set({ step: 199 })
+		.where("id", "=", begun.testId)
+		.execute();
+	const response = await advanceAppTestSession({
+		...scope,
+		testId: begun.testId,
+		requestId: "last-actions",
+		requestDigest: "last-actions",
+		expectedStep: 199,
+		actions: [{ action: { kind: "observe" } }, { action: { kind: "observe" } }],
+		advance: async () => ({ state: {}, observation: { seen: true } }),
+	});
+	expect(response).toMatchObject({
+		step: 200,
+		results: [{ step: 200 }],
+		stopped: { index: 1 },
+	});
+	const finished = await advanceAppTestSession({
+		...scope,
+		testId: begun.testId,
+		requestId: "finish",
+		requestDigest: "finish",
+		expectedStep: 200,
+		actions: [{ action: { kind: "finish" } }],
+		advance: async () => {
+			throw new Error("Finish does not run the worker");
+		},
+	});
+	expect(finished).toMatchObject({ step: 201, observation: { ended: true } });
+});
+
+it("keeps paged evidence on one upper bound and preserves access to oversized Unicode observations", async () => {
+	await setup();
+	const text = "Review 🌍 café 漢字\n".repeat(5000);
+	const begun = await createAppTestSession({
+		...scope,
+		requestId: "large",
+		requestDigest: "large",
+		expectedBlueprintSeq: 0,
+		initialize: async () => ({
+			snapshot: {},
+			state: {},
+			observation: { suppliedRecords: [], explanation: text },
+		}),
+	});
+	const first = await readAppTestSteps({
+		...scope,
+		testId: begun.testId,
+		limit: 1,
+	});
+	expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThanOrEqual(
+		64 * 1024,
+	);
+	expect(first).toMatchObject({
+		runtime_version: 8,
+		throughStep: 0,
+		provenance: { value: { suppliedRecords: [] } },
+		steps: [{ step: 0, observation: null, inspection: { step: 0 } }],
+	});
+	const inspected = await readAppTestSteps({
+		...scope,
+		testId: begun.testId,
+		throughStep: first.throughStep,
+		inspect: { step: 0, path: ["observation", "explanation"] },
+	});
+	expect(inspected.inspection).toMatchObject({
+		kind: "string",
+		complete: false,
+		nextOffset: expect.any(Number),
+	});
+	await advanceAppTestSession({
+		...scope,
+		testId: begun.testId,
+		requestId: "later",
+		requestDigest: "later",
+		expectedStep: 0,
+		action: { kind: "observe" },
+		advance: async () => ({ state: {}, observation: { later: true } }),
+	});
+	const originalWindow = await readAppTestSteps({
+		...scope,
+		testId: begun.testId,
+		afterStep: 0,
+		throughStep: first.throughStep,
+	});
+	expect(originalWindow.steps).toEqual([]);
+	expect(originalWindow.step).toBe(1);
+	const latest = await readAppTestSteps({
+		...scope,
+		testId: begun.testId,
+		afterStep: 0,
+	});
+	expect(latest.steps).toMatchObject([
+		{ step: 1, observation: { later: true } },
+	]);
+});
+
+it("rolls back the whole action list and receipt when its database deadline expires after a successful prefix", async () => {
+	await setup();
+	const begun = await start();
+	let actions = 0;
+	const pool = new Pool({ connectionString: h.uri(), max: 1 });
+	const disconnected: Error[] = [];
+	pool.on("connect", (client) =>
+		client.on("error", (error) => disconnected.push(error)),
+	);
+	const timed = new Kysely<AppDatabase>({
+		dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
+	});
+	__setAppDbForTests(timed);
+	try {
+		await expect(
+			advanceAppTestSession({
+				...scope,
+				testId: begun.testId,
+				requestId: "deadline",
+				requestDigest: "deadline",
+				expectedStep: 0,
+				deadlineAt: Date.now() + 150,
+				actions: [
+					{ action: { kind: "observe" } },
+					{ action: { kind: "observe" } },
+				],
+				advance: async (tx) => {
+					actions++;
+					if (actions === 2) await sql`SELECT pg_sleep(10)`.execute(tx);
+					return { state: { count: actions }, observation: { count: actions } };
+				},
+			}),
+		).rejects.toThrow();
+	} finally {
+		__setAppDbForTests(h.db());
+		await timed.destroy();
+		if (!pool.ended) await pool.end();
+	}
+	expect(disconnected).toHaveLength(1);
+	expect(disconnected[0].message).toBe("Connection terminated unexpectedly");
+	expect(actions).toBe(2);
+	const evidence = await readAppTestSteps({ ...scope, testId: begun.testId });
+	expect(evidence.steps).toHaveLength(1);
+	expect(
+		await h
+			.db()
+			.selectFrom("app_test_requests")
+			.selectAll()
+			.where("test_id", "=", begun.testId)
+			.execute(),
+	).toEqual([]);
+	expect(
+		(
+			await h
+				.db()
+				.selectFrom("app_test_sessions")
+				.select("step")
+				.where("id", "=", begun.testId)
+				.executeTakeFirstOrThrow()
+		).step,
+	).toBe(0);
 });

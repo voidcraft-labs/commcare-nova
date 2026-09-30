@@ -78,6 +78,9 @@ filter by status:
   the running app uses the current source until the target is reviewed or
   replaced.
 
+Saving and reopening an unchanged app keeps its translations and review status.
+References in translated labels stay attached to the same answers and records.
+
 A correct translation sometimes is identical to its source, such as a product
 name or acronym. A Missing row can be saved without changing its text; Nova then
 stores that value explicitly as reviewed instead of leaving it permanently
@@ -108,6 +111,15 @@ Every configured language always has a complete runtime projection. A missing
 or out-of-date target uses the current source value, so the app remains valid
 while translation is in progress. Review status is guidance rather than a
 separate draft or release gate.
+
+Preview's Back, Next, Submit, Clear, Continue, Search and Results controls,
+section navigation, generic required/type/constraint fallback messages, and
+“Review the highlighted question” feedback are available in English and Spanish.
+Other worker languages currently use English for that platform text; your
+authored labels and custom validation still use the app's translations.
+Changing language keeps entered answers and repeat rows. Other field-widget
+text, record metadata, accessibility labels, browser diagnostics, media capture
+controls and some Search error messages remain outside this small catalog.
 
 ## What is not counted as translated
 
