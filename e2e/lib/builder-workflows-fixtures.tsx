@@ -25,6 +25,7 @@ import {
 import { CarryValuesSection } from "@/components/builder/form-links/CarryValuesSection";
 import { GenerationProgressCard } from "@/components/builder/GenerationProgress";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
+import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { PresenceRosterView } from "@/components/builder/PresenceRosterView";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -514,43 +515,45 @@ export function ChromeFixture() {
 		}),
 	);
 	return (
-		<>
-			<Button onClick={() => setCompact((value) => !value)}>
-				Toggle compact chrome
-			</Button>
-			<div style={{ width: "100%", maxWidth: 1800 }}>
-				<BuilderPageNavigation
-					hasData
-					canGoBack
-					onBack={() => setDestination("back")}
-					compactWorkspaceBreadcrumb={compact}
-					parts={[
-						{
-							key: "home",
-							label: "Home",
-							onClick: () => setDestination("home"),
-						},
-						{
-							key: "module",
-							label: "Community nutrition and longitudinal care",
-							onClick: () => setDestination("module"),
-						},
-						{
-							key: "screen",
-							label:
-								"Follow-up visits that need a complete authored name in every workspace",
-							onClick: () => setDestination("leaf"),
-						},
-					]}
+		<BlueprintDocProvider>
+			<BuilderLocalizationProvider>
+				<Button onClick={() => setCompact((value) => !value)}>
+					Toggle compact chrome
+				</Button>
+				<div style={{ width: "100%", maxWidth: 1800 }}>
+					<BuilderPageNavigation
+						hasData
+						canGoBack
+						onBack={() => setDestination("back")}
+						compactWorkspaceBreadcrumb={compact}
+						parts={[
+							{
+								key: "home",
+								label: "Home",
+								onClick: () => setDestination("home"),
+							},
+							{
+								key: "module",
+								label: "Community nutrition and longitudinal care",
+								onClick: () => setDestination("module"),
+							},
+							{
+								key: "screen",
+								label:
+									"Follow-up visits that need a complete authored name in every workspace",
+								onClick: () => setDestination("leaf"),
+							},
+						]}
+					/>
+				</div>
+				<PresenceRosterView
+					compact={compact}
+					peers={peers}
+					onFollow={(person) => setDestination(person.userId)}
 				/>
-			</div>
-			<PresenceRosterView
-				compact={compact}
-				peers={peers}
-				onFollow={(person) => setDestination(person.userId)}
-			/>
-			<output aria-label="Chrome destination">{destination}</output>
-		</>
+				<output aria-label="Chrome destination">{destination}</output>
+			</BuilderLocalizationProvider>
+		</BlueprintDocProvider>
 	);
 }
 
