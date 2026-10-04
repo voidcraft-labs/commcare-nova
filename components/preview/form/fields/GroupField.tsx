@@ -38,7 +38,7 @@ import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDoc
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
-import { FIELD_STYLES } from "../fieldStyles";
+import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 
@@ -119,11 +119,11 @@ export function GroupField({
 				>
 					{/* Group label media: banner above the header row. */}
 					<MediaDisplay media={field.label_media} interactive />
-					<div className="flex items-center gap-2">
+					<div className={CONTAINER_HEADER_STYLES.row}>
 						<button
 							type="button"
 							onClick={onToggle}
-							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:text-nova-text"
+							className={CONTAINER_HEADER_STYLES.toggle}
 							aria-expanded={!collapsed}
 							aria-controls={contentId}
 							aria-labelledby={[toggleActionId, accessibleContext, headerId]
@@ -140,7 +140,7 @@ export function GroupField({
 								aria-hidden="true"
 							/>
 						</button>
-						<div id={headerId} className="min-w-0 flex-1">
+						<div id={headerId} className={CONTAINER_HEADER_STYLES.title}>
 							<span className="sr-only">
 								{runtimeMessage(language, "sectionPosition", { position })}{" "}
 							</span>
@@ -159,9 +159,11 @@ export function GroupField({
 									/>
 								</div>
 							) : (
-								<span className="text-xs italic text-nova-text-muted">
-									{runtimeMessage(language, "untitledGroup")}
-								</span>
+								<div className="px-[5px] py-[5px]">
+									<span className="text-xs italic text-nova-text-muted">
+										{runtimeMessage(language, "untitledGroup")}
+									</span>
+								</div>
 							)}
 						</div>
 					</div>

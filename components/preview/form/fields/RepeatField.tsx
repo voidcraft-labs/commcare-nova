@@ -8,7 +8,7 @@
  * **Shell matches the group.** The outer chrome is identical to
  * `GroupField`: depth-padded header with chevron collapse, nesting rails
  * down the children column, and a flat-top close cap. A small `Repeat`
- * badge next to the chevron signals that the contents are instance-
+ * badge below the title signals that the contents are instance-
  * expanded at runtime.
  *
  * **Instances within the shell.** `count` instances render inside the
@@ -45,7 +45,7 @@ import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOr
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
-import { FIELD_STYLES } from "../fieldStyles";
+import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 import { runWithAttachmentEntryWriteAuthority } from "./attachment/attachmentClient";
@@ -243,11 +243,11 @@ export function RepeatField({
 					{/* Repeat label media: banner above the header row, matching
 					    the edit-mode `GroupBracket` position for flipbook parity. */}
 					<MediaDisplay media={field.label_media} interactive />
-					<div className="flex items-center gap-2">
+					<div className={CONTAINER_HEADER_STYLES.row}>
 						<button
 							type="button"
 							onClick={onToggle}
-							className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:text-nova-text"
+							className={CONTAINER_HEADER_STYLES.toggle}
 							aria-expanded={!collapsed}
 							aria-controls={contentId}
 							aria-labelledby={[
@@ -270,28 +270,7 @@ export function RepeatField({
 							/>
 						</button>
 
-						<span
-							id={headerId}
-							className="flex shrink-0 items-center gap-1 text-xs font-medium text-nova-text-muted"
-						>
-							<span className="sr-only">
-								{runtimeMessage(language, "repeatPosition", { position })}{" "}
-							</span>
-							<Icon
-								icon={tablerRepeat}
-								width="11"
-								height="11"
-								aria-hidden="true"
-							/>
-							{runtimeMessage(language, "repeat")}
-							{count > 1 && (
-								<span className="font-normal normal-case tracking-normal">
-									· {runtimeMessage(language, "instances", { count })}
-								</span>
-							)}
-						</span>
-
-						<div id={titleId} className="min-w-0 flex-1">
+						<div id={titleId} className={CONTAINER_HEADER_STYLES.title}>
 							{/* Repeats extend `containerFieldBase` (label optional).
 							 *  When set, render the title; when empty/absent, render
 							 *  nothing in the title slot: the surrounding chrome
@@ -316,6 +295,23 @@ export function RepeatField({
 								</div>
 							)}
 						</div>
+						<span id={headerId} className={CONTAINER_HEADER_STYLES.metadata}>
+							<span className="sr-only">
+								{runtimeMessage(language, "repeatPosition", { position })}{" "}
+							</span>
+							<Icon
+								icon={tablerRepeat}
+								width="11"
+								height="11"
+								aria-hidden="true"
+							/>
+							{runtimeMessage(language, "repeat")}
+							{count > 1 && (
+								<span className="font-normal normal-case tracking-normal">
+									· {runtimeMessage(language, "instances", { count })}
+								</span>
+							)}
+						</span>
 					</div>
 					{/* Repeats don't carry `hint` in the domain schema: structural
 					 *  containers expose only `relevant`. Only the label renders. */}
