@@ -1,0 +1,24 @@
+{
+	"intent": [
+		{
+			"id": "search-by-village",
+			"export": "local",
+			"form": "45b4829b-fd76-554f-acf0-08a5b52d1d8b",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0"
+				},
+				"caseList": {
+					"searchText": "Riverside"
+				}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-amina"
+				}
+			]
+		}
+	]
+}

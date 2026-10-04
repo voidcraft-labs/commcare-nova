@@ -52,7 +52,12 @@ const media = {
 	},
 };
 
-function manifestFor(doc: BlueprintDoc): AssetManifest {
+/**
+ * The media manifest the compiler fuzz publishes a document with: every
+ * asset slot resolved to real bytes of its kind. The proof corpus's fuzz
+ * sample uploads the same bytes (`proof/corpus/fuzzSample.ts`).
+ */
+export function manifestFor(doc: BlueprintDoc): AssetManifest {
 	const manifest = new Map<ResolvedMediaAsset["assetId"], ResolvedMediaAsset>();
 	for (const ref of walkAssetRefs(doc)) {
 		const fixture = media[ref.slotKind];

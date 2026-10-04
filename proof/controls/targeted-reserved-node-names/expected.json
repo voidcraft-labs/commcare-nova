@@ -1,0 +1,82 @@
+{
+	"intent": [
+		{
+			"id": "instance-held",
+			"export": "local",
+			"form": "80e38c62-6ba4-52c6-a53d-1a5859792a72",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/instance",
+						"value": "kept"
+					}
+				],
+				"expressions": [
+					"/data/instance"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "kept"
+				}
+			]
+		},
+		{
+			"id": "bind-held",
+			"export": "local",
+			"form": "9630017e-9ac7-5f72-af12-6db4114c8b0e",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/bind",
+						"value": "kept"
+					}
+				],
+				"expressions": [
+					"/data/bind"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "kept"
+				}
+			]
+		},
+		{
+			"id": "itext-held",
+			"export": "local",
+			"form": "a454d163-9abd-5907-a19f-5235e23a3273",
+			"request": {
+				"answers": [
+					{
+						"path": "/data/itext",
+						"value": "kept"
+					}
+				],
+				"expressions": [
+					"/data/itext"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "kept"
+				}
+			]
+		}
+	]
+}

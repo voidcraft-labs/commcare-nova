@@ -38,7 +38,6 @@ import {
 
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { projectSpaceCompatibilityForDownload } from "@/lib/commcare/projectSpaceCompatibility";
@@ -49,6 +48,7 @@ import {
 	type ExportMode,
 	prepareExportBoundary,
 } from "@/lib/export/boundaryValidation";
+import { compileLocalArchive } from "@/lib/export/localArchive";
 import {
 	type ExportAdvisory,
 	exportAdvisories,
@@ -75,10 +75,11 @@ export const COMPILE_EXPORT_MODE_BY_FORMAT = {
  *
  * One read suffices: `loadAppBlueprint` returns `{ doc, app, access }`
  * so the hydrated blueprint, authorized Project scope, and denormalized
- * `app_name` (the ccz profile manifest + the json media bundle's filename)
- * come from the same load. `app.app_name` is non-blank by schema, so this
- * tool threads it straight into `compileCcz` / `buildHqJsonExportArchive`
- * without a defensive fallback.
+ * `app_name` (the json media bundle's filename) come from the same load.
+ * `app.app_name` is non-blank by schema, so this tool threads it straight
+ * into `buildHqJsonExportArchive` without a defensive fallback; the ccz
+ * profile's name is the document's own `appName`, the same value
+ * (`lib/db/blueprintRows.ts` reads the document's name from that column).
  */
 export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 	server.registerTool(
@@ -176,7 +177,6 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					assets,
 					compiledAtSeq,
 					lookupNaming,
-					lookupWire,
 					lookupWorkbook,
 				} = boundary.prepared;
 				const hasMedia = assets.size > 0;
@@ -271,27 +271,19 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						};
 					}
 					case "ccz": {
-						/* The archive bundles the bytes alongside the
-						 * references; an empty manifest bundles none.
-						 * `compileCcz` returns a Node `Buffer`; MCP text
-						 * content is UTF-8 only, so base64 is the safest
-						 * lossless escape, and the `encoding` field inside the
-						 * wrapper tells the caller to decode it. */
-						const hqJson = expandDoc(preparedDoc, {
+						/* The one `.ccz` assembly the browser download uses:
+						 * the archive bundles the bytes alongside the
+						 * references (an empty manifest bundles none) and
+						 * stamps the blueprint's `mutation_seq` into the
+						 * profile's `cc-content-version`. It returns a Node
+						 * `Buffer`; MCP text content is UTF-8 only, so base64
+						 * is the safest lossless escape, and the `encoding`
+						 * field inside the wrapper tells the caller to decode
+						 * it. */
+						const cczBuf = compileLocalArchive(
+							boundary.prepared,
 							runtimeTarget,
-							assets,
-							attachmentTarget,
-							...(lookupNaming && { lookupNaming }),
-						});
-						/* Stamp the blueprint's `mutation_seq` into the profile's
-						 * `cc-content-version` so the archive names the exact
-						 * document version it was built from. */
-						const cczBuf = compileCcz(hqJson, app.app_name, preparedDoc, {
-							runtimeTarget,
-							assets,
-							compiledAtSeq,
-							...(lookupWire && { lookup: lookupWire }),
-						});
+						);
 						return {
 							content: [
 								...projectSpaceCompatibilityContent,

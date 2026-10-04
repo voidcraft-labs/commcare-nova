@@ -1,0 +1,9 @@
+{
+	"method": "POST",
+	"path": "/a/nova-proof/apps/api/nova-proof-placeholder-app/multimedia/",
+	"contentType": "multipart/form-data; boundary=----nova-proof-capture",
+	"fields": [
+		"waf_padding",
+		"bulk_upload_file"
+	]
+}

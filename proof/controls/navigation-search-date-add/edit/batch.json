@@ -1,0 +1,10 @@
+{
+	"footprint": [],
+	"footprintParts": {
+		"appWide": false,
+		"app": true,
+		"entities": [],
+		"modules": [],
+		"forms": []
+	}
+}

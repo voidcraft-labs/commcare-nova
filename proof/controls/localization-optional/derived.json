@@ -1,0 +1,189 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Target-only prose",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "418ed93b-f71a-55c7-adff-3269870c6c4b",
+							"validations": {
+								"09f527ea-2036-5e2e-a34c-115016d792da": "/section/name"
+							},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "es",
+					"tag": "spa"
+				},
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"418ed93b-f71a-55c7-adff-3269870c6c4b"
+					],
+					"uuid": "a59f210d-bc19-52a1-a59a-fa3f0e4eea7d"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "edit_type_1-1",
+					"case_type": "edit_type_1",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "edit_type_1-2",
+					"case_type": "edit_type_1",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "edit_type_1-3",
+					"case_type": "edit_type_1",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Target-only prose",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "418ed93b-f71a-55c7-adff-3269870c6c4b",
+							"validations": {
+								"09f527ea-2036-5e2e-a34c-115016d792da": "/section/name"
+							},
+							"writes": {}
+						}
+					]
+				],
+				[
+					"edit_type_1",
+					[]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "es",
+					"tag": "spa"
+				},
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"418ed93b-f71a-55c7-adff-3269870c6c4b"
+					],
+					"uuid": "a59f210d-bc19-52a1-a59a-fa3f0e4eea7d"
+				},
+				{
+					"forms": [],
+					"uuid": "7049a6a5-8121-57b1-aba1-5640eb6078e4"
+				}
+			]
+		}
+	}
+}

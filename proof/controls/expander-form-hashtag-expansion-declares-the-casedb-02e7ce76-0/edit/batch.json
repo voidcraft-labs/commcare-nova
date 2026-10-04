@@ -1,0 +1,25 @@
+{
+	"footprint": [
+		"32f82504-0b01-5809-b1da-57220d503a36",
+		"b8801674-31ab-5f84-9be3-37aed997d8ba",
+		"d219e7b1-0999-5bdd-a615-c72f3ac9b121",
+		"fdbf0304-18a0-533f-ae3e-7f9dddf5e5c4"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": false,
+		"entities": [
+			"32f82504-0b01-5809-b1da-57220d503a36",
+			"b8801674-31ab-5f84-9be3-37aed997d8ba",
+			"d219e7b1-0999-5bdd-a615-c72f3ac9b121",
+			"fdbf0304-18a0-533f-ae3e-7f9dddf5e5c4"
+		],
+		"modules": [
+			"d219e7b1-0999-5bdd-a615-c72f3ac9b121",
+			"fdbf0304-18a0-533f-ae3e-7f9dddf5e5c4"
+		],
+		"forms": [
+			"b8801674-31ab-5f84-9be3-37aed997d8ba"
+		]
+	}
+}

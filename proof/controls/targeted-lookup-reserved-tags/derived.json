@@ -1,0 +1,72 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Reserved lookup tags",
+			"modules": [
+				[
+					"",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "survey",
+							"moduleType": null,
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "69177e67-a9c4-55ab-a3ae-044951d74117",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {
+			"3c0c6f97-ce38-7af3-aa88-1a15ab2b5a27": "stock_ledgerdb_codes",
+			"d8dbbcf0-0f5e-7bb4-a5ac-36165523d8e0": "clinic_casedb_codes"
+		},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"69177e67-a9c4-55ab-a3ae-044951d74117"
+					],
+					"uuid": "860843bd-cd97-5419-af0a-2d772453b7ad"
+				}
+			]
+		}
+	}
+}

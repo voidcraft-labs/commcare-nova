@@ -1,0 +1,344 @@
+name: Proof lane
+
+# The proof lane run whole and fresh, for the workflows that check the lane
+# itself rather than a pull request: the nightly audit (proof-audit.yml), its
+# weekly variants, the image comparisons (proof-image.yml) and the pin pull
+# request's prewarm (upstream-pins.yml). Called only. It emits the corpus at
+# `ref`, queues every group fresh with nothing shared between documents
+# (python3 -m proof.store.queue --fresh --no-dedupe), runs `shards` shards of
+# `image` on `runner`, holds the outputs to the lane's gate, and, as `store`
+# asks, compares them with main's evidence store (a difference fails the run
+# with both records uploaded) and saves them as main's newest snapshot.
+#
+# Each artifact it writes carries `label`, so one run can call it several
+# times (proof-image.yml compares three) without two calls' claims or outputs
+# meeting.
+#
+# A run of an image the checkout's lock does not name (`image`) records it in
+# the lock first, in every job (proof/ci/candidate.mjs), so the queue's keys,
+# the lane's and the store's cache names all name the image the shards pull;
+# `surface` puts the surface the candidate's pull request will carry in place
+# of the checkout's, so a prewarm checks the very tree that pull request will.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit or branch to emit and check out (the caller's by default)
+        type: string
+        default: ''
+      image:
+        description: The image to run, pinned by digest (proof/image.lock's by default), recorded in the lock
+        type: string
+        default: ''
+      surface:
+        description: An artifact of this run holding the surface.json to check in place of the checkout's
+        type: string
+        default: ''
+      runner:
+        description: The shards' runner
+        type: string
+        default: ubuntu-24.04-arm
+      arch:
+        description: The shards' architecture, as the store's keys name it
+        type: string
+        default: arm64
+      shards:
+        description: How many shards run the lane
+        type: number
+        default: 18
+      label:
+        description: What the run's artifacts are named after
+        type: string
+        required: true
+      lane-env:
+        description: Extra variables for the lane, one NAME=VALUE a line (run.mjs passes through the names it lists)
+        type: string
+        default: ''
+      emission-env:
+        description: Extra variables for the corpus emission, one NAME=VALUE a line
+        type: string
+        default: ''
+      documents:
+        description: Which corpus documents to queue (all, or sample:<n> for the queue builder's fixed sample of n)
+        type: string
+        default: all
+      store:
+        description: none, compare (with main's snapshot), or save (compare, then save as main's newest)
+        type: string
+        default: none
+      verdict:
+        description: Whether the gate's verdict fails the run (a prewarm on a pin branch keeps its records whatever it is)
+        type: boolean
+        default: true
+      claims:
+        description: How the shards divide the blocks (steal, create or static; proof/ci/claim.mjs)
+        type: string
+        default: steal
+
+permissions:
+  contents: read
+
+env:
+  LABEL: ${{ inputs.label }}
+  CANDIDATE: ${{ inputs.image }}
+
+jobs:
+  emit:
+    name: Emit and queue (${{ inputs.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Record the candidate image in the lock
+        if: ${{ inputs.image != '' }}
+        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.surface }}
+          path: lib/commcare/surface
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - run: npm ci
+      - name: Emit the proof corpus
+        env:
+          EMISSION_ENV: ${{ inputs.emission-env }}
+        run: |
+          while IFS= read -r assignment; do
+            [ -n "$assignment" ] && export "${assignment?}"
+          done <<< "$EMISSION_ENV"
+          mkdir -p "$RUNNER_TEMP/lane"
+          python3 -m proof.native.produce --out "$RUNNER_TEMP/native" > "$RUNNER_TEMP/lane/produce.log" 2>&1 &
+          produce=$!
+          trap 'kill "$produce" 2> /dev/null || true' EXIT
+          node --conditions=react-server --import ./proof/corpus/entropy.mts \
+            --import tsx proof/corpus/emit.ts --out "$RUNNER_TEMP/corpus" --jobs 4
+          produced=0
+          wait "$produce" || produced=$?
+          cat "$RUNNER_TEMP/lane/produce.log"
+          if [ "$produced" != 0 ]; then
+            echo "::error::The native proofs' products could not be written (python3 -m proof.native.produce exited $produced); its output is above."
+            exit 1
+          fi
+          mv -T "$RUNNER_TEMP/native" "$RUNNER_TEMP/corpus/native"
+      - name: Build the fresh queues
+        env:
+          DOCUMENTS: ${{ inputs.documents }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          python3 -m proof.store.queue early --fresh --timings proof/timings.json --arch "$ARCH" \
+            --out "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
+          python3 -m proof.store.queue main --fresh --no-dedupe --documents "$DOCUMENTS" \
+            --corpus "$RUNNER_TEMP/corpus" --timings proof/timings.json --arch "$ARCH" \
+            --out "$RUNNER_TEMP/lane/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json"
+          tar -C "$RUNNER_TEMP/corpus" -cf - . |
+            zstd -q -3 -T0 -o "$RUNNER_TEMP/lane/proof-corpus-$LABEL-$GITHUB_RUN_ATTEMPT.tar.zst"
+      - name: Upload the corpus
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-corpus-${{ inputs.label }}-${{ github.run_attempt }}.tar.zst
+          archive: false
+          if-no-files-found: error
+          retention-days: 3
+      - name: Upload the early queue
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-early-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload the main queue
+        uses: actions/upload-artifact@v7
+        with:
+          path: ${{ runner.temp }}/lane/proof-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+      - id: matrix
+        env:
+          SHARDS: ${{ inputs.shards }}
+          RUNNER: ${{ inputs.runner }}
+        run: |
+          matrix="$(node proof/run.mjs --matrix "$SHARDS" | jq -c --arg runner "$RUNNER" '.include[].runner = $runner')"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  shard:
+    name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
+    needs: emit
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.emit.outputs.matrix) }}
+    env:
+      ATTEMPT: ${{ github.run_attempt }}
+      SHARD: ${{ matrix.shard }}/${{ matrix.total }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          sparse-checkout: |
+            proof
+            lib/commcare/surface
+            .github/actions/proof-runtime
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Record the candidate image in the lock
+        if: ${{ inputs.image != '' }}
+        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.surface }}
+          path: lib/commcare/surface
+      - name: Pull the image and Postgres
+        run: |
+          image="$(jq -r .image proof/image.lock)"
+          docker pull --quiet "$image" &
+          pull=$!
+          PROOF_IMAGE="$image" docker compose -f proof/compose.yaml pull --quiet postgres
+          wait "$pull"
+      - uses: ./.github/actions/proof-runtime
+      - name: Download the early queue
+        uses: actions/download-artifact@v8
+        with:
+          name: proof-early-queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/lane
+      - name: Proof lane
+        env:
+          PROOF_CORPUS: ${{ runner.temp }}/corpus
+          PROOF_OUT_DIR: ${{ runner.temp }}/proof-out
+          WORKERS: ${{ matrix.workers }}
+          LANE_ENV: ${{ inputs.lane-env }}
+          CLAIMS: ${{ inputs.claims }}
+        run: |
+          while IFS= read -r assignment; do
+            [ -n "$assignment" ] && export "${assignment?}"
+          done <<< "$LANE_ENV"
+          case "$CLAIMS" in
+            static) claim=(--claim static --bin "$SHARD") ;;
+            steal) claim=(--claim "node proof/ci/claim.mjs --mode steal --shard $SHARD --by $LABEL-shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$LABEL-$ATTEMPT-{block}" --bin "$SHARD") ;;
+            *) claim=(--claim "node proof/ci/claim.mjs --by $LABEL-shard-$SHARD --listing-cache /tmp/proof-claims.json proof-claim-$LABEL-$ATTEMPT-{block}" --bin "$SHARD") ;;
+          esac
+          set +e
+          node proof/run.mjs --lane --label "$LABEL-shard-${SHARD%/*}" --workers "$WORKERS" \
+            --early-queue "$RUNNER_TEMP/lane/proof-early-queue-$LABEL-$ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/lane/queue/queue.json" \
+            "${claim[@]}" \
+            --wait-for "node proof/ci/wait.mjs --queue proof-queue-$LABEL-$ATTEMPT.json --corpus proof-corpus-$LABEL-$ATTEMPT.tar.zst --failed proof-emission-failed-$LABEL-$ATTEMPT --deadline 1800" \
+            --command-env ACTIONS_RUNTIME_TOKEN,ACTIONS_RESULTS_URL
+          code=$?
+          case $code in 0|1) exit 0 ;; *) exit $code ;; esac
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/proof-out/
+          retention-days: 14
+
+  gate:
+    name: Verdict and store (${{ inputs.label }})
+    needs: [emit, shard]
+    if: ${{ always() && needs.emit.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          sparse-checkout: |
+            proof
+            lib/commcare/surface
+      - name: Record the candidate image in the lock
+        if: ${{ inputs.image != '' }}
+        run: node proof/ci/candidate.mjs --image "$CANDIDATE"
+      - name: Put the candidate's surface in place
+        if: ${{ inputs.surface != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ inputs.surface }}
+          path: lib/commcare/surface
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-out-${{ inputs.label }}-${{ github.run_attempt }}-*
+          path: ${{ runner.temp }}/proof-shards
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-*queue-${{ inputs.label }}-${{ github.run_attempt }}.json
+          path: ${{ runner.temp }}/queues
+          merge-multiple: true
+      - name: The shards ran every block once and held every difference to the register
+        id: verdict
+        continue-on-error: ${{ !inputs.verdict }}
+        run: |
+          python3 -m proof.lane.gate "$RUNNER_TEMP"/proof-shards/proof-out-* \
+            --early-queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            --summary "$RUNNER_TEMP/verdict/verdict.json"
+      # The store is held to whatever ran, whatever the verdict: a failing
+      # item on main still observes records, and a key that missed an input
+      # shows only here.
+      - name: Name the store's snapshots
+        if: ${{ !cancelled() && inputs.store != 'none' }}
+        id: store
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: node proof/ci/store-keys.mjs --arch "$ARCH"
+      - name: Restore main's evidence store
+        if: ${{ !cancelled() && inputs.store != 'none' }}
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ runner.temp }}/store/main
+          key: ${{ steps.store.outputs.main }}none
+          restore-keys: ${{ steps.store.outputs.main }}
+      # Every record the store holds for a part this run observed must be the
+      # record this run made; a difference is a key that missed an input. An
+      # absent store (none saved yet for this image) holds nothing to differ.
+      - name: Compare the fresh records with main's store
+        if: ${{ !cancelled() && inputs.store != 'none' }}
+        run: |
+          python3 -m proof.store.audit compare --store "$RUNNER_TEMP/store/main" \
+            --mismatches "$RUNNER_TEMP/audit" "$RUNNER_TEMP"/proof-shards/proof-out-*
+      # Saved whatever the verdict and the comparison (fresh records are what
+      # the lane observes, so they replace the store even where a stored one
+      # was wrong), but only when every shard ran: a shard that could not run
+      # leaves its blocks' records out, and main's previous snapshot is kept
+      # rather than replaced by one that lacks them.
+      - name: Pack the fresh store
+        if: ${{ !cancelled() && inputs.store == 'save' && needs.shard.result == 'success' && steps.store.outputs.key != '' }}
+        id: pack
+        run: |
+          python3 -m proof.store.pack pack --out "$RUNNER_TEMP/store/next" \
+            --queue "$RUNNER_TEMP/queues/proof-early-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            --queue "$RUNNER_TEMP/queues/proof-queue-$LABEL-$GITHUB_RUN_ATTEMPT.json" \
+            "$RUNNER_TEMP"/proof-shards/proof-out-*
+      - name: Save main's newest snapshot
+        if: ${{ !cancelled() && steps.pack.outcome == 'success' }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/store/next
+          key: ${{ steps.store.outputs.key }}
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: proof-lane-verdict-${{ inputs.label }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/verdict/
+            ${{ runner.temp }}/audit/
+          if-no-files-found: ignore
+          retention-days: 30

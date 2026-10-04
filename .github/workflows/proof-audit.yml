@@ -1,0 +1,190 @@
+name: Proof audit
+
+# The proof lane's audit of its own reuse (proof/README.md). A pull request's
+# lane reads records and judgments from the evidence store under keys meant
+# to cover every input; this recomputes everything and holds the store to it.
+#
+# Nightly, on main: the whole lane fresh (every group, nothing shared between
+# documents, every editor view live), compared with main's newest store
+# snapshot (a record that differs is a key that missed an input, and fails
+# the run with both records uploaded), then saved as main's newest snapshot,
+# which every pull request reads, and older snapshots of the same image are
+# deleted. The weekly pin pull request runs the same lane for its candidate
+# image (upstream-pins.yml calls proof-lane.yml), prewarming main's store.
+#
+# Weekly, on main, the lane is also run fresh four more ways. Three run the
+# queue builder's fixed 24-document sample (a sampled run holds each register
+# entry naming a document the sample left out on its control alone, and its
+# verdict says so): a baseline; Nova's emission and HQ unseeded (their draws
+# and clocks left real), compared with the baseline, which must change
+# nothing but the masked values; and HQ's speed seams off (the XPath
+# validator server, the settings memo, the cached templates), compared with
+# it, which must change nothing. The fourth runs the whole corpus with every
+# memo verified on every hit, every editor view rerun the slow way and every
+# corpus document's HQ branches held to fresh states, and must hold on its
+# own. Each of the four must hold.
+on:
+  schedule:
+    - cron: "23 3 * * *"
+    - cron: "41 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      weekly:
+        description: Run the weekly comparisons as well
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: proof-audit-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    name: Nightly
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '23 3 * * *' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: audit
+      store: save
+
+  # Keeps the newest two of main's snapshots of the image the audit ran, so a
+  # pull request opened while the newest is being written still reads one.
+  prune:
+    name: Delete older snapshots
+    needs: nightly
+    if: ${{ needs.nightly.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - name: Name the store's snapshots
+        id: store
+        run: node proof/ci/store-keys.mjs --arch arm64
+      - name: Delete all but the newest two
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: ${{ steps.store.outputs.main }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key "$PREFIX" --sort created_at --order desc \
+            --limit 100 --json key --jq '.[2:][].key' |
+            while IFS= read -r key; do
+              gh cache delete --repo "$GITHUB_REPOSITORY" "$key"
+            done
+
+  # A scheduled audit that fails says so where it is seen.
+  report:
+    name: Report a failed audit
+    needs: nightly
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "The proof lane's nightly audit failed" \
+            --body "The nightly audit recomputed the proof lane fresh and it did not hold: either a stored record differs from the fresh one (a key that missed an input; the run uploads both) or the fresh lane failed. The run: $RUN_URL"
+
+  weekly-baseline:
+    name: Weekly baseline
+    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: weekly-baseline
+      documents: sample:24
+
+  weekly-unseeded:
+    name: Weekly, every clock and draw left real
+    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: weekly-unseeded
+      documents: sample:24
+      emission-env: PROOF_ENTROPY=real
+      lane-env: PROOF_HQ_DETERMINISM=0
+
+  weekly-unseamed:
+    name: Weekly, HQ's speed seams off
+    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: weekly-unseamed
+      documents: sample:24
+      lane-env: PROOF_HQ_SPEED=0
+
+  weekly-verified:
+    name: Weekly, every memo verified, every view rerun, every branch held
+    if: ${{ github.event.schedule == '41 4 * * 0' || inputs.weekly == true }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      label: weekly-verified
+      lane-env: |
+        PROOF_VERIFY_MEMOS=1
+        PROOF_EDITOR_AUDIT=1
+        PROOF_BRANCH_DOCUMENTS=all
+
+  weekly-compare:
+    name: Weekly comparisons
+    needs: [weekly-baseline, weekly-unseeded, weekly-unseamed, weekly-verified]
+    if: ${{ always() && needs.weekly-baseline.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-out-weekly-*
+          path: ${{ runner.temp }}/lanes
+      # Each side is one lane run: --left and --right each take every shard
+      # output that run uploaded, one directory per shard.
+      #
+      # Seeded and unseeded runs observe the same things up to the values the
+      # seeding chooses (minted ids, CSRF tokens, clock readings): every
+      # difference set must be equal once those are masked, and defects 1 and
+      # 9 must still show in both.
+      - name: Seeding changes nothing observed
+        if: ${{ needs.weekly-unseeded.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare --masked \
+            --left "$RUNNER_TEMP"/lanes/proof-out-weekly-baseline-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-weekly-unseeded-*
+      - name: HQ's speed seams change nothing observed
+        if: ${{ needs.weekly-unseamed.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare \
+            --left "$RUNNER_TEMP"/lanes/proof-out-weekly-baseline-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-weekly-unseamed-*
+      - name: Every weekly run held
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed="$(jq -r 'to_entries[] | select(.value.result != "success") | .key' <<< "$RESULTS")"
+          if [ -n "$failed" ]; then
+            echo "::error::These weekly runs did not hold: $failed. Each one's verdict artifact says why."
+            exit 1
+          fi

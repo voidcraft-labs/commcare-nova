@@ -1,0 +1,38 @@
+{
+	"capabilities": [
+		{
+			"id": "case-search",
+			"flags": [
+				{
+					"symbol": "SYNC_SEARCH_CASE_CLAIM",
+					"slug": "search_claim"
+				},
+				{
+					"symbol": "CASE_SEARCH_ADVANCED",
+					"slug": "case_search_advanced"
+				}
+			],
+			"runtimeProbes": [
+				"case-search"
+			]
+		}
+	],
+	"advisories": [
+		{
+			"id": "large-search-performance",
+			"flags": [
+				{
+					"symbol": "CUSTOM_PROPERTIES",
+					"slug": "custom_properties"
+				}
+			]
+		}
+	],
+	"minimumConfiguration": {
+		"flags": [
+			"CASE_SEARCH_ADVANCED",
+			"SYNC_SEARCH_CASE_CLAIM"
+		],
+		"caseSearchEnabled": true
+	}
+}

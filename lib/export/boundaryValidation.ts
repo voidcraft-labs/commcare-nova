@@ -55,10 +55,17 @@ import {
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
-import { MAX_MEDIA_EXPORT_ASSETS } from "@/lib/domain/multimedia";
+import {
+	MAX_MEDIA_EXPORT_ASSETS,
+	type MediaAssetId,
+} from "@/lib/domain/multimedia";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { getLookupFixtureData } from "@/lib/lookup/service";
-import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
+import type {
+	LookupFixtureDataSnapshot,
+	LookupScope,
+	LookupTableId,
+} from "@/lib/lookup/types";
 import {
 	builtinAssetRows,
 	partitionAssetRefs,
@@ -145,6 +152,38 @@ export type PrepareExportBoundaryResult =
 	| { readonly ok: true; readonly prepared: PreparedExportBoundary }
 	| { readonly ok: false; readonly violations: readonly ValidationError[] };
 
+/**
+ * What the boundary reads from outside the document: the Project's lookup
+ * data and media rows from Nova's database, and the media bytes from
+ * object storage. Production reads them live. A caller that holds a
+ * Project's state itself passes its own reads, so the verdict and the
+ * prepared export still come from this module.
+ */
+export interface ExportBoundaryReads {
+	/** The requested tables' definitions and complete ordered rows. */
+	readonly lookupFixtureData: (
+		scope: LookupScope,
+		tableIds: readonly LookupTableId[],
+	) => Promise<LookupFixtureDataSnapshot>;
+	/** The Project's rows for the requested uploaded media ids. */
+	readonly mediaRows: (
+		ids: readonly MediaAssetId[],
+		projectId: string,
+	) => Promise<MediaAssetRecord[]>;
+	/** The document's media manifest, with the bytes of every asset. */
+	readonly mediaManifest: (
+		doc: BlueprintDoc,
+		projectId: string,
+	) => Promise<Awaited<ReturnType<typeof resolveMediaManifest>>>;
+}
+
+const PRODUCTION_READS: ExportBoundaryReads = {
+	lookupFixtureData: (scope, tableIds) => getLookupFixtureData(scope, tableIds),
+	mediaRows: (ids, projectId) => loadAssetsByIds(ids, projectId),
+	mediaManifest: (doc, projectId) =>
+		resolveMediaManifest(doc, projectId, { withBytes: true }),
+};
+
 /** Build the available validator context without cloning its exact snapshot. */
 function availableLookupContext(
 	snapshot: LookupFixtureDataSnapshot,
@@ -170,6 +209,7 @@ async function collectViolationsWithRegistry(
 	lookupReferenceExtractors: LookupReferenceExtractorRegistry,
 	mode?: ExportMode,
 	lookupRows?: LookupRowVerdictInput,
+	reads: ExportBoundaryReads = PRODUCTION_READS,
 ): Promise<ValidationError[]> {
 	const ids = [...collectAssetRefs(doc)];
 	const { realIds, builtinSlugs } = partitionAssetRefs(ids);
@@ -192,7 +232,7 @@ async function collectViolationsWithRegistry(
 	}
 
 	const realRows =
-		realIds.length === 0 ? [] : await loadAssetsByIds(realIds, projectId);
+		realIds.length === 0 ? [] : await reads.mediaRows(realIds, projectId);
 	const rows = [...realRows, ...builtinAssetRows(builtinSlugs)];
 	const mediaAssets = new Map(rows.map((row) => [row.id as string, row]));
 	const errors = evaluateBoundary(
@@ -576,6 +616,7 @@ function exportBudgetError(rows: MediaAssetRecord[]): ValidationError | null {
 async function prepareWithRegistry(
 	input: PrepareExportBoundaryInput,
 	registry: LookupReferenceExtractorRegistry,
+	reads: ExportBoundaryReads = PRODUCTION_READS,
 ): Promise<PrepareExportBoundaryResult> {
 	const lookupTargets = extractLookupReferenceTargets(input.doc, registry);
 	const scope = {
@@ -594,7 +635,10 @@ async function prepareWithRegistry(
 	 * intentionally throws through this function; it is not a document
 	 * finding and must stop the export rather than masquerade as unavailable
 	 * context. */
-	const fixtureData = await getLookupFixtureData(scope, lookupTargets.tableIds);
+	const fixtureData = await reads.lookupFixtureData(
+		scope,
+		lookupTargets.tableIds,
+	);
 	const lookupSnapshot: LookupFixtureDataSnapshot = fixtureData;
 	if (lookupSnapshot.projectId !== input.access.projectId) {
 		throw new Error(
@@ -646,6 +690,7 @@ async function prepareWithRegistry(
 			...(naming !== undefined && input.mode !== "ccz" && { hqNaming: naming }),
 			...(lookupWorkbook !== undefined && { workbook: lookupWorkbook }),
 		},
+		reads,
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
@@ -664,9 +709,7 @@ async function prepareWithRegistry(
 	/* Bytes are resolved only after the complete boundary succeeds. All three
 	 * current targets need bytes: CCZ embeds them, HQ JSON ships its sidecar
 	 * bundle, and HQ upload sends its media bundle after import. */
-	const assets = await resolveMediaManifest(input.doc, input.access.projectId, {
-		withBytes: true,
-	});
+	const assets = await reads.mediaManifest(input.doc, input.access.projectId);
 
 	return {
 		ok: true,
@@ -691,6 +734,24 @@ export function prepareExportBoundary(
 	input: PrepareExportBoundaryInput,
 ): Promise<PrepareExportBoundaryResult> {
 	return prepareWithRegistry(input, PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS);
+}
+
+/**
+ * Prepare one export exactly as {@link prepareExportBoundary} does, over
+ * Project state the caller holds rather than state read live. Every Nova
+ * surface exports through {@link prepareExportBoundary}; this is for a
+ * caller outside Nova's database, such as the proof harness's publish
+ * capture, whose verdict must be the boundary's own.
+ */
+export function prepareExportBoundaryWithReads(
+	input: PrepareExportBoundaryInput,
+	reads: ExportBoundaryReads,
+): Promise<PrepareExportBoundaryResult> {
+	return prepareWithRegistry(
+		input,
+		PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+		reads,
+	);
 }
 
 function assertImmutableSyntheticRegistry(

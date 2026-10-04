@@ -1,0 +1,20 @@
+{
+	"footprint": [
+		"5e67f22c-0dfb-5af8-ae4f-9356c854f01c",
+		"879a1cbd-9570-5cd1-ac50-7087ce54e44d",
+		"bf9a2c3c-ff6c-5db8-a264-0bc6cc7c972c"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": false,
+		"entities": [
+			"bf9a2c3c-ff6c-5db8-a264-0bc6cc7c972c"
+		],
+		"modules": [
+			"5e67f22c-0dfb-5af8-ae4f-9356c854f01c"
+		],
+		"forms": [
+			"879a1cbd-9570-5cd1-ac50-7087ce54e44d"
+		]
+	}
+}

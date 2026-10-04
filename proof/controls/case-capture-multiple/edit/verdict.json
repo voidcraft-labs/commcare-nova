@@ -1,0 +1,32 @@
+{
+	"capabilities": [
+		{
+			"id": "case-attachments",
+			"flags": [
+				{
+					"symbol": "MM_CASE_PROPERTIES",
+					"slug": "mm_case_properties"
+				}
+			],
+			"runtimeProbes": []
+		},
+		{
+			"id": "attachment-links",
+			"flags": [
+				{
+					"symbol": "VIEW_FORM_ATTACHMENT",
+					"slug": "view_form_attachments"
+				}
+			],
+			"runtimeProbes": []
+		}
+	],
+	"advisories": [],
+	"minimumConfiguration": {
+		"flags": [
+			"MM_CASE_PROPERTIES",
+			"VIEW_FORM_ATTACHMENT"
+		],
+		"caseSearchEnabled": false
+	}
+}

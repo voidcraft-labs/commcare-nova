@@ -1,0 +1,244 @@
+{
+	"families": [
+		{
+			"format": "homescreen.title",
+			"regex": "homescreen\\.title"
+		},
+		{
+			"format": "app.display.name",
+			"regex": "app\\.display\\.name"
+		},
+		{
+			"format": "lang.current",
+			"regex": "lang\\.current"
+		},
+		{
+			"format": "cchq.case",
+			"regex": "cchq\\.case"
+		},
+		{
+			"format": "cchq.referral",
+			"regex": "cchq\\.referral"
+		},
+		{
+			"format": "m%d.%s.title",
+			"regex": "m[0-9]+\\..*\\.title"
+		},
+		{
+			"format": "m%d.%s.tab.%d.title",
+			"regex": "m[0-9]+\\..*\\.tab\\.[0-9]+\\.title"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%d.header",
+			"regex": "m[0-9]+\\..*\\..*_.*_[0-9]+\\.header"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%s.enum.%s",
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.enum\\..*"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%s.alt_text.%s",
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.alt_text\\..*"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%s.graph.key.%s",
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.key\\..*"
+		},
+		{
+			"format": "m%d.%s.graph.key.%s",
+			"regex": "m[0-9]+\\..*\\.graph\\.key\\..*"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%s.graph.series_%d.key.%s",
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.series_[0-9]+\\.key\\..*"
+		},
+		{
+			"format": "m%d.%s.graph.series_%d.key.%s",
+			"regex": "m[0-9]+\\..*\\.graph\\.series_[0-9]+\\.key\\..*"
+		},
+		{
+			"format": "m%d.%s.%s_%s_%s.graph.a.%d",
+			"regex": "m[0-9]+\\..*\\..*_.*_.*\\.graph\\.a\\.[0-9]+"
+		},
+		{
+			"format": "m%d.%s.graph.a.%d",
+			"regex": "m[0-9]+\\..*\\.graph\\.a\\.[0-9]+"
+		},
+		{
+			"format": "modules.m%d",
+			"regex": "modules\\.m[0-9]+"
+		},
+		{
+			"format": "forms.m%df%d",
+			"regex": "forms\\.m[0-9]+f[0-9]+"
+		},
+		{
+			"format": "training.root.title",
+			"regex": "training\\.root\\.title"
+		},
+		{
+			"format": "case_lists.m%d",
+			"regex": "case_lists\\.m[0-9]+"
+		},
+		{
+			"format": "case_list_form.m%d",
+			"regex": "case_list_form\\.m[0-9]+"
+		},
+		{
+			"format": "case_lists.m%d.callout.header",
+			"regex": "case_lists\\.m[0-9]+\\.callout\\.header"
+		},
+		{
+			"format": "case_search.m%d",
+			"regex": "case_search\\.m[0-9]+"
+		},
+		{
+			"format": "case_search.m%d.again",
+			"regex": "case_search\\.m[0-9]+\\.again"
+		},
+		{
+			"format": "case_search_again.m%d.again.icon",
+			"regex": "case_search_again\\.m[0-9]+\\.again\\.icon"
+		},
+		{
+			"format": "case_search.m%d.again.audio",
+			"regex": "case_search\\.m[0-9]+\\.again\\.audio"
+		},
+		{
+			"format": "search_command.m%d",
+			"regex": "search_command\\.m[0-9]+"
+		},
+		{
+			"format": "search_property.m%d.%s",
+			"regex": "search_property\\.m[0-9]+\\..*"
+		},
+		{
+			"format": "search_property.m%d.%s.hint",
+			"regex": "search_property\\.m[0-9]+\\..*\\.hint"
+		},
+		{
+			"format": "search_property.m%d.%s.required.text",
+			"regex": "search_property\\.m[0-9]+\\..*\\.required\\.text"
+		},
+		{
+			"format": "search_property.m%d.%s.validation.%d.text",
+			"regex": "search_property\\.m[0-9]+\\..*\\.validation\\.[0-9]+\\.text"
+		},
+		{
+			"format": "custom_assertion.%s.%d",
+			"regex": "custom_assertion\\..*\\.[0-9]+"
+		},
+		{
+			"format": "referral_lists.m%d",
+			"regex": "referral_lists\\.m[0-9]+"
+		},
+		{
+			"format": "reports.%s",
+			"regex": "reports\\..*"
+		},
+		{
+			"format": "cchq.report_menu",
+			"regex": "cchq\\.report_menu"
+		},
+		{
+			"format": "cchq.report_name_header",
+			"regex": "cchq\\.report_name_header"
+		},
+		{
+			"format": "cchq.report_description_header",
+			"regex": "cchq\\.report_description_header"
+		},
+		{
+			"format": "cchq.report_data_table",
+			"regex": "cchq\\.report_data_table"
+		},
+		{
+			"format": "cchq.reports.%s.headers.%s",
+			"regex": "cchq\\.reports\\..*\\.headers\\..*"
+		},
+		{
+			"format": "cchq.reports.%s.name",
+			"regex": "cchq\\.reports\\..*\\.name"
+		},
+		{
+			"format": "cchq.reports.%s.description",
+			"regex": "cchq\\.reports\\..*\\.description"
+		},
+		{
+			"format": "cchq.report_last_sync",
+			"regex": "cchq\\.report_last_sync"
+		},
+		{
+			"format": "cchq.reports_last_updated_on",
+			"regex": "cchq\\.reports_last_updated_on"
+		},
+		{
+			"format": "android.package.name.%s",
+			"regex": "android\\.package\\.name\\..*"
+		},
+		{
+			"format": "modules.m%d.icon",
+			"regex": "modules\\.m[0-9]+\\.icon"
+		},
+		{
+			"format": "modules.m%d.audio",
+			"regex": "modules\\.m[0-9]+\\.audio"
+		},
+		{
+			"format": "modules.m%d.%s",
+			"regex": "modules\\.m[0-9]+\\..*"
+		},
+		{
+			"format": "forms.m%df%d.icon",
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.icon"
+		},
+		{
+			"format": "forms.m%df%d.audio",
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.audio"
+		},
+		{
+			"format": "forms.m%df%d.%s",
+			"regex": "forms\\.m[0-9]+f[0-9]+\\..*"
+		},
+		{
+			"format": "forms.m%df%d.submit_label",
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.submit_label"
+		},
+		{
+			"format": "forms.m%df%d.submit_notification_label",
+			"regex": "forms\\.m[0-9]+f[0-9]+\\.submit_notification_label"
+		},
+		{
+			"format": "case_list_form.m%d.icon",
+			"regex": "case_list_form\\.m[0-9]+\\.icon"
+		},
+		{
+			"format": "case_list_form.m%d.audio",
+			"regex": "case_list_form\\.m[0-9]+\\.audio"
+		},
+		{
+			"format": "case_lists.m%d.icon",
+			"regex": "case_lists\\.m[0-9]+\\.icon"
+		},
+		{
+			"format": "case_lists.m%d.audio",
+			"regex": "case_lists\\.m[0-9]+\\.audio"
+		},
+		{
+			"format": "case_search.m%d.inputs",
+			"regex": "case_search\\.m[0-9]+\\.inputs"
+		},
+		{
+			"format": "case_search.m%d.description",
+			"regex": "case_search\\.m[0-9]+\\.description"
+		},
+		{
+			"format": "m%d_no_items_text",
+			"regex": "m[0-9]+_no_items_text"
+		},
+		{
+			"format": "m%d_select_text",
+			"regex": "m[0-9]+_select_text"
+		}
+	]
+}

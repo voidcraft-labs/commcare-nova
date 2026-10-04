@@ -1,0 +1,131 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"first_name",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"first_name",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"first_name",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Inline",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": true,
+							"operationWrites": {},
+							"uuid": "95c175e2-cb74-5b5e-a1d1-1f88db3f08f2",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"95c175e2-cb74-5b5e-a1d1-1f88db3f08f2"
+					],
+					"uuid": "3f7fefc8-55aa-5f7c-aec7-4f52a96cedb8"
+				}
+			]
+		}
+	}
+}

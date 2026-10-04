@@ -1,0 +1,784 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "episode-1",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						],
+						[
+							"photo",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "episode-2",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						],
+						[
+							"photo",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "episode-3",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						],
+						[
+							"photo",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:07:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:07:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:08:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:08:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "consent-1",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:09:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:09:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "consent-2",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:10:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:10:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "consent-3",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:11:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:11:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:12:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:12:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Extension case evidence",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [
+								"consent",
+								"episode",
+								"visit"
+							],
+							"fieldWrites": {
+								"consent": {
+									"note": "value"
+								},
+								"episode": {
+									"note": "value",
+									"photo": "attachment"
+								},
+								"visit": {
+									"note": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": true,
+							"operationWrites": {},
+							"uuid": "1307437e-a7a1-552a-aba0-38d0d885a00e",
+							"validations": {},
+							"writes": {
+								"consent": {
+									"note": "value"
+								},
+								"episode": {
+									"note": "value",
+									"photo": "attachment"
+								},
+								"visit": {
+									"note": "value"
+								}
+							}
+						}
+					]
+				],
+				[
+					"episode",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {
+								"episode": {
+									"note": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "episode",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "225772e1-33c7-5d65-a05c-18933975f3f1",
+							"validations": {},
+							"writes": {
+								"episode": {
+									"note": "value"
+								}
+							}
+						}
+					]
+				],
+				[
+					"visit",
+					[]
+				],
+				[
+					"consent",
+					[]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"1307437e-a7a1-552a-aba0-38d0d885a00e"
+					],
+					"uuid": "5425ed4a-8b91-59be-a421-c67cbcd5b6ba"
+				},
+				{
+					"forms": [
+						"225772e1-33c7-5d65-a05c-18933975f3f1"
+					],
+					"uuid": "102c5e73-2135-5e57-a138-f2351c8c1a83"
+				},
+				{
+					"forms": [],
+					"uuid": "5123a9fa-888f-566e-a51f-a2a8b9d3736a"
+				},
+				{
+					"forms": [],
+					"uuid": "5223ab8d-898f-5801-a61f-a43bbad374fd"
+				}
+			]
+		}
+	},
+	"D'": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "patient-1",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-2",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "patient-3",
+					"case_type": "patient",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "episode-1",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						],
+						[
+							"photo",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "episode-2",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:04:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:04:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						],
+						[
+							"photo",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "episode-3",
+					"case_type": "episode",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:05:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:05:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						],
+						[
+							"photo",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:06:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:06:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:07:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:07:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"child"
+						]
+					],
+					"modified_on": "2025-12-01T08:08:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:08:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "consent-1",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-1",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:09:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:09:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"proof text"
+						]
+					]
+				},
+				{
+					"case_id": "consent-2",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-2",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:10:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:10:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"10"
+						]
+					]
+				},
+				{
+					"case_id": "consent-3",
+					"case_type": "consent",
+					"external_id": null,
+					"indices": [
+						[
+							"parent",
+							"patient",
+							"patient-3",
+							"extension"
+						]
+					],
+					"modified_on": "2025-12-01T08:11:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:11:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"note",
+							"2"
+						]
+					]
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:12:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:12:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Extension case evidence",
+			"modules": [
+				[
+					"patient",
+					[
+						{
+							"creates": [
+								"consent",
+								"episode",
+								"visit"
+							],
+							"fieldWrites": {
+								"consent": {
+									"note": "value"
+								},
+								"episode": {
+									"note": "value",
+									"photo": "attachment"
+								},
+								"visit": {
+									"note": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "patient",
+							"multiple": true,
+							"operationWrites": {},
+							"uuid": "1307437e-a7a1-552a-aba0-38d0d885a00e",
+							"validations": {},
+							"writes": {
+								"consent": {
+									"note": "value"
+								},
+								"episode": {
+									"note": "value",
+									"photo": "attachment"
+								},
+								"visit": {
+									"note": "value"
+								}
+							}
+						}
+					]
+				],
+				[
+					"episode",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {
+								"episode": {
+									"note": "value"
+								}
+							},
+							"formType": "followup",
+							"moduleType": "episode",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "225772e1-33c7-5d65-a05c-18933975f3f1",
+							"validations": {},
+							"writes": {
+								"episode": {
+									"note": "value"
+								}
+							}
+						}
+					]
+				],
+				[
+					"visit",
+					[]
+				],
+				[
+					"consent",
+					[]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"1307437e-a7a1-552a-aba0-38d0d885a00e"
+					],
+					"uuid": "5425ed4a-8b91-59be-a421-c67cbcd5b6ba"
+				},
+				{
+					"forms": [
+						"225772e1-33c7-5d65-a05c-18933975f3f1"
+					],
+					"uuid": "102c5e73-2135-5e57-a138-f2351c8c1a83"
+				},
+				{
+					"forms": [],
+					"uuid": "5123a9fa-888f-566e-a51f-a2a8b9d3736a"
+				},
+				{
+					"forms": [],
+					"uuid": "5223ab8d-898f-5801-a61f-a43bbad374fd"
+				}
+			]
+		}
+	}
+}

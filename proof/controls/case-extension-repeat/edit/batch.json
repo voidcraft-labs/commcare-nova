@@ -1,0 +1,42 @@
+{
+	"footprint": [
+		"01a615be-8769-5b02-a62a-b38cc861a6ce",
+		"0aa92b0f-cbc1-5e85-b89d-1cb787177143",
+		"3cb53480-f44b-58bc-a788-fdae49979f70",
+		"3db53613-f54b-5a4f-a888-ff414a97a103",
+		"3eb537a6-f64b-5be2-a588-fa884b97a296",
+		"4ab54a8a-fa4b-522e-a188-f43c5797b57a",
+		"4bb54c1d-fb4b-53c1-a288-f5cf5897b70d",
+		"6049e03e-8ff1-5a42-ac45-e584ca36de2e",
+		"ac73efac-5af4-5240-a20a-7e0eb819261c",
+		"ad73f13f-5bf4-53d3-a30a-7fa1b91927af",
+		"ae73f2d2-5cf4-5566-a00a-7ae8ba192942",
+		"af73f465-5df4-56f9-a10a-7c7bbb192ad5",
+		"bc629bef-4d54-5cf9-b93d-76ad9af00078"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": false,
+		"entities": [
+			"01a615be-8769-5b02-a62a-b38cc861a6ce",
+			"0aa92b0f-cbc1-5e85-b89d-1cb787177143",
+			"3cb53480-f44b-58bc-a788-fdae49979f70",
+			"3db53613-f54b-5a4f-a888-ff414a97a103",
+			"3eb537a6-f64b-5be2-a588-fa884b97a296",
+			"4ab54a8a-fa4b-522e-a188-f43c5797b57a",
+			"4bb54c1d-fb4b-53c1-a288-f5cf5897b70d",
+			"ac73efac-5af4-5240-a20a-7e0eb819261c",
+			"ad73f13f-5bf4-53d3-a30a-7fa1b91927af",
+			"ae73f2d2-5cf4-5566-a00a-7ae8ba192942",
+			"af73f465-5df4-56f9-a10a-7c7bbb192ad5",
+			"bc629bef-4d54-5cf9-b93d-76ad9af00078"
+		],
+		"modules": [
+			"6049e03e-8ff1-5a42-ac45-e584ca36de2e"
+		],
+		"forms": [
+			"01a615be-8769-5b02-a62a-b38cc861a6ce",
+			"0aa92b0f-cbc1-5e85-b89d-1cb787177143"
+		]
+	}
+}

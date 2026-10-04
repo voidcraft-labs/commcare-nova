@@ -1,0 +1,83 @@
+{
+	"intent": [
+		{
+			"id": "outcome-held-0",
+			"export": "local",
+			"form": "2952df4e-5950-5a0a-a621-32cc8285095e",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f0",
+					"data": {
+						"case_id": "targeted-visit"
+					}
+				},
+				"expressions": [
+					"/data/outcome"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "\"done\""
+				}
+			]
+		},
+		{
+			"id": "outcome-held-1",
+			"export": "local",
+			"form": "2a52e0e1-5a50-5b9d-a721-345f83850af1",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f1",
+					"data": {
+						"case_id": "targeted-visit"
+					}
+				},
+				"expressions": [
+					"/data/outcome"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "neither"
+				}
+			]
+		},
+		{
+			"id": "outcome-held-2",
+			"export": "local",
+			"form": "2752dc28-5750-56e4-a821-35f280850638",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f2",
+					"data": {
+						"case_id": "targeted-visit"
+					}
+				},
+				"answers": [
+					{
+						"path": "/data/outcome",
+						"value": "done"
+					}
+				],
+				"expressions": [
+					"/data/outcome"
+				]
+			},
+			"expect": [
+				{
+					"pointer": "/answers/0/result",
+					"value": "ok"
+				},
+				{
+					"pointer": "/values/0/value",
+					"value": "done"
+				}
+			]
+		}
+	]
+}

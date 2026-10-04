@@ -1,0 +1,126 @@
+{
+	"D": {
+		"caseDatabase": {
+			"cases": [
+				{
+					"case_id": "visit-1",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:00:00.000000Z",
+					"name": "proof text",
+					"opened_on": "2025-12-01T08:00:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "visit-2",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:01:00.000000Z",
+					"name": "10",
+					"opened_on": "2025-12-01T08:01:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "visit-3",
+					"case_type": "visit",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:02:00.000000Z",
+					"name": "2",
+					"opened_on": "2025-12-01T08:02:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": []
+				},
+				{
+					"case_id": "proof-worker-usercase",
+					"case_type": "commcare-user",
+					"external_id": null,
+					"indices": [],
+					"modified_on": "2025-12-01T08:03:00.000000Z",
+					"name": "proof-worker",
+					"opened_on": "2025-12-01T08:03:00.000000Z",
+					"owner_id": "proof-worker-id",
+					"properties": [
+						[
+							"hq_user_id",
+							"proof-worker-id"
+						],
+						[
+							"username",
+							"proof-worker"
+						]
+					]
+				}
+			],
+			"user_data": [],
+			"user_id": "proof-worker-id",
+			"username": "proof-worker"
+		},
+		"intent": {
+			"appName": "Visit outcomes",
+			"modules": [
+				[
+					"visit",
+					[
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "close",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "2952df4e-5950-5a0a-a621-32cc8285095e",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "close",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "2a52e0e1-5a50-5b9d-a721-345f83850af1",
+							"validations": {},
+							"writes": {}
+						},
+						{
+							"creates": [],
+							"fieldWrites": {},
+							"formType": "close",
+							"moduleType": "visit",
+							"multiple": false,
+							"operationWrites": {},
+							"uuid": "2752dc28-5750-56e4-a821-35f280850638",
+							"validations": {},
+							"writes": {}
+						}
+					]
+				]
+			]
+		},
+		"lookupTags": {},
+		"wire": {
+			"languages": [
+				{
+					"code": "en",
+					"tag": "eng"
+				}
+			],
+			"modules": [
+				{
+					"forms": [
+						"2952df4e-5950-5a0a-a621-32cc8285095e",
+						"2a52e0e1-5a50-5b9d-a721-345f83850af1",
+						"2752dc28-5750-56e4-a821-35f280850638"
+					],
+					"uuid": "66b7859d-9ecf-5bf1-ae3a-9f272da1d7ad"
+				}
+			]
+		}
+	}
+}

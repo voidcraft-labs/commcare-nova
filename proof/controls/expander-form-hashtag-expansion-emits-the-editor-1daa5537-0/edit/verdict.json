@@ -1,0 +1,21 @@
+{
+	"capabilities": [
+		{
+			"id": "deep-links",
+			"flags": [
+				{
+					"symbol": "SESSION_ENDPOINTS",
+					"slug": "session_endpoints"
+				}
+			],
+			"runtimeProbes": []
+		}
+	],
+	"advisories": [],
+	"minimumConfiguration": {
+		"flags": [
+			"SESSION_ENDPOINTS"
+		],
+		"caseSearchEnabled": false
+	}
+}

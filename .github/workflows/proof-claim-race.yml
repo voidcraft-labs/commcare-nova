@@ -1,0 +1,102 @@
+name: Proof claim race
+
+# Settles, once, how the proof lane's shards may divide the queue's blocks
+# (proof/ci/claim.mjs). Ten jobs race on GitHub's artifact service. They meet
+# first: each marks itself ready, and the first round starts 20 s after the
+# last mark, so a racer queued behind other jobs delays the race rather than
+# joining it late. Then in each round every job claims the round's one name at
+# the same wall-clock moment, rounds ten seconds apart (a claim that ran
+# longer would start its racer's next claim late, which the count reports as a
+# round not raced): twenty rounds with --mode create (does the service refuse
+# a second creation of a name, and does a listing taken after a claim is
+# finalized hold it?) and twenty with --mode steal (does ownership give every
+# name exactly one owner?). The count job tabulates every claim's record per
+# round and fails unless every racer claimed in every round, each round had
+# exactly one owner, and every round raced (each claim started before the
+# first of them ended), so a racer that never ran or ran late fails the count
+# rather than thinning it. Run by hand only, when no other workflow holds the
+# org's runners (the racers wait up to 20 minutes for one another); it writes
+# nothing but this run's own artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: Rounds per claim mode
+        type: choice
+        options: ['20', '5']
+        default: '20'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: proof-claim-race
+  cancel-in-progress: false
+
+jobs:
+  race:
+    name: Racer ${{ matrix.racer }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        racer: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            proof/ci
+            .github/actions/proof-runtime
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: ./.github/actions/proof-runtime
+      - name: Race
+        env:
+          RACER: ${{ matrix.racer }}
+          ROUNDS: ${{ inputs.rounds }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/race"
+          node proof/ci/race.mjs run --racer "$RACER" --racers 10 --rounds "$ROUNDS" \
+            --lead 20 --gap 10 --meet-deadline 1200 --poll 2 \
+            --prefix "proof-claim-race-$GITHUB_RUN_ATTEMPT" \
+            --out "$RUNNER_TEMP/race/racer-$RACER.jsonl"
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: proof-claim-race-racer-${{ matrix.racer }}
+          path: ${{ runner.temp }}/race/racer-${{ matrix.racer }}.jsonl
+          retention-days: 30
+
+  count:
+    name: Count each round's owners
+    needs: race
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof/ci
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-claim-race-racer-*
+          path: ${{ runner.temp }}/race
+          merge-multiple: true
+      - name: Every round raced and had exactly one owner
+        env:
+          ROUNDS: ${{ inputs.rounds }}
+        run: |
+          shopt -s nullglob
+          records=("$RUNNER_TEMP"/race/racer-*.jsonl)
+          if [ ${#records[@]} -eq 0 ]; then
+            echo "::error::No racer uploaded its records, so no round can be counted; each racer's job says why."
+            exit 1
+          fi
+          node proof/ci/race.mjs count --racers 10 --rounds "$ROUNDS" "${records[@]}"

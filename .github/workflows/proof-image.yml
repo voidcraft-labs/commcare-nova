@@ -3,8 +3,9 @@ name: Proof image
 # Builds the proof harness image (proof/README.md) from proof/pins.json and its
 # recipe (proof/image/), one native runner per architecture, pushes both to the
 # GitHub Container Registry, and prints the multi-architecture digest that
-# proof/image.lock records. It runs by hand for a change to the recipe, and
-# other workflows call it with a ref to build the image for new pins.
+# proof/image.lock records. It runs by hand for a change to the recipe, weekly,
+# and is called by the weekly pin pull request (upstream-pins.yml) for new
+# pins.
 #
 # The recipe builds two images from one build (proof/image/Dockerfile): `full`,
 # everything its stages install, and `slim`, the default target, `full`
@@ -14,11 +15,26 @@ name: Proof image
 # images' configurations are held equal here, since a scratch stage restates
 # them.
 #
+# Weekly, and by hand (with no ref), it also proves the image's variants
+# observe what the lane observes: the whole lane runs fresh on the slim image
+# for arm64 (what CI runs), on the full image for arm64, and on the slim image
+# for amd64 (proof-lane.yml), and the records are compared (python3 -m
+# proof.store.audit compare): full against slim, amd64 against arm64. It also
+# emits the proof corpus and produces the native proofs' products (python3 -m
+# proof.native.produce) on each architecture, on the runner and inside the
+# pinned image, and holds the four alike, each to what CI ships (amd64, on
+# the runner): the corpus's every file but timings.json byte for byte, and
+# the products up to the ids their producers mint afresh in each production
+# (proof/ci/products.mjs). CI makes both once, on an x64 runner with the
+# runner's own Node, and the lane reads them on arm64 in the image.
+#
 # The image holds only public, licensed upstream sources and the recipe's own
 # files, so the package is public; HQ's lock resolves its git and URL sources
 # here, at build time, and nothing the image runs later reaches the network.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 5 * * 1"
   workflow_call:
     inputs:
       ref:
@@ -168,3 +184,183 @@ jobs:
             echo "Record the digest in proof/image.lock with the pins above."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  lane-slim-arm64:
+    name: Lane on the slim image, arm64
+    needs: publish
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
+      label: image-slim-arm64
+
+  lane-full-arm64:
+    name: Lane on the full image, arm64
+    needs: publish
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.full-digest }}
+      label: image-full-arm64
+
+  lane-slim-amd64:
+    name: Lane on the slim image, amd64
+    needs: publish
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.publish.outputs.digest }}
+      label: image-slim-amd64
+      runner: ubuntu-24.04
+      arch: amd64
+
+  lanes-compare:
+    name: The image's variants observe alike
+    needs: [lane-slim-arm64, lane-full-arm64, lane-slim-amd64]
+    if: ${{ always() && needs.lane-slim-arm64.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-out-image-*
+          path: ${{ runner.temp }}/lanes
+      # Each side is one lane run: --left and --right each take every shard
+      # output that run uploaded, one directory per shard.
+      - name: The slim image observes what the full one does
+        if: ${{ needs.lane-full-arm64.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare \
+            --left "$RUNNER_TEMP"/lanes/proof-out-image-full-arm64-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-arm64-*
+      - name: amd64 observes what arm64 does
+        if: ${{ needs.lane-slim-amd64.result == 'success' }}
+        run: |
+          python3 -m proof.store.audit compare \
+            --left "$RUNNER_TEMP"/lanes/proof-out-image-slim-arm64-* \
+            --right "$RUNNER_TEMP"/lanes/proof-out-image-slim-amd64-*
+      - name: Every variant's lane held
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          failed="$(jq -r 'to_entries[] | select(.value.result != "success") | .key' <<< "$RESULTS")"
+          if [ -n "$failed" ]; then
+            echo "::error::These lanes did not hold: $failed. Each one's verdict artifact says why."
+            exit 1
+          fi
+
+  emission:
+    name: Emit the corpus and produce on ${{ matrix.arch }}
+    if: ${{ inputs.ref == '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - name: Install Nova's dependencies
+        run: npm ci
+      - name: Emit and produce on the runner and in the pinned image
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          emit=(node --conditions=react-server --import ./proof/corpus/entropy.mts --import tsx proof/corpus/emit.ts --jobs 4)
+          produce=(python3 -m proof.native.produce)
+          "${emit[@]}" --out "$RUNNER_TEMP/runner"
+          "${produce[@]}" --out "$RUNNER_TEMP/products/$ARCH-runner"
+          image="$(jq -r .image proof/image.lock)"
+          # Writable: Vitest keeps its transform cache under node_modules.
+          docker run --rm -v "$GITHUB_WORKSPACE:/work" -v "$RUNNER_TEMP:/out" -w /work "$image" \
+            "${emit[@]}" --out /out/image
+          docker run --rm -v "$GITHUB_WORKSPACE:/work" -v "$RUNNER_TEMP:/out" -w /work "$image" \
+            "${produce[@]}" --out "/out/products/$ARCH-image"
+          for where in runner image; do
+            (cd "$RUNNER_TEMP/$where" && find . -type f ! -path ./timings.json -print0 | LC_ALL=C sort -z \
+              | xargs -0 sha256sum) > "$RUNNER_TEMP/emission-$ARCH-$where.sha256"
+          done
+          tar -C "$RUNNER_TEMP/products" -cf - . | zstd -q -3 -T0 -o "$RUNNER_TEMP/products-$ARCH.tar.zst"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: proof-emission-${{ matrix.arch }}
+          path: |
+            ${{ runner.temp }}/emission-*.sha256
+            ${{ runner.temp }}/products-*.tar.zst
+          retention-days: 14
+
+  emission-compare:
+    name: The corpus and the products are the same on every architecture
+    needs: emission
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: proof/ci
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: proof-emission-*
+          path: ${{ runner.temp }}/emissions
+          merge-multiple: true
+      - name: Compare every file's digest
+        run: |
+          cd "$RUNNER_TEMP/emissions"
+          reference=emission-amd64-runner.sha256
+          status=0
+          for other in emission-*.sha256; do
+            if ! diff -u "$reference" "$other" > "$other.diff"; then
+              echo "::error::The corpus emitted as ${other%.sha256} differs from the one CI emits (${reference%.sha256}); the files whose digests differ:"
+              cat "$other.diff"
+              status=1
+            fi
+          done
+          exit $status
+      - name: Compare the products, but for the ids each production minted
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/products"
+          for archive in "$RUNNER_TEMP"/emissions/products-*.tar.zst; do
+            zstd -q -d -c "$archive" | tar -C "$RUNNER_TEMP/products" -xf -
+          done
+          reference="$RUNNER_TEMP/products/amd64-runner"
+          status=0
+          for other in amd64-image arm64-runner arm64-image; do
+            if ! node proof/ci/products.mjs compare "$reference" "$RUNNER_TEMP/products/$other"; then
+              echo "::error::The native products made on $other differ from the ones CI makes (amd64-runner); the lines above name each file and where it first differs."
+              status=1
+            fi
+          done
+          exit $status

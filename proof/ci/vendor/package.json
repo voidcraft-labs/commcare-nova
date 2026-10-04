@@ -1,0 +1,12 @@
+{
+	"name": "nova-proof-ci-vendor",
+	"private": true,
+	"type": "module",
+	"description": "The proof lane's CI scripts (proof/ci) reach GitHub's artifact service through @actions/artifact, the client upload-artifact and download-artifact run, bundled into artifact.bundle.mjs by build.mjs, with the esbuild pinned here, so a shard needs no npm install and the bundle depends on this lock alone.",
+	"dependencies": {
+		"@actions/artifact": "6.2.1"
+	},
+	"devDependencies": {
+		"esbuild": "0.28.2"
+	}
+}

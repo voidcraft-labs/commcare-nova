@@ -1,0 +1,43 @@
+{
+	"uiTranslations": {
+		"en": {
+			"home.start": "Begin a visit"
+		}
+	},
+	"appAttributes": {
+		"auto_gps_capture": true
+	},
+	"buildProfiles": [
+		{
+			"id": "mandarin-only",
+			"name": "Mandarin",
+			"langs": [
+				"zho"
+			]
+		}
+	],
+	"lookupTable": {
+		"tag": "district",
+		"fieldProperty": {
+			"field": "name",
+			"property": "lang",
+			"value": "en"
+		},
+		"rowAttribute": {
+			"name": "zone",
+			"values": [
+				"upland",
+				"coastal"
+			]
+		},
+		"owners": {
+			"user": "district.lead",
+			"group": "District leads",
+			"location": {
+				"name": "North district office",
+				"siteCode": "north_office"
+			}
+		},
+		"description": "The districts the health team visits"
+	}
+}

@@ -9,8 +9,19 @@ name: Upstream pins
 # such pull request: a week with new heads replaces its one commit, and a week
 # with nothing new leaves it as it is, its description's date going stale.
 #
-# The workflow never merges. The job that runs upstream code (the surface
-# extraction) holds only a read token; the jobs that write run none.
+# Before CI runs on the branch, the whole proof lane runs fresh on the
+# candidate image and saves what it observed as main's evidence store for
+# that image (proof-lane.yml), so the pin pull request's CI reads its records
+# instead of observing every document again; this schedule's runs write the
+# default branch's caches, which every pull request can read. The prewarm
+# checks the tree the pull request will carry: the branch with the lock the
+# report job commits (the candidate image and the new pins) and the
+# regenerated surface, so its records and judgments are keyed as the pull
+# request's own run looks them up.
+#
+# The workflow never merges. The jobs that run upstream code (the surface
+# extraction, the prewarm) hold only a read token; the jobs that write run
+# none.
 on:
   schedule:
     - cron: "37 6 * * 1"
@@ -89,9 +100,25 @@ jobs:
           path: lib/commcare/surface/surface.json
           retention-days: 7
 
+  prewarm:
+    name: Prewarm main's evidence store for the candidate image
+    needs: [image, surface]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-lane.yml
+    with:
+      ref: upstream/pins
+      image: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
+      surface: upstream-surface
+      label: prewarm
+      store: save
+      # The pull request's own CI gives the verdict; a prewarm keeps what it
+      # observed whatever it is.
+      verdict: false
+
   report:
     name: Open or update the pin pull request
-    needs: [plan, image, surface]
+    needs: [plan, image, surface, prewarm]
     # Runs whenever the plan moved the pins, including when the image or the
     # surface failed: the pull request then carries the new pins alone and
     # names the failed step, and CI on it is red.

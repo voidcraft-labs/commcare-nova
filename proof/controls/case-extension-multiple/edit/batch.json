@@ -1,0 +1,16 @@
+{
+	"footprint": [
+		"5125e891-9091-519d-a121-c1c3b9d5b201"
+	],
+	"footprintParts": {
+		"appWide": false,
+		"app": true,
+		"entities": [
+			"5125e891-9091-519d-a121-c1c3b9d5b201"
+		],
+		"modules": [
+			"5125e891-9091-519d-a121-c1c3b9d5b201"
+		],
+		"forms": []
+	}
+}
