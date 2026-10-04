@@ -607,10 +607,13 @@ native proof parses actual HQ source and local CCZ forms; Core separately
 initializes both forms and reads their answer and question text. A successful
 HTML-parser round trip or an emitter paired with its own oracle is insufficient.
 The same admitted prose fixture carries whitespace-only runs between references,
-Unicode spacing, escaped markup, helper messages and localized labels. HQ
-regeneration preserves the literal separator outputs; Core reads their exact
-plain and Markdown text at two answer values in each language. This catches
-native parser whitespace removal that an XML text round trip cannot observe.
+Unicode spacing, embedded NBSP, escaped markup, helper messages and localized
+labels. HQ regeneration preserves separator outputs; the ordinary proof also
+consumes full HQ builds before and after two Vellum saves. Core reads exact
+plain and Markdown text and dynamic validation messages at two answer values
+in each language. This catches native parser removal, HQ indentation, Vellum
+character replacement and unsubstituted constraint templates that an XML text
+round trip cannot observe.
 
 Case tiles use the same admitted document corpus in ordinary CI and the native
 proof: actual archive fields and session datums, HQ export, and programmatic

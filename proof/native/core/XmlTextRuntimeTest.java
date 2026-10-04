@@ -99,19 +99,26 @@ public class XmlTextRuntimeTest {
                 assertText(form, "space", meals + " 14 Example Lane");
                 assertText(form, "xml_whitespace", meals + "\t \r\n14 Example Lane");
                 assertText(form, "unicode_spacing", meals + "\u00a0\u2003\u202814 Example Lane");
+                assertText(form, "mixed_nbsp", "It's \"early\"\u00a0today");
+                assertText(form, "consumer_spacing", meals
+                    + "\t\n\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000"
+                    + "14 Example Lane");
                 assertText(form, "edge_whitespace", " \t" + meals + "\n 14 Example Lane\t ");
                 assertText(form, "escaped_markup", "Literal <output value=\"'x'\"/> & #form/meals");
-                FormEntryPrompt checked = at(form, "checked").getQuestionPrompt();
+                FormEntryModel checkedEntry = at(form, "checked");
+                FormEntryPrompt checked = checkedEntry.getQuestionPrompt();
                 assertEquals(meals + "\n\n14 Example Lane", checked.getHintText());
                 assertEquals(meals + "\n\n14 Example Lane",
                     checked.getSpecialFormQuestionText("checked-hint", FormEntryCaption.TEXT_FORM_MARKDOWN));
                 assertEquals(meals + " 14 Example Lane", checked.getHelpText());
                 assertEquals(meals + " 14 Example Lane",
                     checked.getSpecialFormQuestionText("checked-help", FormEntryCaption.TEXT_FORM_MARKDOWN));
-                // The legacy jr:constraintMsg getter returns an itext template,
-                // without output substitution. Its emitted separators are
-                // checked in test_xml_boundary; this test claims only the
-                // prompt APIs that actually substitute outputs.
+                assertEquals(FormEntryController.ANSWER_CONSTRAINT_VIOLATED,
+                    new FormEntryController(checkedEntry).answerQuestion(new StringData("bad")));
+                assertEquals(meals + "\t14 Example Lane", checked.getConstraintText());
+                assertEquals(meals + "\t14 Example Lane", checked.getConstraintText(new StringData("bad")));
+                assertEquals(meals + "\t14 Example Lane",
+                    checked.getSpecialFormQuestionText("checked-constraintMsg", FormEntryCaption.TEXT_FORM_MARKDOWN));
                 FormEntryPrompt choose = at(form, "choose").getQuestionPrompt();
                 assertEquals(meals + "\n\n14 Example Lane",
                     choose.getSelectChoiceText(choose.getSelectChoices().get(0)));

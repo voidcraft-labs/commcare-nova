@@ -23,7 +23,16 @@ describe("exported prose whitespace", () => {
 			["HQ source", source],
 			["local CCZ", archive.readAsText("modules-0/forms-0.xml")],
 		] as const) {
-			const translations = descendants(readXmlEvidence(xml), "translation");
+			const root = readXmlEvidence(xml);
+			expect(
+				descendants(root, "alert").map((alert) => alert.attributes),
+			).toEqual([{ ref: "jr:itext('checked-constraintMsg')" }]);
+			expect(
+				descendants(root, "bind").find(
+					(bind) => bind.attributes.nodeset === "/data/checked",
+				)?.attributes["jr:constraintMsg"],
+			).toBe("jr:itext('checked-constraintMsg')");
+			const translations = descendants(root, "translation");
 			expect(translations.map((entry) => entry.attributes.lang)).toEqual([
 				"en",
 				"es",
@@ -47,6 +56,22 @@ describe("exported prose whitespace", () => {
 					["checked-help", ["/data/meals", "' '", "/data/address"]],
 					["checked-constraintMsg", ["/data/meals", "'\t'", "/data/address"]],
 					["choose-opt0-label", ["/data/meals", "'\n\n'", "/data/address"]],
+					[
+						"unicode_spacing-label",
+						[
+							"/data/meals",
+							`json-property('{"v":"\\u00a0\\u2003\\u2028"}', 'v')`,
+							"/data/address",
+						],
+					],
+					[
+						"consumer_spacing-label",
+						[
+							"/data/meals",
+							`json-property('{"v":"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000"}', 'v')`,
+							"/data/address",
+						],
+					],
 				] as const) {
 					const entry = onlyXml(
 						translation.children.filter((node) => node.attributes.id === id),
@@ -63,7 +88,7 @@ describe("exported prose whitespace", () => {
 							value.children.map((output) => output.attributes.value),
 						).toEqual(values);
 						for (const output of value.children) {
-							if (output.attributes.value.startsWith("'")) {
+							if (!output.attributes.value.startsWith("/data/")) {
 								expect(output.attributes).toEqual({
 									value: output.attributes.value,
 								});
@@ -88,13 +113,13 @@ describe("exported prose whitespace", () => {
 				}
 				for (const value of onlyXml(
 					translation.children.filter(
-						(node) => node.attributes.id === "unicode_spacing-label",
+						(node) => node.attributes.id === "mixed_nbsp-label",
 					),
 				).children) {
-					expect(value.text).toBe("\u00a0\u2003\u2028");
-					expect(
-						value.children.map((output) => output.attributes.value),
-					).toEqual(["/data/meals", "/data/address"]);
+					expect(value.text).toBe('It\'s "early"today');
+					expect(value.children.map((output) => output.attributes)).toEqual([
+						{ value: `json-property('{"v":"\\u00a0"}', 'v')` },
+					]);
 				}
 				for (const value of onlyXml(
 					translation.children.filter(

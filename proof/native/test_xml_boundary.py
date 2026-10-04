@@ -9,7 +9,7 @@ import refuses to parse each pre-fix source Nova's audit found
 the CCZ form alike the label reads its exact decoded text and the default
 keeps its tab, newline and carriage return (``'A\\tB\\nC\\rD'``), while the
 profile carries the app's name. Reference-separated prose retains whitespace
-literal outputs through both the local and HQ-regenerated forms in each
+outputs through both the local and HQ-regenerated forms in each
 language and text variant. ``XmlTextRuntimeTest`` then reads exact substituted
 plain and Markdown prompts in Core. The plausible failures: a character Nova's gate admits that
 libxml refuses (or the reverse), a pre-fix source HQ starts to accept, and
@@ -115,6 +115,14 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
         "checked-help": ["/data/meals", "' '", "/data/address"],
         "checked-constraintMsg": ["/data/meals", "'\t'", "/data/address"],
         "choose-opt0-label": ["/data/meals", "'\n\n'", "/data/address"],
+        "unicode_spacing-label": [
+            "/data/meals", "json-property('{\"v\":\"\\u00a0\\u2003\\u2028\"}', 'v')", "/data/address"
+        ],
+        "consumer_spacing-label": [
+            "/data/meals",
+            "json-property('{\"v\":\"\\t\\n\\r \\u0085\\u00a0\\u1680\\u2000\\u2001\\u2002\\u2003\\u2004\\u2005\\u2006\\u2007\\u2008\\u2009\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\"}', 'v')",
+            "/data/address",
+        ],
     }
     artifacts = {
         "hq-source": record["source"],
@@ -123,6 +131,9 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
     }
     for path, data in artifacts.items():
         root = etree.fromstring(data)
+        assert root.xpath('//x:alert/@ref', namespaces=NAMESPACES) == ["jr:itext('checked-constraintMsg')"], path
+        assert root.xpath('//x:bind[@nodeset="/data/checked"]/@jr:constraintMsg',
+            namespaces={**NAMESPACES, "jr": "http://openrosa.org/javarosa"}) == ["jr:itext('checked-constraintMsg')"], path
         translations = root.xpath("//x:itext/x:translation", namespaces=NAMESPACES)
         assert [translation.attrib["lang"] for translation in translations] == ["en", "es"], path
         for translation in translations:
@@ -138,11 +149,13 @@ def test_hq_regeneration_preserves_literal_separators_without_rewriting_unicode_
                         prefix = "Comidas: " if translation.attrib["lang"] == "es" else "Meals: "
                     assert "".join(value.itertext()) == prefix, (path, text_id)
                     for output in value:
-                        if output.attrib["value"].startswith("'"):
+                        if not output.attrib["value"].startswith("/data/"):
                             assert dict(output.attrib) == {"value": output.attrib["value"]}, (path, text_id)
-            for value in translation.xpath('x:text[@id="unicode_spacing-label"]/x:value', namespaces=NAMESPACES):
-                assert "".join(value.itertext()) == "\u00a0\u2003\u2028", path
-                assert value.xpath("x:output/@value", namespaces=NAMESPACES) == ["/data/meals", "/data/address"], path
+            for value in translation.xpath('x:text[@id="mixed_nbsp-label"]/x:value', namespaces=NAMESPACES):
+                assert "".join(value.itertext()) == 'It\'s "early"today', path
+                assert [dict(output.attrib) for output in value] == [
+                    {"value": "json-property('{\"v\":\"\\u00a0\"}', 'v')"}
+                ], path
             for value in translation.xpath('x:text[@id="escaped_markup-label"]/x:value', namespaces=NAMESPACES):
                 assert len(value) == 0, path
                 assert value.text == "Literal <output value=\"'x'\"/> & #form/meals", path

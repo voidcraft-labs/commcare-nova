@@ -1411,15 +1411,16 @@ accents, combining marks, non-Latin scripts, emoji and C1 characters.
 
 That admitted document also contains adjacent reference outputs separated by
 paragraph breaks, spaces, tabs and carriage returns, plus boundary whitespace,
-Unicode spacing and escaped literal markup. The same fixture feeds ordinary
-exported-structure tests and the proof corpus. HQ source, local CCZ and
-HQ-regenerated XML must retain literal separator outputs without converting
-Unicode spacing or markup into outputs. Core reads exact plain and Markdown
-labels, hints, help and option text with one and three meals in English and
-Spanish. Validation-message separators are checked in the XML artifacts;
-Core's legacy `jr:constraintMsg` getter returns the itext template without
-output substitution, so that getter cannot prove a rendered message. These
-are native text-value checks, not browser or Android typography checks.
+Unicode spacing, embedded NBSP and escaped literal markup. The same fixture
+feeds ordinary exported-structure tests and the proof corpus. HQ source, local
+CCZ and HQ-regenerated XML retain ASCII separators as literal outputs; Unicode
+whitespace and embedded NBSP use ASCII JSON outputs so HQ indentation and
+Vellum's NBSP replacement preserve their values. Literal markup stays text.
+The ordinary proof consumes full HQ builds and both Vellum saves. Core reads
+exact plain and Markdown labels, hints, help, options and validation messages
+with one and three meals in English and Spanish. The body alert substitutes
+the validation template while the bind retains its compatible itext fallback.
+These are native text-value checks, not browser or Android typography checks.
 
 #### Case tiles (`tile`)
 

@@ -77,6 +77,18 @@ export function proseWhitespaceFixture() {
 							}),
 							f({
 								kind: "label",
+								id: "mixed_nbsp",
+								label: proseText('It\'s "early"\u00a0today'),
+							}),
+							f({
+								kind: "label",
+								id: "consumer_spacing",
+								label: separated(
+									"\t\n\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000",
+								),
+							}),
+							f({
+								kind: "label",
 								id: "edge_whitespace",
 								label: {
 									parts: [

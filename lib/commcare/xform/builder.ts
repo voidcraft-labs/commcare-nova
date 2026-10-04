@@ -128,11 +128,61 @@ import {
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
 
-function isJavaTrimEmpty(value: string): boolean {
+function isConsumerWhitespace(value: string): boolean {
 	for (let index = 0; index < value.length; index++) {
-		if (value.charCodeAt(index) > 0x20) return false;
+		const unit = value.charCodeAt(index);
+		// Core removes Java String.trim()-empty text nodes; HQ's lxml indent
+		// additionally replaces whitespace-only tails using Python's isspace.
+		if (
+			unit > 0x20 &&
+			unit !== 0x85 &&
+			unit !== 0xa0 &&
+			unit !== 0x1680 &&
+			!(unit >= 0x2000 && unit <= 0x200a) &&
+			unit !== 0x2028 &&
+			unit !== 0x2029 &&
+			unit !== 0x202f &&
+			unit !== 0x205f &&
+			unit !== 0x3000
+		) {
+			return false;
+		}
 	}
 	return true;
+}
+
+function whitespaceOutput(value: string): Element {
+	if (Array.from(value).every((unit) => unit.charCodeAt(0) <= 0x20)) {
+		return el("output", { value: `'${value}'` });
+	}
+	// Vellum's XML serializer replaces every literal NBSP, including those
+	// inside attributes. ASCII JSON escapes survive that save and HQ's indent;
+	// Core's json-property decodes the exact characters at substitution time.
+	// The input is whitespace only, so the XPath literal cannot contain '.
+	const json = JSON.stringify({ v: value });
+	let ascii = "";
+	for (let index = 0; index < json.length; index++) {
+		const unit = json.charCodeAt(index);
+		ascii +=
+			unit > 0x7f ? `\\u${unit.toString(16).padStart(4, "0")}` : json[index];
+	}
+	return el("output", { value: `json-property('${ascii}', 'v')` });
+}
+
+function literalLabelNodes(literal: string): ChildNode[] {
+	if (isConsumerWhitespace(literal)) return [whitespaceOutput(literal)];
+	// NBSP is also replaced inside ordinary prose, not just between outputs.
+	const fragments = literal.split("\u00a0");
+	return fragments.flatMap((fragment, index) => [
+		...(index > 0 ? [whitespaceOutput("\u00a0")] : []),
+		...(fragment.length > 0
+			? [
+					isConsumerWhitespace(fragment)
+						? whitespaceOutput(fragment)
+						: text(fragment),
+				]
+			: []),
+	]);
 }
 
 /**
@@ -149,11 +199,14 @@ function isJavaTrimEmpty(value: string): boolean {
  *     entity the author may have typed (the historical `&lt;` workaround → `<`)
  *     so the serializer re-escapes it exactly once — `&lt;`, never the
  *     double-escaped `&amp;lt;` that would show a literal `&lt;` on device.
- *   - Whitespace-only runs become literal `<output value="'...'">` nodes.
+ *   - Whitespace-only runs become `<output>` nodes.
  *     Core's `XFormParser.getXMLDocument` discards text nodes whose Java
  *     `String.trim()` result is empty before it parses label outputs. A
  *     literal output preserves those separators, including paragraph breaks.
- *     Only code units at or below U+0020 qualify; Unicode spacing stays text.
+ *     HQ's build also replaces Unicode whitespace-only tails. ASCII runs
+ *     use XPath literals; Unicode runs use ASCII JSON escapes consumed by
+ *     Core's json-property. Embedded NBSP uses the same protected spelling
+ *     because Vellum replaces literal NBSP throughout its serialized XML.
  *   - Each typed reference atom becomes a constructed self-closing `<output>`
  *     element: `value` holds the expanded instance XPath, and the parallel
  *     `vellum:value` holds the original shorthand — but only when expansion
@@ -178,14 +231,7 @@ function buildLabelNodes(
 	for (const part of template.parts) {
 		if (part.kind === "text") {
 			const literal = decodeXML(part.text);
-			// Java String.trim(), unlike JavaScript trim(), removes only <= U+0020.
-			// Such a run cannot contain a quote, so its XPath literal needs no
-			// quoting transform. The XML serializer still owns attribute escaping.
-			nodes.push(
-				isJavaTrimEmpty(literal)
-					? el("output", { value: `'${literal}'` })
-					: text(literal),
-			);
+			nodes.push(...literalLabelNodes(literal));
 			continue;
 		}
 		const original = printProseTemplate({ parts: [part] }, doc);
@@ -1326,7 +1372,15 @@ function buildFieldParts(
 			? buildLookupItemset(lookupSource, lookupSelects, nodePath, instances)
 			: undefined;
 	bodyElements.push(
-		buildLeafControl(field, nodePath, itextKey, hasHint, hasHelp, itemset),
+		buildLeafControl(
+			field,
+			nodePath,
+			itextKey,
+			hasHint,
+			hasHelp,
+			hasValidationMessage,
+			itemset,
+		),
 	);
 }
 
@@ -1453,6 +1507,7 @@ function buildLeafControl(
 	itextKey: string,
 	hasHint: boolean,
 	hasHelp: boolean,
+	hasValidationMessage: boolean,
 	itemset?: Element,
 ): Element {
 	// The shared head of every control: the label reference, then the optional
@@ -1464,6 +1519,12 @@ function buildLeafControl(
 	];
 	if (hasHint) head.push(el("hint", { ref: `jr:itext('${itextKey}-hint')` }));
 	if (hasHelp) head.push(el("help", { ref: `jr:itext('${itextKey}-help')` }));
+	// Core fills output templates through the question's alert; its legacy
+	// bind constraint-message fallback returns the unsubstituted template.
+	// Both references use the same registered entry, including media gating.
+	if (hasValidationMessage) {
+		head.push(el("alert", { ref: `jr:itext('${itextKey}-constraintMsg')` }));
+	}
 	const ref = nodePath.toXPath();
 
 	if (field.kind === "single_select" || field.kind === "multi_select") {

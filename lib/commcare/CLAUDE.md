@@ -330,18 +330,25 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit refe
 
 All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. Safe for plain text: identical rendering when no markdown syntax is present.
 
-`xform/builder.ts::buildLabelNodes` emits a decoded text run consisting only of
-code units <= U+0020 as a literal `<output value="'...'"/>`, with no Vellum
-shadow. Core's `XFormParser::getXMLDocument` drops text nodes whose Java
-`String.trim()` result is empty before `getLabel` substitutes output fragments;
-literal outputs preserve separators between adjacent references, including
-paragraph breaks, in both text variants. Non-whitespace runs retain their text
-nodes and XML decoding, and Unicode spacing such as NBSP stays text rather
-than being classified by JavaScript's broader `trim()`. The shared admitted
-prose fixture runs through local CCZ, HQ source and HQ regeneration, and
-`XmlTextRuntimeTest` reads exact plain and Markdown prompts after changing an
-answer and switching languages. This proves Core text values, not Android or
-browser typography.
+`xform/builder.ts::buildLabelNodes` protects decoded whitespace-only runs with
+outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
+Java `String.trim()`-empty text nodes; HQ's `WrappedNode.render` calls lxml
+indent, which replaces Unicode whitespace-only tails too. ASCII runs use
+literal `<output value="'...'"/>`; Unicode runs use `json-property` with ASCII
+JSON escapes, which Core decodes during substitution. Vellum's XML serializer
+replaces literal NBSP throughout the XML, so NBSP inside ordinary prose uses
+that protected spelling too. Other prose retains its decoded text nodes.
+The character classifier mirrors these consumers, not JavaScript `trim()`.
+
+Validation messages emit both the compatible bind `jr:constraintMsg` reference
+and a body `<alert>` referencing the same registered itext entry. Core fills
+the alert's output template; the bind fallback alone returns raw placeholders.
+The shared entry gate covers text, media-only content and media-off exports.
+The admitted fixture runs through local CCZ, HQ source and HQ regeneration;
+the ordinary proof also builds it through HQ and saves it twice through Vellum.
+`XmlTextRuntimeTest` reads exact plain and Markdown prompts and validation
+messages after changing an answer and switching languages. This proves Core
+text values, not Android or browser typography.
 
 ### Secondary instances
 
