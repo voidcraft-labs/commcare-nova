@@ -1,0 +1,4847 @@
+[
+	{
+		"id": "expressions-and-data/casedb-jr-instance-casedb",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`casedb` (`jr://instance/casedb`)",
+		"surfaceKeys": [
+			"instance-scheme:casedb",
+			"instance-source:casedb",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "casedb",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: casedb reads (typed `#<type>/prop` leaves today; queries become typed case-database references)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`instance('casedb')`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/commcaresession-jr-instance-session",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`commcaresession` (`jr://instance/session`)",
+		"surfaceKeys": [
+			"instance-scheme:commcaresession",
+			"instance-source:session",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "session",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: session reads (`session-user`/`session-context` terms; datum names as held identity, and datum reads in the typed session reference below)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (context fields below) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "context fields below"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`instance('commcaresession')`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-datum",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/<datum>`",
+		"surfaceKeys": ["session-path:session/data/*"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/supply_point_id`, anywhere except in an advanced form whose computed datum has that id",
+		"surfaceKeys": ["session-path:session/data/*"],
+		"valueClass": "supply-point-id-outside-a-computed-datum",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): only CommTrack supplies that datum then (`entries.py::entry_for_module`)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/COMMTRACK",
+				"named": "(COMMTRACK): only CommTrack supplies that datum then (`entries.py::entry_for_module`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/supply_point_id`, in an advanced form whose computed datum has that id (`arbitrary_datums`, which HQ's advanced editor offers under any id, `case_config_advanced.html`)",
+		"surfaceKeys": ["session-path:session/data/*"],
+		"valueClass": "supply-point-id-computed-datum",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference to the form's computed datum (`Form.computedDatums`); the source still contains HQ's CommTrack substring, so defect 20's confirmation applies (executed: HQ builds the form's datum, and adds its own after it only under CommTrack)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": ["project-space-setting/Domain.commtrack_enabled"]
+	},
+	{
+		"id": "expressions-and-data/session-data-stringquery",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/stringquery`",
+		"surfaceKeys": ["session-path:session/data/stringquery"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE (node absent) / RUNS",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "node absent"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-fingerprintquery",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `data/fingerprintquery`",
+		"surfaceKeys": ["session-path:session/data/fingerprintquery"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": {
+				"reading": "unavailable"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-userid-context-username",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/userid`, `context/username`",
+		"surfaceKeys": [
+			"session-path:session/context/userid",
+			"session-path:session/context/username"
+		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-deviceid",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/deviceid`",
+		"surfaceKeys": ["session-path:session/context/deviceid"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (`Formplayer`) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "`Formplayer`"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-appversion",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/appversion`",
+		"surfaceKeys": ["session-path:session/context/appversion"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (`Formplayer Version: X.Y`) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "`Formplayer Version: X.Y`"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-drift",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/drift`",
+		"surfaceKeys": ["session-path:session/context/drift"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (always 0) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "always 0"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-window-width",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/window_width`",
+		"surfaceKeys": ["session-path:session/context/window_width"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (first render only) / UNAVAILABLE",
+			"webApps": {
+				"reading": "different",
+				"note": "first render only"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-applanguage",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/applanguage`",
+		"surfaceKeys": ["session-path:session/context/applanguage"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (unreliable after first render) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "unreliable after first render"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-user-data-field",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `user/data/<field>`",
+		"surfaceKeys": ["session-path:session/user/data/*"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-user` / `user-ref`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/ledgerdb-vellum-id-ledger",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`ledgerdb` (Vellum id `ledger`)",
+		"surfaceKeys": ["instance-scheme:ledgerdb"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (COMMTRACK): ledger data exists only from COMMTRACK-authored ledger blocks or a `commtrack_enabled` restore",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/COMMTRACK",
+				"named": "(COMMTRACK): ledger data exists only from COMMTRACK-authored ledger blocks or a `commtrack_enabled` restore"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`item-list:<tag>` read through Nova's typed lookup carriers",
+		"surfaceKeys": [
+			"instance-scheme:item-list",
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "typed-lookup-carrier",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: lookup options / `table-lookup`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "bare-tag XForm id, `item-list:<tag>` in the suite",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/item-list-tag-read-in-any-other-expression",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`item-list:<tag>` read in any other expression",
+		"surfaceKeys": ["instance-scheme:item-list", "instance-source:fixture"],
+		"valueClass": "other-expression",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed lookup-table reference bound to the Project table, its fields and properties",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/groups-jr-fixture-user-groups",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`groups` (`jr://fixture/user-groups`)",
+		"surfaceKeys": [
+			"instance-scheme:groups",
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed reference to the case-sharing groups fixture",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`instance('groups')`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`locations` (flat, `jr://fixture/locations`) read in an expression",
+		"surfaceKeys": [
+			"instance-scheme:locations",
+			"instance-source:fixture",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "flat-locations",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed location reference (today only typed owner terms); with `project_default`, which Nova writes once defect 14 is fixed, and today writes `both_fixtures`, the restore both runtimes receive follows the project space's stored setting (`locations/fixtures.py::should_sync_flat_fixture`), which publish confirms",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`instance('locations')`",
+			"markers": []
+		},
+		"gates": [
+			"project-space-setting/LocationFixtureConfiguration.sync_flat_fixture"
+		]
+	},
+	{
+		"id": "expressions-and-data/commtrack-locations-hierarchical",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`commtrack:locations` (hierarchical)",
+		"surfaceKeys": ["instance-scheme:locations", "instance-scheme:commtrack"],
+		"valueClass": "hierarchical-locations",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (HIERARCHICAL_LOCATION_FIXTURE)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/HIERARCHICAL_LOCATION_FIXTURE",
+				"named": "(HIERARCHICAL_LOCATION_FIXTURE)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`reports`, `commcare:reports`, `commcare-reports:*`, `commcare-reports-filters:*`",
+		"surfaceKeys": [
+			"instance-scheme:reports",
+			"instance-scheme:commcare",
+			"instance-scheme:commcare-reports",
+			"instance-scheme:commcare-reports-filters"
+		],
+		"valueClass": "mobile-ucr-reports",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/MOBILE_UCR",
+				"named": "(MOBILE_UCR)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/registry-jr-instance-remote-registry",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`registry` (`jr://instance/remote/registry`)",
+		"surfaceKeys": ["instance-scheme:registry"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/DATA_REGISTRY",
+				"named": "(DATA_REGISTRY)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/results-results-inline-results-name-in-search-details",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`results`, `results:inline`, `results:<name>` in search details",
+		"surfaceKeys": [
+			"instance-scheme:results",
+			"instance-source:jr://instance/remote",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "search-detail",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: search result details",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "as HQ generates",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/results-read-in-form-expressions-of-an-inline-search-module",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`results*` read in form expressions of an inline-search module",
+		"surfaceKeys": [
+			"instance-scheme:results",
+			"instance-source:jr://instance/remote"
+		],
+		"valueClass": "inline-search-form",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed search-result reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (UNAVAILABLE for results not on the device)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "UNAVAILABLE for results not on the device"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/results-read-in-form-expressions-reached-through-a-search-that",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`results*` read in form expressions reached through a search that is not inline",
+		"surfaceKeys": ["instance-scheme:results"],
+		"valueClass": "non-inline-search-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: the search's `<rewind>` (`remote_requests.py::RemoteRequestFactory.build_stack`) drops the query step (`SessionFrame.rewindToMarkAndSet`), so the form finds no source for the instance (`CommCareInstanceInitializer.setupExternalDataInstance`) and every read throws \"Instance referenced by … has not been loaded\" (`XPathPathExpr`), on both runtimes",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "the search's `<rewind>` (`remote_requests.py::RemoteRequestFactory.build_stack`) drops the query step (`SessionFrame.rewindToMarkAndSet`), so the form finds no source for the instance (`CommCareInstanceInitializer.setupExternalDataInstance`) and every read throws \"Instance referenced by … has not been loaded\" (`XPathPathExpr`), on both runtimes"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-results-and-legacy-search-input-read-while-the",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:results[:…]`, and legacy `search-input`, read while the query is built",
+		"surfaceKeys": [
+			"instance-scheme:search-input",
+			"instance-ignored:jr://instance/search-input",
+			"instance-source:jr://instance/search-input",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "query-build",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: search input reads (Nova emits them in CSQL)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (both evaluate them through `RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "both evaluate them through `RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:results[:…]` read in the search results detail",
+		"surfaceKeys": ["instance-scheme:search-input"],
+		"valueClass": "results-detail",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed search-input reference (typed expression model)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE (Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable",
+				"note": "Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "legacy `search-input` read after the query (in the results detail or a form)",
+		"surfaceKeys": [
+			"instance-scheme:search-input",
+			"instance-ignored:jr://instance/search-input"
+		],
+		"valueClass": "legacy-after-query",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ never declares `jr://instance/search-input` (`suite_xml/post_process/instances.py::InstancesHelper.IGNORED_INSTANCES`), and Core provides the bare id only while it builds the query (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`), so every later read fails on both runtimes",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ never declares `jr://instance/search-input` (`suite_xml/post_process/instances.py::InstancesHelper.IGNORED_INSTANCES`), and Core provides the bare id only while it builds the query (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`), so every later read fails on both runtimes"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:*` read in form expressions of an inline-search module",
+		"surfaceKeys": [
+			"instance-scheme:search-input",
+			"instance-source:jr://instance/search-input"
+		],
+		"valueClass": "inline-search-form",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed search-input reference",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-read-in-form-expressions-reached-through-a-search",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:*` read in form expressions reached through a search that is not inline",
+		"surfaceKeys": ["instance-scheme:search-input"],
+		"valueClass": "non-inline-search-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: the `<rewind>` drops the step that carries the inputs, so every read throws \"has not been loaded\" (HQ's \"Make search input available after search\" checkbox is inline search itself, `remote_requests.py`)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "the `<rewind>` drops the step that carries the inputs, so every read throws \"has not been loaded\" (HQ's \"Make search input available after search\" checkbox is inline search itself, `remote_requests.py`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/selected-cases-search-selected-cases-parent-selected-cases-jr",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`selected_cases`, `search_selected_cases`, `parent_…selected_cases*` (`jr://instance/selected-entities/<id>`)",
+		"surfaceKeys": [
+			"instance-scheme:selected_cases",
+			"instance-source:jr://instance/selected-entities",
+			"xform:model/instance@id",
+			"xform:model/instance@src"
+		],
+		"valueClass": "selected-entities",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: multi-select",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "ids as HQ derives them",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/schedule-m-p-f",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`schedule:m…:p…:f…`",
+		"surfaceKeys": ["instance-scheme:schedule"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (VISIT_SCHEDULER)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/VISIT_SCHEDULER",
+				"named": "(VISIT_SCHEDULER)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/indicators-call-center-indicators",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`indicators:*` (call-center indicators)",
+		"surfaceKeys": ["instance-scheme:indicators"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: untypeable: its rows come from the target's call-center configuration, which Nova cannot read",
+		"reasons": [
+			{
+				"kind": "untypeable",
+				"named": "its rows come from the target's call-center configuration, which Nova cannot read"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/commtrack-products-commtrack-programs",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`commtrack:products`, `commtrack:programs`",
+		"surfaceKeys": ["instance-scheme:commtrack"],
+		"valueClass": "products-and-programs",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (COMMTRACK)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/COMMTRACK",
+				"named": "(COMMTRACK)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/case-search-fixture",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`case-search-fixture:*`",
+		"surfaceKeys": ["instance-scheme:case-search-fixture"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (CSQL_FIXTURE)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/CSQL_FIXTURE",
+				"named": "(CSQL_FIXTURE)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/inline-instance-content-inside-instance-no-src",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "inline instance (content inside `<instance>`, no `src`)",
+		"surfaceKeys": ["xform:model/instance@id"],
+		"valueClass": "secondary-instance-without-src",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: freeform",
+		"reasons": [
+			{
+				"kind": "freeform"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "declared and referenced instance with an unrecognized `src`",
+		"surfaceKeys": ["instance-source:(none)"],
+		"valueClass": "referenced-unrecognized-source",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: resolves to `ConcreteInstanceRoot.NULL`; every read throws \"has not been loaded\" (`XPathPathExpr`)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "resolves to `ConcreteInstanceRoot.NULL`; every read throws \"has not been loaded\" (`XPathPathExpr`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/referenced-undeclared-instance-id-with-no-known-scheme-or-one",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "referenced, undeclared instance id with no known scheme, or one whose factory returns none (`results:<unknown>`, `search-input:results:<unknown>`, `commcare:reports` without MOBILE_UCR)",
+		"surfaceKeys": [
+			"instance-scheme:results",
+			"instance-scheme:search-input",
+			"instance-scheme:commcare",
+			"instance-scheme:commcare-reports",
+			"instance-scheme:commcare-reports-filters"
+		],
+		"valueClass": "factory-returns-none",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `UnknownInstanceError` / \"missing some instance declarations\"",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`UnknownInstanceError` / \"missing some instance declarations\""
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/declared-unreferenced-instance-whose-source-loads-no-data-casedb",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "declared, unreferenced instance whose source loads no data (`casedb`, session, remote, search-input, selected entities, or an unrecognized source)",
+		"surfaceKeys": [
+			"instance-source:casedb",
+			"instance-source:session",
+			"instance-source:jr://instance/remote",
+			"instance-source:jr://instance/search-input",
+			"instance-source:jr://instance/selected-entities",
+			"instance-source:(none)"
+		],
+		"valueClass": "declared-unreferenced",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no reader, and initializing it cannot fail",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/declared-unreferenced-fixture-instance-item-list-locations-user",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "declared, unreferenced fixture instance (`item-list:*`, `locations`, `user-groups`) the project space serves",
+		"surfaceKeys": ["instance-source:fixture"],
+		"valueClass": "declared-unreferenced-served",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: Core initializes every declared instance when the form opens (`ExternalDataInstance.initialize` → `CommCareInstanceInitializer.generateRoot`), which succeeds here, and nothing reads it",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/declared-unreferenced-fixture-instance-the-project-space-does",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "declared, unreferenced fixture instance the project space does not serve",
+		"surfaceKeys": [],
+		"noSurfaceKey": "Whether a project space serves a fixture is target state that no export carries, so no reader of the export can place an instance in this class; the deployment's preflight is where it is known.",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: initializing it throws `FixtureInitializationException` when the form opens (`CommCareInstanceInitializer.loadFixtureRoot`; executed), so the form cannot open",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "initializing it throws `FixtureInitializationException` when the form opens (`CommCareInstanceInitializer.loadFixtureRoot`; executed), so the form cannot open"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/more-than-one-instance-without-an-id",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "more than one `<instance>` without an `id`",
+		"surfaceKeys": ["xform:model/instance"],
+		"valueClass": "second-instance-without-id",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: Vellum refuses to open (`parser.js::_getInstances`)",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "Vellum refuses to open (`parser.js::_getInstances`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/menu-instance-declarations",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "menu `<instance>` declarations",
+		"surfaceKeys": [
+			"parser:MenuParser/instance",
+			"parser:MenuParser/instance@id",
+			"parser:MenuParser/instance@src"
+		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ from module filters",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "nothing",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/abs",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`abs`",
+		"surfaceKeys": ["jr-fn:abs"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/acos",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`acos`",
+		"surfaceKeys": ["jr-fn:acos"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/asin",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`asin`",
+		"surfaceKeys": ["jr-fn:asin"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/atan",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`atan`",
+		"surfaceKeys": ["jr-fn:atan"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/atan2",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`atan2`",
+		"surfaceKeys": ["jr-fn:atan2"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/boolean",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`boolean`",
+		"surfaceKeys": ["jr-fn:boolean"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/boolean-from-string",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`boolean-from-string`",
+		"surfaceKeys": ["jr-fn:boolean-from-string"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/ceiling",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`ceiling`",
+		"surfaceKeys": ["jr-fn:ceiling"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/checklist",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`checklist`",
+		"surfaceKeys": ["jr-fn:checklist"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/checksum",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`checksum`",
+		"surfaceKeys": ["jr-fn:checksum"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/closest-point-on-polygon",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`closest-point-on-polygon`",
+		"surfaceKeys": ["jr-fn:closest-point-on-polygon"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/coalesce",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`coalesce`",
+		"surfaceKeys": ["jr-fn:coalesce"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/concat",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`concat`",
+		"surfaceKeys": ["jr-fn:concat"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/cond",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`cond`",
+		"surfaceKeys": ["jr-fn:cond"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/contains",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`contains`",
+		"surfaceKeys": ["jr-fn:contains"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/cos",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`cos`",
+		"surfaceKeys": ["jr-fn:cos"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/count",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`count`",
+		"surfaceKeys": ["jr-fn:count"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/count-selected",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`count-selected`",
+		"surfaceKeys": ["jr-fn:count-selected"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/date",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`date`",
+		"surfaceKeys": ["jr-fn:date"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (string parsing identical; number→date: see `number`)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "string parsing identical; number→date: see `number`"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/decrypt-string",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`decrypt-string`",
+		"surfaceKeys": ["jr-fn:decrypt-string"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/depend",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`depend`",
+		"surfaceKeys": ["jr-fn:depend"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/distance",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`distance`",
+		"surfaceKeys": ["jr-fn:distance"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/distinct-values",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`distinct-values`",
+		"surfaceKeys": ["jr-fn:distinct-values"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/double",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`double`",
+		"surfaceKeys": ["jr-fn:double"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (on a date: fraction is server-zone wall time) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "on a date: fraction is server-zone wall time"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/encrypt-string",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`encrypt-string`",
+		"surfaceKeys": ["jr-fn:encrypt-string"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/ends-with",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`ends-with`",
+		"surfaceKeys": ["jr-fn:ends-with"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/exp",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`exp`",
+		"surfaceKeys": ["jr-fn:exp"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/false",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`false`",
+		"surfaceKeys": ["jr-fn:false"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/floor",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`floor`",
+		"surfaceKeys": ["jr-fn:floor"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/format-date",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`format-date`",
+		"surfaceKeys": ["jr-fn:format-date"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (English names on both)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "English names on both"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/format-date-for-calendar",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`format-date-for-calendar`",
+		"surfaceKeys": ["jr-fn:format-date-for-calendar"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/id-compress",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`id-compress`",
+		"surfaceKeys": ["jr-fn:id-compress"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/if",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`if`",
+		"surfaceKeys": ["jr-fn:if"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/index-of",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`index-of`",
+		"surfaceKeys": ["jr-fn:index-of"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/int",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`int`",
+		"surfaceKeys": ["jr-fn:int"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (on a date: day number anchored to the formplayer JVM zone, Etc/UTC) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "on a date: day number anchored to the formplayer JVM zone, Etc/UTC"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/is-point-inside-polygon",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`is-point-inside-polygon`",
+		"surfaceKeys": ["jr-fn:is-point-inside-polygon"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/is-selected",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`is-selected`",
+		"surfaceKeys": ["jr-fn:is-selected"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/join",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`join`",
+		"surfaceKeys": ["jr-fn:join"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/join-chunked",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`join-chunked`",
+		"surfaceKeys": ["jr-fn:join-chunked"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/json-property",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`json-property`",
+		"surfaceKeys": ["jr-fn:json-property"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (non-string values → `\"\"`) / DIFFERENT (framework `org.json` stringifies)",
+			"webApps": {
+				"reading": "different",
+				"note": "non-string values → `\"\"`"
+			},
+			"android": {
+				"reading": "different",
+				"note": "framework `org.json` stringifies"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/log",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`log`",
+		"surfaceKeys": ["jr-fn:log"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/log10",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`log10`",
+		"surfaceKeys": ["jr-fn:log10"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/lower-case",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`lower-case`",
+		"surfaceKeys": ["jr-fn:lower-case"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (server JVM locale) / DIFFERENT (device locale)",
+			"webApps": {
+				"reading": "different",
+				"note": "server JVM locale"
+			},
+			"android": {
+				"reading": "different",
+				"note": "device locale"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/max",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`max`",
+		"surfaceKeys": ["jr-fn:max"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/min",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`min`",
+		"surfaceKeys": ["jr-fn:min"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/not",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`not`",
+		"surfaceKeys": ["jr-fn:not"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/now",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`now`",
+		"surfaceKeys": ["jr-fn:now"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (server clock; calculates re-run every request) / RUNS (device clock)",
+			"webApps": {
+				"reading": "different",
+				"note": "server clock; calculates re-run every request"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "device clock"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/number",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`number`",
+		"surfaceKeys": ["jr-fn:number"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (on a date: JVM-zone anchor) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "on a date: JVM-zone anchor"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/pi",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`pi`",
+		"surfaceKeys": ["jr-fn:pi"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/position",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`position`",
+		"surfaceKeys": ["jr-fn:position"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/pow",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`pow`",
+		"surfaceKeys": ["jr-fn:pow"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/random",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`random`",
+		"surfaceKeys": ["jr-fn:random"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (a calculate changes every request) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "a calculate changes every request"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/regex",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`regex`",
+		"surfaceKeys": ["jr-fn:regex"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (ASCII classes) / DIFFERENT (Unicode classes; named groups need API 26)",
+			"webApps": {
+				"reading": "different",
+				"note": "ASCII classes"
+			},
+			"android": {
+				"reading": "different",
+				"note": "Unicode classes; named groups need API 26"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/replace",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`replace`",
+		"surfaceKeys": ["jr-fn:replace"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT / DIFFERENT (as `regex`)",
+			"webApps": {
+				"reading": "different"
+			},
+			"android": {
+				"reading": "different",
+				"note": "as `regex`"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/round",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`round`",
+		"surfaceKeys": ["jr-fn:round"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/selected",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`selected`",
+		"surfaceKeys": ["jr-fn:selected"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/selected-at",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`selected-at`",
+		"surfaceKeys": ["jr-fn:selected-at"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sin",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sin`",
+		"surfaceKeys": ["jr-fn:sin"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sleep",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sleep`",
+		"surfaceKeys": ["jr-fn:sleep"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (delays every request) / RUNS (only when a dependency changes)",
+			"webApps": {
+				"reading": "different",
+				"note": "delays every request"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "only when a dependency changes"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sort",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sort`",
+		"surfaceKeys": ["jr-fn:sort"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sort-by",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sort-by`",
+		"surfaceKeys": ["jr-fn:sort-by"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sqrt",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sqrt`",
+		"surfaceKeys": ["jr-fn:sqrt"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/starts-with",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`starts-with`",
+		"surfaceKeys": ["jr-fn:starts-with"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/string",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`string`",
+		"surfaceKeys": ["jr-fn:string"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/string-length",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`string-length`",
+		"surfaceKeys": ["jr-fn:string-length"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/substr",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`substr`",
+		"surfaceKeys": ["jr-fn:substr"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/substring-after",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`substring-after`",
+		"surfaceKeys": ["jr-fn:substring-after"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/substring-before",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`substring-before`",
+		"surfaceKeys": ["jr-fn:substring-before"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/sum",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`sum`",
+		"surfaceKeys": ["jr-fn:sum"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tan",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`tan`",
+		"surfaceKeys": ["jr-fn:tan"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/today",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`today`",
+		"surfaceKeys": ["jr-fn:today"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (server clock, browser zone) / RUNS (device clock and zone)",
+			"webApps": {
+				"reading": "different",
+				"note": "server clock, browser zone"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "device clock and zone"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/translate",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`translate`",
+		"surfaceKeys": ["jr-fn:translate"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/true",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`true`",
+		"surfaceKeys": ["jr-fn:true"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/upper-case",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`upper-case`",
+		"surfaceKeys": ["jr-fn:upper-case"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT / DIFFERENT (as `lower-case`)",
+			"webApps": {
+				"reading": "different"
+			},
+			"android": {
+				"reading": "different",
+				"note": "as `lower-case`"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/uuid",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`uuid`",
+		"surfaceKeys": ["jr-fn:uuid"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (a calculate changes every request) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "a calculate changes every request"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/weighted-checklist",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`weighted-checklist`",
+		"surfaceKeys": ["jr-fn:weighted-checklist"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a typed function node",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/instance-id-current-path-roots",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`instance('id')`, `current()` path roots",
+		"surfaceKeys": ["xpath-expr:XPathPathExpr"],
+		"valueClass": "instance-or-current-root",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed path roots (path initializers, `XPathPathExpr.getReference`; the `casedb` and `commcaresession` roots are held today, Secondary instances)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/jr-itext-id",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`jr:itext('id')`",
+		"surfaceKeys": ["jr-handler:jr:itext"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: itext lookup bound to a translation unit (not in Nova's registry today)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/jr-choice-name-value-path-on-a-static-choice-select",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`jr:choice-name(value, 'path')` on a static-choice select",
+		"surfaceKeys": ["jr-handler:jr:choice-name"],
+		"valueClass": "static-choice-select",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: choice-label lookup bound to the field",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`jr:choice-name` on a lookup (itemset) select",
+		"surfaceKeys": ["jr-handler:jr:choice-name"],
+		"valueClass": "lookup-itemset-select",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: \"error in evaluation of xpath function [choice-name]\" on both",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "\"error in evaluation of xpath function [choice-name]\" on both"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/here-in-a-form",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`here()` in a form",
+		"surfaceKeys": ["jr-handler:here"],
+		"valueClass": "in-a-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: no form-context handler (\"cannot handle function 'here'\")",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "no form-context handler (\"cannot handle function 'here'\")"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/here-in-a-case-list-calculated-column-or-sort",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`here()` in a case-list calculated column or sort",
+		"surfaceKeys": ["jr-handler:here"],
+		"valueClass": "case-list-row-context",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: row-context `here()`",
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`)"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/any-other-function-name",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "any other function name",
+		"surfaceKeys": [],
+		"noSurfaceKey": "A function name Core's parser does not know is no item of the surface (the jr-fn and jr-handler families hold the names Core and the runtimes answer), so decision 7 refuses it as an item no entry names.",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `XPathCustomRuntimeFunc` throws at evaluation",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`XPathCustomRuntimeFunc` throws at evaluation"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/union-a-b",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "union `a | b`",
+		"surfaceKeys": ["xpath-expr:XPathUnionExpr", "xpath-token:UNION"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `XPathUnionExpr` throws \"nodeset union operation\"",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`XPathUnionExpr` throws \"nodeset union operation\""
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/filter-expression-expr-root-other-than-instance-current",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "filter expression `(expr)[…]` (root other than `instance()`/`current()`)",
+		"surfaceKeys": ["xpath-expr:XPathFilterExpr"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `XPathUnsupportedException(\"filter expression\")` (followed by a path step in a bind, not HQ-buildable: Core's parse refuses it)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`XPathUnsupportedException(\"filter expression\")`"
+			},
+			{
+				"kind": "not-hq-buildable",
+				"named": "Core's parse refuses it",
+				"condition": "followed by a path step in a bind"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/and-axes-other-than-child-name-or-attribute-name-self-node",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`//`, and axes other than `child::` name or `*`, `attribute::` name, `self::node()`, `parent::node()`",
+		"surfaceKeys": [
+			"xpath-token:DBL_SLASH",
+			"xpath-axis:AXIS_ANCESTOR",
+			"xpath-axis:AXIS_ANCESTOR_OR_SELF",
+			"xpath-axis:AXIS_DESCENDANT",
+			"xpath-axis:AXIS_DESCENDANT_OR_SELF",
+			"xpath-axis:AXIS_FOLLOWING",
+			"xpath-axis:AXIS_FOLLOWING_SIBLING",
+			"xpath-axis:AXIS_NAMESPACE",
+			"xpath-axis:AXIS_PRECEDING",
+			"xpath-axis:AXIS_PRECEDING_SIBLING",
+			"xpath-test:TEST_TYPE_TEXT",
+			"xpath-test:TEST_TYPE_COMMENT",
+			"xpath-test:TEST_TYPE_PROCESSING_INSTRUCTION",
+			"xpath-test:TEST_NAMESPACE_WILDCARD",
+			"xpath-token:NSWILDCARD"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable in a bind, where Core's parse refuses it (\"step other than 'child::name', '.', '..'\", `XPathPathExpr.getReference`); broken at runtime in an output or setvalue",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "where Core's parse refuses it (\"step other than 'child::name', '.', '..'\", `XPathPathExpr.getReference`)",
+				"condition": "in a bind"
+			},
+			{
+				"kind": "broken-at-runtime",
+				"condition": "in an output or setvalue"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/after-a-named-step-data-a-b",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`..` after a named step (`/data/a/../b`)",
+		"surfaceKeys": ["xpath-token:DBL_DOT", "xpath-axis:AXIS_PARENT"],
+		"valueClass": "parent-after-a-named-step",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable in a bind, where Core's parse refuses it; broken at runtime in an output or setvalue: parents are not allowed after a named step",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "where Core's parse refuses it",
+				"condition": "in a bind"
+			},
+			{
+				"kind": "broken-at-runtime",
+				"named": "parents are not allowed after a named step",
+				"condition": "in an output or setvalue"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/var-in-a-form-expression",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`$var` in a form expression",
+		"surfaceKeys": ["xpath-expr:XPathVariableReference", "xpath-token:VAR"],
+		"valueClass": "in-a-form",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: form contexts define no variables, so a bare `$var` reads blank and any function or operator over it throws (executed)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "form contexts define no variables, so a bare `$var` reads blank and any function or operator over it throws (executed)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/or-with-a-time-on-either-side-a-time-answer-property-or-string",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`<`, `<=`, `>` or `>=` with a time on either side (a time answer, property or string)",
+		"surfaceKeys": [
+			"xpath-expr:XPathCmpExpr",
+			"xpath-token:LT",
+			"xpath-token:LTE",
+			"xpath-token:GT",
+			"xpath-token:GTE"
+		],
+		"valueClass": "time-operand",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Core compares both sides as numbers, and a string holding `:` is NaN (`FunctionUtils.toNumeric`; a time answer reaches XPath as its string, `XPathPathExpr.unpackValue`), so the comparison is always false (executed: `'14:30' < '15:00'` is false)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core compares both sides as numbers, and a string holding `:` is NaN (`FunctionUtils.toNumeric`; a time answer reaches XPath as its string, `XPathPathExpr.unpackValue`), so the comparison is always false (executed: `'14:30' < '15:00'` is false)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/relative-paths-q-current-x",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "relative paths (`../q`, `.`, `current()/../x`)",
+		"surfaceKeys": [
+			"xpath-axis:AXIS_PARENT",
+			"xpath-axis:AXIS_SELF",
+			"xpath-test:TEST_TYPE_NODE",
+			"xpath-token:DBL_DOT",
+			"xpath-token:DOT"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed expression model: relative paths bound as identity leaves, so renames rewrite them (admitted as opaque text today)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/xpath-location-paths",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "location paths over `child::` name or `*` steps and `attribute::` name steps, with predicates, absolute or from `instance('id')`/`current()` (`/data/q`, `instance('casedb')/casedb/case[@case_id = …]/p`, `index/*[…]`)",
+		"surfaceKeys": [
+			"xpath-expr:XPathPathExpr",
+			"xpath-axis:AXIS_CHILD",
+			"xpath-axis:AXIS_ATTRIBUTE",
+			"xpath-test:TEST_NAME",
+			"xpath-test:TEST_NAME_WILDCARD",
+			"xpath-token:QNAME",
+			"xpath-token:SLASH",
+			"xpath-token:AT",
+			"xpath-token:LBRACK",
+			"xpath-token:RBRACK",
+			"xpath-token:WILDCARD"
+		],
+		"origin": "export-use",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed path steps in the typed expression model (form paths are held today as `path-ref`/`field-ref` identity leaves and case and session reads through typed terms; every other step is verbatim text, `lib/domain/xpath/ast.ts`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/xpath-operators-and-literals",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "operators `and`, `or`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `div`, `mod`, unary `-`, parentheses, argument commas, and number and string literals (outside the time comparisons refused above)",
+		"surfaceKeys": [
+			"xpath-expr:XPathArithExpr",
+			"xpath-expr:XPathBoolExpr",
+			"xpath-expr:XPathCmpExpr",
+			"xpath-expr:XPathEqExpr",
+			"xpath-expr:XPathNumNegExpr",
+			"xpath-expr:XPathNumericLiteral",
+			"xpath-expr:XPathStringLiteral",
+			"xpath-token:AND",
+			"xpath-token:OR",
+			"xpath-token:EQ",
+			"xpath-token:NEQ",
+			"xpath-token:LT",
+			"xpath-token:LTE",
+			"xpath-token:GT",
+			"xpath-token:GTE",
+			"xpath-token:PLUS",
+			"xpath-token:MINUS",
+			"xpath-token:MULT",
+			"xpath-token:DIV",
+			"xpath-token:MOD",
+			"xpath-token:UMINUS",
+			"xpath-token:NUM",
+			"xpath-token:STR",
+			"xpath-token:LPAREN",
+			"xpath-token:RPAREN",
+			"xpath-token:COMMA"
+		],
+		"valueClass": "non-time-operands",
+		"origin": "export-use",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed operator and literal nodes in the typed expression model (admitted today as verbatim text between reference leaves, `lib/domain/xpath/ast.ts`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/suite-variable-references",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "a variable reference (`$name`) in a suite expression to a variable the suite declares for it: a detail field's `<variable>` (`$calculated_property`, an enum's `$k…`), an endpoint's `<argument>` (`$case_id`, `$parent_id`, `$selected_cases`), a case claim `<post>`'s own data (`$case_id`), and the search action's `$next_input`",
+		"surfaceKeys": ["xpath-expr:XPathVariableReference", "xpath-token:VAR"],
+		"valueClass": "suite-declared-variable",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ's build from the column, endpoint, case claim and search it belongs to (`detail_screen.py::FormattedDetailColumn._calculated_property`, `Enum._xpath_template`, `suite_xml/post_process/endpoints.py`, `suite_xml/post_process/remote_requests.py`, `suite_xml/sections/details.py`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "as HQ's build writes them",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/form",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#form/…`",
+		"surfaceKeys": ["hashtag:#form/"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `field-ref`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "hashtag + expanded path; in a default value, the read printed relatively (defect 13)",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/case-prop-case-parent-prop-case-grandparent-prop",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#case/<prop>`, `#case/parent/<prop>`, `#case/grandparent/<prop>`",
+		"surfaceKeys": [
+			"hashtag:#case/",
+			"hashtag:#case/parent",
+			"hashtag:#case/grandparent"
+		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `#<type>/<prop>` identity leaves for the module, parent and grandparent types",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "HQ hashtags + expanded paths, the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor (`app_schemas/case_properties.py::get_parent_type_map`, from basic child-case actions and indexed advanced open actions in the app and its case-sharing apps), and otherwise the expanded path alone: a Vellum save writes a hashtag its schema does not know into the XForm unexpanded, which Core cannot parse, and keeps an expanded path (executed); Nova's XForms carry only `#case/<prop>` hashtags, on follow-up and close forms, and the expanded path alone for an ancestor (`lib/commcare/hashtags/formContext.ts::vellumShorthandInContext`), and HQ's parent-type map counts only indices named `parent` (`app_schemas/casedb_schema.py`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/case-module-slug-unrelated-parent-select-case",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#case:<module-slug>/…` (unrelated parent-select case)",
+		"surfaceKeys": ["hashtag:#case"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (NON_PARENT_MENU_SELECTION: only \"Other\" parent selection produces it)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/NON_PARENT_MENU_SELECTION",
+				"named": "(NON_PARENT_MENU_SELECTION: only \"Other\" parent selection produces it)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/registry-case",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#registry_case/…`",
+		"surfaceKeys": [
+			"hashtag:#registry_case",
+			"hashtag:#registry_case/",
+			"hashtag:#registry_case/parent",
+			"hashtag:#registry_case/grandparent"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (DATA_REGISTRY)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/DATA_REGISTRY",
+				"named": "(DATA_REGISTRY)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-hq-shorthand-in-navigation-slots-for-the-context-and",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#session/…` (HQ shorthand in navigation slots) for the context and user paths Nova holds",
+		"surfaceKeys": ["hashtag:#session/"],
+		"valueClass": "context-and-user-paths",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "expanded `instance('commcaresession')/session/…` path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-data-datum-hq-shorthand-in-navigation-slots",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "`#session/data/<datum>` (HQ shorthand in navigation slots)",
+		"surfaceKeys": ["hashtag:#session/"],
+		"valueClass": "data-datum",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: typed session datums",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "expanded `instance('commcaresession')/session/…` path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/an-invalid-xpath-in-a-bind-attribute",
+		"area": "expressions-and-data",
+		"section": "XPath functions and structure",
+		"item": "an invalid XPath in a bind attribute",
+		"surfaceKeys": [
+			"xform:model/bind@calculate",
+			"xform:model/bind@constraint",
+			"xform:model/bind@relevant",
+			"xform:model/bind@required"
+		],
+		"valueClass": "invalid-xpath",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: JavaRosa fatal",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "JavaRosa fatal"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/image-png-jpeg-gif-webp",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "image PNG, JPEG, GIF, WebP",
+		"surfaceKeys": [
+			"media-format:image/png",
+			"media-format:image/jpeg",
+			"media-format:image/gif",
+			"media-format:image/webp",
+			"media-class:CommCareImage",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "png-jpeg-gif-webp",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `lib/media` image asset",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (GIF animates only via Glide on `.gif`)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "GIF animates only via Glide on `.gif`"
+			}
+		},
+		"emission": {
+			"cell": "bytes via the multimedia API",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/image-bmp",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "image BMP",
+		"surfaceKeys": [
+			"media-format:image/bmp",
+			"media-class:CommCareImage",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "bmp",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: widen: add BMP (needs a non-`sharp` body parser)",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "add BMP (needs a non-`sharp` body parser)"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/image-ico-svg-avif",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "image ICO, SVG, AVIF",
+		"surfaceKeys": [
+			"media-format:image/ico",
+			"media-format:image/svg",
+			"media-format:image/avif",
+			"media-class:CommCareImage",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "ico-svg-avif",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an image asset for an app that does not declare Android (every browser in the bar plays them; Android 6.0 does not decode them, AVIF only from Android 14); an SVG is shown only as an image, where a browser runs none of its script",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/image-tiff-heif",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "image TIFF, HEIF",
+		"surfaceKeys": [
+			"media-format:image/tiff",
+			"media-format:image/heif",
+			"media-class:CommCareImage",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "tiff-heif",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: neither platform plays them on every device or browser it runs on (MDN documents TIFF for Safari alone and does not list HEIF; Android decodes neither at 6.0, HEIF only from 8.0)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "neither platform plays them on every device or browser it runs on (MDN documents TIFF for Safari alone and does not list HEIF; Android decodes neither at 6.0, HEIF only from 8.0)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-mp3-aac-in-m4a-brand-m4a-m4b-flac-pcm-wav-8-or-16-bit",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio MP3, AAC in M4A (brand `M4A `/`M4B `), FLAC, PCM WAV (8- or 16-bit)",
+		"surfaceKeys": [
+			"media-format:audio/mp3",
+			"media-format:audio/m4a",
+			"media-format:audio/flac",
+			"media-format:audio/wav-pcm-8-or-16-bit",
+			"media-class:CommCareAudio",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "mp3-m4a-flac-pcm-wav",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD** (MP3, WAV; narrow: PCM 8- or 16-bit only, Nova checks no WAV encoding today) and **HELD** widen (M4A with a brand check, FLAC): audio asset",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "PCM 8- or 16-bit only, Nova checks no WAV encoding today"
+			},
+			{
+				"direction": "widen",
+				"text": "M4A with a brand check, FLAC"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-wav-that-is-not-8-or-16-bit-pcm",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio WAV that is not 8- or 16-bit PCM",
+		"surfaceKeys": [
+			"media-format:audio/wav-pcm-other",
+			"media-format:audio/wav-non-pcm",
+			"media-class:CommCareAudio",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "other-wav",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android plays only 8- and 16-bit PCM WAV (Google's supported formats), and MDN documents support for other WAV codecs only as sparse",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android plays only 8- and 16-bit PCM WAV (Google's supported formats), and MDN documents support for other WAV codecs only as sparse"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova accepts WAV of any encoding today: defect 11)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-ogg-vorbis-or-opus",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio Ogg Vorbis or Opus",
+		"surfaceKeys": [
+			"media-format:audio/ogg-vorbis",
+			"media-format:audio/ogg-opus",
+			"media-class:CommCareAudio",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "ogg-vorbis-opus",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: widen: add Ogg Vorbis and Opus to the audio set",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "add Ogg Vorbis and Opus to the audio set"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (Safari since 18.4, per MDN's container guide, Ogg note; MDN's audio codec table still lists Safari as unsupported) / RUNS",
+			"webApps": {
+				"reading": "runs",
+				"note": "Safari since 18.4, per MDN's container guide, Ogg note; MDN's audio codec table still lists Safari as unsupported"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-raw-aac-adts-aac-amr-midi",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio raw AAC (ADTS, `.aac`), AMR, MIDI",
+		"surfaceKeys": [
+			"media-format:audio/aac-adts",
+			"media-format:audio/amr",
+			"media-format:audio/midi",
+			"media-class:CommCareAudio",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "aac-adts-amr-midi",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: an audio asset for an app that does not declare Web Apps (Chrome plays AAC only inside MP4; Chrome, Firefox and Opera play no AMR, MDN leaving Edge and Safari unconfirmed, and MDN lists MIDI support for no browser)",
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": {
+				"reading": "unavailable"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio M4A with another brand (`isom`, `mp41`, `mp42`, `dash`)",
+		"surfaceKeys": [
+			"media-format:audio/m4a-other-brand",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "audio-m4a-other-brand",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ classifies it as video, so an audio reference never receives the bytes (`CommCareMultimedia.get_class_by_data`)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ classifies it as video, so an audio reference never receives the bytes (`CommCareMultimedia.get_class_by_data`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/audio-3gp",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "audio 3GP",
+		"surfaceKeys": [
+			"media-format:audio/3gp",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "audio-3gp",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ classifies it as video",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "HQ classifies it as video"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "video MP4 H.264 Baseline or Main, with AAC-LC or no audio; WebM VP8 or VP9, with Vorbis, Opus or no audio",
+		"surfaceKeys": [
+			"media-format:video/mp4-h264-baseline",
+			"media-format:video/mp4-h264-main",
+			"media-format:video/webm-vp8",
+			"media-format:video/webm-vp9",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "mp4-h264-baseline-main-webm",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD** (MP4; narrow: Nova checks no codec today) and **HELD** widen (WebM): video asset",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "Nova checks no codec today"
+			},
+			{
+				"direction": "widen",
+				"text": "WebM"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/video-mp4-h-264-high",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "video MP4 H.264 High",
+		"surfaceKeys": [
+			"media-format:video/mp4-h264-high",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "mp4-h264-high",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a video asset for an app that does not declare Android (Android 6.0 guarantees only Baseline and Main)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "video HEVC (MP4), MPEG-4 Part 2 (MP4), and MKV holding a codec Android plays",
+		"surfaceKeys": [
+			"media-format:video/mp4-hevc",
+			"media-format:video/mp4-mpeg4-part2",
+			"media-format:video/mkv",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "hevc-mpeg4-part2-mkv",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a video asset for an app that does not declare Web Apps (Chrome plays HEVC on Windows, Linux and ChromeOS only with hardware support, and Firefox on Windows only with hardware or a paid extension, no browser MPEG-4 Part 2 in MP4 (Firefox plays it only in 3GP), and Chrome alone MKV)",
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE / RUNS",
+			"webApps": {
+				"reading": "unavailable"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/video-av1-mov-avi-ogg-theora-h-263-3gp",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "video AV1, MOV, AVI, Ogg Theora, H.263 (3GP)",
+		"surfaceKeys": [
+			"media-format:video/av1",
+			"media-format:video/mov",
+			"media-format:video/avi",
+			"media-format:video/ogg-theora",
+			"media-format:video/3gp-h263",
+			"media-class:CommCareVideo",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "av1-mov-avi-theora-h263",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: no platform in the bar plays them everywhere (AV1 needs Android 10 and hardware in Safari; Android plays no MOV or AVI, and Firefox no MOV; no current browser plays Theora or H.263, and Android makes H.263 optional from 7.0)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "no platform in the bar plays them everywhere (AV1 needs Android 10 and hardware in Safari; Android plays no MOV or AVI, and Firefox no MOV; no current browser plays Theora or H.263, and Android makes H.263 optional from 7.0)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/an-imported-asset-larger-than-nova-s-per-kind-cap-or-an-app",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "an imported asset larger than Nova's per-kind cap, or an app whose media exceeds Nova's export budget (500 files / 200 MiB)",
+		"surfaceKeys": [
+			"media-code:corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: import-sized media: HQ imposes no size cap, so the caps govern Nova uploads only",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "bytes as imported",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/media-path-jr-file",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "media path `jr://file/…`",
+		"surfaceKeys": [
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_form_path",
+			"media-code:corehq/apps/hqmedia/views.py::iter_media_files"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a held path per media reference: an imported reference keeps HQ's path, and a Nova-born reference takes the path derived from its asset's bytes when it is made, a logo the uploader's slot path (Nova derives every path today and stores none, `assetWirePath.ts`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "the held path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/multimedia-map-key-not-under-jr-file-that-the-build-keeps",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "`multimedia_map` key not under `jr://file/` that the build keeps",
+		"surfaceKeys": ["schema:Application.multimedia_map"],
+		"valueClass": "key-outside-jr-file",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `MediaResourceError` (`MediaSuiteGenerator.media_resources`, over `multimedia_map_for_build(remove_unused=True)`)",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`MediaResourceError` (`MediaSuiteGenerator.media_resources`, over `multimedia_map_for_build(remove_unused=True)`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/a-media-reference-on-a-slot-nova-holds-with-no-multimedia-map",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "a media reference on a slot Nova holds, with no `multimedia_map` entry (no file uploaded for it), except the references the next row refuses",
+		"surfaceKeys": ["schema:Application.multimedia_map"],
+		"valueClass": "referenced-path-without-entry",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a media reference holding its path with no file: Vellum writes a default `jr://file/commcare/…` path as soon as a media slot is added, before any upload (`javaRosa/itextWidget.js::getDefaultValue`), HQ builds it with no resource for it (`MediaSuiteGenerator.media_resources` reads only map entries), and Android shows its missing-media placeholder (`MediaLayout.showMissingMediaView`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (no image) / RUNS (placeholder)",
+			"webApps": {
+				"reading": "different",
+				"note": "no image"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "placeholder"
+			}
+		},
+		"emission": {
+			"cell": "the held path; no bytes",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "a media reference with no file on a slot Android's install verification checks (an `image`, `audio` or `video` form of any itext entry, referenced or not, in every language; a suite entry's audio, or its icon where that entry also carries audio; or, where every entry and every earlier menu carry both, a menu's audio, or its icon where that menu also carries audio), in an app that declares Android with `appSettings.multimediaValidation` on",
+		"surfaceKeys": ["schema:Application.multimedia_map"],
+		"valueClass": "android-verified-path-without-entry",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android does not start the app until a file the verification reaches is present, while `cc-content-valid` is `no` (`CommCareApp.areMMResourcesValidated`, `DispatchActivity.handleUnvalidatedApp`); it checks every itext media form (`XFormAndroidInstaller.verifyInstallation`), then each suite entry's audio and then its icon, in the device's hash-table order, then each menu's the same way in suite order, recording a reference whose file is missing and ending at the first entry or menu with no audio or no icon reference, since a null reference throws into the method's catch-all (`SuiteAndroidInstaller.verifyInstallation`, `ReferenceManager.DeriveReference`); the order is the runtime's hash-table order over entry ids, which Nova does not model per Android version, so Nova refuses every entry slot the check reaches in some order, while an icon on an entry or menu with no audio is never checked, and neither is any menu once some entry lacks either reference, and those stay with the row above; from step 7, which holds both, the validator refuses the combination",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android does not start the app until a file the verification reaches is present, while `cc-content-valid` is `no` (`CommCareApp.areMMResourcesValidated`, `DispatchActivity.handleUnvalidatedApp`); it checks every itext media form (`XFormAndroidInstaller.verifyInstallation`), then each suite entry's audio and then its icon, in the device's hash-table order, then each menu's the same way in suite order, recording a reference whose file is missing and ending at the first entry or menu with no audio or no icon reference, since a null reference throws into the method's catch-all (`SuiteAndroidInstaller.verifyInstallation`, `ReferenceManager.DeriveReference`); the order is the runtime's hash-table order over entry ids, which Nova does not model per Android version, so Nova refuses every entry slot the check reaches in some order, while an icon on an entry or menu with no audio is never checked, and neither is any menu once some entry lacks either reference, and those stay with the row above; from step 7, which holds both, the validator refuses the combination"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/print-template-jr-file-commcare-text-id-html",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "print template (`jr://file/commcare/text/<id>`, HTML)",
+		"surfaceKeys": ["media-class:CommCareMultimedia"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (VELLUM_PRINTING; only a print callout reads it)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/VELLUM_PRINTING",
+				"named": "(VELLUM_PRINTING; only a print callout reads it)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/media-suite-xml-resource-shape",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "`media_suite.xml` resource shape",
+		"surfaceKeys": [
+			"parser:SuiteParser/media",
+			"parser:SuiteParser/media@path",
+			"parser:ResourceParser/resource",
+			"parser:ResourceParser/resource@id",
+			"parser:ResourceParser/resource@version",
+			"parser:ResourceParser/resource@descriptor",
+			"parser:ResourceParser/resource@lazy",
+			"parser:ResourceParser/resource/*@authority",
+			"media-code:corehq/apps/app_manager/suite_xml/generator.py::MediaSuiteGenerator.media_resources",
+			"parser:SuiteParser/suite@descriptor"
+		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: relative local location (`./…`) per resource",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "local `./` locations (HQ adds remote fallbacks)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/table-tag-in-nova-s-grammar",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "table `tag` in Nova's grammar",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:LookupTable.unique(domain,tag)",
+			"lookup-workbook:table_id",
+			"lookup-workbook:types"
+		],
+		"valueClass": "nova-grammar",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `LookupTable.tag`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "workbook `table_id`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` or field name with `-`, `.`, non-ASCII letters, or starting `xml` in any case other than all lowercase, or equal to a Nova-reserved instance name other than `casedb`/`ledgerdb`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name",
+			"lookup-workbook:table_id",
+			"lookup-workbook:field",
+			"lookup-code:corehq/apps/fixtures/utils.py::is_identifier_invalid",
+			"lookup-code:corehq/apps/fixtures/utils.py::clean_fixture_field_name"
+		],
+		"valueClass": "hq-grammar",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: widen: HQ's grammar, an XML name without a colon that does not start with lowercase `xml` (`fixtures/utils.py::is_identifier_invalid`, which asks lxml whether `Element(name)` is valid), any name HQ accepts, held verbatim; the row below refuses one Core's XPath cannot read where an expression reads it",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "HQ's grammar, an XML name without a colon that does not start with lowercase `xml` (`fixtures/utils.py::is_identifier_invalid`, which asks lxml whether `Element(name)` is valid), any name HQ accepts, held verbatim; the row below refuses one Core's XPath cannot read where an expression reads it"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "verbatim in the workbook; in the XForm the instance id is made unique (`commcaresession-1`) where it would equal an instance the form declares, as Vellum does (`form.js::addInstanceIfNotExists`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-or-field-name-core-s-xpath-lexer-does-not-read-as-a-name-any",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` or field name Core's XPath lexer does not read as a name (any character other than Core's name characters, README \"External identity\": a letter without case such as `नाम` or `名前`, a titlecase letter such as `ǅ`, most combining marks, `·`, `‿`, `€`, a character outside the Basic Multilingual Plane) that an expression reads",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.tag",
+			"lookup-model:TypeField.name"
+		],
+		"valueClass": "core-unreadable-name",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Core reads a name one UTF-16 unit at a time, only upper- or lowercase letters or `_` first, then those, decimal digits, `.` and `-` (`Lexer.matchNCName`), so an expression reading through that name does not parse, and a form holding one does not load (executed)",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Core reads a name one UTF-16 unit at a time, only upper- or lowercase letters or `_` first, then those, decimal digits, `.` and `-` (`Lexer.matchNCName`), so an expression reading through that name does not parse, and a form holding one does not load (executed)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-types",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` `types`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "types",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a table that can be referenced but not adopted: a workbook's `types` sheet holds every table's definition (`fixtures/upload/workbook.py`), so no push can carry it (Nova refuses it today, `lib/export/boundaryValidation.ts::lookupHqReservedTagFindings`), though HQ's table editor accepts the tag",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "none (referenced)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/tag-containing-casedb-or-ledgerdb",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`tag` containing `casedb` or `ledgerdb`",
+		"surfaceKeys": ["lookup-model:LookupTable.tag"],
+		"valueClass": "contains-casedb-or-ledgerdb",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: `generateRoot` matches the substring first and serves the case or ledger database",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`generateRoot` matches the substring first and serves the case or ledger database"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "— (Nova's own tag schema must refuse it too)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`fields[].properties` and multi-valued cells (`<name lang=\"en\">…</name><name lang=\"hin\">…</name>`)",
+		"surfaceKeys": [
+			"lookup-model:TypeField.properties",
+			"lookup-model:Field.properties",
+			"lookup-model:LookupTableRow.fields",
+			"lookup-workbook:field%20{i%20+%201}",
+			"lookup-workbook:property",
+			"lookup-workbook:field"
+		],
+		"valueClass": "field-properties",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `LookupColumn.properties` + multi-valued cells",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "workbook types-sheet `field N : property M` columns, and item-sheet `field: <name> <n>` and `<name>: <property> <n>` columns",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/item-attributes-and-per-row-attribute-values",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`item_attributes` and per-row attribute values",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.item_attributes",
+			"lookup-model:LookupTableRow.item_attributes",
+			"lookup-workbook:property"
+		],
+		"valueClass": "row-attributes",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `LookupTable.rowAttributes`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "workbook types-sheet `property M` and item-sheet `property: <attribute>` columns",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/is-global-false-row-owners-user-group-location",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`is_global: false` + row owners (user / group / location)",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.is_global",
+			"lookup-model:LookupTableRowOwner.owner_type",
+			"lookup-model:LookupTableRowOwner.owner_id",
+			"lookup-model:OwnerType.User",
+			"lookup-model:OwnerType.Group",
+			"lookup-model:OwnerType.Location",
+			"lookup-workbook:is_global",
+			"lookup-workbook:user",
+			"lookup-workbook:group",
+			"lookup-workbook:location"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `LookupTable.ownership`; the owners themselves are the project space's users, groups and locations",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "workbook owner columns",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/fields-is-indexed",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`fields[].is_indexed`",
+		"surfaceKeys": [
+			"lookup-model:TypeField.is_indexed",
+			"lookup-workbook:field%20{i%20+%201}",
+			"lookup-workbook:is_indexed",
+			"lookup-code:corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider._get_schema_element"
+		],
+		"valueClass": "field-indexed",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `LookupColumn.indexed`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`field N: is_indexed?`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/description",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`description`",
+		"surfaceKeys": ["lookup-model:LookupTable.description"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ interface metadata no device reads (`fixturegenerators.py::to_xml`); the workbook has no column for it and no API sets it after create",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "cleared by the first workbook push, as HQ's own bulk upload does; adoption says so",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/cell-values-always-strings-in-hq",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "cell values (always strings in HQ)",
+		"surfaceKeys": [
+			"lookup-model:Field.value",
+			"lookup-model:LookupTableRow.fields",
+			"lookup-workbook:field"
+		],
+		"valueClass": "cell-value",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `text` columns (byte-exact; numeric columns would reformat `007`, `1.50`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "verbatim strings",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "absent field vs zero values vs empty string",
+		"surfaceKeys": [
+			"lookup-model:LookupTableRow.fields",
+			"lookup-code:corehq/apps/fixtures/fixturegenerators.py::ItemListsProvider.to_xml"
+		],
+		"valueClass": "cell-absence",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the two cell states a device tells apart: no element (zero values) and an empty element (an empty string, or a field absent from the row, which HQ writes the same way, `fixturegenerators.py::to_xml`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "per state",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/row-order-sort-key",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "row order (`sort_key`)",
+		"surfaceKeys": ["lookup-model:LookupTableRow.sort_key"],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: fractional row order",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "row order",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "table or row count beyond Nova's caps (5,000 rows, 250 columns, 64 KiB cell, 256 KiB row, 8 MiB table)",
+		"surfaceKeys": [
+			"lookup-code:corehq/apps/fixtures/upload/const.py::MAX_FIXTURE_ROWS"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: import-sized tables. HQ caps one workbook upload at 500,000 rows over all its sheets, the types sheet and header rows included (`fixtures/upload/const.py::MAX_FIXTURE_ROWS`, `WorkbookJSONReader`); Nova splits a push into workbooks under that cap (today it refuses an over-cap workbook, `lib/export/boundaryValidation.ts`), which HQ allows because a workbook leaves tables it does not name alone (`run_upload.py` processes tables with `delete_missing=False`), and a table too large for one workbook can be referenced but not adopted",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "as imported",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/hq-table-and-row-ids-uuid4-a-workbook-upload-re-mints-a-table",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "HQ table and row ids (uuid4: a workbook upload re-mints a table, with all its rows, when its fields, attributes, globality or description change, and otherwise each changed row)",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.id",
+			"lookup-model:LookupTableRow.id",
+			"lookup-model:LookupTableRow.table",
+			"lookup-model:LookupTableRowOwner.row",
+			"lookup-workbook:UID"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: target records; the deployment ledger maps them",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/is-synced-last-modified",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "`is_synced`, `last_modified`",
+		"surfaceKeys": [
+			"lookup-model:LookupTable.is_synced",
+			"lookup-model:LookupTable.last_modified"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: target-side state",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/lookup-table-rows-in-the-local-archive-suite",
+		"area": "expressions-and-data",
+		"section": "Lookup tables",
+		"item": "a lookup table's rows embedded in Nova's local `.ccz` suite as `<fixture id=\"item-list:<tag>\">`",
+		"surfaceKeys": [
+			"parser:FixtureXmlParser/fixture",
+			"parser:FixtureXmlParser/fixture@id"
+		],
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the Project's lookup rows, written into the local archive only (HQ's build writes no suite fixture; tables reach a device through the restore, `fixtures/fixturegenerators.py::ItemListsProvider`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "n/a / RUNS",
+			"webApps": {
+				"reading": "not-applicable",
+				"note": "Web Apps installs no `.ccz`"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "`SuiteParser` hands `<fixture>` to `FixtureXmlParser`, which stores it"
+			}
+		},
+		"emission": {
+			"cell": "local `.ccz` only",
+			"markers": []
+		},
+		"gates": []
+	}
+]

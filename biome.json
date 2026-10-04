@@ -12,6 +12,7 @@
 			"!!design",
 			"!!**/__fixtures__/*.snapshot.json",
 			"!!config/commcare-classic-languages.json",
+			"!!lib/commcare/surface/surface.json",
 			"!!lib/case-store/migrations/20260728000000_canonical_identity_foundation/*.generated.mjs",
 			"!!lib/preview/xpath/vendor/javaPatternNames.generated.ts",
 			"!!lib/preview/xpath/vendor/javaMathRuntime.generated.js",

@@ -1,0 +1,135 @@
+name: Upstream pins
+
+# The weekly pin pull request (proof/README.md, "Changing a pin"). Upstream
+# changes reach Nova as one pull request a week that moves proof/pins.json to
+# each upstream's default-branch head, with the image built at those pins
+# (proof/image.lock) and the surface regenerated from them
+# (lib/commcare/surface/surface.json), so every check runs against the new
+# upstream code before a person adopts it by merging. There is only ever one
+# such pull request: a week with new heads replaces its one commit, and a week
+# with nothing new leaves it as it is, its description's date going stale.
+#
+# The workflow never merges. The job that runs upstream code (the surface
+# extraction) holds only a read token; the jobs that write run none.
+on:
+  schedule:
+    - cron: "37 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: upstream-pins
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Read the upstream heads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      action: ${{ steps.plan.outputs.action }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Commit the new pins to the pin branch
+        id: plan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          result="$(node proof/upstream/pins.mjs plan)"
+          echo "$result"
+          echo "action=$(echo "$result" | jq -r .action)" >> "$GITHUB_OUTPUT"
+
+  image:
+    name: Build the image at the new pins
+    needs: plan
+    if: ${{ needs.plan.outputs.action == 'update' }}
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/proof-image.yml
+    with:
+      ref: upstream/pins
+
+  surface:
+    name: Regenerate the surface at the new pins
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: upstream/pins
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Extract the surface in the new image
+        env:
+          PROOF_IMAGE: ghcr.io/voidcraft-labs/commcare-nova-proof@${{ needs.image.outputs.digest }}
+        run: |
+          docker pull "$PROOF_IMAGE"
+          node proof/run.mjs --surface
+      - uses: actions/upload-artifact@v7
+        with:
+          name: upstream-surface
+          path: lib/commcare/surface/surface.json
+          retention-days: 7
+
+  report:
+    name: Open or update the pin pull request
+    needs: [plan, image, surface]
+    # Runs whenever the plan moved the pins, including when the image or the
+    # surface failed: the pull request then carries the new pins alone and
+    # names the failed step, and CI on it is red.
+    if: ${{ always() && needs.plan.outputs.action == 'update' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        if: ${{ needs.surface.result == 'success' }}
+        with:
+          name: upstream-surface
+          path: ${{ runner.temp }}/upstream-surface
+      - name: Commit the lock and surface, and update the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_RESULT: ${{ needs.image.result }}
+          DIGEST: ${{ needs.image.outputs.digest }}
+          SURFACE_RESULT: ${{ needs.surface.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node proof/upstream/pins.mjs report \
+            --image-result "$IMAGE_RESULT" \
+            --digest "$DIGEST" \
+            --surface-result "$SURFACE_RESULT" \
+            --surface "$RUNNER_TEMP/upstream-surface/surface.json" \
+            --run-url "$RUN_URL" \
+            --reviewer bperry0xff

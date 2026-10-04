@@ -1,0 +1,3013 @@
+[
+	{
+		"id": "application-and-settings/doc-type-application",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`doc_type: Application`",
+		"surfaceKeys": ["schema:Application", "schema:Application.doc_type"],
+		"valueClass": "application",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `BlueprintDoc`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`Application`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/doc-type-linkedapplication-downstream-app",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`doc_type: LinkedApplication` (downstream app)",
+		"surfaceKeys": [
+			"schema:LinkedApplication",
+			"schema:LinkedApplication.doc_type"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the form builder redirects away from linked apps (`AM/views/formdesigner.py`) and every upstream pull overwrites content (`views/utils.py::update_linked_app`)",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the form builder redirects away from linked apps (`AM/views/formdesigner.py`) and every upstream pull overwrites content (`views/utils.py::update_linked_app`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/upstream-app-id-upstream-version-linked-app-translations-linked",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`upstream_app_id`, `upstream_version`, `linked_app_translations`, `linked_app_logo_refs`, `linked_app_attrs`",
+		"surfaceKeys": [
+			"schema:LinkedApplication.upstream_app_id",
+			"schema:LinkedApplication.upstream_version",
+			"schema:LinkedApplication.linked_app_translations",
+			"schema:LinkedApplication.linked_app_logo_refs",
+			"schema:LinkedApplication.linked_app_attrs"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable, as for `LinkedApplication` (row above), the only doc type that carries them",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "as for `LinkedApplication` (row above), the only doc type that carries them"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/doc-type-remoteapp-profile-url-manage-urls-questions-map",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`doc_type: RemoteApp` (+ `profile_url`, `manage_urls`, `questions_map`)",
+		"surfaceKeys": [
+			"schema:RemoteApp",
+			"schema:RemoteApp.doc_type",
+			"schema:RemoteApp.profile_url",
+			"schema:RemoteApp.manage_urls",
+			"schema:RemoteApp.questions_map"
+		],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: freeform: a hand-written profile and suite at a URL; no structured editor (`commcare_settings.py::_load_commcare_settings_layout` RemoteApp branch)",
+		"reasons": [
+			{
+				"kind": "freeform",
+				"named": "a hand-written profile and suite at a URL; no structured editor (`commcare_settings.py::_load_commcare_settings_layout` RemoteApp branch)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/unknown-doc-type",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "unknown `doc_type`",
+		"surfaceKeys": [],
+		"noSurfaceKey": "An unknown `doc_type` names a class HQ's registry does not hold, so the surface has no item for it; an export whose root is such a class uses `schema:<that class>`, which decision 7 refuses as an item no entry names (manifest_usage.app_json_uses).",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `util.py::get_correct_app_class` raises",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`util.py::get_correct_app_class` raises"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/id",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`_id`",
+		"surfaceKeys": [
+			"schema:Application._id",
+			"parser:ProfileParser/profile@uniqueid"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: the HQ app id; deployment ledger (`app_deployment_resources` kind `app`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`app_id` of the import call",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/rev-domain-copy-of-version",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`_rev`, `domain`, `copy_of`, `version`",
+		"surfaceKeys": [
+			"schema:Application._rev",
+			"schema:Application.domain",
+			"schema:Application.copy_of",
+			"schema:Application.version",
+			"parser:ProfileParser/profile@version",
+			"parser:SuiteParser/suite@version"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: server-managed",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/short-odk-url-short-odk-media-url",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`short_odk_url`, `short_odk_media_url`",
+		"surfaceKeys": [
+			"schema:Application.short_odk_url",
+			"schema:Application.short_odk_media_url"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: server-managed",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/built-with-build-signed-built-on-build-comment-comment-from-last",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`built_with`, `build_signed`, `built_on`, `build_comment`, `comment_from`, `last_released`, `build_broken`, `build_broken_reason`, `is_auto_generated`, `is_released`",
+		"surfaceKeys": [
+			"schema:Application.built_with",
+			"schema:Application.build_signed",
+			"schema:Application.built_on",
+			"schema:Application.build_comment",
+			"schema:Application.comment_from",
+			"schema:Application.last_released",
+			"schema:Application.build_broken",
+			"schema:Application.build_broken_reason",
+			"schema:Application.is_auto_generated",
+			"schema:Application.is_released",
+			"schema:BuildRecord",
+			"schema:BuildRecord.build_number",
+			"schema:BuildRecord.datetime",
+			"schema:BuildRecord.doc_type",
+			"schema:BuildRecord.latest",
+			"schema:BuildRecord.signed",
+			"schema:BuildRecord.version"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: build and release records",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/date-created-created-from-template-last-modified-has-submissions",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`date_created`, `created_from_template`, `last_modified`, `has_submissions`",
+		"surfaceKeys": [
+			"schema:Application.date_created",
+			"schema:Application.created_from_template",
+			"schema:Application.last_modified",
+			"schema:Application.has_submissions"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: server metadata",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/copy-history-family-id",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`copy_history`, `family_id`",
+		"surfaceKeys": [
+			"schema:Application.copy_history",
+			"schema:Application.family_id"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: copy lineage; excluded on overwrite (`ApplicationBase._update_excluded_fields`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/external-blobs",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`external_blobs`",
+		"surfaceKeys": [
+			"schema:Application.external_blobs",
+			"schema:BlobMetaRef",
+			"schema:BlobMetaRef.blobmeta_id",
+			"schema:BlobMetaRef.content_length",
+			"schema:BlobMetaRef.content_type",
+			"schema:BlobMetaRef.doc_type",
+			"schema:BlobMetaRef.key"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: blob bookkeeping, which `export_json` pops",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`build_profiles` (each profile's `name`, `langs`, `practice_mobile_worker_id`)",
+		"surfaceKeys": [
+			"schema:Application.build_profiles",
+			"schema:BuildProfile",
+			"schema:BuildProfile.doc_type",
+			"schema:BuildProfile.langs",
+			"schema:BuildProfile.name",
+			"schema:BuildProfile.practice_mobile_worker_id",
+			"parser:ProfileParser/profile@buildProfileID"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: project-space build configuration, excluded on overwrite (`ApplicationBase._update_excluded_fields`), gated by privilege `build_profiles`; an import-create keeps the source's profiles in the new app, and Nova writes none",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": ["privilege/build_profiles"]
+	},
+	{
+		"id": "application-and-settings/archived-media",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`archived_media`",
+		"surfaceKeys": ["schema:Application.archived_media"],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: the logos HQ archived on a plan downgrade (`hqmedia/models.py::ApplicationMediaMixin.archive_logos`), which `restore_logos` writes back over `logo_refs` on an upgrade; an app imported from a downgraded project space therefore arrives with no logo",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/attachments-form-unique-id-xml",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`_attachments` (`<form unique_id>.xml`)",
+		"surfaceKeys": [
+			"schema:Application._attachments",
+			"parser:SuiteParser/xform",
+			"jr-control:model",
+			"xform:model",
+			"xform:model/instance",
+			"xform:model/instance/*",
+			"xform:model/itext",
+			"xform:model/itext/translation"
+		],
+		"valueClass": "form-source",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: form sources: fields, binds, itext of each `Form`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (each construct's reading is in the question rows)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "each construct's reading is in the question rows"
+			}
+		},
+		"emission": {
+			"cell": "one XForm per form, keyed by the target form `unique_id`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/attachments-entry-for-a-form-no-longer-in-the-app",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`_attachments` entry for a form no longer in the app",
+		"surfaceKeys": ["schema:Application._attachments"],
+		"valueClass": "orphaned-form-source",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no build reads it",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/name",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`name`",
+		"surfaceKeys": [
+			"schema:Application.name",
+			"parser:ProfileParser/profile@name"
+		],
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `BlueprintDoc.appName`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`app_name` on create and update (excluded from the source merge; `_handle_import_app` passes it as an extra property, which `_merge_source_into_app` applies after the merge)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/langs-order-langs-0-default",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`langs` (order; `langs[0]` default)",
+		"surfaceKeys": ["schema:Application.langs"],
+		"valueClass": "order-and-default",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `localization.languageOrder`, `defaultLanguage`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`planLanguageWire` codes",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/langs-code-spelling-matching-hq-s-grammar-a-z-2-3-a-z-e-g-en-hin",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`langs` code spelling matching HQ's grammar `^[a-z]{2,3}(-[a-z]*)?$` (e.g. `en`, `hin`, `pt-br`, codes outside HQ's registry, which it only warns about), each once",
+		"surfaceKeys": [
+			"schema:Application.langs",
+			"parser:SuiteParser/locale@language",
+			"parser:SuiteParser/locale",
+			"xform:model/itext/translation@lang"
+		],
+		"valueClass": "valid-code-spelling",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "the imported code verbatim; Nova-born languages keep `planLanguageWire`; a language's code is stored when the language is added (the migration stores each existing language's current code), since `planLanguageWire` recomputes every code from the whole set and would otherwise rename an existing language when a colliding one is added; only the new language takes a suffixed code",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/a-non-empty-langs-code-outside-that-grammar-or-repeated",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a non-empty `langs` code outside that grammar, or repeated",
+		"surfaceKeys": ["schema:Application.langs"],
+		"valueClass": "invalid-or-repeated-code",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the Languages page marks it an error and blocks the save (`supported_languages.js::validateLanguage`; `validate_lang` enforces the grammar on rename)",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the Languages page marks it an error and blocks the save (`supported_languages.js::validateLanguage`; `validate_lang` enforces the grammar on rename)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/langs-containing-an-empty-code",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`langs` containing an empty code",
+		"surfaceKeys": ["schema:Application.langs"],
+		"valueClass": "empty-code",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `empty lang` (`ApplicationValidator.validate_app`)",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`empty lang` (`ApplicationValidator.validate_app`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/modules",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`modules`",
+		"surfaceKeys": ["schema:Application.modules"],
+		"valueClass": "children-kept-with-their-parent",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `moduleOrder` + `modules`",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "ordered `modules` (positional ids `m{i}`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-app-display-name",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations['app.display.name']`",
+		"surfaceKeys": [
+			"schema:Application.translations",
+			"ui-string:app.display.name"
+		],
+		"valueClass": "app-display-name",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appName` (+ its localization)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS (Web Apps: the root menu heading, the first breadcrumb and the tab title, through Core's `ScreenUtils.getAppTitle`, which Formplayer uses; Android: the app name)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "Web Apps: the root menu heading, the first breadcrumb and the tab title, through Core's `ScreenUtils.getAppTitle`, which Formplayer uses; Android: the app name"
+			}
+		},
+		"emission": {
+			"cell": "per language, the localized name where it differs from `appName` (which `app_name` sets on create and update, and from which HQ generates the key), and no key otherwise (today `lib/commcare/expander.ts` writes it in every language)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/hq-default-app-strings",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "the app strings HQ's build writes for every app in every language from `id_strings.REGEX_DEFAULT_VALUES` (`cchq.case=Case`, the case detail title; `cchq.referral=Referral`), outside `translations`",
+		"surfaceKeys": ["ui-string:cchq.case", "ui-string:cchq.referral"],
+		"valueClass": "hq-build-default",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ's build (`app_strings.py::_create_custom_app_strings` yields every `REGEX_DEFAULT_VALUES` entry; `id_strings.py::_case_detail_title_locale` names `cchq.case` as each case and search detail's title)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "n/a / RUNS",
+			"webApps": {
+				"reading": "not-applicable",
+				"note": "no reader in Formplayer or Core"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "the case list's dual-pane title (`EntitySelectActivity.setupLandscapeDualPaneView`)"
+			}
+		},
+		"emission": {
+			"cell": "nothing in the app JSON (HQ generates them); the local `.ccz` writes `cchq.case=Case` in each `app_strings.txt` as HQ's build does, and no `cchq.referral`, which no runtime reads",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-homescreen-title",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations['homescreen.title']`",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "homescreen-title",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: HQ writes it (`app_strings.py`), and no runtime reads it (no reader in commcare-core, commcare-android or formplayer)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "HQ's current value; outside Nova's owned keys (Nova writes it in every language today, `lib/commcare/expander.ts`: defect 4)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-lang-code-language-display-names-equal-to-the-label",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations[<lang code>]` (language display names) equal to the label Nova derives (`lib/commcare/languageWire.ts::planLanguageWire`), or absent where HQ's default name for the code is that label",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "language-name-derived",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: language display name from `localization` identity",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (Web Apps names languages itself, `cloudcare/views.py` `lang_code_name_mapping`) / RUNS (`ChangeLocaleUtil.translateLocales`)",
+			"webApps": {
+				"reading": "ignored",
+				"note": "Web Apps names languages itself, `cloudcare/views.py` `lang_code_name_mapping`"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "`ChangeLocaleUtil.translateLocales`"
+			}
+		},
+		"emission": {
+			"cell": "the name where it differs from HQ's default, and no key otherwise",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-lang-code-any-other-value-or-absent-where-hq-s",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations[<lang code>]` any other value, or absent where HQ's default name differs from Nova's label",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "language-name-other",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: a per-language display name, which may be HQ's default (HQ writes `langcodes.get_name` of the code, translated, when the key is absent or empty: `app_strings.py::_create_custom_app_strings`; Nova derives every name today, `lib/domain/languageRegistry/names.ts::resolvedLanguageDisplayLabel` through `lib/commcare/languageWire.ts::planLanguageWire`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "that name, or no key for HQ's default",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-key-in-a-runtime-s-ui-string-catalog-core-android",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations` key in a runtime's UI string catalog (Core, Android, Formplayer)",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "ui-string-override",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `uiStringOverrides[lang][key]`, keyed by the typed set of strings the runtimes read (editor: CommCare Translations; `${N}` checked)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`translations[lang][key]`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-catalog-key-hq-fills-with-its-own-text-in-a",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations` catalog key HQ fills with its own text, in a language with no override",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "hq-catalog-key",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `uiStringCatalogKeys`, the per-key set of catalog keys for which HQ emits its own catalog text in every language that has no override (English from its catalog at the app's version; other languages from HQ's default file or its unversioned catalogs): `SelectKnownAppStrings.get_app_translation_keys` takes the union of keys across languages, so any language's key, empty or not, puts it in the set; an empty value adds nothing else",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "for a key in the set that no language overrides, `''` in the default language; otherwise the overrides alone. HQ's CommCare Translations upload drops a key with no text of its own, and a value equal to the English catalog text in the `en` column, or in the first language's where the app has no `en` (`ui_translations.py::process_ui_translation_upload`), so no spelling survives a download and upload there, for a language whose column keeps a value (a language with no surviving cell keeps its old values, `translations/utils.py::update_app_translations_from_trans_dict`); that round trip is an HQ-side edit the drift check reports",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/translations-key-no-runtime-reads",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`translations` key no runtime reads",
+		"surfaceKeys": ["schema:Application.translations"],
+		"valueClass": "unread-key",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "HQ's current value (the upload carries every key outside Nova's set)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/recipients",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`recipients`",
+		"surfaceKeys": ["schema:Application.recipients"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no reader; in `NON_BUILD_APP_KEYS`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/admin-password-admin-password-charset",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`admin_password`, `admin_password_charset`",
+		"surfaceKeys": [
+			"schema:Application.admin_password",
+			"schema:Application.admin_password_charset"
+		],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no reader outside the setter",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/amplifies-workers-amplifies-project-minimum-use-threshold",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`amplifies_workers`, `amplifies_project`, `minimum_use_threshold`, `experienced_threshold`",
+		"surfaceKeys": [
+			"schema:Application.amplifies_workers",
+			"schema:Application.amplifies_project",
+			"schema:Application.minimum_use_threshold",
+			"schema:Application.experienced_threshold"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: analytics metadata HQ's MALT report copies from the app (`data_analytics/malt_generator.py`); no editor, build or runtime reader, and the overlay keeps the target's values",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/cached-properties-description-deployment-date-phone-model-user",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`cached_properties`, `description`, `deployment_date`, `phone_model`, `user_type`, `attribution_notes`",
+		"surfaceKeys": [
+			"schema:Application.cached_properties",
+			"schema:Application.description",
+			"schema:Application.deployment_date",
+			"schema:Application.phone_model",
+			"schema:Application.user_type",
+			"schema:Application.attribution_notes"
+		],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: legacy Exchange metadata, no app-manager reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/vellum-case-management",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`vellum_case_management`",
+		"surfaceKeys": ["schema:Application.vellum_case_management"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: only a warning banner on every app-manager page and in the releases table (`partials/vellum_case_management_warning.html`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit (model default `true`)",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/comment-app",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`comment` (app)",
+		"surfaceKeys": ["schema:Application.comment"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: builder note; excluded on overwrite",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/smart-lang-display",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`smart_lang_display`",
+		"surfaceKeys": ["schema:Application.smart_lang_display"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: form-builder display preference (`views/formdesigner.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/add-ons",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`add_ons`",
+		"surfaceKeys": ["schema:Application.add_ons"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: UI visibility only; no build, suite or validator reader (`AM/add_ons.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "a key-level overlay: `true` for each add-on Nova's content uses, every other key at HQ's current value (today Nova writes 10 keys and drops the rest: defect 4)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/non-empty-custom-assertions-app",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "non-empty `custom_assertions` (app)",
+		"surfaceKeys": [
+			"schema:Application.custom_assertions",
+			"schema:CustomAssertion",
+			"schema:CustomAssertion.doc_type",
+			"schema:CustomAssertion.test",
+			"schema:CustomAssertion.text"
+		],
+		"valueClass": "app-non-empty",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: freeform + retiring (CUSTOM_ASSERTIONS)",
+		"reasons": [
+			{
+				"kind": "freeform"
+			},
+			{
+				"kind": "retiring",
+				"gate": "toggle/CUSTOM_ASSERTIONS",
+				"named": "(CUSTOM_ASSERTIONS)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/multimedia-map",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`multimedia_map`",
+		"surfaceKeys": [
+			"schema:Application.multimedia_map",
+			"schema:HQMediaMapItem",
+			"schema:HQMediaMapItem.doc_type",
+			"schema:HQMediaMapItem.media_type",
+			"schema:HQMediaMapItem.multimedia_id",
+			"schema:HQMediaMapItem.unique_id",
+			"schema:HQMediaMapItem.upstream_media_id",
+			"schema:HQMediaMapItem.version"
+		],
+		"valueClass": "key-under-jr-file-or-dropped-by-build",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: binding of paths to HQ media objects; excluded on overwrite, kept as sent on create (`from_source`); the multimedia API fills form and menu media paths and never logo paths (`process_bulk_upload_zip` matches `all_media`, which leaves logos out)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "media bytes via `POST …/apps/api/{app_id}/multimedia/` (Nova also writes a map with content-hash ids on create today, `bundle.ts::buildMultimediaMap`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/logo-refs-hq-logo-web-apps",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`logo_refs.hq_logo_web_apps`",
+		"surfaceKeys": [
+			"schema:Application.logo_refs",
+			"setting:properties.logo_web_apps",
+			"profile-property:brand-banner-web-apps"
+		],
+		"valueClass": "web-apps-logo",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `BlueprintDoc.logo`; import reads the logo HQ's uploader holds through the media map",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "none: HQ creates a logo's media object only through its session-authenticated uploader (`hqmedia/views.py::ProcessLogoFileUploadView`, privilege `commcare_logo_uploader`), which writes the slot path `jr://file/commcare/logo/data/<slot><ext>` in the full media-info shape (`CommCareMultimedia.get_media_info`) that HQ's Settings preview and a linked app's pull read (`LinkedApplication.reapply_overrides` looks up `m_id`); publish leaves HQ's `logo_refs` and offers the file to upload there (defect 14; Nova writes a path-only content-hash reference today: unproducible); the local `.ccz` carries the logo directly",
+			"markers": ["unproducible"]
+		},
+		"gates": ["privilege/commcare_logo_uploader"]
+	},
+	{
+		"id": "application-and-settings/logo-refs-hq-logo-android-home-login-demo",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`logo_refs.hq_logo_android_home` / `_login` / `_demo`",
+		"surfaceKeys": [
+			"schema:Application.logo_refs",
+			"setting:properties.logo_android_home",
+			"setting:properties.logo_android_login",
+			"setting:properties.logo_android_demo"
+		],
+		"valueClass": "android-logos",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `androidLogos.{home, login, demo}`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "as for the Web Apps slot: uploaded in HQ, carried by the local `.ccz`",
+			"markers": []
+		},
+		"gates": ["privilege/commcare_logo_uploader"]
+	},
+	{
+		"id": "application-and-settings/logo-refs-slot-path-other-than-the-uploader-s-jr-file-commcare",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "`logo_refs[slot].path` other than the uploader's `jr://file/commcare/logo/data/<slot><ext>`",
+		"surfaceKeys": ["schema:Application.logo_refs"],
+		"valueClass": "path-not-from-uploader",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`); not HQ-buildable (`MediaResourceError`) when the path is also a `multimedia_map` key outside `jr://file/`",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the logo uploader writes only that path (`hqmedia/views.py::ProcessLogoFileUploadView.form_path`)"
+			},
+			{
+				"kind": "not-hq-buildable",
+				"named": "`MediaResourceError`",
+				"condition": "when the path is also a `multimedia_map` key outside `jr://file/`"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/dynamic-keys-anonymous-cloudcare-enabled-anonymous-cloudcare",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "dynamic keys `anonymous_cloudcare_enabled`, `anonymous_cloudcare_hash`, `linked_whitelist`, `media_language_map`, `mobile_ucr_sync_interval`, `media_form_errors`, `user_registration`, `split_screen_dynamic_search`",
+		"surfaceKeys": ["schema:Application.<undeclared>"],
+		"valueClass": "dynamic-keys",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no reader at the pin (an in-place update keeps `user_registration`; an import that creates the app drops it, because `_import_app` runs `export_json`, whose `scrub_source` calls `update_form_unique_ids`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/any-other-unknown-top-level-key-that-names-no-application",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "any other unknown top-level key that names no `Application` property or method",
+		"surfaceKeys": ["schema:Application.<undeclared>"],
+		"valueClass": "names-no-application-attribute",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: jsonobject dynamic property with no reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/an-unknown-top-level-key-naming-an-application-read-only",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "an unknown top-level key naming an `Application` read-only property or method (such as `post_url`, `build_version`, `commtrack_enabled`, `suite_loc`, `custom_suite`, `get_modules`, `create_all_files`, `is_remote_app`)",
+		"surfaceKeys": ["schema:Application.<undeclared>"],
+		"valueClass": "names-a-read-only-property-or-method",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `dbaccessors.py::wrap_app` raises for a read-only property (`WrappingAttributeError`) and for some methods (`get_modules`: `TypeError`), `validate_app` raises for others (`create_all_files`: `TypeError`), and any other shadows a method HQ's servers call (`is_remote_app`, which the data dictionary refresh calls) (executed)",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`dbaccessors.py::wrap_app` raises for a read-only property (`WrappingAttributeError`) and for some methods (`get_modules`: `TypeError`), `validate_app` raises for others (`create_all_files`: `TypeError`), and any other shadows a method HQ's servers call (`is_remote_app`, which the data dictionary refresh calls) (executed)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/1-properties-cc-autoup-freq",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "1 `properties.cc-autoup-freq`",
+		"surfaceKeys": ["setting:properties.cc-autoup-freq"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.autoUpdateFrequency`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`profile.properties['cc-autoup-freq']`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/2-properties-lazy-load-video-files-true",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "2 `properties.lazy-load-video-files` = `true`",
+		"surfaceKeys": ["setting:properties.lazy-load-video-files"],
+		"valueClass": "true",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (LAZY_LOAD_MULTIMEDIA)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/LAZY_LOAD_MULTIMEDIA",
+				"named": "(LAZY_LOAD_MULTIMEDIA)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/2p-properties-lazy-load-video-files-false",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "2′ `properties.lazy-load-video-files` = `false`",
+		"surfaceKeys": ["setting:properties.lazy-load-video-files"],
+		"valueClass": "false",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: the default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/3-properties-purge-freq",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "3 `properties.purge-freq`",
+		"surfaceKeys": ["setting:properties.purge-freq"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: disabled; no runtime reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/4-properties-cc-days-form-retain",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "4 `properties.cc-days-form-retain`",
+		"surfaceKeys": ["setting:properties.cc-days-form-retain"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.daysFormRetain`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/5-properties-logenabled",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "5 `properties.logenabled`",
+		"surfaceKeys": ["setting:properties.logenabled"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.loggingEnabled`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/6-properties-log-prop-weekly-within-its-choices",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "6 `properties.log_prop_weekly` within its choices",
+		"surfaceKeys": ["setting:properties.log_prop_weekly"],
+		"valueClass": "within-choices",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime reader; HQ emits the stored value, or `log_short` when unset",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/7-properties-log-prop-daily-within-its-choices",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "7 `properties.log_prop_daily` within its choices",
+		"surfaceKeys": ["setting:properties.log_prop_daily"],
+		"valueClass": "within-choices",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no runtime reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/12-properties-user-reg-server",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "12 `properties.user_reg_server`",
+		"surfaceKeys": ["setting:properties.user_reg_server"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: disabled; no reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/13-properties-cc-autosync-freq",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "13 `properties.cc-autosync-freq`",
+		"surfaceKeys": ["setting:properties.cc-autosync-freq"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.autoSyncFrequency`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/14-properties-restore-tolerance",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "14 `properties.restore-tolerance`",
+		"surfaceKeys": ["setting:properties.restore-tolerance"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: disabled; no reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/15-features-users",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "15 `features.users`",
+		"surfaceKeys": [
+			"setting:features.users",
+			"parser:ProfileParser/users",
+			"parser:ProfileParser/features",
+			"parser:ProfileParser/features/*@active"
+		],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: disabled; `ProfileParser` stores it, nothing queries it",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit (.ccz keeps `<users active=\"true\"/>`)",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/16-properties-loose-media",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "16 `properties.loose_media`",
+		"surfaceKeys": ["setting:properties.loose_media"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: disabled; no reader",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/17-properties-cc-content-valid",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "17 `properties.cc-content-valid`",
+		"surfaceKeys": ["setting:properties.cc-content-valid"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.multimediaValidation`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/18-properties-unsent-number-limit",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "18 `properties.unsent-number-limit`",
+		"surfaceKeys": ["setting:properties.unsent-number-limit"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.unsentFormLimit`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/19-properties-unsent-time-limit",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "19 `properties.unsent-time-limit`",
+		"surfaceKeys": ["setting:properties.unsent-time-limit"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.unsyncedTimeLimit`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/20-properties-cc-show-saved",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "20 `properties.cc-show-saved`",
+		"surfaceKeys": ["setting:properties.cc-show-saved"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.showSavedForms`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property; HQ always emits `no` when unset, so Nova's `.ccz` must emit it too (today absent ⇒ Android `yes`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/21-properties-cc-show-incomplete",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "21 `properties.cc-show-incomplete`",
+		"surfaceKeys": ["setting:properties.cc-show-incomplete"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.showIncompleteForms`",
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (tile visibility only; sessions always persist) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "tile visibility only; sessions always persist"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property; same `.ccz` parity fix",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/22-properties-cc-resize-images",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "22 `properties.cc-resize-images`",
+		"surfaceKeys": ["setting:properties.cc-resize-images"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.resizeImages`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/23-properties-cc-fuzzy-search-enabled",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "23 `properties.cc-fuzzy-search-enabled`",
+		"surfaceKeys": ["setting:properties.cc-fuzzy-search-enabled"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.fuzzyListSearch`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "always explicit (Formplayer's and Android's absent default `no` differs from the yaml default `yes`)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/24-properties-cc-log-entity-detail-enabled",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "24 `properties.cc-log-entity-detail-enabled`",
+		"surfaceKeys": ["setting:properties.cc-log-entity-detail-enabled"],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.logCaseDetailViews`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/25-properties-cc-login-duration-seconds",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "25 `properties.cc-login-duration-seconds`",
+		"surfaceKeys": ["setting:properties.cc-login-duration-seconds"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.loginDuration`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/26-properties-cc-inflation-target-density",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "26 `properties.cc-inflation-target-density`",
+		"surfaceKeys": ["setting:properties.cc-inflation-target-density"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.imageTargetDensity`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/27-properties-cc-gps-auto-capture-accuracy",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "27 `properties.cc-gps-auto-capture-accuracy`",
+		"surfaceKeys": ["setting:properties.cc-gps-auto-capture-accuracy"],
+		"valueClass": "within-choices-or-numeric-10",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.autoCaptureAccuracy` (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/28-properties-cc-maps-default-layer",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "28 `properties.cc-maps-default-layer`",
+		"surfaceKeys": ["setting:properties.cc-maps-default-layer"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.defaultMapLayer`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/29-properties-cc-enable-tts",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "29 `properties.cc-enable-tts`",
+		"surfaceKeys": ["setting:properties.cc-enable-tts"],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.textToSpeech`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/30-properties-cc-label-required-questions-with-asterisk",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "30 `properties.cc-label-required-questions-with-asterisk`",
+		"surfaceKeys": [
+			"setting:properties.cc-label-required-questions-with-asterisk"
+		],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.requiredAsterisk`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "profile property",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/31-features-dependencies",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "31 `features.dependencies`",
+		"surfaceKeys": [
+			"setting:features.dependencies",
+			"parser:ProfileParser/dependencies",
+			"parser:ProfileParser/android_package",
+			"parser:ProfileParser/android_package@id"
+		],
+		"valueClass": "within-choices",
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.androidAppDependencies`",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED / RUNS",
+			"webApps": {
+				"reading": "ignored"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`profile.features.dependencies`; privilege `app_dependencies` precondition (HQ strips it without)",
+			"markers": []
+		},
+		"gates": ["privilege/app_dependencies"]
+	},
+	{
+		"id": "application-and-settings/32-features-credentials",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "32 `features.credentials`",
+		"surfaceKeys": [
+			"setting:features.credentials",
+			"parser:ProfileParser/credentials",
+			"parser:ProfileParser/credential",
+			"parser:ProfileParser/credential@level",
+			"parser:ProfileParser/credential@type"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: written by the project page from the domain's `CredentialApplication` row",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/33-hq-application-version-2-0",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "33 `hq.application_version` = `2.0`",
+		"surfaceKeys": [
+			"setting:hq.application_version",
+			"schema:Application.application_version"
+		],
+		"valueClass": "2-0",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: fixed",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`2.0`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/33p-hq-application-version-1-0",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "33′ `hq.application_version` = `1.0`",
+		"surfaceKeys": [
+			"setting:hq.application_version",
+			"schema:Application.application_version"
+		],
+		"valueClass": "1-0",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable: `Application.assert_app_v2`",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "`Application.assert_app_v2`"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/34-hq-build-spec-at-or-above-nova-s-floor-2-57",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "34 `hq.build_spec` at or above Nova's floor (2.57)",
+		"surfaceKeys": [
+			"setting:hq.build_spec",
+			"schema:Application.build_spec",
+			"schema:BuildSpec",
+			"schema:BuildSpec.build_number",
+			"schema:BuildSpec.doc_type",
+			"schema:BuildSpec.latest",
+			"schema:BuildSpec.version",
+			"parser:ProfileParser/profile@requiredMajor",
+			"parser:ProfileParser/profile@requiredMinor",
+			"parser:ProfileParser/profile@requiredMinimal"
+		],
+		"valueClass": "at-or-above-floor",
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: deleted on import-create, excluded on overwrite, so HQ's server-wide default build (`builds/utils.py::get_default_build_spec`) applies to a new app and a person sets it in the app's settings in HQ",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit; import and publish read it and require the floor",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/34p-hq-build-spec-below-nova-s-floor",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "34′ `hq.build_spec` below Nova's floor",
+		"surfaceKeys": [
+			"setting:hq.build_spec",
+			"schema:Application.build_spec",
+			"schema:BuildSpec",
+			"schema:BuildSpec.build_number",
+			"schema:BuildSpec.doc_type",
+			"schema:BuildSpec.latest",
+			"schema:BuildSpec.version",
+			"parser:ProfileParser/profile@requiredMajor",
+			"parser:ProfileParser/profile@requiredMinor",
+			"parser:ProfileParser/profile@requiredMinimal"
+		],
+		"valueClass": "below-floor",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: below the CommCare version floor (HQ silently leaves out features that need a newer version; raising it in HQ fixes it)",
+		"reasons": [
+			{
+				"kind": "below-commcare-version-floor",
+				"named": "(HQ silently leaves out features that need a newer version; raising it in HQ fixes it)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/35-hq-practice-mobile-worker-id",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "35 `hq.practice_mobile_worker_id`",
+		"surfaceKeys": [
+			"setting:hq.practice_mobile_worker_id",
+			"schema:Application.practice_mobile_worker_id"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: a target user id; excluded on overwrite",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/36-hq-custom-base-url",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "36 `hq.custom_base_url`",
+		"surfaceKeys": [
+			"setting:hq.custom_base_url",
+			"schema:Application.custom_base_url"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: target server URL; excluded on overwrite",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/37-hq-profile-url-on-an-application",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "37 `hq.profile_url` on an Application",
+		"surfaceKeys": ["setting:hq.profile_url"],
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-buildable (`Application.profile_url` is a read-only property, so `wrap_app` raises `WrappingAttributeError`)",
+		"reasons": [
+			{
+				"kind": "not-hq-buildable",
+				"named": "(`Application.profile_url` is a read-only property, so `wrap_app` raises `WrappingAttributeError`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/38-hq-manage-urls",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "38 `hq.manage_urls`",
+		"surfaceKeys": ["setting:hq.manage_urls"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: RemoteApp only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/39-hq-case-sharing",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "39 `hq.case_sharing`",
+		"surfaceKeys": [
+			"setting:hq.case_sharing",
+			"schema:Application.case_sharing"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `caseSharing`: owner from the user's case-sharing group plus the entry assertion (`xform.py::XFormCaseBlock.add_create_block`, `entries.py::add_case_sharing_assertion`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`case_sharing: true`; privilege `case_sharing_groups` precondition",
+			"markers": []
+		},
+		"gates": ["privilege/case_sharing_groups"]
+	},
+	{
+		"id": "application-and-settings/40-hq-cloudcare-enabled",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "40 `hq.cloudcare_enabled`",
+		"surfaceKeys": [
+			"setting:hq.cloudcare_enabled",
+			"schema:Application.cloudcare_enabled"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: the platform declaration's wire form: `true` exactly when the app declares Web Apps (Web Apps lists an app by the value on the build it serves, `cloudcare/utils.py::get_web_apps_available_to_user`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / n/a",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "not-applicable"
+			}
+		},
+		"emission": {
+			"cell": "explicit on every publish (create sets it from the plan, `_create_app_from_doc`); privilege `cloudcare` precondition when `true`",
+			"markers": []
+		},
+		"gates": ["privilege/cloudcare"]
+	},
+	{
+		"id": "application-and-settings/41-hq-use-custom-suite-false",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "41 `hq.use_custom_suite` = `false`",
+		"surfaceKeys": [
+			"setting:hq.use_custom_suite",
+			"schema:Application.use_custom_suite"
+		],
+		"valueClass": "false",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/41p-hq-use-custom-suite-true",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "41′ `hq.use_custom_suite` = `true`",
+		"surfaceKeys": [
+			"setting:hq.use_custom_suite",
+			"schema:Application.use_custom_suite"
+		],
+		"valueClass": "true",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: a disabled setting holding a non-default value, which the settings page marks an error (`commcare_settings.js`: `disabledButHasValue` → `hasError`); HQ's build then emits no `<detail>` (`suite_xml/sections/details.py::DetailContributor.get_section_elements`)",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "a disabled setting holding a non-default value, which the settings page marks an error (`commcare_settings.js`: `disabledButHasValue` → `hasError`); HQ's build then emits no `<detail>` (`suite_xml/sections/details.py::DetailContributor.get_section_elements`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/42-hq-custom-suite",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "42 `hq.custom_suite`",
+		"surfaceKeys": [
+			"setting:hq.custom_suite",
+			"schema:Application._attachments"
+		],
+		"valueClass": "custom-suite",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: never emitted, even with 41′ (only echoed to the settings page)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/43-hq-secure-submissions",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "43 `hq.secure_submissions`",
+		"surfaceKeys": [
+			"setting:hq.secure_submissions",
+			"schema:Application.secure_submissions"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: seeded by HQ's new-app views and rewritten on every app when the project's security setting changes (`domain/forms.py`); an import-API create takes the source's value (`false` when absent); selects the receiver URL (`ApplicationBase.post_url`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/44-hq-translation-strategy-select-known",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "44 `hq.translation_strategy` = `select-known`",
+		"surfaceKeys": [
+			"setting:hq.translation_strategy",
+			"schema:Application.translation_strategy"
+		],
+		"valueClass": "select-known",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/44p-hq-translation-strategy-select-known",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "44′ `hq.translation_strategy` ≠ `select-known`",
+		"surfaceKeys": [
+			"setting:hq.translation_strategy",
+			"schema:Application.translation_strategy"
+		],
+		"valueClass": "not-select-known",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable (disabled: \"discontinued\")",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "(disabled: \"discontinued\")"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/45-hq-auto-gps-capture",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "45 `hq.auto_gps_capture`",
+		"surfaceKeys": [
+			"setting:hq.auto_gps_capture",
+			"schema:Application.auto_gps_capture"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: read as `Form.autoCaptureLocation` on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`; today Nova derives the app value only from `connectType`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "IGNORED (`meta/location` submitted empty) / RUNS",
+			"webApps": {
+				"reading": "ignored",
+				"note": "`meta/location` submitted empty"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`false`, with each form's own value",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/46-hq-use-grid-menus",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "46 `hq.use_grid_menus`",
+		"surfaceKeys": [
+			"setting:hq.use_grid_menus",
+			"schema:Application.use_grid_menus"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `menuStyle.rootGrid`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (grid audio IGNORED: no audio control) / RUNS",
+			"webApps": {
+				"reading": "runs",
+				"note": "grid audio IGNORED: no audio control"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`use_grid_menus`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/47-hq-grid-form-menus-none-all-some",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "47 `hq.grid_form_menus` (`none`/`all`/`some`)",
+		"surfaceKeys": [
+			"setting:hq.grid_form_menus",
+			"schema:Application.grid_form_menus"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `menuStyle.formMenus`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (grid audio IGNORED) / RUNS",
+			"webApps": {
+				"reading": "runs",
+				"note": "grid audio IGNORED"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`grid_form_menus` (+ per-module `display_style`, Module fields)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/48-hq-target-commcare-flavor-none",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "48 `hq.target_commcare_flavor` = `none`",
+		"surfaceKeys": [
+			"setting:hq.target_commcare_flavor",
+			"schema:Application.target_commcare_flavor"
+		],
+		"valueClass": "none",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "48′ `hq.target_commcare_flavor` ∈ {`commcare`, `commcare_lts`}",
+		"surfaceKeys": [
+			"setting:hq.target_commcare_flavor",
+			"schema:Application.target_commcare_flavor"
+		],
+		"valueClass": "commcare-or-commcare-lts",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (TARGET_COMMCARE_FLAVOR; the settings file spells its gate `toggles:`, so HQ shows the setting everywhere)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/TARGET_COMMCARE_FLAVOR",
+				"named": "(TARGET_COMMCARE_FLAVOR; the settings file spells its gate `toggles:`, so HQ shows the setting everywhere)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/49-hq-mobile-ucr-restore-version-2-0",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "49 `hq.mobile_ucr_restore_version` = `2.0`",
+		"surfaceKeys": [
+			"setting:hq.mobile_ucr_restore_version",
+			"schema:Application.mobile_ucr_restore_version"
+		],
+		"valueClass": "2-0",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "49′ `hq.mobile_ucr_restore_version` ∈ {`1.0`,`1.5`}",
+		"surfaceKeys": [
+			"setting:hq.mobile_ucr_restore_version",
+			"schema:Application.mobile_ucr_restore_version"
+		],
+		"valueClass": "1-0-or-1-5",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (MOBILE_UCR)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/MOBILE_UCR",
+				"named": "(MOBILE_UCR)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/50-hq-location-fixture-restore-project-default",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "50 `hq.location_fixture_restore` = `project_default`",
+		"surfaceKeys": [
+			"setting:hq.location_fixture_restore",
+			"schema:Application.location_fixture_restore"
+		],
+		"valueClass": "project-default",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by Nova: the one location-fixture state every Nova app holds (Application settings)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`project_default` on every publish; publish of an app that reads locations asks the person to confirm the flat fixture syncs",
+			"markers": []
+		},
+		"gates": [
+			"project-space-setting/LocationFixtureConfiguration.sync_flat_fixture"
+		]
+	},
+	{
+		"id": "application-and-settings/50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "50′ `hq.location_fixture_restore` ∈ {`both_fixtures`,`only_flat_fixture`}",
+		"surfaceKeys": [
+			"setting:hq.location_fixture_restore",
+			"schema:Application.location_fixture_restore"
+		],
+		"valueClass": "both-fixtures-or-only-flat-fixture",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by Nova: the same state as `project_default` for everything a held app reads, in any project space that syncs the flat fixture, which publish confirms: they differ only in whether the hierarchical fixture also syncs, which needs the retiring HIERARCHICAL_LOCATION_FIXTURE flag and which no held app reads. These two values force the flat fixture on regardless of the project space's stored setting, where `project_default` follows that setting, which is on unless someone turned it off (`locations/fixtures.py::should_sync_flat_fixture`); HQ offers both the app value and the stored setting only under that flag",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`project_default`; publish of an app that reads locations asks the person to confirm the flat fixture still syncs, since Nova cannot read that setting, and stops where it does not (today Nova writes `both_fixtures` for apps that read `instance('locations')`: unproducible)",
+			"markers": ["unproducible"]
+		},
+		"gates": [
+			"project-space-setting/LocationFixtureConfiguration.sync_flat_fixture"
+		]
+	},
+	{
+		"id": "application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "50″ `hq.location_fixture_restore` = `only_hierarchical_fixture`",
+		"surfaceKeys": [
+			"setting:hq.location_fixture_restore",
+			"schema:Application.location_fixture_restore"
+		],
+		"valueClass": "only-hierarchical-fixture",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: retiring (HIERARCHICAL_LOCATION_FIXTURE)",
+		"reasons": [
+			{
+				"kind": "retiring",
+				"gate": "toggle/HIERARCHICAL_LOCATION_FIXTURE",
+				"named": "(HIERARCHICAL_LOCATION_FIXTURE)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/51-hq-persistent-menu",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "51 `hq.persistent_menu`",
+		"surfaceKeys": [
+			"setting:hq.persistent_menu",
+			"schema:Application.persistent_menu"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.persistentMenu`",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`persistent_menu` (profile `cc-persistent-menu` always emitted)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/52-hq-show-breadcrumbs",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "52 `hq.show_breadcrumbs`",
+		"surfaceKeys": [
+			"setting:hq.show_breadcrumbs",
+			"schema:Application.show_breadcrumbs"
+		],
+		"disposition": "HELD-NEW",
+		"dispositionCell": "**HELD-NEW**: `appSettings.breadcrumbs` (absent key = model default `true`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "`show_breadcrumbs` explicit",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "target-derived profile properties (`PostURL`, `PostTestURL`, `ota-restore-url[-testing]`, `backup-url`, `restore-url`, `BackupMode`, `key_server`, `cc_user_domain`, `jr_openrosa_api`, `heartbeat-url`, `target-package-id`, `support-email-address`, `recovery-measures-url`, `cur_locale`)",
+		"surfaceKeys": [
+			"parser:ProfileParser/profile@update",
+			"profile-property:PostURL",
+			"profile-property:PostTestURL",
+			"profile-property:ota-restore-url",
+			"profile-property:ota-restore-url-testing",
+			"profile-property:backup-url",
+			"profile-property:restore-url",
+			"profile-property:BackupMode",
+			"profile-property:key_server",
+			"profile-property:cc_user_domain",
+			"profile-property:jr_openrosa_api",
+			"profile-property:heartbeat-url",
+			"profile-property:target-package-id",
+			"profile-property:support-email-address",
+			"profile-property:recovery-measures-url",
+			"profile-property:cur_locale"
+		],
+		"disposition": "TARGET-OWNED",
+		"dispositionCell": "**TARGET-OWNED**: injected by `templates/app_manager/profile.xml` from the target (`BackupMode`, `backup-url`, `restore-url` and `jr_openrosa_api` are template constants, `target-package-id` exists only in flavor profiles, which are refused, and `cur_locale` is the app's first build language) (`recovery-measures-url` by `Application.create_profile` under `MOBILE_RECOVERY_MEASURES`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": ["toggle/MOBILE_RECOVERY_MEASURES"]
+	},
+	{
+		"id": "application-and-settings/profile-and-suite-skeleton",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "the profile and suite skeleton HQ's build writes for every app: the profile root, its `<property key value force>` carriers and `<suite>` resource references, and the suite root",
+		"surfaceKeys": [
+			"parser:ProfileParser/profile",
+			"parser:ProfileParser/property",
+			"parser:ProfileParser/property@key",
+			"parser:ProfileParser/property@value",
+			"parser:ProfileParser/property@force",
+			"parser:ProfileParser/suite",
+			"parser:SuiteParser/suite"
+		],
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by HQ's build (`templates/app_manager/profile.xml`, `suite_xml/generator.py::SuiteGenerator`); each property's own row says what it carries",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "as HQ's build writes it; the local `.ccz` writes the same shape",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/profile-features-sense-true-or-profile-properties-cc-entry-mode",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "`profile.features.sense` = `'true'` or `profile.properties.cc-entry-mode` = `'cc-entry-review'`",
+		"surfaceKeys": ["schema:Application.profile"],
+		"valueClass": "sense-or-review-entry-mode",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: no settings control produces either (settings saves keep them, `views/settings.py::edit_commcare_profile`), and HQ's build then prefixes every menu and form name that does not start with a digit with `${0} ` (from CommCare 2.8) (`app_strings.py::_maybe_add_index`), which Android strips and Web Apps shows literally",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "no settings control produces either (settings saves keep them, `views/settings.py::edit_commcare_profile`), and HQ's build then prefixes every menu and form name that does not start with a digit with `${0} ` (from CommCare 2.8) (`app_strings.py::_maybe_add_index`), which Android strips and Web Apps shows literally"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/any-other-profile-properties-features-key-not-in-the-yaml",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "any other `profile.properties` / `.features` key not in the yaml",
+		"surfaceKeys": ["schema:Application.profile"],
+		"valueClass": "non-yaml-key",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: never emitted (`Application.create_profile` loops yaml settings only), and no build reader apart from `_maybe_add_index`, whose effect exists only at the values the row above refuses",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "omit",
+			"markers": ["omit"]
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/local-archive-profile-properties",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "the profile properties only Nova's local `.ccz` profile writes: `CommCare App Name`, `cc-app-version` and `cc-content-version`",
+		"surfaceKeys": [
+			"profile-property:CommCare%20App%20Name",
+			"profile-property:cc-app-version",
+			"profile-property:cc-content-version"
+		],
+		"origin": "export-use",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no code in Core, Android or Formplayer reads these keys at the pins (`ProfileParser.addPropertySetter` stores any property; each surface item's `readBy` is empty), and HQ's profile writes none of them (`templates/app_manager/profile.xml`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "local `.ccz` profile only (`compiler.ts::generateProfile`: the app's name, `1`, the document's mutation sequence)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/profile-properties-or-features-dependencies-value-outside-its",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "`profile.properties` or `features.dependencies` value outside its choices, in a setting the settings page shows (other than the numeric `10` above)",
+		"surfaceKeys": [
+			"setting:properties.cc-autoup-freq",
+			"setting:properties.unsent-number-limit",
+			"setting:properties.cc-content-valid",
+			"setting:properties.cc-autosync-freq",
+			"setting:properties.unsent-time-limit",
+			"setting:properties.cc-days-form-retain",
+			"setting:properties.cc-show-saved",
+			"setting:properties.cc-show-incomplete",
+			"setting:properties.cc-resize-images",
+			"setting:properties.cc-fuzzy-search-enabled",
+			"setting:properties.cc-gps-auto-capture-accuracy",
+			"setting:properties.lazy-load-video-files",
+			"setting:properties.cc-login-duration-seconds",
+			"setting:properties.cc-inflation-target-density",
+			"setting:properties.cc-maps-default-layer",
+			"setting:properties.cc-enable-tts",
+			"setting:properties.cc-label-required-questions-with-asterisk",
+			"setting:properties.logenabled",
+			"setting:properties.log_prop_weekly",
+			"setting:properties.log_prop_daily",
+			"setting:features.dependencies",
+			"parser:ProfileParser/android_package@id"
+		],
+		"valueClass": "outside-choices",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: not HQ-editable: the settings page marks it an error (`commcare_settings.js`, `widgets.select.valueIsLegal`, and `widgets.multiSelect.valueIsLegal` for `features.dependencies`)",
+		"reasons": [
+			{
+				"kind": "not-hq-editable",
+				"named": "the settings page marks it an error (`commcare_settings.js`, `widgets.select.valueIsLegal`, and `widgets.multiSelect.valueIsLegal` for `features.dependencies`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/profile-custom-properties-cc-index-case-search-results-equal-to",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "`profile.custom_properties['cc-index-case-search-results']` equal to Nova's derivation",
+		"surfaceKeys": [
+			"schema:Application.profile",
+			"profile-property:cc-index-case-search-results"
+		],
+		"valueClass": "custom-property-index-case-search-results",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived by Nova from its search configuration (`lib/commcare/derivedProfile.ts`)",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / IGNORED",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "ignored"
+			}
+		},
+		"emission": {
+			"cell": "as today: only when the target has CUSTOM_PROPERTIES, since HQ's build omits custom properties elsewhere (`Application.create_profile`)",
+			"markers": []
+		},
+		"gates": ["toggle/CUSTOM_PROPERTIES"]
+	},
+	{
+		"id": "application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys",
+		"area": "application-and-settings",
+		"section": "Settings and profile",
+		"item": "`profile.custom_properties` any other entry (incl. formplayer keys `cc-enable-bulk-performance`, `cc-auto-purge`, `cc-sync-after-form`, `cc-auto-advance-menu`, Android `cc-grid-menus`)",
+		"surfaceKeys": ["schema:Application.profile"],
+		"valueClass": "custom-property-other",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: freeform: arbitrary device-profile properties with no typed editor",
+		"reasons": [
+			{
+				"kind": "freeform",
+				"named": "arbitrary device-profile properties with no typed editor"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/advanced-itemsets",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`advanced_itemsets`",
+		"surfaceKeys": ["add-on:advanced_itemsets"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks Vellum's advanced itemset editor",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any field reads a lookup table or a non-lookup itemset (Question types); hidden without `lookup_tables`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/calc-xpaths",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`calc_xpaths`",
+		"surfaceKeys": ["add-on:calc_xpaths"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks calculated and translatable-text columns",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any calculated/translatable column exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/case-detail-overwrite",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`case_detail_overwrite`",
+		"surfaceKeys": ["add-on:case_detail_overwrite"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: copy-config tool, no persisted field",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "HQ's current value (the add-on overlay)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/case-list-menu-item",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`case_list_menu_item`",
+		"surfaceKeys": ["add-on:case_list_menu_item"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks `case_list`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any module shows a case list menu item",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/conditional-enum",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`conditional_enum`",
+		"surfaceKeys": ["add-on:conditional_enum"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks the conditional-enum format",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any conditional-enum column exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/conditional-form-actions",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`conditional_form_actions`",
+		"surfaceKeys": ["add-on:conditional_form_actions"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks open/close conditions",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any open/close condition exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/display-conditions",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`display_conditions`",
+		"surfaceKeys": ["add-on:display_conditions"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks `module_filter`/`form_filter`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any display condition exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/enum-image",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`enum_image`",
+		"surfaceKeys": ["add-on:enum_image"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks the icon format",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any icon column exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/menu-mode",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`menu_mode`",
+		"surfaceKeys": ["add-on:menu_mode"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks `put_in_root`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any module shows forms in its parent",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/register-from-case-list",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`register_from_case_list`",
+		"surfaceKeys": ["add-on:register_from_case_list"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks `case_list_form`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any case list form exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/subcases",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`subcases`",
+		"surfaceKeys": ["add-on:subcases"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks child cases (privilege `child_cases` is the editing gate)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any child case exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/submenus",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`submenus`",
+		"surfaceKeys": ["add-on:submenus"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: unlocks `root_module_id`",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`true` when any child module exists",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "application-and-settings/empty-case-lists",
+		"area": "application-and-settings",
+		"section": "Add-ons",
+		"item": "`empty_case_lists`",
+		"surfaceKeys": ["add-on:empty_case_lists"],
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: new-module default only",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "HQ's current value (the add-on overlay)",
+			"markers": []
+		},
+		"gates": []
+	}
+]

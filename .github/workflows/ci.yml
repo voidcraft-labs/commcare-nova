@@ -446,3 +446,28 @@ jobs:
           name: proof-out-${{ github.run_attempt }}
           path: ${{ runner.temp }}/proof-out/
           retention-days: 14
+
+  surface:
+    # The surface manifest's generated half, lib/commcare/surface/surface.json,
+    # is what the extractor reads from the upstream checkouts at the pins,
+    # inside the pinned proof image with no network (proof/run.mjs
+    # --surface): a hand edit or a stale regeneration fails here.
+    name: Surface
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Regenerate the surface at the pins
+        run: node proof/run.mjs --surface
+      - name: The committed surface is the extraction at the pins
+        run: |
+          if ! git diff --quiet -- lib/commcare/surface/surface.json; then
+            git diff --stat -- lib/commcare/surface/surface.json
+            echo "::error::lib/commcare/surface/surface.json is not what the extractor reads at the pins. Run npm run surface and commit the regenerated file with the change that moved it."
+            exit 1
+          fi
+          echo "The committed surface is the extraction at the pins."

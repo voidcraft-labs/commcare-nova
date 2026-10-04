@@ -1,0 +1,4260 @@
+[
+	{
+		"id": "toggle/APP_BUILDER_ADVANCED",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "advanced-app-builder",
+		"namespaces": ["domain"],
+		"symbols": ["APP_BUILDER_ADVANCED"],
+		"surfaceKeys": ["toggle:APP_BUILDER_ADVANCED"],
+		"item": "APP_BUILDER_ADVANCED (`advanced-app-builder`) [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Module types AdvancedModule, Advanced form actions, Shadow forms)",
+		"contentEntries": [
+			"menus-and-case-lists/advancedmodule",
+			"forms-and-case-writes/advancedform",
+			"forms-and-case-writes/shadowform",
+			"forms-and-case-writes/load-update-cases-loadupdateaction",
+			"forms-and-case-writes/loadupdateaction-case-tag-without",
+			"forms-and-case-writes/loadupdateaction-case-type",
+			"forms-and-case-writes/loadupdateaction-details-module",
+			"forms-and-case-writes/loadupdateaction-preload-question-property",
+			"forms-and-case-writes/loadupdateaction-case-properties",
+			"forms-and-case-writes/loadupdateaction-close-condition-on-the-form-s-own-selection",
+			"forms-and-case-writes/loadupdateaction-close-condition-on-any-other-selection",
+			"forms-and-case-writes/loadupdateaction-case-index-tag-reference-id-relationship",
+			"forms-and-case-writes/auto-select-mode-raw-value-key",
+			"forms-and-case-writes/auto-select-mode-user",
+			"forms-and-case-writes/auto-select-mode-fixture",
+			"forms-and-case-writes/auto-select-mode-usercase",
+			"forms-and-case-writes/auto-select-mode-case-index-of-an-earlier-load",
+			"forms-and-case-writes/open-cases-advancedopencaseaction-the-one-open-action-outside",
+			"forms-and-case-writes/open-cases-advancedopencaseaction-any-other",
+			"forms-and-case-writes/advancedopencaseaction-name-update",
+			"forms-and-case-writes/advancedopencaseaction-case-properties-keys-without",
+			"forms-and-case-writes/an-advanced-load-s-update-or-preload-or-an-open-action-s-name-or",
+			"forms-and-case-writes/advancedopencaseaction-close-condition",
+			"forms-and-case-writes/advancedopencaseaction-repeat-context-equal-to-the-name-question",
+			"forms-and-case-writes/advancedopencaseaction-open-condition",
+			"forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+			"forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-a",
+			"forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal",
+			"forms-and-case-writes/arbitrary-datums-datum-id-datum-function",
+			"forms-and-case-writes/shadow-parent-form-id-naming-an-advancedform-that-is-not-a",
+			"forms-and-case-writes/shadow-own-fields-name-media-custom-icons-form-filter-post-form",
+			"forms-and-case-writes/extra-actions-load-update-cases-repeating-a-parent-tag-overrides",
+			"forms-and-case-writes/extra-actions-load-update-cases-with-a-tag-absent-from-the"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none: it gates only creating advanced modules and shadow forms in HQ"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 13
+		}
+	},
+	{
+		"id": "toggle/APP_BUILDER_SHADOW_MODULES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "shadow-app-builder",
+		"namespaces": ["domain"],
+		"symbols": ["APP_BUILDER_SHADOW_MODULES"],
+		"surfaceKeys": ["toggle:APP_BUILDER_SHADOW_MODULES"],
+		"item": "APP_BUILDER_SHADOW_MODULES (`shadow-app-builder`) [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Module types mirror)",
+		"contentEntries": [
+			"menus-and-case-lists/shadowmodule-shadow-module-version-2",
+			"menus-and-case-lists/shadowmodule-v2-under-a-v2-shadow-menu-mirroring-a-non-shadow"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none: it gates only creating shadow menus in HQ"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 14
+		}
+	},
+	{
+		"id": "toggle/BIOMETRIC_INTEGRATION",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "biometric_integration",
+		"namespaces": ["domain"],
+		"symbols": ["BIOMETRIC_INTEGRATION"],
+		"surfaceKeys": ["toggle:BIOMETRIC_INTEGRATION"],
+		"item": "BIOMETRIC_INTEGRATION [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Case list callout, as an alternative to CASE_LIST_LOOKUP; Android app callouts need only their privileges)",
+		"contentEntries": [
+			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-name",
+			"menus-and-case-lists/lookup-image-jr",
+			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-key-value",
+			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition: CASE_LIST_LOOKUP or BIOMETRIC_INTEGRATION",
+			"requires": {
+				"operator": "any",
+				"gates": ["toggle/CASE_LIST_LOOKUP", "toggle/BIOMETRIC_INTEGRATION"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 15
+		}
+	},
+	{
+		"id": "toggle/BULK_UPDATE_MULTIMEDIA_PATHS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "bulk_update_multimedia_paths",
+		"namespaces": ["domain"],
+		"symbols": ["BULK_UPDATE_MULTIMEDIA_PATHS"],
+		"surfaceKeys": ["toggle:BULK_UPDATE_MULTIMEDIA_PATHS"],
+		"item": "BULK_UPDATE_MULTIMEDIA_PATHS [frozen]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content (a path editor)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 16
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_CLICKABLE_ICON",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_clickable_icon",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_CLICKABLE_ICON"],
+		"surfaceKeys": ["toggle:CASE_LIST_CLICKABLE_ICON"],
+		"item": "CASE_LIST_CLICKABLE_ICON [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Column formats, `clickable-icon`)",
+		"contentEntries": [
+			"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+			"menus-and-case-lists/enum-image-column-carrying-an-endpoint-action-id-on-the-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition (+ SESSION_ENDPOINTS)",
+			"requires": {
+				"operator": "all",
+				"gates": ["toggle/CASE_LIST_CLICKABLE_ICON", "toggle/SESSION_ENDPOINTS"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 17
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_LAZY",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_lazy",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_LAZY"],
+		"surfaceKeys": ["toggle:CASE_LIST_LAZY"],
+		"item": "CASE_LIST_LAZY [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/module-lazy-load-case-list-fields-true"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 18
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_LOOKUP",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_lookup",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_LOOKUP"],
+		"surfaceKeys": ["toggle:CASE_LIST_LOOKUP"],
+		"item": "CASE_LIST_LOOKUP [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Case list callout)",
+		"contentEntries": [
+			"menus-and-case-lists/lookup-enabled-lookup-action",
+			"menus-and-case-lists/lookup-name",
+			"menus-and-case-lists/lookup-image-jr",
+			"menus-and-case-lists/lookup-autolaunch",
+			"menus-and-case-lists/lookup-extras-key-value",
+			"menus-and-case-lists/lookup-responses-key",
+			"menus-and-case-lists/lookup-display-results-lookup-field-header-lookup-field-template"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition (or BIOMETRIC_INTEGRATION)",
+			"requires": {
+				"operator": "any",
+				"gates": ["toggle/CASE_LIST_LOOKUP", "toggle/BIOMETRIC_INTEGRATION"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 19
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_MAP",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_map",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_MAP"],
+		"surfaceKeys": ["toggle:CASE_LIST_MAP"],
+		"item": "CASE_LIST_MAP [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": ["menus-and-case-lists/15-address-popup"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 20
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_OPTIMIZATIONS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_optimizations",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_OPTIMIZATIONS"],
+		"surfaceKeys": ["toggle:CASE_LIST_OPTIMIZATIONS"],
+		"item": "CASE_LIST_OPTIMIZATIONS [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Module fields, Detail columns)",
+		"contentEntries": [
+			"menus-and-case-lists/module-show-case-list-optimization-options",
+			"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 21
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_TILE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_tile",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_TILE"],
+		"surfaceKeys": ["toggle:CASE_LIST_TILE"],
+		"item": "CASE_LIST_TILE [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Detail screens tiles; the flag probe does not check it today: defect 12)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-case-tile-template-custom",
+			"menus-and-case-lists/detail-case-tile-template-icon-text-grid",
+			"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile",
+			"menus-and-case-lists/detail-persist-tile-on-forms",
+			"menus-and-case-lists/detail-persistent-case-tile-from-module",
+			"menus-and-case-lists/detail-pull-down-tile",
+			"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 22
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_TILE_CUSTOM",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_tile_custom",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_TILE_CUSTOM"],
+		"surfaceKeys": ["toggle:CASE_LIST_TILE_CUSTOM"],
+		"item": "CASE_LIST_TILE_CUSTOM [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Detail screens custom tiles)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-case-tile-template-custom",
+			"menus-and-case-lists/long-detail-custom-tile-case-detail-laid-out-as-a-tile"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition for custom tiles (the flag probe does not check it today: defect 12)"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 23
+		}
+	},
+	{
+		"id": "toggle/CASE_SEARCH_ADVANCED",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_search_advanced",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_SEARCH_ADVANCED"],
+		"surfaceKeys": ["toggle:CASE_SEARCH_ADVANCED"],
+		"item": "CASE_SEARCH_ADVANCED [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (Detail screens multi-select; Case search, including result sort, search on clear, checkbox prompts and hidden prompts)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-multi-select",
+			"menus-and-case-lists/detail-auto-select-multi-select",
+			"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list",
+			"case-search/custom-sort-properties-property-name-sort-type-exact-date",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
+			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/additional-case-types",
+			"case-search/custom-related-case-property",
+			"case-search/search-on-clear",
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/input-checkbox-itemset",
+			"case-search/input-date",
+			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-outside-valueexpression",
+			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
+			"case-search/exclude",
+			"case-search/receiver-expression",
+			"questions/text-address",
+			"questions/barcode-numeric-address-or-receive-topic-field"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/query[*]/prompt[*]/@default"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/remote-request[*]/session[*]/query[*]/prompt[*]/@default"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 24
+		}
+	},
+	{
+		"id": "toggle/CASE_SEARCH_RELATED_LOOKUPS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_search_related_lookups",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_SEARCH_RELATED_LOOKUPS"],
+		"surfaceKeys": ["toggle:CASE_SEARCH_RELATED_LOOKUPS"],
+		"item": "CASE_SEARCH_RELATED_LOOKUPS [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (CSQL relation arms, related-case inclusion, ancestor default filters)",
+		"contentEntries": [
+			"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
+			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
+			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition (the flag probe does not check it today: defect 12)"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 25
+		}
+	},
+	{
+		"id": "toggle/COMMTRACK",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "commtrack",
+		"namespaces": ["domain"],
+		"symbols": ["COMMTRACK"],
+		"surfaceKeys": ["toggle:COMMTRACK"],
+		"item": "COMMTRACK [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/advancedmodule-product-details-differing-from-the-default",
+			"menus-and-case-lists/model-product",
+			"menus-and-case-lists/ledger-section",
+			"forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program",
+			"forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non",
+			"questions/balance-transfer-dispense-receive-ledger-blocks",
+			"expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form",
+			"expressions-and-data/ledgerdb-vellum-id-ledger",
+			"expressions-and-data/commtrack-products-commtrack-programs"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 26
+		}
+	},
+	{
+		"id": "toggle/CSQL_FIXTURE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "module_badges",
+		"namespaces": ["domain"],
+		"symbols": ["CSQL_FIXTURE"],
+		"surfaceKeys": ["toggle:CSQL_FIXTURE"],
+		"item": "CSQL_FIXTURE (`module_badges`) [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": ["expressions-and-data/case-search-fixture"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 27
+		}
+	},
+	{
+		"id": "toggle/CUSTOM_INSTANCES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "custom_instances",
+		"namespaces": ["domain"],
+		"symbols": ["CUSTOM_INSTANCES"],
+		"surfaceKeys": ["toggle:CUSTOM_INSTANCES"],
+		"item": "CUSTOM_INSTANCES [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "REFUSED content (freeform)",
+		"contentEntries": ["forms-and-case-writes/custom-instances-non-empty"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse non-empty `custom_instances`"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 28
+		}
+	},
+	{
+		"id": "toggle/CUSTOM_PROPERTIES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "custom_properties",
+		"namespaces": ["domain"],
+		"symbols": ["CUSTOM_PROPERTIES"],
+		"surfaceKeys": ["toggle:CUSTOM_PROPERTIES"],
+		"item": "CUSTOM_PROPERTIES [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "REFUSED content except Nova's derived key (freeform)",
+		"contentEntries": [
+			"application-and-settings/profile-custom-properties-cc-index-case-search-results-equal-to",
+			"application-and-settings/profile-custom-properties-any-other-entry-incl-formplayer-keys"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none: Nova writes the derived key only where the flag is on, since HQ's build omits custom properties elsewhere"
+		},
+		"effects": [
+			{
+				"artifact": "media_profile.ccpr",
+				"path": "/profile/property[@key=cc-index-case-search-results]"
+			},
+			{
+				"artifact": "media_profile.xml",
+				"path": "/profile/property[@key=cc-index-case-search-results]"
+			},
+			{
+				"artifact": "profile.ccpr",
+				"path": "/profile/property[@key=cc-index-case-search-results]"
+			},
+			{
+				"artifact": "profile.xml",
+				"path": "/profile/property[@key=cc-index-case-search-results]"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 29
+		}
+	},
+	{
+		"id": "toggle/DETAIL_LIST_TAB_NODESETS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "detail-list-tab-nodesets",
+		"namespaces": ["domain"],
+		"symbols": ["DETAIL_LIST_TAB_NODESETS"],
+		"surfaceKeys": ["toggle:DETAIL_LIST_TAB_NODESETS"],
+		"item": "DETAIL_LIST_TAB_NODESETS [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Detail tabs data tabs)",
+		"contentEntries": [
+			"menus-and-case-lists/data-tab-over-child-cases-has-nodeset-nodeset-case-type-nodeset",
+			"menus-and-case-lists/data-tab-over-a-custom-nodeset-xpath"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 30
+		}
+	},
+	{
+		"id": "toggle/EXTENSION_CASES_SYNC_ENABLED",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "extension_sync",
+		"namespaces": ["domain"],
+		"symbols": ["EXTENSION_CASES_SYNC_ENABLED"],
+		"surfaceKeys": ["toggle:EXTENSION_CASES_SYNC_ENABLED"],
+		"item": "EXTENSION_CASES_SYNC_ENABLED (`extension_sync`) [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "restore behavior, no document content: extension cases always sync with their host (`phone/data_providers/case/livequery.py`); the flag gates only closing an extension case with its host (`casexml/apps/case/xform.py`), which Preview follows as off",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 31
+		}
+	},
+	{
+		"id": "toggle/FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "followup_forms_as_case_list_form",
+		"namespaces": ["domain"],
+		"symbols": ["FOLLOWUP_FORMS_AS_CASE_LIST_FORM"],
+		"surfaceKeys": ["toggle:FOLLOWUP_FORMS_AS_CASE_LIST_FORM"],
+		"item": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (Case selection extras)",
+		"contentEntries": [
+			"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration",
+			"menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case",
+			"menus-and-case-lists/case-list-form-relevancy-expression-with-followup-forms-as-case",
+			"menus-and-case-lists/case-list-form-relevancy-expression-without-that-toggle",
+			"menus-and-case-lists/case-list-form-missing-not-a-registration-form-toggle-off-or"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition (emission and validation read it)"
+		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/action[*]/@relevant"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 32
+		}
+	},
+	{
+		"id": "toggle/FORM_LINK_ADVANCED_MODE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "form_link_advanced_mode",
+		"namespaces": ["domain"],
+		"symbols": ["FORM_LINK_ADVANCED_MODE"],
+		"surfaceKeys": ["toggle:FORM_LINK_ADVANCED_MODE"],
+		"item": "FORM_LINK_ADVANCED_MODE [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"forms-and-case-writes/form-links-target-any-other-module",
+			"forms-and-case-writes/form-links-datums-with-other-names-or-on-a-module-target"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 33
+		}
+	},
+	{
+		"id": "toggle/GEOCODER_USER_PROXIMITY",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "geocoder_user_proximity",
+		"namespaces": ["domain"],
+		"symbols": ["GEOCODER_USER_PROXIMITY"],
+		"surfaceKeys": ["toggle:GEOCODER_USER_PROXIMITY"],
+		"item": "GEOCODER_USER_PROXIMITY [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no document content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 34
+		}
+	},
+	{
+		"id": "toggle/MOBILE_UCR",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "mobile_ucr",
+		"namespaces": ["domain"],
+		"symbols": ["MOBILE_UCR"],
+		"surfaceKeys": ["toggle:MOBILE_UCR"],
+		"item": "MOBILE_UCR [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"application-and-settings/49p-hq-mobile-ucr-restore-version-1-0-1-5",
+			"menus-and-case-lists/reportmodule-mobile-ucr-and-all-of-report-configs",
+			"menus-and-case-lists/report-context-tile-true",
+			"case-search/input-select1-select-commcare-reports-itemset-mobile-ucr",
+			"expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 35
+		}
+	},
+	{
+		"id": "toggle/NON_PARENT_MENU_SELECTION",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "non_parent_menu_selection",
+		"namespaces": ["domain"],
+		"symbols": ["NON_PARENT_MENU_SELECTION"],
+		"surfaceKeys": ["toggle:NON_PARENT_MENU_SELECTION"],
+		"item": "NON_PARENT_MENU_SELECTION [frozen]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/parent-select-relationship-null-other",
+			"expressions-and-data/case-module-slug-unrelated-parent-select-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 36
+		}
+	},
+	{
+		"id": "toggle/SESSION_ENDPOINTS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "session_endpoints",
+		"namespaces": ["domain"],
+		"symbols": ["SESSION_ENDPOINTS"],
+		"surfaceKeys": ["toggle:SESSION_ENDPOINTS"],
+		"item": "SESSION_ENDPOINTS [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (Module fields, Form fields entry points, including computed datum arguments and mirror-form entry points)",
+		"contentEntries": [
+			"menus-and-case-lists/session-endpoint-id",
+			"menus-and-case-lists/case-list-session-endpoint-id",
+			"menus-and-case-lists/module-or-mirror-form-endpoint-id-that-is-not-a-slugify-fixed",
+			"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+			"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+			"forms-and-case-writes/session-endpoint-id",
+			"forms-and-case-writes/session-endpoint-id-not-a-slug-fixed-point-or-duplicated",
+			"forms-and-case-writes/respect-relevancy-false",
+			"forms-and-case-writes/function-datum-endpoints"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/endpoint[@id=*]"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 37
+		}
+	},
+	{
+		"id": "toggle/SHOW_PERSIST_CASE_CONTEXT_SETTING",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "show_persist_case_context_setting",
+		"namespaces": ["domain"],
+		"symbols": ["SHOW_PERSIST_CASE_CONTEXT_SETTING"],
+		"surfaceKeys": ["toggle:SHOW_PERSIST_CASE_CONTEXT_SETTING"],
+		"item": "SHOW_PERSIST_CASE_CONTEXT_SETTING [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Detail screens)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-persist-case-context-persistent-case-context-xml"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 38
+		}
+	},
+	{
+		"id": "toggle/SYNC_SEARCH_CASE_CLAIM",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "search_claim",
+		"namespaces": ["domain"],
+		"symbols": ["SYNC_SEARCH_CASE_CLAIM"],
+		"surfaceKeys": ["toggle:SYNC_SEARCH_CASE_CLAIM"],
+		"item": "SYNC_SEARCH_CASE_CLAIM (`search_claim`) [frozen]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Case search)",
+		"contentEntries": [
+			"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+			"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+			"case-search/default-properties-entries-keyed-include-closed-or-x-commcare",
+			"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+			"case-search/default-properties-entry-keyed-case-type",
+			"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+			"case-search/custom-sort-properties-property-name-sort-type-exact-date",
+			"case-search/workflow-search-first-auto-launch-true-default-search-false",
+			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
+			"case-search/search-button-display-condition-lifting-into-predicate",
+			"case-search/search-button-display-condition-outside-predicate",
+			"case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+			"case-search/title-label-lang-non-empty",
+			"case-search/title-label-or-blank-hq-s-default",
+			"case-search/description-lang-markdown",
+			"case-search/search-button-label-hq-default-en-search-all-cases",
+			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/additional-case-types",
+			"case-search/custom-related-case-property",
+			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
+			"case-search/include-all-related-cases-false-where-nova-s-relation-reads",
+			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/search-on-clear",
+			"case-search/case-search-endpoint-id",
+			"case-search/the-generated-search-round-trip-remote-request-query-results",
+			"case-search/name-prompt-key-case-property",
+			"case-search/label-lang",
+			"case-search/hint-lang",
+			"case-search/text-prompt-no-input",
+			"case-search/appearance-barcode-scan",
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/input-select1-lookup-itemset",
+			"case-search/input-select-multi-lookup-itemset",
+			"case-search/input-checkbox-itemset",
+			"case-search/input-date",
+			"case-search/input-daterange",
+			"case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
+			"case-search/itemset-sort-over-a-lookup-field",
+			"case-search/itemset-refs-to-item-attributes-attr-or-property-qualified",
+			"case-search/itemset-nodeset-filter-predicate-lifting-into-predicate",
+			"case-search/itemset-nodeset-filter-predicate-outside-predicate",
+			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-outside-valueexpression",
+			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
+			"case-search/allow-blank-value",
+			"case-search/exclude",
+			"case-search/required-test-text",
+			"case-search/validations-0-test-text",
+			"case-search/receiver-expression",
+			"case-search/is-group-group-key",
+			"case-search/prompt-order",
+			"case-search/and-or-parentheses",
+			"case-search/not-q",
+			"case-search/match-all-match-none",
+			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v",
+			"case-search/p-where-p-is-not-date-opened-closed-on-or-last-modified",
+			"case-search/metadata-case-id-owner-id-status-name-case-name-external-id-date",
+			"case-search/metadata-closed-on",
+			"case-search/authored-case-type-comparisons-other-than-a-hop-qualifier",
+			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
+			"case-search/date-v-string-date-datetime-v-string",
+			"case-search/date-int-datetime-number-epoch-days",
+			"case-search/double-v-today-now",
+			"case-search/date-add-d-interval-n-datetime-add",
+			"case-search/unwrap-list",
+			"case-search/selected-p-v-selected-any-selected-all-with-a-literal-v",
+			"case-search/selected-with-a-runtime-assembled-v",
+			"case-search/starts-with-fuzzy-match-phonetic-match-fuzzy-date",
+			"case-search/within-distance-in-miles-kilometers-with-static-radius",
+			"case-search/within-distance-in-yards-feet-inch-meters-centimeters",
+			"case-search/within-distance-with-a-runtime-radius-or-unit",
+			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path",
+			"case-search/clause-chosen-at-runtime-by-input-presence",
+			"case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
+			"case-search/runtime-values-read-from-casedb-or-session-datums",
+			"case-search/runtime-values-read-from-the-session-context-drift-window-width",
+			"case-search/several-xpath-query-rows"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition (+ `CaseSearchConfig.enabled`)",
+			"requires": {
+				"operator": "all",
+				"gates": [
+					"toggle/SYNC_SEARCH_CASE_CLAIM",
+					"project-space-setting/CaseSearchConfig.enabled"
+				]
+			}
+		},
+		"effects": [
+			{
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.description"
+			},
+			{
+				"artifact": "app_strings:*",
+				"path": "/case_search.m*.inputs"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 39
+		}
+	},
+	{
+		"id": "toggle/VALIDATE_APP_TRANSLATIONS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "validate_app_translations",
+		"namespaces": [null],
+		"symbols": ["VALIDATE_APP_TRANSLATIONS"],
+		"surfaceKeys": ["toggle:VALIDATE_APP_TRANSLATIONS"],
+		"item": "VALIDATE_APP_TRANSLATIONS [frozen]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 40
+		}
+	},
+	{
+		"id": "toggle/ADD_ROW_INDEX_TO_MOBILE_UCRS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "add_row_index_to_mobile_ucrs",
+		"namespaces": ["domain"],
+		"symbols": ["ADD_ROW_INDEX_TO_MOBILE_UCRS"],
+		"surfaceKeys": ["toggle:ADD_ROW_INDEX_TO_MOBILE_UCRS"],
+		"item": "ADD_ROW_INDEX_TO_MOBILE_UCRS [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "refuses nothing (everything it touches is MOBILE_UCR's)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 41
+		}
+	},
+	{
+		"id": "toggle/ALLOW_BLANK_CASE_TAGS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "allow_blank_case_tags",
+		"namespaces": ["domain"],
+		"symbols": ["ALLOW_BLANK_CASE_TAGS"],
+		"surfaceKeys": ["toggle:ALLOW_BLANK_CASE_TAGS"],
+		"item": "ALLOW_BLANK_CASE_TAGS [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "refuses nothing (HQ's editor marks a blank case tag an error with or without it; the blank tag is refused as not HQ-editable, Advanced form actions)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 42
+		}
+	},
+	{
+		"id": "toggle/APP_DEPENDENCIES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "app-dependencies",
+		"namespaces": ["domain"],
+		"symbols": ["APP_DEPENDENCIES"],
+		"surfaceKeys": ["toggle:APP_DEPENDENCIES"],
+		"item": "APP_DEPENDENCIES (toggle) [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "refuses nothing (dead; the privilege gates `features.dependencies`)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 43
+		}
+	},
+	{
+		"id": "toggle/CACHE_AND_INDEX",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "cache_and_index",
+		"namespaces": ["domain"],
+		"symbols": ["CACHE_AND_INDEX"],
+		"surfaceKeys": ["toggle:CACHE_AND_INDEX"],
+		"item": "CACHE_AND_INDEX [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/type-index-cache-and-index-order-2"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 44
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_CUSTOM_VARIABLES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_custom_variables",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_CUSTOM_VARIABLES"],
+		"surfaceKeys": ["toggle:CASE_LIST_CUSTOM_VARIABLES"],
+		"item": "CASE_LIST_CUSTOM_VARIABLES [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/detail-custom-variables-dict-non-empty"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 45
+		}
+	},
+	{
+		"id": "toggle/CASE_LIST_CUSTOM_XML",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_list_custom_xml",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_LIST_CUSTOM_XML"],
+		"surfaceKeys": ["toggle:CASE_LIST_CUSTOM_XML"],
+		"item": "CASE_LIST_CUSTOM_XML [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": ["menus-and-case-lists/detail-custom-xml-non-empty"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 46
+		}
+	},
+	{
+		"id": "toggle/CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_search_deprecated_normal_case_list",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST"],
+		"surfaceKeys": ["toggle:CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST"],
+		"item": "CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 47
+		}
+	},
+	{
+		"id": "toggle/CUSTOM_ASSERTIONS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "custom_assertions",
+		"namespaces": ["domain"],
+		"symbols": ["CUSTOM_ASSERTIONS"],
+		"surfaceKeys": ["toggle:CUSTOM_ASSERTIONS"],
+		"item": "CUSTOM_ASSERTIONS [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"application-and-settings/non-empty-custom-assertions-app",
+			"menus-and-case-lists/custom-assertions-module-non-empty",
+			"forms-and-case-writes/custom-assertions-form-non-empty"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 48
+		}
+	},
+	{
+		"id": "toggle/DATA_REGISTRY",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "data_registry",
+		"namespaces": ["domain"],
+		"symbols": ["DATA_REGISTRY"],
+		"surfaceKeys": ["toggle:DATA_REGISTRY"],
+		"item": "DATA_REGISTRY [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"case-search/default-properties-entry-keyed-x-commcare-data-registry",
+			"case-search/data-registry-data-registry-workflow-additional-registry-cases",
+			"expressions-and-data/registry-jr-instance-remote-registry",
+			"expressions-and-data/registry-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 49
+		}
+	},
+	{
+		"id": "toggle/DONT_INDEX_SAME_CASETYPE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "dont_index_same_casetype",
+		"namespaces": ["domain"],
+		"symbols": ["DONT_INDEX_SAME_CASETYPE"],
+		"surfaceKeys": ["toggle:DONT_INDEX_SAME_CASETYPE"],
+		"item": "DONT_INDEX_SAME_CASETYPE [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED where on (see \"What is refused\")",
+		"contentEntries": [
+			"forms-and-case-writes/subcase-of-the-module-s-own-case-type-in-a-project-space-with"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "flag probe; refuse same-type basic child cases"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 50
+		}
+	},
+	{
+		"id": "toggle/FIXTURE_CASE_SELECTION",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "fixture_case",
+		"namespaces": ["domain"],
+		"symbols": ["FIXTURE_CASE_SELECTION"],
+		"surfaceKeys": ["toggle:FIXTURE_CASE_SELECTION"],
+		"item": "FIXTURE_CASE_SELECTION [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/fixture-select-active-true",
+			"forms-and-case-writes/form-filter-using-fixture-value"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 51
+		}
+	},
+	{
+		"id": "toggle/GRAPH_CREATION",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "graph-creation",
+		"namespaces": ["domain"],
+		"symbols": ["GRAPH_CREATION"],
+		"surfaceKeys": ["toggle:GRAPH_CREATION"],
+		"item": "GRAPH_CREATION [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": ["menus-and-case-lists/22-graph"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 52
+		}
+	},
+	{
+		"id": "toggle/HIERARCHICAL_LOCATION_FIXTURE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "hierarchical_location_fixture",
+		"namespaces": ["domain"],
+		"symbols": ["HIERARCHICAL_LOCATION_FIXTURE"],
+		"surfaceKeys": ["toggle:HIERARCHICAL_LOCATION_FIXTURE"],
+		"item": "HIERARCHICAL_LOCATION_FIXTURE [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"application-and-settings/50pp-hq-location-fixture-restore-only-hierarchical-fixture",
+			"menus-and-case-lists/location-type",
+			"expressions-and-data/commtrack-locations-hierarchical"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 53
+		}
+	},
+	{
+		"id": "toggle/LAZY_LOAD_MULTIMEDIA",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "optional-media",
+		"namespaces": ["domain"],
+		"symbols": ["LAZY_LOAD_MULTIMEDIA"],
+		"surfaceKeys": ["toggle:LAZY_LOAD_MULTIMEDIA"],
+		"item": "LAZY_LOAD_MULTIMEDIA [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"application-and-settings/2-properties-lazy-load-video-files-true"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 54
+		}
+	},
+	{
+		"id": "toggle/LEGACY_CHILD_MODULES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "legacy_child_modules",
+		"namespaces": ["domain"],
+		"symbols": ["LEGACY_CHILD_MODULES"],
+		"surfaceKeys": ["toggle:LEGACY_CHILD_MODULES"],
+		"item": "LEGACY_CHILD_MODULES [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/menu-order-that-separates-a-child-from-its-parent"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 55
+		}
+	},
+	{
+		"id": "toggle/MM_CASE_PROPERTIES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "mm_case_properties",
+		"namespaces": ["domain"],
+		"symbols": ["MM_CASE_PROPERTIES"],
+		"surfaceKeys": ["toggle:MM_CASE_PROPERTIES"],
+		"item": "MM_CASE_PROPERTIES [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/17-picture",
+			"menus-and-case-lists/18-audio",
+			"menus-and-case-lists/attachment-name-with-any-other-format",
+			"forms-and-case-writes/update-from-an-upload-question-attachment-mode"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 56
+		}
+	},
+	{
+		"id": "toggle/TARGET_COMMCARE_FLAVOR",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "target_commcare_flavor",
+		"namespaces": ["domain"],
+		"symbols": ["TARGET_COMMCARE_FLAVOR"],
+		"surfaceKeys": ["toggle:TARGET_COMMCARE_FLAVOR"],
+		"item": "TARGET_COMMCARE_FLAVOR [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"application-and-settings/48p-hq-target-commcare-flavor-commcare-commcare-lts"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 57
+		}
+	},
+	{
+		"id": "toggle/TRAINING_MODULE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "training-module",
+		"namespaces": ["domain"],
+		"symbols": ["TRAINING_MODULE"],
+		"surfaceKeys": ["toggle:TRAINING_MODULE"],
+		"item": "TRAINING_MODULE [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/module-with-is-training-module-true-training-menu-root-training",
+			"menus-and-case-lists/any-module-under-a-training-menu",
+			"forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 58
+		}
+	},
+	{
+		"id": "toggle/USER_CONFIGURABLE_REPORTS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "user_reports",
+		"namespaces": ["domain", null],
+		"symbols": ["USER_CONFIGURABLE_REPORTS"],
+		"surfaceKeys": ["toggle:USER_CONFIGURABLE_REPORTS"],
+		"item": "USER_CONFIGURABLE_REPORTS [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "refuses nothing (everything it touches is MOBILE_UCR's)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 59
+		}
+	},
+	{
+		"id": "toggle/V1_SHADOW_MODULES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "v1-shadows",
+		"namespaces": ["domain"],
+		"symbols": ["V1_SHADOW_MODULES"],
+		"surfaceKeys": ["toggle:V1_SHADOW_MODULES"],
+		"item": "V1_SHADOW_MODULES [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/shadowmodule-version-1-or-key-absent-model-default-1"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 60
+		}
+	},
+	{
+		"id": "toggle/VELLUM_DATA_IN_SETVALUE",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "allow_data_reference_in_setvalue",
+		"namespaces": ["domain"],
+		"symbols": ["VELLUM_DATA_IN_SETVALUE"],
+		"surfaceKeys": ["toggle:VELLUM_DATA_IN_SETVALUE"],
+		"item": "VELLUM_DATA_IN_SETVALUE [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "refuses nothing (a `#form/` read in a default value is the same state as the relative read HQ's editors produce without it, questions.md, Binds, actions, model and head content)",
+		"contentEntries": ["questions/a-default-value-that-reads-form-nodes"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 61
+		}
+	},
+	{
+		"id": "toggle/VELLUM_PRINTING",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "printing",
+		"namespaces": ["domain"],
+		"symbols": ["VELLUM_PRINTING"],
+		"surfaceKeys": ["toggle:VELLUM_PRINTING"],
+		"item": "VELLUM_PRINTING [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"questions/print-callout-class-org-commcare-dalvik-action-print-extra-cc",
+			"expressions-and-data/print-template-jr-file-commcare-text-id-html"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 62
+		}
+	},
+	{
+		"id": "toggle/VISIT_SCHEDULER",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "app_builder_visit_scheduler",
+		"namespaces": ["domain", null],
+		"symbols": ["VISIT_SCHEDULER"],
+		"surfaceKeys": ["toggle:VISIT_SCHEDULER"],
+		"item": "VISIT_SCHEDULER [deprecated]",
+		"class": {
+			"kind": "retiring"
+		},
+		"content": "REFUSED (see \"What is refused\")",
+		"contentEntries": [
+			"menus-and-case-lists/advancedmodule-has-schedule-true-or-schedule-phases-non-empty",
+			"menus-and-case-lists/schedule-var",
+			"forms-and-case-writes/schedule-form-id-set",
+			"forms-and-case-writes/advancedform-schedule-with-enabled-true-visits-transition",
+			"expressions-and-data/schedule-m-p-f"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 63
+		}
+	},
+	{
+		"id": "toggle/CUSTOM_ICON_BADGES",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "custom_icon_badges",
+		"namespaces": ["domain"],
+		"privilege": "CUSTOM_ICON_BADGES",
+		"symbols": ["CUSTOM_ICON_BADGES"],
+		"surfaceKeys": ["toggle:CUSTOM_ICON_BADGES"],
+		"item": "CUSTOM_ICON_BADGES [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (badges Module fields, Form fields)",
+		"contentEntries": [
+			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+			"forms-and-case-writes/custom-icons-0"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "privilege `custom_icon_badges`",
+			"requires": {
+				"operator": "all",
+				"gates": ["privilege/custom_icon_badges"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 64
+		}
+	},
+	{
+		"id": "toggle/DATA_DICTIONARY",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "data_dictionary",
+		"namespaces": ["domain"],
+		"privilege": "DATA_DICTIONARY",
+		"symbols": ["DATA_DICTIONARY"],
+		"surfaceKeys": ["toggle:DATA_DICTIONARY"],
+		"item": "DATA_DICTIONARY [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 65
+		}
+	},
+	{
+		"id": "toggle/FORM_LINK_WORKFLOW",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "form_link_workflow",
+		"namespaces": ["domain"],
+		"privilege": "FORM_LINK_WORKFLOW",
+		"symbols": ["FORM_LINK_WORKFLOW"],
+		"surfaceKeys": ["toggle:FORM_LINK_WORKFLOW"],
+		"item": "FORM_LINK_WORKFLOW [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Form fields links)",
+		"contentEntries": [
+			"forms-and-case-writes/post-form-workflow-form",
+			"forms-and-case-writes/post-form-workflow-fallback-module-or-previous-screen-offered-in",
+			"forms-and-case-writes/post-form-workflow-fallback-root-or-parent-module-offered-in",
+			"forms-and-case-writes/form-links-target-a-form-any-suite-form",
+			"forms-and-case-writes/form-links-target-the-current-form-or-a-link-cycle",
+			"forms-and-case-writes/form-links-target-a-top-level-or-child-matched-module-that-does",
+			"forms-and-case-writes/form-links-xpath",
+			"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
+			"forms-and-case-writes/form-links-datums-on-a-form-target-names-among-the-target-s",
+			"forms-and-case-writes/form-links-form-module-id"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "privilege `form_link_workflow`",
+			"requires": {
+				"operator": "all",
+				"gates": ["privilege/form_link_workflow"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 66
+		}
+	},
+	{
+		"id": "toggle/GEOCODER_MY_LOCATION_BUTTON",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "geocoder_my_location_button",
+		"namespaces": ["domain"],
+		"symbols": ["GEOCODER_MY_LOCATION_BUTTON"],
+		"surfaceKeys": ["toggle:GEOCODER_MY_LOCATION_BUTTON"],
+		"item": "GEOCODER_MY_LOCATION_BUTTON [GA path]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 67
+		}
+	},
+	{
+		"id": "toggle/MOBILE_USER_DEMO_MODE",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "mobile_user_demo_mode",
+		"namespaces": ["domain"],
+		"privilege": "PRACTICE_MOBILE_WORKERS",
+		"symbols": ["MOBILE_USER_DEMO_MODE"],
+		"surfaceKeys": ["toggle:MOBILE_USER_DEMO_MODE"],
+		"item": "MOBILE_USER_DEMO_MODE [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "`practice_mobile_worker_id` target value",
+		"contentEntries": [
+			"application-and-settings/35-hq-practice-mobile-worker-id"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 68
+		}
+	},
+	{
+		"id": "toggle/PHONE_HEARTBEAT",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "phone_apk_heartbeat",
+		"namespaces": ["domain"],
+		"privilege": "PHONE_APK_HEARTBEAT",
+		"symbols": ["PHONE_HEARTBEAT"],
+		"surfaceKeys": ["toggle:PHONE_HEARTBEAT"],
+		"item": "PHONE_HEARTBEAT [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no document content (`GlobalAppConfig`)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 69
+		}
+	},
+	{
+		"id": "toggle/SAVE_ONLY_EDITED_FORM_FIELDS",
+		"kind": "toggle",
+		"hqToggleClass": "FeatureRelease",
+		"slug": "save-only-edited-form-fields",
+		"namespaces": ["domain"],
+		"symbols": ["SAVE_ONLY_EDITED_FORM_FIELDS"],
+		"surfaceKeys": ["toggle:SAVE_ONLY_EDITED_FORM_FIELDS"],
+		"item": "SAVE_ONLY_EDITED_FORM_FIELDS [GA path]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Basic form actions `update_mode: edit`)",
+		"contentEntries": [
+			"forms-and-case-writes/conditionalcaseupdate-update-mode-edit"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 70
+		}
+	},
+	{
+		"id": "toggle/SORT_CALCULATION_IN_CASE_LIST",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "sort_calculation_in_case_list",
+		"namespaces": ["domain"],
+		"symbols": ["SORT_CALCULATION_IN_CASE_LIST"],
+		"surfaceKeys": ["toggle:SORT_CALCULATION_IN_CASE_LIST"],
+		"item": "SORT_CALCULATION_IN_CASE_LIST [GA path]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Sorting `sort_calculation`)",
+		"contentEntries": [
+			"menus-and-case-lists/sort-calculation-authored-calculation-row-field"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 71
+		}
+	},
+	{
+		"id": "toggle/USH_EMPTY_CASE_LIST_TEXT",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "empty_case_list_text",
+		"namespaces": ["domain"],
+		"symbols": ["USH_EMPTY_CASE_LIST_TEXT"],
+		"surfaceKeys": ["toggle:USH_EMPTY_CASE_LIST_TEXT"],
+		"item": "USH_EMPTY_CASE_LIST_TEXT (`empty_case_list_text`) [GA path]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Detail screens `no_items_text`)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+			"menus-and-case-lists/detail-no-items-text-equal-to-hq-s-default"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"effects": [
+			{
+				"artifact": "app_strings:*",
+				"path": "/m*_no_items_text"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]/no_items_text[*]"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 72
+		}
+	},
+	{
+		"id": "toggle/VELLUM_ALLOW_BULK_FORM_ACTIONS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "allow_bulk_form_actions",
+		"namespaces": ["domain"],
+		"symbols": ["VELLUM_ALLOW_BULK_FORM_ACTIONS"],
+		"surfaceKeys": ["toggle:VELLUM_ALLOW_BULK_FORM_ACTIONS"],
+		"item": "VELLUM_ALLOW_BULK_FORM_ACTIONS [GA path]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 73
+		}
+	},
+	{
+		"id": "toggle/VELLUM_SAVE_TO_CASE",
+		"kind": "toggle",
+		"hqToggleClass": "FrozenPrivilegeToggle",
+		"slug": "save_to_case",
+		"namespaces": ["domain"],
+		"privilege": "VELLUM_SAVE_TO_CASE",
+		"symbols": ["VELLUM_SAVE_TO_CASE"],
+		"surfaceKeys": ["toggle:VELLUM_SAVE_TO_CASE"],
+		"item": "VELLUM_SAVE_TO_CASE [GA path, frozen privilege]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Question types SaveToCase)",
+		"contentEntries": [
+			"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+			"questions/savetocase-case-type-given-as-an-xpath",
+			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+			"questions/savetocase-update-case-id-xpath",
+			"questions/savetocase-property-rows-calculation-condition-lifting-into",
+			"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
+			"questions/savetocase-property-names-with-hyphens-a-z-w-case-insensitive",
+			"questions/savetocase-open-case-condition",
+			"questions/a-close-only-savetocase-block-with-a-close-condition",
+			"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
+			"questions/savetocase-owner",
+			"questions/savetocase-owner-id-condition",
+			"questions/savetocase-link-index-name-child-extension-and-unlink-empty",
+			"questions/savetocase-inside-a-repeat",
+			"questions/savetocase-inside-a-group-whose-display-condition-gates-it"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "privilege `save_to_case`, confirmed at publish (without it a Vellum save breaks every case transaction)",
+			"requires": {
+				"operator": "all",
+				"gates": ["privilege/save_to_case"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 74
+		}
+	},
+	{
+		"id": "toggle/WEB_APPS_ANCHORED_SUBMIT",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "web_apps_anchored_submit",
+		"namespaces": ["domain"],
+		"symbols": ["WEB_APPS_ANCHORED_SUBMIT"],
+		"surfaceKeys": ["toggle:WEB_APPS_ANCHORED_SUBMIT"],
+		"item": "WEB_APPS_ANCHORED_SUBMIT [GA path]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 75
+		}
+	},
+	{
+		"id": "toggle/CASE_SEARCH_ENDPOINTS",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "case_search_endpoints",
+		"namespaces": ["domain"],
+		"symbols": ["CASE_SEARCH_ENDPOINTS"],
+		"surfaceKeys": ["toggle:CASE_SEARCH_ENDPOINTS"],
+		"item": "CASE_SEARCH_ENDPOINTS [internal]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Search configuration typed endpoint reference)",
+		"contentEntries": ["case-search/case-search-endpoint-id"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition; publish states the endpoint dependency, which Nova cannot see"
+		},
+		"effects": [],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 76
+		}
+	},
+	{
+		"id": "toggle/COPY_FORM_TO_APP",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "copy_form_to_app",
+		"namespaces": ["domain", null],
+		"symbols": ["COPY_FORM_TO_APP"],
+		"surfaceKeys": ["toggle:COPY_FORM_TO_APP"],
+		"item": "COPY_FORM_TO_APP [internal]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 77
+		}
+	},
+	{
+		"id": "toggle/CUSTOM_APP_BASE_URL",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "custom_app_base_url",
+		"namespaces": ["domain"],
+		"symbols": ["CUSTOM_APP_BASE_URL"],
+		"surfaceKeys": ["toggle:CUSTOM_APP_BASE_URL"],
+		"item": "CUSTOM_APP_BASE_URL [internal]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "`custom_base_url` target value",
+		"contentEntries": ["application-and-settings/36-hq-custom-base-url"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 78
+		}
+	},
+	{
+		"id": "toggle/IS_CONTRACTOR",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "is_contractor",
+		"namespaces": [null],
+		"symbols": ["IS_CONTRACTOR"],
+		"surfaceKeys": ["toggle:IS_CONTRACTOR"],
+		"item": "IS_CONTRACTOR [internal, user]",
+		"class": {
+			"kind": "inert"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 79
+		}
+	},
+	{
+		"id": "toggle/MOBILE_RECOVERY_MEASURES",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "mobile_recovery_measures",
+		"namespaces": ["domain"],
+		"symbols": ["MOBILE_RECOVERY_MEASURES"],
+		"surfaceKeys": ["toggle:MOBILE_RECOVERY_MEASURES"],
+		"item": "MOBILE_RECOVERY_MEASURES [internal]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "computed profile URL",
+		"contentEntries": [
+			"application-and-settings/target-derived-profile-properties-posturl-posttesturl-ota"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"effects": [
+			{
+				"artifact": "media_profile.ccpr",
+				"path": "/profile/property[@key=recovery-measures-url]"
+			},
+			{
+				"artifact": "media_profile.xml",
+				"path": "/profile/property[@key=recovery-measures-url]"
+			},
+			{
+				"artifact": "profile.ccpr",
+				"path": "/profile/property[@key=recovery-measures-url]"
+			},
+			{
+				"artifact": "profile.xml",
+				"path": "/profile/property[@key=recovery-measures-url]"
+			}
+		],
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 80
+		}
+	},
+	{
+		"id": "toggle/FACE_CAPTURE",
+		"kind": "toggle",
+		"hqToggleClass": "FeatureRelease",
+		"slug": "face_capture",
+		"namespaces": [null, "domain"],
+		"symbols": ["FACE_CAPTURE"],
+		"surfaceKeys": ["toggle:FACE_CAPTURE"],
+		"item": "FACE_CAPTURE [release]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Question types face capture)",
+		"contentEntries": ["questions/face-capture-image-face"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 81
+		}
+	},
+	{
+		"id": "toggle/COMMCARE_CONNECT",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "commcare_connect",
+		"namespaces": ["domain"],
+		"symbols": ["COMMCARE_CONNECT"],
+		"surfaceKeys": ["toggle:COMMCARE_CONNECT"],
+		"item": "COMMCARE_CONNECT [connect division]",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (Question types Connect blocks)",
+		"contentEntries": [
+			"questions/connect-learn-module",
+			"questions/connect-assessment",
+			"questions/connect-deliver-unit",
+			"questions/connect-task",
+			"questions/connect-work-area-update"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "precondition"
+		},
+		"source": {
+			"kind": "row",
+			"table": "app-building-toggles",
+			"line": 82
+		}
+	},
+	{
+		"id": "toggle/VIEW_FORM_ATTACHMENT",
+		"kind": "toggle",
+		"hqToggleClass": "StaticToggle",
+		"slug": "view_form_attachments",
+		"namespaces": ["domain"],
+		"symbols": ["VIEW_FORM_ATTACHMENT"],
+		"surfaceKeys": ["toggle:VIEW_FORM_ATTACHMENT"],
+		"item": "`VIEW_FORM_ATTACHMENT` [GA path]",
+		"class": {
+			"kind": "publish-check"
+		},
+		"content": "for an app that shows a link write in a case list or detail",
+		"contentEntries": [
+			"forms-and-case-writes/capture-link-write-a-hidden-value-whose-calculate-builds-hq-s"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "publish-checks",
+			"line": 84
+		}
+	},
+	{
+		"id": "project-space-setting/CaseSearchConfig.enabled",
+		"kind": "project-space-setting",
+		"symbols": ["CaseSearchConfig.enabled"],
+		"surfaceKeys": ["project-setting:CaseSearchConfig.enabled"],
+		"item": "whether case search is on (`CaseSearchConfig.enabled`)",
+		"class": {
+			"kind": "publish-check"
+		},
+		"content": "for an app with case search",
+		"contentEntries": [
+			"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+			"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+			"case-search/default-properties-entries-keyed-include-closed-or-x-commcare",
+			"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+			"case-search/default-properties-entry-keyed-case-type",
+			"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+			"case-search/custom-sort-properties-property-name-sort-type-exact-date",
+			"case-search/workflow-search-first-auto-launch-true-default-search-false",
+			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
+			"case-search/search-button-display-condition-lifting-into-predicate",
+			"case-search/search-button-display-condition-outside-predicate",
+			"case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+			"case-search/title-label-lang-non-empty",
+			"case-search/title-label-or-blank-hq-s-default",
+			"case-search/description-lang-markdown",
+			"case-search/search-button-label-hq-default-en-search-all-cases",
+			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/additional-case-types",
+			"case-search/custom-related-case-property",
+			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
+			"case-search/include-all-related-cases-false-where-nova-s-relation-reads",
+			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/search-on-clear",
+			"case-search/case-search-endpoint-id",
+			"case-search/the-generated-search-round-trip-remote-request-query-results",
+			"case-search/name-prompt-key-case-property",
+			"case-search/label-lang",
+			"case-search/hint-lang",
+			"case-search/text-prompt-no-input",
+			"case-search/appearance-barcode-scan",
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/input-select1-lookup-itemset",
+			"case-search/input-select-multi-lookup-itemset",
+			"case-search/input-checkbox-itemset",
+			"case-search/input-date",
+			"case-search/input-daterange",
+			"case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
+			"case-search/itemset-sort-over-a-lookup-field",
+			"case-search/itemset-refs-to-item-attributes-attr-or-property-qualified",
+			"case-search/itemset-nodeset-filter-predicate-lifting-into-predicate",
+			"case-search/itemset-nodeset-filter-predicate-outside-predicate",
+			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-outside-valueexpression",
+			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
+			"case-search/allow-blank-value",
+			"case-search/exclude",
+			"case-search/required-test-text",
+			"case-search/validations-0-test-text",
+			"case-search/receiver-expression",
+			"case-search/is-group-group-key",
+			"case-search/prompt-order",
+			"case-search/and-or-parentheses",
+			"case-search/not-q",
+			"case-search/match-all-match-none",
+			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v",
+			"case-search/p-where-p-is-not-date-opened-closed-on-or-last-modified",
+			"case-search/metadata-case-id-owner-id-status-name-case-name-external-id-date",
+			"case-search/metadata-closed-on",
+			"case-search/authored-case-type-comparisons-other-than-a-hop-qualifier",
+			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
+			"case-search/date-v-string-date-datetime-v-string",
+			"case-search/date-int-datetime-number-epoch-days",
+			"case-search/double-v-today-now",
+			"case-search/date-add-d-interval-n-datetime-add",
+			"case-search/unwrap-list",
+			"case-search/selected-p-v-selected-any-selected-all-with-a-literal-v",
+			"case-search/selected-with-a-runtime-assembled-v",
+			"case-search/starts-with-fuzzy-match-phonetic-match-fuzzy-date",
+			"case-search/within-distance-in-miles-kilometers-with-static-radius",
+			"case-search/within-distance-in-yards-feet-inch-meters-centimeters",
+			"case-search/within-distance-with-a-runtime-radius-or-unit",
+			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path",
+			"case-search/clause-chosen-at-runtime-by-input-presence",
+			"case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
+			"case-search/runtime-values-read-from-casedb-or-session-datums",
+			"case-search/runtime-values-read-from-the-session-context-drift-window-width",
+			"case-search/several-xpath-query-rows"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`)"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "publish-checks",
+			"line": 84
+		}
+	},
+	{
+		"id": "project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
+		"kind": "project-space-setting",
+		"symbols": ["CaseSearchConfig.sync_cases_on_form_entry"],
+		"surfaceKeys": [
+			"project-setting:CaseSearchConfig.sync_cases_on_form_entry"
+		],
+		"item": "sync on form entry",
+		"class": {
+			"kind": "publish-check"
+		},
+		"content": "for an app that declares Android and has a module that offers search (defect 20)",
+		"contentEntries": [
+			"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
+			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
+			"case-search/default-properties-entry-keyed-owner-id-case-id-commcare-project",
+			"case-search/default-properties-entries-keyed-include-closed-or-x-commcare",
+			"case-search/default-properties-entry-keyed-commcare-sort-x-commcare-custom",
+			"case-search/default-properties-entry-keyed-case-type",
+			"case-search/default-properties-entry-keyed-commcare-blacklisted-owner-ids",
+			"case-search/custom-sort-properties-property-name-sort-type-exact-date",
+			"case-search/workflow-search-first-auto-launch-true-default-search-false",
+			"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
+			"case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+			"case-search/inline-search-default-search-on-a-module-with-visible-inputs",
+			"case-search/search-button-display-condition-lifting-into-predicate",
+			"case-search/search-button-display-condition-outside-predicate",
+			"case-search/blacklisted-owner-ids-expression-lifting-into-valueexpression",
+			"case-search/blacklisted-owner-ids-expression-without-that-clause",
+			"case-search/blacklisted-owner-ids-expression-outside-valueexpression",
+			"case-search/title-label-lang-non-empty",
+			"case-search/title-label-or-blank-hq-s-default",
+			"case-search/description-lang-markdown",
+			"case-search/search-button-label-hq-default-en-search-all-cases",
+			"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it",
+			"case-search/additional-case-types",
+			"case-search/custom-related-case-property",
+			"case-search/include-all-related-cases-implied-by-nova-relation-reads",
+			"case-search/include-all-related-cases-false-where-nova-s-relation-reads",
+			"case-search/include-all-related-cases-authored-without-relation-reads",
+			"case-search/search-on-clear",
+			"case-search/case-search-endpoint-id",
+			"case-search/the-generated-search-round-trip-remote-request-query-results",
+			"case-search/domain-casesearchconfig-sync-cases-on-form-entry",
+			"case-search/name-prompt-key-case-property",
+			"case-search/label-lang",
+			"case-search/hint-lang",
+			"case-search/text-prompt-no-input",
+			"case-search/appearance-barcode-scan",
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/input-select1-lookup-itemset",
+			"case-search/input-select-multi-lookup-itemset",
+			"case-search/input-checkbox-itemset",
+			"case-search/input-date",
+			"case-search/input-daterange",
+			"case-search/itemset-instance-id-item-list-tag-nodeset-label-value-over",
+			"case-search/itemset-sort-over-a-lookup-field",
+			"case-search/itemset-refs-to-item-attributes-attr-or-property-qualified",
+			"case-search/itemset-nodeset-filter-predicate-lifting-into-predicate",
+			"case-search/itemset-nodeset-filter-predicate-outside-predicate",
+			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-outside-valueexpression",
+			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset",
+			"case-search/hidden-exclude-without-a-default-value-on-a-prompt-with-no",
+			"case-search/hidden-without-exclude-on-a-prompt-with-no-itemset-input-type-or",
+			"case-search/hidden-on-a-prompt-that-carries-an-itemset-input-type-or",
+			"case-search/allow-blank-value",
+			"case-search/exclude",
+			"case-search/required-test-text",
+			"case-search/validations-0-test-text",
+			"case-search/receiver-expression",
+			"case-search/is-group-group-key",
+			"case-search/prompt-order",
+			"case-search/and-or-parentheses",
+			"case-search/not-q",
+			"case-search/match-all-match-none",
+			"case-search/p-v-p-v-literal-value-function-or-runtime-value-and-p-v-p-v-p-v",
+			"case-search/p-where-p-is-not-date-opened-closed-on-or-last-modified",
+			"case-search/metadata-case-id-owner-id-status-name-case-name-external-id-date",
+			"case-search/metadata-closed-on",
+			"case-search/authored-case-type-comparisons-other-than-a-hop-qualifier",
+			"case-search/date-only-comparison-on-date-opened-closed-on-last-modified",
+			"case-search/date-v-string-date-datetime-v-string",
+			"case-search/date-int-datetime-number-epoch-days",
+			"case-search/double-v-today-now",
+			"case-search/date-add-d-interval-n-datetime-add",
+			"case-search/unwrap-list",
+			"case-search/selected-p-v-selected-any-selected-all-with-a-literal-v",
+			"case-search/selected-with-a-runtime-assembled-v",
+			"case-search/starts-with-fuzzy-match-phonetic-match-fuzzy-date",
+			"case-search/within-distance-in-miles-kilometers-with-static-radius",
+			"case-search/within-distance-in-yards-feet-inch-meters-centimeters",
+			"case-search/within-distance-with-a-runtime-radius-or-unit",
+			"case-search/subcase-exists-id-q-subcase-count-id-q-op-n-ancestor-exists-path",
+			"case-search/clause-chosen-at-runtime-by-input-presence",
+			"case-search/clause-chosen-at-runtime-by-a-condition-over-session-worker",
+			"case-search/runtime-values-read-from-casedb-or-session-datums",
+			"case-search/runtime-values-read-from-the-session-context-drift-window-width",
+			"case-search/several-xpath-query-rows"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "by asking the person to confirm, since no API reads those settings: that sync on form entry is off"
+		},
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/instance[@id=*]"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/post[*]"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/post[*]/@relevant"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/post[*]/data[*]/@exclude"
+			}
+		],
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "publish-checks",
+			"line": 84
+		}
+	},
+	{
+		"id": "project-space-setting/LocationFixtureConfiguration.sync_flat_fixture",
+		"kind": "project-space-setting",
+		"symbols": ["LocationFixtureConfiguration.sync_flat_fixture"],
+		"surfaceKeys": [
+			"project-setting:LocationFixtureConfiguration.sync_flat_fixture"
+		],
+		"item": "the flat location fixture",
+		"class": {
+			"kind": "publish-check"
+		},
+		"content": "for an app that reads locations (Settings and profile)",
+		"contentEntries": [
+			"application-and-settings/50-hq-location-fixture-restore-project-default",
+			"application-and-settings/50p-hq-location-fixture-restore-both-fixtures-only-flat-fixture",
+			"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "that the flat location fixture still syncs"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "publish-checks",
+			"line": 84
+		}
+	},
+	{
+		"id": "project-space-setting/Domain.commtrack_enabled",
+		"kind": "project-space-setting",
+		"symbols": ["Domain.commtrack_enabled"],
+		"surfaceKeys": ["project-setting:Domain.commtrack_enabled"],
+		"item": "CommTrack",
+		"class": {
+			"kind": "publish-check"
+		},
+		"content": "at import and publish of an app with an advanced module whose case list menu item is on, or with a form whose source contains the text `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`)",
+		"contentEntries": [
+			"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
+			"menus-and-case-lists/advancedmodule-product-details-equal-to-the-default-single-name",
+			"forms-and-case-writes/supply-point-id-datum-hq-injects-under-commtrack-enabled-into",
+			"expressions-and-data/session-data-supply-point-id-in-an-advanced-form-whose-computed"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "by asking the person to confirm, that CommTrack is off in the project space (defect 20)"
+		},
+		"effects": [],
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "publish-checks",
+			"line": 84
+		}
+	},
+	{
+		"id": "removed-toggle/inline_case_search",
+		"kind": "removed-toggle",
+		"symbols": ["inline_case_search"],
+		"surfaceKeys": [],
+		"item": "`inline_case_search` (USH_INLINE_SEARCH, removed)",
+		"class": {
+			"kind": "now",
+			"gate": "toggle/CASE_SEARCH_ADVANCED"
+		},
+		"content": "HELD (Search configuration inline)",
+		"contentEntries": [
+			"case-search/inline-search-true-auto-launch-true-on-a-module-with-visible",
+			"case-search/inline-search-true-auto-launch-true-on-a-module-without-visible",
+			"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
+			"case-search/inline-search-default-search-on-a-module-with-visible-inputs"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "CASE_SEARCH_ADVANCED",
+			"requires": {
+				"operator": "all",
+				"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 90
+		}
+	},
+	{
+		"id": "removed-toggle/ush_case_list_multi_select",
+		"kind": "removed-toggle",
+		"symbols": ["ush_case_list_multi_select"],
+		"surfaceKeys": [],
+		"item": "`ush_case_list_multi_select` (removed)",
+		"class": {
+			"kind": "now",
+			"gate": "toggle/CASE_SEARCH_ADVANCED"
+		},
+		"content": "HELD (Detail screens)",
+		"contentEntries": [
+			"menus-and-case-lists/detail-multi-select",
+			"menus-and-case-lists/detail-auto-select-multi-select",
+			"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "precondition",
+			"cell": "CASE_SEARCH_ADVANCED",
+			"requires": {
+				"operator": "all",
+				"gates": ["toggle/CASE_SEARCH_ADVANCED"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 91
+		}
+	},
+	{
+		"id": "removed-toggle/case_search_filter",
+		"kind": "removed-toggle",
+		"symbols": ["case_search_filter"],
+		"surfaceKeys": [],
+		"item": "`case_search_filter` (removed)",
+		"class": {
+			"kind": "removed",
+			"residue": "inert"
+		},
+		"content": "INERT residue `search_filter` (Search configuration)",
+		"contentEntries": [
+			"case-search/removed-keys-dynamic-search-additional-relevant-search-filter"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "drop"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 92
+		}
+	},
+	{
+		"id": "removed-toggle/case_micro_image",
+		"kind": "removed-toggle",
+		"symbols": ["case_micro_image"],
+		"surfaceKeys": [],
+		"item": "`case_micro_image` (removed)",
+		"class": {
+			"kind": "removed",
+			"residue": "refused"
+		},
+		"content": "REFUSED (not HQ-editable: `image` columns, Column formats)",
+		"contentEntries": ["menus-and-case-lists/23-image-cc-case-image"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 93
+		}
+	},
+	{
+		"id": "removed-toggle/custom-parent-ref",
+		"kind": "removed-toggle",
+		"symbols": ["custom-parent-ref"],
+		"surfaceKeys": [],
+		"item": "`custom-parent-ref` (removed)",
+		"class": {
+			"kind": "removed",
+			"residue": "refused"
+		},
+		"content": "REFUSED (not HQ-editable: basic subcase `reference_id`, Basic form actions)",
+		"contentEntries": [
+			"forms-and-case-writes/subcases-reference-id-any-other-value"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "refusal",
+			"cell": "refuse"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 94
+		}
+	},
+	{
+		"id": "removed-toggle/case_detail_print",
+		"kind": "removed-toggle",
+		"symbols": ["case_detail_print"],
+		"surfaceKeys": [],
+		"item": "`case_detail_print`",
+		"class": {
+			"kind": "removed",
+			"residue": "inert"
+		},
+		"content": "INERT residue `print_template` (Detail screens)",
+		"contentEntries": ["menus-and-case-lists/detail-print-template"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "drop"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 95
+		}
+	},
+	{
+		"id": "removed-toggle/dynamically_update_search_results",
+		"kind": "removed-toggle",
+		"symbols": ["dynamically_update_search_results"],
+		"surfaceKeys": [],
+		"item": "`dynamically_update_search_results`",
+		"class": {
+			"kind": "removed",
+			"residue": "inert"
+		},
+		"content": "INERT residue `dynamic_search`, `split_screen_dynamic_search`",
+		"contentEntries": [
+			"case-search/removed-keys-dynamic-search-additional-relevant-search-filter"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "drop"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 96
+		}
+	},
+	{
+		"id": "removed-toggle/split_screen_case_search+case_claim_autolaunch",
+		"kind": "removed-toggle",
+		"symbols": ["split_screen_case_search", "case_claim_autolaunch"],
+		"surfaceKeys": [],
+		"item": "`split_screen_case_search`, `case_claim_autolaunch`",
+		"class": {
+			"kind": "no-field-of-their-own"
+		},
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "removed-toggles",
+			"line": 97
+		}
+	},
+	{
+		"id": "privilege/user_case",
+		"kind": "privilege",
+		"symbols": ["user_case"],
+		"surfaceKeys": ["privilege:USERCASE"],
+		"item": "`user_case`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Basic form actions, Usercase)",
+		"contentEntries": [
+			"menus-and-case-lists/case-type-commcare-user-on-an-advancedmodule",
+			"menus-and-case-lists/user-prop-usercase",
+			"menus-and-case-lists/user-steps-prop",
+			"forms-and-case-writes/update-key-whose-index-segments-include-user-each-parent-host-or",
+			"forms-and-case-writes/usercase-update-with-condition-always-or-if-read-as-always-xform",
+			"forms-and-case-writes/usercase-preload-into-a-question-outside-any-repeat-on-a-form",
+			"forms-and-case-writes/auto-select-mode-usercase",
+			"forms-and-case-writes/user-prop-in-xform-expressions",
+			"forms-and-case-writes/user-prop-in-module-filter-form-filter-case-list-slots-the",
+			"forms-and-case-writes/usercase-datum-usercase-id-assertion-case-autoload-usercase-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "build fails without it; confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 103
+		}
+	},
+	{
+		"id": "privilege/lookup_tables",
+		"kind": "privilege",
+		"symbols": ["lookup_tables"],
+		"surfaceKeys": ["privilege:LOOKUP_TABLES"],
+		"item": "`lookup_tables`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Question types, Secondary instances, Lookup tables)",
+		"contentEntries": [
+			"forms-and-case-writes/auto-select-mode-fixture",
+			"questions/lookup-table-select-selectdynamic-mselectdynamic-itemset-nodeset",
+			"questions/itemset-label-value-refs-to-lookup-fields",
+			"questions/itemset-refs-to-attr-or-property-qualified-fields",
+			"questions/itemset-sort-ref",
+			"questions/itemset-filter-lifting-into-predicate",
+			"questions/itemset-filter-outside-predicate",
+			"questions/itemset-over-casedb-or-another-instance-advanced-data-source",
+			"expressions-and-data/item-list-tag-read-through-nova-s-typed-lookup-carriers",
+			"expressions-and-data/item-list-tag-read-in-any-other-expression",
+			"expressions-and-data/table-tag-in-nova-s-grammar",
+			"expressions-and-data/tag-or-field-name-with-non-ascii-letters-or-starting-xml-in-any",
+			"expressions-and-data/tag-types",
+			"expressions-and-data/fields-properties-and-multi-valued-cells-name-lang-en-name-name",
+			"expressions-and-data/item-attributes-and-per-row-attribute-values",
+			"expressions-and-data/is-global-false-row-owners-user-group-location",
+			"expressions-and-data/fields-is-indexed",
+			"expressions-and-data/cell-values-always-strings-in-hq",
+			"expressions-and-data/absent-field-vs-zero-values-vs-empty-string",
+			"expressions-and-data/row-order-sort-key",
+			"expressions-and-data/table-or-row-count-beyond-nova-s-caps-5-000-rows-250-columns-64"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "build fails without it when a form reads a lookup table, and HQ's lookup table upload, which every push uses, refuses without it (`fixtures/dispatcher.py::require_can_edit_fixtures`); confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 104
+		}
+	},
+	{
+		"id": "privilege/templated_intents+custom_intents",
+		"kind": "privilege",
+		"symbols": ["templated_intents", "custom_intents"],
+		"surfaceKeys": ["privilege:TEMPLATED_INTENTS", "privilege:CUSTOM_INTENTS"],
+		"item": "`templated_intents`, `custom_intents`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Question types callouts)",
+		"contentEntries": [
+			"questions/android-app-callout-input-appearance-intent-id-bind-type-intent"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "the build fails where an intent needs one the space lacks (`helpers/validators.py::_validate_intents`: `custom_intents` covers every intent, `templated_intents` only template ids); confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 105
+		}
+	},
+	{
+		"id": "privilege/child_cases",
+		"kind": "privilege",
+		"symbols": ["child_cases"],
+		"surfaceKeys": ["privilege:CHILD_CASES"],
+		"item": "`child_cases`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Basic form actions child cases)",
+		"contentEntries": [
+			"forms-and-case-writes/subcases-child-case-relationship-child-type-a-module-case-type",
+			"forms-and-case-writes/subcases-condition-if",
+			"forms-and-case-writes/subcases-close-condition-active",
+			"forms-and-case-writes/subcases-reference-id-null-parent",
+			"forms-and-case-writes/subcases-repeat-context",
+			"forms-and-case-writes/subcases-case-properties-name-update"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "editor gate, confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 106
+		}
+	},
+	{
+		"id": "privilege/case_sharing_groups",
+		"kind": "privilege",
+		"symbols": ["case_sharing_groups"],
+		"surfaceKeys": ["privilege:CASE_SHARING_GROUPS"],
+		"item": "`case_sharing_groups`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Settings and profile, `case_sharing`)",
+		"contentEntries": ["application-and-settings/39-hq-case-sharing"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 107
+		}
+	},
+	{
+		"id": "privilege/locations",
+		"kind": "privilege",
+		"symbols": ["locations"],
+		"surfaceKeys": ["privilege:LOCATIONS"],
+		"item": "`locations`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Reference targets, locations; organization levels and location reads)",
+		"contentEntries": [
+			"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 108
+		}
+	},
+	{
+		"id": "privilege/cloudcare",
+		"kind": "privilege",
+		"symbols": ["cloudcare"],
+		"surfaceKeys": ["privilege:CLOUDCARE"],
+		"item": "`cloudcare`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Settings and profile, `cloudcare_enabled`)",
+		"contentEntries": ["application-and-settings/40-hq-cloudcare-enabled"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish for an app that declares Web Apps"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 109
+		}
+	},
+	{
+		"id": "privilege/practice_mobile_workers",
+		"kind": "privilege",
+		"symbols": ["practice_mobile_workers"],
+		"surfaceKeys": ["privilege:PRACTICE_MOBILE_WORKERS"],
+		"item": "`practice_mobile_workers`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "target value",
+		"contentEntries": [
+			"application-and-settings/35-hq-practice-mobile-worker-id"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 110
+		}
+	},
+	{
+		"id": "privilege/commcare_logo_uploader",
+		"kind": "privilege",
+		"symbols": ["commcare_logo_uploader"],
+		"surfaceKeys": ["privilege:COMMCARE_LOGO_UPLOADER"],
+		"item": "`commcare_logo_uploader`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD / HELD-NEW (Application logos)",
+		"contentEntries": [
+			"application-and-settings/logo-refs-hq-logo-web-apps",
+			"application-and-settings/logo-refs-hq-logo-android-home-login-demo"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "not a publish precondition: publish writes no logo (defect 14) and says HQ's builds carry the app's logos only where the plan has this privilege and the person uploaded them in HQ (HQ's build drops the profile logo properties without it, and a plan downgrade archives the logos, `archived_media`)"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 111
+		}
+	},
+	{
+		"id": "privilege/build_profiles",
+		"kind": "privilege",
+		"symbols": ["build_profiles"],
+		"surfaceKeys": ["privilege:BUILD_PROFILES"],
+		"item": "`build_profiles`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "`build_profiles` target value",
+		"contentEntries": [
+			"application-and-settings/build-profiles-each-profile-s-name-langs-practice-mobile-worker"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 112
+		}
+	},
+	{
+		"id": "privilege/app_dependencies",
+		"kind": "privilege",
+		"symbols": ["app_dependencies"],
+		"surfaceKeys": ["privilege:APP_DEPENDENCIES"],
+		"item": "`app_dependencies`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Settings and profile, `features.dependencies`)",
+		"contentEntries": ["application-and-settings/31-features-dependencies"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish (HQ drops the content without it)"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 113
+		}
+	},
+	{
+		"id": "privilege/phone_apk_heartbeat",
+		"kind": "privilege",
+		"symbols": ["phone_apk_heartbeat"],
+		"surfaceKeys": ["privilege:PHONE_APK_HEARTBEAT"],
+		"item": "`phone_apk_heartbeat`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no document content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 114
+		}
+	},
+	{
+		"id": "privilege/form_link_workflow",
+		"kind": "privilege",
+		"symbols": ["form_link_workflow"],
+		"surfaceKeys": ["privilege:FORM_LINK_WORKFLOW"],
+		"item": "`form_link_workflow`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Form fields)",
+		"contentEntries": [
+			"forms-and-case-writes/post-form-workflow-form",
+			"forms-and-case-writes/post-form-workflow-fallback-module-or-previous-screen-offered-in",
+			"forms-and-case-writes/post-form-workflow-fallback-root-or-parent-module-offered-in",
+			"forms-and-case-writes/form-links-target-a-form-any-suite-form",
+			"forms-and-case-writes/form-links-target-the-current-form-or-a-link-cycle",
+			"forms-and-case-writes/form-links-target-a-top-level-or-child-matched-module-that-does",
+			"forms-and-case-writes/form-links-xpath",
+			"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
+			"forms-and-case-writes/form-links-datums-on-a-form-target-names-among-the-target-s",
+			"forms-and-case-writes/form-links-form-module-id"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "editor gate, confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 115
+		}
+	},
+	{
+		"id": "privilege/custom_icon_badges",
+		"kind": "privilege",
+		"symbols": ["custom_icon_badges"],
+		"surfaceKeys": ["privilege:CUSTOM_ICON_BADGES"],
+		"item": "`custom_icon_badges`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (badges)",
+		"contentEntries": [
+			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+			"forms-and-case-writes/custom-icons-0"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "editor gate, confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 116
+		}
+	},
+	{
+		"id": "privilege/data_dictionary",
+		"kind": "privilege",
+		"symbols": ["data_dictionary"],
+		"surfaceKeys": ["privilege:DATA_DICTIONARY"],
+		"item": "`data_dictionary`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 117
+		}
+	},
+	{
+		"id": "privilege/save_to_case",
+		"kind": "privilege",
+		"symbols": ["save_to_case"],
+		"surfaceKeys": ["privilege:VELLUM_SAVE_TO_CASE"],
+		"item": "`save_to_case`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD (Question types SaveToCase)",
+		"contentEntries": [
+			"questions/savetocase-create-case-type-literal-case-name-owner-id-uuid-case",
+			"questions/savetocase-case-type-given-as-an-xpath",
+			"questions/savetocase-create-with-an-authored-non-uuid-case-id-xpath-inside",
+			"questions/savetocase-update-case-id-xpath",
+			"questions/savetocase-property-rows-calculation-condition-lifting-into",
+			"questions/savetocase-expressions-outside-nova-s-typed-vocabularies-case-id",
+			"questions/savetocase-property-names-with-hyphens-a-z-w-case-insensitive",
+			"questions/savetocase-open-case-condition",
+			"questions/a-close-only-savetocase-block-with-a-close-condition",
+			"questions/a-savetocase-block-that-creates-or-updates-and-also-closes-under",
+			"questions/savetocase-owner",
+			"questions/savetocase-owner-id-condition",
+			"questions/savetocase-link-index-name-child-extension-and-unlink-empty",
+			"questions/savetocase-inside-a-repeat",
+			"questions/savetocase-inside-a-group-whose-display-condition-gates-it"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish for any SaveToCase operation"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 118
+		}
+	},
+	{
+		"id": "privilege/locked_admin_questions",
+		"kind": "privilege",
+		"symbols": ["locked_admin_questions"],
+		"surfaceKeys": ["privilege:LOCKED_ADMIN_QUESTIONS"],
+		"item": "`locked_admin_questions`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Question types `lockedInHq`)",
+		"contentEntries": ["questions/vellum-lock-all-locked-question"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "editor gate, confirmed at publish"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 119
+		}
+	},
+	{
+		"id": "privilege/geocoder",
+		"kind": "privilege",
+		"symbols": ["geocoder"],
+		"surfaceKeys": ["privilege:GEOCODER"],
+		"item": "`geocoder`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "HELD-NEW (Search prompts geocoder, Appearances `address`)",
+		"contentEntries": [
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address",
+			"case-search/receiver-expression",
+			"questions/text-address",
+			"questions/barcode-numeric-address-or-receive-topic-field"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "confirmation",
+			"cell": "confirmed at publish (+ CASE_SEARCH_ADVANCED)",
+			"requires": {
+				"operator": "all",
+				"gates": ["privilege/geocoder", "toggle/CASE_SEARCH_ADVANCED"]
+			}
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 120
+		}
+	},
+	{
+		"id": "privilege/show_enable_all_add_ons",
+		"kind": "privilege",
+		"symbols": ["show_enable_all_add_ons"],
+		"surfaceKeys": ["privilege:SHOW_ENABLE_ALL_ADD_ONS"],
+		"item": "`show_enable_all_add_ons`",
+		"class": {
+			"kind": "target-owned"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 121
+		}
+	},
+	{
+		"id": "privilege/public_webforms+view_app_diff+release_management+lite_release_management+login_as",
+		"kind": "privilege",
+		"symbols": [
+			"public_webforms",
+			"view_app_diff",
+			"release_management",
+			"lite_release_management",
+			"login_as"
+		],
+		"surfaceKeys": [
+			"privilege:PUBLIC_WEBFORMS",
+			"privilege:VIEW_APP_DIFF",
+			"privilege:RELEASE_MANAGEMENT",
+			"privilege:LITE_RELEASE_MANAGEMENT",
+			"privilege:LOGIN_AS"
+		],
+		"item": "`public_webforms`, `view_app_diff`, `release_management`, `lite_release_management`, `login_as`",
+		"class": {
+			"kind": "adjacent"
+		},
+		"content": "no content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "none"
+		},
+		"source": {
+			"kind": "row",
+			"table": "privileges",
+			"line": 122
+		}
+	},
+	{
+		"id": "build-version/app_strings.py::_maybe_add_index",
+		"kind": "build-version",
+		"minimumVersion": "2.8",
+		"symbols": ["app_strings.py::_maybe_add_index"],
+		"surfaceKeys": [
+			"version-gate:corehq/apps/app_manager/app_strings.py::_maybe_add_index"
+		],
+		"item": "`app_strings.py`",
+		"class": {
+			"kind": "generation"
+		},
+		"contentEntries": [
+			"application-and-settings/profile-features-sense-true-or-profile-properties-cc-entry-mode"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/suite_xml/generator.py::MediaSuiteGenerator.media_resources+suite_xml/sections/resources.py::FormResourceContributor.get_section_elements+suite_xml/sections/resources.py::LocaleResourceContributor.get_section_elements",
+		"kind": "build-version",
+		"minimumVersion": "2.9",
+		"symbols": [
+			"suite_xml/generator.py::MediaSuiteGenerator.media_resources",
+			"suite_xml/sections/resources.py::FormResourceContributor.get_section_elements",
+			"suite_xml/sections/resources.py::LocaleResourceContributor.get_section_elements"
+		],
+		"surfaceKeys": [
+			"version-gate:corehq/apps/app_manager/suite_xml/generator.py::MediaSuiteGenerator.media_resources",
+			"version-gate:corehq/apps/app_manager/suite_xml/sections/resources.py::FormResourceContributor.get_section_elements",
+			"version-gate:corehq/apps/app_manager/suite_xml/sections/resources.py::LocaleResourceContributor.get_section_elements"
+		],
+		"item": "the suite generator",
+		"class": {
+			"kind": "generation"
+		},
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_multimedia_case_property",
+		"kind": "build-version",
+		"minimumVersion": "2.6",
+		"symbols": ["enable_multimedia_case_property"],
+		"surfaceKeys": ["version-gate:enable_multimedia_case_property"],
+		"item": "multimedia case properties",
+		"class": {
+			"kind": "build-error"
+		},
+		"content": "multimedia case properties below 2.6 are a build error (`enable_multimedia_case_property`)",
+		"contentEntries": [
+			"forms-and-case-writes/update-from-an-upload-question-attachment-mode"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_case_list_icon_dynamic_width",
+		"kind": "build-version",
+		"symbols": ["enable_case_list_icon_dynamic_width"],
+		"surfaceKeys": ["version-gate:enable_case_list_icon_dynamic_width"],
+		"item": "the case list icon width gate",
+		"class": {
+			"kind": "disabled"
+		},
+		"content": "the case list icon width gate is disabled at every version",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_multi_sort",
+		"kind": "build-version",
+		"minimumVersion": "2.2",
+		"symbols": ["enable_multi_sort"],
+		"surfaceKeys": ["version-gate:enable_multi_sort"],
+		"item": "multi-sort",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "multi-sort 2.2",
+		"contentEntries": ["menus-and-case-lists/sort-order-across-elements"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_post_form_workflow",
+		"kind": "build-version",
+		"minimumVersion": "2.9",
+		"symbols": ["enable_post_form_workflow"],
+		"surfaceKeys": ["version-gate:enable_post_form_workflow"],
+		"item": "post-form workflow",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "post-form workflow 2.9",
+		"contentEntries": [
+			"forms-and-case-writes/post-form-workflow-root",
+			"forms-and-case-writes/post-form-workflow-module",
+			"forms-and-case-writes/post-form-workflow-previous-screen",
+			"forms-and-case-writes/post-form-workflow-parent-module",
+			"forms-and-case-writes/post-form-workflow-form",
+			"forms-and-case-writes/post-form-workflow-fallback-module-or-previous-screen-offered-in",
+			"forms-and-case-writes/post-form-workflow-fallback-root-or-parent-module-offered-in"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_relative_suite_path",
+		"kind": "build-version",
+		"minimumVersion": "2.12",
+		"symbols": ["enable_relative_suite_path"],
+		"surfaceKeys": ["version-gate:enable_relative_suite_path"],
+		"item": "relative suite paths",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "relative suite paths 2.12",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_local_resource",
+		"kind": "build-version",
+		"minimumVersion": "2.13",
+		"symbols": ["enable_local_resource"],
+		"surfaceKeys": ["version-gate:enable_local_resource"],
+		"item": "local media resources",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "local media resources 2.13 (offline install, which also needs it, affects only the releases page)",
+		"contentEntries": ["expressions-and-data/media-suite-xml-resource-shape"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_offline_install",
+		"kind": "build-version",
+		"minimumVersion": "2.13",
+		"symbols": ["enable_offline_install"],
+		"surfaceKeys": ["version-gate:enable_offline_install"],
+		"item": "offline install",
+		"class": {
+			"kind": "display-only"
+		},
+		"content": "offline install, which also needs it, affects only the releases page",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_auto_gps",
+		"kind": "build-version",
+		"minimumVersion": "2.14",
+		"symbols": ["enable_auto_gps"],
+		"surfaceKeys": ["version-gate:enable_auto_gps"],
+		"item": "auto GPS",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "auto GPS 2.14",
+		"contentEntries": [
+			"application-and-settings/45-hq-auto-gps-capture",
+			"forms-and-case-writes/auto-gps-capture-form"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_module_filtering",
+		"kind": "build-version",
+		"minimumVersion": "2.20",
+		"symbols": ["enable_module_filtering"],
+		"surfaceKeys": ["version-gate:enable_module_filtering"],
+		"item": "menu filtering",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "menu filtering 2.20",
+		"contentEntries": [
+			"menus-and-case-lists/module-filter-value-lifts-into-predicate",
+			"menus-and-case-lists/module-filter-value-outside-predicate-any-xpath-hq-s-validator",
+			"menus-and-case-lists/module-filter-false-or-false-and-rest-menu-reached-only-by-links"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_localized_menu_media",
+		"kind": "build-version",
+		"minimumVersion": "2.21",
+		"symbols": ["enable_localized_menu_media"],
+		"surfaceKeys": ["version-gate:enable_localized_menu_media"],
+		"item": "localized menu media and badges",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "localized menu media and badges 2.21",
+		"contentEntries": [
+			"menus-and-case-lists/media-image-media-audio-differing-by-language",
+			"menus-and-case-lists/custom-icons-0-badge-localized-text-or-xpath",
+			"forms-and-case-writes/media-image-media-audio-differing-by-language",
+			"forms-and-case-writes/custom-icons-0"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_practice_users",
+		"kind": "build-version",
+		"minimumVersion": "2.26",
+		"symbols": ["supports_practice_users"],
+		"surfaceKeys": ["version-gate:supports_practice_users"],
+		"item": "practice users",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "practice users 2.26",
+		"contentEntries": [
+			"application-and-settings/35-hq-practice-mobile-worker-id"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_search_prompt_appearance",
+		"kind": "build-version",
+		"minimumVersion": "2.50",
+		"symbols": ["enable_search_prompt_appearance"],
+		"surfaceKeys": ["version-gate:enable_search_prompt_appearance"],
+		"item": "prompt appearance",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "prompt appearance 2.50",
+		"contentEntries": [
+			"case-search/appearance-barcode-scan",
+			"case-search/appearance-address-geocoder-broadcast-emitted-input-address"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_default_value_expression",
+		"kind": "build-version",
+		"minimumVersion": "2.51",
+		"symbols": ["enable_default_value_expression"],
+		"surfaceKeys": ["version-gate:enable_default_value_expression"],
+		"item": "prompt default expressions",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "prompt default expressions and session endpoints 2.51",
+		"contentEntries": [
+			"case-search/default-value-lifting-into-valueexpression",
+			"case-search/default-value-outside-valueexpression",
+			"case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_session_endpoints",
+		"kind": "build-version",
+		"minimumVersion": "2.51",
+		"symbols": ["supports_session_endpoints"],
+		"surfaceKeys": ["version-gate:supports_session_endpoints"],
+		"item": "session endpoints",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "prompt default expressions and session endpoints 2.51",
+		"contentEntries": [
+			"menus-and-case-lists/session-endpoint-id",
+			"menus-and-case-lists/case-list-session-endpoint-id",
+			"menus-and-case-lists/shadowmodule-form-session-endpoints-non-empty",
+			"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+			"forms-and-case-writes/session-endpoint-id",
+			"forms-and-case-writes/respect-relevancy-false",
+			"forms-and-case-writes/function-datum-endpoints"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_case_search_title_translation",
+		"kind": "build-version",
+		"minimumVersion": "2.53",
+		"symbols": ["enable_case_search_title_translation"],
+		"surfaceKeys": ["version-gate:enable_case_search_title_translation"],
+		"item": "search title translation",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "search title translation and data registries 2.53",
+		"contentEntries": ["case-search/title-label-lang-non-empty"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_data_registry",
+		"kind": "build-version",
+		"minimumVersion": "2.53",
+		"symbols": ["supports_data_registry"],
+		"surfaceKeys": ["version-gate:supports_data_registry"],
+		"item": "data registries",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "search title translation and data registries 2.53",
+		"contentEntries": [
+			"case-search/default-properties-entry-keyed-x-commcare-data-registry",
+			"case-search/data-registry-data-registry-workflow-additional-registry-cases",
+			"expressions-and-data/registry-jr-instance-remote-registry",
+			"expressions-and-data/registry-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_alt_text",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_alt_text"],
+		"surfaceKeys": ["version-gate:supports_alt_text"],
+		"item": "alt text",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "alt text, clickable icons, empty-list text, menu instances and select text 2.54",
+		"contentEntries": ["menus-and-case-lists/enum-mappingitem-alt-text-lang"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_detail_field_action",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_detail_field_action"],
+		"surfaceKeys": ["version-gate:supports_detail_field_action"],
+		"item": "clickable icons",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "alt text, clickable icons, empty-list text, menu instances and select text 2.54",
+		"contentEntries": [
+			"menus-and-case-lists/16-clickable-icon-endpoint-action-id-on-the-case-list",
+			"menus-and-case-lists/enum-image-column-carrying-an-endpoint-action-id-on-the-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_empty_case_list_text",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_empty_case_list_text"],
+		"surfaceKeys": ["version-gate:supports_empty_case_list_text"],
+		"item": "empty-list text",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "alt text, clickable icons, empty-list text, menu instances and select text 2.54",
+		"contentEntries": [
+			"menus-and-case-lists/detail-no-items-text-other-than-hq-s-default-en-list-is-empty",
+			"menus-and-case-lists/detail-no-items-text-equal-to-hq-s-default"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_menu_instances",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_menu_instances"],
+		"surfaceKeys": ["version-gate:supports_menu_instances"],
+		"item": "menu instances",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "alt text, clickable icons, empty-list text, menu instances and select text 2.54",
+		"contentEntries": ["expressions-and-data/menu-instance-declarations"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_select_text",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_select_text"],
+		"surfaceKeys": ["version-gate:supports_select_text"],
+		"item": "select text",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "alt text, clickable icons, empty-list text, menu instances and select text 2.54",
+		"contentEntries": ["menus-and-case-lists/detail-select-text-non-default"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_case_list_optimizations",
+		"kind": "build-version",
+		"minimumVersion": "2.56",
+		"symbols": ["supports_case_list_optimizations"],
+		"surfaceKeys": ["version-gate:supports_case_list_optimizations"],
+		"item": "case-list optimizations",
+		"class": {
+			"kind": "generation"
+		},
+		"content": "case-list optimizations 2.56",
+		"contentEntries": [
+			"menus-and-case-lists/module-show-case-list-optimization-options",
+			"menus-and-case-lists/optimization-cache-lazy-load-cache-and-lazy-load"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_group_in_field_list",
+		"kind": "build-version",
+		"minimumVersion": "2.16",
+		"symbols": ["enable_group_in_field_list"],
+		"surfaceKeys": ["version-gate:enable_group_in_field_list"],
+		"item": "groups in field lists",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "groups in field lists 2.16",
+		"contentEntries": ["questions/groups-nested-in-a-question-list"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_image_resize",
+		"kind": "build-version",
+		"minimumVersion": "2.23",
+		"symbols": ["enable_image_resize"],
+		"surfaceKeys": ["version-gate:enable_image_resize"],
+		"item": "image resize",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "image resize and markdown in groups 2.23",
+		"contentEntries": [
+			"questions/jr-imagedimensionscaledmax-250-500-1000px-or-another-positive"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_markdown_in_groups",
+		"kind": "build-version",
+		"minimumVersion": "2.23",
+		"symbols": ["enable_markdown_in_groups"],
+		"surfaceKeys": ["version-gate:enable_markdown_in_groups"],
+		"item": "markdown in groups",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "image resize and markdown in groups 2.23",
+		"contentEntries": ["questions/group-repeat-label-text-markdown"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/views/modules.py::_case_list_form_not_allowed_reasons",
+		"kind": "build-version",
+		"minimumVersion": "2.23",
+		"symbols": ["views/modules.py::_case_list_form_not_allowed_reasons"],
+		"surfaceKeys": [
+			"version-gate:corehq/apps/app_manager/views/modules.py::_case_list_form_not_allowed_reasons"
+		],
+		"item": "parent selection with a case-list form",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "parent selection with a case-list form 2.23 (`views/modules.py`)",
+		"contentEntries": [
+			"menus-and-case-lists/case-list-form-pointing-at-a-follow-up-form-of-the-parent-case"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_case_list_sort_blanks",
+		"kind": "build-version",
+		"minimumVersion": "2.35",
+		"symbols": ["enable_case_list_sort_blanks"],
+		"surfaceKeys": ["version-gate:enable_case_list_sort_blanks"],
+		"item": "sort blank placement",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "sort blank placement 2.35",
+		"contentEntries": ["menus-and-case-lists/blanks-first-last"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_sorted_itemsets",
+		"kind": "build-version",
+		"minimumVersion": "2.38",
+		"symbols": ["enable_sorted_itemsets"],
+		"surfaceKeys": ["version-gate:enable_sorted_itemsets"],
+		"item": "sorted itemsets",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "sorted itemsets 2.38",
+		"contentEntries": ["questions/itemset-sort-ref"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_update_prompts",
+		"kind": "build-version",
+		"minimumVersion": "2.38",
+		"symbols": ["supports_update_prompts"],
+		"surfaceKeys": ["version-gate:supports_update_prompts"],
+		"item": "update prompts",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "update prompts 2.38 (a releases-page setting, no app content)",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_markdown_tables",
+		"kind": "build-version",
+		"minimumVersion": "2.50",
+		"symbols": ["enable_markdown_tables"],
+		"surfaceKeys": ["version-gate:enable_markdown_tables"],
+		"item": "markdown tables",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "markdown tables 2.50",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_training_modules",
+		"kind": "build-version",
+		"minimumVersion": "2.43",
+		"symbols": ["enable_training_modules"],
+		"surfaceKeys": ["version-gate:enable_training_modules"],
+		"item": "training modules",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "training modules 2.43 (`views/apps.py`, the new-menu dialog; retiring content)",
+		"contentEntries": [
+			"menus-and-case-lists/module-with-is-training-module-true-training-menu-root-training",
+			"menus-and-case-lists/any-module-under-a-training-menu",
+			"forms-and-case-writes/is-release-notes-form-true-with-or-without-enable-release-notes"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_grouped_case_tiles",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_grouped_case_tiles"],
+		"surfaceKeys": ["version-gate:supports_grouped_case_tiles"],
+		"item": "grouped tiles",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "grouped tiles, grouped prompts, and module assertions (retiring content) 2.54",
+		"contentEntries": [
+			"menus-and-case-lists/detail-case-tile-group-index-identifier-header-rows"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_grouped_case_search_properties",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_grouped_case_search_properties"],
+		"surfaceKeys": ["version-gate:supports_grouped_case_search_properties"],
+		"item": "grouped prompts",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "grouped tiles, grouped prompts, and module assertions (retiring content) 2.54",
+		"contentEntries": ["case-search/is-group-group-key"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/supports_module_assertions",
+		"kind": "build-version",
+		"minimumVersion": "2.54",
+		"symbols": ["supports_module_assertions"],
+		"surfaceKeys": ["version-gate:supports_module_assertions"],
+		"item": "module assertions",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "grouped tiles, grouped prompts, and module assertions (retiring content) 2.54",
+		"contentEntries": [
+			"menus-and-case-lists/custom-assertions-module-non-empty"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/views/formdesigner.py::_get_vellum_features",
+		"kind": "build-version",
+		"minimumVersion": "2.55",
+		"symbols": ["views/formdesigner.py::_get_vellum_features"],
+		"surfaceKeys": [
+			"version-gate:corehq/apps/app_manager/views/formdesigner.py::_get_vellum_features"
+		],
+		"item": "repeat button text",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "repeat button text 2.55 (`views/formdesigner.py`)",
+		"contentEntries": [
+			"questions/repeat-add-captions-jr-addcaption-jr-addemptycaption"
+		],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/support_document_upload",
+		"kind": "build-version",
+		"minimumVersion": "2.57",
+		"symbols": ["support_document_upload"],
+		"surfaceKeys": ["version-gate:support_document_upload"],
+		"item": "document upload",
+		"class": {
+			"kind": "authoring"
+		},
+		"content": "document upload 2.57",
+		"contentEntries": ["questions/document-upload-application-text"],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	},
+	{
+		"id": "build-version/enable_multi_master",
+		"kind": "build-version",
+		"minimumVersion": "2.47.4",
+		"symbols": ["enable_multi_master"],
+		"surfaceKeys": ["version-gate:enable_multi_master"],
+		"item": "Multi-master linked apps",
+		"class": {
+			"kind": "display-only"
+		},
+		"content": "Multi-master linked apps 2.47.4 gates only a display on the app's linked-apps page (`views/apps.py`), no app content",
+		"contentEntries": [],
+		"platforms": "n/a",
+		"preflight": {
+			"kind": "none",
+			"cell": "so no row carries a version precondition of its own"
+		},
+		"source": {
+			"kind": "paragraph",
+			"paragraph": "build-versions",
+			"line": 126
+		}
+	}
+]
