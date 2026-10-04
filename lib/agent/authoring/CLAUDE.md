@@ -14,7 +14,8 @@ Canonical schemas and the existing commit gate remain authoritative.
 projection: small values stay beside their arguments, while substantial reused
 structures remain shared. It visits schema positions only, preserving literal
 data and admission constraints. The same projection serves MCP and both editors.
-The editor and architect mount hosted OpenAI tool search and defer shared definitions. MCP
+The editor, architect and peer mount hosted OpenAI tool search. Journey start,
+continuation and evidence reads are a stable eager subset; other shared definitions are deferred. MCP
 publishes the same authored schemas; its client owns discovery. Detailed reference
 material lives in `reference.ts`, available through `getAuthoringGuide`. The prompt
 sets purpose, collaboration, and app-quality judgment without describing storage.

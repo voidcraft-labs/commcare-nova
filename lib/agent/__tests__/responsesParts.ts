@@ -2,8 +2,14 @@ import type { ServerResponse } from "node:http";
 
 export type ProviderOutput =
 	| { type: "text"; text: string }
-	| { type: "search"; query: string }
-	| { type: "tool"; name: string; input: unknown; callId: string }
+	| { type: "search"; query: string; loadedTools?: Record<string, unknown>[] }
+	| {
+			type: "tool";
+			name: string;
+			input: unknown;
+			callId: string;
+			namespace?: string;
+	  }
 	| { type: "compaction"; id: string; encryptedContent: string };
 export interface ProviderRequest {
 	model?: string;
@@ -71,7 +77,7 @@ export function respondWithParts(
 					execution: "server",
 					call_id: null,
 					status: "completed",
-					tools: [],
+					tools: part.loadedTools ?? [],
 				},
 			});
 		} else if (part.type === "compaction") {
@@ -95,6 +101,7 @@ export function respondWithParts(
 					id,
 					call_id: part.callId,
 					name: part.name,
+					...(part.namespace && { namespace: part.namespace }),
 					arguments: "",
 				},
 			});
@@ -115,6 +122,7 @@ export function respondWithParts(
 					id,
 					call_id: part.callId,
 					name: part.name,
+					...(part.namespace && { namespace: part.namespace }),
 					arguments: args,
 					status: "completed",
 				},

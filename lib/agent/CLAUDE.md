@@ -66,7 +66,9 @@ it is forbidden in staging and never counts as an app change. Each action
 reauthorizes the real actor independently of the simulated worker. External operations recheck
 membership and their own revision at the transaction boundary.
 
-The architect and editor use hosted tool search with deferred shared definitions.
+The architect, peer and editor keep `startAppTest`, `continueAppTest` and
+`readAppTest` eagerly available so journey continuation does not rely on
+rediscovery after compaction. Other shared definitions use hosted tool search.
 MCP publishes the same authored schemas; its client owns discovery. Deferral is
 not schema reduction. `authoring/readableSchema.ts` factors repeated schema
 structures without changing admission. `getAuthoringGuide` returns focused

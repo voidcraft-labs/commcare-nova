@@ -177,7 +177,10 @@ peer and translation bounds remain separate. Reaching a bound is an unfinished
 run, not successful delivery. The initial 120-call role trial failed during
 peer-driven corrections and remains failed evidence.
 
-Hosted tool search defers shared definitions for Nova's model calls. This lowers
+Journey start, continuation and evidence reads stay eagerly available on the
+architect, peer and ordinary editor. Their availability does not depend on
+hosted discovery after compaction. Hosted tool search defers the other shared
+definitions for Nova's model calls. This lowers
 the initial context but does not remove their eventual cost. The architect's
 construction catalog stays stable before and after the first save; operations
 requiring a saved app explain that prerequisite at invocation before side effects.
@@ -337,9 +340,9 @@ it is not a navigation acceptance result. Native checks remain necessary for
 question-by-question timing outside authored sections.
 ## Model generation and saved context
 
-All production roles use GPT-6: Sol at medium effort for the architect, peer,
-document extraction and translation; Luna at xhigh for ordinary edits. The
-role map in `lib/models.ts` owns these choices. Extraction version 6 gives new
+All five production roles use GPT-6.1 Sol at xhigh effort: the architect, peer,
+ordinary editor, document extraction and translation. The
+role map in `lib/models.ts` owns these choices. Extraction version 7 gives new
 requests a distinct cache key; previous extracts remain readable at their stored
 version. Usage retains the producing model and its recorded cost.
 

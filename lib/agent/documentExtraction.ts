@@ -126,7 +126,7 @@ export interface AttachmentCondenser {
 
 /**
  * Output ceiling for the condense call, set to the extractor's MAX output
- * (GPT-6 Sol caps at 128k tokens). This is NOT a cost or effort dial —
+ * (GPT-6.1 Sol caps at 128k tokens). This is NOT a cost or effort dial —
  * `maxOutputTokens` is a hard guillotine that chops the response mid-stream when
  * hit; a faithful extract's length tracks the document's actual content, so the
  * only correct value is the model's real ceiling. Lower values would silently
