@@ -140,6 +140,20 @@ the rule forbids is unchanged either way: "I verified it against the emitter" is
 not a byte assertion, and a unit that cannot name a byte oracle has not met the
 bar.
 
+**Nova's exports are proven where they are read.** The proof lane (`proof/`,
+`proof/README.md`) runs on every pull request: CommCare HQ's own import,
+build, case processing and editors, and CommCare Core's own runtime, at the
+commits `proof/pins.json` names, read every document of a reproducible corpus
+as Nova's real publish client and compilers export it. Every difference a
+check reports is either erased by a spelling rule whose own test shows that
+HQ's build and Core's run do not depend on it, or held by an entry of the
+known-defect register (`proof/known-defects.json`). The register is strict:
+a new difference fails, and so does an entry nothing shows any more on its
+document or on its retained control, so a fix removes its entry in the same
+pull request. Android is cited at source, never run. A symptom that shows
+only under a project-space configuration Nova's publish refuses reaches no
+one, and is not a defect.
+
 **Every author-facing vocabulary ships its three editor surfaces.** A unit that
 adds something an author can create also ships its SA tools and its MCP
 projection — the three editors edit one document, so a vocabulary reachable
@@ -327,15 +341,16 @@ These decisions are closed unless the project owner explicitly reopens them.
   The authored mode remains available without presenting HQ configuration to
   the author, while Nova derives the semantic **Attachments saved to cases**
   requirement and blocks a concrete publish target that cannot run it. The
-  private toggle name stays confined to the CommCare emission and audit
-  boundary. What the mode does foreclose is reading the property back — it
-  holds no scalar at all, which
+  private toggle name stays confined to the CommCare boundary (`lib/commcare`):
+  its emission, the project-space probe and the surface manifest. What the
+  mode does foreclose is reading the property back — it holds no scalar at
+  all, which
   `lib/domain/attachmentSlots.ts::casePropertyIsAttachmentSlot` is the single
   predicate for, and the case-list gate refuses a column over one rather than
   shipping a column that renders blank on every case. Inline picture
   presentation is not promised until the Web Apps HTTPS-resource path works.
-- **Smart-link authoring does not ship before Nova models data-registry search.**
-  No unused emission helper lands as speculative machinery.
+- **Smart links belong to data registries, which are retiring, so they never
+  ship.** No unused emission helper lands as speculative machinery.
 - **Long-detail tiles are out of scope.** Tiles apply to the short and
   search details; the case-detail view emits a plain field list.
 - **The offline demo sandbox is out of scope.** A `.ccz` can embed a complete

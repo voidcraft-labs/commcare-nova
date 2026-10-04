@@ -141,7 +141,7 @@ Core's `WorkerIdentityRuntimeTest.builtInFormIdentityRequiresTheMatchingWorkerRe
 passed against the current generated CCZ form at the audited Core SHA. Its three
 calculated values match the selected worker with a restored usercase and are blank
 without it, despite wrong-user and wrong-type records being present. Reproduction
-is in `scripts/fixtures/javarosa/README.md`; target privilege assignment and sync
+is in `proof/README.md` ("Native proofs"); target privilege assignment and sync
 remain separately unverified.
 
 ## Form participation and child ownership

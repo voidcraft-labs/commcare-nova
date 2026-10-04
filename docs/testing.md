@@ -41,6 +41,13 @@ tests is preferable to preserving the shape or count of the previous suite.
   substring checks cannot establish those behaviors.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
+- What CommCare HQ and CommCare Core do with Nova's exports: the proof lane
+  (`npm run proof`, `proof/README.md`), where HQ's and Core's own code, at the
+  commits `proof/pins.json` names, read a reproducible corpus of admitted
+  documents. Each check reports every difference it finds and holds it to the
+  known-defect register, so a new failure and a fixed defect left listed both
+  fail; a native proof under `proof/native/` stays only for what those checks
+  cannot say.
 
 Keep a React test only when React owns the behavior under examination: effect
 cleanup, a context registration, a committed subscription or an error boundary.
@@ -118,17 +125,25 @@ These structural checks do not claim to execute CommCare itself.
 
 For transformations performed by an external compiler, exercise that compiler
 against actual exported artifacts when its behavior matters. The read-only proof
-in `scripts/fixtures/hq/` caught HQ accepting an extension relationship and then
+in `proof/native/` caught HQ accepting an extension relationship and then
 silently compiling it as a child. It checks the corrected import/build and
 navigation paths using native HQ classes with all socket connections refused.
-The accompanying export tests run in ordinary CI; the native proof requires an
-installed HQ environment. It also reads
+The accompanying export tests run in ordinary CI; the native proof runs in the
+proof lane (`npm run proof -- proof/native`). It also reads
 accepted worker-write exports through native HQ case, datum and assertion
 builders. Fixture hashes and optional source searches in developer checkouts
-are not substitutes for running a consumer against Nova output.
+are not substitutes for running a consumer against Nova output. Every
+producer document Nova's publish admits is also a corpus document (the two
+nested-menu scenarios HQ refuses are not, `proof/corpus/producers.ts`),
+which the lane's checks (`proof/checks`) publish, build whole in HQ and
+admit in Core, so a native
+proof stays only for what those checks cannot say (`proof/README.md`,
+"Native proofs"): authored values read back with chosen inputs, whole
+elements compared across the two export paths, HQ code no check runs, and
+inputs that are not documents.
 
 Runtime claims need runtime execution. The capture proof in
-`scripts/fixtures/javarosa/` opens actual CCZ and HQ-regenerated forms in the
+`proof/native/core/` opens actual CCZ and HQ-regenerated forms in the
 pinned CommCare Core checkout, traverses native form-entry events, enters
 answers, changes relevance and clears one repeat member. It inspects both XPath
 results and serialized submission XML. This exposed editor-shadow parsing,
@@ -391,6 +406,16 @@ count. These are hosted observations, including setup and aggregate checks;
 future workload changes need fresh measurements. Detailed timings and resource
 observations remain in the CI artifacts and shipping PR.
 
+The proof lane shares the five-minute target. Its shards run blocks of groups
+packed from measured costs (`proof/timings.json`), on four-vCPU arm64
+runners. It is the one place a result is read rather than recomputed: an
+observation is reused only under a key that names every input it read, a
+sample of documents is observed afresh and held to the store on every pull
+request, and the whole lane is recomputed nightly; every judgment, fresh or
+stored, is held to the register on every run (`proof/README.md`, "The
+evidence store and its audits"). Measure a harness change by the CPU-seconds
+it costs per document and per job, not by wall time on a larger machine.
+
 The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
 select tests. New or renamed tests get a five-second estimate. Refresh timings
 from passing first attempts in each uploaded browser report's `timings.json`,
@@ -571,14 +596,14 @@ preview projections. HQ's real detail contributor regenerates the export;
 Core's suite parser reads both paths and inspects native tile dimensions, style,
 hidden sorting and grouping. These are parser/model checks, not rendered UI
 acceptance. Reproduction commands and external-domain controls are documented
-in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+in `proof/README.md` ("Native proofs").
 
 The compiler's navigation corpus has a second native chain: HQ regenerates the
 forms, Core checks ordinary case writes and navigation values, and Core's actual
 Search query strings pass through HQ's CSQL compiler. The record distinguishes
 native model/value execution from a full session or server query. Ordinary CI
-checks the admitted artifacts and their cross-export joins; native reproduction
-requires the documented external checkouts and does not silently skip tests.
+checks the admitted artifacts and their cross-export joins; the native chain
+runs in the proof lane and skips nothing.
 
 Search evidence likewise uses twelve admitted apps and native HQ suite
 contributors, followed by Core's actual query manager, selection nodesets,
@@ -586,15 +611,17 @@ claim parameters/relevance and detail templates on both export paths. Retained
 pre-fix manual-link suites are native negative controls for source-context
 binding. These checks establish engine values and declared request behavior;
 they do not claim an HTTP request or Android screen. Reproduction commands live
-in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+in `proof/README.md` ("Native proofs").
 
 Search prompt acceptance adds three fully admitted fixtures. The native query
 manager consumes both generated suites and the emitted lookup rows, then checks
 required and validation errors as answers change, filtered choices and removal
 of unavailable selections, numeric/location guards and shared computed values.
 Ordinary CI retains the small metadata/dependency contracts and complete export
-joins. See `native-{hq,core}-prompts.json` and the native fixture READMEs for the
-exact source hashes, artifacts, commands and limits.
+joins. The proof lane writes the exact source hashes and artifacts into the
+`native/prompt/` directory of the block that runs the family
+(`blocks/<block>/` in the run's output), and `proof/README.md` ("Native
+proofs") states the commands and limits.
 
 The CSQL function corpus closes the nested-emission boundary: two admitted apps,
 HQ-regenerated entry trees, Core's real query manager, and twenty resulting
